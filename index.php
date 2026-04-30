@@ -57,6 +57,10 @@ switch ($page) {
         $controller = new CronController($pdo);
         $controller->simulate();
         break;
+        
+    case 'error':
+        require 'views/errors/error.php';
+        break;
 
     default:
         echo "<div class='text-center mt-5'><h1>404 Not Found</h1><p>หาหน้านี้ไม่เจอจ้า</p></div>";

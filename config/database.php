@@ -13,6 +13,21 @@ if (!isset($_SESSION['room_id'])) {
     $_SESSION['room_id'] = 2; 
     $_SESSION['room_name'] = 'ม.4/2';
     $_SESSION['user_name'] = 'หัวหน้าห้อง_Demo';
+    $_SESSION['role'] = 'student';
+}
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+function h($text) {
+    return htmlspecialchars((string)$text, ENT_QUOTES, 'UTF-8');
+}
+
+function abort($message) {
+    $_SESSION['error_message'] = $message;
+    header("Location: index.php?page=error");
+    exit();
 }
 
 $host = $_ENV['DB_HOST'];
@@ -24,6 +39,6 @@ try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch(PDOException $e) {
-    die("เชื่อมต่อฐานข้อมูลล้มเหลว: " . $e->getMessage());
+    abort("เชื่อมต่อฐานข้อมูลล้มเหลว: " . $e->getMessage());
 }
 ?>

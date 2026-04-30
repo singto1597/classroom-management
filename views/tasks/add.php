@@ -21,6 +21,7 @@
                 <label class="form-label">กำหนดส่ง</label>
                 <input type="date" name="due_date" class="form-control" required>
             </div>
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
             <button type="submit" class="btn btn-primary w-100">บันทึกงาน</button>
         </form>
     </div>

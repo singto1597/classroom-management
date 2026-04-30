@@ -17,6 +17,7 @@
                 <label>กำหนดส่ง</label>
                 <input type="date" name="due_date" class="form-control" value="<?= $task['due_date'] ?>" required>
             </div>
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
             <button type="submit" class="btn btn-primary w-100">บันทึกการแก้ไข</button>
             <a href="index.php?page=tasks" class="btn btn-secondary w-100 mt-2">ยกเลิก</a>
         </form>

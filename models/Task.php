@@ -6,8 +6,20 @@ class Task {
         $this->pdo = $pdo;
     }
 
+    public function getAllTasks($room_id) {
+        $stmt = $this->pdo->prepare("SELECT * FROM tasks WHERE room_id = ? ORDER BY status DESC, due_date ASC");
+        $stmt->execute([$room_id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     public function getPendingTasks($room_id) {
         $stmt = $this->pdo->prepare("SELECT * FROM tasks WHERE room_id = ? AND status = 'pending' ORDER BY due_date ASC");
+        $stmt->execute([$room_id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getDoneTasks($room_id) {
+        $stmt = $this->pdo->prepare("SELECT * FROM tasks WHERE room_id = ? AND status = 'done' ORDER BY due_date ASC");
         $stmt->execute([$room_id]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -30,6 +42,11 @@ class Task {
 
     public function markDone($task_id, $room_id) {
         $stmt = $this->pdo->prepare("UPDATE tasks SET status = 'done' WHERE id = ? AND room_id = ?");
+        return $stmt->execute([$task_id, $room_id]);
+    }
+
+    public function markPending($task_id, $room_id) {
+        $stmt = $this->pdo->prepare("UPDATE tasks SET status = 'pending' WHERE id = ? AND room_id = ?");
         return $stmt->execute([$task_id, $room_id]);
     }
 
