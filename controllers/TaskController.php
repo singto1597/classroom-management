@@ -35,7 +35,7 @@ class TaskController {
                 abort("ชื่องานห้ามเป็นค่าว่างครับ!");
             }
             $room_id = $_SESSION['room_id'];
-            $this->taskModel->addTask($room_id, $_POST['task_name'], $_POST['task_detail'], $_POST['due_date']);
+            $this->taskModel->addTask($room_id, $task_name, $_POST['task_detail'], $_POST['due_date']);
             
             $this->auditModel->log($room_id, $_SESSION['user_name'], "Add Task", "เพิ่มงาน: " . $_POST['task_name']);
             $success_msg = "เพิ่มงานเรียบร้อยแล้ว!";
@@ -54,9 +54,10 @@ class TaskController {
                 abort("คุณไม่มีสิทธิ์ลบหรือแก้ไขงานครับ!");
             }
 
-            $task_id = $_POST['task_id'];
+            $task_id = (int)$_POST['task_id'];
             $action = $_POST['action'];
             $room_id = $_SESSION['room_id'];
+
 
             $task = $this->taskModel->getTaskById($task_id, $room_id);
             if (!$task) abort("ไม่พบงานนี้!");
@@ -72,8 +73,7 @@ class TaskController {
                 $this->auditModel->log($room_id, $_SESSION['user_name'], "Delete Task", "ลบงาน: " . $task['task_name']);
             }
             
-            $redirect_url = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : "index.php?page=tasks";
-            header("Location: " . $redirect_url);
+            header("Location: index.php?page=tasks");
             exit();
         }
     }

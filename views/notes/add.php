@@ -19,6 +19,7 @@
                 <label>📢 ประกาศ</label>
                 <textarea name="announcement" class="form-control" rows="2" placeholder="ถ้าไม่มีใส่ -"></textarea>
             </div>
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
             <button type="submit" class="btn btn-warning w-100">บันทึกโน้ต</button>
         </form>
     </div>

@@ -14,6 +14,12 @@ class NoteController {
     public function create() {
         $success_msg = null;
         if ($_SERVER["REQUEST_METHOD"] == "POST") {
+            if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+                abort("Token ไม่ถูกต้อง!");
+            }
+
+            if ($_SESSION['role'] === 'student') abort("คุณไม่มีสิทธิ์สั่งงาน!");
+
             $room_id = $_SESSION['room_id'];
             $target_date = $_POST['target_date'];
             

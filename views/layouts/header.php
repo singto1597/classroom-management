@@ -10,7 +10,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
         <div class="container">
             <a class="navbar-brand fw-bold" href="index.php">Classroom-Sync</a>
-            <span class="navbar-text text-light">ห้อง: <?= htmlspecialchars($_SESSION['room_name']) ?></span>
+            <span class="navbar-text text-light">ห้อง: <?= h($_SESSION['room_name']) ?></span>
         </div>
     </nav>
     <div class="container">

@@ -58,11 +58,11 @@
             }
         }
     ?>
-        <div class="col-md-4 mb-3 task-item" data-status="<?= $task['status'] ?>">
+        <div class="col-md-4 mb-3 task-item" data-status="<?= h($task['status']) ?>">
             <div class="card shadow-sm h-100" style="<?= $card_style ?>; min-width: 280px;"> 
                 <div class="card-body">
                     <h5 class="card-title <?= $text_strike ?>">📌 <?= h($task['task_name']) ?></h5>
-                    <h6 class="card-subtitle mb-2 text-muted">กำหนดส่ง: <?= $task['due_date'] ?></h6>
+                    <h6 class="card-subtitle mb-2 text-muted">กำหนดส่ง: <?= h($task['due_date']) ?></h6>
                     <p class="card-text <?= $text_strike ?>"><?= h($task['task_detail']) ?></p>
                     <span class="badge <?= $badge_class ?>"><?= $status_text ?></span>
                 </div>
@@ -70,7 +70,7 @@
                 <?php if ($_SESSION['role'] !== 'student'): ?>
                 <div class="card-footer bg-transparent border-top-0 d-flex justify-content-between align-items-center">
                     <form method="POST" action="index.php?page=task_action" class="d-inline">
-                        <input type="hidden" name="task_id" value="<?= $task['id'] ?>">
+                        <input type="hidden" name="task_id" value="<?= h($task['id']) ?>">
                         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                         <?php if ($is_done): ?>
                             <input type="hidden" name="action" value="mark_pending">
@@ -82,9 +82,9 @@
                     </form>
 
                     <div>
-                        <a href="index.php?page=tasks_edit&id=<?= $task['id'] ?>" class="btn btn-sm btn-outline-primary">✏️</a>
+                        <a href="index.php?page=tasks_edit&id=<?= h($task['id']) ?>" class="btn btn-sm btn-outline-primary">✏️</a>
                         <form method="POST" action="index.php?page=task_action" class="d-inline" onsubmit="return confirm('ลบงานนี้ทิ้งเลยไหม?');">
-                            <input type="hidden" name="task_id" value="<?= $task['id'] ?>">
+                            <input type="hidden" name="task_id" value="<?= h($task['id']) ?>">
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                             <button type="submit" class="btn btn-sm btn-outline-danger">🗑️</button>

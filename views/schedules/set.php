@@ -27,6 +27,7 @@
                 <label>📚 วิชาเรียน (เรียงตามคาบ)</label>
                 <textarea name="subjects" class="form-control" rows="2" placeholder="คณิต, ไทย, อังกฤษ, พักกลางวัน, ฟิสิกส์..." required></textarea>
             </div>
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
             <button type="submit" class="btn btn-success w-100">บันทึกตารางเรียน</button>
         </form>
     </div>

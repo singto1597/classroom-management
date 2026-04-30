@@ -7,6 +7,14 @@ require_once dirname(__DIR__) . '/vendor/autoload.php';
 $dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
 $dotenv->load();
 
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'secure'   => false, //https
+    'httponly' => true,
+    'samesite' => 'Lax'
+]);
+
 session_start();
 
 if (!isset($_SESSION['room_id'])) {
@@ -39,6 +47,7 @@ try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch(PDOException $e) {
-    abort("เชื่อมต่อฐานข้อมูลล้มเหลว: " . $e->getMessage());
+    error_log($e->getMessage());
+    abort("เกิดข้อผิดพลาดภายใน กรุณาลองใหม่อีกครั้ง");
 }
 ?>

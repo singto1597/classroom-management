@@ -21,6 +21,7 @@
                 <label>📢 หมายเหตุ / สาเหตุที่เปลี่ยน</label>
                 <textarea name="note" class="form-control" rows="2" placeholder="เช่น มีกิจกรรม...จึงต้องใส่ชุดนักเรียน" required></textarea>
             </div>
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
             <button type="submit" class="btn btn-danger w-100">บันทึกข้อยกเว้น</button>
         </form>
     </div>
