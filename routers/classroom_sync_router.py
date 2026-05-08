@@ -71,6 +71,10 @@ async def get_tasks(server_id: int, status: TaskStatus = Query(TaskStatus.PENDIN
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+@router.get("/{server_id}/tasks/deleted", response_model=List[TaskResponse])
+async def get_deleted_tasks(server_id: int, pool = Depends(get_db_pool)):
+    return await ClassroomService.get_deleted_tasks(pool, server_id)
+
 @router.get("/{server_id}/tasks/{task_id}", response_model=TaskResponse)
 async def get_task_by_id(server_id: int, task_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:
@@ -86,14 +90,6 @@ async def edit_task(server_id: int, task_id: int, req: TaskEditRequest, pool: as
     except (RoomNotFoundError, TaskNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.patch("/{server_id}/tasks/{task_id}/done", response_model=TaskActionResponse)
-async def mark_task_done(server_id: int, task_id: int, req: ActionWithUserRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
-    try:
-        task_name = await ClassroomService.mark_task_done(pool, server_id, task_id, req.user_name)
-        return TaskActionResponse(task_name=task_name)
-    except (RoomNotFoundError, TaskNotFoundError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
 @router.delete("/{server_id}/tasks/{task_id}", response_model=TaskActionResponse)
 async def delete_task(server_id: int, task_id: int, req: ActionWithUserRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:
@@ -102,9 +98,22 @@ async def delete_task(server_id: int, task_id: int, req: ActionWithUserRequest, 
     except (RoomNotFoundError, TaskNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     
-@router.get("/{server_id}/tasks/deleted", response_model=List[TaskResponse])
-async def get_deleted_tasks(server_id: int, pool = Depends(get_db_pool)):
-    return await ClassroomService.get_deleted_tasks(pool, server_id)
+
+@router.patch("/{server_id}/tasks/{task_id}/done", response_model=TaskActionResponse)
+async def mark_task_done(server_id: int, task_id: int, req: ActionWithUserRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
+    try:
+        task_name = await ClassroomService.mark_task_done(pool, server_id, task_id, req.user_name)
+        return TaskActionResponse(task_name=task_name)
+    except (RoomNotFoundError, TaskNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.patch("/{server_id}/tasks/{task_id}/restore", response_model=TaskActionResponse)
+async def restore_task(server_id: int, task_id: int, req: ActionWithUserRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
+    try:
+        task_name = await ClassroomService.restore_task(pool, server_id, task_id, req.user_name)
+        return TaskActionResponse(task_name=task_name)
+    except (RoomNotFoundError, TaskNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{server_id}/notes", response_model=SuccessResponse)
 async def add_daily_note(server_id: int, req: DailyNoteRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
@@ -127,5 +136,14 @@ async def delete_daily_note(server_id: int, target_date: date, req: ActionWithUs
 async def get_daily_summary(server_id: int, target_date: date, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:
         return await ClassroomService.get_daily_summary(pool, server_id, target_date)
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+
+@router.get("/{server_id}/logs")
+async def get_logs(server_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
+    try:
+        return await ClassroomService.get_audit_logs(pool, server_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

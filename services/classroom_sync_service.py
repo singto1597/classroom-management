@@ -27,6 +27,16 @@ class ClassroomService:
         days = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
         return days[date_obj.weekday()]
 
+    @classmethod
+    async def get_audit_logs(cls, pool, server_id: int, limit: int = 20) -> List[dict]:
+        async with pool.acquire() as conn:
+            room_id = await cls._get_room_id(conn, server_id)
+            # ดึงประวัติล่าสุด 20 รายการ
+            rows = await conn.fetch(
+                "SELECT user_name, action, detail, created_at FROM audit_logs WHERE room_id = $1 ORDER BY created_at DESC LIMIT $2",
+                room_id, limit
+            )
+            return [dict(r) for r in rows]
 
     @classmethod
     async def setup_room(cls, pool: asyncpg.Pool, server_id: int, room_name: str, user_name: str):
@@ -89,20 +99,18 @@ class ClassroomService:
                     "INSERT INTO schedule_overrides (room_id, target_date, new_attire, note) VALUES ($1, $2, $3, $4)",
                     room_id, target_date, new_attire, note
                 )
-                # 🚨 เพิ่ม Log ที่ขาดหายไป
                 await cls._log_action(conn, room_id, user_name, "Set Override", f"ตั้งชุด/หมายเหตุพิเศษวันที่ {target_date}")
     
 
     @classmethod
     async def add_task(cls, pool: asyncpg.Pool, server_id: int, task_name: str, task_detail: str, due_date: date, user_name: str):
         async with pool.acquire() as conn:
-            async with conn.transaction(): # 🚨 เพิ่ม Transaction เผื่อ Log พัง
+            async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 await conn.execute(
                     "INSERT INTO tasks (room_id, task_name, task_detail, due_date) VALUES ($1, $2, $3, $4)",
                     room_id, task_name, task_detail, due_date
                 )
-                # 🚨 เพิ่ม Log
                 await cls._log_action(conn, room_id, user_name, "Add Task", f"สั่งงานใหม่: {task_name}")
     
     @classmethod
@@ -138,7 +146,6 @@ class ClassroomService:
                     task_name, task_detail, due_date, task_id, room_id
                 )
                 if res == "UPDATE 0": raise TaskNotFoundError("Task not found or access denied")
-                # 🚨 เพิ่ม Log
                 await cls._log_action(conn, room_id, user_name, "Edit Task", f"แก้งาน: {task_name}")
         
     @classmethod
@@ -174,10 +181,23 @@ class ClassroomService:
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
             rows = await conn.fetch(
-                "SELECT id, task_name, due_date, deleted_at FROM tasks WHERE room_id = $1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+                "SELECT id, task_name, task_detail, due_date, status, created_at, deleted_at FROM tasks WHERE room_id = $1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
                 room_id
             )
             return [dict(row) for row in rows]
+    @classmethod
+    async def restore_task(cls, pool, server_id, task_id, user_name) -> str:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                task_name = await conn.fetchval(
+                    "UPDATE tasks SET deleted_at = NULL WHERE id = $1 AND room_id = $2 AND deleted_at IS NOT NULL RETURNING task_name",
+                    task_id, room_id
+                )
+                if not task_name:
+                    raise TaskNotFoundError("ไม่พบงานที่ถูกลบ หรืออาจจะถูกลบถาวรไปแล้ว")
+                await cls._log_action(conn, room_id, user_name, "Restore Task", f"กู้คืนงาน {task_name}")
+                return task_name
         
     # ==========================================
     # โน้ตรายวัน
@@ -192,7 +212,6 @@ class ClassroomService:
                     "INSERT INTO daily_notes (room_id, target_date, bring_items, announcement) VALUES ($1, $2, $3, $4)",
                     room_id, target_date, bring_items, announcement
                 )
-                # 🚨 เพิ่ม Log
                 await cls._log_action(conn, room_id, user_name, "Add Note", f"เพิ่มโน้ตรายวันสำหรับวันที่ {target_date}")
         
 

@@ -71,6 +71,7 @@ class TaskResponse(BaseModel):
     due_date: date
     status: TaskStatus
     created_at: Optional[datetime]
+    deleted_at: Optional[datetime] = None
 
 class TaskActionResponse(BaseModel):
     status: str = "success"
