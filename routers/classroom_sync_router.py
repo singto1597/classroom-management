@@ -14,9 +14,6 @@ from services.classroom_sync_service import ClassroomService, RoomNotFoundError,
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 
-# ==========================================
-# จัดการห้อง
-# ==========================================
 @router.post("/setup", response_model=SuccessResponse)
 async def setup_room(req: RoomSetupRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
     await ClassroomService.setup_room(pool, req.server_id, req.room_name, req.user_name)
@@ -42,9 +39,6 @@ async def set_notify_time(server_id: int, req: TimeSetRequest, pool: asyncpg.Poo
 async def get_rooms_to_notify(current_time: str = Query(...), pool: asyncpg.Pool = Depends(get_db_pool)):
     return await ClassroomService.get_rooms_to_notify(pool, current_time)
 
-# ==========================================
-# ตารางเรียน
-# ==========================================
 @router.post("/{server_id}/schedule/default", response_model=SuccessResponse)
 async def set_default_schedule(server_id: int, req: DefaultScheduleRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:
@@ -62,10 +56,6 @@ async def set_override(server_id: int, req: OverrideScheduleRequest, pool: async
         raise HTTPException(status_code=404, detail=str(e))
 
 
-
-# ==========================================
-# จัดการงาน
-# ==========================================
 @router.post("/{server_id}/tasks", response_model=SuccessResponse)
 async def add_task(server_id: int, req: TaskCreateRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:
@@ -132,9 +122,7 @@ async def delete_daily_note(server_id: int, target_date: date, req: ActionWithUs
     except (RoomNotFoundError, TaskNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-# ==========================================
-# สรุปข้อมูลรายวัน
-# ==========================================
+
 @router.get("/{server_id}/summary", response_model=DailySummaryResponse)
 async def get_daily_summary(server_id: int, target_date: date, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:

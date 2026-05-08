@@ -6,6 +6,7 @@ import logging
 from core.config import settings
 
 from routers import classroom_sync_router
+from routers import maintenance_router
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -79,6 +80,38 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            await conn.execute("""
+                -- ตารางเก็บสถานที่ (เอาไว้ Group ปัญหาซ้ำ)
+                CREATE TABLE IF NOT EXISTS mtn_locations (
+                    id SERIAL PRIMARY KEY,
+                    building TEXT NOT NULL,
+                    room TEXT NOT NULL,
+                    UNIQUE(building, room)
+                );
+
+                -- ตารางหลักเก็บรายการแจ้งซ่อม
+                CREATE TABLE IF NOT EXISTS mtn_tickets (
+                    id VARCHAR(50) PRIMARY KEY, -- เช่น TKT-20260506-0001
+                    location_id INTEGER REFERENCES mtn_locations(id) ON DELETE CASCADE,
+                    category TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    image_url TEXT,
+                    priority TEXT DEFAULT 'Low', -- Critical, High, Medium, Low
+                    status TEXT DEFAULT 'pending', -- pending, in_progress, resolved, merged
+                    parent_ticket_id VARCHAR(50) REFERENCES mtn_tickets(id) ON DELETE SET NULL,
+                    reporter_name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- ตารางเก็บประวัติการทำงานของแต่ละ Ticket
+                CREATE TABLE IF NOT EXISTS mtn_logs (
+                    id SERIAL PRIMARY KEY,
+                    ticket_id VARCHAR(50) REFERENCES mtn_tickets(id) ON DELETE CASCADE,
+                    action TEXT NOT NULL,
+                    user_name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
             logger.info("✅ Database Tables Initialized/Verified!")
 
     except Exception as e:
@@ -100,6 +133,7 @@ app = FastAPI(
 )
 
 app.include_router(classroom_sync_router.router, prefix="/api/classroom", tags=["Classroom"])
+app.include_router(maintenance_router.router, prefix="/api/maintenance", tags=["Maintenance"])
 
 
 @app.get("/health", tags=["Health"])
@@ -111,3 +145,7 @@ async def health_check():
         return {"status": "ok", "database": "connected"}
     except Exception as e:
         return {"status": "error", "database": "disconnected"}
+    
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

@@ -92,9 +92,7 @@ class ClassroomService:
                 # 🚨 เพิ่ม Log ที่ขาดหายไป
                 await cls._log_action(conn, room_id, user_name, "Set Override", f"ตั้งชุด/หมายเหตุพิเศษวันที่ {target_date}")
     
-    # ==========================================
-    # จัดการงาน
-    # ==========================================
+
     @classmethod
     async def add_task(cls, pool: asyncpg.Pool, server_id: int, task_name: str, task_detail: str, due_date: date, user_name: str):
         async with pool.acquire() as conn:
@@ -164,7 +162,6 @@ class ClassroomService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 task_name = await conn.fetchval(
-                    # ← เปลี่ยนจาก DELETE เป็น UPDATE
                     "UPDATE tasks SET deleted_at = NOW() WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL RETURNING task_name",
                     task_id, room_id
                 )
