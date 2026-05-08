@@ -7,6 +7,7 @@ from core.config import settings
 
 from routers import classroom_sync_router
 from routers import maintenance_router
+from routers import student_router
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -79,6 +80,58 @@ async def lifespan(app: FastAPI):
                     detail TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS students (
+                    -- 🟢 [1] System IDs (ระบบจัดการ)
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+                    discord_id BIGINT UNIQUE,
+                    
+                    -- 🔵 [2] Core Identity (ข้อมูลหลักส่วนตัว)
+                    student_no INTEGER NOT NULL,
+                    student_id VARCHAR(10) UNIQUE, 
+                    prefix TEXT, 
+                    first_name TEXT NOT NULL, 
+                    last_name TEXT NOT NULL,
+                    nickname TEXT,
+                    birthday DATE,
+                    
+                    -- 🟡 [3] Academic & Duties (วิชาการและหน้าที่)
+                    class_role TEXT DEFAULT 'student', 
+                    cleaning_duty TEXT, 
+                    olympic_camp TEXT,
+                    portfolio TEXT,
+                    target_faculty TEXT,
+                    
+                    -- 🔴 [4] Physical & Health (กายภาพและสุขภาพ)
+                    blood_group VARCHAR(3),
+                    shirt_size TEXT,
+                    food_allergy TEXT,
+                    congenital_disease TEXT, 
+                    
+                    -- 🟣 [5] Social & Contacts (การติดต่อ)
+                    phone_number TEXT,
+                    phone_number_parent TEXT,
+                    phone_number_parent_relation TEXT, 
+                    line_id TEXT,
+                    ig_username TEXT,
+                    email TEXT,
+                    
+                    -- 🟤 [6] Address (ที่อยู่)
+                    address_house_no TEXT,
+                    address_road TEXT,
+                    address_sub_district TEXT,
+                    address_district TEXT,
+                    address_province TEXT,
+                    address_post_code VARCHAR(10), 
+                    
+                    -- ⚫ [7] Status & Tracking (สถานะและเวลา)
+                    status TEXT DEFAULT 'active',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    
+                    UNIQUE(room_id, student_no) 
+                    
+                );
             """)
             await conn.execute("""
                 -- ตารางเก็บสถานที่ (เอาไว้ Group ปัญหาซ้ำ)
@@ -112,6 +165,7 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
             logger.info("✅ Database Tables Initialized/Verified!")
 
     except Exception as e:
@@ -134,7 +188,7 @@ app = FastAPI(
 
 app.include_router(classroom_sync_router.router, prefix="/api/classroom", tags=["Classroom"])
 app.include_router(maintenance_router.router, prefix="/api/maintenance", tags=["Maintenance"])
-
+app.include_router(student_router.router, prefix="/api/classroom", tags=["Students"])
 
 @app.get("/health", tags=["Health"])
 async def health_check():
