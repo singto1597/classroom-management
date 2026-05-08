@@ -170,10 +170,24 @@ class StudentService:
 
 
     @classmethod
-    async def export_students_excel(cls, pool, server_id: int, fields: List[str], user_name: str):
+    async def export_students_excel(cls, pool, server_id: int, fields: List[str], user_name: str, discord_id: int):
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
             
+            requester = await conn.fetchrow(
+                "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2", 
+                room_id, discord_id
+            )
+            
+            if not requester:
+                raise HTTPException(status_code=403, detail="คุณยังไม่ได้ลงทะเบียน /sync_me เลยนะ!")
+
+            allowed_roles = ['president', 'vice_academic', 'vice_activity', 'vice_discipline', 'vice_reception']
+
+            if requester['class_role'] not in allowed_roles:
+                await cls._log_action(conn, room_id, user_name, "Unauthorized Export", f"พยายามดาวน์โหลดข้อมูลเพื่อน แต่ถูกบล็อก (Role: {requester['class_role']})")
+                raise HTTPException(status_code=403, detail="🛑 หยุดนะ! สิทธิ์ของคุณไม่เพียงพอ")
+
             # ดึงข้อมูลทั้งหมดของห้อง
             rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 ORDER BY student_no ASC", room_id)
             

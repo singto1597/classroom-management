@@ -67,9 +67,9 @@ async def get_all_students(server_id: int, x_discord_id: int = Header(...), pool
         raise HTTPException(status_code=403, detail=str(e))
     
 @router.post("/{server_id}/export")
-async def export_students(server_id: int, req: StudentExportRequest, pool = Depends(get_db_pool)):
+async def export_students(server_id: int, req: StudentExportRequest, x_discord_id: str = Header(...), pool = Depends(get_db_pool)):
     # เจนไฟล์ Excel ในรูปแบบ Stream
-    excel_file = await StudentService.export_students_excel(pool, server_id, req.fields, req.user_name)
+    excel_file = await StudentService.export_students_excel(pool, server_id, req.fields, req.user_name, int(x_discord_id))
     
     filename = f"students_export_{server_id}.xlsx"
     return StreamingResponse(
