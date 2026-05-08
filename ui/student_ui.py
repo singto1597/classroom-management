@@ -319,13 +319,19 @@ class ExportSelectMenu(discord.ui.Select):
         
         try:
             url = f"{API_BASE_URL}/{self.server_id}/export"
-            headers = {"X-API-Key": api_client.session._default_headers.get("X-API-Key")}
+            headers = {
+                "X-API-Key": api_client.session._default_headers.get("X-API-Key"),
+                "X-Discord-Id": str(interaction.user.id)
+            }
             
             async with api_client.session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     file_data = await resp.read()
                     discord_file = discord.File(io.BytesIO(file_data), filename=f"students_{self.server_id}.xlsx")
                     await interaction.followup.send("✅ สร้างไฟล์ Excel สำเร็จ! โหลดไปใช้งานได้เลยครับ", file=discord_file, ephemeral=True)
+                elif resp.status == 403:
+                    error_data = await resp.json()
+                    await interaction.followup.send(error_data.get('detail', "❌ สิทธิ์ไม่เพียงพอ"), ephemeral=True)
                 else:
                     await interaction.followup.send(f"❌ Backend Error: ไม่สามารถสร้างไฟล์ได้ ({resp.status})", ephemeral=True)
         except Exception as e:
