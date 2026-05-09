@@ -157,7 +157,7 @@ class StudentService:
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
             # เช็คสิทธิ์ก่อนดึงข้อมูลทั้งห้อง
-            await cls._check_is_leader(conn, room_id, requester_discord_id)
+            # await cls._check_is_leader(conn, room_id, requester_discord_id)
             
             rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 ORDER BY student_no ASC", room_id)
             results = []
