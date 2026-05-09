@@ -153,14 +153,22 @@ class StudentController {
             $room_id = $_SESSION['room_id'];
             $discord_id = $_SESSION['discord_id'];
             $student_no = (int)$_POST['student_no'];
-            $status = $_POST['status']; // รับค่าเป็น 'active' หรือ 'inactive'
+            $action_type = $_POST['action_type']; 
 
             try {
-                $this->studentModel->updateStudentStatus($room_id, $student_no, $status, $discord_id, $_SESSION['user_name']);
+                if ($action_type === 'soft_delete') {
+                    $this->studentModel->updateStudentStatus($room_id, $student_no, 'inactive', $discord_id, $_SESSION['user_name']);
+                } elseif ($action_type === 'restore') {
+                    $this->studentModel->updateStudentStatus($room_id, $student_no, 'active', $discord_id, $_SESSION['user_name']);
+                } elseif ($action_type === 'hard_delete') {
+                    // 🚨 ต้องไปสร้างฟังก์ชันนี้เพิ่มใน models/Student.php ด้วยนะ
+                    $this->studentModel->deleteStudentPermanent($room_id, $student_no, $discord_id, $_SESSION['user_name']);
+                }
+                
                 header("Location: index.php?page=students");
                 exit();
             } catch (Exception $e) {
-                abort("เปลี่ยนสถานะผิดพลาด: " . $e->getMessage());
+                abort("จัดการผิดพลาด: " . $e->getMessage());
             }
         }
     }

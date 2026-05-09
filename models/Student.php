@@ -60,6 +60,15 @@ class Student {
         ]);
     }
 
+    public function deleteStudentPermanent($room_id, $student_no, $discord_id, $user_name) {
+        return $this->api->request('DELETE', "{$room_id}/students/{$student_no}", [
+            'headers' => ['X-Discord-Id' => (string)$discord_id],
+            'json' => [
+                'user_name' => $user_name
+            ]
+        ]);
+    }
+
     // 🛑 เปลี่ยนสถานะ Active / Inactive
     public function updateStudentStatus($room_id, $student_no, $status, $discord_id, $user_name) {
         return $this->api->request('PATCH', "{$room_id}/students/{$student_no}/status", [

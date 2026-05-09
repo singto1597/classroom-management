@@ -1,9 +1,15 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h3 class="mb-0">👥 รายชื่อนักเรียนในห้อง</h3>
-    <div class="d-flex gap-2">
-        <input type="text" id="studentSearch" class="form-control form-control-sm" placeholder="ค้นหาชื่อ/เลขที่...">
+    <div class="d-flex gap-3 align-items-center">
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="showInactiveToggle">
+            <label class="form-check-label small text-muted fw-bold" for="showInactiveToggle">แสดงคนที่ถูกจำหน่าย</label>
+        </div>
+        
+        <input type="text" id="studentSearch" class="form-control form-control-sm" placeholder="ค้นหาชื่อ/เลขที่..." style="max-width: 200px;">
+        
         <?php if ($_SESSION['role'] !== 'student'): ?>
-            <a href="index.php?page=students_add" class="btn btn-sm btn-primary">➕ เพิ่มนักเรียน</a>
+            <a href="index.php?page=students_add" class="btn btn-sm btn-primary shadow-sm">➕ เพิ่มนักเรียน</a>
         <?php endif; ?>
     </div>
 </div>
@@ -22,17 +28,17 @@
             </thead>
             <tbody>
                 <?php foreach ($students as $s): 
-                    // 1. เช็คสถานะความสมบูรณ์ของข้อมูลสำหรับ Progress Bar
                     $percent = $s['data_completion']['percentage'] ?? 0;
                     $prog_color = ($percent == 100) ? 'bg-success' : (($percent > 50) ? 'bg-info' : 'bg-warning');
                     
-                    // 2. 🚨 เช็คสถานะ Active/Inactive (ถ้าไม่มี status ให้ถือว่าเป็น active ไว้ก่อน)
                     $is_active = (!isset($s['status']) || $s['status'] !== 'inactive');
-                    
-                    // 3. ปรับสไตล์แถว: ถ้าโดนลบ (inactive) ให้แถวจางลงและมีพื้นหลังเทาอ่อน
                     $row_class = $is_active ? '' : 'opacity-50 bg-light';
                 ?>
-                <tr class="student-row <?= $row_class ?>" data-name="<?= h($s['first_name'].' '.$s['last_name']) ?>" data-no="<?= $s['student_no'] ?>">
+                <tr class="student-row <?= $row_class ?>" 
+                    data-name="<?= h($s['first_name'].' '.$s['last_name']) ?>" 
+                    data-no="<?= $s['student_no'] ?>"
+                    data-status="<?= $is_active ? 'active' : 'inactive' ?>">
+                    
                     <td class="ps-4 fw-bold">#<?= $s['student_no'] ?></td>
                     <td>
                         <div class="fw-bold <?= !$is_active ? 'text-decoration-line-through text-muted' : '' ?>">
@@ -56,18 +62,22 @@
                         <a href="index.php?page=students_profile&no=<?= $s['student_no'] ?>" class="btn btn-sm btn-outline-info shadow-sm" title="ดูโปรไฟล์">👁️</a>
                         
                         <?php if ($_SESSION['role'] !== 'student'): ?>
-                            <a href="index.php?page=students_edit&no=<?= $s['student_no'] ?>" class="btn btn-sm btn-outline-primary shadow-sm" title="แก้ไข">✏️</a>
+                            <?php if ($is_active): ?>
+                                <a href="index.php?page=students_edit&no=<?= $s['student_no'] ?>" class="btn btn-sm btn-outline-primary shadow-sm" title="แก้ไข">✏️</a>
+                            <?php endif; ?>
                             
                             <form method="POST" action="index.php?page=students_action" class="d-inline">
                                 <input type="hidden" name="student_no" value="<?= $s['student_no'] ?>">
                                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                 
                                 <?php if ($is_active): ?>
-                                    <input type="hidden" name="status" value="inactive">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger shadow-sm" onclick="return confirm('ยืนยันการจำหน่ายนักเรียนเลขที่ <?= $s['student_no'] ?> ออกจากห้อง?')">🗑️</button>
+                                    <input type="hidden" name="action_type" value="soft_delete">
+                                    <button type="submit" class="btn btn-sm btn-outline-warning shadow-sm" onclick="return confirm('จำหน่ายนักเรียนเลขที่ <?= $s['student_no'] ?> ชั่วคราว?')">🗑️ ซ่อน</button>
                                 <?php else: ?>
-                                    <input type="hidden" name="status" value="active">
-                                    <button type="submit" class="btn btn-sm btn-outline-success shadow-sm" onclick="return confirm('ต้องการดึงนักเรียนเลขที่ <?= $s['student_no'] ?> กลับเข้าระบบใช่หรือไม่?')">♻️</button>
+                                    <input type="hidden" name="action_type" value="restore">
+                                    <button type="submit" class="btn btn-sm btn-outline-success shadow-sm" onclick="return confirm('ดึงนักเรียนเลขที่ <?= $s['student_no'] ?> กลับมา?')">♻️ กู้คืน</button>
+                                    
+                                    <button type="submit" name="action_type" value="hard_delete" class="btn btn-sm btn-danger shadow-sm ms-1" onclick="return confirm('⚠️ คำเตือน: ลบข้อมูลนักเรียนเลขที่ <?= $s['student_no'] ?> ออกจากฐานข้อมูลถาวร กู้คืนไม่ได้แล้วนะ แน่ใจหรือไม่?')">💀 ลบถาวร</button>
                                 <?php endif; ?>
                             </form>
                         <?php endif; ?>
@@ -80,11 +90,37 @@
 </div>
 
 <script>
-document.getElementById('studentSearch').addEventListener('input', function(e) {
-    const term = e.target.value.toLowerCase();
-    document.querySelectorAll('.student-row').forEach(row => {
-        const text = (row.dataset.name + row.dataset.no).toLowerCase();
-        row.style.display = text.includes(term) ? '' : 'none';
-    });
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('studentSearch');
+    const toggleInactive = document.getElementById('showInactiveToggle');
+    const rows = document.querySelectorAll('.student-row');
+
+    // 🧠 ฟังก์ชันกรองตาราง (ประมวลผลทั้ง Search และ Toggle พร้อมกัน)
+    function filterTable() {
+        const term = searchInput.value.toLowerCase();
+        const showInactive = toggleInactive.checked;
+
+        rows.forEach(row => {
+            const text = (row.dataset.name + row.dataset.no).toLowerCase();
+            const status = row.dataset.status; // 'active' หรือ 'inactive'
+
+            // เช็คว่าผ่านเงื่อนไขการค้นหามั้ย?
+            const matchSearch = text.includes(term);
+            // เช็คว่าผ่านเงื่อนไขสถานะมั้ย? (ถ้าเปิดสวิตช์ = ดูได้หมด, ถ้าปิดสวิตช์ = ดูได้แค่ active)
+            const matchStatus = showInactive ? true : (status === 'active');
+
+            if (matchSearch && matchStatus) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    searchInput.addEventListener('input', filterTable);
+    toggleInactive.addEventListener('change', filterTable);
+    
+    // รันฟังก์ชันนี้ 1 รอบตอนเปิดหน้าเว็บ เพื่อซ่อนคนที่ Inactive ตั้งแต่แรก
+    filterTable();
 });
 </script>
