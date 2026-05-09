@@ -18,19 +18,13 @@
                 </button>
             </form>
         </div>
-        <div class="card-footer bg-light p-3 text-center border-0 rounded-bottom-4">
-            <div class="text-muted small">
-                <span class="badge bg-dark me-1">API Endpoint</span> สำหรับให้ดึง JSON ไปใช้งาน:<br>
-                <code class="text-primary bg-white px-3 py-1 rounded-pill shadow-sm border mt-2 d-inline-block">/index.php?page=cron&format=json</code>
-            </div>
-        </div>
     </div>
 
-    <?php if(isset($output_payload) && $output_payload['status'] == 'success'): ?>
+    <?php if(isset($output_payload) && isset($output_payload['date'])): ?>
         <div class="card shadow border-0 rounded-4 mx-auto mt-5 fade-in-up" style="max-width: 650px; background-color: #f0f2f5;">
             <div class="card-header bg-success text-white px-4 py-3 border-0 rounded-top-4 d-flex justify-content-between align-items-center">
                 <span class="fw-bold">💬 ตัวอย่างข้อความที่จะส่งเข้าแชท</span>
-                <span class="badge bg-white text-success rounded-pill px-3 py-2 shadow-sm">ส่งไปห้อง: <?= $output_payload['room_id'] ?></span>
+                <span class="badge bg-white text-success rounded-pill px-3 py-2 shadow-sm">ดึงจาก API สำเร็จ!</span>
             </div>
             
             <div class="card-body p-4">
@@ -39,31 +33,26 @@
                         <h5 class="text-primary fw-bold mb-3">📢 @everyone สรุปตารางเรียนและงานของวันพรุ่งนี้</h5>
                         
                         <div class="mb-3">
-                            <span class="fw-bold text-dark">📅 วัน<?= $output_payload['day_name'] ?>ที่ <?= $output_payload['target_date'] ?></span><br>
-                            <span class="fw-bold text-secondary">👕 ชุดที่ต้องใส่:</span> <?= htmlspecialchars($output_payload['schedule']['attire']) ?><br>
-                            <span class="fw-bold text-secondary">📚 วิชาเรียน:</span> <?= htmlspecialchars($output_payload['schedule']['subjects']) ?>
+                            <span class="fw-bold text-dark">📅 วัน<?= htmlspecialchars($output_payload['day']) ?>ที่ <?= htmlspecialchars($output_payload['date']) ?></span><br>
+                            <span class="fw-bold text-secondary">👕 ชุดที่ต้องใส่:</span> <?= htmlspecialchars($output_payload['attire']) ?><br>
+                            <span class="fw-bold text-secondary">📚 วิชาเรียน:</span> <?= htmlspecialchars($output_payload['subjects']) ?>
                         </div>
                         
-                        <?php if ($output_payload['announcements']['bring_items'] !== "-"): ?>
-                            <div class="mb-1"><span class="fw-bold text-danger">🎒 สิ่งที่ต้องเตรียม:</span> <?= htmlspecialchars($output_payload['announcements']['bring_items']) ?></div>
+                        <?php if ($output_payload['bring'] !== "-"): ?>
+                            <div class="mb-1"><span class="fw-bold text-danger">🎒 สิ่งที่ต้องเตรียม:</span> <?= htmlspecialchars($output_payload['bring']) ?></div>
                         <?php endif; ?>
                         
-                        <?php if ($output_payload['announcements']['note'] !== "-"): ?>
-                            <div class="mb-3"><span class="fw-bold text-warning text-darken">📢 ประกาศ/หมายเหตุ:</span> <?= htmlspecialchars($output_payload['announcements']['note']) ?></div>
+                        <?php if ($output_payload['note'] !== "-"): ?>
+                            <div class="mb-3"><span class="fw-bold text-warning text-darken">📢 ประกาศ/หมายเหตุ:</span> <?= htmlspecialchars($output_payload['note']) ?></div>
                         <?php endif; ?>
                         
                         <hr class="text-muted opacity-25">
                         
-                        <?php if (count($output_payload['tasks']) > 0): ?>
+                        <?php if (!empty($output_payload['tasks_due'])): ?>
                             <div class="fw-bold text-danger mb-2">⚠️ ลิสต์งานค้างทั้งหมด</div>
                             <ul class="list-unstyled mb-0 ms-2">
-                            <?php foreach ($output_payload['tasks'] as $t): 
-                                $status_badge = "🟢";
-                                if ($t['days_left'] < 0) $status_badge = "<span class='text-danger fw-bold'>(เลยกำหนดมา ".abs($t['days_left'])." วัน!)</span>";
-                                elseif ($t['days_left'] == 0) $status_badge = "<span class='text-warning text-dark fw-bold'>🔥 (ส่งวันนี้!)</span>";
-                                elseif ($t['days_left'] == 1) $status_badge = "<span class='text-warning text-dark fw-bold'>⚠️ (ส่งพรุ่งนี้!)</span>";
-                            ?>
-                                <li class="mb-1">📌 <?= htmlspecialchars($t['task_name']) ?> <?= $status_badge ?></li>
+                            <?php foreach ($output_payload['tasks_due'] as $t): ?>
+                                <li class="mb-1"><?= htmlspecialchars($t['display_text']) ?></li>
                             <?php endforeach; ?>
                             </ul>
                         <?php else: ?>
@@ -74,9 +63,9 @@
             </div>
         </div>
         
-    <?php elseif(isset($output_payload) && $output_payload['status'] == 'error'): ?>
+    <?php elseif(isset($output_payload) && isset($output_payload['status']) && $output_payload['status'] == 'error'): ?>
         <div class="alert alert-danger shadow-sm border-0 rounded-4 mt-4 mx-auto fade-in-up" style="max-width: 650px;">
-            <i class="fw-bold">❌ ข้อผิดพลาด:</i> <?= $output_payload['message'] ?>
+            <i class="fw-bold">❌ ข้อผิดพลาด:</i> <?= htmlspecialchars($output_payload['message']) ?>
         </div>
     <?php endif; ?>
 

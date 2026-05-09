@@ -1,58 +1,67 @@
 <?php
-class Task {
-    private $pdo;
+require_once 'services/ApiClient.php';
 
-    public function __construct($pdo) {
-        $this->pdo = $pdo;
+class Task {
+    private $api;
+
+    public function __construct() {
+        $this->api = new ApiClient();
     }
 
     public function getAllTasks($room_id) {
-        $stmt = $this->pdo->prepare("SELECT * FROM tasks WHERE room_id = ? ORDER BY status DESC, due_date ASC");
-        $stmt->execute([$room_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->api->request('GET', "{$room_id}/tasks");
     }
 
     public function getPendingTasks($room_id) {
-        $stmt = $this->pdo->prepare("SELECT * FROM tasks WHERE room_id = ? AND status = 'pending' ORDER BY due_date ASC");
-        $stmt->execute([$room_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->api->request('GET', "{$room_id}/tasks", ['query' => ['status' => 'pending']]);
     }
 
     public function getDoneTasks($room_id) {
-        $stmt = $this->pdo->prepare("SELECT * FROM tasks WHERE room_id = ? AND status = 'done' ORDER BY due_date ASC");
-        $stmt->execute([$room_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->api->request('GET', "{$room_id}/tasks", ['query' => ['status' => 'done']]);
     }
 
     public function getTaskById($task_id, $room_id) {
-        $stmt = $this->pdo->prepare("SELECT * FROM tasks WHERE id = ? AND room_id = ?");
-        $stmt->execute([$task_id, $room_id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        return $this->api->request('GET', "{$room_id}/tasks/{$task_id}");
     }
 
     public function addTask($room_id, $task_name, $task_detail, $due_date) {
-        $stmt = $this->pdo->prepare("INSERT INTO tasks (room_id, task_name, task_detail, due_date) VALUES (?, ?, ?, ?)");
-        return $stmt->execute([$room_id, $task_name, $task_detail, $due_date]);
+        $payload = [
+            "task_name" => $task_name,
+            "task_detail" => $task_detail,
+            "due_date" => $due_date,
+            "user_name" => $_SESSION['user_name'] ?? 'Web_Admin'
+        ];
+        $this->api->request('POST', "{$room_id}/tasks", ['json' => $payload]);
+        return true;
     }
 
     public function updateTask($task_id, $room_id, $task_name, $task_detail, $due_date) {
-        $stmt = $this->pdo->prepare("UPDATE tasks SET task_name = ?, task_detail = ?, due_date = ? WHERE id = ? AND room_id = ?");
-        return $stmt->execute([$task_name, $task_detail, $due_date, $task_id, $room_id]);
+        $payload = [
+            "task_name" => $task_name,
+            "task_detail" => $task_detail,
+            "due_date" => $due_date,
+            "user_name" => $_SESSION['user_name'] ?? 'Web_Admin'
+        ];
+        $this->api->request('PUT', "{$room_id}/tasks/{$task_id}", ['json' => $payload]);
+        return true;
     }
 
     public function markDone($task_id, $room_id) {
-        $stmt = $this->pdo->prepare("UPDATE tasks SET status = 'done' WHERE id = ? AND room_id = ?");
-        return $stmt->execute([$task_id, $room_id]);
+        $payload = ["user_name" => $_SESSION['user_name'] ?? 'Web_Admin'];
+        $this->api->request('PATCH', "{$room_id}/tasks/{$task_id}/done", ['json' => $payload]);
+        return true;
     }
 
     public function markPending($task_id, $room_id) {
-        $stmt = $this->pdo->prepare("UPDATE tasks SET status = 'pending' WHERE id = ? AND room_id = ?");
-        return $stmt->execute([$task_id, $room_id]);
+        $payload = ["status" => "pending", "user_name" => $_SESSION['user_name'] ?? 'Web_Admin'];
+        $this->api->request('PATCH', "{$room_id}/tasks/{$task_id}/status", ['json' => $payload]);
+        return true;
     }
 
     public function deleteTask($task_id, $room_id) {
-        $stmt = $this->pdo->prepare("DELETE FROM tasks WHERE id = ? AND room_id = ?");
-        return $stmt->execute([$task_id, $room_id]);
+        $payload = ["user_name" => $_SESSION['user_name'] ?? 'Web_Admin'];
+        $this->api->request('DELETE', "{$room_id}/tasks/{$task_id}", ['json' => $payload]);
+        return true;
     }
 }
 ?>

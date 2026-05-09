@@ -10,19 +10,20 @@ $dotenv->load();
 session_set_cookie_params([
     'lifetime' => 0,
     'path'     => '/',
-    'secure'   => false, //https
+    'secure'   => false, // ถ้าขึ้นโฮสต์จริงมี HTTPS ค่อยแก้เป็น true
     'httponly' => true,
     'samesite' => 'Lax'
 ]);
 
 session_start();
 
-if (!isset($_SESSION['room_id'])) {
-    $_SESSION['room_id'] = 2; 
-    $_SESSION['room_name'] = 'ม.4/2';
-    $_SESSION['user_name'] = 'หัวหน้าห้อง_Demo';
-    $_SESSION['role'] = 'student';
-}
+// // จำลอง Session ไปก่อน (เดี๋ยวเราค่อยมาทำ Login ด้วย Discord ทับตรงนี้)
+// if (!isset($_SESSION['room_id'])) {
+//     $_SESSION['room_id'] = 1500761770468315248; // 🚨 เปลี่ยนเป็น Discord Server ID ของห้องมึง
+//     $_SESSION['user_name'] = 'Web_Admin_Demo';
+//     $_SESSION['role'] = 'leader';
+//     $_SESSION['discord_id'] = 1090855069462843403; // 🚨 ใส่ Discord ID มึงไว้เทสก่อน
+// }
 
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -37,17 +38,5 @@ function abort($message) {
     header("Location: index.php?page=error");
     exit();
 }
-
-$host = $_ENV['DB_HOST'];
-$dbname = $_ENV['DB_NAME'];
-$username = $_ENV['DB_USER'];
-$password = $_ENV['DB_PASS'];
-
-try {
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch(PDOException $e) {
-    error_log($e->getMessage());
-    abort("เกิดข้อผิดพลาดภายใน กรุณาลองใหม่อีกครั้ง");
-}
+// ❌ ลบการเชื่อมต่อ MySQL (PDO) ทิ้งไปหมดแล้ว! โคตรคลีน!
 ?>

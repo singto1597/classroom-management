@@ -10,8 +10,15 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
         <div class="container">
             <a class="navbar-brand fw-bold" href="index.php">Classroom-Sync</a>
-            <span class="navbar-text text-light">ห้อง: <?= h($_SESSION['room_name']) ?></span>
+            
+            <div class="d-flex align-items-center gap-3">
+                <span class="navbar-text text-light">
+                    ห้อง: <?= h($_SESSION['room_name']) ?> (<?= h($_SESSION['role']) ?>)
+                </span>
+                
+                <a href="switch_room.php" class="btn btn-sm btn-warning fw-bold shadow-sm">🔄 สลับห้อง</a>
+                <a href="logout.php" class="btn btn-sm btn-danger fw-bold shadow-sm">🚪 ออกระบบ</a>
+            </div>
         </div>
     </nav>
     <div class="container">
-        <!-- เนื้อหาแต่ละหน้าจะถูกแทรกตรงนี้ -->
