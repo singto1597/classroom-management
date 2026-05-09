@@ -3,11 +3,76 @@ from discord import app_commands
 from discord.ext import commands
 from services.api_client import api_client, APIException
 from ui.student_ui import QuickAddModal, BulkAddModal, ProfileView
+import re
 
 @app_commands.guild_only()
 class StudentCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+
+    # ระบบดักจับ Webhook จากครูชิตชัย (Essy Bot)
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author == self.bot.user:
+            return
+
+        if message.author.bot and "Essy Bot" in message.author.name:
+            text = message.content
+            
+            if "📢 ประกาศใหม่" in text:
+                try:
+                    topic = re.search(r"📌 หัวข้อ:\s*(.+)", text).group(1).strip()
+                    msg_type = re.search(r"🏷️ ประเภท:\s*(.+)", text).group(1).strip()
+                    detail = re.search(r"📝 รายละเอียด:\s*(.+)", text).group(1).strip()
+                    
+                    date_str = re.search(r"📅 กำหนดส่ง/วันที่:\s*(\d{2}/\d{2}/\d{4})", text).group(1).strip()
+                    d, m, y = date_str.split('/')
+                    db_date = f"{y}-{m}-{d}"
+
+                    server_id = message.guild.id
+                    payload = {"user_name": "Essy_Bot_Sync"}
+
+                    try:
+                        room_data = await api_client.request("GET", f"/{server_id}")
+                        main_channel_id = room_data.get('announcement_channel_id')
+                        main_channel = self.bot.get_channel(main_channel_id) if main_channel_id else None
+                    except:
+                        main_channel = None
+
+                    if "งาน / การบ้าน" in msg_type:
+                        payload.update({
+                            "task_name": topic,
+                            "task_detail": detail,
+                            "due_date": db_date
+                        })
+                        await api_client.request("POST", f"/{server_id}/tasks", json=payload)
+                        
+                        await message.add_reaction("✅") 
+
+                        if main_channel:
+                            embed = discord.Embed(title="🚨 มีงานใหม่เข้าตาราง!", description=f"กูดึงงานจากระบบครูชิตชัยมาใส่ตารางให้พวกมึงเรียบร้อยแล้ว ไม่ต้องเหนื่อยพิมพ์!", color=discord.Color.green())
+                            embed.add_field(name="📌 ชื่องาน", value=topic, inline=False)
+                            embed.add_field(name="📅 กำหนดส่ง", value=f"{d}/{m}/{y}", inline=True)
+                            await main_channel.send(content="<@&ROLE_ID_EVERYONE> เห้ยพวกมึง!", embed=embed)
+
+                    elif "แจ้งเตือนพิเศษ" in msg_type:
+                        payload.update({
+                            "target_date": db_date,
+                            "bring_items": "-", 
+                            "announcement": f"[{topic}] {detail}"
+                        })
+                        await api_client.request("POST", f"/{server_id}/notes", json=payload)
+                        
+                        await message.add_reaction("📌") 
+
+                        if main_channel:
+                            embed = discord.Embed(title="📌 มีประกาศใหม่เข้าตาราง!", description=f"อัปเดตโน้ตรายวันให้แล้ว เข้าไปดูตารางพรุ่งนี้ได้เลย!", color=discord.Color.gold())
+                            embed.add_field(name="หัวข้อ", value=topic, inline=False)
+                            await main_channel.send(embed=embed)
+
+                except Exception as e:
+                    print(f"⚠️ ซิงค์ข้อมูลจาก Essy Bot ไม่สำเร็จ: {e}")
 
     @app_commands.command(name="sync_me", description="ผูก Discord ของคุณเข้ากับเลขที่นักเรียน (ทำครั้งแรกครั้งเดียว)")
     async def sync_me(self, interaction: discord.Interaction, student_no: int):
