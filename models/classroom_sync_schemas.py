@@ -100,3 +100,9 @@ class DailySummaryResponse(BaseModel):
     bring: str
     note: str
     tasks_due: List[TaskDueInfo]
+
+class RoomDataResponse(BaseModel):
+    server_id: int
+    room_name: str
+    announcement_channel_id: Optional[int] = None
+    notify_time: Optional[str] = None

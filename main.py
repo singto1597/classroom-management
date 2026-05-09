@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
                     -- 🟢 [1] System IDs (ระบบจัดการ)
                     id SERIAL PRIMARY KEY,
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
-                    discord_id BIGINT UNIQUE,
+                    discord_id BIGINT,
                     
                     -- 🔵 [2] Core Identity (ข้อมูลหลักส่วนตัว)
                     student_no INTEGER NOT NULL,

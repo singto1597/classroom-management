@@ -7,7 +7,7 @@ from models.classroom_sync_schemas import (
 SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
     DefaultScheduleRequest, OverrideScheduleRequest,
     TaskCreateRequest, TaskEditRequest, TaskResponse, TaskActionResponse,
-    DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest
+    DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse
 )
 from core.dependencies import get_db_pool, verify_api_key
 from services.classroom_sync_service import ClassroomService, RoomNotFoundError, TaskNotFoundError
@@ -18,6 +18,14 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
 async def setup_room(req: RoomSetupRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
     await ClassroomService.setup_room(pool, req.server_id, req.room_name, req.user_name)
     return SuccessResponse(message=f"Setup room {req.room_name} completed.")
+
+@router.get("/{server_id}", response_model=RoomDataResponse)
+async def get_room_data(server_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
+    """ดึงข้อมูลการตั้งค่าของห้องเรียน (เช่น ช่องแจ้งเตือนหลัก, เวลาแจ้งเตือน)"""
+    try:
+        return await ClassroomService.get_room_data(pool, server_id)
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.put("/{server_id}/channel", response_model=SuccessResponse)
 async def set_channel(server_id: int, req: ChannelSetRequest, pool: asyncpg.Pool = Depends(get_db_pool)):

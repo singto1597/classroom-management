@@ -256,3 +256,18 @@ class StudentService:
                 if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบเลขที่นี้")
                 
                 await cls._log_action(conn, room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
+    
+    @classmethod
+    async def get_user_rooms(cls, pool, discord_id: int):
+        async with pool.acquire() as conn:
+            query = """
+                SELECT 
+                    r.server_id, 
+                    r.room_name, 
+                    s.class_role as role
+                FROM students s
+                JOIN rooms r ON s.room_id = r.id 
+                WHERE s.discord_id = $1
+            """
+            rows = await conn.fetch(query, discord_id)
+            return [dict(row) for row in rows]

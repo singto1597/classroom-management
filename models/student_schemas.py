@@ -147,3 +147,9 @@ class StudentResponse(BaseModel):
     
     # ข้อมูลคำนวณ % ความสมบูรณ์ (Backend คำนวณให้แล้วยัดใส่มาตรงนี้)
     data_completion: Optional[StudentCompletionStatus] = None
+
+
+class UserRoomResponse(BaseModel):
+    server_id: int 
+    room_name: str
+    role: str

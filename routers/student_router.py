@@ -4,7 +4,7 @@ from typing import List
 from models.student_schemas import (
     SuccessResponse, StudentAddRequest, StudentBulkAddRequest, StudentUpdateRequest, 
     SyncDiscordRequest, ChangeStatusRequest, StudentResponse,
-    StudentExportRequest, StudentStatusUpdate 
+    StudentExportRequest, StudentStatusUpdate, UserRoomResponse
 )
 from core.dependencies import get_db_pool, verify_api_key
 from services.student_service import StudentService, StudentNotFoundError, ForbiddenError
@@ -30,6 +30,12 @@ async def sync_discord(server_id: int, req: SyncDiscordRequest, pool: asyncpg.Po
         return SuccessResponse(message="Discord synced successfully.")
     except StudentNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/{discord_id}/rooms", response_model=List[UserRoomResponse])
+async def get_user_rooms(discord_id: int, pool = Depends(get_db_pool)):
+
+    rooms = await StudentService.get_user_rooms(pool, discord_id)
+    return rooms
 
 @router.patch("/{server_id}/students/{student_no}", response_model=SuccessResponse)
 async def update_student(

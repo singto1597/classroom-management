@@ -15,6 +15,19 @@ class ClassroomService:
         if not room_id: raise RoomNotFoundError(f"Room for server {server_id} not found.")
         return room_id
 
+    @classmethod
+    async def get_room_data(cls, pool, server_id: int):
+        async with pool.acquire() as conn:
+            room = await conn.fetchrow(
+                "SELECT server_id, room_name, announcement_channel_id, notify_time FROM rooms WHERE server_id = $1",
+                server_id
+            )
+            
+            if not room:
+                raise RoomNotFoundError(f"ไม่พบห้องที่มี server_id: {server_id}")
+            
+            return dict(room)
+
     @staticmethod
     async def _log_action(conn, room_id: int, user_name: str, action: str, detail: str):
         await conn.execute(
