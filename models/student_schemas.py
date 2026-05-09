@@ -16,6 +16,8 @@ class StudentStatusUpdate(BaseModel):
     status: str        # 'active' หรือ 'inactive'
     user_name: str
 
+class StudentDeleteRequest(BaseModel):
+    user_name: str
 
 # ==========================================
 # 1. สำหรับการเพิ่มข้อมูลแบบด่วน (Quick / Bulk Add)

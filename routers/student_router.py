@@ -4,7 +4,7 @@ from typing import List
 from models.student_schemas import (
     SuccessResponse, StudentAddRequest, StudentBulkAddRequest, StudentUpdateRequest, 
     SyncDiscordRequest, ChangeStatusRequest, StudentResponse,
-    StudentExportRequest, StudentStatusUpdate, UserRoomResponse
+    StudentExportRequest, StudentStatusUpdate, UserRoomResponse, StudentDeleteRequest
 )
 from core.dependencies import get_db_pool, verify_api_key
 from services.student_service import StudentService, StudentNotFoundError, ForbiddenError
@@ -54,6 +54,22 @@ async def update_student(
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/{server_id}/students/{student_no}", response_model=SuccessResponse)
+async def delete_student_permanent(
+    server_id: int, 
+    student_no: int, 
+    req: StudentDeleteRequest, 
+    x_discord_id: int = Header(..., description="Discord ID ของผู้สั่งลบ"),
+    pool: asyncpg.Pool = Depends(get_db_pool)
+):
+    try:
+        await StudentService.delete_student_permanent(pool, server_id, student_no, req.user_name, x_discord_id)
+        return SuccessResponse(message=f"Permanently deleted student No. {student_no}")
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except StudentNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/{server_id}/students/me", response_model=StudentResponse)
 async def get_my_profile(server_id: int, x_discord_id: int = Header(...), pool: asyncpg.Pool = Depends(get_db_pool)):

@@ -258,6 +258,27 @@ class StudentService:
                 await cls._log_action(conn, room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
     
     @classmethod
+    async def delete_student_permanent(cls, pool: asyncpg.Pool, server_id: int, student_no: int, user_name: str, requester_discord_id: int):
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                
+                # 🛡️ เช็คสิทธิ์: ต้องเป็นหัวหน้าหรือแอดมินเท่านั้นถึงจะลบถาวรได้!
+                await cls._check_is_leader(conn, room_id, requester_discord_id)
+                
+                # 💀 สั่งลบข้อมูลออกจาก Database จริงๆ
+                res = await conn.execute(
+                    "DELETE FROM students WHERE room_id = $1 AND student_no = $2",
+                    room_id, student_no
+                )
+                
+                if res == "DELETE 0":
+                    raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนเลขที่นี้ หรืออาจจะถูกลบไปแล้ว")
+                    
+                # 📜 บันทึก Log การกระทำ (สำคัญมาก ป้องกันหัวหน้าห้องแกล้งเพื่อน)
+                await cls._log_action(conn, room_id, user_name, "Hard Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} ออกจากฐานข้อมูลถาวร")
+
+    @classmethod
     async def get_user_rooms(cls, pool, discord_id: int):
         async with pool.acquire() as conn:
             query = """
