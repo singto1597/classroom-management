@@ -10,7 +10,6 @@ class StudentCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-
     # ระบบดักจับ Webhook จากครูชิตชัย (Essy Bot)
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
