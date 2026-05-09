@@ -22,13 +22,25 @@
             </thead>
             <tbody>
                 <?php foreach ($students as $s): 
+                    // 1. เช็คสถานะความสมบูรณ์ของข้อมูลสำหรับ Progress Bar
                     $percent = $s['data_completion']['percentage'] ?? 0;
                     $prog_color = ($percent == 100) ? 'bg-success' : (($percent > 50) ? 'bg-info' : 'bg-warning');
+                    
+                    // 2. 🚨 เช็คสถานะ Active/Inactive (ถ้าไม่มี status ให้ถือว่าเป็น active ไว้ก่อน)
+                    $is_active = (!isset($s['status']) || $s['status'] !== 'inactive');
+                    
+                    // 3. ปรับสไตล์แถว: ถ้าโดนลบ (inactive) ให้แถวจางลงและมีพื้นหลังเทาอ่อน
+                    $row_class = $is_active ? '' : 'opacity-50 bg-light';
                 ?>
-                <tr class="student-row" data-name="<?= h($s['first_name'].' '.$s['last_name']) ?>" data-no="<?= $s['student_no'] ?>">
+                <tr class="student-row <?= $row_class ?>" data-name="<?= h($s['first_name'].' '.$s['last_name']) ?>" data-no="<?= $s['student_no'] ?>">
                     <td class="ps-4 fw-bold">#<?= $s['student_no'] ?></td>
                     <td>
-                        <div class="fw-bold"><?= h($s['prefix'].$s['first_name'].' '.$s['last_name']) ?></div>
+                        <div class="fw-bold <?= !$is_active ? 'text-decoration-line-through text-muted' : '' ?>">
+                            <?= h($s['prefix'].$s['first_name'].' '.$s['last_name']) ?>
+                            <?php if (!$is_active): ?>
+                                <span class="badge bg-secondary ms-1" style="font-size: 0.65rem;">จำหน่ายแล้ว</span>
+                            <?php endif; ?>
+                        </div>
                         <small class="text-muted"><?= h($s['nickname'] ?: '-') ?></small>
                     </td>
                     <td><span class="badge bg-light text-dark border"><?= h($s['class_role']) ?></span></td>
@@ -41,15 +53,22 @@
                         </div>
                     </td>
                     <td class="text-end pe-4">
-                        <a href="index.php?page=students_profile&no=<?= $s['student_no'] ?>" class="btn btn-sm btn-outline-info shadow-sm">👁️ ดูข้อมูล</a>
+                        <a href="index.php?page=students_profile&no=<?= $s['student_no'] ?>" class="btn btn-sm btn-outline-info shadow-sm" title="ดูโปรไฟล์">👁️</a>
                         
                         <?php if ($_SESSION['role'] !== 'student'): ?>
-                            <a href="index.php?page=students_edit&no=<?= $s['student_no'] ?>" class="btn btn-sm btn-outline-primary shadow-sm">✏️</a>
+                            <a href="index.php?page=students_edit&no=<?= $s['student_no'] ?>" class="btn btn-sm btn-outline-primary shadow-sm" title="แก้ไข">✏️</a>
+                            
                             <form method="POST" action="index.php?page=students_action" class="d-inline">
                                 <input type="hidden" name="student_no" value="<?= $s['student_no'] ?>">
                                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                                <input type="hidden" name="status" value="inactive">
-                                <button type="submit" class="btn btn-sm btn-outline-danger shadow-sm" onclick="return confirm('จำหน่ายนักเรียนคนนี้ออก?')">🗑️</button>
+                                
+                                <?php if ($is_active): ?>
+                                    <input type="hidden" name="status" value="inactive">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger shadow-sm" onclick="return confirm('ยืนยันการจำหน่ายนักเรียนเลขที่ <?= $s['student_no'] ?> ออกจากห้อง?')">🗑️</button>
+                                <?php else: ?>
+                                    <input type="hidden" name="status" value="active">
+                                    <button type="submit" class="btn btn-sm btn-outline-success shadow-sm" onclick="return confirm('ต้องการดึงนักเรียนเลขที่ <?= $s['student_no'] ?> กลับเข้าระบบใช่หรือไม่?')">♻️</button>
+                                <?php endif; ?>
                             </form>
                         <?php endif; ?>
                     </td>
