@@ -68,7 +68,7 @@
                         <div class="display-4 mb-0">🗺️</div>
                         <div>
                             <h4 class="fw-bold mb-1 text-white">Class Roadmap & Committee</h4>
-                            <p class="mb-0 text-light opacity-75">ดูแผนผังองค์กร และทำเนียบคณะกรรมการห้อง SMTE</p>
+                            <p class="mb-0 text-light opacity-75">ดูแผนคณะกรรมการห้อง</p>
                         </div>
                     </div>
                     <div>
