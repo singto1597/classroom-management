@@ -10,68 +10,86 @@ class StudentCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # ระบบดักจับ Webhook จากครูชิตชัย (Essy Bot)
+    # ระบบดักจับข้อความประกาศ (อ่านทุกคน)
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        # บอทจะไม่คุยกับตัวเอง
         if message.author == self.bot.user:
             return
 
-        if message.author.bot and "Essy Bot" in message.author.name:
-            text = message.content
-            
-            if "📢 ประกาศใหม่" in text:
+        text = message.content
+        
+        # เช็คแค่ว่ามีคีย์เวิร์ดพวกนี้อยู่ในข้อความมั้ย (ไม่ต้องสนว่าเป็นบอทหรือคนพิมพ์)
+        if "ประกาศใหม่" in text and "หัวข้อ:" in text and "กำหนดส่ง" in text:
+            try:
+                # 🧹 ทริคเด็ด: ล้างพวกสัญลักษณ์ตัวหนา (**) ออกให้หมด จะได้จับ Regex ง่ายๆ
+                clean_text = text.replace('*', '')
+
+                # ใช้ Regex จับข้อมูล โดยไม่ต้องสนอิโมจิด้านหน้า
+                topic_match = re.search(r"หัวข้อ:\s*(.+)", clean_text)
+                type_match = re.search(r"ประเภท:\s*(.+)", clean_text)
+                
+                # รายละเอียดอาจมีหลายบรรทัด ให้กวาดจนกว่าจะเจอคำว่า กำหนดส่ง
+                detail_match = re.search(r"รายละเอียด:\s*(.*?)(?=\n.*?กำหนดส่ง/วันที่:|$)", clean_text, re.DOTALL)
+                date_match = re.search(r"กำหนดส่ง/วันที่:\s*(\d{2}/\d{2}/\d{4})", clean_text)
+
+                # ถ้าจับข้อมูลที่จำเป็นได้ไม่ครบ ให้ปล่อยผ่านไป
+                if not (topic_match and type_match and detail_match and date_match):
+                    return
+
+                topic = topic_match.group(1).strip()
+                msg_type = type_match.group(1).strip()
+                detail = detail_match.group(1).strip()
+                date_str = date_match.group(1).strip()
+                
+                d, m, y = date_str.split('/')
+                db_date = f"{y}-{m}-{d}"
+
+                server_id = message.guild.id
+                
+                # บันทึกชื่อคนที่พิมพ์ประกาศจริงๆ (ถ้าบอทพิมพ์ ก็จะเป็นชื่อบอท)
+                payload = {"user_name": str(message.author.name)}
+
                 try:
-                    topic = re.search(r"📌 หัวข้อ:\s*(.+)", text).group(1).strip()
-                    msg_type = re.search(r"🏷️ ประเภท:\s*(.+)", text).group(1).strip()
-                    detail = re.search(r"📝 รายละเอียด:\s*(.+)", text).group(1).strip()
-                    
-                    date_str = re.search(r"📅 กำหนดส่ง/วันที่:\s*(\d{2}/\d{2}/\d{4})", text).group(1).strip()
-                    d, m, y = date_str.split('/')
-                    db_date = f"{y}-{m}-{d}"
+                    room_data = await api_client.request("GET", f"/{server_id}")
+                    main_channel_id = room_data.get('announcement_channel_id')
+                    main_channel = self.bot.get_channel(main_channel_id) if main_channel_id else None
+                except:
+                    main_channel = None
 
-                    server_id = message.guild.id
-                    payload = {"user_name": "Essy_Bot_Sync"}
+                # 📝 ลอจิกแยกประเภท: งาน vs ประกาศทั่วไป
+                if "งาน" in msg_type or "การบ้าน" in msg_type:
+                    payload.update({
+                        "task_name": topic,
+                        "task_detail": detail,
+                        "due_date": db_date
+                    })
+                    await api_client.request("POST", f"/{server_id}/tasks", json=payload)
+                    await message.add_reaction("✅") 
 
-                    try:
-                        room_data = await api_client.request("GET", f"/{server_id}")
-                        main_channel_id = room_data.get('announcement_channel_id')
-                        main_channel = self.bot.get_channel(main_channel_id) if main_channel_id else None
-                    except:
-                        main_channel = None
+                    # ถ้ามีช่องประกาศหลัก และไม่ได้สั่งจากช่องนั้น ให้ไปตะโกนบอก
+                    if main_channel and message.channel.id != main_channel_id:
+                        embed = discord.Embed(title="🚨 มีงานใหม่เข้าตาราง!", description=f"ดึงงานเข้าตารางให้เรียบร้อยแล้ว ไม่ต้องเหนื่อยพิมพ์!", color=discord.Color.green())
+                        embed.add_field(name="📌 ชื่องาน", value=topic, inline=False)
+                        embed.add_field(name="📅 กำหนดส่ง", value=f"{d}/{m}/{y}", inline=True)
+                        await main_channel.send(content="<@&ROLE_ID_EVERYONE> เห้ยพวกมึง!", embed=embed)
 
-                    if "งาน / การบ้าน" in msg_type:
-                        payload.update({
-                            "task_name": topic,
-                            "task_detail": detail,
-                            "due_date": db_date
-                        })
-                        await api_client.request("POST", f"/{server_id}/tasks", json=payload)
-                        
-                        await message.add_reaction("✅") 
+                else: # ถ้าเป็นประกาศทั่วไป (แจ้งเตือนพิเศษ)
+                    payload.update({
+                        "target_date": db_date,
+                        "bring_items": "-", 
+                        "announcement": f"[{topic}] {detail}"
+                    })
+                    await api_client.request("POST", f"/{server_id}/notes", json=payload)
+                    await message.add_reaction("📌") 
 
-                        if main_channel:
-                            embed = discord.Embed(title="🚨 มีงานใหม่เข้าตาราง!", description=f"กูดึงงานจากระบบครูชิตชัยมาใส่ตารางให้พวกมึงเรียบร้อยแล้ว ไม่ต้องเหนื่อยพิมพ์!", color=discord.Color.green())
-                            embed.add_field(name="📌 ชื่องาน", value=topic, inline=False)
-                            embed.add_field(name="📅 กำหนดส่ง", value=f"{d}/{m}/{y}", inline=True)
-                            await main_channel.send(content="<@&ROLE_ID_EVERYONE> เห้ยพวกมึง!", embed=embed)
+                    if main_channel and message.channel.id != main_channel_id:
+                        embed = discord.Embed(title="📌 มีประกาศใหม่เข้าตาราง!", description=f"อัปเดตโน้ตรายวันให้แล้ว เข้าไปดูตารางพรุ่งนี้ได้เลย!", color=discord.Color.gold())
+                        embed.add_field(name="หัวข้อ", value=topic, inline=False)
+                        await main_channel.send(embed=embed)
 
-                    elif "แจ้งเตือนพิเศษ" in msg_type:
-                        payload.update({
-                            "target_date": db_date,
-                            "bring_items": "-", 
-                            "announcement": f"[{topic}] {detail}"
-                        })
-                        await api_client.request("POST", f"/{server_id}/notes", json=payload)
-                        
-                        await message.add_reaction("📌") 
-
-                        if main_channel:
-                            embed = discord.Embed(title="📌 มีประกาศใหม่เข้าตาราง!", description=f"อัปเดตโน้ตรายวันให้แล้ว เข้าไปดูตารางพรุ่งนี้ได้เลย!", color=discord.Color.gold())
-                            embed.add_field(name="หัวข้อ", value=topic, inline=False)
-                            await main_channel.send(embed=embed)
-
-                except Exception as e:
-                    print(f"⚠️ ซิงค์ข้อมูลจาก Essy Bot ไม่สำเร็จ: {e}")
+            except Exception as e:
+                print(f"⚠️ กวาดข้อมูลจากข้อความไม่สำเร็จ: {e}")
 
     @app_commands.command(name="sync_me", description="ผูก Discord ของคุณเข้ากับเลขที่นักเรียน (ทำครั้งแรกครั้งเดียว)")
     async def sync_me(self, interaction: discord.Interaction, student_no: int):
