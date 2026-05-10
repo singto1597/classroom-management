@@ -62,17 +62,17 @@
 
     <div class="col-12 mt-3">
         <a href="index.php?page=roadmap" class="text-decoration-none">
-            <div class="card shadow-sm border-0 rounded-4 bg-gradient" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
-                <div class="card-body p-4 d-flex align-items-center justify-content-between text-white">
+            <div class="card shadow-sm border-0 rounded-4 bg-dark text-white" style="transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                <div class="card-body p-4 d-flex align-items-center justify-content-between">
                     <div class="d-flex align-items-center gap-3">
                         <div class="display-4 mb-0">🗺️</div>
                         <div>
                             <h4 class="fw-bold mb-1 text-white">Class Roadmap & Committee</h4>
-                            <p class="mb-0 opacity-75">ดูแผนผังองค์กร และทำเนียบคณะกรรมการห้อง SMTE</p>
+                            <p class="mb-0 text-light opacity-75">ดูแผนผังองค์กร และทำเนียบคณะกรรมการห้อง SMTE</p>
                         </div>
                     </div>
                     <div>
-                        <i class="bi bi-arrow-right-circle-fill fs-1 opacity-75"></i>
+                        <i class="bi bi-arrow-right-circle-fill text-white fs-1 opacity-75"></i>
                     </div>
                 </div>
             </div>

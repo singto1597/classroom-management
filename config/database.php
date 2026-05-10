@@ -18,12 +18,12 @@ session_set_cookie_params([
 session_start();
 
 // จำลอง Session ไปก่อน (เดี๋ยวเราค่อยมาทำ Login ด้วย Discord ทับตรงนี้)
-if (!isset($_SESSION['room_id'])) {
-    $_SESSION['room_id'] = 1500761770468315248; // 🚨 เปลี่ยนเป็น Discord Server ID ของห้องมึง
-    $_SESSION['user_name'] = 'Web_Admin_Demo';
-    $_SESSION['role'] = 'leader';
-    $_SESSION['discord_id'] = 1090855069462843403; // 🚨 ใส่ Discord ID มึงไว้เทสก่อน
-}
+// if (!isset($_SESSION['room_id'])) {
+//     $_SESSION['room_id'] = 1500761770468315248; // 🚨 เปลี่ยนเป็น Discord Server ID ของห้องมึง
+//     $_SESSION['user_name'] = 'Web_Admin_Demo';
+//     $_SESSION['role'] = 'leader';
+//     $_SESSION['discord_id'] = 1090855069462843403; // 🚨 ใส่ Discord ID มึงไว้เทสก่อน
+// }
 
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
