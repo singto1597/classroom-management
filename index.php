@@ -104,6 +104,12 @@ switch ($page) {
         $controller = new StudentController();
         $controller->profile();
         break;
+    
+    case 'roadmap':
+        require_once 'controllers/StudentController.php';
+        $controller = new StudentController();
+        $controller->showRoadmap();
+        break;
 
     case 'logs':
         require_once 'controllers/LogController.php';

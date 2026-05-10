@@ -232,5 +232,37 @@ class StudentController {
         // ถ้าเป็น GET Request (แค่กดเข้ามาดูหน้าเว็บ) ให้โชว์ไฟล์ UI ด้านล่างนี้
         require 'views/students/export.php';
     }
+
+    public function showRoadmap() {
+        $room_id = $_SESSION['room_id'];
+        $discord_id = $_SESSION['discord_id'];
+
+        try {
+            // 1. ยิง API ไปดึงนักเรียนทั้งห้อง
+            $students_raw = $this->api->request('GET', "{$room_id}/students", [
+                'headers' => ['X-Discord-Id' => (string)$discord_id]
+            ]);
+
+            // 2. ใช้ array_map กรองเอาแค่ "ชื่อเล่น" (หรือชื่อจริงถ้าไม่มีชื่อเล่น) และ "ตำแหน่ง"
+            $committee_map = array_map(function($s) {
+                return [
+                    'name' => !empty($s['nickname']) ? $s['nickname'] : $s['first_name'],
+                    'role' => $s['class_role'],
+                    'status' => $s['status'] ?? 'active'
+                ];
+            }, $students_raw);
+
+            // 3. กรองเอาเฉพาะคนที่เป็น "กรรมการ" (ตัดนักเรียนธรรมดา และคนที่โดนจำหน่ายออก)
+            $committee_data = array_filter($committee_map, function($c) {
+                return $c['role'] !== 'student' && $c['status'] !== 'inactive';
+            });
+
+            // 4. โหลดหน้า UI
+            require 'views/roadmap.php';
+
+        } catch (Exception $e) {
+            abort("ไม่สามารถดึงข้อมูลแผนผังได้: " . $e->getMessage());
+        }
+    }
 }
 ?>
