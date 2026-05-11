@@ -117,6 +117,28 @@ switch ($page) {
         $controller->index();
         break;
 
+
+    case 'finance_dashboard':
+    case 'finance_accounts':
+    case 'finance_transactions':
+    case 'finance_transactions_add':
+    case 'finance_collections':
+    case 'finance_collections_view':
+    case 'finance_debtors':
+    case 'finance_action': // สำหรับรับ POST action ต่างๆ
+        require_once 'controllers/FinanceController.php';
+        $controller = new FinanceController();
+        
+        if ($page === 'finance_dashboard') $controller->dashboard();
+        if ($page === 'finance_accounts') $controller->accountsAndCategories();
+        if ($page === 'finance_transactions') $controller->transactionHistory();
+        if ($page === 'finance_transactions_add') $controller->addTransactionForm();
+        if ($page === 'finance_collections') $controller->collectionsList();
+        if ($page === 'finance_collections_view') $controller->collectionView();
+        if ($page === 'finance_debtors') $controller->debtorsList();
+        if ($page === 'finance_action') $controller->handleAction();
+        break;
+
     default:
         echo "<div class='text-center mt-5'><h1>404 Not Found</h1><p>หาหน้านี้ไม่เจอจ้า</p></div>";
         break;

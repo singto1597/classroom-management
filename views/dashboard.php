@@ -60,15 +60,41 @@
         </div>
     </div>
 
-    <div class="col-12 mt-3">
+    <div class="col-12 mt-2">
+        <div class="card shadow-sm border-0 rounded-4 overflow-hidden" style="background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);">
+            <div class="card-body p-4">
+                <div class="row align-items-center">
+                    <div class="col-md-7">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="display-5 mb-0">💰</div>
+                            <div>
+                                <h4 class="fw-bold mb-1 text-dark">ระบบจัดการเงินห้อง (Finance)</h4>
+                                <p class="mb-0 text-dark opacity-75">จัดการรายรับ-รายจ่าย, เรียกเก็บค่าชีท, และติดตามคนค้างจ่าย</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-5 text-md-end mt-3 mt-md-0">
+                        <div class="d-flex flex-wrap justify-content-md-end gap-2">
+                            <a href="index.php?page=finance_dashboard" class="btn btn-dark fw-bold rounded-pill px-4 shadow-sm">📊 สรุปยอดเงิน</a>
+                            <a href="index.php?page=finance_transactions" class="btn btn-white bg-white text-dark fw-bold rounded-pill px-4 shadow-sm">📜 ประวัติรับ-จ่าย</a>
+                            <a href="index.php?page=finance_collections" class="btn btn-white bg-white text-dark fw-bold rounded-pill px-4 shadow-sm">📦 โปรเจกต์เก็บเงิน</a>
+                            <a href="index.php?page=finance_debtors" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">🤬 ทวงหนี้รวม</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 mt-2">
         <a href="index.php?page=roadmap" class="text-decoration-none">
-            <div class="card shadow-sm border-0 rounded-4 bg-dark text-white" style="transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+            <div class="card shadow-sm border-0 rounded-4 bg-dark text-white" style="transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.01)'" onmouseout="this.style.transform='scale(1)'">
                 <div class="card-body p-4 d-flex align-items-center justify-content-between">
                     <div class="d-flex align-items-center gap-3">
                         <div class="display-4 mb-0">🗺️</div>
                         <div>
                             <h4 class="fw-bold mb-1 text-white">Class Roadmap & Committee</h4>
-                            <p class="mb-0 text-light opacity-75">ดูแผนคณะกรรมการห้อง</p>
+                            <p class="mb-0 text-light opacity-75">ดูแผนคณะกรรมการห้องและการบริหารจัดการ</p>
                         </div>
                     </div>
                     <div>

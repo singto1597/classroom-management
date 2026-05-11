@@ -1,0 +1,76 @@
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm rounded-4 bg-primary text-white p-4">
+            <h6 class="opacity-75">ยอดเงินคงเหลือรวม (Net Worth)</h6>
+            <h2 class="fw-bold mb-0">฿<?= number_format($summary['net_worth'], 2) ?></h2>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm rounded-4 bg-success text-white p-4">
+            <h6 class="opacity-75">รายรับ (<?= h($summary['period']) ?>)</h6>
+            <h2 class="fw-bold mb-0">฿<?= number_format($summary['total_income'], 2) ?></h2>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm rounded-4 bg-danger text-white p-4">
+            <h6 class="opacity-75">รายจ่าย (<?= h($summary['period']) ?>)</h6>
+            <h2 class="fw-bold mb-0">฿<?= number_format($summary['total_expense'], 2) ?></h2>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm rounded-4 p-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h5 class="fw-bold mb-0">กระเป๋าเงินห้อง</h5>
+                <a href="index.php?page=finance_accounts" class="btn btn-sm btn-light rounded-pill">จัดการบัญชี</a>
+            </div>
+            <div class="row g-3">
+                <?php foreach ($accounts as $acc): ?>
+                <div class="col-md-6">
+                    <div class="p-3 border rounded-4 d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="text-muted d-block small">ชื่อบัญชี</span>
+                            <span class="fw-bold"><?= h($acc['account_name']) ?></span>
+                        </div>
+                        <div class="text-end">
+                            <span class="text-muted d-block small">คงเหลือ</span>
+                            <span class="text-primary fw-bold">฿<?= number_format($acc['balance'], 2) ?></span>
+                        </div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+            <h5 class="fw-bold mb-4 text-center">สัดส่วนรายจ่ายเดือนนี้</h5>
+            <canvas id="expenseChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const ctx = document.getElementById('expenseChart').getContext('2d');
+const breakdown = <?= json_encode($summary['expense_breakdown']) ?>;
+
+new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: breakdown.map(i => i.category_name),
+        datasets: [{
+            data: breakdown.map(i => i.total_amount),
+            backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'],
+            hoverOffset: 4
+        }]
+    },
+    options: {
+        plugins: { legend: { position: 'bottom' } },
+        cutout: '70%'
+    }
+});
+</script>

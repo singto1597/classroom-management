@@ -30,13 +30,16 @@ class ApiClient {
             $response = $this->client->request($method, $endpoint, $options);
             return json_decode($response->getBody(), true);
         } catch (RequestException $e) {
-            // ดัก Error สวยๆ ถ้า Backend ด่ากลับมา
+            // 🔴 แก้ตรงนี้! เปลี่ยนจาก abort() เป็น throw new Exception()
             if ($e->hasResponse()) {
                 $errorBody = json_decode($e->getResponse()->getBody(), true);
                 $detail = $errorBody['detail'] ?? 'เกิดข้อผิดพลาดจาก API';
-                abort("API Error: " . $detail);
+                
+                // โยน Error กลับไปให้ Controller จัดการ!
+                throw new Exception($detail);
             } else {
-                abort("ไม่สามารถเชื่อมต่อกับ Backend ได้: " . $e->getMessage());
+                // โยน Error กรณีเซิร์ฟเวอร์ Python ดับ
+                throw new Exception("ไม่สามารถเชื่อมต่อกับ Backend ได้: " . $e->getMessage());
             }
         }
     }

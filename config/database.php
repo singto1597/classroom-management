@@ -17,13 +17,14 @@ session_set_cookie_params([
 
 session_start();
 
-// จำลอง Session ไปก่อน (เดี๋ยวเราค่อยมาทำ Login ด้วย Discord ทับตรงนี้)
-// if (!isset($_SESSION['room_id'])) {
-//     $_SESSION['room_id'] = 1500761770468315248; // 🚨 เปลี่ยนเป็น Discord Server ID ของห้องมึง
-//     $_SESSION['user_name'] = 'Web_Admin_Demo';
-//     $_SESSION['role'] = 'leader';
-//     $_SESSION['discord_id'] = 1090855069462843403; // 🚨 ใส่ Discord ID มึงไว้เทสก่อน
-// }
+// 🚀 [Dev Mode] จำลอง Session ข้ามการ Login ถ้าอยู่ในโหมด local
+//if (isset($_ENV['APP_ENV']) && $_ENV['APP_ENV'] === 'local' && !isset($_SESSION['room_id'])) {
+//    $_SESSION['room_id']    = $_ENV['MOCK_ROOM_ID'] ?? '1500761770468315248';
+//    $_SESSION['room_name']  = '401 SMTE 20'; // จำลองชื่อห้อง
+//    $_SESSION['role']       = 'leader';         // จำลองสิทธิ์แอดมินไปเลย จะได้เทสได้ทุกฟังก์ชัน
+//    $_SESSION['user_name']  = 'singto1597';
+//    $_SESSION['discord_id'] = $_ENV['MOCK_DISCORD_ID'] ?? '1090855069462843403';
+//}
 
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
