@@ -67,6 +67,8 @@ class StudentPaymentSummary(BaseModel):
 class StudentPaymentDetail(BaseModel):
     payment_id: int
     status: str
+    paid_amount: float 
+    total_amount: float
     paid_at: Optional[datetime]
     slip_image_url: Optional[str]
     student_no: int

@@ -202,44 +202,61 @@ class FinanceService:
                 valid_account = await conn.fetchval("SELECT id FROM finance_accounts WHERE id = $1 AND room_id = $2", req.paid_to_account_id, room_id)
                 if not valid_account: raise ValueError("กระเป๋าเงินที่เลือกรับเงิน ไม่มีอยู่ หรือไม่ใช่ของห้องนี้!")
 
-                # ดึงข้อมูล Collection และ Student (ทำ Dynamic Description)
+                # ดึงข้อมูล Collection และ Student (ดึง paid_amount เดิมมาด้วยเพื่อบวกทบ)
                 payment_info = await conn.fetchrow(
-                    """SELECT FC.amount, FC.title, S.first_name, S.nickname 
+                    """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title, S.first_name, S.nickname 
                        FROM student_payments SP
                        JOIN fee_collections FC ON SP.collection_id = FC.id
                        JOIN students S ON SP.student_id = S.id
-                       WHERE SP.id = $1 AND SP.status = 'pending' AND FC.room_id = $2 FOR UPDATE""", 
+                       WHERE SP.id = $1 AND FC.room_id = $2 FOR UPDATE""", 
                     payment_id, room_id 
                 )
-                if not payment_info: raise PaymentNotFoundError("ไม่พบรายการนี้ หรือเพื่อนอาจจะจ่ายไปแล้ว")
-                if req.paid_amount < payment_info['amount']: raise ValueError(f"จ่ายไม่ครบ! ต้องชำระ {payment_info['amount']} บาท")
+                if not payment_info: raise PaymentNotFoundError("ไม่พบรายการนี้")
+                
+                current_paid = float(payment_info['current_paid'])
+                total_amount = float(payment_info['total_amount'])
 
-                # สร้างชื่อคนจ่าย
+                # ถ้าจ่ายครบไปแล้ว ห้ามจ่ายซ้ำ!
+                if current_paid >= total_amount:
+                    raise ValueError("บิลนี้จ่ายครบไปเรียบร้อยแล้วครับ!")
+
+                # --- 🌟 โลจิกใหม่: ระบบทยอยจ่าย (สะสมยอด) ---
+                new_total_paid = current_paid + req.paid_amount
+                
+                # เช็คว่ายอดใหม่ที่จ่ายรวมกัน ครบตามกำหนดหรือยัง?
+                if new_total_paid >= total_amount:
+                    new_status = 'paid'
+                    status_msg = "จ่ายครบแล้ว"
+                else:
+                    new_status = 'pending' 
+                    # 🔴 ใช้ total_amount ที่เป็น float แล้วมาลบ
+                    status_msg = f"ทยอยจ่าย (ขาดอีก {total_amount - new_total_paid} ฿)"
+
+                # สร้างชื่อคนจ่ายและรายละเอียด
                 stu_name = payment_info['first_name']
                 if payment_info['nickname']: stu_name += f" ({payment_info['nickname']})"
-                dynamic_desc = f"รับเงิน: {payment_info['title']} จาก {stu_name}"
-
+                dynamic_desc = f"รับเงิน: {payment_info['title']} จาก {stu_name} [{status_msg}]"
                 # 1. บันทึก Transaction ลงบัญชีก่อน เพื่อเอา ID (RETURNING id)
                 trans_id = await conn.fetchval(
                     """INSERT INTO finance_transactions 
-                       (room_id, account_id, amount, description, transaction_type, slip_image_url, recorded_by) 
-                       VALUES ($1, $2, $3, $4, 'income', $5, $6) RETURNING id""",
-                    room_id, req.paid_to_account_id, req.paid_amount, dynamic_desc, req.slip_image_url, req.user_name
+                       (room_id, account_id, amount, description, transaction_type, slip_image_url, recorded_by, student_payment_id) 
+                       VALUES ($1, $2, $3, $4, 'income', $5, $6, $7) RETURNING id""",
+                    room_id, req.paid_to_account_id, req.paid_amount, dynamic_desc, req.slip_image_url, req.user_name, payment_id # 👈 เติม payment_id ตรงนี้
                 )
                 
                 # 2. เพิ่มเงินเข้ากระเป๋า
                 await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", req.paid_amount, req.paid_to_account_id)
 
-                # 3. อัปเดตสถานะการจ่าย และผูก transaction_id ติดไว้!
+                # 3. อัปเดตสถานะการจ่าย (บวกยอดเงิน และเปลี่ยนสถานะ)
                 await conn.execute(
                     """UPDATE student_payments 
-                       SET status = 'paid', paid_amount = $1, paid_to_account_id = $2, 
-                           slip_image_url = $3, recorded_by = $4, paid_at = NOW(), transaction_id = $5 
-                       WHERE id = $6""",
-                    req.paid_amount, req.paid_to_account_id, req.slip_image_url, req.user_name, trans_id, payment_id
+                       SET status = $1, paid_amount = $2, paid_to_account_id = $3, 
+                           slip_image_url = $4, recorded_by = $5, paid_at = NOW(), transaction_id = $6 
+                       WHERE id = $7""",
+                    new_status, new_total_paid, req.paid_to_account_id, req.slip_image_url, req.user_name, trans_id, payment_id
                 )
                 
-                return {"status": "success", "message": "ยืนยันการรับเงินสำเร็จ"}
+                return {"status": "success", "message": f"รับเงินสำเร็จ! สถานะ: {status_msg}"}
 
     @classmethod
     async def get_collection_status(cls, pool: asyncpg.Pool, server_id: int, collection_id: int) -> dict:
@@ -247,10 +264,12 @@ class FinanceService:
             room_id = await cls._get_room_id(conn, server_id)
             sql = """
                 SELECT 
-                    SP.id as payment_id, SP.status, SP.paid_at, SP.slip_image_url,
-                    S.student_no, S.first_name, S.last_name, S.nickname
+                    SP.id as payment_id, SP.status, SP.paid_amount, SP.paid_at, SP.slip_image_url,
+                    S.student_no, S.first_name, S.last_name, S.nickname,
+                    FC.amount as total_amount
                 FROM student_payments SP
                 JOIN students S ON SP.student_id = S.id
+                JOIN fee_collections FC ON SP.collection_id = FC.id
                 WHERE SP.collection_id = $1 AND S.room_id = $2
                 ORDER BY S.student_no ASC
             """
@@ -302,15 +321,15 @@ class FinanceService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 
+                # 🔴 FIX: ดึง student_payment_id มาด้วย
                 t = await conn.fetchrow(
-                    "SELECT account_id, amount, transaction_type, transfer_group_id FROM finance_transactions WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
+                    "SELECT account_id, amount, transaction_type, transfer_group_id, student_payment_id FROM finance_transactions WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
                     transaction_id, room_id
                 )
                 if not t: raise TransactionNotFoundError("ไม่พบรายการธุรกรรมนี้ หรือถูกยกเลิกไปแล้ว")
 
-                # กรณีเป็นรายการ "โอนเงิน"
                 if t['transfer_group_id']:
-
+                    # ... (โค้ดจัดการโอนเงิน เหมือนเดิม ปล่อยไว้) ...
                     group_trans = await conn.fetch(
                         "SELECT id, account_id, amount, transaction_type FROM finance_transactions WHERE transfer_group_id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
                         t['transfer_group_id'], room_id
@@ -319,7 +338,6 @@ class FinanceService:
                         if gt['transaction_type'] == 'expense': 
                             await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", gt['amount'], gt['account_id'])
                         elif gt['transaction_type'] == 'income': 
-
                             curr_bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 FOR UPDATE", gt['account_id'])
                             if curr_bal < gt['amount']:
                                 raise ValueError(f"ไม่สามารถยกเลิกได้! เงินในบัญชีรับโอนไม่พอหักคืน (เหลือ {curr_bal} แต่ต้องดึงกลับ {gt['amount']})")
@@ -328,26 +346,38 @@ class FinanceService:
                     await conn.execute("UPDATE finance_transactions SET deleted_at = NOW() WHERE transfer_group_id = $1 AND room_id = $2", t['transfer_group_id'], room_id)
                     action_detail = "ยกเลิกรายการโอนเงินและคืนยอด"
                 
-                # กรณีรายรับ-รายจ่ายปกติ
                 else:
                     if t['transaction_type'] == 'income': 
-
                         curr_bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 FOR UPDATE", t['account_id'])
                         if curr_bal < t['amount']:
                             raise ValueError(f"ไม่สามารถยกเลิกได้! ยอดเงินในบัญชีไม่พอหักคืน (เหลือ {curr_bal} ต้องหัก {t['amount']})")
                         await conn.execute("UPDATE finance_accounts SET balance = balance - $1 WHERE id = $2", t['amount'], t['account_id'])
                         
-                        await conn.execute(
-                            """UPDATE student_payments 
-                               SET status = 'pending', paid_amount = 0.0, paid_to_account_id = NULL, 
-                                   slip_image_url = NULL, paid_at = NULL, transaction_id = NULL
-                               WHERE transaction_id = $1""",
-                            transaction_id
-                        )
+                        # ==========================================
+                        # 🌟 ลอจิกใหม่: ลบแบบหักยอดสะสม (สำหรับแคมเปญทยอยจ่าย)
+                        # ==========================================
+                        if t['student_payment_id']:
+                            sp_id = t['student_payment_id']
+                            sp_info = await conn.fetchrow(
+                                """SELECT SP.paid_amount, FC.amount as total_amount
+                                   FROM student_payments SP
+                                   JOIN fee_collections FC ON SP.collection_id = FC.id
+                                   WHERE SP.id = $1 FOR UPDATE""", sp_id
+                            )
+                            # หักยอดเงินของรายการนี้ออกจาดบิล
+                            new_paid = float(sp_info['paid_amount']) - float(t['amount'])
+                            # คำนวณสถานะใหม่ ถ้าหักแล้วยังครบอยู่ก็รอด ถ้าไม่ครบตีกลับเป็น pending
+                            new_status = 'paid' if new_paid >= float(sp_info['total_amount']) else 'pending'
+
+                            await conn.execute(
+                                "UPDATE student_payments SET paid_amount = $1, status = $2 WHERE id = $3",
+                                new_paid, new_status, sp_id
+                            )
 
                     elif t['transaction_type'] == 'expense': 
                         await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", t['amount'], t['account_id'])
                     
+                    # Soft Delete รายการออกจากประวัติ
                     await conn.execute("UPDATE finance_transactions SET deleted_at = NOW() WHERE id = $1", transaction_id)
                     action_detail = f"ยกเลิกรายการ {t['transaction_type']} ยอด {t['amount']} บาท"
 

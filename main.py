@@ -226,7 +226,9 @@ async def lifespan(app: FastAPI):
                     UNIQUE(collection_id, student_id)
                 );
             """)
+            await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
+            
             logger.info("✅ Database Tables Initialized/Verified!")
 
     except Exception as e:
