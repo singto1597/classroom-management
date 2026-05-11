@@ -8,6 +8,7 @@ from core.config import settings
 from routers import classroom_sync_router
 from routers import maintenance_router
 from routers import student_router
+from routers import finance_router
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -165,6 +166,66 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+
+            # --- ใส่เพิ่มใน main.py ใต้ CREATE TABLE students ---
+            await conn.execute("""
+                -- สร้าง Sequence สำหรับจับคู่โอนเงิน (แก้ปัญหา Race Condition)
+                CREATE SEQUENCE IF NOT EXISTS transfer_group_id_seq;
+
+                CREATE TABLE IF NOT EXISTS finance_categories (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+                    category_name TEXT NOT NULL,
+                    category_type TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS finance_accounts (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+                    account_name TEXT NOT NULL,
+                    balance DECIMAL DEFAULT 0.0
+                );
+
+                CREATE TABLE IF NOT EXISTS fee_collections (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    amount DECIMAL NOT NULL,
+                    due_date DATE,
+                    status TEXT DEFAULT 'active'
+                );
+
+                -- 🌟 ต้องสร้าง finance_transactions ก่อน เพราะ student_payments จะอ้างอิงถึง
+                CREATE TABLE IF NOT EXISTS finance_transactions (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+                    account_id INTEGER REFERENCES finance_accounts(id) ON DELETE SET NULL,
+                    category_id INTEGER REFERENCES finance_categories(id) ON DELETE SET NULL,
+                    amount DECIMAL NOT NULL,
+                    description TEXT,
+                    transaction_type TEXT,
+                    slip_image_url TEXT,
+                    transfer_group_id INTEGER,
+                    recorded_by TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS student_payments (
+                    id SERIAL PRIMARY KEY,
+                    collection_id INTEGER REFERENCES fee_collections(id) ON DELETE CASCADE,
+                    student_id INTEGER REFERENCES students(id) ON DELETE CASCADE,
+                    status TEXT DEFAULT 'pending',
+                    paid_amount DECIMAL DEFAULT 0.0,
+                    paid_to_account_id INTEGER REFERENCES finance_accounts(id),
+                    slip_image_url TEXT,
+                    recorded_by TEXT,
+                    paid_at TIMESTAMP DEFAULT NULL,
+                    transaction_id INTEGER REFERENCES finance_transactions(id) ON DELETE SET NULL,
+                    
+                    UNIQUE(collection_id, student_id)
+                );
+            """)
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
             logger.info("✅ Database Tables Initialized/Verified!")
 
@@ -189,6 +250,8 @@ app = FastAPI(
 app.include_router(classroom_sync_router.router, prefix="/api/classroom", tags=["Classroom"])
 app.include_router(maintenance_router.router, prefix="/api/maintenance", tags=["Maintenance"])
 app.include_router(student_router.router, prefix="/api/classroom", tags=["Students"])
+app.include_router(finance_router.router, prefix="/api/classroom", tags=["Finance"])
+
 
 @app.get("/health", tags=["Health"])
 async def health_check():
