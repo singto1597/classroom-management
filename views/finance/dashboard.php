@@ -3,7 +3,7 @@
     <form method="GET" class="d-flex gap-2">
         <input type="hidden" name="page" value="finance_dashboard">
         <select name="month" class="form-select rounded-pill border-0 shadow-sm px-3">
-            <?php for($m=1; $month <= 12; $m++): ?>
+            <?php for($m=1; $m <= 12; $m++): ?>
                 <option value="<?= $m ?>" <?= ($summary['period'] == date('Y-').sprintf('%02d', $m)) ? 'selected' : '' ?>>เดือน <?= $m ?></option>
             <?php endfor; ?>
         </select>
