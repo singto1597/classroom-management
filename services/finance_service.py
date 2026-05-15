@@ -1,5 +1,6 @@
 import asyncpg
 from typing import List
+from datetime import date
 
 class RoomNotFoundError(Exception): pass
 class PaymentNotFoundError(Exception): pass
@@ -120,7 +121,7 @@ class FinanceService:
     @classmethod
     async def get_transactions(
         cls, pool: asyncpg.Pool, server_id: int, limit: int = 50, offset: int = 0,
-        start_date: str = None, end_date: str = None, 
+        start_date: date = None, end_date: date = None,
         account_id: int = None, category_id: int = None, transaction_type: str = None
     ) -> List[dict]:
         async with pool.acquire() as conn:

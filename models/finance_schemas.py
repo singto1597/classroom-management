@@ -86,8 +86,8 @@ class CollectionStatusResponse(BaseModel):
 class TransactionFilter:
     limit: int = Query(50, gt=0)
     offset: int = Query(0, ge=0)
-    start_date: Optional[str] = Query(None)
-    end_date: Optional[str] = Query(None)
+    start_date: Optional[date] = Query(None)
+    end_date: Optional[date] = Query(None)
     account_id: Optional[int] = Query(None)
     category_id: Optional[int] = Query(None)
     transaction_type: Optional[str] = Query(None, pattern="^(income|expense)$")
