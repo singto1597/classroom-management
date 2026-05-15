@@ -129,7 +129,8 @@ class FinanceService:
             # สร้าง Query แบบ Dynamic (ต่อ String SQL ตาม Filter ที่ส่งมา)
             sql = """
                 SELECT 
-                    T.id, T.amount, T.description, T.transaction_type, T.created_at, T.slip_image_url, T.recorded_by,
+                    T.id, T.amount, T.description, T.transaction_type, T.created_at, 
+                    T.slip_image_url, T.recorded_by, T.transfer_group_id,
                     A.account_name, C.category_name 
                 FROM finance_transactions T
                 LEFT JOIN finance_accounts A ON T.account_id = A.id

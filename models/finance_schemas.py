@@ -58,6 +58,7 @@ class TransactionResponse(BaseModel):
     recorded_by: Optional[str]
     account_name: Optional[str]
     category_name: Optional[str]
+    transfer_group_id: Optional[int] = None
 
 class StudentPaymentSummary(BaseModel):
     total: int
