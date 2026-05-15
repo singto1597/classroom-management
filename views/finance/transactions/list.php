@@ -8,7 +8,33 @@
             <i class="bi bi-plus-lg me-1"></i> บันทึกรายการ
         </a>
     </div>
-
+    
+    <div class="card border-0 shadow-sm rounded-4 p-3 mb-4">
+        <form method="GET" action="index.php" class="row g-2 align-items-end">
+            <input type="hidden" name="page" value="finance_transactions">
+            <div class="col-md-3">
+                <label class="small text-muted fw-bold">ประเภท</label>
+                <select name="type" class="form-select rounded-pill shadow-none">
+                    <option value="">ทั้งหมด</option>
+                    <option value="income" <?= ($_GET['type'] ?? '') == 'income' ? 'selected' : '' ?>>รายรับ</option>
+                    <option value="expense" <?= ($_GET['type'] ?? '') == 'expense' ? 'selected' : '' ?>>รายจ่าย</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="small text-muted fw-bold">จากวันที่</label>
+                <input type="date" name="start_date" value="<?= h($_GET['start_date'] ?? '') ?>" class="form-control rounded-pill shadow-none">
+            </div>
+            <div class="col-md-3">
+                <label class="small text-muted fw-bold">ถึงวันที่</label>
+                <input type="date" name="end_date" value="<?= h($_GET['end_date'] ?? '') ?>" class="form-control rounded-pill shadow-none">
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-primary rounded-pill w-100 fw-bold shadow-sm">ค้นหา</button>
+                <a href="index.php?page=finance_transactions" class="btn btn-light rounded-pill w-100 border fw-bold shadow-sm">ล้างค่า</a>
+            </div>
+        </form>
+    </div>
+    
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
@@ -53,12 +79,22 @@
                         <?php endif; ?>
                     </td>
                     <td class="text-center">
-                        <button class="btn btn-sm btn-light text-danger rounded-circle btn-revert" 
-                                data-id="<?= $t['id'] ?>" 
-                                data-desc="<?= h($t['description']) ?>"
-                                title="ยกเลิกรายการนี้">
-                            <i class="bi bi-arrow-counterclockwise fs-6"></i>
-                        </button>
+                        <?php 
+                        $is_transfer_income = ($t['transfer_group_id'] && $t['transaction_type'] === 'income');
+                        ?>
+
+                        <?php if (!$is_transfer_income): ?>
+                            <button class="btn btn-sm btn-light text-danger rounded-circle btn-revert" 
+                                    data-id="<?= $t['id'] ?>" 
+                                    data-desc="<?= h($t['description']) ?>"
+                                    title="ยกเลิกรายการนี้">
+                                <i class="bi bi-arrow-counterclockwise fs-6"></i>
+                            </button>
+                        <?php else: ?>
+                            <span class="badge bg-light text-muted opacity-50" title="ยกเลิกได้ที่รายการขาออก">
+                                <i class="bi bi-link-45deg"></i> โอนเงิน
+                            </span>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>

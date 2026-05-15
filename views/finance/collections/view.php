@@ -48,8 +48,12 @@ $percent = $total > 0 ? round(($paid / $total) * 100) : 0;
                     <td>
                         <?php if($s['status'] === 'paid'): ?>
                             <span class="badge bg-success-subtle text-success rounded-pill px-3 py-2"><i class="bi bi-check-circle-fill"></i> จ่ายครบแล้ว</span><br>
-                            <small class="text-muted" style="font-size:10px;"><?= date('d/m/Y H:i', strtotime($s['paid_at'])) ?></small>
-                        
+                            <?php if (!empty($s['paid_at'])): ?>
+                                <small class="text-muted" style="font-size:10px;">
+                                    <i class="bi bi-clock"></i> <?= date('d/m/Y H:i', strtotime($s['paid_at'])) ?>
+                                </small>
+                            <?php endif; ?>
+                            
                         <?php elseif($paid_amt > 0): ?>
                             <span class="badge bg-warning-subtle text-warning rounded-pill px-3 py-2"><i class="bi bi-hourglass-split"></i> ทยอยจ่ายแล้ว ฿<?= number_format($paid_amt) ?></span><br>
                             <small class="text-danger fw-bold" style="font-size:11px;">(ค้างอีก ฿<?= number_format($remaining) ?>)</small>

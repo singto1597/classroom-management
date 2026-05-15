@@ -1,20 +1,39 @@
-<div class="row g-4 mb-4">
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm rounded-4 bg-primary text-white p-4">
-            <h6 class="opacity-75">ยอดเงินคงเหลือรวม (Net Worth)</h6>
-            <h2 class="fw-bold mb-0">฿<?= number_format($summary['net_worth'], 2) ?></h2>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="fw-bold mb-0 text-dark">📊 สรุปภาพรวมการเงิน</h3>
+    <form method="GET" class="d-flex gap-2">
+        <input type="hidden" name="page" value="finance_dashboard">
+        <select name="month" class="form-select rounded-pill border-0 shadow-sm px-3">
+            <?php for($m=1; $month <= 12; $m++): ?>
+                <option value="<?= $m ?>" <?= ($summary['period'] == date('Y-').sprintf('%02d', $m)) ? 'selected' : '' ?>>เดือน <?= $m ?></option>
+            <?php endfor; ?>
+        </select>
+        <button type="submit" class="btn btn-dark rounded-pill px-3 shadow-sm"><i class="bi bi-filter"></i></button>
+    </form>
+</div>
+
+<div class="row g-4 mb-4 text-white">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-4 bg-primary p-4 h-100">
+            <h6 class="opacity-75 small">เงินคงเหลือรวม</h6>
+            <h3 class="fw-bold mb-0">฿<?= number_format($summary['net_worth'], 2) ?></h3>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm rounded-4 bg-success text-white p-4">
-            <h6 class="opacity-75">รายรับ (<?= h($summary['period']) ?>)</h6>
-            <h2 class="fw-bold mb-0">฿<?= number_format($summary['total_income'], 2) ?></h2>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-4 p-4 h-100" style="background: #ff9800;">
+            <h6 class="opacity-75 small">ยอดที่เพื่อนค้างจ่ายรวม</h6>
+            <h3 class="fw-bold mb-0">฿<?= number_format($summary['pending_collection_amount'], 2) ?></h3>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm rounded-4 bg-danger text-white p-4">
-            <h6 class="opacity-75">รายจ่าย (<?= h($summary['period']) ?>)</h6>
-            <h2 class="fw-bold mb-0">฿<?= number_format($summary['total_expense'], 2) ?></h2>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-4 bg-success p-4 h-100">
+            <h6 class="opacity-75 small">รายรับเดือนนี้</h6>
+            <h3 class="fw-bold mb-0">฿<?= number_format($summary['total_income'], 2) ?></h3>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm rounded-4 bg-danger p-4 h-100">
+            <h6 class="opacity-75 small">รายจ่ายเดือนนี้</h6>
+            <h3 class="fw-bold mb-0">฿<?= number_format($summary['total_expense'], 2) ?></h3>
         </div>
     </div>
 </div>

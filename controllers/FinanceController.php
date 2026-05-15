@@ -51,12 +51,40 @@ class FinanceController {
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             if ($is_json) {
-                http_response_code(405); // Method Not Allowed
-                echo json_encode(['status' => 'error', 'message' => 'Method Not Allowed']);
+                http_response_code(200);
+                echo json_encode(['status' => 'success', 'message' => $success_msg]);
+                exit();
+            } else {
+                $_SESSION['success_msg'] = $success_msg;
+                
+                // 🌟 ลอจิก Smart Redirect
+                $target_page = 'finance_dashboard'; // ค่าเริ่มต้น
+                switch ($action) {
+                    case 'add_account':
+                    case 'edit_account':
+                    case 'delete_account':
+                    case 'add_category':
+                        $target_page = 'finance_accounts';
+                        break;
+                    case 'add_transaction':
+                    case 'transfer_money':
+                    case 'revert_transaction':
+                        $target_page = 'finance_transactions';
+                        break;
+                    case 'create_collection':
+                    case 'update_collection':
+                        $target_page = 'finance_collections';
+                        break;
+                    case 'confirm_payment':
+                        // ถ้าเป็นการรับเงินเพื่อน ให้เด้งกลับไปดูแคมเปญเดิมที่เพิ่งกดมา
+                        $col_id = $_GET['id'] ?? ''; // หรือดึงจากข้อมูลที่ส่งมา
+                        $target_page = 'finance_collections_view&id=' . $col_id;
+                        break;
+                }
+                
+                header("Location: index.php?page=" . $target_page);
                 exit();
             }
-            header("Location: index.php?page=finance_dashboard");
-            exit();
         }
 
         // เช็ค CSRF Token
@@ -72,7 +100,14 @@ class FinanceController {
         $room_id = $_SESSION['room_id'];
         $action = $_POST['action'] ?? '';
         $user_name = $_SESSION['user_name'];
-
+        if ($_SESSION['role'] === 'student') {
+            if ($is_json) {
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'คุณไม่มีสิทธิ์ทำรายการนี้']);
+                exit();
+            }
+            abort("🛑 สิทธิ์การเข้าถึงถูกปฏิเสธ");
+        }
         try {
             $success_msg = ""; // ใช้ตัวแปรเก็บข้อความแทนการยัดลง Session ทันที
 
@@ -106,9 +141,21 @@ class FinanceController {
                         "category_name" => trim($_POST['category_name']),
                         "category_type" => $_POST['category_type']
                     ];
-                    $this->apiDirectPost($room_id, "finance/categories", $payload); 
+                    $this->financeModel->createCategory($room_id, $payload);
                     $success_msg = "เพิ่มหมวดหมู่สำเร็จ";
                     break;
+                
+                case 'edit_category':
+                    $cat_id = (int)$_POST['category_id'];
+                    $this->financeModel->updateCategory($room_id, $cat_id, trim($_POST['category_name']));
+                    $success_msg = "แก้ไขชื่อหมวดหมู่สำเร็จ";
+                    break;
+
+                case 'delete_category':
+                    $cat_id = (int)$_POST['category_id'];
+                    $this->financeModel->deleteCategory($room_id, $cat_id);
+                    $success_msg = "ลบหมวดหมู่สำเร็จ";
+                break;
 
                 // --- ระบบรับ-จ่าย-โอน ---
                 case 'add_transaction':
@@ -118,6 +165,7 @@ class FinanceController {
                         "amount" => (float)$_POST['amount'],
                         "description" => trim($_POST['description']),
                         "transaction_type" => $_POST['transaction_type'],
+                        "slip_image_url" => !empty($_POST['slip_image_url']) ? trim($_POST['slip_image_url']) : null, // 👈 เพิ่มตัวนี้
                         "user_name" => $user_name
                     ];
                     $this->financeModel->addTransaction($room_id, $payload);
@@ -159,7 +207,7 @@ class FinanceController {
                     if (!empty($_POST['amount'])) $payload['amount'] = (float)$_POST['amount'];
                     if (!empty($_POST['due_date'])) $payload['due_date'] = $_POST['due_date'];
                     if (!empty($_POST['status'])) $payload['status'] = $_POST['status']; // 'active' หรือ 'closed'
-                    
+                    if (!empty($_POST['title'])) $payload['title'] = trim($_POST['title']);
                     $this->financeModel->updateCollection($room_id, $col_id, $payload);
                     $success_msg = "อัปเดตแคมเปญสำเร็จ";
                     break;
@@ -205,8 +253,26 @@ class FinanceController {
     // 📍 4. ประวัติรายการ (Transactions List)
     public function transactionHistory() {
         $room_id = $_SESSION['room_id'];
+        
+        // 🌟 รับค่า Filter และการแบ่งหน้าจาก URL
+        $page = isset($_GET['p']) ? max(1, (int)$_GET['p']) : 1;
+        $limit = 50;
+        $offset = ($page - 1) * $limit;
+
+        $filters = [
+            'limit' => $limit,
+            'offset' => $offset,
+            'transaction_type' => !empty($_GET['type']) ? $_GET['type'] : null,
+            'start_date' => !empty($_GET['start_date']) ? $_GET['start_date'] : null,
+            'end_date' => !empty($_GET['end_date']) ? $_GET['end_date'] : null,
+            'account_id' => !empty($_GET['account_id']) ? (int)$_GET['account_id'] : null,
+        ];
+
         try {
-            $transactions = $this->financeModel->getTransactions($room_id);
+            // ส่ง Filter ไปที่ Model (Model จะแนบไปกับ Query String ให้อัตโนมัติ)
+            $transactions = $this->financeModel->getTransactions($room_id, array_filter($filters));
+            $accounts = $this->financeModel->getAccounts($room_id);
+            
             require 'views/finance/transactions/list.php';
         } catch (Exception $e) { abort($e->getMessage()); }
     }

@@ -91,4 +91,19 @@ class Finance {
     public function updateCollection($room_id, $collection_id, $payload) {
         return $this->api->request('PUT', "{$room_id}/finance/collections/{$collection_id}", ['json' => $payload]);
     }
+
+    public function createCategory($room_id, $payload) {
+        return $this->api->request('POST', "{$room_id}/finance/categories", ['json' => $payload]);
+    }
+
+
+    public function updateCategory($room_id, $category_id, $name) {
+        return $this->api->request('PATCH', "{$room_id}/finance/categories/{$category_id}", [
+            'json' => ['category_name' => $name]
+        ]);
+    }
+
+    public function deleteCategory($room_id, $category_id) {
+        return $this->api->request('DELETE', "{$room_id}/finance/categories/{$category_id}");
+    }
 }

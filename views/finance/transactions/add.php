@@ -93,6 +93,11 @@
                     <input type="text" name="description" class="form-control rounded-4" placeholder="เช่น ฝากเงินสดเข้าธนาคารห้อง" required>
                 </div>
 
+                <div class="mb-4">
+                    <label class="form-label text-muted small fw-bold">URL รูปสลิปหลักฐาน (ถ้ามี)</label>
+                    <input type="url" name="slip_image_url" class="form-control rounded-4" placeholder="https://ลิงก์รูปภาพสลิป...">
+                </div>
+
                 <button type="submit" class="btn btn-info text-white w-100 py-3 rounded-pill fw-bold shadow-sm">ยืนยันการโอน</button>
             </form>
         </div>
