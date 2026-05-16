@@ -156,9 +156,9 @@ class StudentService:
     async def get_all_students(cls, pool: asyncpg.Pool, server_id: int, requester_discord_id: int) -> List[dict]:
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
-            # เช็คสิทธิ์ก่อนดึงข้อมูลทั้งห้อง
-            # await cls._check_is_leader(conn, room_id, requester_discord_id)
-            
+            # เช็คสิทธิ์ก่อนดึงข้อมูลทั้งห้อง (กันคนที่ role = student)
+            await cls._check_is_leader(conn, room_id, requester_discord_id)
+
             rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 ORDER BY student_no ASC", room_id)
             results = []
             for row in rows:
