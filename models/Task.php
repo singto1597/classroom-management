@@ -53,8 +53,8 @@ class Task {
     }
 
     public function markPending($task_id, $room_id) {
-        $payload = ["status" => "pending", "user_name" => $_SESSION['user_name'] ?? 'Web_Admin'];
-        $this->api->request('PATCH', "{$room_id}/tasks/{$task_id}/status", ['json' => $payload]);
+        $payload = ["user_name" => $_SESSION['user_name'] ?? 'Web_Admin'];
+        $this->api->request('PATCH', "{$room_id}/tasks/{$task_id}/restore", ['json' => $payload]);
         return true;
     }
 

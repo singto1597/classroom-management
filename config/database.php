@@ -1,6 +1,6 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', '0');
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -8,9 +8,9 @@ $dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
 $dotenv->load();
 
 session_set_cookie_params([
-    'lifetime' => 0,
+    'lifetime' => 2592000, // 30 วัน (ตามกฎโปรเจกต์)
     'path'     => '/',
-    'secure'   => false, // ถ้าขึ้นโฮสต์จริงมี HTTPS ค่อยแก้เป็น true
+    'secure'   => true,
     'httponly' => true,
     'samesite' => 'Lax'
 ]);

@@ -49,42 +49,16 @@ class FinanceController {
         // เช็คว่า Request ต้องการ JSON กลับไปหรือไม่
         $is_json = isset($_GET['format']) && $_GET['format'] === 'json';
 
+        // รับเฉพาะ POST — หน้านี้ใช้สำหรับ submit action เท่านั้น
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             if ($is_json) {
-                http_response_code(200);
-                echo json_encode(['status' => 'success', 'message' => $success_msg]);
-                exit();
-            } else {
-                $_SESSION['success_msg'] = $success_msg;
-                
-                // 🌟 ลอจิก Smart Redirect
-                $target_page = 'finance_dashboard'; // ค่าเริ่มต้น
-                switch ($action) {
-                    case 'add_account':
-                    case 'edit_account':
-                    case 'delete_account':
-                    case 'add_category':
-                        $target_page = 'finance_accounts';
-                        break;
-                    case 'add_transaction':
-                    case 'transfer_money':
-                    case 'revert_transaction':
-                        $target_page = 'finance_transactions';
-                        break;
-                    case 'create_collection':
-                    case 'update_collection':
-                        $target_page = 'finance_collections';
-                        break;
-                    case 'confirm_payment':
-                        // ถ้าเป็นการรับเงินเพื่อน ให้เด้งกลับไปดูแคมเปญเดิมที่เพิ่งกดมา
-                        $col_id = $_GET['id'] ?? ''; // หรือดึงจากข้อมูลที่ส่งมา
-                        $target_page = 'finance_collections_view&id=' . $col_id;
-                        break;
-                }
-                
-                header("Location: index.php?page=" . $target_page);
+                http_response_code(405);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['status' => 'error', 'message' => 'ใช้ได้เฉพาะ POST เท่านั้น']);
                 exit();
             }
+            header('Location: index.php?page=finance_dashboard');
+            exit();
         }
 
         // เช็ค CSRF Token
