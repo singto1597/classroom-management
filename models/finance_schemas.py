@@ -13,6 +13,7 @@ class SuccessResponse(BaseModel):
 class AccountCreate(BaseModel):
     account_name: str = Field(..., max_length=100)
     initial_balance: float = Field(0.0, ge=0.0)
+    user_name: Optional[str] = Field(None, max_length=100)  # audit (จาก client ถ้ามี)
 
 class TransactionCreate(BaseModel):
     account_id: int
@@ -34,6 +35,7 @@ class FeeCollectionCreate(BaseModel):
     title: str = Field(..., max_length=150)
     amount: float = Field(..., gt=0.0)
     due_date: date
+    user_name: Optional[str] = Field(None, max_length=100)
 
 class PaymentConfirm(BaseModel):
     paid_to_account_id: int
@@ -96,6 +98,7 @@ class TransactionFilter:
 class CategoryCreate(BaseModel):
     category_name: str = Field(..., max_length=100)
     category_type: str = Field(..., pattern="^(income|expense)$")
+    user_name: Optional[str] = Field(None, max_length=100)
 
 class CategoryResponse(BaseModel):
     id: int
@@ -146,10 +149,12 @@ class FeeCollectionUpdate(BaseModel):
     amount: Optional[float] = Field(None, gt=0.0)
     due_date: Optional[date] = None
     status: Optional[str] = Field(None, pattern="^(active|closed)$")
+    user_name: Optional[str] = Field(None, max_length=100)
 
 # --- Schemas สำหรับ Account Management ---
 class AccountUpdate(BaseModel):
     account_name: str = Field(..., max_length=100)
+    user_name: Optional[str] = Field(None, max_length=100)
 
 # --- Schemas สำหรับ ทวงหนี้รวม ---
 class DebtorItem(BaseModel):
@@ -161,3 +166,4 @@ class DebtorItem(BaseModel):
 
 class CategoryUpdate(BaseModel):
     category_name: str = Field(..., max_length=100)
+    user_name: Optional[str] = Field(None, max_length=100)

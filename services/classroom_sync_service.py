@@ -3,6 +3,8 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Optional
 
+from core.audit import log_action
+
 THAI_TZ = ZoneInfo("Asia/Bangkok")
 
 class RoomNotFoundError(Exception): pass
@@ -28,14 +30,7 @@ class ClassroomService:
             
             return dict(room)
 
-    @staticmethod
-    async def _log_action(conn, room_id: int, user_name: str, action: str, detail: str):
-        await conn.execute(
-            "INSERT INTO audit_logs (room_id, user_name, action, detail) VALUES ($1, $2, $3, $4)",
-            room_id, user_name, action, detail
-        )
-
-    @staticmethod
+    @classmethod
     def _get_thai_day(date_obj: date) -> str:
         days = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
         return days[date_obj.weekday()]
@@ -62,7 +57,7 @@ class ClassroomService:
                     server_id, room_name
                 )
                 room_id = await cls._get_room_id(conn, server_id)
-                await cls._log_action(conn, room_id, user_name, "Setup Room", f"ตั้งชื่อห้องเป็น {room_name}")
+                await log_action(conn, room_id, user_name, "Setup Room", f"ตั้งชื่อห้องเป็น {room_name}")
 
     @classmethod
     async def set_channel(cls, pool: asyncpg.Pool, server_id: int, channel_id: int, user_name: str):
@@ -70,7 +65,7 @@ class ClassroomService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 await conn.execute("UPDATE rooms SET announcement_channel_id = $1 WHERE id = $2", channel_id, room_id)
-                await cls._log_action(conn, room_id, user_name, "Set Channel", f"ตั้งค่าไปที่ห้อง {channel_id}")
+                await log_action(conn, room_id, user_name, "Set Channel", f"ตั้งค่าไปที่ห้อง {channel_id}")
 
     @classmethod
     async def set_notify_time(cls, pool: asyncpg.Pool, server_id: int, notify_time: str, user_name: str):
@@ -78,7 +73,7 @@ class ClassroomService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 await conn.execute("UPDATE rooms SET notify_time = $1 WHERE id = $2", notify_time, room_id)
-                await cls._log_action(conn, room_id, user_name, "Set Time", f"เปลี่ยนเวลาเตือนเป็น {notify_time}")
+                await log_action(conn, room_id, user_name, "Set Time", f"เปลี่ยนเวลาเตือนเป็น {notify_time}")
 
     @classmethod
     async def get_rooms_to_notify(cls, pool: asyncpg.Pool, current_time: str) -> List[dict]:
@@ -100,7 +95,7 @@ class ClassroomService:
                     "INSERT INTO default_schedules (room_id, day_of_week, attire, subjects) VALUES ($1, $2, $3, $4)",
                     room_id, day_of_week, attire, subjects
                 )
-                await cls._log_action(conn, room_id, user_name, "Set Schedule", f"แก้วัน{day_of_week} เป็นชุด {attire}")
+                await log_action(conn, room_id, user_name, "Set Schedule", f"แก้วัน{day_of_week} เป็นชุด {attire}")
 
     @classmethod
     async def set_override(cls, pool: asyncpg.Pool, server_id: int, target_date: date, new_attire: str, note: str, user_name: str):
@@ -112,7 +107,7 @@ class ClassroomService:
                     "INSERT INTO schedule_overrides (room_id, target_date, new_attire, note) VALUES ($1, $2, $3, $4)",
                     room_id, target_date, new_attire, note
                 )
-                await cls._log_action(conn, room_id, user_name, "Set Override", f"ตั้งชุด/หมายเหตุพิเศษวันที่ {target_date}")
+                await log_action(conn, room_id, user_name, "Set Override", f"ตั้งชุด/หมายเหตุพิเศษวันที่ {target_date}")
     
 
     @classmethod
@@ -124,7 +119,7 @@ class ClassroomService:
                     "INSERT INTO tasks (room_id, task_name, task_detail, due_date) VALUES ($1, $2, $3, $4)",
                     room_id, task_name, task_detail, due_date
                 )
-                await cls._log_action(conn, room_id, user_name, "Add Task", f"สั่งงานใหม่: {task_name}")
+                await log_action(conn, room_id, user_name, "Add Task", f"สั่งงานใหม่: {task_name}")
     
     @classmethod
     async def get_tasks(cls, pool: asyncpg.Pool, server_id: int, status: str = 'pending') -> List[dict]:
@@ -159,7 +154,7 @@ class ClassroomService:
                     task_name, task_detail, due_date, task_id, room_id
                 )
                 if res == "UPDATE 0": raise TaskNotFoundError("Task not found or access denied")
-                await cls._log_action(conn, room_id, user_name, "Edit Task", f"แก้งาน: {task_name}")
+                await log_action(conn, room_id, user_name, "Edit Task", f"แก้งาน: {task_name}")
         
     @classmethod
     async def mark_task_done(cls, pool: asyncpg.Pool, server_id: int, task_id: int, user_name: str) -> str:
@@ -173,7 +168,7 @@ class ClassroomService:
                 if not task_name:
                     raise TaskNotFoundError("Task not found or access denied")
                 
-                await cls._log_action(conn, room_id, user_name, "Mark Done", f"ส่งงาน {task_name} แล้ว")
+                await log_action(conn, room_id, user_name, "Mark Done", f"ส่งงาน {task_name} แล้ว")
                 return task_name
 
     @classmethod
@@ -187,7 +182,7 @@ class ClassroomService:
                 )
                 if not task_name:
                     raise TaskNotFoundError("Task not found or already deleted")
-                await cls._log_action(conn, room_id, user_name, "Soft Delete Task", f"ลบงาน {task_name}")
+                await log_action(conn, room_id, user_name, "Soft Delete Task", f"ลบงาน {task_name}")
                 return task_name
     @classmethod
     async def get_deleted_tasks(cls, pool, server_id) -> List[dict]:
@@ -209,7 +204,7 @@ class ClassroomService:
                 )
                 if not task_name:
                     raise TaskNotFoundError("ไม่พบงานที่ถูกลบ หรืออาจจะถูกลบถาวรไปแล้ว")
-                await cls._log_action(conn, room_id, user_name, "Restore Task", f"กู้คืนงาน {task_name}")
+                await log_action(conn, room_id, user_name, "Restore Task", f"กู้คืนงาน {task_name}")
                 return task_name
         
     # ==========================================
@@ -225,7 +220,7 @@ class ClassroomService:
                     "INSERT INTO daily_notes (room_id, target_date, bring_items, announcement) VALUES ($1, $2, $3, $4)",
                     room_id, target_date, bring_items, announcement
                 )
-                await cls._log_action(conn, room_id, user_name, "Add Note", f"เพิ่มโน้ตรายวันสำหรับวันที่ {target_date}")
+                await log_action(conn, room_id, user_name, "Add Note", f"เพิ่มโน้ตรายวันสำหรับวันที่ {target_date}")
         
 
     @classmethod
@@ -239,7 +234,7 @@ class ClassroomService:
                 )
                 if not row:
                     raise TaskNotFoundError("Note not found or already deleted")
-                await cls._log_action(conn, room_id, user_name, "Soft Delete Note", f"ลบโน้ตวันที่ {target_date}")
+                await log_action(conn, room_id, user_name, "Soft Delete Note", f"ลบโน้ตวันที่ {target_date}")
                 return dict(row)
 
     @classmethod

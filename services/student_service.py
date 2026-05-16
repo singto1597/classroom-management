@@ -1,14 +1,20 @@
 import asyncpg
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, FrozenSet
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 import pandas as pd
 import io
 
+from core.audit import log_action
+from models.student_schemas import StudentUpdateRequest
+
 class RoomNotFoundError(Exception): pass
 class StudentNotFoundError(Exception): pass
 class ForbiddenError(Exception): pass
+
+# อนุญาตเฉพาะคอลัมน์ที่นิยามใน Pydantic — กันชื่อคอลัมน์แปลกปลอมจาก client
+STUDENT_PATCHABLE_COLUMNS: FrozenSet[str] = frozenset(StudentUpdateRequest.model_fields.keys())
 
 class StudentService:
     
@@ -17,12 +23,6 @@ class StudentService:
         room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1", server_id)
         if not room_id: raise RoomNotFoundError(f"Room for server {server_id} not found.")
         return room_id
-
-    async def _log_action(conn, room_id: int, user_name: str, action: str, detail: str):
-        await conn.execute(
-            "INSERT INTO audit_logs (room_id, user_name, action, detail) VALUES ($1, $2, $3, $4)",
-            room_id, user_name, action, detail
-        )
 
     @staticmethod
     async def _check_is_leader(conn: asyncpg.Connection, room_id: int, requester_discord_id: int):
@@ -75,7 +75,7 @@ class StudentService:
                        VALUES ($1, $2, $3, $4) ON CONFLICT (room_id, student_no) DO NOTHING""",
                     room_id, student_no, first_name, last_name
                 )
-                await conn.execute("INSERT INTO audit_logs (room_id, user_name, action, detail) VALUES ($1, $2, $3, $4)", room_id, user_name, "Add Student", f"เพิ่มเลขที่ {student_no}")
+                await log_action(conn, room_id, user_name, "Add Student", f"เพิ่มเลขที่ {student_no}")
 
     @classmethod
     async def bulk_add_students(cls, pool: asyncpg.Pool, server_id: int, students: List[dict], user_name: str):
@@ -89,7 +89,7 @@ class StudentService:
                        VALUES ($1, $2, $3, $4) ON CONFLICT (room_id, student_no) DO NOTHING""",
                     tuples
                 )
-                await conn.execute("INSERT INTO audit_logs (room_id, user_name, action, detail) VALUES ($1, $2, $3, $4)", room_id, user_name, "Bulk Add", f"เพิ่มนักเรียน {len(students)} คน")
+                await log_action(conn, room_id, user_name, "Bulk Add", f"เพิ่มนักเรียน {len(students)} คน")
 
     # ==========================================
     # 2. เชื่อมบัญชี Discord (Sync)
@@ -104,39 +104,64 @@ class StudentService:
                     discord_id, room_id, student_no
                 )
                 if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบเลขที่นี้ในระบบ")
-                await conn.execute("INSERT INTO audit_logs (room_id, user_name, action, detail) VALUES ($1, $2, $3, $4)", room_id, user_name, "Sync Discord", f"ผูกดิสคอร์ดเข้ากับเลขที่ {student_no}")
+                await log_action(conn, room_id, user_name, "Sync Discord", f"ผูกดิสคอร์ดเข้ากับเลขที่ {student_no}")
 
     # ==========================================
     # 3. อัปเดตข้อมูล (Dynamic Update)
     # ==========================================
     @classmethod
     async def update_student(cls, pool: asyncpg.Pool, server_id: int, student_no: int, update_data: dict, updater_discord_id: int):
-        # ลบค่าที่เป็น None ออกจาก Dict
         clean_data = {k: v for k, v in update_data.items() if v is not None}
-        if not clean_data: return # ไม่มีอะไรต้องอัปเดต
-        
+        clean_data = {k: v for k, v in clean_data.items() if k in STUDENT_PATCHABLE_COLUMNS}
+        if not clean_data:
+            return
+
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
-                
-                # เช็คก่อนว่าคนที่แก้ กำลังแก้ข้อมูล "ตัวเอง" หรือเป็น "หัวหน้า" ถึงจะแก้ของเพื่อนได้
-                target_discord_id = await conn.fetchval("SELECT discord_id FROM students WHERE room_id = $1 AND student_no = $2", room_id, student_no)
+
+                target_discord_id = await conn.fetchval(
+                    "SELECT discord_id FROM students WHERE room_id = $1 AND student_no = $2", room_id, student_no
+                )
                 if target_discord_id != updater_discord_id:
-                    await cls._check_is_leader(conn, room_id, updater_discord_id) # โยน ForbiddenError ถ้าไม่ใช่หัวหน้า
-                
-                # สร้างคำสั่ง SQL แบบ Dynamic
+                    await cls._check_is_leader(conn, room_id, updater_discord_id)
+
+                keys = sorted(clean_data.keys())
                 set_clauses = []
-                values = [room_id, student_no]
+                values: List[Any] = [room_id, student_no]
                 idx = 3
-                for key, val in clean_data.items():
+                for key in keys:
                     set_clauses.append(f"{key} = ${idx}")
-                    values.append(val)
+                    values.append(clean_data[key])
                     idx += 1
-                
+
                 set_query = ", ".join(set_clauses)
-                query = f"UPDATE students SET {set_query}, updated_at = CURRENT_TIMESTAMP WHERE room_id = $1 AND student_no = $2"
-                
+                query = (
+                    f"UPDATE students SET {set_query}, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE room_id = $1 AND student_no = $2"
+                )
                 await conn.execute(query, *values)
+
+                actor_row = await conn.fetchrow(
+                    "SELECT first_name, last_name FROM students WHERE room_id = $1 AND discord_id = $2",
+                    room_id,
+                    updater_discord_id,
+                )
+                if actor_row:
+                    actor_name = f"{actor_row['first_name'] or ''} {actor_row['last_name'] or ''}".strip()
+                else:
+                    actor_name = f"discord:{updater_discord_id}"
+                if not actor_name:
+                    actor_name = f"discord:{updater_discord_id}"
+
+                fields_desc = ", ".join(keys)
+                await log_action(
+                    conn,
+                    room_id,
+                    actor_name,
+                    "Update Student",
+                    f"แก้ไขเลขที่ {student_no} ฟิลด์: {fields_desc}",
+                )
 
     # ==========================================
     # 4. ดูข้อมูลตัวเอง (Profile) / ดูทั้งหมด (All)
@@ -185,7 +210,7 @@ class StudentService:
             allowed_roles = ['president', 'vice_academic', 'vice_activity', 'vice_discipline', 'vice_reception']
 
             if requester['class_role'] not in allowed_roles:
-                await cls._log_action(conn, room_id, user_name, "Unauthorized Export", f"พยายามดาวน์โหลดข้อมูลเพื่อน แต่ถูกบล็อก (Role: {requester['class_role']})")
+                await log_action(conn, room_id, user_name, "Unauthorized Export", f"พยายามดาวน์โหลดข้อมูลเพื่อน แต่ถูกบล็อก (Role: {requester['class_role']})")
                 raise HTTPException(status_code=403, detail="🛑 หยุดนะ! สิทธิ์ของคุณไม่เพียงพอ")
 
             # ดึงข้อมูลทั้งหมดของห้อง
@@ -213,7 +238,7 @@ class StudentService:
             output.seek(0) # เลื่อน pointer ไปจุดเริ่มต้นไฟล์
 
             # 🛡️ Audit Log: บันทึกว่าใครแอบก๊อปข้อมูลเพื่อน!
-            await cls._log_action(conn, room_id, user_name, "Export Data", f"Exported fields: {', '.join(fields)}")
+            await log_action(conn, room_id, user_name, "Export Data", f"Exported fields: {', '.join(fields)}")
             
             return output
 
@@ -255,7 +280,7 @@ class StudentService:
                 )
                 if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบเลขที่นี้")
                 
-                await cls._log_action(conn, room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
+                await log_action(conn, room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
     
     @classmethod
     async def delete_student_permanent(cls, pool: asyncpg.Pool, server_id: int, student_no: int, user_name: str, requester_discord_id: int):
@@ -276,7 +301,7 @@ class StudentService:
                     raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนเลขที่นี้ หรืออาจจะถูกลบไปแล้ว")
                     
                 # 📜 บันทึก Log การกระทำ (สำคัญมาก ป้องกันหัวหน้าห้องแกล้งเพื่อน)
-                await cls._log_action(conn, room_id, user_name, "Hard Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} ออกจากฐานข้อมูลถาวร")
+                await log_action(conn, room_id, user_name, "Hard Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} ออกจากฐานข้อมูลถาวร")
 
     @classmethod
     async def get_user_rooms(cls, pool, discord_id: int):

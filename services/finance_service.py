@@ -2,11 +2,21 @@ import asyncpg
 from typing import List
 from datetime import date
 
+from core.audit import log_action
+
 class RoomNotFoundError(Exception): pass
 class PaymentNotFoundError(Exception): pass
 class TransactionNotFoundError(Exception): pass
 
 class FinanceService:
+    @staticmethod
+    def _finance_actor(req) -> str:
+        """ชื่อผู้กระทำสำหรับ audit — ใช้ user_name จาก body ถ้ามี"""
+        n = getattr(req, "user_name", None)
+        if n is not None and str(n).strip():
+            return str(n).strip()[:200]
+        return "—"
+
     @staticmethod
     async def _get_room_id(conn, server_id: int) -> int:
         room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1", server_id)
@@ -19,11 +29,20 @@ class FinanceService:
     @classmethod
     async def create_account(cls, pool: asyncpg.Pool, server_id: int, req) -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            await conn.execute(
-                "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, $3)",
-                room_id, req.account_name, req.initial_balance
-            )
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                await conn.execute(
+                    "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, $3)",
+                    room_id, req.account_name, req.initial_balance
+                )
+                actor = cls._finance_actor(req)
+                await log_action(
+                    conn,
+                    room_id,
+                    actor,
+                    "Finance: Create Account",
+                    f"สร้างบัญชี {req.account_name} ยอดตั้งต้น {req.initial_balance}",
+                )
             return {"status": "success", "message": f"สร้างบัญชี {req.account_name} สำเร็จ"}
 
     @classmethod
@@ -76,7 +95,16 @@ class FinanceService:
                     await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", req.amount, req.account_id)
                 elif req.transaction_type == 'expense':
                     await conn.execute("UPDATE finance_accounts SET balance = balance - $1 WHERE id = $2", req.amount, req.account_id)
-                
+
+                desc = req.description if len(req.description) <= 120 else req.description[:117] + "..."
+                await log_action(
+                    conn,
+                    room_id,
+                    req.user_name,
+                    "Finance: Add Transaction",
+                    f"{req.transaction_type} บัญชี {req.account_id} จำนวน {req.amount} — {desc}",
+                )
+
                 return {"status": "success", "message": "บันทึกรายการสำเร็จ"}
 
     @classmethod
@@ -115,6 +143,14 @@ class FinanceService:
                     """INSERT INTO finance_transactions (room_id, account_id, amount, description, transaction_type, transfer_group_id, recorded_by) 
                        VALUES ($1, $2, $3, $4, 'income', $5, $6)""",
                     room_id, req.to_account_id, req.amount, f"รับโอน: {req.description}", group_id, req.user_name
+                )
+                d = req.description if len(req.description) <= 80 else req.description[:77] + "..."
+                await log_action(
+                    conn,
+                    room_id,
+                    req.user_name,
+                    "Finance: Transfer",
+                    f"group_id={group_id} ฿{req.amount} จากบัญชี {req.from_account_id} → {req.to_account_id}: {d}",
                 )
                 return {"status": "success", "message": "โอนเงินสำเร็จ"}
 
@@ -192,6 +228,13 @@ class FinanceService:
                 
                 msg = f"สร้างแคมเปญสำเร็จ เรียกเก็บเพื่อน {len(active_students)} คน"
                 if inactive_count > 0: msg += f" (ข้ามคน Inactive {inactive_count} คน)"
+                await log_action(
+                    conn,
+                    room_id,
+                    cls._finance_actor(req),
+                    "Finance: Create Collection",
+                    f"id={collection_id} {req.title} ยอดเป้าหมาย {req.amount} บาท กำหนด {req.due_date} จำนวนนศ.ที่เข้าร่วมกำลังรอจ่าย {len(active_students)}",
+                )
                 return {"status": "success", "message": msg}
 
     @classmethod
@@ -257,7 +300,15 @@ class FinanceService:
                        WHERE id = $7""",
                     new_status, new_total_paid, req.paid_to_account_id, req.slip_image_url, req.user_name, trans_id, payment_id
                 )
-                
+
+                await log_action(
+                    conn,
+                    room_id,
+                    req.user_name,
+                    "Finance: Confirm Payment",
+                    f"payment_id={payment_id} trans_id={trans_id} รับ ฿{req.paid_amount} เข้าบัญชี {req.paid_to_account_id} — {status_msg}",
+                )
+
                 return {"status": "success", "message": f"รับเงินสำเร็จ! สถานะ: {status_msg}"}
 
     @classmethod
@@ -297,11 +348,19 @@ class FinanceService:
     @classmethod
     async def create_category(cls, pool: asyncpg.Pool, server_id: int, req) -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            await conn.execute(
-                "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3)",
-                room_id, req.category_name, req.category_type
-            )
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                await conn.execute(
+                    "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3)",
+                    room_id, req.category_name, req.category_type
+                )
+                await log_action(
+                    conn,
+                    room_id,
+                    cls._finance_actor(req),
+                    "Finance: Create Category",
+                    f"{req.category_name} ({req.category_type})",
+                )
             return {"status": "success", "message": f"เพิ่มหมวดหมู่ {req.category_name} แล้ว"}
 
     @classmethod
@@ -383,7 +442,7 @@ class FinanceService:
                     await conn.execute("UPDATE finance_transactions SET deleted_at = NOW() WHERE id = $1", transaction_id)
                     action_detail = f"ยกเลิกรายการ {t['transaction_type']} ยอด {t['amount']} บาท"
 
-                await conn.execute("INSERT INTO audit_logs (room_id, user_name, action, detail) VALUES ($1, $2, 'Revert Finance', $3)", room_id, user_name, action_detail)
+                await log_action(conn, room_id, user_name, "Revert Finance", action_detail)
                 return {"status": "success", "message": action_detail}
             
     # ==========================================
@@ -472,32 +531,40 @@ class FinanceService:
                 "debts": [dict(r) for r in rows]
             }
     @classmethod
-    async def add_student_to_collection(cls, pool: asyncpg.Pool, server_id: int, collection_id: int, student_id: int) -> dict:
+    async def add_student_to_collection(
+        cls, pool: asyncpg.Pool, server_id: int, collection_id: int, student_id: int, user_name: str = "—"
+    ) -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            
-            # เช็คว่าใช่เด็กห้องนี้จริงไหม
-            valid_student = await conn.fetchval("SELECT id FROM students WHERE id = $1 AND room_id = $2", student_id, room_id)
-            if not valid_student:
-                raise RoomNotFoundError("ไม่พบเด็กคนนี้ในห้อง")
-                
-            # เช็คว่า collection นี้มีอยู่จริงไหม
-            valid_collection = await conn.fetchval(
-                "SELECT id FROM fee_collections WHERE id = $1 AND room_id = $2 AND status = 'active'", 
-                collection_id, room_id
-            )
-            if not valid_collection:
-                raise ValueError("ไม่พบรายการเรียกเก็บเงินนี้ หรือแคมเปญถูกปิดไปแล้ว!")
-                
-            # เพิ่มข้อมูล
-            try:
-                await conn.execute(
-                    "INSERT INTO student_payments (collection_id, student_id, status) VALUES ($1, $2, 'pending')",
-                    collection_id, student_id
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+
+                valid_student = await conn.fetchval("SELECT id FROM students WHERE id = $1 AND room_id = $2", student_id, room_id)
+                if not valid_student:
+                    raise RoomNotFoundError("ไม่พบเด็กคนนี้ในห้อง")
+
+                valid_collection = await conn.fetchval(
+                    "SELECT id FROM fee_collections WHERE id = $1 AND room_id = $2 AND status = 'active'",
+                    collection_id, room_id
+                )
+                if not valid_collection:
+                    raise ValueError("ไม่พบรายการเรียกเก็บเงินนี้ หรือแคมเปญถูกปิดไปแล้ว!")
+
+                try:
+                    await conn.execute(
+                        "INSERT INTO student_payments (collection_id, student_id, status) VALUES ($1, $2, 'pending')",
+                        collection_id, student_id
+                    )
+                except asyncpg.exceptions.UniqueViolationError:
+                    raise ValueError("เพื่อนคนนี้มีชื่อในรายการนี้อยู่แล้ว")
+
+                await log_action(
+                    conn,
+                    room_id,
+                    user_name,
+                    "Finance: Add Student To Collection",
+                    f"collection_id={collection_id} student_id={student_id}",
                 )
                 return {"status": "success", "message": "เพิ่มเพื่อนเข้าสู่การเก็บเงินแล้ว"}
-            except asyncpg.exceptions.UniqueViolationError: 
-                raise ValueError("เพื่อนคนนี้มีชื่อในรายการนี้อยู่แล้ว")
     
     @classmethod
     async def get_all_collections(cls, pool: asyncpg.Pool, server_id: int) -> List[dict]:
@@ -512,72 +579,98 @@ class FinanceService:
     @classmethod
     async def update_collection(cls, pool: asyncpg.Pool, server_id: int, collection_id: int, req) -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            
-            # จัดการ Dynamic Update (อัปเดตเฉพาะฟิลด์ที่ส่งมา)
-            updates = []
-            values = []
-            idx = 1
-            if req.title is not None:
-                updates.append(f"title = ${idx}")
-                values.append(req.title)
-                idx += 1
-            if req.amount is not None:
-                paid_exists = await conn.fetchval(
-                    "SELECT 1 FROM student_payments WHERE collection_id = $1 AND status = 'paid' LIMIT 1", collection_id
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+
+                updates = []
+                values = []
+                idx = 1
+                changed_labels: List[str] = []
+                if req.title is not None:
+                    updates.append(f"title = ${idx}")
+                    values.append(req.title)
+                    idx += 1
+                    changed_labels.append("title")
+                if req.amount is not None:
+                    paid_exists = await conn.fetchval(
+                        "SELECT 1 FROM student_payments WHERE collection_id = $1 AND status = 'paid' LIMIT 1", collection_id
+                    )
+                    if paid_exists:
+                        raise ValueError("ไม่สามารถแก้จำนวนเงินได้ เนื่องจากมีเพื่อนจ่ายเงินเข้ามาแล้ว!")
+                    updates.append(f"amount = ${idx}")
+                    values.append(req.amount)
+                    idx += 1
+                    changed_labels.append("amount")
+                if req.due_date is not None:
+                    updates.append(f"due_date = ${idx}")
+                    values.append(req.due_date)
+                    idx += 1
+                    changed_labels.append("due_date")
+                if req.status is not None:
+                    updates.append(f"status = ${idx}")
+                    values.append(req.status)
+                    idx += 1
+                    changed_labels.append("status")
+
+                if not updates:
+                    return {"status": "success", "message": "ไม่มีข้อมูลให้เปลี่ยนแปลง"}
+
+                values.extend([collection_id, room_id])
+                sql = f"UPDATE fee_collections SET {', '.join(updates)} WHERE id = ${idx} AND room_id = ${idx + 1}"
+
+                res = await conn.execute(sql, *values)
+                if res == "UPDATE 0":
+                    raise RoomNotFoundError("ไม่พบแคมเปญนี้")
+
+                await log_action(
+                    conn,
+                    room_id,
+                    cls._finance_actor(req),
+                    "Finance: Update Collection",
+                    f"id={collection_id} แก้: {', '.join(changed_labels)}",
                 )
-                if paid_exists:
-                    raise ValueError("ไม่สามารถแก้จำนวนเงินได้ เนื่องจากมีเพื่อนจ่ายเงินเข้ามาแล้ว!")
-                updates.append(f"amount = ${idx}")
-                values.append(req.amount)
-                idx += 1
-            if req.due_date is not None:
-                updates.append(f"due_date = ${idx}")
-                values.append(req.due_date)
-                idx += 1
-            if req.status is not None:
-                updates.append(f"status = ${idx}")
-                values.append(req.status)
-                idx += 1
-                
-            if not updates:
-                return {"status": "success", "message": "ไม่มีข้อมูลให้เปลี่ยนแปลง"}
-                
-            values.extend([collection_id, room_id])
-            sql = f"UPDATE fee_collections SET {', '.join(updates)} WHERE id = ${idx} AND room_id = ${idx+1}"
-            
-            res = await conn.execute(sql, *values)
-            if res == "UPDATE 0":
-                raise RoomNotFoundError("ไม่พบแคมเปญนี้")
-                
             return {"status": "success", "message": "อัปเดตข้อมูลแคมเปญสำเร็จ"}
     
     @classmethod
     async def update_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int, req) -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            res = await conn.execute(
-                "UPDATE finance_accounts SET account_name = $1 WHERE id = $2 AND room_id = $3",
-                req.account_name, account_id, room_id
-            )
-            if res == "UPDATE 0": raise RoomNotFoundError("ไม่พบบัญชีนี้")
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                res = await conn.execute(
+                    "UPDATE finance_accounts SET account_name = $1 WHERE id = $2 AND room_id = $3",
+                    req.account_name, account_id, room_id
+                )
+                if res == "UPDATE 0":
+                    raise RoomNotFoundError("ไม่พบบัญชีนี้")
+                await log_action(
+                    conn,
+                    room_id,
+                    cls._finance_actor(req),
+                    "Finance: Update Account",
+                    f"id={account_id} ชื่อใหม่={req.account_name}",
+                )
             return {"status": "success", "message": "อัปเดตชื่อบัญชีสำเร็จ"}
 
     @classmethod
-    async def delete_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int) -> dict:
+    async def delete_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int, user_name: str = "—") -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            
-            bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2", account_id, room_id)
-            if bal is None: raise RoomNotFoundError("ไม่พบบัญชีนี้")
-            if bal > 0: raise ValueError("ไม่สามารถลบบัญชีได้ เนื่องจากยังมีเงินคงเหลืออยู่!")
-            
-            # 🔴 FIX 3: เช็คว่ามีการอ้างอิงในตาราง student_payments ไหม
-            existing_payments = await conn.fetchval("SELECT 1 FROM student_payments WHERE paid_to_account_id = $1 LIMIT 1", account_id)
-            if existing_payments:
-                raise ValueError("ไม่สามารถลบบัญชีได้ เนื่องจากมีประวัติการรับเงินของเพื่อนผูกกับบัญชีนี้อยู่!")
-            
-            await conn.execute("DELETE FROM finance_accounts WHERE id = $1", account_id)
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+
+                bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2", account_id, room_id)
+                if bal is None:
+                    raise RoomNotFoundError("ไม่พบบัญชีนี้")
+                if bal > 0:
+                    raise ValueError("ไม่สามารถลบบัญชีได้ เนื่องจากยังมีเงินคงเหลืออยู่!")
+
+                existing_payments = await conn.fetchval(
+                    "SELECT 1 FROM student_payments WHERE paid_to_account_id = $1 LIMIT 1", account_id
+                )
+                if existing_payments:
+                    raise ValueError("ไม่สามารถลบบัญชีได้ เนื่องจากมีประวัติการรับเงินของเพื่อนผูกกับบัญชีนี้อยู่!")
+
+                await conn.execute("DELETE FROM finance_accounts WHERE id = $1", account_id)
+                await log_action(conn, room_id, user_name, "Finance: Delete Account", f"ลบบัญชี id={account_id}")
             return {"status": "success", "message": "ลบบัญชีสำเร็จ"}
 
     @classmethod
@@ -612,23 +705,35 @@ class FinanceService:
     @classmethod
     async def update_category(cls, pool: asyncpg.Pool, server_id: int, category_id: int, req) -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            res = await conn.execute(
-                "UPDATE finance_categories SET category_name = $1 WHERE id = $2 AND room_id = $3",
-                req.category_name, category_id, room_id
-            )
-            if res == "UPDATE 0": raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                res = await conn.execute(
+                    "UPDATE finance_categories SET category_name = $1 WHERE id = $2 AND room_id = $3",
+                    req.category_name, category_id, room_id
+                )
+                if res == "UPDATE 0":
+                    raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
+                await log_action(
+                    conn,
+                    room_id,
+                    cls._finance_actor(req),
+                    "Finance: Update Category",
+                    f"id={category_id} ชื่อใหม่={req.category_name}",
+                )
             return {"status": "success", "message": "อัปเดตชื่อหมวดหมู่สำเร็จ"}
 
     @classmethod
-    async def delete_category(cls, pool: asyncpg.Pool, server_id: int, category_id: int) -> dict:
+    async def delete_category(cls, pool: asyncpg.Pool, server_id: int, category_id: int, user_name: str = "—") -> dict:
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            
-            # เช็คว่าหมวดหมู่นี้ถูกใช้ไปหรือยัง
-            used = await conn.fetchval("SELECT 1 FROM finance_transactions WHERE category_id = $1 LIMIT 1", category_id)
-            if used: raise ValueError("ไม่สามารถลบได้ เนื่องจากมีประวัติรายรับ/รายจ่ายที่ใช้หมวดหมู่นี้อยู่!")
-            
-            res = await conn.execute("DELETE FROM finance_categories WHERE id = $1 AND room_id = $2", category_id, room_id)
-            if res == "DELETE 0": raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+
+                used = await conn.fetchval("SELECT 1 FROM finance_transactions WHERE category_id = $1 LIMIT 1", category_id)
+                if used:
+                    raise ValueError("ไม่สามารถลบได้ เนื่องจากมีประวัติรายรับ/รายจ่ายที่ใช้หมวดหมู่นี้อยู่!")
+
+                res = await conn.execute("DELETE FROM finance_categories WHERE id = $1 AND room_id = $2", category_id, room_id)
+                if res == "DELETE 0":
+                    raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
+                await log_action(conn, room_id, user_name, "Finance: Delete Category", f"ลบหมวดหมู่ id={category_id}")
             return {"status": "success", "message": "ลบหมวดหมู่สำเร็จ"}

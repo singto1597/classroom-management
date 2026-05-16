@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 import asyncpg
 from typing import List
 from typing import Optional
@@ -31,9 +31,15 @@ async def update_account(server_id: int, account_id: int, req: AccountUpdate, po
         raise HTTPException(status_code=404, detail=str(e))
     
 @router.delete("/{server_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
-async def delete_account(server_id: int, account_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def delete_account(
+    server_id: int,
+    account_id: int,
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    req: Optional[ActionWithUserRequest] = Body(None),
+):
     try:
-        return await FinanceService.delete_account(pool, server_id, account_id)
+        actor = req.user_name if req else "—"
+        return await FinanceService.delete_account(pool, server_id, account_id, actor)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -119,9 +125,18 @@ async def get_collection_status(server_id: int, collection_id: int, pool: asyncp
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{server_id}/finance/collections/{collection_id}/students/{student_id}", response_model=SuccessResponse)
-async def add_student_to_collection(server_id: int, collection_id: int, student_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def add_student_to_collection(
+    server_id: int,
+    collection_id: int,
+    student_id: int,
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    req: Optional[ActionWithUserRequest] = Body(None),
+):
     try:
-        return await FinanceService.add_student_to_collection(pool, server_id, collection_id, student_id)
+        actor = req.user_name if req else "—"
+        return await FinanceService.add_student_to_collection(
+            pool, server_id, collection_id, student_id, actor
+        )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -151,9 +166,15 @@ async def update_category(server_id: int, category_id: int, req: CategoryUpdate,
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.delete("/{server_id}/finance/categories/{category_id}", response_model=SuccessResponse)
-async def delete_category(server_id: int, category_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def delete_category(
+    server_id: int,
+    category_id: int,
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    req: Optional[ActionWithUserRequest] = Body(None),
+):
     try:
-        return await FinanceService.delete_category(pool, server_id, category_id)
+        actor = req.user_name if req else "—"
+        return await FinanceService.delete_category(pool, server_id, category_id, actor)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
