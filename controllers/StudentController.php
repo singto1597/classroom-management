@@ -178,6 +178,9 @@ class StudentController {
 
         // ถ้ามีการกดปุ่มดาวน์โหลด (POST)
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+                abort("Token ไม่ถูกต้อง! อาจเป็น CSRF");
+            }
             $room_id = $_SESSION['room_id'];
             $discord_id = $_SESSION['discord_id'];
             $categories = $_POST['categories'] ?? []; // รับค่าจาก Checkbox

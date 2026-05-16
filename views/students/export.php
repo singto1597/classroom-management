@@ -19,6 +19,7 @@
 
 <div class="card-body p-4">
     <form method="POST" action="index.php?page=students_export">
+        <input type="hidden" name="csrf_token" value="<?= h($_SESSION['csrf_token']) ?>">
         
         <!-- ตัวเลือกที่ 1: Core -->
         <label class="d-flex align-items-center mb-3 p-3 bg-light rounded border export-option-card w-100" for="cat_core">

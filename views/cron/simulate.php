@@ -13,6 +13,7 @@
             <p class="text-muted mb-4 fs-5">ทดสอบประมวลผลข้อมูล เพื่อจำลองการส่งข้อความสรุปตารางเรียน<br>และงานค้างเข้ากลุ่มแชทในเวลา 19:00 น.</p>
             
             <form method="POST" action="index.php?page=cron">
+                <input type="hidden" name="csrf_token" value="<?= h($_SESSION['csrf_token']) ?>">
                 <button type="submit" name="simulate" class="btn btn-primary btn-lg rounded-pill px-5 py-3 shadow-sm fw-bold transition-all" style="font-size: 1.2rem;">
                     กดเพื่อจำลองการทำงาน (19:00 น.)
                 </button>

@@ -24,7 +24,7 @@
                         <span class="badge <?= $col['status'] === 'active' ? 'bg-success' : 'bg-secondary' ?> rounded-pill">
                             <?= $col['status'] === 'active' ? 'เปิดรับเงิน' : 'ปิดแล้ว' ?>
                         </span>
-                        <small class="text-muted ms-2"><i class="bi bi-calendar-event"></i> กำหนด: <?= $col['due_date'] ? date('d/m/Y', strtotime($col['due_date'])) : '-' ?></small>
+                        <small class="text-muted ms-2"><i class="bi bi-calendar-event"></i> กำหนด: <?= (!empty($col['due_date']) && ($ddt = strtotime((string)$col['due_date'])) !== false) ? date('d/m/Y', $ddt) : '-' ?></small>
                     </div>
                     <?php if ($_SESSION['role'] !== 'student'): ?>
                     <button class="btn btn-sm btn-light text-muted rounded-circle btn-edit-col" 
@@ -127,7 +127,6 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 // 1. จัดการฟอร์ม สร้างแคมเปญ (Create)
 document.getElementById('createCollectionForm').addEventListener('submit', async function(e) {

@@ -14,6 +14,9 @@ class CronController {
         $output_payload = null;
         
         if (isset($_POST['simulate'])) {
+            if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+                abort('Token ไม่ถูกต้อง! อาจเป็น CSRF');
+            }
             $room_id = $_SESSION['room_id'];
             date_default_timezone_set('Asia/Bangkok');
             

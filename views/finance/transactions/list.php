@@ -54,8 +54,12 @@
                 <?php foreach ($transactions as $t): ?>
                 <tr>
                     <td class="small text-muted text-nowrap">
-                        <?= date('d/m/Y', strtotime($t['created_at'])) ?><br>
-                        <?= date('H:i', strtotime($t['created_at'])) ?> น.
+                        <?php if (!empty($t['created_at']) && (($ts = strtotime((string)$t['created_at'])) !== false)): ?>
+                            <?= date('d/m/Y', $ts) ?><br>
+                            <?= date('H:i', $ts) ?> น.
+                        <?php else: ?>
+                            —
+                        <?php endif; ?>
                     </td>
                     <td>
                         <span class="d-block fw-bold"><?= h($t['description']) ?></span>
@@ -103,7 +107,6 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 document.querySelectorAll('.btn-revert').forEach(btn => {
     btn.addEventListener('click', function() {

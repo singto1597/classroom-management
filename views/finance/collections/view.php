@@ -48,9 +48,9 @@ $percent = $total > 0 ? round(($paid / $total) * 100) : 0;
                     <td>
                         <?php if($s['status'] === 'paid'): ?>
                             <span class="badge bg-success-subtle text-success rounded-pill px-3 py-2"><i class="bi bi-check-circle-fill"></i> จ่ายครบแล้ว</span><br>
-                            <?php if (!empty($s['paid_at'])): ?>
+                            <?php if (!empty($s['paid_at']) && (($pta = strtotime((string)$s['paid_at'])) !== false)): ?>
                                 <small class="text-muted" style="font-size:10px;">
-                                    <i class="bi bi-clock"></i> <?= date('d/m/Y H:i', strtotime($s['paid_at'])) ?>
+                                    <i class="bi bi-clock"></i> <?= date('d/m/Y H:i', $pta) ?>
                                 </small>
                             <?php endif; ?>
                             
@@ -118,7 +118,6 @@ $percent = $total > 0 ? round(($paid / $total) * 100) : 0;
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 // 1. จัดการให้กดปุ่ม "รับเงิน" แล้ว Modal เด้ง
 let payModal;

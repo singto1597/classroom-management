@@ -61,6 +61,9 @@ class AuthController {
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_room_id'])) {
+            if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+                abort('Token CSRF ไม่ถูกต้อง');
+            }
             $this->commitRoomSelection($_POST['selected_room_id'], $_SESSION['temp_rooms']);
         }
 

@@ -175,7 +175,6 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 // 1. จัดการการ Submit ฟอร์มทั้งหมดที่มีคลาส .ajax-form (ครอบคลุม Create และ Edit)
 document.querySelectorAll('.ajax-form').forEach(form => {

@@ -110,7 +110,6 @@ $selected_year = isset($_GET['year']) && $_GET['year'] != '' ? (int)$_GET['year'
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 let expenseChartInstance = null;
 
