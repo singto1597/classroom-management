@@ -25,8 +25,7 @@ Classroom-Sync คือ Discord Bot ที่ถูกออกแบบมา�
 
 หากต้องการนำ Source Code ไปรันบนเซิร์ฟเวอร์ของตัวเอง จำเป็นต้องมี:
 - Python 3.10 หรือใหม่กว่า
-- PostgreSQL (สำหรับระบบ Database)
-- Discord Bot Token (สร้างได้ที่ [Discord Developer Portal](https://discord.com/developers/applications))
+- API Key และ Base URL จาก `classroom-backend`
 
 ## การติดตั้งและการตั้งค่า (Installation & Setup)
 
@@ -43,28 +42,20 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**3. การตั้งค่า Database (PostgreSQL)**
-สร้างฐานข้อมูลใน PostgreSQL ของคุณ:
-```sql
-CREATE DATABASE smte_bot_db;
-CREATE USER smte_admin WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE smte_bot_db TO smte_admin;
-ALTER DATABASE smte_bot_db OWNER TO smte_admin;
-```
-
-**4. การตั้งค่า Environment Variables (.env)**
+**3. การตั้งค่า Environment Variables (.env)**
 สร้างไฟล์ `.env` ไว้ในโฟลเดอร์หลักของโปรเจกต์ และกำหนดค่าดังนี้:
 ```env
 # ใส่ Token ของ Discord Bot
 DISCORD_TOKEN=your_bot_token_here
 
-# ใส่ Connection String ของ PostgreSQL
-# รูปแบบ: postgresql://username:password@host:port/database_name
-DB_DSN=postgresql://smte_admin:your_password@127.0.0.1:5432/smte_bot_db
-```
-*(ระบบ Database จะทำการสร้าง Table ที่จำเป็นให้อัตโนมัติเมื่อรันบอทครั้งแรก)*
+# URL ของ Classroom API (FastAPI)
+API_BASE_URL=http://your-api-server:8000/api/classroom
 
-**5. รันบอท**
+# X-API-Key สำหรับคุยกับ Backend
+API_KEY=your_central_api_key_here
+```
+
+**4. รันบอท**
 ```bash
 python main.py
 ```
