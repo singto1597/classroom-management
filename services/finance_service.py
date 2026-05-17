@@ -19,7 +19,7 @@ class FinanceService:
 
     @staticmethod
     async def _get_room_id(conn, server_id: int) -> int:
-        room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1", server_id)
+        room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", server_id)
         if not room_id: raise RoomNotFoundError(f"ไม่พบห้องสำหรับ server_id: {server_id}")
         return room_id
 

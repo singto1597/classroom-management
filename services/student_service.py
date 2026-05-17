@@ -12,6 +12,7 @@ from models.student_schemas import StudentUpdateRequest
 class RoomNotFoundError(Exception): pass
 class StudentNotFoundError(Exception): pass
 class ForbiddenError(Exception): pass
+class ValidationError(Exception): pass
 
 # อนุญาตเฉพาะคอลัมน์ที่นิยามใน Pydantic — กันชื่อคอลัมน์แปลกปลอมจาก client
 STUDENT_PATCHABLE_COLUMNS: FrozenSet[str] = frozenset(StudentUpdateRequest.model_fields.keys())
@@ -20,7 +21,7 @@ class StudentService:
     
     @staticmethod
     async def _get_room_id(conn: asyncpg.Connection, server_id: int) -> int:
-        room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1", server_id)
+        room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", server_id)
         if not room_id: raise RoomNotFoundError(f"Room for server {server_id} not found.")
         return room_id
 
@@ -28,7 +29,7 @@ class StudentService:
     async def _check_is_leader(conn: asyncpg.Connection, room_id: int, requester_discord_id: int):
         """เช็คว่าคนที่ขอดูข้อมูลคนอื่น เป็นหัวหน้าห้อง (leader) หรือไม่"""
         role = await conn.fetchval(
-            "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2 AND status = 'active'",
+            "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2 AND status = 'active' AND deleted_at IS NULL",
             room_id, requester_discord_id
         )
         if role == 'student':
@@ -100,7 +101,7 @@ class StudentService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 res = await conn.execute(
-                    "UPDATE students SET discord_id = $1 WHERE room_id = $2 AND student_no = $3",
+                    "UPDATE students SET discord_id = $1 WHERE room_id = $2 AND student_no = $3 AND deleted_at IS NULL",
                     discord_id, room_id, student_no
                 )
                 if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบเลขที่นี้ในระบบ")
@@ -121,7 +122,7 @@ class StudentService:
                 room_id = await cls._get_room_id(conn, server_id)
 
                 target_discord_id = await conn.fetchval(
-                    "SELECT discord_id FROM students WHERE room_id = $1 AND student_no = $2", room_id, student_no
+                    "SELECT discord_id FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", room_id, student_no
                 )
                 if target_discord_id != updater_discord_id:
                     await cls._check_is_leader(conn, room_id, updater_discord_id)
@@ -138,12 +139,12 @@ class StudentService:
                 set_query = ", ".join(set_clauses)
                 query = (
                     f"UPDATE students SET {set_query}, updated_at = CURRENT_TIMESTAMP "
-                    "WHERE room_id = $1 AND student_no = $2"
+                    "WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL"
                 )
                 await conn.execute(query, *values)
 
                 actor_row = await conn.fetchrow(
-                    "SELECT first_name, last_name FROM students WHERE room_id = $1 AND discord_id = $2",
+                    "SELECT first_name, last_name FROM students WHERE room_id = $1 AND discord_id = $2 AND deleted_at IS NULL",
                     room_id,
                     updater_discord_id,
                 )
@@ -170,7 +171,7 @@ class StudentService:
     async def get_student_by_discord(cls, pool: asyncpg.Pool, server_id: int, discord_id: int) -> dict:
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
-            row = await conn.fetchrow("SELECT * FROM students WHERE room_id = $1 AND discord_id = $2", room_id, discord_id)
+            row = await conn.fetchrow("SELECT * FROM students WHERE room_id = $1 AND discord_id = $2 AND deleted_at IS NULL", room_id, discord_id)
             if not row: raise StudentNotFoundError("ยังไม่ได้ Sync ข้อมูล")
             
             data = dict(row)
@@ -184,7 +185,7 @@ class StudentService:
             # เช็คสิทธิ์ก่อนดึงข้อมูลทั้งห้อง (กันคนที่ role = student)
             await cls._check_is_leader(conn, room_id, requester_discord_id)
 
-            rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 ORDER BY student_no ASC", room_id)
+            rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 AND deleted_at IS NULL ORDER BY student_no ASC", room_id)
             results = []
             for row in rows:
                 data = dict(row)
@@ -197,50 +198,51 @@ class StudentService:
     @classmethod
     async def export_students_excel(cls, pool, server_id: int, fields: List[str], user_name: str, discord_id: int):
         async with pool.acquire() as conn:
-            room_id = await cls._get_room_id(conn, server_id)
-            
-            requester = await conn.fetchrow(
-                "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2", 
-                room_id, discord_id
-            )
-            
-            if not requester:
-                raise HTTPException(status_code=403, detail="คุณยังไม่ได้ลงทะเบียน /sync_me เลยนะ!")
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                
+                requester = await conn.fetchrow(
+                    "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2 AND deleted_at IS NULL", 
+                    room_id, discord_id
+                )
+                
+                if not requester:
+                    raise ForbiddenError("คุณยังไม่ได้ลงทะเบียน /sync_me เลยนะ!")
 
-            allowed_roles = ['president', 'vice_academic', 'vice_activity', 'vice_discipline', 'vice_reception']
+                allowed_roles = ['president', 'vice_academic', 'vice_activity', 'vice_discipline', 'vice_reception']
 
-            if requester['class_role'] not in allowed_roles:
-                await log_action(conn, room_id, user_name, "Unauthorized Export", f"พยายามดาวน์โหลดข้อมูลเพื่อน แต่ถูกบล็อก (Role: {requester['class_role']})")
-                raise HTTPException(status_code=403, detail="🛑 หยุดนะ! สิทธิ์ของคุณไม่เพียงพอ")
+                if requester['class_role'] not in allowed_roles:
+                    await log_action(conn, room_id, user_name, "Unauthorized Export", f"พยายามดาวน์โหลดข้อมูลเพื่อน แต่ถูกบล็อก (Role: {requester['class_role']})")
+                    raise ForbiddenError("🛑 หยุดนะ! สิทธิ์ของคุณไม่เพียงพอ")
 
-            # ดึงข้อมูลทั้งหมดของห้อง
-            rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 ORDER BY student_no ASC", room_id)
-            
-            if not rows:
-                raise HTTPException(status_code=404, detail="ไม่พบข้อมูลนักเรียนในห้องนี้")
+                # ดึงข้อมูลทั้งหมดของห้อง
+                rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 AND deleted_at IS NULL ORDER BY student_no ASC", room_id)
+                
+                if not rows:
+                    raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนในห้องนี้")
 
-            # แปลงเป็น List ของ Dict และเลือกเฉพาะฟิลด์ที่ต้องการ
-            data = []
-            for r in rows:
-                row_dict = dict(r)
-                # กรองเอาเฉพาะ key ที่ user สั่ง
-                filtered_row = {f: row_dict.get(f) for f in fields}
-                data.append(filtered_row)
+                # แปลงเป็น List ของ Dict และเลือกเฉพาะฟิลด์ที่ต้องการ
+                data = []
+                for r in rows:
+                    row_dict = dict(r)
+                    # กรองเอาเฉพาะ key ที่ user สั่ง
+                    filtered_row = {f: row_dict.get(f) for f in fields}
+                    data.append(filtered_row)
 
-            # ใช้ Pandas สร้าง DataFrame
-            df = pd.DataFrame(data)
-            
-            # สร้าง Buffer ในหน่วยความจำ (BytesIO) ไม่ต้องเขียนลง Disk จริง
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Students_List')
-            
-            output.seek(0) # เลื่อน pointer ไปจุดเริ่มต้นไฟล์
+                # ใช้ Pandas สร้าง DataFrame
+                df = pd.DataFrame(data)
+                
+                # สร้าง Buffer ในหน่วยความจำ (BytesIO) ไม่ต้องเขียนลง Disk จริง
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False, sheet_name='Students_List')
+                
+                output.seek(0) # เลื่อน pointer ไปจุดเริ่มต้นไฟล์
 
-            # 🛡️ Audit Log: บันทึกว่าใครแอบก๊อปข้อมูลเพื่อน!
-            await log_action(conn, room_id, user_name, "Export Data", f"Exported fields: {', '.join(fields)}")
-            
-            return output
+                # 🛡️ Audit Log: บันทึกว่าใครแอบก๊อปข้อมูลเพื่อน!
+                await log_action(conn, room_id, user_name, "Export Data", f"Exported fields: {', '.join(fields)}")
+                
+                return output
 
     # ระบบค้นหา (Search Logic)
     @classmethod
@@ -260,6 +262,7 @@ class StudentService:
                     CAST(student_no AS TEXT) = $3
                 )
                 AND status = 'active'
+                AND deleted_at IS NULL
                 LIMIT 5
             """
             search_pattern = f"%{query}%"
@@ -275,7 +278,7 @@ class StudentService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 res = await conn.execute(
-                    "UPDATE students SET status = $1 WHERE room_id = $2 AND student_no = $3",
+                    "UPDATE students SET status = $1 WHERE room_id = $2 AND student_no = $3 AND deleted_at IS NULL",
                     status, room_id, student_no
                 )
                 if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบเลขที่นี้")
@@ -283,25 +286,53 @@ class StudentService:
                 await log_action(conn, room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
     
     @classmethod
-    async def delete_student_permanent(cls, pool: asyncpg.Pool, server_id: int, student_no: int, user_name: str, requester_discord_id: int):
+    async def delete_student(cls, pool: asyncpg.Pool, server_id: int, student_no: int, user_name: str, requester_discord_id: int):
+        """ลบข้อมูลนักเรียนแบบ Soft Delete (เก็บประวัติไว้)"""
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 
-                # 🛡️ เช็คสิทธิ์: ต้องเป็นหัวหน้าหรือแอดมินเท่านั้นถึงจะลบถาวรได้!
+                # 🛡️ เช็คสิทธิ์: ต้องเป็นหัวหน้าหรือแอดมินเท่านั้น
                 await cls._check_is_leader(conn, room_id, requester_discord_id)
                 
-                # 💀 สั่งลบข้อมูลออกจาก Database จริงๆ
+                # 🗑️ อัปเดต deleted_at (Soft Delete)
+                res = await conn.execute(
+                    "UPDATE students SET deleted_at = NOW() WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL",
+                    room_id, student_no
+                )
+                
+                if res == "UPDATE 0":
+                    raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนเลขที่นี้ หรืออาจจะถูกลบไปแล้ว")
+                    
+                # 📜 บันทึก Log
+                await log_action(conn, room_id, user_name, "Soft Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} (Soft Delete)")
+
+    @classmethod
+    async def delete_student_permanent(cls, pool: asyncpg.Pool, server_id: int, student_no: int, user_name: str, requester_discord_id: int):
+        """ลบข้อมูลออกจาก Database ถาวร (Hard Delete) - ใช้กรณีต้องการล้างข้อมูลเพื่อเปลี่ยนเลขที่/ย้ายห้อง"""
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                room_id = await cls._get_room_id(conn, server_id)
+                await cls._check_is_leader(conn, room_id, requester_discord_id)
+                
+                # 🛡️ เช็ค Dependency ก่อนลบ (กฎข้อ 9: ป้องกันข้อมูลกำพร้า)
+                # เช็คว่ามีประวัติการเงิน (student_payments) ผูกอยู่ไหม
+                has_payments = await conn.fetchval(
+                    "SELECT 1 FROM student_payments WHERE student_id = (SELECT id FROM students WHERE room_id = $1 AND student_no = $2) LIMIT 1",
+                    room_id, student_no
+                )
+                if has_payments:
+                    raise ValidationError("ไม่สามารถลบข้อมูลถาวรได้ เนื่องจากนักเรียนคนนี้มีประวัติการเงินในระบบ ให้ใช้ Soft Delete แทน")
+
                 res = await conn.execute(
                     "DELETE FROM students WHERE room_id = $1 AND student_no = $2",
                     room_id, student_no
                 )
                 
                 if res == "DELETE 0":
-                    raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนเลขที่นี้ หรืออาจจะถูกลบไปแล้ว")
+                    raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนเลขที่นี้")
                     
-                # 📜 บันทึก Log การกระทำ (สำคัญมาก ป้องกันหัวหน้าห้องแกล้งเพื่อน)
-                await log_action(conn, room_id, user_name, "Hard Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} ออกจากฐานข้อมูลถาวร")
+                await log_action(conn, room_id, user_name, "Hard Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} ออกจากฐานข้อมูลถาวร (Hard Delete)")
 
     @classmethod
     async def get_user_rooms(cls, pool, discord_id: int):
@@ -314,6 +345,8 @@ class StudentService:
                 FROM students s
                 JOIN rooms r ON s.room_id = r.id 
                 WHERE s.discord_id = $1
+                AND s.deleted_at IS NULL
+                AND r.deleted_at IS NULL
             """
             rows = await conn.fetch(query, discord_id)
             return [dict(row) for row in rows]

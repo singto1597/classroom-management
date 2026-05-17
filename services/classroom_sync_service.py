@@ -13,7 +13,7 @@ class TaskNotFoundError(Exception): pass
 class ClassroomService:
     @staticmethod
     async def _get_room_id(conn, server_id: int) -> int:
-        room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1", server_id)
+        room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", server_id)
         if not room_id: raise RoomNotFoundError(f"Room for server {server_id} not found.")
         return room_id
 
@@ -21,7 +21,7 @@ class ClassroomService:
     async def get_room_data(cls, pool, server_id: int):
         async with pool.acquire() as conn:
             room = await conn.fetchrow(
-                "SELECT server_id, room_name, announcement_channel_id, notify_time FROM rooms WHERE server_id = $1",
+                "SELECT server_id, room_name, announcement_channel_id, notify_time FROM rooms WHERE server_id = $1 AND deleted_at IS NULL",
                 server_id
             )
             
@@ -79,7 +79,7 @@ class ClassroomService:
     async def get_rooms_to_notify(cls, pool: asyncpg.Pool, current_time: str) -> List[dict]:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT server_id, announcement_channel_id FROM rooms WHERE notify_time = $1 AND announcement_channel_id IS NOT NULL", 
+                "SELECT server_id, announcement_channel_id FROM rooms WHERE notify_time = $1 AND announcement_channel_id IS NOT NULL AND deleted_at IS NULL", 
                 current_time
             )
             return [dict(row) for row in rows]
