@@ -1,44 +1,34 @@
 <?php
+require_once 'services/ApiClient.php';
+
 class Schedule {
-    private $pdo;
-    public function __construct($pdo) { $this->pdo = $pdo; }
+    private $api;
+
+    public function __construct() {
+        $this->api = new ApiClient();
+    }
 
     public function saveDefault($room_id, $day_of_week, $attire, $subjects) {
-        try {
-            $this->pdo->beginTransaction();
-
-            $stmt = $this->pdo->prepare("DELETE FROM default_schedules WHERE room_id = ? AND day_of_week = ?");
-            $stmt->execute([$room_id, $day_of_week]);
-
-            $stmt = $this->pdo->prepare("INSERT INTO default_schedules (room_id, day_of_week, attire, subjects) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$room_id, $day_of_week, $attire, $subjects]);
-
-            $this->pdo->commit();
-            return true;
-
-        } catch (Exception $e) {
-            $this->pdo->rollBack();
-            return false;
-        }
+        $payload = [
+            "day_of_week" => $day_of_week,
+            "attire" => $attire,
+            "subjects" => $subjects,
+            "user_name" => $_SESSION['user_name'] ?? 'Web_Admin'
+        ];
+        $this->api->request('POST', "{$room_id}/schedule/default", ['json' => $payload]);
+        return true;
     }
 
     public function saveOverride($room_id, $target_date, $new_attire, $note) {
-        try {
-            $this->pdo->beginTransaction();
-
-            $stmt = $this->pdo->prepare("DELETE FROM schedule_overrides WHERE room_id = ? AND target_date = ?");
-            $stmt->execute([$room_id, $target_date]);
-
-            $stmt = $this->pdo->prepare("INSERT INTO schedule_overrides (room_id, target_date, new_attire, note) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$room_id, $target_date, $new_attire, $note]);
-
-            $this->pdo->commit();
-            return true;
-
-        } catch (Exception $e) {
-            $this->pdo->rollBack();
-            return false;
-        }
+        $payload = [
+            "target_date" => $target_date,
+            "new_attire" => $new_attire,
+            "note" => $note,
+            "user_name" => $_SESSION['user_name'] ?? 'Web_Admin'
+        ];
+        // เช็คให้ชัวร์ว่าตรงกับ Endpoint ที่ออกแบบไว้ใน FastAPI
+        $this->api->request('POST', "{$room_id}/schedule/override", ['json' => $payload]); 
+        return true;
     }
 }
 ?>

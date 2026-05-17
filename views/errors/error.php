@@ -5,10 +5,10 @@
         </div>
         <div class="card-body py-5">
             <div class="display-1 mb-3">⚠️</div>
-            <h5 class="text-secondary">
-                <?= isset($_SESSION['error_message']) ? h($_SESSION['error_message']) : "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ" ?>
+            <h5 class="text-secondary mb-3">
+                ระบบพบข้อผิดพลาดขณะประมวลผลคำขอของคุณ
             </h5>
-            <?php unset($_SESSION['error_message']); // โชว์เสร็จแล้วลบทิ้ง ?>
+            <p class="text-muted small mb-0">รายละเอียดจะแสดงในหน้าต่างแจ้งเตือน (ถ้าไม่ปรากฏ กรุณาย้อนกลับหรือกลับหน้าหลัก)</p>
         </div>
         <div class="card-footer bg-transparent">
             <a href="javascript:history.back()" class="btn btn-outline-danger">🔙 กลับไปหน้าเดิม</a>
