@@ -1,14 +1,13 @@
 import discord
-
 import datetime
 from datetime import timezone, timedelta
+from services.api_client import api_client, APIException
 
 THAI_TZ = timezone(timedelta(hours=7))
 
 class AddTaskModal(discord.ui.Modal, title='📝 เพิ่มงาน/การบ้านใหม่'):
-    def __init__(self, db, server_id):
+    def __init__(self, server_id: int):
         super().__init__()
-        self.db = db
         self.server_id = server_id
 
         tomorrow_str = (datetime.datetime.now(THAI_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -23,7 +22,6 @@ class AddTaskModal(discord.ui.Modal, title='📝 เพิ่มงาน/กา
             default="-",
             required=False
         )
-
         self.due_date = discord.ui.TextInput(
             label='กำหนดส่ง (YYYY-MM-DD)',
             default=tomorrow_str,
@@ -36,19 +34,25 @@ class AddTaskModal(discord.ui.Modal, title='📝 เพิ่มงาน/กา
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            target_date = datetime.datetime.strptime(self.due_date.value, "%Y-%m-%d").date()
+            datetime.datetime.strptime(self.due_date.value, "%Y-%m-%d").date()
         except ValueError:
             return await interaction.response.send_message("❌ วันที่ผิด YYYY-MM-DD นะ", ephemeral=True)
 
-        detail_val = self.task_detail.value if self.task_detail.value else "-"
+        detail_val = self.task_detail.value if self.task_detail.value.strip() else "-"
 
-        success = await self.db.add_task(self.server_id, self.task_name.value, detail_val, target_date)
-        if success:
-            await self.db.log_action(self.server_id, interaction.user.name, "Add Task", f"เพิ่มงาน {self.task_name.value}")
+        payload = {
+            "task_name": self.task_name.value,
+            "task_detail": detail_val,
+            "due_date": self.due_date.value,
+            "user_name": interaction.user.name
+        }
+
+        try:
+            await api_client.request("POST", f"/{self.server_id}/tasks", json=payload)
             await interaction.response.send_message(
                 f"📝 **เพิ่มงานใหม่:** {self.task_name.value}\n"
                 f"ℹ️ **รายละเอียด:** {detail_val}\n"
-                f"⏳ **กำหนดส่ง:** {target_date}"
+                f"⏳ **กำหนดส่ง:** {self.due_date.value}"
             )
-        else:
-            await interaction.response.send_message("❌ เพิ่มงานไม่สำเร็จ", ephemeral=True)
+        except APIException as e:
+            await interaction.response.send_message(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
