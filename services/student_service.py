@@ -7,12 +7,9 @@ import pandas as pd
 import io
 
 from core.audit import log_action
+from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
+from core.rbac import require_permission
 from models.student_schemas import StudentUpdateRequest
-
-class RoomNotFoundError(Exception): pass
-class StudentNotFoundError(Exception): pass
-class ForbiddenError(Exception): pass
-class ValidationError(Exception): pass
 
 # อนุญาตเฉพาะคอลัมน์ที่นิยามใน Pydantic — กันชื่อคอลัมน์แปลกปลอมจาก client
 STUDENT_PATCHABLE_COLUMNS: FrozenSet[str] = frozenset(StudentUpdateRequest.model_fields.keys())
@@ -24,16 +21,6 @@ class StudentService:
         room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", server_id)
         if not room_id: raise RoomNotFoundError(f"Room for server {server_id} not found.")
         return room_id
-
-    @staticmethod
-    async def _check_is_leader(conn: asyncpg.Connection, room_id: int, requester_discord_id: int):
-        """เช็คว่าคนที่ขอดูข้อมูลคนอื่น เป็นหัวหน้าห้อง (leader) หรือไม่"""
-        role = await conn.fetchval(
-            "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2 AND status = 'active' AND deleted_at IS NULL",
-            room_id, requester_discord_id
-        )
-        if role == 'student':
-            raise ForbiddenError("Access Denied: คุณไม่มีสิทธิ์เข้าถึงข้อมูลนี้")
 
     @staticmethod
     def _calculate_completion(row: dict) -> dict:
@@ -125,7 +112,7 @@ class StudentService:
                     "SELECT discord_id FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", room_id, student_no
                 )
                 if target_discord_id != updater_discord_id:
-                    await cls._check_is_leader(conn, room_id, updater_discord_id)
+                    await require_permission(conn, room_id, updater_discord_id, "MANAGE_STUDENTS")
 
                 keys = sorted(clean_data.keys())
                 set_clauses = []
@@ -182,8 +169,8 @@ class StudentService:
     async def get_all_students(cls, pool: asyncpg.Pool, server_id: int, requester_discord_id: int) -> List[dict]:
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
-            # เช็คสิทธิ์ก่อนดึงข้อมูลทั้งห้อง (กันคนที่ role = student)
-            await cls._check_is_leader(conn, room_id, requester_discord_id)
+            # เช็คสิทธิ์ก่อนดึงข้อมูลทั้งห้อง
+            await require_permission(conn, room_id, requester_discord_id, "VIEW_ALL_STUDENTS")
 
             rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 AND deleted_at IS NULL ORDER BY student_no ASC", room_id)
             results = []
@@ -201,19 +188,8 @@ class StudentService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 
-                requester = await conn.fetchrow(
-                    "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2 AND deleted_at IS NULL", 
-                    room_id, discord_id
-                )
-                
-                if not requester:
-                    raise ForbiddenError("คุณยังไม่ได้ลงทะเบียน /sync_me เลยนะ!")
-
-                allowed_roles = ['president', 'vice_academic', 'vice_activity', 'vice_discipline', 'vice_reception']
-
-                if requester['class_role'] not in allowed_roles:
-                    await log_action(conn, room_id, user_name, "Unauthorized Export", f"พยายามดาวน์โหลดข้อมูลเพื่อน แต่ถูกบล็อก (Role: {requester['class_role']})")
-                    raise ForbiddenError("🛑 หยุดนะ! สิทธิ์ของคุณไม่เพียงพอ")
+                # เช็คสิทธิ์ด้วย RBAC
+                await require_permission(conn, room_id, discord_id, "EXPORT_STUDENTS")
 
                 # ดึงข้อมูลทั้งหมดของห้อง
                 rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 AND deleted_at IS NULL ORDER BY student_no ASC", room_id)
@@ -292,8 +268,8 @@ class StudentService:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
                 
-                # 🛡️ เช็คสิทธิ์: ต้องเป็นหัวหน้าหรือแอดมินเท่านั้น
-                await cls._check_is_leader(conn, room_id, requester_discord_id)
+                # 🛡️ เช็คสิทธิ์ด้วย RBAC
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_STUDENTS")
                 
                 # 🗑️ อัปเดต deleted_at (Soft Delete)
                 res = await conn.execute(
@@ -313,7 +289,8 @@ class StudentService:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
-                await cls._check_is_leader(conn, room_id, requester_discord_id)
+                # 🛡️ เช็คสิทธิ์ด้วย RBAC
+                await require_permission(conn, room_id, requester_discord_id, "HARD_DELETE_STUDENTS")
                 
                 # 🛡️ เช็ค Dependency ก่อนลบ (กฎข้อ 9: ป้องกันข้อมูลกำพร้า)
                 # เช็คว่ามีประวัติการเงิน (student_payments) ผูกอยู่ไหม

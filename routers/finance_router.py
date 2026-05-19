@@ -1,20 +1,27 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Header
 import asyncpg
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 from models.finance_schemas import *
 from core.dependencies import get_db_pool, verify_api_key
-from services.finance_service import FinanceService, RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError
+from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError, ForbiddenError
+from services.finance_service import FinanceService
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 @router.post("/{server_id}/finance/accounts", response_model=SuccessResponse)
-async def create_account(server_id: int, req: AccountCreate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def create_account(
+    server_id: int, 
+    req: AccountCreate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.create_account(pool, server_id, req)
+        return await FinanceService.create_account(pool, server_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.get("/{server_id}/finance/accounts", response_model=List[AccountResponse])
 async def get_accounts(server_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
@@ -24,11 +31,19 @@ async def get_accounts(server_id: int, pool: asyncpg.Pool = Depends(get_db_pool)
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.patch("/{server_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
-async def update_account(server_id: int, account_id: int, req: AccountUpdate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def update_account(
+    server_id: int, 
+    account_id: int, 
+    req: AccountUpdate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.update_account(pool, server_id, account_id, req)
+        return await FinanceService.update_account(pool, server_id, account_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     
 @router.delete("/{server_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
 async def delete_account(
@@ -36,22 +51,32 @@ async def delete_account(
     account_id: int,
     pool: asyncpg.Pool = Depends(get_db_pool),
     req: Optional[ActionWithUserRequest] = Body(None),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
 ):
     try:
         actor = req.user_name if req else "—"
-        return await FinanceService.delete_account(pool, server_id, account_id, actor)
+        return await FinanceService.delete_account(pool, server_id, account_id, x_discord_id, actor)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/{server_id}/finance/transactions", response_model=SuccessResponse)
-async def add_transaction(server_id: int, req: TransactionCreate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def add_transaction(
+    server_id: int, 
+    req: TransactionCreate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.add_transaction(pool, server_id, req)
+        return await FinanceService.add_transaction(pool, server_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -62,7 +87,6 @@ async def get_transactions(
     pool: asyncpg.Pool = Depends(get_db_pool)
 ):
     try:
-        # ตอนส่งไปให้ Service ก็แค่ดึงค่าจาก object filters ออกมา
         return await FinanceService.get_transactions(
             pool, 
             server_id, 
@@ -78,20 +102,34 @@ async def get_transactions(
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{server_id}/finance/transfer", response_model=SuccessResponse)
-async def transfer_money(server_id: int, req: TransferCreate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def transfer_money(
+    server_id: int, 
+    req: TransferCreate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.transfer_money(pool, server_id, req)
+        return await FinanceService.transfer_money(pool, server_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e: 
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/{server_id}/finance/collections", response_model=SuccessResponse)
-async def create_fee_collection(server_id: int, req: FeeCollectionCreate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def create_fee_collection(
+    server_id: int, 
+    req: FeeCollectionCreate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.create_fee_collection(pool, server_id, req)
+        return await FinanceService.create_fee_collection(pool, server_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.put("/{server_id}/finance/payments/{payment_id}/pay", response_model=SuccessResponse)
 async def confirm_payment(server_id: int, payment_id: int, req: PaymentConfirm, pool: asyncpg.Pool = Depends(get_db_pool)):
@@ -111,11 +149,19 @@ async def get_all_collections(server_id: int, pool: asyncpg.Pool = Depends(get_d
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.put("/{server_id}/finance/collections/{collection_id}", response_model=SuccessResponse)
-async def update_collection(server_id: int, collection_id: int, req: FeeCollectionUpdate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def update_collection(
+    server_id: int, 
+    collection_id: int, 
+    req: FeeCollectionUpdate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.update_collection(pool, server_id, collection_id, req)
+        return await FinanceService.update_collection(pool, server_id, collection_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.get("/{server_id}/finance/collections/{collection_id}", response_model=CollectionStatusResponse)
 async def get_collection_status(server_id: int, collection_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
@@ -131,24 +177,34 @@ async def add_student_to_collection(
     student_id: int,
     pool: asyncpg.Pool = Depends(get_db_pool),
     req: Optional[ActionWithUserRequest] = Body(None),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
 ):
     try:
         actor = req.user_name if req else "—"
         return await FinanceService.add_student_to_collection(
-            pool, server_id, collection_id, student_id, actor
+            pool, server_id, collection_id, student_id, x_discord_id, actor
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 # --- หมวดหมู่ (Categories) ---
 @router.post("/{server_id}/finance/categories", response_model=SuccessResponse)
-async def create_category(server_id: int, req: CategoryCreate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def create_category(
+    server_id: int, 
+    req: CategoryCreate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.create_category(pool, server_id, req)
+        return await FinanceService.create_category(pool, server_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.get("/{server_id}/finance/categories", response_model=List[CategoryResponse])
 async def get_categories(server_id: int, cat_type: str = Query(None, description="income หรือ expense"), pool: asyncpg.Pool = Depends(get_db_pool)):
@@ -157,13 +213,20 @@ async def get_categories(server_id: int, cat_type: str = Query(None, description
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-# --- อัปเดต/ลบ หมวดหมู่ (Category) ---
 @router.patch("/{server_id}/finance/categories/{category_id}", response_model=SuccessResponse)
-async def update_category(server_id: int, category_id: int, req: CategoryUpdate, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def update_category(
+    server_id: int, 
+    category_id: int, 
+    req: CategoryUpdate, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.update_category(pool, server_id, category_id, req)
+        return await FinanceService.update_category(pool, server_id, category_id, req, x_discord_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.delete("/{server_id}/finance/categories/{category_id}", response_model=SuccessResponse)
 async def delete_category(
@@ -171,24 +234,33 @@ async def delete_category(
     category_id: int,
     pool: asyncpg.Pool = Depends(get_db_pool),
     req: Optional[ActionWithUserRequest] = Body(None),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
 ):
     try:
         actor = req.user_name if req else "—"
-        return await FinanceService.delete_category(pool, server_id, category_id, actor)
+        return await FinanceService.delete_category(pool, server_id, category_id, x_discord_id, actor)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# --- ยกเลิกรายการ (Revert) ---
 @router.delete("/{server_id}/finance/transactions/{transaction_id}", response_model=SuccessResponse)
-async def revert_transaction(server_id: int, transaction_id: int, req: ActionWithUserRequest, pool: asyncpg.Pool = Depends(get_db_pool)):
+async def revert_transaction(
+    server_id: int, 
+    transaction_id: int, 
+    req: ActionWithUserRequest, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    x_discord_id: int = Header(..., alias="X-Discord-Id")
+):
     try:
-        return await FinanceService.revert_transaction(pool, server_id, transaction_id, req.user_name)
+        return await FinanceService.revert_transaction(pool, server_id, transaction_id, req.user_name, x_discord_id)
     except (RoomNotFoundError, TransactionNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
-# --- สรุปยอด (Dashboard) ---
 @router.get("/{server_id}/finance/summary", response_model=FinanceSummaryResponse)
 async def get_summary(
     server_id: int, 
@@ -201,8 +273,6 @@ async def get_summary(
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-
-# --- หนี้รายบุคคล ---
 @router.get("/{server_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
 async def get_student_debts(server_id: int, student_id: int, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:

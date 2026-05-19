@@ -7,7 +7,8 @@ from models.student_schemas import (
     StudentExportRequest, StudentStatusUpdate, UserRoomResponse, StudentDeleteRequest
 )
 from core.dependencies import get_db_pool, verify_api_key
-from services.student_service import StudentService, StudentNotFoundError, ForbiddenError, ValidationError, RoomNotFoundError
+from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
+from services.student_service import StudentService
 from fastapi.responses import StreamingResponse
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])

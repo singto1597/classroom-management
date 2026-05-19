@@ -3,10 +3,8 @@ from typing import List
 from datetime import date
 
 from core.audit import log_action
-
-class RoomNotFoundError(Exception): pass
-class PaymentNotFoundError(Exception): pass
-class TransactionNotFoundError(Exception): pass
+from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError
+from core.rbac import require_permission
 
 class FinanceService:
     @staticmethod
@@ -27,10 +25,11 @@ class FinanceService:
     # 1. จัดการกระเป๋าเงิน (Accounts)
     # ==========================================
     @classmethod
-    async def create_account(cls, pool: asyncpg.Pool, server_id: int, req) -> dict:
+    async def create_account(cls, pool: asyncpg.Pool, server_id: int, req, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 await conn.execute(
                     "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, $3)",
                     room_id, req.account_name, req.initial_balance
@@ -59,10 +58,11 @@ class FinanceService:
     # 2. รายการเดินบัญชี (Transactions & Transfers)
     # ==========================================
     @classmethod
-    async def add_transaction(cls, pool: asyncpg.Pool, server_id: int, req) -> dict:
+    async def add_transaction(cls, pool: asyncpg.Pool, server_id: int, req, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 
                 # ตรวจสอบว่าเป็นกระเป๋าของห้องนี้จริงไหม และเช็คยอดเงินกรณีจ่ายออก
                 current_balance = await conn.fetchval(
@@ -108,13 +108,14 @@ class FinanceService:
                 return {"status": "success", "message": "บันทึกรายการสำเร็จ"}
 
     @classmethod
-    async def transfer_money(cls, pool: asyncpg.Pool, server_id: int, req) -> dict:
+    async def transfer_money(cls, pool: asyncpg.Pool, server_id: int, req, requester_discord_id: int) -> dict:
         if req.from_account_id == req.to_account_id:
             raise ValueError("โอนเงินเข้าบัญชีเดิมไม่ได้!")
 
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 
                 # เช็คยอดเงินต้นทางว่าพอไหม (Overdraft Protection)
                 current_balance = await conn.fetchval(
@@ -208,10 +209,11 @@ class FinanceService:
     # 3. ระบบเก็บเงินห้อง (Fee Collections)
     # ==========================================
     @classmethod
-    async def create_fee_collection(cls, pool: asyncpg.Pool, server_id: int, req) -> dict:
+    async def create_fee_collection(cls, pool: asyncpg.Pool, server_id: int, req, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 
                 collection_id = await conn.fetchval(
                     "INSERT INTO fee_collections (room_id, title, amount, due_date) VALUES ($1, $2, $3, $4) RETURNING id",
@@ -346,10 +348,11 @@ class FinanceService:
     # 4. จัดการหมวดหมู่ (Categories)
     # ==========================================
     @classmethod
-    async def create_category(cls, pool: asyncpg.Pool, server_id: int, req) -> dict:
+    async def create_category(cls, pool: asyncpg.Pool, server_id: int, req, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 await conn.execute(
                     "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3)",
                     room_id, req.category_name, req.category_type
@@ -377,10 +380,11 @@ class FinanceService:
     # 5. ระบบ Revert / Undo Transaction (คืนเงิน)
     # ==========================================
     @classmethod
-    async def revert_transaction(cls, pool: asyncpg.Pool, server_id: int, transaction_id: int, user_name: str) -> dict:
+    async def revert_transaction(cls, pool: asyncpg.Pool, server_id: int, transaction_id: int, user_name: str, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 
                 # 🔴 FIX: ดึง student_payment_id มาด้วย
                 t = await conn.fetchrow(
@@ -532,11 +536,12 @@ class FinanceService:
             }
     @classmethod
     async def add_student_to_collection(
-        cls, pool: asyncpg.Pool, server_id: int, collection_id: int, student_id: int, user_name: str = "—"
+        cls, pool: asyncpg.Pool, server_id: int, collection_id: int, student_id: int, requester_discord_id: int, user_name: str = "—"
     ) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
 
                 valid_student = await conn.fetchval("SELECT id FROM students WHERE id = $1 AND room_id = $2", student_id, room_id)
                 if not valid_student:
@@ -577,10 +582,11 @@ class FinanceService:
             return [dict(row) for row in rows]
 
     @classmethod
-    async def update_collection(cls, pool: asyncpg.Pool, server_id: int, collection_id: int, req) -> dict:
+    async def update_collection(cls, pool: asyncpg.Pool, server_id: int, collection_id: int, req, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
 
                 updates = []
                 values = []
@@ -632,10 +638,11 @@ class FinanceService:
             return {"status": "success", "message": "อัปเดตข้อมูลแคมเปญสำเร็จ"}
     
     @classmethod
-    async def update_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int, req) -> dict:
+    async def update_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int, req, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 res = await conn.execute(
                     "UPDATE finance_accounts SET account_name = $1 WHERE id = $2 AND room_id = $3",
                     req.account_name, account_id, room_id
@@ -652,10 +659,11 @@ class FinanceService:
             return {"status": "success", "message": "อัปเดตชื่อบัญชีสำเร็จ"}
 
     @classmethod
-    async def delete_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int, user_name: str = "—") -> dict:
+    async def delete_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int, requester_discord_id: int, user_name: str = "—") -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
 
                 bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2", account_id, room_id)
                 if bal is None:
@@ -703,10 +711,11 @@ class FinanceService:
             return debtors
     
     @classmethod
-    async def update_category(cls, pool: asyncpg.Pool, server_id: int, category_id: int, req) -> dict:
+    async def update_category(cls, pool: asyncpg.Pool, server_id: int, category_id: int, req, requester_discord_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
                 res = await conn.execute(
                     "UPDATE finance_categories SET category_name = $1 WHERE id = $2 AND room_id = $3",
                     req.category_name, category_id, room_id
@@ -723,10 +732,11 @@ class FinanceService:
             return {"status": "success", "message": "อัปเดตชื่อหมวดหมู่สำเร็จ"}
 
     @classmethod
-    async def delete_category(cls, pool: asyncpg.Pool, server_id: int, category_id: int, user_name: str = "—") -> dict:
+    async def delete_category(cls, pool: asyncpg.Pool, server_id: int, category_id: int, requester_discord_id: int, user_name: str = "—") -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
                 room_id = await cls._get_room_id(conn, server_id)
+                await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
 
                 used = await conn.fetchval("SELECT 1 FROM finance_transactions WHERE category_id = $1 LIMIT 1", category_id)
                 if used:
