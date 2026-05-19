@@ -127,10 +127,19 @@ document.addEventListener("DOMContentLoaded", function() {
 
 document.querySelectorAll('.btn-pay').forEach(btn => {
     btn.addEventListener('click', function() {
+        // ดึงข้อมูลไปใส่ใน Modal
         document.getElementById('modalPaymentId').value = this.dataset.pid;
         document.getElementById('payName').innerText = this.dataset.name;
-        
         document.querySelector('input[name="paid_amount"]').value = this.dataset.remain;
+        
+        // --- ✨ ส่วนที่เพิ่มเข้ามา: เลือกกระเป๋าเงินแรกอัตโนมัติ ---
+        const accountSelect = document.querySelector('select[name="paid_to_account_id"]');
+        if (accountSelect && accountSelect.options.length > 1) {
+            // ตั้งค่าเป็น 1 เพราะ index 0 คือตัวเลือก "-- เลือกกระเป๋าเงิน --" 
+            // ดังนั้น index 1 คือกระเป๋าเงินใบแรกที่ดึงมาจากฐานข้อมูล
+            accountSelect.selectedIndex = 1; 
+        }
+        // ------------------------------------------------
         
         payModal.show();
     });
