@@ -232,6 +232,9 @@ async def init_db(pool: asyncpg.Pool):
             await conn.execute("ALTER TABLE fee_collections ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE student_payments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
+            await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE daily_notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             
             logger.info("✅ Database Tables Initialized/Verified Successfully!")
 
