@@ -116,17 +116,14 @@ function renderTable(items) {
         // จัดการเรื่องวันที่ให้เหมือนเดิม
         let dateHtml = '—';
         if (t.created_at) {
-            // 1. จัดการ String ให้เป็น ISO 8601 Format ที่สมบูรณ์
-            let isoDate = t.created_at;
-            if (!isoDate.includes('T')) isoDate = isoDate.replace(' ', 'T');
+            // เอา string ที่ได้มาแปลงเป็น Date Object ตรงๆ เลย (ไม่ต้องเติม Z แล้ว)
+            // เช็คว่ามี T ไหม ถ้าไม่มีให้ใส่ (บางที DB ส่งมาเป็นเว้นวรรค)
+            let rawDate = t.created_at.includes('T') ? t.created_at : t.created_at.replace(' ', 'T');
+            const d = new Date(rawDate);
             
-            // 2. เติมตัว 'Z' ต่อท้ายเพื่อบอก JS ว่านี่คือเวลา UTC (ถ้ามันยังไม่มี)
-            if (!isoDate.endsWith('Z') && !isoDate.includes('+')) {
-                isoDate += 'Z';
-            }
+            // บวกเพิ่มไป 5 ชั่วโมง
+            d.setHours(d.getHours() + 5);
             
-            // 3. พอ JS เห็นตัว Z มันจะรู้ทันทีและแปลงเป็นเวลาไทย (+7) ให้อัตโนมัติ!
-            const d = new Date(isoDate);
             const dateStr = d.toLocaleDateString('en-GB'); 
             const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
             dateHtml = `${dateStr}<br>${timeStr} น.`;
