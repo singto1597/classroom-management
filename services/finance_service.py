@@ -160,12 +160,42 @@ class FinanceService:
         cls, pool: asyncpg.Pool, server_id: int, limit: int = 50, offset: int = 0,
         start_date: date = None, end_date: date = None,
         account_id: int = None, category_id: int = None, transaction_type: str = None
-    ) -> List[dict]:
+    ) -> dict: # เปลี่ยน return type เป็น dict
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
             
-            # สร้าง Query แบบ Dynamic (ต่อ String SQL ตาม Filter ที่ส่งมา)
-            sql = """
+            # --- สร้างเงื่อนไข WHERE ---
+            where_clause = "WHERE T.room_id = $1 AND T.deleted_at IS NULL"
+            params = [room_id]
+            param_idx = 2
+            
+            if start_date:
+                where_clause += f" AND DATE(T.created_at) >= ${param_idx}" # 👈 แก้เป็น where_clause
+                params.append(start_date)
+                param_idx += 1
+            if end_date:
+                where_clause += f" AND DATE(T.created_at) <= ${param_idx}" # 👈 แก้เป็น where_clause
+                params.append(end_date)
+                param_idx += 1
+            if account_id:
+                where_clause += f" AND T.account_id = ${param_idx}" # 👈 แก้เป็น where_clause
+                params.append(account_id)
+                param_idx += 1
+            if category_id:
+                where_clause += f" AND T.category_id = ${param_idx}" # 👈 แก้เป็น where_clause
+                params.append(category_id)
+                param_idx += 1
+            if transaction_type:
+                where_clause += f" AND T.transaction_type = ${param_idx}" # 👈 แก้เป็น where_clause
+                params.append(transaction_type)
+                param_idx += 1
+                
+            # 1. นับจำนวนข้อมูลทั้งหมด (Total Count)
+            count_sql = f"SELECT COUNT(*) FROM finance_transactions T {where_clause}"
+            total_count = await conn.fetchval(count_sql, *params)
+
+            # 2. ดึงข้อมูลตาม Limit / Offset
+            data_sql = f"""
                 SELECT 
                     T.id, T.amount, T.description, T.transaction_type, T.created_at, 
                     T.slip_image_url, T.recorded_by, T.transfer_group_id,
@@ -173,37 +203,19 @@ class FinanceService:
                 FROM finance_transactions T
                 LEFT JOIN finance_accounts A ON T.account_id = A.id
                 LEFT JOIN finance_categories C ON T.category_id = C.id
-                WHERE T.room_id = $1 AND T.deleted_at IS NULL
+                {where_clause}
+                ORDER BY T.created_at DESC LIMIT ${param_idx} OFFSET ${param_idx+1}
             """
-            params = [room_id]
-            param_idx = 2
             
-            if start_date:
-                sql += f" AND DATE(T.created_at) >= ${param_idx}"
-                params.append(start_date)
-                param_idx += 1
-            if end_date:
-                sql += f" AND DATE(T.created_at) <= ${param_idx}"
-                params.append(end_date)
-                param_idx += 1
-            if account_id:
-                sql += f" AND T.account_id = ${param_idx}"
-                params.append(account_id)
-                param_idx += 1
-            if category_id:
-                sql += f" AND T.category_id = ${param_idx}"
-                params.append(category_id)
-                param_idx += 1
-            if transaction_type:
-                sql += f" AND T.transaction_type = ${param_idx}"
-                params.append(transaction_type)
-                param_idx += 1
-                
-            sql += f" ORDER BY T.created_at DESC LIMIT ${param_idx} OFFSET ${param_idx+1}"
-            params.extend([limit, offset])
+            # ก๊อปปี้ params มาใช้สำหรับ data_sql แล้วเติม limit, offset
+            data_params = params.copy()
+            data_params.extend([limit, offset])
             
-            rows = await conn.fetch(sql, *params)
-            return [dict(row) for row in rows]
+            rows = await conn.fetch(data_sql, *data_params)
+            return {
+                "total_count": total_count,
+                "items": [dict(row) for row in rows]
+            }
 
     # ==========================================
     # 3. ระบบเก็บเงินห้อง (Fee Collections)

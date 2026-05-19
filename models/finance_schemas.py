@@ -62,6 +62,10 @@ class TransactionResponse(BaseModel):
     category_name: Optional[str]
     transfer_group_id: Optional[int] = None
 
+class TransactionListResponse(BaseModel):
+    total_count: int
+    items: List[TransactionResponse]
+
 class StudentPaymentSummary(BaseModel):
     total: int
     paid: int

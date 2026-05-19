@@ -80,7 +80,7 @@ async def add_transaction(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{server_id}/finance/transactions", response_model=List[TransactionResponse])
+@router.get("/{server_id}/finance/transactions", response_model=TransactionListResponse)
 async def get_transactions(
     server_id: int, 
     filters: TransactionFilter = Depends(), 
