@@ -45,7 +45,8 @@ async def init_db(pool: asyncpg.Pool):
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
                     day_of_week TEXT NOT NULL,
                     attire TEXT,
-                    subjects TEXT
+                    subjects TEXT,
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS schedule_overrides (
@@ -53,7 +54,8 @@ async def init_db(pool: asyncpg.Pool):
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
                     target_date DATE NOT NULL,
                     new_attire TEXT,
-                    note TEXT
+                    note TEXT,
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -82,7 +84,8 @@ async def init_db(pool: asyncpg.Pool):
                     user_name TEXT NOT NULL,
                     action TEXT NOT NULL,
                     detail TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS students (
@@ -164,14 +167,16 @@ async def init_db(pool: asyncpg.Pool):
                     id SERIAL PRIMARY KEY,
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
                     category_name TEXT NOT NULL,
-                    category_type TEXT NOT NULL
+                    category_type TEXT NOT NULL,
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS finance_accounts (
                     id SERIAL PRIMARY KEY,
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
                     account_name TEXT NOT NULL,
-                    balance DECIMAL DEFAULT 0.0
+                    balance DECIMAL DEFAULT 0.0,
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS fee_collections (
@@ -180,7 +185,8 @@ async def init_db(pool: asyncpg.Pool):
                     title TEXT NOT NULL,
                     amount DECIMAL NOT NULL,
                     due_date DATE,
-                    status TEXT DEFAULT 'active'
+                    status TEXT DEFAULT 'active',
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS finance_transactions (
@@ -209,14 +215,22 @@ async def init_db(pool: asyncpg.Pool):
                     recorded_by TEXT,
                     paid_at TIMESTAMP DEFAULT NULL,
                     transaction_id INTEGER REFERENCES finance_transactions(id) ON DELETE SET NULL,
+                    deleted_at TIMESTAMP DEFAULT NULL,
                     
                     UNIQUE(collection_id, student_id)
                 );
             """)
 
-            # --- 4. Extra Alterations ---
+            # --- 4. Extra Alterations (เพื่อรองรับ Database เดิมที่สร้างไปก่อนแล้ว) ---
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
             await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE default_schedules ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE schedule_overrides ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE finance_categories ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE finance_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE fee_collections ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            await conn.execute("ALTER TABLE student_payments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
             
             logger.info("✅ Database Tables Initialized/Verified Successfully!")
