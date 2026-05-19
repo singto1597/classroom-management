@@ -49,8 +49,9 @@ $percent = $total > 0 ? round(($paid / $total) * 100) : 0;
                         <?php if($s['status'] === 'paid'): ?>
                             <span class="badge bg-success-subtle text-success rounded-pill px-3 py-2"><i class="bi bi-check-circle-fill"></i> จ่ายครบแล้ว</span><br>
                             <?php if (!empty($s['paid_at']) && (($pta = strtotime((string)$s['paid_at'])) !== false)): ?>
+                                <?php $pta += (5 * 3600); // 🔥 บวกเพิ่ม 5 ชั่วโมง (5 * 3600 วินาที) ?>
                                 <small class="text-muted" style="font-size:10px;">
-                                    <i class="bi bi-clock"></i> <?= date('d/m/Y H:i', $pta) ?>
+                                    <i class="bi bi-clock"></i> <?= date('d/m/Y H:i', $pta) ?> น.
                                 </small>
                             <?php endif; ?>
                             
