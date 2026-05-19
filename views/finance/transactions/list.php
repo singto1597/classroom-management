@@ -116,8 +116,18 @@ function renderTable(items) {
         // จัดการเรื่องวันที่ให้เหมือนเดิม
         let dateHtml = '—';
         if (t.created_at) {
-            const d = new Date(t.created_at);
-            const dateStr = d.toLocaleDateString('en-GB'); // ได้แบบ dd/mm/yyyy
+            // 1. จัดการ String ให้เป็น ISO 8601 Format ที่สมบูรณ์
+            let isoDate = t.created_at;
+            if (!isoDate.includes('T')) isoDate = isoDate.replace(' ', 'T');
+            
+            // 2. เติมตัว 'Z' ต่อท้ายเพื่อบอก JS ว่านี่คือเวลา UTC (ถ้ามันยังไม่มี)
+            if (!isoDate.endsWith('Z') && !isoDate.includes('+')) {
+                isoDate += 'Z';
+            }
+            
+            // 3. พอ JS เห็นตัว Z มันจะรู้ทันทีและแปลงเป็นเวลาไทย (+7) ให้อัตโนมัติ!
+            const d = new Date(isoDate);
+            const dateStr = d.toLocaleDateString('en-GB'); 
             const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
             dateHtml = `${dateStr}<br>${timeStr} น.`;
         }
