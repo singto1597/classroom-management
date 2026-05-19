@@ -23,7 +23,7 @@ class NoteController {
             
             $success_msg = "บันทึกโน้ตสำหรับวันที่ $target_date เรียบร้อย!";
         }
-        require 'views/notes/add.php';
+        require __DIR__ . '/../views/notes/add.php';
     }
 }
 ?>

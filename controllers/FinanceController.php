@@ -227,10 +227,10 @@ class FinanceController {
     // 📍 4. ประวัติรายการ (Transactions List)
     public function transactionHistory() {
         $room_id = $_SESSION['room_id'];
+        $is_json = isset($_GET['format']) && $_GET['format'] === 'json';
         
-        // 🌟 รับค่า Filter และการแบ่งหน้าจาก URL
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50; // ให้ JS ส่ง limit มาได้
         $page = isset($_GET['p']) ? max(1, (int)$_GET['p']) : 1;
-        $limit = 50;
         $offset = ($page - 1) * $limit;
 
         $filters = [
@@ -239,16 +239,26 @@ class FinanceController {
             'transaction_type' => !empty($_GET['type']) ? $_GET['type'] : null,
             'start_date' => !empty($_GET['start_date']) ? $_GET['start_date'] : null,
             'end_date' => !empty($_GET['end_date']) ? $_GET['end_date'] : null,
-            'account_id' => !empty($_GET['account_id']) ? (int)$_GET['account_id'] : null,
         ];
 
         try {
-            // ส่ง Filter ไปที่ Model (Model จะแนบไปกับ Query String ให้อัตโนมัติ)
-            $transactions = $this->financeModel->getTransactions($room_id, array_filter($filters));
-            $accounts = $this->financeModel->getAccounts($room_id);
+            $api_response = $this->financeModel->getTransactions($room_id, array_filter($filters));
             
+            if ($is_json) {
+                // ถ้า JS เรียกมา ให้ส่งเป็น JSON กลับไปแบบสมูทๆ
+                http_response_code(200);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['status' => 'success', 'data' => $api_response]);
+                exit();
+            }
+
+            // โหลดหน้าเว็บครั้งแรก
+            $accounts = $this->financeModel->getAccounts($room_id);
             require 'views/finance/transactions/list.php';
-        } catch (Exception $e) { abort($e->getMessage()); }
+        } catch (Exception $e) { 
+            if ($is_json) { echo json_encode(['status' => 'error']); exit(); }
+            abort($e->getMessage()); 
+        }
     }
 
     // 📍 5. ฟอร์มเพิ่มรายการ (Add Transaction)
