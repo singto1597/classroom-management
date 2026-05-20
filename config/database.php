@@ -7,6 +7,8 @@ require_once dirname(__DIR__) . '/vendor/autoload.php';
 $dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
 $dotenv->load();
 
+ini_set('session.gc_maxlifetime', 2592000);
+
 session_set_cookie_params([
     'lifetime' => 2592000, // 30 วัน (ตามกฎโปรเจกต์)
     'path'     => '/',
