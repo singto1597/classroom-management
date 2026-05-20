@@ -29,7 +29,7 @@ class ClassroomService:
             
             return dict(room)
 
-    @classmethod
+    @staticmethod
     def _get_thai_day(date_obj: date) -> str:
         days = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
         return days[date_obj.weekday()]
