@@ -172,7 +172,7 @@ class BotCommands(commands.Cog):
             
         try:
             payload = {"notify_time": time_str, "user_name": interaction.user.name}
-            await api_client.request("PUT", f"/{interaction.guild_id}/time", json=payload)
+            await api_client.request("PUT", f"/{interaction.guild_id}/time", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"⏰ เปลี่ยนเวลาแจ้งเตือนอัตโนมัติเป็น **{time_str} น.** เรียบร้อยแล้ว!")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -184,7 +184,7 @@ class BotCommands(commands.Cog):
     async def setup_room(self, interaction: discord.Interaction, room_name: str):
         try:
             payload = {"server_id": interaction.guild_id, "room_name": room_name, "user_name": interaction.user.name}
-            await api_client.request("POST", "/setup", json=payload)
+            await api_client.request("POST", "/setup", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"✅ ลงทะเบียนห้อง **{room_name}** สำเร็จ!\n👉 กด `/set_channel` ด้วยนะ")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -193,7 +193,7 @@ class BotCommands(commands.Cog):
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         try:
             payload = {"channel_id": channel.id, "user_name": interaction.user.name}
-            await api_client.request("PUT", f"/{interaction.guild_id}/channel", json=payload)
+            await api_client.request("PUT", f"/{interaction.guild_id}/channel", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"📢 ตั้งค่าสำเร็จ! บอทจะแจ้งเตือนที่ห้อง {channel.mention}")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -211,7 +211,7 @@ class BotCommands(commands.Cog):
                 "subjects": subjects, 
                 "user_name": interaction.user.name
             }
-            await api_client.request("POST", f"/{interaction.guild_id}/schedule/default", json=payload)
+            await api_client.request("POST", f"/{interaction.guild_id}/schedule/default", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"✅ บันทึกตารางวัน**{day.value}**\n👕 ชุด: {attire}\n📚 วิชา: {subjects}")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -236,7 +236,7 @@ class BotCommands(commands.Cog):
     async def mark_done(self, interaction: discord.Interaction, task_id: int):
         try:
             payload = {"user_name": interaction.user.name}
-            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/done", json=payload)
+            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/done", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"✅ ทำสัญลักษณ์ว่างาน **{res['task_name']}** เสร็จ เรียบร้อยแล้ว!")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -246,7 +246,7 @@ class BotCommands(commands.Cog):
     async def delete_task(self, interaction: discord.Interaction, task_id: int):
         try:
             payload = {"user_name": interaction.user.name}
-            res = await api_client.request("DELETE", f"/{interaction.guild_id}/tasks/{task_id}", json=payload)
+            res = await api_client.request("DELETE", f"/{interaction.guild_id}/tasks/{task_id}", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"🗑️ ลบงาน **{res['task_name']}** ทิ้งแล้ว")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -256,7 +256,7 @@ class BotCommands(commands.Cog):
     async def restore_task(self, interaction: discord.Interaction, task_id: int):
         try:
             payload = {"user_name": interaction.user.name}
-            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/restore", json=payload)
+            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/restore", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"♻️ กู้คืนงาน **{res['task_name']}** กลับมาที่หน้าหลักเรียบร้อยแล้ว!", ephemeral=False)
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -312,7 +312,7 @@ class BotCommands(commands.Cog):
 
         try:
             payload = {"user_name": interaction.user.name}
-            deleted_data = await api_client.request("DELETE", f"/{interaction.guild_id}/notes/{target_date}", json=payload)
+            deleted_data = await api_client.request("DELETE", f"/{interaction.guild_id}/notes/{target_date}", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"🗑️ **ลบโน้ตวันที่ {target_date} แล้ว!**\nสิ่งที่ลบไป:\n🎒 {deleted_data['bring_items']}\n📢 {deleted_data['announcement']}")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
