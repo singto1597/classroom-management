@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from services import auth_service
+from core.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -24,7 +25,7 @@ async def discord_login(payload: DiscordLoginRequest):
         discord_id = await auth_service.get_discord_user_id(discord_token)
         
         # 3. สร้าง JWT โดยฝัง discord_id
-        access_token = auth_service.create_access_token(data={"sub": discord_id, "discord_id": discord_id})
+        access_token = auth_service.create_access_token(data={"discord_id": discord_id})
         
         return TokenResponse(access_token=access_token)
     except HTTPException as e:
@@ -34,3 +35,11 @@ async def discord_login(payload: DiscordLoginRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Authentication failed: {str(e)}"
         )
+
+@router.get("/me")
+async def get_me(discord_id: int = Depends(get_current_user)):
+    """
+    Endpoint สำหรับเช็คว่า Token หรือ API Key ยังใช้งานได้ไหม
+    และดึง Discord ID ของตัวเองออกมา
+    """
+    return {"discord_id": discord_id}
