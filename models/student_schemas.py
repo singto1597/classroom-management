@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import date, datetime
 from typing import Optional, List
 
@@ -103,6 +103,7 @@ class StudentResponse(BaseModel):
     id: int
     room_id: int
     discord_id: Optional[int]
+    discord_id_str: Optional[str] = None
     
     # 🔵 [2] Core Identity
     student_no: int
@@ -149,6 +150,12 @@ class StudentResponse(BaseModel):
     
     # ข้อมูลคำนวณ % ความสมบูรณ์ (Backend คำนวณให้แล้วยัดใส่มาตรงนี้)
     data_completion: Optional[StudentCompletionStatus] = None
+
+    @model_validator(mode='after')
+    def set_discord_id_str(self):
+        if self.discord_id is not None:
+            self.discord_id_str = str(self.discord_id)
+        return self
 
 
 class UserRoomResponse(BaseModel):

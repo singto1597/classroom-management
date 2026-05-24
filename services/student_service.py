@@ -177,6 +177,7 @@ class StudentService:
             for row in rows:
                 data = dict(row)
                 data['data_completion'] = cls._calculate_completion(data)
+                data['discord_id_str'] = str(data['discord_id']) if data['discord_id'] is not None else None
                 results.append(data)
             return results
     
