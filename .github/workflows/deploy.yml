@@ -1,12 +1,7 @@
-name: Auto Deploy to Server
-
-# บอก GitHub ว่าให้ทำงานตอนที่มีการ Push (หรือ Merge) เข้ากิ่ง main กับ staging
+name: Auto Deploy Backend
 on:
   push:
-    branches:
-      - main
-      - staging
-
+    branches: [ main, staging ]
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -19,21 +14,17 @@ jobs:
           key: ${{ secrets.SERVER_KEY }}
           port: ${{ secrets.SERVER_PORT }}
           script: |
-            # 🟢 ถ้าเป็นการแก้โค้ดที่กิ่ง STAGING
             if [ "${{ github.ref }}" = "refs/heads/staging" ]; then
-              echo "🚀 Deploying to STAGING Environment..."
+              echo "🚀 Deploying Backend STAGING..."
               cd ~/classroom-staging/classroom-management_backend
               git pull origin staging
-              
-              # สั่งรีสตาร์ทเซิร์ฟเวอร์ตัวเทส (แก้ชื่อ service ให้ตรงกับของมึง)
-              # sudo systemctl restart fastapi-staging
+              # รีสตาร์ท Service ตัวเทสที่มึงใช้อยู่
+              sudo systemctl restart classroom-api-staging
 
-            # 🔴 ถ้าเป็นการแก้โค้ดที่กิ่ง MAIN (PRODUCTION)
             elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              echo "🔥 Deploying to PRODUCTION Environment..."
+              echo "🔥 Deploying Backend PRODUCTION..."
               cd ~/classroom-management/classroom-management_backend
               git pull origin main
-              
-              # สั่งรีสตาร์ทเซิร์ฟเวอร์ตัวจริง
-              # sudo systemctl restart fastapi-production
+              # รีสตาร์ท Service ตัวจริง (แก้ชื่อให้ตรงของจริงนะ)
+              # sudo systemctl restart classroom-api-production
             fi
