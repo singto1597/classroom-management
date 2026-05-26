@@ -321,3 +321,23 @@ async def get_all_debtors(
         return await FinanceService.get_all_debtors(pool, server_id)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/{server_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
+async def get_student_debts(
+    server_id: int, 
+    student_id: int, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    discord_id: int = Depends(get_current_user)
+):
+    """
+    ดึงรายการหนี้รายบุคคล สำหรับใช้ใน Modal จ่ายรวบยอด (Batch Payment)
+    """
+    try:
+        return await FinanceService.get_student_debts(pool, server_id, student_id)
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาด: {str(e)}")
+
