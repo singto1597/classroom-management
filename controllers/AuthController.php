@@ -39,6 +39,10 @@ class AuthController {
             // Step 2: ดึงข้อมูล User จาก Discord
             $user = $this->discord->getUserInfo($access_token);
 
+            // 🚨 เพิ่ม 2 บรรทัดนี้เพื่อแก้บั๊ก Timing Issue (API Header)
+            $_SESSION['discord_id'] = $user['id'];
+            $this->api = new ApiClient(); // รีเซ็ตเพื่อให้อ่าน Session ไปสร้าง Header ใหม่
+
             // Step 3: ถามว่า User อยู่ห้องไหนบ้าง
             $rooms = $this->api->request('GET', "{$user['id']}/rooms");
 
@@ -166,3 +170,4 @@ class AuthController {
         $_SESSION['discord_id'] = $discord_id;
     }
 }
+?>
