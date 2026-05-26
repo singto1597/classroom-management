@@ -91,15 +91,17 @@
         </form>
     </div>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 let batchPayModal;
+// 🌟 1. ตัวแปรเก็บความทรงจำ (เก็บ Collection ID ที่เพิ่งเลือกล่าสุด)
+let lastSelectedMemory = null; 
+
 document.addEventListener("DOMContentLoaded", function() {
     batchPayModal = new bootstrap.Modal(document.getElementById('batchPayModal'));
 });
 
-// 1. กดปุ่มเคลียร์หนี้ -> ดึงรายละเอียดหนี้จาก Backend มาแสดงเป็น Checkbox รายข้อ
+// 2. กดปุ่มเคลียร์หนี้ -> โหลดข้อมูล
 document.querySelectorAll('.btn-clear-debt').forEach(btn => {
     btn.addEventListener('click', async function() {
         const studentId = this.dataset.sid;
@@ -114,7 +116,7 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
                 <span class="spinner-border spinner-border-sm me-2" role="status"></span> กำลังดึงรายการค้างชำระของเพื่อน...
             </div>`;
         
-        // Auto-select บัญชีกระเป๋าแรกเพื่อความสะดวกในการใช้งาน
+        // Auto-select บัญชีกระเป๋าแรกเพื่อความสะดวก
         const accountSelect = document.querySelector('#batchPayForm select[name="paid_to_account_id"]');
         if (accountSelect && accountSelect.options.length > 1) {
             accountSelect.selectedIndex = 1; 
@@ -122,7 +124,6 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
 
         batchPayModal.show();
 
-        // รวบรวมข้อมูลยิงหา Controller เพื่อขอรายการบิลค้างจ่ายรายบุคคล
         const formData = new FormData();
         formData.append('action', 'get_student_debts');
         formData.append('student_id', studentId);
@@ -140,9 +141,30 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
                     html = '<div class="list-group-item text-center py-4 text-muted fw-bold">ไม่พบรายการค้างชำระคงเหลือจ้า</div>';
                 } else {
                     debts.forEach(d => {
+                        // ===============================================
+                        // 🌟 ลอจิก Auto-Select โคตรฉลาด!
+                        // ===============================================
+                        let isChecked = false;
+                        if (lastSelectedMemory === null) {
+                            // ถ้าเพิ่งเข้าเว็บมาครั้งแรก ยังไม่เคยจ่ายให้ใครเลย -> ติ๊กให้หมดทุกรายการ!
+                            isChecked = true; 
+                        } else {
+                            // ถ้าเคยจ่ายให้คนอื่นไปแล้ว -> เช็คว่า Collection ID นี้ อยู่ในความทรงจำไหม?
+                            isChecked = lastSelectedMemory.includes(d.collection_id.toString());
+                        }
+
+                        // เตรียม Attribute ต่างๆ ตามสถานะที่ถูกติ๊ก
+                        const checkedState = isChecked ? 'checked' : '';
+                        const inputDisabledState = isChecked ? '' : 'disabled';
+                        
+                        let rowClasses = 'list-group-item d-flex gap-3 align-items-center py-3 border-start-0 border-end-0 transition-all ';
+                        rowClasses += isChecked ? '' : 'bg-light';
+                        let rowStyle = isChecked ? 'background-color: #f0fdf4;' : '';
+                        // ===============================================
+
                         html += `
-                        <label class="list-group-item d-flex gap-3 align-items-center py-3 bg-light border-start-0 border-end-0 transition-all">
-                            <input class="form-check-input flex-shrink-0 fs-4 debt-checkbox" type="checkbox" name="payment_ids[]" value="${d.payment_id}">
+                        <label class="${rowClasses}" style="${rowStyle}">
+                            <input class="form-check-input flex-shrink-0 fs-4 debt-checkbox" type="checkbox" name="payment_ids[]" value="${d.payment_id}" data-cid="${d.collection_id}" ${checkedState}>
                             <div class="d-flex w-100 justify-content-between align-items-center">
                                 <div>
                                     <h6 class="mb-1 fw-bold text-dark">${d.title}</h6>
@@ -151,7 +173,7 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
                                 <div class="text-end" style="width: 140px;">
                                     <div class="input-group input-group-sm">
                                         <span class="input-group-text bg-white border-end-0 text-muted">฿</span>
-                                        <input type="number" name="pay_amounts[${d.payment_id}]" class="form-control text-end debt-amount-input fw-bold border-start-0 ps-0" value="${d.amount}" step="0.01" min="0.01" max="${d.amount}" disabled required>
+                                        <input type="number" name="pay_amounts[${d.payment_id}]" class="form-control text-end debt-amount-input fw-bold border-start-0 ps-0" value="${d.amount}" step="0.01" min="0.01" max="${d.amount}" ${inputDisabledState} required>
                                     </div>
                                 </div>
                             </div>
@@ -159,7 +181,7 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
                     });
                 }
                 document.getElementById('debtChecklist').innerHTML = html;
-                calculateTotal(); 
+                calculateTotal(); // คำนวณยอดเงินรวมเริ่มต้น
                 bindCheckboxAndInputEvents(); 
             } else {
                 document.getElementById('debtChecklist').innerHTML = `<div class="text-center py-4 text-danger fw-bold">${result.message || 'เกิดข้อผิดพลาดจาก API'}</div>`;
@@ -170,7 +192,7 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
     });
 });
 
-// 2. ฟังก์ชันผูก Event ให้ Checkbox และช่องกรอกเงิน เพื่อคำนวณยอดรวม Real-time
+// 3. ฟังก์ชันผูก Event ให้ Checkbox
 function bindCheckboxAndInputEvents() {
     document.querySelectorAll('.debt-checkbox').forEach(cb => {
         cb.addEventListener('change', function() {
@@ -179,10 +201,9 @@ function bindCheckboxAndInputEvents() {
             
             input.disabled = !this.checked; 
             
-            // เปลี่ยนสีไฮไลต์พื้นหลังเพื่อให้เหรัญญิกดูง่ายว่าบิลไหนเลือกอยู่
             if (this.checked) {
                 rowItem.classList.remove('bg-light');
-                rowItem.style.backgroundColor = '#f0fdf4'; // สีเขียวอ่อนๆ สะอาดตา
+                rowItem.style.backgroundColor = '#f0fdf4'; 
             } else {
                 rowItem.classList.add('bg-light');
                 rowItem.style.backgroundColor = '';
@@ -197,7 +218,7 @@ function bindCheckboxAndInputEvents() {
     });
 }
 
-// 3. ฟังก์ชันคำนวณเงินรวมของบิลทั้งหมดที่เลือก
+// 4. ฟังก์ชันคำนวณเงินรวม
 function calculateTotal() {
     let total = 0;
     document.querySelectorAll('.debt-checkbox:checked').forEach(cb => {
@@ -207,7 +228,7 @@ function calculateTotal() {
     document.getElementById('totalSelectedAmount').innerText = '฿' + total.toLocaleString('en-US', {minimumFractionDigits: 2});
 }
 
-// 4. สั่งส่งฟอร์มรวบยอดแบบ AJAX ไปที่ Controller
+// 5. สั่งส่งฟอร์ม
 document.getElementById('batchPayForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
@@ -215,6 +236,9 @@ document.getElementById('batchPayForm').addEventListener('submit', async functio
     if (checkedItems.length === 0) {
         return Swal.fire('อ๊ะ!', 'กรุณาเลือกติ๊กรายการบิลที่ต้องการชำระเงินอย่างน้อย 1 รายการก่อนครับ', 'warning');
     }
+
+    // 🌟 จดจำการตั้งค่าก่อนกดยืนยัน! ดึง Collection ID ของทุกอันที่ติ๊กไปเก็บไว้ใน Array
+    lastSelectedMemory = Array.from(checkedItems).map(cb => cb.dataset.cid.toString());
 
     const btn = this.querySelector('button[type="submit"]');
     const oldText = btn.innerHTML;
@@ -230,8 +254,19 @@ document.getElementById('batchPayForm').addEventListener('submit', async functio
         
         if (response.ok && result.status === 'success') {
             batchPayModal.hide();
-            Swal.fire({ title: 'สำเร็จ!', text: result.message, icon: 'success', timer: 1500, showConfirmButton: false })
-                .then(() => location.reload());
+            // 🌟 แก้ไข: เปลี่ยน location.reload() เป็นพ่น Alert อย่างเดียว
+            // เพราะถ้ารีเฟรชหน้าเว็บ ตัวแปร lastSelectedMemory จะโดนรีเซ็ตหายไป!
+            Swal.fire({ title: 'สำเร็จ!', text: result.message, icon: 'success', timer: 1500, showConfirmButton: false });
+            
+            // แอบซ่อนปุ่มของคนที่เพิ่งจ่ายเสร็จ (ให้ดูเหมือนอัปเดต Real-time โดยไม่ต้องรีเฟรชหน้า)
+            const studentId = document.getElementById('batchStudentId').value;
+            const rowBtn = document.querySelector(`.btn-clear-debt[data-sid="${studentId}"]`);
+            if(rowBtn) {
+                rowBtn.classList.replace('btn-primary', 'btn-success');
+                rowBtn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> จ่ายแล้ว';
+                rowBtn.disabled = true;
+            }
+
         } else {
             Swal.fire('พบข้อผิดพลาด', result.message || 'บันทึกรายการไม่สำเร็จ', 'error');
         }
@@ -243,9 +278,3 @@ document.getElementById('batchPayForm').addEventListener('submit', async functio
     }
 });
 </script>
-
-<style>
-.transition-all {
-    transition: all 0.2s ease-in-out;
-}
-</style>
