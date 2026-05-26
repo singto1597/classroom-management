@@ -516,60 +516,60 @@ class FinanceService:
     # ==========================================
     # 7. ทวงหนี้รายบุคคล (Student Debt Profile)
     # ==========================================
-        @classmethod
-        async def get_student_debts(cls, pool: asyncpg.Pool, server_id: int, student_id: int) -> dict:
-            async with pool.acquire() as conn:
-                room_id = await cls._get_room_id(conn, server_id)
+    @classmethod
+    async def get_student_debts(cls, pool: asyncpg.Pool, server_id: int, student_id: int) -> dict:
+        async with pool.acquire() as conn:
+            room_id = await cls._get_room_id(conn, server_id)
 
-                # 1. เช็คว่าใช่เด็กในห้องนี้จริงไหม
-                student = await conn.fetchrow(
-                    "SELECT id, first_name, nickname FROM students WHERE id = $1 AND room_id = $2", 
-                    student_id, room_id
-                )
-                if not student:
-                    raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
+            # 1. เช็คว่าใช่เด็กในห้องนี้จริงไหม
+            student = await conn.fetchrow(
+                "SELECT id, first_name, nickname FROM students WHERE id = $1 AND room_id = $2", 
+                student_id, room_id
+            )
+            if not student:
+                raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
 
-                # 2. ดึงรายการบิลที่ค้าง
-                # 🌟 แก้ไข: ใช้ (FC.amount - COALESCE(SP.paid_amount, 0)) เพื่อหาราคาที่ "เหลือจริงๆ" (รองรับคนทยอยจ่าย)
-                sql = """
-                    SELECT 
-                        SP.id as payment_id, 
-                        FC.id as collection_id, 
-                        FC.title, 
-                        (FC.amount - COALESCE(SP.paid_amount, 0)) AS amount, 
-                        FC.due_date
-                    FROM student_payments SP
-                    JOIN fee_collections FC ON SP.collection_id = FC.id
-                    WHERE SP.student_id = $1 AND SP.status = 'pending' AND FC.room_id = $2
-                    ORDER BY FC.due_date ASC
-                """
-                
-                # 🌟 แก้ไข: ใส่ตัวแปรให้ครบ 2 ตัว ($1 = student_id, $2 = room_id) ไม่งั้น API ระเบิด
-                rows = await conn.fetch(sql, student_id, room_id)
+            # 2. ดึงรายการบิลที่ค้าง
+            # 🌟 แก้ไข: ใช้ (FC.amount - COALESCE(SP.paid_amount, 0)) เพื่อหาราคาที่ "เหลือจริงๆ" (รองรับคนทยอยจ่าย)
+            sql = """
+                SELECT 
+                    SP.id as payment_id, 
+                    FC.id as collection_id, 
+                    FC.title, 
+                    (FC.amount - COALESCE(SP.paid_amount, 0)) AS amount, 
+                    FC.due_date
+                FROM student_payments SP
+                JOIN fee_collections FC ON SP.collection_id = FC.id
+                WHERE SP.student_id = $1 AND SP.status = 'pending' AND FC.room_id = $2
+                ORDER BY FC.due_date ASC
+            """
+            
+            # 🌟 แก้ไข: ใส่ตัวแปรให้ครบ 2 ตัว ($1 = student_id, $2 = room_id) ไม่งั้น API ระเบิด
+            rows = await conn.fetch(sql, student_id, room_id)
 
-                # 3. จัดการเรื่อง Type & คำนวณยอดรวม (แปลง Decimal เป็น float เสมอ)
-                formatted_debts = []
-                total_pending = 0.0
+            # 3. จัดการเรื่อง Type & คำนวณยอดรวม (แปลง Decimal เป็น float เสมอ)
+            formatted_debts = []
+            total_pending = 0.0
 
-                for r in rows:
-                    row_dict = dict(r)
-                    # แปลงยอดค้างจ่ายของแต่ละบิลเป็น float 
-                    row_dict['amount'] = float(row_dict['amount'])
-                    formatted_debts.append(row_dict)
-                    total_pending += row_dict['amount']
+            for r in rows:
+                row_dict = dict(r)
+                # แปลงยอดค้างจ่ายของแต่ละบิลเป็น float 
+                row_dict['amount'] = float(row_dict['amount'])
+                formatted_debts.append(row_dict)
+                total_pending += row_dict['amount']
 
-                # 4. ประกอบชื่อ
-                formatted_name = student['first_name']
-                if student['nickname']:
-                    formatted_name += f" ({student['nickname']})"
+            # 4. ประกอบชื่อ
+            formatted_name = student['first_name']
+            if student['nickname']:
+                formatted_name += f" ({student['nickname']})"
 
-                # 5. ส่งค่ากลับพร้อมความสบายใจ
-                return {
-                    "student_id": student_id,
-                    "student_name": formatted_name,
-                    "total_pending_amount": total_pending,
-                    "debts": formatted_debts
-                }
+            # 5. ส่งค่ากลับพร้อมความสบายใจ
+            return {
+                "student_id": student_id,
+                "student_name": formatted_name,
+                "total_pending_amount": total_pending,
+                "debts": formatted_debts
+            }
 
     @classmethod
     async def add_student_to_collection(
