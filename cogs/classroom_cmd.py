@@ -43,7 +43,8 @@ class BotCommands(commands.Cog):
         server_id = interaction.guild_id
         try:
             # 🚨 ยิง API ขอข้อมูล Tasks
-            tasks_data = await api_client.request("GET", f"/{server_id}/tasks", params={"status": "pending"})
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            tasks_data = await api_client.request("GET", f"/{server_id}/tasks", params={"status": "pending"}, headers=headers)
             
             choices = []
             for t in tasks_data:
@@ -60,7 +61,8 @@ class BotCommands(commands.Cog):
     async def deleted_task_autocomplete(self, interaction: discord.Interaction, current: str):
         server_id = interaction.guild_id
         try:
-            tasks_data = await api_client.request("GET", f"/{server_id}/tasks/deleted")
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            tasks_data = await api_client.request("GET", f"/{server_id}/tasks/deleted", headers=headers)
             choices = []
             for t in tasks_data:
                 if current.lower() in t['task_name'].lower():
@@ -84,7 +86,8 @@ class BotCommands(commands.Cog):
 
         try:
             # 🚨 ยิง API ขอรายชื่อห้องที่ต้องเตือน
-            rooms_to_notify = await api_client.request("GET", "/notifications/targets", params={"current_time": current_time_str})
+            headers = {"X-Discord-Id": str(self.bot.user.id)}
+            rooms_to_notify = await api_client.request("GET", "/notifications/targets", params={"current_time": current_time_str}, headers=headers)
             if not rooms_to_notify: 
                 return
 
@@ -97,7 +100,7 @@ class BotCommands(commands.Cog):
                 channel = self.bot.get_channel(channel_id)
                 if channel:
                     # 🚨 ยิง API ดึงข้อมูล Summary ของพรุ่งนี้
-                    data = await api_client.request("GET", f"/{server_id}/summary", params={"target_date": str(target_date)})
+                    data = await api_client.request("GET", f"/{server_id}/summary", params={"target_date": str(target_date)}, headers=headers)
                     if data:
                         embed = self.build_summary_embed("🌙 แจ้งเตือนอัตโนมัติ: เตรียมตัวสำหรับวันพรุ่งนี้!", data)
                         await channel.send(content="📢 @everyone สรุปตารางเรียนและงานของวันพรุ่งนี้", embed=embed)
@@ -264,7 +267,8 @@ class BotCommands(commands.Cog):
     @app_commands.command(name="list_tasks", description="ดูลิสต์งานทั้งหมดที่ยังไม่เสร็จ")
     async def list_tasks(self, interaction: discord.Interaction):
         try:
-            tasks_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks", params={"status": "pending"})
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            tasks_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks", params={"status": "pending"}, headers=headers)
             if not tasks_data: return await interaction.response.send_message("🎉 ไม่มีงานเลยจ้าา")
 
             embed = discord.Embed(title="📋 รายการงานที่ยังไม่เสร็จ", color=discord.Color.blue())
@@ -284,7 +288,8 @@ class BotCommands(commands.Cog):
     @app_commands.autocomplete(task_id=task_autocomplete)
     async def edit_task(self, interaction: discord.Interaction, task_id: int):
         try:
-            task_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks/{task_id}")
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            task_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks/{task_id}", headers=headers)
             # 🚨 ตัด db ออก
             modal = edit_task_ui.EditTaskModal(
                 task_id=task_id, 
@@ -345,7 +350,8 @@ class BotCommands(commands.Cog):
     async def today(self, interaction: discord.Interaction):
         target = datetime.datetime.now(THAI_TZ).date()
         try:
-            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target)})
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target)}, headers=headers)
             await interaction.response.send_message(embed=self.build_summary_embed("☀️ สรุปตารางวันนี้", data))
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -354,7 +360,8 @@ class BotCommands(commands.Cog):
     async def tomorrow(self, interaction: discord.Interaction):
         target = datetime.datetime.now(THAI_TZ).date() + timedelta(days=1)
         try:
-            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target)})
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target)}, headers=headers)
             await interaction.response.send_message(embed=self.build_summary_embed("🌙 เตรียมตัวสำหรับวันพรุ่งนี้", data))
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -362,7 +369,8 @@ class BotCommands(commands.Cog):
     @app_commands.command(name="view_logs", description="(ผู้ดูแล) ดูประวัติการแก้ไขข้อมูลระบบย้อนหลัง 20 รายการ")
     async def view_logs(self, interaction: discord.Interaction):
         try:
-            logs = await api_client.request("GET", f"/{interaction.guild_id}/logs")
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            logs = await api_client.request("GET", f"/{interaction.guild_id}/logs", headers=headers)
             if not logs:
                 return await interaction.response.send_message("📭 ยังไม่มีประวัติการทำรายการในระบบครับ", ephemeral=True)
             

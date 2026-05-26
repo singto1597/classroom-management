@@ -48,10 +48,11 @@ class StudentCommands(commands.Cog):
                 server_id = message.guild.id
                 
                 # บันทึกชื่อคนที่พิมพ์ประกาศจริงๆ (ถ้าบอทพิมพ์ ก็จะเป็นชื่อบอท)
+                headers = {"X-Discord-Id": str(message.author.id)}
                 payload = {"user_name": str(message.author.name)}
 
                 try:
-                    room_data = await api_client.request("GET", f"/{server_id}")
+                    room_data = await api_client.request("GET", f"/{server_id}", headers=headers)
                     main_channel_id = room_data.get('announcement_channel_id')
                     main_channel = self.bot.get_channel(main_channel_id) if main_channel_id else None
                 except:
@@ -64,7 +65,7 @@ class StudentCommands(commands.Cog):
                         "task_detail": detail,
                         "due_date": db_date
                     })
-                    await api_client.request("POST", f"/{server_id}/tasks", json=payload)
+                    await api_client.request("POST", f"/{server_id}/tasks", json=payload, headers=headers)
                     await message.add_reaction("✅") 
 
                     # ถ้ามีช่องประกาศหลัก และไม่ได้สั่งจากช่องนั้น ให้ไปตะโกนบอก
@@ -80,7 +81,7 @@ class StudentCommands(commands.Cog):
                         "bring_items": "-", 
                         "announcement": f"[{topic}] {detail}"
                     })
-                    await api_client.request("POST", f"/{server_id}/notes", json=payload)
+                    await api_client.request("POST", f"/{server_id}/notes", json=payload, headers=headers)
                     await message.add_reaction("📌") 
 
                     if main_channel and message.channel.id != main_channel_id:
@@ -94,12 +95,13 @@ class StudentCommands(commands.Cog):
     @app_commands.command(name="sync_me", description="ผูก Discord ของคุณเข้ากับเลขที่นักเรียน (ทำครั้งแรกครั้งเดียว)")
     async def sync_me(self, interaction: discord.Interaction, student_no: int):
         try:
+            headers = {"X-Discord-Id": str(interaction.user.id)}
             payload = {
                 "student_no": student_no,
                 "discord_id": interaction.user.id, # ส่ง ID ของ Discord ยูสเซอร์ไป
                 "user_name": interaction.user.name
             }
-            await api_client.request("POST", f"/{interaction.guild_id}/students/sync", json=payload)
+            await api_client.request("POST", f"/{interaction.guild_id}/students/sync", json=payload, headers=headers)
             await interaction.response.send_message(f"🎉 ผูกบัญชีกับเลขที่ {student_no} สำเร็จ! ลองพิมพ์ `/my_profile` ดูสิ!", ephemeral=True)
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -215,7 +217,8 @@ class StudentCommands(commands.Cog):
     async def student_search_autocomplete(self, interaction: discord.Interaction, current: str):
         if len(current) < 1: return []
         try:
-            results = await api_client.request("GET", f"/{interaction.guild_id}/search", params={"q": current})
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            results = await api_client.request("GET", f"/{interaction.guild_id}/search", params={"q": current}, headers=headers)
             choices = []
             for r in results:
                 name = f"เลขที่ {r['student_no']} | {r['first_name']} {r['last_name']} ({r.get('nickname') or '-'})"
@@ -228,7 +231,8 @@ class StudentCommands(commands.Cog):
     @app_commands.autocomplete(student_no=student_search_autocomplete)
     async def search_student(self, interaction: discord.Interaction, student_no: int):
         try:
-            results = await api_client.request("GET", f"/{interaction.guild_id}/search", params={"q": str(student_no)})
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            results = await api_client.request("GET", f"/{interaction.guild_id}/search", params={"q": str(student_no)}, headers=headers)
             if not results:
                 return await interaction.response.send_message("❌ ไม่พบข้อมูลนักเรียนคนนี้ หรืออาจจะย้ายออกไปแล้ว", ephemeral=True)
             

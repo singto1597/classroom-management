@@ -56,7 +56,8 @@ class AddNoteModal(discord.ui.Modal, title='📝 เพิ่มโน้ตใ�
 
         try:
             # 🚨 ยิง API ไปให้ FastAPI จัดการ
-            await api_client.request("POST", f"/{guild_id}/notes", json=payload)
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            await api_client.request("POST", f"/{guild_id}/notes", json=payload, headers=headers)
             await interaction.response.send_message(
                 f"📌 **บันทึกโน้ตวันที่ {self.target_date.value}**\n🎒 ให้เตรียม: {bring_items}\n📢 โน้ต: {announcement}"
             )

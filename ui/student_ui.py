@@ -18,13 +18,14 @@ class QuickAddModal(discord.ui.Modal, title='👤 เพิ่มนักเร
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            headers = {"X-Discord-Id": str(interaction.user.id)}
             payload = {
                 "student_no": int(self.student_no.value),
                 "first_name": self.first_name.value.strip(),
                 "last_name": self.last_name.value.strip(),
                 "user_name": interaction.user.name
             }
-            await api_client.request("POST", f"/{self.server_id}/students", json=payload)
+            await api_client.request("POST", f"/{self.server_id}/students", json=payload, headers=headers)
             await interaction.response.send_message(f"✅ เพิ่มเลขที่ {self.student_no.value} สำเร็จ!", ephemeral=True)
         except ValueError:
             await interaction.response.send_message("❌ เลขที่ต้องเป็นตัวเลขเท่านั้น!", ephemeral=True)
@@ -58,7 +59,8 @@ class BulkAddModal(discord.ui.Modal, title='🚀 เพิ่มนักเร�
                     })
             
             payload = {"students": students, "user_name": interaction.user.name}
-            await api_client.request("POST", f"/{self.server_id}/students/bulk", json=payload)
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            await api_client.request("POST", f"/{self.server_id}/students/bulk", json=payload, headers=headers)
             await interaction.response.send_message(f"✅ เพิ่มข้อมูลรวดเดียว {len(students)} คน สำเร็จ!", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message("❌ รูปแบบข้อมูลผิดพลาด เช็คลูกน้ำ (,) ให้ดีนะ", ephemeral=True)
