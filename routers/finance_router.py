@@ -298,30 +298,7 @@ async def get_summary(
         return await FinanceService.get_summary(pool, server_id, month, year)
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-@router.get("/{server_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
-async def get_student_debts(
-    server_id: int, 
-    student_id: int, 
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
-):
-    try:
-        return await FinanceService.get_student_debts(pool, server_id, student_id)
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-@router.get("/{server_id}/finance/debtors", response_model=List[DebtorItem])
-async def get_all_debtors(
-    server_id: int, 
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
-):
-    try:
-        return await FinanceService.get_all_debtors(pool, server_id)
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
+    
 @router.get("/{server_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
 async def get_student_debts(
     server_id: int, 
@@ -340,4 +317,17 @@ async def get_student_debts(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาด: {str(e)}")
+
+
+
+@router.get("/{server_id}/finance/debtors", response_model=List[DebtorItem])
+async def get_all_debtors(
+    server_id: int, 
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    discord_id: int = Depends(get_current_user)
+):
+    try:
+        return await FinanceService.get_all_debtors(pool, server_id)
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
