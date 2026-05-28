@@ -530,21 +530,21 @@ class FinanceService:
                 raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
 
             # 2. ดึงรายการบิลที่ค้าง
-            # 🌟 แก้ไข: ใช้ (FC.amount - COALESCE(SP.paid_amount, 0)) เพื่อหาราคาที่ "เหลือจริงๆ" (รองรับคนทยอยจ่าย)
+            # 🌟 อัปเกรด: เพิ่ม FC.status AS collection_status และเรียงให้ active ขึ้นก่อน closed (ตัว a มาก่อน c)
             sql = """
                 SELECT 
                     SP.id as payment_id, 
                     FC.id as collection_id, 
                     FC.title, 
                     (FC.amount - COALESCE(SP.paid_amount, 0)) AS amount, 
-                    FC.due_date
+                    FC.due_date,
+                    FC.status AS collection_status
                 FROM student_payments SP
                 JOIN fee_collections FC ON SP.collection_id = FC.id
                 WHERE SP.student_id = $1 AND SP.status = 'pending' AND FC.room_id = $2
-                ORDER BY FC.due_date ASC
+                ORDER BY FC.status ASC, FC.due_date ASC
             """
             
-            # 🌟 แก้ไข: ใส่ตัวแปรให้ครบ 2 ตัว ($1 = student_id, $2 = room_id) ไม่งั้น API ระเบิด
             rows = await conn.fetch(sql, student_id, room_id)
 
             # 3. จัดการเรื่อง Type & คำนวณยอดรวม (แปลง Decimal เป็น float เสมอ)
@@ -570,6 +570,7 @@ class FinanceService:
                 "total_pending_amount": total_pending,
                 "debts": formatted_debts
             }
+
 
     @classmethod
     async def add_student_to_collection(
