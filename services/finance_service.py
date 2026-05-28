@@ -625,30 +625,44 @@ class FinanceService:
                 room_id = await cls._get_room_id(conn, server_id)
                 await require_permission(conn, room_id, requester_discord_id, "MANAGE_FINANCE")
 
+                # 🌟 1. ดึงข้อมูลเดิมของแคมเปญนี้มาดูก่อน
+                current_data = await conn.fetchrow(
+                    "SELECT amount FROM fee_collections WHERE id = $1 AND room_id = $2", 
+                    collection_id, room_id
+                )
+                if not current_data:
+                    raise RoomNotFoundError("ไม่พบแคมเปญนี้")
+
                 updates = []
                 values = []
                 idx = 1
                 changed_labels: List[str] = []
+                
                 if req.title is not None:
                     updates.append(f"title = ${idx}")
                     values.append(req.title)
                     idx += 1
                     changed_labels.append("title")
-                if req.amount is not None:
+                
+                # 🌟 2. อัปเกรดลอจิก: เช็คว่า "มีการส่งค่ามา" และ "ค่าไม่เท่ากับของเดิม" เท่านั้น ถึงจะจับผิด!
+                if req.amount is not None and req.amount != current_data['amount']:
+                    # แอบแก้เป็น paid_amount > 0 จะได้ป้องกันกรณีมีคนเพิ่งทยอยจ่ายไปนิดนึงด้วย
                     paid_exists = await conn.fetchval(
-                        "SELECT 1 FROM student_payments WHERE collection_id = $1 AND status = 'paid' LIMIT 1", collection_id
+                        "SELECT 1 FROM student_payments WHERE collection_id = $1 AND paid_amount > 0 LIMIT 1", collection_id
                     )
                     if paid_exists:
-                        raise ValueError("ไม่สามารถแก้จำนวนเงินได้ เนื่องจากมีเพื่อนจ่ายเงินเข้ามาแล้ว!")
+                        raise ValueError("ไม่สามารถแก้จำนวนเงินได้ เนื่องจากมีเพื่อนโอนเงิน/ทยอยจ่ายเข้ามาแล้ว!")
                     updates.append(f"amount = ${idx}")
                     values.append(req.amount)
                     idx += 1
                     changed_labels.append("amount")
+                
                 if req.due_date is not None:
                     updates.append(f"due_date = ${idx}")
                     values.append(req.due_date)
                     idx += 1
                     changed_labels.append("due_date")
+                
                 if req.status is not None:
                     updates.append(f"status = ${idx}")
                     values.append(req.status)
@@ -673,6 +687,7 @@ class FinanceService:
                     f"id={collection_id} แก้: {', '.join(changed_labels)}",
                 )
             return {"status": "success", "message": "อัปเดตข้อมูลแคมเปญสำเร็จ"}
+
     
     @classmethod
     async def update_account(cls, pool: asyncpg.Pool, server_id: int, account_id: int, req, requester_discord_id: int) -> dict:
