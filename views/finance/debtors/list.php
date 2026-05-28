@@ -91,6 +91,7 @@
         </form>
     </div>
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 let batchPayModal;
@@ -106,16 +107,16 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
     btn.addEventListener('click', async function() {
         const studentId = this.dataset.sid;
         const studentName = this.dataset.name;
-        
+
         document.getElementById('batchStudentId').value = studentId;
         document.getElementById('batchPayName').innerText = studentName;
-        
+
         // แสดงสถานะหมุนรอโหลดข้อมูล
         document.getElementById('debtChecklist').innerHTML = `
             <div class="text-center py-5 text-muted small">
                 <span class="spinner-border spinner-border-sm me-2" role="status"></span> กำลังดึงรายการค้างชำระของเพื่อน...
             </div>`;
-        
+
         // Auto-select บัญชีกระเป๋าแรกเพื่อความสะดวก
         const accountSelect = document.querySelector('#batchPayForm select[name="paid_to_account_id"]');
         if (accountSelect && accountSelect.options.length > 1) {
@@ -142,24 +143,24 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
                 } else {
                     debts.forEach(d => {
                         // ===============================================
-                        // 🌟 ลอจิก Auto-Select โคตรฉลาด!
+                        // 🌟 ลอจิก Auto-Select ฉลาดจำค่าเดิม!
                         // ===============================================
                         let isChecked = false;
                         if (lastSelectedMemory === null) {
-                            // ถ้าเพิ่งเข้าเว็บมาครั้งแรก ยังไม่เคยจ่ายให้ใครเลย -> ติ๊กให้หมดทุกรายการ!
                             isChecked = true; 
                         } else {
-                            // ถ้าเคยจ่ายให้คนอื่นไปแล้ว -> เช็คว่า Collection ID นี้ อยู่ในความทรงจำไหม?
                             isChecked = lastSelectedMemory.includes(d.collection_id.toString());
                         }
 
-                        // เตรียม Attribute ต่างๆ ตามสถานะที่ถูกติ๊ก
                         const checkedState = isChecked ? 'checked' : '';
                         const inputDisabledState = isChecked ? '' : 'disabled';
-                        
+
                         let rowClasses = 'list-group-item d-flex gap-3 align-items-center py-3 border-start-0 border-end-0 transition-all ';
                         rowClasses += isChecked ? '' : 'bg-light';
                         let rowStyle = isChecked ? 'background-color: #f0fdf4;' : '';
+                        
+                        // 🌟 ลอจิกป้ายกำกับ: ถ้าบิลปิดโปรเจกต์ไปแล้ว ให้ติดป้ายสีเทา
+                        const closedBadge = d.collection_status === 'closed' ? '<span class="badge bg-secondary ms-2" style="font-size: 0.65rem;">ปิดโปรเจกต์แล้ว</span>' : '';
                         // ===============================================
 
                         html += `
@@ -167,7 +168,7 @@ document.querySelectorAll('.btn-clear-debt').forEach(btn => {
                             <input class="form-check-input flex-shrink-0 fs-4 debt-checkbox" type="checkbox" name="payment_ids[]" value="${d.payment_id}" data-cid="${d.collection_id}" ${checkedState}>
                             <div class="d-flex w-100 justify-content-between align-items-center">
                                 <div>
-                                    <h6 class="mb-1 fw-bold text-dark">${d.title}</h6>
+                                    <h6 class="mb-1 fw-bold text-dark">${d.title} ${closedBadge}</h6>
                                     <span class="badge bg-danger-subtle text-danger rounded-pill px-2">ยอดเต็ม: ฿${parseFloat(d.amount).toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                                 </div>
                                 <div class="text-end" style="width: 140px;">
@@ -198,9 +199,9 @@ function bindCheckboxAndInputEvents() {
         cb.addEventListener('change', function() {
             const rowItem = this.closest('.list-group-item');
             const input = rowItem.querySelector('.debt-amount-input');
-            
+
             input.disabled = !this.checked; 
-            
+
             if (this.checked) {
                 rowItem.classList.remove('bg-light');
                 rowItem.style.backgroundColor = '#f0fdf4'; 
@@ -231,7 +232,7 @@ function calculateTotal() {
 // 5. สั่งส่งฟอร์ม
 document.getElementById('batchPayForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    
+
     const checkedItems = document.querySelectorAll('.debt-checkbox:checked');
     if (checkedItems.length === 0) {
         return Swal.fire('อ๊ะ!', 'กรุณาเลือกติ๊กรายการบิลที่ต้องการชำระเงินอย่างน้อย 1 รายการก่อนครับ', 'warning');
@@ -251,13 +252,12 @@ document.getElementById('batchPayForm').addEventListener('submit', async functio
             body: new FormData(this)
         });
         const result = await response.json();
-        
+
         if (response.ok && result.status === 'success') {
             batchPayModal.hide();
-            // 🌟 แก้ไข: เปลี่ยน location.reload() เป็นพ่น Alert อย่างเดียว
-            // เพราะถ้ารีเฟรชหน้าเว็บ ตัวแปร lastSelectedMemory จะโดนรีเซ็ตหายไป!
+            // พ่น Alert อย่างเดียว ไม่รีเฟรชหน้าเว็บ เพื่อเก็บความจำ (lastSelectedMemory) เอาไว้
             Swal.fire({ title: 'สำเร็จ!', text: result.message, icon: 'success', timer: 1500, showConfirmButton: false });
-            
+
             // แอบซ่อนปุ่มของคนที่เพิ่งจ่ายเสร็จ (ให้ดูเหมือนอัปเดต Real-time โดยไม่ต้องรีเฟรชหน้า)
             const studentId = document.getElementById('batchStudentId').value;
             const rowBtn = document.querySelector(`.btn-clear-debt[data-sid="${studentId}"]`);
@@ -278,3 +278,9 @@ document.getElementById('batchPayForm').addEventListener('submit', async functio
     }
 });
 </script>
+
+<style>
+.transition-all {
+    transition: all 0.2s ease-in-out;
+}
+</style>
