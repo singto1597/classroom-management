@@ -2,7 +2,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h4 class="fw-bold mb-0 text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i> สรุปผู้ค้างชำระ (ทวงหนี้รวม)</h4>
-            <p class="text-muted mb-0 small">รายชื่อผู้ค้างจ่ายเงินจากทุกโปรเจกต์ที่ยังเปิดรับเงินอยู่ สามารถกดเคลียร์หนี้รวบยอดได้ที่นี่</p>
+            <p class="text-muted mb-0 small">รายชื่อผู้ค้างจ่ายเงินจากทุกโปรเจกต์ (รวมโปรเจกต์ที่ปิดรับเงินไปแล้ว)</p>
         </div>
     </div>
 
