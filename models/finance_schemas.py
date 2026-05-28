@@ -133,6 +133,7 @@ class StudentDebtItem(BaseModel):
     title: str
     amount: float
     due_date: Optional[date] = None
+    collection_status: str
 
 class StudentDebtProfileResponse(BaseModel):
     student_id: int
