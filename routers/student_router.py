@@ -4,7 +4,7 @@ from typing import List
 from models.student_schemas import (
     SuccessResponse, StudentAddRequest, StudentBulkAddRequest, StudentUpdateRequest, 
     SyncDiscordRequest, ChangeStatusRequest, StudentResponse,
-    StudentExportRequest, StudentStatusUpdate, UserRoomResponse, StudentDeleteRequest
+    StudentExportRequest, StudentStatusUpdate, UserRoomResponse, StudentDeleteRequest, StudentSummaryResponse
 )
 from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
@@ -143,7 +143,7 @@ async def get_my_profile(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{server_id}/students", response_model=List[StudentResponse])
+@router.get("/{server_id}/students", response_model=List[StudentSummaryResponse])
 async def get_all_students(
     server_id: int, 
     discord_id: int = Depends(get_current_user), 

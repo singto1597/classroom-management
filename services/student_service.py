@@ -169,16 +169,41 @@ class StudentService:
     async def get_all_students(cls, pool: asyncpg.Pool, server_id: int, requester_discord_id: int) -> List[dict]:
         async with pool.acquire() as conn:
             room_id = await cls._get_room_id(conn, server_id)
-            # เช็คสิทธิ์ก่อนดึงข้อมูลทั้งห้อง
-            await require_permission(conn, room_id, requester_discord_id, "VIEW_ALL_STUDENTS")
+            
+            # 🔴 ลบทิ้ง: การเช็คสิทธิ์ระดับสูง
+            # await require_permission(conn, room_id, requester_discord_id, "VIEW_ALL_STUDENTS")
 
+            # 🟢 เพิ่มใหม่: เช็คแค่ว่า "Discord ID นี้ เป็นนักเรียนที่มีชื่ออยู่ในห้องนี้จริงๆ ใช่ไหม?"
+            is_member = await conn.fetchval(
+                "SELECT 1 FROM students WHERE room_id = $1 AND discord_id = $2 AND deleted_at IS NULL",
+                room_id, requester_discord_id
+            )
+            if not is_member:
+                raise ForbiddenError("คุณไม่มีสิทธิ์ดูรายชื่อ เพราะคุณไม่ได้อยู่ในห้องเรียนนี้")
+
+            # ดึงมาทั้งหมดเพื่อคำนวณ %
             rows = await conn.fetch("SELECT * FROM students WHERE room_id = $1 AND deleted_at IS NULL ORDER BY student_no ASC", room_id)
+            
             results = []
             for row in rows:
-                data = dict(row)
-                data['data_completion'] = cls._calculate_completion(data)
-                data['discord_id_str'] = str(data['discord_id']) if data['discord_id'] is not None else None
-                results.append(data)
+                full_data = dict(row)
+                completion_status = cls._calculate_completion(full_data)
+                
+                # กรองเอาเฉพาะข้อมูลปลอดภัย
+                safe_data = {
+                    "id": full_data["id"],
+                    "student_no": full_data["student_no"],
+                    "student_id": full_data.get("student_id"),
+                    "first_name": full_data["first_name"],
+                    "last_name": full_data["last_name"],
+                    "nickname": full_data.get("nickname"),
+                    "class_role": full_data["class_role"],
+                    "status": full_data["status"],
+                    "discord_id_str": str(full_data['discord_id']) if full_data.get('discord_id') else None,
+                    "data_completion": completion_status
+                }
+                results.append(safe_data)
+                
             return results
     
 
