@@ -160,5 +160,25 @@ class StudentResponse(BaseModel):
 
 class UserRoomResponse(BaseModel):
     server_id: int 
+    server_id_str: Optional[str] = None
     room_name: str
     role: str
+
+    @model_validator(mode='after')
+    def set_server_id_str(self):
+        if self.server_id is not None:
+            self.server_id_str = str(self.server_id)
+        return self
+
+# 🟢 Schema สำหรับหน้าตาราง (ส่งไปแค่นี้ ปลอดภัย 100%)
+class StudentSummaryResponse(BaseModel):
+    id: int
+    student_no: int
+    student_id: Optional[str] = None
+    first_name: str
+    last_name: str
+    nickname: Optional[str] = None
+    class_role: str
+    status: str
+    discord_id_str: Optional[str] = None
+    data_completion: Optional[StudentCompletionStatus] = None
