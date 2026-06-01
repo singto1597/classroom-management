@@ -125,7 +125,7 @@ class ClassroomService:
                     room_id, task_name, task_detail, due_date
                 )
                 await log_action(conn, room_id, user_name, "Add Task", f"สั่งงานใหม่: {task_name}")
-        await ActionService.notify_new_task(server_id, task_name, due_date, user_name)
+        await ActionService.notify_new_task(server_id, task_name, task_detail, due_date, user_name)
 
     @classmethod
     async def get_tasks(cls, pool: asyncpg.Pool, server_id: int, status: str = 'pending') -> List[dict]:

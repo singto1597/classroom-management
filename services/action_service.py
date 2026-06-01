@@ -41,17 +41,17 @@ class ActionService:
     # ==========================================
 
     @classmethod
-    async def notify_new_task(cls, server_id: int, task_name: str, due_date: date, user_name: str):
-        """เรียกใช้เมื่อมีการสร้างงานใหม่"""
+    async def notify_new_task(cls, server_id: int, task_name: str, task_detail: str, due_date: date, user_name: str):
+        """เรียกใช้เมื่อมีการสร้างงานใหม่ (เพิ่ม task_detail แล้ว)"""
         await cls._publish("NEW_TASK", server_id, {
             "task_name": task_name,
+            "task_detail": task_detail,
             "due_date": due_date,
             "user_name": user_name
         })
 
     @classmethod
     async def notify_task_done(cls, server_id: int, task_name: str, user_name: str):
-        """เรียกใช้เมื่อมีคนกดส่งงาน"""
         await cls._publish("TASK_DONE", server_id, {
             "task_name": task_name,
             "user_name": user_name
@@ -59,9 +59,18 @@ class ActionService:
 
     @classmethod
     async def notify_new_note(cls, server_id: int, target_date: date, topic: str, user_name: str):
-        """เรียกใช้เมื่อมีการแปะประกาศรายวันใหม่"""
         await cls._publish("NEW_NOTE", server_id, {
             "target_date": target_date,
             "topic": topic,
+            "user_name": user_name
+        })
+
+    # 🚨 ฟังก์ชันใหม่! สำหรับรับข้อความด่วนจากหน้าเว็บ
+    @classmethod
+    async def notify_custom_message(cls, server_id: int, title: str, message: str, user_name: str):
+        """เรียกใช้เมื่อส่งข้อความประกาศตรงจากหน้าเว็บ"""
+        await cls._publish("CUSTOM_MESSAGE", server_id, {
+            "title": title,
+            "message": message,
             "user_name": user_name
         })
