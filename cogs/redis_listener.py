@@ -24,16 +24,19 @@ class RedisListener(commands.Cog):
     async def listen_to_redis(self):
         while True:
             try:
-                redis_client = aioredis.from_url(REDIS_URL)
-                pubsub = redis_client.pubsub()
+                # 🚨 1. เติม health_check_interval=20 เพื่อให้มันส่ง PING เลี้ยงสายไว้ทุก 20 วินาที
+                redis_client = aioredis.from_url(REDIS_URL, health_check_interval=20)
+                
+                # 🚨 2. เติม ignore_subscribe_messages=True เพื่อป้องกันบั๊กข้อความขยะตอนเชื่อมต่อครั้งแรก
+                pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
                 await pubsub.subscribe("classroom_events")
                 
                 logger.info("🎧 บอทเริ่มดักฟัง Redis ช่อง 'classroom_events' แล้ว...")
 
+                # ตรงนี้จะหลับรอจนกว่าจะมีคน Publish มา (ไม่กิน CPU)
                 async for message in pubsub.listen():
-                    if message["type"] == "message":
+                    if message and message["type"] == "message":
                         data = json.loads(message["data"])
-                        # โยนงานไปให้ process_event จัดการ
                         await self.process_event(data)
                         
             except Exception as e:
