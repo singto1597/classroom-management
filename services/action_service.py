@@ -3,6 +3,8 @@ import logging
 import redis.asyncio as aioredis
 from core.config import settings
 from datetime import date, datetime
+import asyncio 
+import sys
 
 logger = logging.getLogger("API_MAIN")
 
@@ -42,7 +44,7 @@ class ActionService:
 
     @classmethod
     async def notify_new_task(cls, server_id: int, task_name: str, task_detail: str, due_date: date, user_name: str):
-        """เรียกใช้เมื่อมีการสร้างงานใหม่ (เพิ่ม task_detail แล้ว)"""
+        """เรียกใช้เมื่อมีการสร้างงานใหม่"""
         await cls._publish("NEW_TASK", server_id, {
             "task_name": task_name,
             "task_detail": task_detail,
@@ -52,6 +54,7 @@ class ActionService:
 
     @classmethod
     async def notify_task_done(cls, server_id: int, task_name: str, user_name: str):
+        """เรียกใช้เมื่อมีคนกดส่งงาน"""
         await cls._publish("TASK_DONE", server_id, {
             "task_name": task_name,
             "user_name": user_name
@@ -59,13 +62,13 @@ class ActionService:
 
     @classmethod
     async def notify_new_note(cls, server_id: int, target_date: date, topic: str, user_name: str):
+        """เรียกใช้เมื่อมีการแปะประกาศรายวันใหม่"""
         await cls._publish("NEW_NOTE", server_id, {
             "target_date": target_date,
             "topic": topic,
             "user_name": user_name
         })
 
-    # 🚨 ฟังก์ชันใหม่! สำหรับรับข้อความด่วนจากหน้าเว็บ
     @classmethod
     async def notify_custom_message(cls, server_id: int, title: str, message: str, user_name: str):
         """เรียกใช้เมื่อส่งข้อความประกาศตรงจากหน้าเว็บ"""
@@ -74,3 +77,34 @@ class ActionService:
             "message": message,
             "user_name": user_name
         })
+
+if __name__ == "__main__":
+    async def run_test():
+        # เช็คว่าใส่พารามิเตอร์มาครบ 3 ตัวมั้ย (Server ID, หัวข้อ, ข้อความ)
+        if len(sys.argv) < 4:
+            print("⚠️ วิธีใช้งาน: python -m services.action_service <Server_ID> <หัวข้อ> <ข้อความ>")
+            print("💡 ตัวอย่าง: python -m services.action_service 1234567890123456789 'ประกาศด่วน' 'พรุ่งนี้เรียนออนไลน์'")
+            return
+
+        try:
+            # ดึงข้อมูลจากพารามิเตอร์ (ดัก int ไว้เผื่อพิมพ์ผิด)
+            target_server_id = int(sys.argv[1])
+            custom_title = sys.argv[2]
+            custom_message = sys.argv[3]
+        except ValueError:
+            print("❌ Error: Server ID ต้องเป็นตัวเลขเท่านั้นนะเว้ย!")
+            return
+        
+        print(f"🚀 กำลังส่งประกาศไปที่ Server {target_server_id} | หัวข้อ: [{custom_title}]...")
+        
+        await ActionService.notify_custom_message(
+            server_id=target_server_id,
+            title=custom_title,
+            message=custom_message,
+            user_name="Singto (Terminal)"
+        )
+        
+        print("✅ ส่งคำสั่งเข้า Redis สำเร็จ! ลองเช็คใน Discord ดูเลย")
+
+    # สั่งให้ Event Loop ของ asyncio รันฟังก์ชันด้านบน
+    asyncio.run(run_test())
