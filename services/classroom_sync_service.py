@@ -9,6 +9,8 @@ from core.rbac import require_permission
 
 THAI_TZ = ZoneInfo("Asia/Bangkok")
 
+from services.action_service import ActionService
+
 class ClassroomService:
     @staticmethod
     async def _get_room_id(conn, server_id: int) -> int:
@@ -123,7 +125,8 @@ class ClassroomService:
                     room_id, task_name, task_detail, due_date
                 )
                 await log_action(conn, room_id, user_name, "Add Task", f"สั่งงานใหม่: {task_name}")
-    
+        await ActionService.notify_new_task(server_id, task_name, due_date, user_name)
+
     @classmethod
     async def get_tasks(cls, pool: asyncpg.Pool, server_id: int, status: str = 'pending') -> List[dict]:
         async with pool.acquire() as conn:
@@ -172,7 +175,11 @@ class ClassroomService:
                     raise TaskNotFoundError("Task not found or access denied")
                 
                 await log_action(conn, room_id, user_name, "Mark Done", f"ส่งงาน {task_name} แล้ว")
-                return task_name
+        
+        await ActionService.notify_task_done(server_id, task_name, user_name)
+
+        return task_name
+        
 
     @classmethod
     async def delete_task(cls, pool, server_id, task_id, user_name, requester_discord_id: int) -> str:
