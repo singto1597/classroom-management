@@ -17,6 +17,7 @@ class MyBot(commands.Bot):
         # 🚨 โหลด Cog (Routers) เข้ามา โดยไม่ต้องส่ง DB แล้ว
         await self.load_extension('cogs.classroom_cmd') 
         await self.load_extension('cogs.student_cmd')
+        await self.load_extension("cogs.redis_listener")
         
         synced = await self.tree.sync()
         print(f"Synced {len(synced)} command(s)")
