@@ -74,6 +74,9 @@ class RedisListener(commands.Cog):
         
         elif event_type == "NEW_NOTE":
             await self.action_service.notify_new_note(server_id, data)
+        
+        elif event_type == "CUSTOM_MESSAGE":
+            await self.action_service.notify_custom_message(server_id, data)
 
 async def setup(bot):
     await bot.add_cog(RedisListener(bot))

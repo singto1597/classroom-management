@@ -9,68 +9,72 @@ class BotActionService:
         self.bot = bot
 
     async def _get_announcement_channel(self, server_id: int):
-        """ดึงช่องแจ้งเตือนหลักของห้องจาก API"""
         try:
-            # ใช้ ID ของบอทเป็น X-Discord-Id สำหรับการยิง API ภายใน
             headers = {"X-Discord-Id": str(self.bot.user.id)}
             room_data = await api_client.request("GET", f"/{server_id}", headers=headers)
-            
             channel_id = room_data.get("announcement_channel_id")
-            if channel_id:
-                return self.bot.get_channel(int(channel_id))
-        except APIException as e:
-            logger.error(f"Failed to fetch room data for {server_id}: {e}")
+            if channel_id: return self.bot.get_channel(int(channel_id))
         except Exception as e:
-            logger.error(f"Unexpected error fetching channel for {server_id}: {e}")
-        
+            logger.error(f"Failed fetching channel: {e}")
         return None
 
-    # ==========================================
-    # หมวดหมู่ Functions สำหรับจัดหน้าตาข้อความ
-    # ==========================================
-
     async def notify_new_task(self, server_id: int, data: dict):
-        """แจ้งเตือนเมื่อมีงานใหม่"""
         channel = await self._get_announcement_channel(server_id)
-        if not channel:
-            return
+        if not channel: return
 
+        # 🚨 ปรับคำให้ดูเป็นทางการและกระชับขึ้น
         embed = discord.Embed(
-            title="📝 มีงานใหม่สั่งเข้ามา!", 
-            description="หยิบสมุดจดขึ้นมาเลยพวกเรา!",
+            title="📝 แจ้งเตือน: มีการบ้าน/ภาระงานใหม่", 
+            description="มีการเพิ่มภาระงานใหม่ลงในระบบ กรุณาตรวจสอบรายละเอียดครับ",
             color=discord.Color.green()
         )
         embed.add_field(name="📌 ชื่องาน", value=data.get("task_name"), inline=False)
-        embed.add_field(name="📅 กำหนดส่ง", value=data.get("due_date"), inline=True)
-        embed.set_footer(text=f"เพิ่มข้อมูลโดย: {data.get('user_name')}")
         
-        await channel.send(content="<@&ROLE_ID_EVERYONE>", embed=embed)  # ปรับแก้ Tag @everyone ได้ตามต้องการ
+        # 🚨 เช็คว่ามีรายละเอียดงานมั้ย ถ้ามีและไม่ใช่ค่าว่าง ก็ให้แสดงผล
+        task_detail = data.get("task_detail")
+        if task_detail and str(task_detail).strip() not in ["", "-"]:
+            embed.add_field(name="📄 รายละเอียด", value=task_detail, inline=False)
+
+        embed.add_field(name="📅 กำหนดส่ง", value=data.get("due_date"), inline=True)
+        embed.set_footer(text=f"อัปเดตข้อมูลโดย: {data.get('user_name')}")
+        
+        await channel.send(content="@everyone", embed=embed) 
 
     async def notify_task_done(self, server_id: int, data: dict):
-        """แจ้งเตือนเมื่อมีคนส่งงาน (อาจจะส่งเข้าห้องเงียบๆ ไม่ต้อง tag)"""
         channel = await self._get_announcement_channel(server_id)
-        if not channel:
-            return
+        if not channel: return
 
         embed = discord.Embed(
-            title="✅ มีคนส่งงานแล้ว!",
-            description=f"**{data.get('user_name')}** ได้ทำการติ๊กส่งงาน **{data.get('task_name')}** แล้ว",
+            title="✅ อัปเดตสถานะงาน",
+            description=f"**{data.get('user_name')}** ได้ทำเครื่องหมายว่างาน **{data.get('task_name')}** เสร็จสิ้นแล้ว",
             color=discord.Color.blue()
         )
         await channel.send(embed=embed)
 
     async def notify_new_note(self, server_id: int, data: dict):
-        """แจ้งเตือนประกาศรายวันใหม่"""
         channel = await self._get_announcement_channel(server_id)
-        if not channel:
-            return
+        if not channel: return
 
         embed = discord.Embed(
-            title="📌 มีประกาศใหม่เข้าตาราง!", 
-            description=f"สำหรับวันที่ {data.get('target_date')}",
+            title="📌 ประกาศใหม่จากระบบ", 
+            description=f"ข้อมูลอัปเดตสำหรับวันที่ {data.get('target_date')}",
             color=discord.Color.gold()
         )
         embed.add_field(name="หัวข้อ", value=data.get("topic"), inline=False)
         embed.set_footer(text=f"ประกาศโดย: {data.get('user_name')}")
         
         await channel.send(embed=embed)
+
+    # 🚨 ฟังก์ชันใหม่! รับข้อความ Custom จากเว็บ
+    async def notify_custom_message(self, server_id: int, data: dict):
+        channel = await self._get_announcement_channel(server_id)
+        if not channel: return
+
+        embed = discord.Embed(
+            title=f"📢 {data.get('title')}", 
+            description=data.get("message"),
+            color=discord.Color.red()
+        )
+        embed.set_footer(text=f"ประกาศโดย: {data.get('user_name')} (ระบบประกาศแจ้งเตือน)")
+        
+        await channel.send(content="@everyone", embed=embed)
