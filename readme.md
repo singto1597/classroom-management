@@ -27,7 +27,16 @@ cd classroom-deployment
 
 ### 2. ตั้งค่า Environment Variables
 
-เข้าไปสร้างและแก้ไขไฟล์ `.env` ในแต่ละเซอร์วิสให้เรียบร้อย:
+สำหรับ Repo หลักนี้ จะมี .env ที่เก็บการตั้งค่าของระบบหลักเอาไว้ ให้สร้างไฟล์ `.env` เอาไว้หน้าสุดด้วย 
+
+```env
+COMPOSE_PROJECT_NAME=classroom_staging
+ENV_NAME=staging
+WEB_PORT=8200
+API_PORT=8000
+```
+
+สำหรับ Services ย่อย ให้เข้าไปสร้างและแก้ไขไฟล์ `.env` ในแต่ละ Services ให้เรียบร้อย:
 
 * `/backend/.env`
 * `/bot_discord/.env`
