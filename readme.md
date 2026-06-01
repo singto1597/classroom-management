@@ -1,5 +1,5 @@
-# Classroom-Sync (Web Interface)
-
+# Classroom-Sync PHP (Web Interface)
+### ⚠️ DEPRECATED: โปรเจกต์นี้ไม่ได้ใช้งานแล้ว ถูกย้ายไปเขียนใหม่ด้วย TypeScript ที่ Repository: [https://github.com/singto1597/classroom-management_web-announcement_php]
 ระบบจัดการห้องเรียนผ่านเว็บไซต์ ทำหน้าที่เป็น Client เชื่อมต่อกับ Central API
 
 ### การตั้งค่า Environment (.env)
