@@ -1,0 +1,46 @@
+# ⚙️ Backend Rules (FastAPI + asyncpg)
+
+## 1. Stack & Environment
+- **Framework:** FastAPI รันบน Python 3.12+
+- **Database:** `asyncpg` (เขียน Raw SQL เท่านั้น)
+- **Data Validation:** `Pydantic` v2
+
+## 2. โครงสร้างโฟลเดอร์ (Strict MVC-like Pattern)
+- `routers/`: มีหน้าที่รับ Request, ตรวจสอบ Header/Dependencies, โยนงานให้ `services/` และ Return ค่ากลับ **(ห้ามเขียน SQL หรือ Business Logic ซับซ้อนที่นี่)**
+- `services/`: เป็นสมองของระบบ เขียน Business Logic, จัดการ Transaction, และยิง SQL Query ที่นี่ทั้งหมด
+- `models/`: เก็บ Pydantic Schemas (`BaseModel`) สำหรับตรวจ Request/Response
+- `core/`: เก็บไฟล์ตั้งค่า, Dependencies (เช่น `get_db_pool`, `verify_api_key`)
+
+## 3. Database & asyncpg Best Practices
+- **Connection Pool:** ห้ามสร้าง Connection ใหม่พร่ำเพรื่อ ให้รับ `pool: asyncpg.Pool` มาจาก Dependency Injection เสมอ
+- **Transaction:** ถ้ามีการทำงานที่ต้อง Query หลายคำสั่งต่อเนื่องกัน (เช่น Insert แล้ว Update) ต้องครอบด้วย `async with conn.transaction():` เสมอ เพื่อป้องกันข้อมูลพังถ้าเกิด Error กลางทาง
+- **Dynamic Updates (PATCH):** เมื่อรับข้อมูลอัปเดตแบบบางส่วน ให้ใช้ `req.model_dump(exclude_unset=True)` เพื่อเอาเฉพาะฟิลด์ที่ส่งมาจริงๆ ไปอัปเดต (ป้องกันการเอาค่า None ไปทับของเดิม)
+- **Data Limits:** การดึงข้อมูลแบบ List (เช่น ประวัติ หรือรายการแจ้งซ่อม) ควรมีการทำ Pagination หรือใส่ `LIMIT` เสมอ ห้ามดึงข้อมูลทั้งตาราง
+
+## 4. Security & Role Management
+- **Dependency Injection:** ทุก Router ที่ไม่ได้เป็น Public ต้องมี `Depends(verify_api_key)`
+- **Header Extraction:** การดึง Discord ID ของผู้ใช้ ให้ดึงผ่าน `x_discord_id: str = Header(...)` ที่ฝั่ง Router แล้วโยนเข้า Service
+- **Assume Identity (God Mode):** หากมีระบบ Super Admin การสลับสิทธิ์จะเกิดขึ้นที่ฝั่ง Client (PHP) ส่งค่า `room_id` และสวมรอยสิทธิ์มา ฝั่ง Backend ให้เชื่อใจ `room_id` และ `x_discord_id` ที่ส่งมา (ตราบใดที่ API Key ถูกต้อง)
+
+## 5. Audit Logging (กฎเหล็กห้ามลืม)
+- ทุกๆ Endpoint ที่มีผลกับการเปลี่ยนแปลงข้อมูล (POST, PUT, PATCH, DELETE) **ต้อง** มีการเรียกใช้ฟังก์ชัน `_log_action(conn, room_id, user_name, action, detail)` เพื่อบันทึกประวัติลงตาราง `audit_logs`
+- การบันทึก Log ต้องอยู่ภายใน `transaction()` เดียวกันกับการแก้ข้อมูลเสมอ
+
+## 6. Error Handling
+- หากหาข้อมูลไม่พบ หรือ Query ไม่สำเร็จ ให้ `raise` Custom Exception (เช่น `StudentNotFoundError`, `ForbiddenError`) จากใน `services/`
+- ฝั่ง `routers/` ต้องทำ `try...except` ดัก Custom Exception เหล่านี้ แล้วแปลงเป็น `HTTPException` พร้อมระบุ `status_code` ให้ถูกต้อง (เช่น 404, 403, 400)
+
+## 7. Data Types & asyncpg Quirks (ข้อควรระวังเรื่อง Type)
+- **Decimal vs Float:** คอลัมน์ประเภท `NUMERIC` หรือ `DECIMAL` ใน PostgreSQL เมื่อใช้ `asyncpg` ดึงข้อมูลมา มันจะกลายเป็นอ็อบเจกต์ `decimal.Decimal` ของ Python ซึ่ง **ห้ามนำไปบวก/ลบกับ `float` ตรงๆ เด็ดขาด (จะเกิด TypeError)** ต้องทำการแปลงไทป์ เช่น `float(row['amount'])` ก่อนคำนวณเสมอ
+- **Date/Datetime Params:** ตัวแปรที่รับค่าวันที่ผ่าน Query Parameter (เช่น `start_date`, `end_date`) ใน Pydantic ต้องกำหนด Type เป็น `date` หรือ `datetime` เท่านั้น ห้ามใช้ `str` เพื่อให้ FastAPI แปลงค่า String เป็น Date Object ให้อัตโนมัติ ป้องกันบั๊ก `toordinal()`
+
+## 8. Concurrency & Database Locks (ป้องกัน Race Condition)
+- ในระบบที่มีการคำนวณยอดเงิน (Finance) หรือตัดสต๊อก **ต้องใช้ `FOR UPDATE` เสมอ**
+- ตัวอย่าง: เวลาจะเพิ่ม/ลด เงินในกระเป๋า ต้องดึงยอดล่าสุดด้วย `SELECT balance FROM finance_accounts WHERE id = $1 FOR UPDATE` เพื่อล็อกแถวข้อมูลนั้นไว้ ป้องกันผู้ใช้กดย้ำๆ แล้วเงินเบิ้ล
+
+## 9. Soft Deletes & Foreign Key Checks
+- **ห้าม Hard Delete ข้อมูลสำคัญ:** ข้อมูลจำพวก Transaction ประวัติการเงิน หรืองานที่ส่งแล้ว ต้องใช้วิธี Soft Delete (`UPDATE ... SET deleted_at = NOW()`) 
+- **ก่อน Delete ต้องเช็ค Dependency:** หากมีการลบข้อมูล Master Data (เช่น กระเป๋าเงิน, หมวดหมู่) ต้อง Query เช็คก่อนเสมอว่าข้อมูลนี้ถูกผูกใช้งานในตารางอื่น (เช่น `finance_transactions` หรือ `student_payments`) หรือไม่ หากมีให้ `raise ValueError` ห้ามลบทิ้งเด็ดขาด ป้องกันข้อมูลกำพร้า (Orphan Data)
+
+## 10. Router Response Models
+- ใน Router ต้องบังคับใส่ `response_model=...` ทุกครั้ง เพื่อให้ Pydantic กรองฟิลด์ที่ไม่จำเป็น (หรือฟิลด์ลับ) ออกจาก JSON ก่อนส่งกลับไปหา Client ช่วยทั้งเรื่อง Security และ Performance

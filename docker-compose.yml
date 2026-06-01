@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ${ENV_NAME}_postgres # เปลี่ยนเป็นตัวแปร
+    restart: always
+    env_file:
+      - ./classroom-management_backend/.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smte_admin -d smte_bot_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${ENV_NAME}_redis # เปลี่ยนเป็นตัวแปร
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
+  backend:
+    build:
+      context: ./classroom-management_backend
+      dockerfile: Dockerfile
+    container_name: ${ENV_NAME}_backend # เปลี่ยนเป็นตัวแปร
+    restart: always
+    env_file:
+      - ./classroom-management_backend/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "${API_PORT}:8000" # เปลี่ยนพอร์ต API เป็นตัวแปร (เผื่ออยากเรียกตรงๆ)
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  bot:
+    build:
+      context: ./classroom-management_discord-announcement
+      dockerfile: Dockerfile
+    container_name: ${ENV_NAME}_discord_bot # เปลี่ยนเป็นตัวแปร
+    restart: always
+    env_file:
+      - ./classroom-management_discord-announcement/.env
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./classroom-management_web-announcement_ts
+      dockerfile: Dockerfile
+    container_name: ${ENV_NAME}_frontend # เปลี่ยนเป็นตัวแปร
+    restart: always
+    ports:
+      - "${WEB_PORT}:80"   # เปลี่ยนพอร์ตเว็บเป็นตัวแปร
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

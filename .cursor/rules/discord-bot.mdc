@@ -1,0 +1,32 @@
+# 🤖 Discord Bot Rules (discord.py)
+
+## 1. Stack & Core Architecture
+- **Framework:** `discord.py` (ล่าสุด) รันบน Python 3.12+
+- **Command Style:** ใช้ฟีเจอร์ `app_commands` (Slash Commands `/`) เป็นหลัก ลดการใช้ Prefix Commands (`!`) ยกเว้นคำสั่งสำหรับ Admin จัดการบอท
+- **No Database Policy:** **[กฎเหล็ก]** ฝั่งบอทห้ามต่อ Database (PostgreSQL) เด็ดขาด ข้อมูลทุกอย่างต้องดึงหรือส่งผ่าน `services.api_client` เท่านั้น
+
+## 2. โครงสร้างโฟลเดอร์ (Bot Structure)
+- `cogs/`: เก็บกลุ่มคำสั่ง (Commands/Listeners) แยกตามหมวดหมู่ (เช่น `student_cmd.py`, `classroom_cmd.py`) ต้องโหลดผ่าน `setup_hook` ใน `main.py`
+- `ui/`: เก็บ Discord UI Components ทั้งหมด เช่น `discord.ui.Modal`, `discord.ui.View`, `discord.ui.Select`, `discord.ui.Button` แยกไว้ที่นี่เพื่อให้ Cogs ไม่รก
+- `services/`: เก็บ `api_client.py` สำหรับจัดการ HTTP Request ไปยัง FastAPI
+- `core/`: เก็บตั้งค่าและ Token (`config.py`)
+
+## 3. API Communication & Authentication
+- **Headers:** เวลาเรียกใช้ `api_client.request()` ถ้าเป็น Action ของ User ให้ส่ง Header `X-Discord-Id` พ่วงไปด้วยเสมอ (ดึงจาก `interaction.user.id`) เพื่อให้ Backend รู้ว่าใครสั่งและมีสิทธิ์ไหม
+- **Error Catching:** ให้ใช้ `try...except APIException as e:` ครอบทุกครั้งที่ยิง API หากเกิด Error ให้ส่งข้อความแจ้ง User พร้อม `ephemeral=True` ทันที
+
+## 4. UX/UI & User Interaction (Discord Design)
+- **Embeds First:** ข้อความแสดงผลข้อมูล (เช่น โปรไฟล์นักเรียน, ลิสต์งาน) **ต้อง** จัดรูปแบบด้วย `discord.Embed` เสมอ ห้ามส่งเป็น Text ธรรมดา และควรใส่สี (Color) ให้เหมาะกับบริบท (เช่น สำเร็จ=เขียว, เตือน=เหลือง, พัง=แดง)
+- **Modals for Input:** ถ้าต้องรับข้อมูลยาวๆ หรือหลายช่อง (เช่น กรอกฟอร์มเพิ่มงาน) ให้ใช้ `discord.ui.Modal` เสมอ แทนการให้ User พิมพ์พารามิเตอร์ต่อท้ายคำสั่งยาวๆ
+- **Autocomplete:** ถ้าต้องให้ User ระบุ ID หรือค้นหาข้อมูล (เช่น ค้นหานักเรียน, หรืองานที่ลบไป) ให้ใช้ `@app_commands.autocomplete()` เพื่อดึงข้อมูลจาก API มาแสดงเป็นตัวเลือก (Choices) ลดปัญหา User พิมพ์ ID ผิด
+
+## 5. Performance & Discord Limits (ข้อควรระวัง)
+- **The 3-Second Rule:** Discord กำหนดว่าบอทต้องตอบกลับ Interaction ภายใน 3 วินาที! หากคำสั่งไหนต้องไปดึง API ที่ใช้เวลานาน ให้เรียก `await interaction.response.defer(ephemeral=True/False)` ก่อนเสมอ แล้วค่อยดึงข้อมูล จากนั้นค่อยใช้ `await interaction.followup.send(...)`
+- **Rate Limits:** หลีกเลี่ยงการยิง API หรือส่งข้อความรัวๆ หากเป็นการ Loop แจ้งเตือน (เช่น แจ้งเตือนตารางเรียนพรุ่งนี้) ให้ใช้ `discord.ext.tasks` ทำเป็น Background Loop เช็คเวลาเป็นรอบๆ
+
+## 6. Error Handling & Fallbacks
+- **Ephemeral Responses:** ข้อความแจ้งเตือน Error หรือผลลัพธ์ที่เป็นส่วนตัว (เช่น "ไม่มีสิทธิ์", "เพิ่มข้อมูลสำเร็จ") **ต้องบังคับใส่** `ephemeral=True` เสมอ เพื่อไม่ให้แชทห้องรวมรก
+- **Global Error Handler:** ควรมี Event Listener ดัก Error ก้อนใหญ่ (เช่น `on_app_command_error`) เพื่อรับมือกรณี API ล่ม หรือบอทแครช โดยให้ส่งข้อความขออภัยแบบสุภาพแทนที่จะเงียบหายไป
+
+## 7. Command Syncing (การอัปเดตคำสั่ง)
+- **Sync ระวังโดนแบน:** การใช้ `self.tree.sync()` **ห้าม** เอาไปใส่ใน `on_ready` แบบไม่มีเงื่อนไข เพราะถ้าบอท Reconnect บ่อยๆ Discord จะแบน API เนื่องจาก Sync รัวเกินไป ให้ Sync เฉพาะตอนที่ปรับแก้คำสั่งผ่าน `setup_hook` หรือทำเป็น Prefix Command ลับสำหรับให้ Admin สั่ง Sync เอง (`!sync`)

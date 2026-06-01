@@ -1,0 +1,12 @@
+[submodule "backend"]
+	path = backend
+	url = https://github.com/singto1597/classroom-management_backend.git
+[submodule "frontend_ts"]
+	path = frontend_ts
+	url = https://github.com/singto1597/classroom-management_web-announcement_ts.git
+[submodule "frontend_php"]
+	path = frontend_php
+	url = https://github.com/singto1597/classroom-management_web-announcement_php.git
+[submodule "bot_discord"]
+	path = bot_discord
+	url = https://github.com/singto1597/classroom-management_discord-announcement.git

@@ -1,0 +1,46 @@
+# ⚡ Frontend Vue.js Rules (Vue 3 + TypeScript + Vite)
+
+## 1. Stack & Core Architecture
+- **Framework:** Vue 3 (Composition API เท่านั้น บังคับใช้ `<script setup lang="ts">`)
+- **Language:** TypeScript อย่างเคร่งครัด (กำหนด Type เสมอ ห้ามใช้ `any`)
+- **Build Tool:** Vite
+- **State Management:** Pinia (ห้ามใช้ Vuex)
+- **Routing:** Vue Router (Single Page Application)
+- **4-Layer Architecture:** บังคับแบ่งเลเยอร์ให้ชัดเจน:
+  1. `src/types/*.ts`: นิยาม Interface/Type ของข้อมูล
+  2. `src/services/*.ts`: ศูนย์รวม API Logic (ห้ามเรียก API ใน View ตรงๆ)
+  3. `src/views/**/*.vue`: หน้าเว็บและ Logic การแสดงผล
+  4. `src/router/*.ts`: กำหนดเส้นทาง URL
+
+## 2. API Communication & Services
+- **Base Client:** ใช้ `axios` ผ่าน `@/services/api` เท่านั้น
+- **Service Pattern:** สร้างเป็น Object/Constant export ออกไป เช่น `export const StudentService = { ... }`
+- **Clean Data:** Interceptor ใน `api.ts` ต้องจัดการคืนค่า `response.data` มาให้แล้ว ดังนั้นใน Service ห้าม `.data` ซ้ำซ้อน (เช่น `return await api.get(...)` ได้เลย)
+- **Parameters:** API Endpoint ต้องรองรับ `serverId` (Discord Server ID) เสมอตามโครงสร้าง Backend
+
+## 3. State & Mocking
+- **Current Server ID:** หากยังไม่มีระบบเลือกห้อง ให้จำลอง `const currentServerId = '...'` ไว้ใน Component เพื่อใช้ในการยิง API (ตัวอย่าง: `1500761770468315248`)
+- **Identity:** จำลอง `currentUserName` สำหรับการทำ Audit Logs ฝั่ง Backend
+
+## 4. UI/UX & Styling
+- **CSS:** ใช้ `Tailwind CSS` เป็นหลัก ร่วมกับ `DaisyUI` (ถ้าติดตั้งไว้)
+- **Icons:** ใช้ `Bootstrap Icons` เท่านั้น (คลาส `bi bi-...`)
+- **Loading State:** 
+  - ทุกการโหลดข้อมูลต้องมี `const isLoading = ref(true)`
+  - แสดง Spinner เสมอเมื่อ `isLoading` เป็น true (ใช้คลาส `animate-spin` หรือ `loading-spinner`)
+- **Responsive:** เขียน UI ให้รองรับ Mobile First (ใช้ `md:`, `lg:`)
+
+## 5. Error Handling & Alerts
+- **Safety:** บังคับใช้ `try-catch` ครอบคลุมทุกการยิง API
+- **Feedback:** บังคับใช้ `SweetAlert2` (`Swal.fire`) ในการแจ้งเตือน:
+  - **Success:** แจ้งเมื่อบันทึก/ลบสำเร็จ (อาจใช้ `timer` เพื่อให้ปิดเอง)
+  - **Error:** แสดงข้อความ Error จาก API (`error.response.data.detail`)
+  - **Confirmation:** ใช้ `Swal.fire` แบบ `showCancelButton: true` ก่อนการลบข้อมูลสำคัญเสมอ
+
+## 6. Coding Standards
+- **Naming:** 
+  - Variables/Functions: `camelCase`
+  - Vue Components: `PascalCase`
+  - API Files: `snake_case` หรือตาม Module name
+- **Components:** พยายามแยกส่วนที่ใช้ซ้ำเป็น Reusable Component ใน `src/components/`
+- **Search/Filter:** การกรองข้อมูลใน Client-side ให้ใช้ `computed` เพื่อประสิทธิภาพสูงสุด

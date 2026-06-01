@@ -1,0 +1,83 @@
+# 🌟 Global Project Rules: Classroom Management System (Classroom-Sync)
+
+## 1. การสื่อสารของ AI (Persona & Tone)
+- **Bro-Tone:** ตอบกลับเป็นภาษาไทยแบบกระชับ ตรงไปตรงมา ใช้ภาษาเพื่อนฝูง ไม่ต้องเกริ่นน้ำท่วมทุ่ง
+- **Show, Don't Tell:** อธิบายโค้ดให้เข้าใจง่าย พิมพ์โค้ดมาให้ก๊อปวางได้เลย พร้อมคอมเมนต์ในโค้ดจุดที่สำคัญ
+- **Proactive:** ถ้าระบบที่ขอกระทบกับไฟล์อื่น (เช่น แก้ Backend แล้วต้องแก้ PHP ด้วย) ให้เขียนเตือนและให้โค้ดมาให้ครบจบในลูปเดียว
+
+## 2. สถาปัตยกรรมหลัก (API-Driven Microservices)
+- โปรเจกต์นี้ใช้โครงสร้างแบบรวมศูนย์ (Centralized API) แบ่งเป็น 3 ส่วนหลัก:
+  1. `classroom-backend`: FastAPI รันบนพอร์ต 8000 (หัวใจหลัก)
+  2. `discord-classroom-announcement`: บอท Discord (Client 1)
+  3. `ess-classroom-announcement`: Web PHP Frontend (Client 2)
+- **กฎเหล็ก:** **Discord Bot** และ **PHP Web** ห้าม!! เชื่อมต่อ Database โดยตรงเด็ดขาด ต้องส่ง Request ไปหา FastAPI ผ่าน `api_client.py` หรือ `ApiClient.php` เท่านั้น
+
+## 3. Database (PostgreSQL & SQL Rules)
+- ใช้ PostgreSQL เป็นฐานข้อมูลหลัก
+- **ห้ามใช้ ORM (เช่น SQLAlchemy)** ให้ใช้ `asyncpg` และเขียน Raw SQL เท่านั้น เพื่อประสิทธิภาพสูงสุด
+- เวลา Query ต้องใช้ Parameterized Query (`$1, $2`) เสมอ ป้องกัน SQL Injection
+- **โครงสร้างตารางหลักๆ (ตาม Module):**
+  - *Core/Classroom:* `rooms`, `students`, `tasks`, `daily_notes`, `audit_logs`, `default_schedules`, `schedule_overrides`
+  - *Maintenance:* `mtn_locations`, `mtn_tickets`, `mtn_logs`
+  - *Finance:* `finance_categories`, `finance_accounts`, `finance_transactions`, `fee_collections`, `student_payments`
+
+## 4. Authentication, Security & API Communication
+- **Identity:** ยึด `discord_id` เป็นแกนหลักในการยืนยันตัวตนข้ามแพลตฟอร์ม
+- **API Headers:** ทุกครั้งที่ Client ยิงหา Backend ต้องแนบ Header:
+  - `X-API-Key`: รหัสผ่านเซิร์ฟเวอร์
+  - `X-Discord-Id`: ไอดีของคนที่กำลังทำรายการ (เพื่อให้ Backend เช็คสิทธิ์)
+- **God Mode (Super Admin):** สิทธิ์การใช้งานระดับสูงสุด (จัดการได้ทุกห้อง) ผูกกับตัวแปร `SUPER_ADMIN_ID` ในไฟล์ `.env` การเช็คสิทธิ์ให้ใช้ระบบ "สวมสิทธิ์ (Assume Identity)" โดยไม่ต้องแก้ logic รายห้อง
+- **Web Security:** - PHP Session ตั้งอายุ 30 วัน (`lifetime => 2592000`)
+  - ต้องเปิดใช้งาน `secure => true`, `httponly => true`, และ `samesite => 'Lax'` เสมอ
+  - ทุกฟอร์ม POST ต้องมีการเช็ค CSRF Token (`$_SESSION['csrf_token']`)
+
+## 5. Error Handling & Logging
+- **Backend:** ถ้าเกิด Error หรือสิทธิ์ไม่ผ่าน ให้ `raise HTTPException` ส่ง `detail` กลับไปเป็น JSON
+- **PHP Frontend:** ถ้า Guzzle รับ Error 4xx/5xx มา ให้ `throw new Exception($detail)` แล้วโยนให้ Controller ไปสั่ง `abort()` โชว์หน้า Error สวยๆ
+- **Discord Bot:** ถ้าเกิด `APIException` ให้แจ้งเตือนผู้ใช้ด้วย `ephemeral=True` (เห็นคนเดียว)
+- **Audit Logs:** **[สำคัญมาก]** ทุก Action ที่มีการ เพิ่ม/แก้ไข/ลบ ข้อมูลใน Database (POST, PUT, PATCH, DELETE) ฝั่ง Backend ต้องมีการ `INSERT` บันทึกประวัติลงตาราง `audit_logs` ทันทีใน Transaction เดียวกัน
+
+## 6. Timezone & Localization
+- เวลาที่ใช้ในระบบทั้งหมด ต้องผูกติดกับ `Asia/Bangkok` (UTC+7) เสมอ
+- การโชว์ผลให้ผู้ใช้ (UI) ต้องแปลงเป็นภาษาไทย (เช่น วันจันทร์-อาทิตย์) และจัดฟอร์แมตวันที่แบบไทย ถ้าเป็นไปได้
+
+## 7. Development Environment & OS
+- ระบบรันบน Linux VPS (Ubuntu/Mint) จัดการ Service ผ่าน `systemd` (เช่น `classroom-api.service`, `classroom-bot.service`)
+- ฝั่ง Web ใช้ Nginx รันคู่กับ PHP-FPM 
+- เวลาให้คำสั่ง Terminal ให้ยึด Bash/Fish shell เป็นหลัก
+
+## 8. Frontend Tech Stack & UI Rules (PHP Web)
+- **CSS Framework:** ใช้ `Bootstrap 5` เท่านั้น (เน้นใช้ Utility classes เช่น `mb-3`, `rounded-4`, `shadow-sm` ห้ามเขียน CSS เองถ้าไม่จำเป็น)
+- **JavaScript:** ใช้ `Vanilla JS` คู่กับ `Fetch API` ในการทำ AJAX (ห้ามใช้ jQuery เด็ดขาด)
+- **UI Components:** - ใช้ `SweetAlert2` สำหรับ Alert/Confirmations ทั้งหมด
+  - ใช้ `Chart.js` สำหรับการแสดงกราฟ
+  - Icon ใช้ `Bootstrap Icons (bi bi-...)`
+- **SPA Feel:** พยายามอัปเดต DOM ด้วย JS แทนการโหลดหน้าเว็บใหม่ (Page Reload) ให้มากที่สุด ยกเว้นตอน Submit ฟอร์มที่จำเป็น
+
+## 9. Backend Coding Standards (FastAPI & Python)
+- **Data Validation:** ต้องใช้ `Pydantic` (`BaseModel`) ในการทำ Request/Response Schema เสมอ ห้ามรับ Dict หรือ JSON สดๆ
+- **Type Hints:** โค้ด Python ต้องระบุ Type Hints อย่างเคร่งครัด (เช่น `def get_user(id: int) -> dict:`)
+- **Router Separation:** แบ่ง Router ตาม Module (เช่น `finance_router.py`, `student_router.py`) ห้ามยัดทุกอย่างไว้ใน `main.py`
+- **Soft Delete:** ข้อมูลที่สำคัญ (เช่น ประวัติการเงิน, งาน) เมื่อลบให้ใช้วิธี Soft Delete (อัปเดตคอลัมน์ `deleted_at = NOW()`) และ Query ทุกครั้งต้องต่อด้วย `WHERE deleted_at IS NULL`
+
+## 10. Naming Conventions
+- **Database & Python Variables:** ใช้ `snake_case` (เช่น `room_id`, `created_at`)
+- **JavaScript Variables:** ใช้ `camelCase` (เช่น `studentId`, `fetchData`)
+- **PHP Variables:** ใช้ `snake_case` แบบมี $ (เช่น `$room_id`, `$user_data`)
+- **CSS Classes / IDs:** ใช้ `kebab-case` (เช่น `btn-submit`, `finance-dashboard`)
+
+## 11. Version Control & Code Formatting
+- **Git Commit:** ใช้รูปแบบ Conventional Commits เสมอ (เช่น `feat: เพิ่มระบบ...`, `fix: แก้บั๊ก...`, `refactor: ปรับโครงสร้าง...`)
+- **Code Formatting:** - Python ใช้ `Black` หรือ `Ruff` เป็นมาตรฐาน
+  - การเขียนคอมเมนต์ ให้คอมเมนต์อธิบาย "ทำไมถึงเขียนแบบนี้ (Why)" มากกว่า "โค้ดนี้ทำอะไร (What)"
+
+## 12. Auto-Learning & Memory (The `skill.md` System)
+- โปรเจกต์นี้มีไฟล์ความจำอยู่ที่ `docs/skill.md`
+- **Read:** ทุกครั้งที่เริ่มงานใหม่หรือเจอบั๊ก ให้คุณอ่านไฟล์ `docs/skill.md` ก่อนเสมอ เพื่อเช็คว่าเราเคยเจอปัญหานี้แล้วหรือยัง
+- **Write:** ทุกครั้งที่คุณแก้บั๊กที่ซับซ้อนสำเร็จ, เรียนรู้ Logic ใหม่ของระบบ, หรือเจอข้อจำกัดใหม่ๆ **คุณต้องขออนุญาตฉันเพื่อเขียนสรุปสั้นๆ (อัปเดต) ลงไปในไฟล์ `docs/skill.md` เสมอ** เพื่อที่คุณจะได้ไม่ทำผิดซ้ำอีกในอนาคต
+
+## 13. File-Specific Rules (กฎเฉพาะส่วน)
+- ก่อนจะแก้ไขไฟล์ใดๆ ในโฟลเดอร์ `classroom-backend/` คุณ **ต้อง** ไปอ่านกฎที่ไฟล์ `.cursor/rules/backend.mdc` ก่อนเสมอ
+- ก่อนจะแก้ไขไฟล์ใดๆ ในโฟลเดอร์ `discord-classroom-announcement/` คุณ **ต้อง** ไปอ่านกฎที่ไฟล์ `.cursor/rules/discord-bot.mdc` ก่อนเสมอ
+- ก่อนจะแก้ไขไฟล์ใดๆ ในโฟลเดอร์ `ess-classroom-announcement/` คุณ **ต้อง** ไปอ่านกฎที่ไฟล์ `.cursor/rules/website-php.mdc` ก่อนเสมอ
+- ก่อนจะแก้ไขไฟล์ใดๆ ในโฟลเดอร์ฝั่ง Vue (classroom-frontend) คุณ **ต้อง** ไปอ่านกฎที่ไฟล์ .cursor/rules/frontend-vue.mdc ก่อนเสมอ

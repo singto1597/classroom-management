@@ -1,0 +1,66 @@
+# 🌐 PHP Web Frontend Rules (Vanilla PHP + Guzzle)
+
+## 1. Stack & Core Concepts
+- **Framework:** Vanilla PHP (ไม่มี Laravel, CodeIgniter หรือ Framework ใดๆ), รันบน PHP 8+
+- **Architecture:** ยึดรูปแบบ MVC (Model-View-Controller) แบบทำมือ
+- **No Database Policy:** **[กฎเหล็กขั้นสูงสุด]** ❌ ห้ามใช้ PDO, mysqli หรือเขียนคำสั่ง SQL ในฝั่งนี้เด็ดขาด! เว็บนี้ทำหน้าที่เป็นแค่ "หน้ากาก (Client)" เท่านั้น
+
+## 2. โครงสร้างไฟล์และการทำงาน (Router & MVC)
+- **Router (`index.php`):** ใช้เป็น Single Entry Point รับ `$_GET['page']` เพื่อวิ่งเข้า Controller ห้ามเขียน Logic ดึงข้อมูลหรือ HTML ยาวๆ ในไฟล์นี้เด็ดขาด
+- **Controllers (`controllers/`):** ทำหน้าที่รับ Request, เช็คสิทธิ์ (Auth/Role), เช็ค CSRF Token, เรียก Model ให้ดึงข้อมูล, และโหลด View (ผ่านคำสั่ง `require 'views/...php';`)
+- **Models (`models/`):** ทำหน้าที่แพ็กข้อมูลส่งไปหา Backend (FastAPI) โดย **ต้องเรียกผ่านคลาส `ApiClient` เท่านั้น** (เช่น `$this->api->request('GET', ...)`) ห้ามต่อฐานข้อมูลเอง 
+- **Views (`views/`):** โฟลเดอร์เก็บ UI หน้าเว็บ (HTML + PHP) ห้ามดึงข้อมูลจาก Model หรือ API ในไฟล์ View เด็ดขาด ให้ใช้ตัวแปรที่ Controller โยนมาให้เท่านั้น
+
+## 3. API Communication & Error Handling
+- ทุก Model ต้องใช้ `ApiClient` ซึ่งใช้ `GuzzleHttp` ในการส่ง Request
+- `ApiClient` จะแนบ Header `X-API-Key` และ `X-Discord-Id` ไปให้อัตโนมัติ (ดึงจาก Session)
+- **ดัก Error สวยๆ:** ถ้า Backend พ่น Error ออกมา (เช่น 400, 403, 404) คลาส `ApiClient` จะ `throw new Exception()` ฝั่ง Controller ต้องใช้ `try...catch` ดักจับ แล้วเรียกฟังก์ชัน `abort($e->getMessage())` หรือเก็บใส่ `$_SESSION['error_message']` เพื่อไปโชว์ในหน้าเว็บ
+
+## 4. Security & Auth (การรักษาความปลอดภัย)
+- **Authentication:** ระบบล็อกอินใช้ Discord OAuth2 ข้อมูลผู้ใช้จะอยู่ใน `$_SESSION` (เช่น `room_id`, `discord_id`, `role`, `user_name`)
+- **CSRF Protection:** **[สำคัญ]** ทุกฟอร์ม HTML ที่ใช้ Method POST ต้องมี `<input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">` และ Controller ต้องเช็ค `$_POST['csrf_token'] === $_SESSION['csrf_token']` ก่อนทำงานเสมอ
+- **XSS Protection:** เวลานำข้อมูลจาก API มาแสดงผลในหน้า HTML (View) ต้องครอบด้วยฟังก์ชัน `h($text)` (ซึ่งเป็น Wrapper ของ `htmlspecialchars`) เสมอ เพื่อป้องกัน Script Injection
+- **Role Guard:** Controller ไหนที่มีผลต่อการแก้ไข/ลบข้อมูล ต้องมี `if ($_SESSION['role'] === 'student') abort(...);` ดักไว้ตั้งแต่บรรทัดแรกๆ
+
+## 5. UI/UX & Frontend Tech Stack
+- **CSS Framework:** `Bootstrap 5` (ใช้ Utility Classes ให้คุ้มที่สุด เช่น `d-flex`, `gap-2`, `shadow-sm`, `rounded-4`) ห้ามเขียน CSS ไฟล์แยกถ้าไม่จำเป็นจริงๆ
+- **JavaScript:** `Vanilla JS` เท่านั้น (ห้ามใช้ jQuery) ใช้ `Fetch API` หากต้องมีการดึงข้อมูลแบบ AJAX หน้าเว็บ
+- **Icons:** `Bootstrap Icons` (เช่น `<i class="bi bi-trash"></i>`)
+- **Alerts:** ใช้ `SweetAlert2` ในการทำ Popup แตกต่าง (เช่น Confirm Delete หรือ Success Message) ห้ามใช้ `alert()` ของเบราว์เซอร์เดิมๆ
+- **Redirects:** เวลา Controller ทำงาน POST เสร็จ ให้ใช้ `header("Location: index.php?page=..."); exit();` เสมอ ห้ามลืม `exit()`
+
+## 6. Coding Standards & Naming
+- **Classes/Controllers/Models:** ใช้ `PascalCase` (เช่น `TaskController.php`, `FinanceModel.php`)
+- **Views/Folders:** ใช้ `snake_case` (เช่น `finance_dashboard.php`, `views/students/edit.php`)
+- **PHP Blocks:** พยายามหลีกเลี่ยงการเปิด-ปิดแท็ก `<?php ... ?>` สลับกับ HTML รัวๆ ให้ใช้ Syntax แบบย่อสำหรับ Control Structures (เช่น `<?php if (...): ?> ... <?php endif; ?>` และ `<?php foreach (...): ?> ... <?php endforeach; ?>`) เพื่อให้อ่าน HTML ง่ายขึ้น
+
+## 7. Form Handling & AJAX Standardization (มาตรฐานการส่งข้อมูล)
+- **AJAX-First Form:** ฟอร์มที่เป็นการบันทึกข้อมูล (Create/Update/Delete) ให้ใส่คลาส `.ajax-form` เสมอ และใช้ JavaScript `fetch` ไปที่ Controller
+- **Loading State:** **[บังคับ]** ทุกครั้งที่กด Submit ฟอร์ม JS ต้องเปลี่ยนข้อความปุ่มเป็น Spinner (`<span class="spinner-border spinner-border-sm"></span>`) และเซ็ต `btn.disabled = true` ทันทีเพื่อป้องกันการกดเบิ้ล (Double Submit)
+- **Controller JSON Response:** Controller ต้องฉลาดพอที่จะรู้ว่า Request เป็นแบบ AJAX หรือไม่ (เช่น เช็คจาก `$_GET['format'] === 'json'`) 
+  - ถ้าเป็น JSON: ต้อง `http_response_code(200 หรือ 400)` และ `echo json_encode(['status' => '...', 'message' => '...']); exit();`
+  - ถ้าเป็น Normal POST: ค่อยทำ `header("Location: ..."); exit();`
+
+## 8. Advanced UI & SPA-like Experience (เทคนิคหน้าเว็บไม่กระตุก)
+- **Partial DOM Update:** หากต้องอัปเดตข้อมูลบางส่วนของหน้าจอ (เช่น เปลี่ยนเดือนใน Dashboard) **ห้ามรีเฟรชทั้งหน้า** ให้ใช้ `fetch` ดึง HTML หน้าใหม่มา แล้วใช้ `DOMParser()` แกะเอาเฉพาะ `<div>` ที่ต้องการมาสลับที่ (innerHTML) พร้อมใส่เอฟเฟกต์ `opacity` จางๆ ระหว่างโหลด
+- **Passing PHP Data to JS:** เวลาจะส่งข้อมูล Array หรือ Object จาก PHP ไปให้ JavaScript (เช่น ข้อมูลกราฟ Chart.js) ให้ยัดใส่ Data Attribute (`data-*`) ใน HTML tag ด้วยคำสั่ง `htmlspecialchars(json_encode($data), ENT_QUOTES, 'UTF-8')` แล้วค่อยให้ JS ใช้ `JSON.parse()` ดึงไปใช้ **หลีกเลี่ยงการเขียน tag `<script>` ปนกับ `<?php echo ... ?>` รัวๆ กลางไฟล์ HTML**
+
+## 9. Fallback & Safe Operations
+- **Graceful Degradation:** แม้เราจะเน้น AJAX แต่ Controller ควรมี Fallback แบบ Redirect เสมอเผื่อกรณีที่เบราว์เซอร์ผู้ใช้มีปัญหา หรือยิง API โดยตรง
+- **Data Validation:** แม้ Backend จะมี Pydantic คอยกรองข้อมูลอยู่แล้ว แต่ Frontend HTML ต้องใส่ Attribute ป้องกันเบื้องต้นเสมอ (เช่น `required`, `type="number"`, `min="0"`, `step="0.01"`) เพื่อลดภาระการยิง Request ไปกวน Backend ฟรีๆ
+
+## 10. Bootstrap Modals & Data Binding (การจัดการหน้าต่างป๊อปอัป)
+- **Vanilla JS Only:** การเรียกใช้ Modal ต้องผ่าน Vanilla JS (เช่น `const myModal = new bootstrap.Modal(document.getElementById('editModal'))` และสั่ง `myModal.hide()`) ห้ามใช้ jQuery
+- **Dynamic Data Passing:** เมื่อผู้ใช้กดปุ่มที่เรียก Modal (เช่น ปุ่ม "แก้ไข" หรือ "รับเงิน") ให้เก็บข้อมูลที่ต้องการส่งไว้ใน Data Attribute ของปุ่ม (`data-id`, `data-name`, `data-remain`) จากนั้นใช้ JavaScript ดึงค่าเหล่านี้ไปยัดใส่ `<input>` ในฟอร์มก่อนสั่ง `show()` เสมอ
+
+## 11. Flash Messages & Session State (การแจ้งเตือนข้ามหน้า)
+- **Session Storage:** กรณีที่เป็นการทำงานแบบ Normal POST (ไม่ใช่ AJAX) ให้เก็บข้อความแจ้งเตือนไว้ใน Session (เช่น `$_SESSION['success_msg']` หรือ `$_SESSION['error_msg']`)
+- **Consume & Destroy:** ในไฟล์ Layout หลัก (เช่น `footer.php`) ต้องมีโค้ดเช็ค Session เหล่านี้เพื่อแสดง `SweetAlert2` ทันทีที่โหลดหน้าเว็บเสร็จ และ **ต้อง `unset()` ทิ้งทุกครั้ง** เพื่อป้องกันไม่ให้แจ้งเตือนเด้งซ้ำเมื่อผู้ใช้รีเฟรชหน้า
+
+## 12. Defensive PHP Rendering (ป้องกันหน้าพังจากค่า Null)
+- **Null Coalescing Operator:** เวลาดึงค่าจาก Array ที่มาจาก API ต้องเผื่อใจไว้เสมอว่าค่าอาจจะไม่มี ให้ใช้ `??` กำหนดค่า Default เสมอ (เช่น `$amount = $data['amount'] ?? 0;` หรือ `$desc = $data['desc'] ?? '-';`)
+- **The 1970 Date Bug:** **[กฎเหล็ก]** ห้ามโยนตัวแปรเข้าฟังก์ชัน `strtotime()` โดยไม่เช็คเด็ดขาด! หาก API ส่ง `null` มา มันจะกลายเป็นวันที่ 1 มกราคม 1970 ต้องเช็ค `if (!empty($date))` ครอบไว้เสมอเวลาจะแสดงผลวันที่
+
+## 13. Smart Redirects & Layout Composition
+- **Smart Redirect (Controller):** เวลาทำ Action ใดๆ สำเร็จ การสั่ง `header("Location: ...")` ต้อง Redirect กลับไปยังหน้าที่ **"สอดคล้องกับบริบท (Context)"** เสมอ เช่น แก้ไขแคมเปญ #1 เสร็จ ต้องเด้งกลับไปหน้า `finance_collections_view&id=1` ไม่ใช่เด้งกลับหน้า Index หลัก
+- **Layout Includes:** โค้ด HTML ในไฟล์ Views ต้องไม่มีแท็ก `<html>`, `<head>`, หรือ `<body>` ซ้ำซ้อน หน้าเพจต้องถูกประกอบร่างผ่าน `index.php` โดยเรียก `require 'views/layouts/header.php';` ก่อน และ `footer.php` ปิดท้ายเสมอ
