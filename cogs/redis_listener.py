@@ -22,25 +22,39 @@ class RedisListener(commands.Cog):
         self.bot.loop.create_task(self.listen_to_redis())
 
     async def listen_to_redis(self):
+        # หน่วงเวลาตอนเริ่มบอทนิดนึง เผื่อตู้ Redis ใน Docker ยังบูตตัวเองไม่เสร็จ
+        await asyncio.sleep(3) 
+
         while True:
             try:
-                # 🚨 1. เติม health_check_interval=20 เพื่อให้มันส่ง PING เลี้ยงสายไว้ทุก 20 วินาที
-                redis_client = aioredis.from_url(REDIS_URL, health_check_interval=20)
+                # 1. เชื่อมต่อแบบคลีนๆ พร้อมตั้งให้แปลงข้อมูลเป็น String ทันที (decode_responses=True)
+                redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
                 
-                # 🚨 2. เติม ignore_subscribe_messages=True เพื่อป้องกันบั๊กข้อความขยะตอนเชื่อมต่อครั้งแรก
+                # 2. ลองเต๊าะ (Ping) ดู 1 ทีเพื่อความชัวร์ ว่าเซิร์ฟเวอร์ Redis มีชีวิตอยู่จริงมั้ย
+                await redis_client.ping()
+                logger.info("✅ เทสต์ปิง Redis สำเร็จ! กำลังเตรียมหูฟัง...")
+
                 pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
                 await pubsub.subscribe("classroom_events")
                 
-                logger.info("🎧 บอทเริ่มดักฟัง Redis ช่อง 'classroom_events' แล้ว...")
+                logger.info("🎧 บอทเริ่มดักฟังช่อง 'classroom_events' แบบเสถียรแล้ว!")
 
-                # ตรงนี้จะหลับรอจนกว่าจะมีคน Publish มา (ไม่กิน CPU)
-                async for message in pubsub.listen():
+                # 3. ท่าไม้ตาย! ใช้ get_message แบบมี Timeout ป้องกันการค้าง
+                while True:
+                    # เช็คข้อความ (ถ้าใน 1 วินาทีไม่มีใครส่งมา ให้ปล่อยผ่าน ไม่บล็อกการทำงาน)
+                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                    
                     if message and message["type"] == "message":
+                        # ถอดรหัส JSON แล้วโยนไปทำงานต่อ
                         data = json.loads(message["data"])
                         await self.process_event(data)
-                        
+                    
+                    # หายใจเว้นจังหวะนิดนึง ปล่อยให้บอทไปประมวลผลคำสั่ง Discord อื่นๆ
+                    await asyncio.sleep(0.1)
+
             except Exception as e:
-                logger.error(f"❌ Redis Connection Lost: {e}. Retrying in 5 seconds...")
+                # พิมพ์ชื่อ Error ออกมาด้วย จะได้รู้ชัดๆ ว่าหลุดเพราะอะไร
+                logger.error(f"❌ Redis หลุด! ({type(e).__name__}): {e} -> ขอเริ่มใหม่ใน 5 วินาที...")
                 await asyncio.sleep(5)
 
     async def process_event(self, data):
