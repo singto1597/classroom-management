@@ -1,0 +1,37 @@
+services:
+  # 1. จักรวาลจำลอง: Test Database (สะอาด 100%)
+  test_db:
+    image: postgres:16-alpine
+    container_name: classroom_test_postgres
+    environment:
+      POSTGRES_USER: test_admin
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: test_smte_bot_db
+    ports:
+      - "5433:5432" # ใช้พอร์ต 5433 จะได้ไม่ชนกับ DB หลักที่รันอยู่
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_admin -d test_smte_bot_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. เครื่องจักรสังหาร: ตัวรัน Pytest
+  test_runner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: classroom_test_runner
+    environment:
+      # 🚨 OVERRIDE DATABASE_URL ให้ชี้มาที่ Test DB ตัวนี้แทน!
+      - DATABASE_URL=postgresql://test_admin:test_password@test_db:5432/test_smte_bot_db
+      - API_KEY=test-api-key-1234
+      - SECRET_KEY=test-secret
+      - JWT_SECRET=test-jwt-secret
+      - SUPER_ADMIN_ID=999999999999999
+    depends_on:
+      test_db:
+        condition: service_healthy
+
+    command: >
+      sh -c "pip install pytest pytest-asyncio httpx && 
+             python -m pytest -v /app/tests/test_finance.py"
