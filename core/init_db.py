@@ -5,13 +5,11 @@ import sys
 import os
 
 # 🛠️ ตั้งค่า Path เพื่อให้รันสคริปต์นี้ตรงๆ ได้ผ่าน CLI (สำหรับเรียกใช้ core.config)
-# สมมติรันจากห้อง classroom-backend: python core/init_db.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from core.config import settings
 except ImportError:
-    # เผื่อกรณีรันจาก Root Project: python classroom-backend/core/init_db.py
     sys.path.append(os.path.join(os.getcwd(), 'classroom-backend'))
     from core.config import settings
 
@@ -93,7 +91,7 @@ async def init_db(pool: asyncpg.Pool):
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
                     discord_id BIGINT,
                     student_no INTEGER NOT NULL,
-                    student_id VARCHAR(10) UNIQUE, 
+                    student_id VARCHAR(10),  -- 🚨 ลบ UNIQUE ออกจากตรงนี้แล้ว
                     prefix TEXT, 
                     first_name TEXT NOT NULL, 
                     last_name TEXT NOT NULL,
@@ -123,8 +121,7 @@ async def init_db(pool: asyncpg.Pool):
                     status TEXT DEFAULT 'active',
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    deleted_at TIMESTAMP DEFAULT NULL,
-                    UNIQUE(room_id, student_no) 
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
             """)
 
@@ -215,13 +212,11 @@ async def init_db(pool: asyncpg.Pool):
                     recorded_by TEXT,
                     paid_at TIMESTAMP DEFAULT NULL,
                     transaction_id INTEGER REFERENCES finance_transactions(id) ON DELETE SET NULL,
-                    deleted_at TIMESTAMP DEFAULT NULL,
-                    
-                    UNIQUE(collection_id, student_id)
+                    deleted_at TIMESTAMP DEFAULT NULL
                 );
             """)
 
-            # --- 4. Extra Alterations (เพื่อรองรับ Database เดิมที่สร้างไปก่อนแล้ว) ---
+            # --- 4. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
             await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE default_schedules ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
@@ -236,16 +231,43 @@ async def init_db(pool: asyncpg.Pool):
             await conn.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE daily_notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             
-            logger.info("✅ Database Tables Initialized/Verified Successfully!")
+            # 🚨 5. DROP กฎเกณฑ์เก่าที่งี่เง่าทิ้ง
+            await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_student_id_key CASCADE;")
+            await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_room_id_student_no_key CASCADE;")
+            await conn.execute("ALTER TABLE student_payments DROP CONSTRAINT IF EXISTS student_payments_collection_id_student_id_key CASCADE;")
+            # ดรอป Index เก่าที่ผมให้ไปเมื่อกี้ (เผื่อคุณเผลอรันไปแล้ว)
+            await conn.execute("DROP INDEX IF EXISTS idx_students_student_id_active;")
+
+            # 🚨 6. สร้าง PARTIAL UNIQUE INDEX (ผูกกับ room_id ทั้งหมด)
+            
+            # - รหัส นร. ห้ามซ้ำ "ภายในห้องเดียวกัน" (ถ้ายังไม่ถูกลบ)
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_students_room_student_id_active 
+                ON students(room_id, student_id) 
+                WHERE deleted_at IS NULL AND student_id IS NOT NULL;
+            """)
+            
+            # - เลขที่ ห้ามซ้ำ "ภายในห้องเดียวกัน" (ถ้ายังไม่ถูกลบ)
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_students_room_no_active 
+                ON students(room_id, student_no) 
+                WHERE deleted_at IS NULL;
+            """)
+            
+            # - บิลเก็บเงิน 1 บิลต่อ 1 นักเรียน ห้ามสร้างซ้ำ (ถ้ายังไม่ถูกยกเลิก)
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_student_payments_active 
+                ON student_payments(collection_id, student_id) 
+                WHERE deleted_at IS NULL;
+            """)
+
+            logger.info("✅ Database Tables & Smart Constraints Initialized Successfully!")
 
     except Exception as e:
         logger.error(f"❌ Failed to initialize Database: {e}")
         raise e
 
 async def run_setup():
-    """
-    ฟังก์ชันสำหรับรัน Setup ผ่าน Command Line (Manual Setup)
-    """
     logger.info("🚀 Starting Manual Database Setup...")
     pool = None
     try:
@@ -267,7 +289,6 @@ async def run_setup():
             logger.info("🛑 Database pool closed.")
 
 if __name__ == "__main__":
-    # ตรวจสอบว่ามี .env หรือยังก่อนรัน
     if not settings.DATABASE_URL:
         logger.error("❌ DATABASE_URL not found in .env file!")
         sys.exit(1)
