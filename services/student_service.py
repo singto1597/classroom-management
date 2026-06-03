@@ -9,6 +9,7 @@ import io
 from core.audit import log_action
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
 from core.rbac import require_permission
+from core.rbac import RBACManager
 from models.student_schemas import StudentUpdateRequest
 
 # อนุญาตเฉพาะคอลัมน์ที่นิยามใน Pydantic — กันชื่อคอลัมน์แปลกปลอมจาก client
@@ -271,6 +272,71 @@ class StudentService:
             rows = await conn.fetch(sql_query, room_id, search_pattern, query)
             
             return [dict(r) for r in rows]
+    
+    @classmethod
+    async def get_student_profile(cls, pool: asyncpg.Pool, server_id: int, student_no: int, requester_discord_id: int) -> dict:
+        async with pool.acquire() as conn:
+            room_id = await cls._get_room_id(conn, server_id)
+            
+            # 1. ดึงข้อมูลเป้าหมาย
+            target_row = await conn.fetchrow(
+                "SELECT * FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", 
+                room_id, student_no
+            )
+            if not target_row: 
+                raise StudentNotFoundError("ไม่พบข้อมูลนักเรียน")
+            
+            target_data = dict(target_row)
+            target_discord = target_data.get('discord_id')
+            
+            # 2. ดึงข้อมูลผู้เรียก (Requester) เพื่อดู Role
+            # ถ้าเป็น Super Admin จะไม่มีในตาราง students ต้องเผื่อเคสนี้ด้วย
+            from core.config import settings
+            is_super_admin = settings.SUPER_ADMIN_ID and int(requester_discord_id) == int(settings.SUPER_ADMIN_ID)
+            
+            requester_role = None
+            if not is_super_admin:
+                requester_row = await conn.fetchrow(
+                    "SELECT class_role FROM students WHERE room_id = $1 AND discord_id = $2 AND status = 'active' AND deleted_at IS NULL",
+                    room_id, requester_discord_id
+                )
+                if not requester_row:
+                    raise ForbiddenError("คุณไม่ได้อยู่ในห้องเรียนนี้")
+                requester_role = requester_row['class_role']
+
+            # 3. เช็คเงื่อนไข: เป็นตัวเอง หรือ เป็นคนที่มีสิทธิ์ หรือ เป็น Super Admin?
+            is_self = (target_discord is not None and int(target_discord) == int(requester_discord_id))
+            
+            # สมมติเราให้สิทธิ์ VIEW_ALL_STUDENTS เป็นคนที่จะดูข้อมูลส่วนตัวเพื่อนได้
+            has_permission = False
+            if requester_role:
+                has_permission = RBACManager.has_permission(requester_role, "VIEW_ALL_STUDENTS")
+            
+            has_full_access = is_super_admin or is_self or has_permission
+
+            # 4. Data Masking (สับหลอกข้อมูลถ้าไม่มีสิทธิ์)
+            if not has_full_access:
+                # รายชื่อฟิลด์ที่ต้องการปิดบัง
+                private_fields = [
+                    'phone_number_parent', 
+                    'phone_number_parent_relation', 'address_house_no', 
+                    'address_road', 'address_sub_district', 'address_district', 
+                    'address_province', 'address_post_code', 'blood_group', 
+                    'shirt_size', 'food_allergy', 'congenital_disease'
+                ]
+                
+                mask_text = "🔒 ไม่มีสิทธิ์เข้าถึง"
+                
+                for field in private_fields:
+                    # เช็คว่ามี key นี้อยู่จริงๆ ค่อยทับค่า
+                    if field in target_data:
+                        target_data[field] = mask_text
+            
+            # คำนวณ % การกรอกข้อมูล (ควรเอาข้อมูลจริงไปคำนวณก่อนโดน mask แต่ฟังก์ชันนี้เรา mask ไปแล้ว
+            # เลยต้องคำนวณจาก dict(target_row) ที่เป็นต้นฉบับ
+            target_data['data_completion'] = cls._calculate_completion(dict(target_row))
+            
+            return target_data
 
     # ระบบ Deactivate (เปลี่ยน Status)
 

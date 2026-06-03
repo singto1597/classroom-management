@@ -69,6 +69,24 @@ async def get_user_rooms(
     rooms = await StudentService.get_user_rooms(pool, discord_id)
     return rooms
 
+@router.get("/{server_id}/students/profile/{student_no}", response_model=StudentResponse)
+async def get_student_by_no(
+    server_id: int, 
+    student_no: int, 
+    discord_id: int = Depends(get_current_user), 
+    pool: asyncpg.Pool = Depends(get_db_pool)
+):
+    try:
+        # ใช้ Logic ที่เราเขียนไว้ตะกี้
+        data = await StudentService.get_student_profile(pool, server_id, student_no, discord_id)
+        return data
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except (StudentNotFoundError, RoomNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.patch("/{server_id}/students/{student_no}", response_model=SuccessResponse)
 async def update_student(
     server_id: int, 
