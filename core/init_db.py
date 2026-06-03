@@ -31,7 +31,8 @@ async def init_db(pool: asyncpg.Pool):
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS rooms (
                     id SERIAL PRIMARY KEY,
-                    server_id BIGINT UNIQUE NOT NULL,
+                    server_id BIGINT UNIQUE,  -- 🚨 ปลด NOT NULL ออกเพื่อรองรับ Web-Centric
+                    room_code VARCHAR(10) UNIQUE, -- 🚨 เพิ่มรหัสเข้าห้องสำหรับเว็บ
                     room_name TEXT NOT NULL,
                     announcement_channel_id BIGINT,
                     notify_time VARCHAR(5) DEFAULT '19:00',
@@ -220,6 +221,7 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
                     discord_id BIGINT UNIQUE,
+                    google_id VARCHAR(255) UNIQUE, -- 🚨 รองรับ Google Login สำหรับเว็บ
                     
                     -- ระบบ Login (รองรับอนาคต)
                     username VARCHAR(100) UNIQUE,
@@ -241,7 +243,7 @@ async def init_db(pool: asyncpg.Pool):
 
                     -- ข้อมูลติดต่อ (ส่วนตัว)
                     phone_number TEXT,
-                    email TEXT,                   
+                    email TEXT UNIQUE,            -- 🚨 อัปเดตให้บังคับ UNIQUE       
                     line_id TEXT,
                     ig_username TEXT,
 
@@ -266,6 +268,7 @@ async def init_db(pool: asyncpg.Pool):
                 -- 2. เพิ่ม Foreign Key กลับไปที่ตาราง students เดิม
                 ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
             """)
+            
             # --- 4. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
             await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
@@ -276,19 +279,28 @@ async def init_db(pool: asyncpg.Pool):
             await conn.execute("ALTER TABLE finance_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE fee_collections ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE student_payments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
+            await conn.execute("ALTER ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE daily_notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             
-            # 🚨 5. DROP กฎเกณฑ์เก่าที่งี่เง่าทิ้ง
+            # 🚨 5. Big Refactoring Alterations (Migration Update)
+            await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_code VARCHAR(10) UNIQUE;")
+            await conn.execute("ALTER TABLE rooms ALTER COLUMN server_id DROP NOT NULL;")
+            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;")
+            
+            # การเพิ่ม Constraint อย่างปลอดภัย (กัน Error กรณีมีคีย์นี้อยู่แล้ว)
+            await conn.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;")
+            await conn.execute("ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email);")
+
+            # 🚨 6. DROP กฎเกณฑ์เก่าที่งี่เง่าทิ้ง
             await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_student_id_key CASCADE;")
             await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_room_id_student_no_key CASCADE;")
             await conn.execute("ALTER TABLE student_payments DROP CONSTRAINT IF EXISTS student_payments_collection_id_student_id_key CASCADE;")
             # ดรอป Index เก่าที่ผมให้ไปเมื่อกี้ (เผื่อคุณเผลอรันไปแล้ว)
             await conn.execute("DROP INDEX IF EXISTS idx_students_student_id_active;")
 
-            # 🚨 6. สร้าง PARTIAL UNIQUE INDEX (ผูกกับ room_id ทั้งหมด)
+            # 🚨 7. สร้าง PARTIAL UNIQUE INDEX (ผูกกับ room_id ทั้งหมด)
             
             # - รหัส นร. ห้ามซ้ำ "ภายในห้องเดียวกัน" (ถ้ายังไม่ถูกลบ)
             await conn.execute("""
