@@ -10,3 +10,4 @@ propcache==0.4.1
 python-dotenv==1.2.2
 typing_extensions==4.15.0
 yarl==1.23.0
+redis>=5.0.0
