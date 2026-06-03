@@ -12,6 +12,7 @@ from routers import maintenance_router
 from routers import student_router
 from routers import finance_router
 from routers import auth_router
+from routers import room_router
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -71,6 +72,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
+app.include_router(room_router.router, prefix="/api/classrooms", tags=["Rooms"])
 app.include_router(classroom_sync_router.router, prefix="/api/classroom", tags=["Classroom"])
 app.include_router(maintenance_router.router, prefix="/api/maintenance", tags=["Maintenance"])
 app.include_router(student_router.router, prefix="/api/classroom", tags=["Students"])
