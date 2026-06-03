@@ -215,7 +215,57 @@ async def init_db(pool: asyncpg.Pool):
                     deleted_at TIMESTAMP DEFAULT NULL
                 );
             """)
+            await conn.execute("""
+                -- 1. สร้างตาราง Users กลาง (ศูนย์รวมตัวตนสากล)
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    discord_id BIGINT UNIQUE,
+                    
+                    -- ระบบ Login (รองรับอนาคต)
+                    username VARCHAR(100) UNIQUE,
+                    password_hash TEXT,
+                    avatar_url TEXT,              -- เผื่อเก็บลิงก์รูปโปรไฟล์
 
+                    -- ข้อมูลส่วนตัวพื้นฐาน
+                    prefix TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    nickname TEXT,
+                    birthday DATE,                
+
+                    -- ข้อมูลทางกายภาพและสุขภาพ
+                    blood_group VARCHAR(3),
+                    shirt_size TEXT,
+                    food_allergy TEXT,            
+                    congenital_disease TEXT,      
+
+                    -- ข้อมูลติดต่อ (ส่วนตัว)
+                    phone_number TEXT,
+                    email TEXT,                   
+                    line_id TEXT,
+                    ig_username TEXT,
+
+                    -- ข้อมูลติดต่อ (ผู้ปกครอง)
+                    phone_number_parent TEXT,     
+                    phone_number_parent_relation TEXT, 
+
+                    -- ที่อยู่ (ตามทะเบียนบ้าน / ปัจจุบัน)
+                    address_house_no TEXT,
+                    address_road TEXT,
+                    address_sub_district TEXT,
+                    address_district TEXT,
+                    address_province TEXT,
+                    address_post_code VARCHAR(10),
+
+                    -- Metadata ระบบ
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL
+                );
+
+                -- 2. เพิ่ม Foreign Key กลับไปที่ตาราง students เดิม
+                ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+            """)
             # --- 4. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
             await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
