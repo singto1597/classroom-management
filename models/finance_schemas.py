@@ -1,8 +1,13 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import date, datetime
 from dataclasses import dataclass
 from fastapi import Query
+
+# 🌟 เพิ่มเข้ามาใหม่: รองรับกระบวนการ Target Resolution (Dual-Identity Support)
+class TargetResolution(BaseModel):
+    server_id: Optional[int] = None
+    room_id: Optional[int] = None
 
 class SuccessResponse(BaseModel):
     status: str = "success"
@@ -140,7 +145,6 @@ class StudentDebtProfileResponse(BaseModel):
     student_name: str
     total_pending_amount: float
     debts: List[StudentDebtItem]
-
 
 class FeeCollectionResponse(BaseModel):
     id: int
