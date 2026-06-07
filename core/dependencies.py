@@ -35,14 +35,13 @@ async def get_current_user(
             try:
                 discord_id = int(x_discord_id)
                 
-                # 🌉 พยายาม Mapping discord_id เป็น user_id จากฐานข้อมูล (ถ้าผู้ใช้นี้เคยซิงค์แล้ว)
+                # 🌉 Mapping discord_id เป็น user_id 
                 pool: asyncpg.Pool = request.app.state.db_pool
                 async with pool.acquire() as conn:
                     row = await conn.fetchrow("SELECT id FROM users WHERE discord_id = $1", discord_id)
                 
                 user_id = row["id"] if row else None
                 
-                # ส่งคืน Context ทั้งของเก่าและใหม่
                 return {"user_id": user_id, "discord_id": discord_id}
                 
             except ValueError:
@@ -57,12 +56,15 @@ async def get_current_user(
             payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
             
             user_id = payload.get("user_id")
-            discord_id = payload.get("discord_id") # อาจมีหรือไม่มีก็ได้ ขึ้นอยู่กับว่าล็อกอินด้วยอะไร
+            discord_id = payload.get("discord_id") 
             
             if user_id is None:
                 raise HTTPException(status_code=401, detail="Invalid token: Missing user_id")
                 
-            return {"user_id": int(user_id), "discord_id": discord_id}
+            return {
+                "user_id": int(user_id) if user_id else None, 
+                "discord_id": int(discord_id) if discord_id else None
+            }
             
         except JWTError:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
