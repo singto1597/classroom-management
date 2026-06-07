@@ -4,7 +4,7 @@ from core.dependencies import get_current_user, get_db_pool
 import asyncpg
 
 # ✨ Import Schema ที่เราแยกไฟล์ออกมา
-from auth_schemas import ProviderLoginRequest, TokenResponse
+from models.auth_schemas import ProviderLoginRequest, TokenResponse
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
