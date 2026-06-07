@@ -153,6 +153,7 @@ class StudentService:
     
     @classmethod
     async def sync_discord(cls, pool: asyncpg.Pool, student_no: int, discord_id: int, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
@@ -164,7 +165,7 @@ class StudentService:
                 if not user_id: raise StudentNotFoundError("ไม่พบเลขที่นี้ในระบบ")
                 
                 try:
-                    await conn.execute("UPDATE users SET discord_id = $1 WHERE id = $2", discord_id, user_id)
+                    await conn.execute("UPDATE users SET discord_id = $1 WHERE id = $2", safe_discord_id, user_id)
                 except asyncpg.exceptions.UniqueViolationError:
                     raise ValidationError("บัญชี Discord นี้ถูกผูกกับนักเรียนคนอื่นในระบบไปแล้วครับ")
                 
@@ -172,6 +173,8 @@ class StudentService:
 
     @classmethod
     async def update_student(cls, pool: asyncpg.Pool, student_no: int, update_data: dict, updater_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_updater_discord_id = int(updater_discord_id) # 🛡️ แปลงเป็น int
+
         clean_data = {k: v for k, v in update_data.items() if v is not None and k in STUDENT_PATCHABLE_COLUMNS}
         if not clean_data: return
 
@@ -196,8 +199,9 @@ class StudentService:
                 target_discord_id = target_info['discord_id']
                 user_id = target_info['user_id']
 
-                if target_discord_id != updater_discord_id:
-                    await require_permission(conn, resolved_room_id, updater_discord_id, "MANAGE_STUDENTS")
+                # ถ้าเป็น ID คนละตัวเช็คเปรียบเทียบก็จะถูกแล้วเพราะเป็น int ทั้งคู่
+                if target_discord_id != safe_updater_discord_id:
+                    await require_permission(conn, resolved_room_id, safe_updater_discord_id, "MANAGE_STUDENTS")
 
                 if global_updates and user_id:
                     keys = sorted(global_updates.keys())
@@ -222,21 +226,22 @@ class StudentService:
                        FROM students s 
                        JOIN users u ON s.user_id = u.id 
                        WHERE s.room_id = $1 AND (u.discord_id = $2 OR u.id = $2) AND s.deleted_at IS NULL""",
-                    resolved_room_id, updater_discord_id
+                    resolved_room_id, safe_updater_discord_id
                 )
                 
-                actor_name = f"{actor_row['first_name'] or ''} {actor_row['last_name'] or ''}".strip() if actor_row else f"discord:{updater_discord_id}"
+                actor_name = f"{actor_row['first_name'] or ''} {actor_row['last_name'] or ''}".strip() if actor_row else f"discord:{safe_updater_discord_id}"
                 
                 fields_desc = ", ".join(sorted(clean_data.keys()))
                 await log_action(conn, resolved_room_id, actor_name, "Update Student", f"แก้ไขเลขที่ {student_no} ฟิลด์: {fields_desc}")
 
     @classmethod
     async def get_student_by_discord(cls, pool: asyncpg.Pool, discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             row = await conn.fetchrow(
                 f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND (u.discord_id = $2 OR u.id = $2) AND s.deleted_at IS NULL", 
-                resolved_room_id, discord_id
+                resolved_room_id, safe_discord_id
             )
             if not row: raise StudentNotFoundError("ยังไม่ได้ Sync ข้อมูล")
             
@@ -246,6 +251,7 @@ class StudentService:
 
     @classmethod
     async def get_all_students(cls, pool: asyncpg.Pool, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             
@@ -253,7 +259,7 @@ class StudentService:
                 """SELECT 1 FROM students s 
                    JOIN users u ON s.user_id = u.id 
                    WHERE s.room_id = $1 AND (u.discord_id = $2 OR u.id = $2) AND s.deleted_at IS NULL""",
-                resolved_room_id, requester_discord_id
+                resolved_room_id, safe_requester_id
             )
             if not is_member:
                 raise ForbiddenError("คุณไม่มีสิทธิ์ดูรายชื่อ เพราะคุณไม่ได้อยู่ในห้องเรียนนี้")
@@ -283,10 +289,11 @@ class StudentService:
 
     @classmethod
     async def export_students_excel(cls, pool, fields: List[str], user_name: str, discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
-                await require_permission(conn, resolved_room_id, discord_id, "EXPORT_STUDENTS")
+                await require_permission(conn, resolved_room_id, safe_discord_id, "EXPORT_STUDENTS")
 
                 rows = await conn.fetch(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.deleted_at IS NULL ORDER BY s.student_no ASC", resolved_room_id)
                 
@@ -311,6 +318,7 @@ class StudentService:
 
     @classmethod
     async def search_students(cls, pool, query: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        # 📌 อันนี้ไม่มีการใช้ discord_id ของ requester ปลอดภัยครับ
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             
@@ -334,6 +342,7 @@ class StudentService:
     
     @classmethod
     async def get_student_profile(cls, pool: asyncpg.Pool, student_no: int, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             
@@ -348,7 +357,7 @@ class StudentService:
             target_discord = target_data.get('discord_id')
             
             from core.config import settings
-            is_super_admin = settings.SUPER_ADMIN_ID and int(requester_discord_id) == int(settings.SUPER_ADMIN_ID)
+            is_super_admin = settings.SUPER_ADMIN_ID and safe_requester_id == int(settings.SUPER_ADMIN_ID)
             
             requester_role = None
             if not is_super_admin:
@@ -357,13 +366,13 @@ class StudentService:
                        FROM students s 
                        JOIN users u ON s.user_id = u.id 
                        WHERE s.room_id = $1 AND (u.discord_id = $2 OR u.id = $2) AND s.status = 'active' AND s.deleted_at IS NULL""",
-                    resolved_room_id, requester_discord_id
+                    resolved_room_id, safe_requester_id
                 )
                 if not requester_row:
                     raise ForbiddenError("คุณไม่ได้อยู่ในห้องเรียนนี้")
                 requester_role = requester_row['class_role']
 
-            is_self = (target_discord is not None and int(target_discord) == int(requester_discord_id))
+            is_self = (target_discord is not None and int(target_discord) == safe_requester_id)
             
             has_permission = False
             if requester_role:
@@ -389,6 +398,7 @@ class StudentService:
 
     @classmethod
     async def get_user_rooms(cls, pool, discord_id: int):
+        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             query = """
                 SELECT 
@@ -403,11 +413,12 @@ class StudentService:
                 AND s.deleted_at IS NULL
                 AND r.deleted_at IS NULL
             """
-            rows = await conn.fetch(query, discord_id)
+            rows = await conn.fetch(query, safe_discord_id)
             return [dict(row) for row in rows]
 
     @classmethod
     async def update_status(cls, pool, student_no: int, status: str, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        # 📌 อันนี้ไม่มีการใช้ discord_id ปลอดภัยครับ
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
@@ -421,10 +432,11 @@ class StudentService:
     
     @classmethod
     async def delete_student(cls, pool: asyncpg.Pool, student_no: int, user_name: str, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
-                await require_permission(conn, resolved_room_id, requester_discord_id, "MANAGE_STUDENTS")
+                await require_permission(conn, resolved_room_id, safe_requester_id, "MANAGE_STUDENTS")
                 
                 res = await conn.execute(
                     "UPDATE students SET deleted_at = NOW() WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL",
@@ -438,10 +450,11 @@ class StudentService:
 
     @classmethod
     async def delete_student_permanent(cls, pool: asyncpg.Pool, student_no: int, user_name: str, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
-                await require_permission(conn, resolved_room_id, requester_discord_id, "HARD_DELETE_STUDENTS")
+                await require_permission(conn, resolved_room_id, safe_requester_id, "HARD_DELETE_STUDENTS")
                 
                 has_payments = await conn.fetchval(
                     "SELECT 1 FROM student_payments WHERE student_id = (SELECT id FROM students WHERE room_id = $1 AND student_no = $2) LIMIT 1",
