@@ -212,6 +212,7 @@ async def get_all_students(
     except (StudentNotFoundError, RoomNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=400, detail=str(e))
     
 @router.post("/{target_id}/export")
