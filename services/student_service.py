@@ -43,6 +43,19 @@ class StudentService:
         FROM students s
         LEFT JOIN users u ON s.user_id = u.id
     """
+
+    # 🔥 เพิ่มฟังก์ชันผู้ช่วยตรงนี้ เพื่อแกะ ID ออกมาอย่างปลอดภัย
+    @staticmethod
+    def _extract_id(user_data: Any) -> int:
+        if isinstance(user_data, dict):
+            # พยายามดึง discord_id ก่อน (สำหรับคนล็อกอินผ่าน Discord) 
+            # ถ้าไม่มี ให้ดึง user_id (สำหรับคนล็อกอินผ่าน Google)
+            raw_id = user_data.get('discord_id') or user_data.get('user_id')
+            if not raw_id:
+                raise ForbiddenError("Token ปัจจุบันไม่มีข้อมูล User ID หรือ Discord ID ที่ถูกต้อง")
+            return int(raw_id)
+        # ถ้าส่งมาเป็นตัวเลขหรือ String เดี่ยวๆ ก็ Cast ได้เลย
+        return int(user_data)
     
     @staticmethod
     async def resolve_room_id(conn: asyncpg.Connection, server_id: Optional[int] = None, room_id: Optional[int] = None) -> int:
@@ -152,8 +165,8 @@ class StudentService:
                 await log_action(conn, resolved_room_id, user_name, "Bulk Add", f"เพิ่มนักเรียน {len(students)} คน")
     
     @classmethod
-    async def sync_discord(cls, pool: asyncpg.Pool, student_no: int, discord_id: int, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
-        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
+    async def sync_discord(cls, pool: asyncpg.Pool, student_no: int, discord_id: Any, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_discord_id = cls._extract_id(discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
@@ -172,8 +185,8 @@ class StudentService:
                 await log_action(conn, resolved_room_id, user_name, "Sync Discord", f"ผูกดิสคอร์ดเข้ากับเลขที่ {student_no}")
 
     @classmethod
-    async def update_student(cls, pool: asyncpg.Pool, student_no: int, update_data: dict, updater_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
-        safe_updater_discord_id = int(updater_discord_id) # 🛡️ แปลงเป็น int
+    async def update_student(cls, pool: asyncpg.Pool, student_no: int, update_data: dict, updater_discord_id: Any, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_updater_discord_id = cls._extract_id(updater_discord_id) # 🛡️ เรียกใช้ _extract_id
 
         clean_data = {k: v for k, v in update_data.items() if v is not None and k in STUDENT_PATCHABLE_COLUMNS}
         if not clean_data: return
@@ -199,7 +212,6 @@ class StudentService:
                 target_discord_id = target_info['discord_id']
                 user_id = target_info['user_id']
 
-                # ถ้าเป็น ID คนละตัวเช็คเปรียบเทียบก็จะถูกแล้วเพราะเป็น int ทั้งคู่
                 if target_discord_id != safe_updater_discord_id:
                     await require_permission(conn, resolved_room_id, safe_updater_discord_id, "MANAGE_STUDENTS")
 
@@ -235,8 +247,8 @@ class StudentService:
                 await log_action(conn, resolved_room_id, actor_name, "Update Student", f"แก้ไขเลขที่ {student_no} ฟิลด์: {fields_desc}")
 
     @classmethod
-    async def get_student_by_discord(cls, pool: asyncpg.Pool, discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
-        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
+    async def get_student_by_discord(cls, pool: asyncpg.Pool, discord_id: Any, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        safe_discord_id = cls._extract_id(discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             row = await conn.fetchrow(
@@ -250,8 +262,8 @@ class StudentService:
             return data
 
     @classmethod
-    async def get_all_students(cls, pool: asyncpg.Pool, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
-        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
+    async def get_all_students(cls, pool: asyncpg.Pool, requester_discord_id: Any, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+        safe_requester_id = cls._extract_id(requester_discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             
@@ -288,8 +300,8 @@ class StudentService:
             return results
 
     @classmethod
-    async def export_students_excel(cls, pool, fields: List[str], user_name: str, discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
-        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
+    async def export_students_excel(cls, pool, fields: List[str], user_name: str, discord_id: Any, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_discord_id = cls._extract_id(discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
@@ -318,7 +330,6 @@ class StudentService:
 
     @classmethod
     async def search_students(cls, pool, query: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
-        # 📌 อันนี้ไม่มีการใช้ discord_id ของ requester ปลอดภัยครับ
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             
@@ -341,8 +352,8 @@ class StudentService:
             return [dict(r) for r in rows]
     
     @classmethod
-    async def get_student_profile(cls, pool: asyncpg.Pool, student_no: int, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
-        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
+    async def get_student_profile(cls, pool: asyncpg.Pool, student_no: int, requester_discord_id: Any, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        safe_requester_id = cls._extract_id(requester_discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
             
@@ -397,8 +408,8 @@ class StudentService:
             return target_data
 
     @classmethod
-    async def get_user_rooms(cls, pool, discord_id: int):
-        safe_discord_id = int(discord_id) # 🛡️ แปลงเป็น int
+    async def get_user_rooms(cls, pool, discord_id: Any):
+        safe_discord_id = cls._extract_id(discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             query = """
                 SELECT 
@@ -418,7 +429,6 @@ class StudentService:
 
     @classmethod
     async def update_status(cls, pool, student_no: int, status: str, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
-        # 📌 อันนี้ไม่มีการใช้ discord_id ปลอดภัยครับ
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
@@ -431,8 +441,8 @@ class StudentService:
                 await log_action(conn, resolved_room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
     
     @classmethod
-    async def delete_student(cls, pool: asyncpg.Pool, student_no: int, user_name: str, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
-        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
+    async def delete_student(cls, pool: asyncpg.Pool, student_no: int, user_name: str, requester_discord_id: Any, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_requester_id = cls._extract_id(requester_discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
@@ -449,8 +459,8 @@ class StudentService:
                 await log_action(conn, resolved_room_id, user_name, "Soft Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} (Soft Delete)")
 
     @classmethod
-    async def delete_student_permanent(cls, pool: asyncpg.Pool, student_no: int, user_name: str, requester_discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
-        safe_requester_id = int(requester_discord_id) # 🛡️ แปลงเป็น int
+    async def delete_student_permanent(cls, pool: asyncpg.Pool, student_no: int, user_name: str, requester_discord_id: Any, server_id: Optional[int] = None, room_id: Optional[int] = None):
+        safe_requester_id = cls._extract_id(requester_discord_id) # 🛡️ เรียกใช้ _extract_id
         async with pool.acquire() as conn:
             async with conn.transaction():
                 resolved_room_id = await cls.resolve_room_id(conn, server_id=server_id, room_id=room_id)
