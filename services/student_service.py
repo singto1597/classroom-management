@@ -420,7 +420,7 @@ class StudentService:
                 FROM students s
                 JOIN rooms r ON s.room_id = r.id
                 JOIN users u ON s.user_id = u.id
-                WHERE u.discord_id = $1
+                WHERE (u.discord_id = $1 OR u.id = $1)  
                 AND s.deleted_at IS NULL
                 AND r.deleted_at IS NULL
             """
