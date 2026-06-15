@@ -18,8 +18,8 @@ Repository นี้เป็นศูนย์กลาง (Monorepo) สำห
 เนื่องจากโปรเจกต์นี้ใช้ Git Submodules **ต้อง** โคลนด้วย flag `--recurse-submodules` เพื่อดึงโค้ดของทุกส่วนมาพร้อมกัน:
 
 ```bash
-git clone --recurse-submodules [https://github.com/singto1597/classroom-deployment.git](https://github.com/singto1597/classroom-deployment.git)
-cd classroom-deployment
+git clone --recurse-submodules [https://github.com/singto1597/classroom-deployment.git](https://github.com/singto1597/classroom-management.git)
+cd classroom-management
 
 ```
 
