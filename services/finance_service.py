@@ -278,7 +278,7 @@ class FinanceService:
                        JOIN fee_collections FC ON SP.collection_id = FC.id
                        JOIN students S ON SP.student_id = S.id
                        LEFT JOIN users U ON S.user_id = U.id 
-                       WHERE SP.id = $1 AND FC.room_id = $2 FOR UPDATE""", 
+                       WHERE SP.id = $1 AND FC.room_id = $2 FOR UPDATE OF SP""", 
                     payment_id, target_room_id 
                 )
                 if not payment_info: raise PaymentNotFoundError("ไม่พบรายการนี้")
