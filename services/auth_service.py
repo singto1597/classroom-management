@@ -92,21 +92,17 @@ async def process_user_login(pool: asyncpg.Pool, payload: OAuthProfilePayload) -
                 # ก้าวที่ 2: ล้างค่า Unique ของร่างโคลนทิ้ง เพื่อหลบ Error
                 await conn.execute("UPDATE users SET email = NULL, google_id = NULL, discord_id = NULL WHERE id = $1", id_to_delete)
                 
-                # ก้าวที่ 3: ดูดข้อมูลจากร่างโคลน มารวมในร่างหลัก (ข้อมูล payload ใหม่ทับของเดิม)
+                # ก้าวที่ 3: ดูดข้อมูลจากร่างโคลน มารวมในร่างหลัก (ลบ first_name/last_name ออก เพื่อรักษาชื่อเดิมในระบบไว้)
                 await conn.execute("""
                     UPDATE users SET 
                         email = COALESCE($1, email, $2),
                         google_id = COALESCE($3, google_id, $4),
-                        discord_id = COALESCE($5, discord_id, $6),
-                        first_name = COALESCE($7, first_name),
-                        last_name = COALESCE($8, last_name)
-                    WHERE id = $9
+                        discord_id = COALESCE($5, discord_id, $6)
+                    WHERE id = $7
                 """, 
                 payload.email, row_to_delete['email'],
                 payload.google_id, row_to_delete['google_id'],
                 payload.discord_id, row_to_delete['discord_id'],
-                payload.first_name or row_to_delete['first_name'], 
-                payload.last_name or row_to_delete['last_name'],
                 id_to_keep)
                 
                 # ก้าวที่ 4: สังหารร่างโคลนทิ้ง
@@ -118,19 +114,17 @@ async def process_user_login(pool: asyncpg.Pool, payload: OAuthProfilePayload) -
                 master_id = existing_by_provider['id'] if existing_by_provider else (existing_by_email['id'] if existing_by_email else None)
                 
                 if master_id:
+                    # อัปเดตแค่พวก ID และ Email ที่จำเป็น ไม่แตะต้องชื่อ-นามสกุล หรือ username เดิม
                     await conn.execute("""
                         UPDATE users SET 
                             email = COALESCE($1, email),
                             google_id = COALESCE($2, google_id),
                             discord_id = COALESCE($3, discord_id),
-                            first_name = COALESCE($4, first_name),
-                            last_name = COALESCE($5, last_name),
-                            username = COALESCE($6, username),
                             updated_at = CURRENT_TIMESTAMP
-                        WHERE id = $7
-                    """, payload.email, payload.google_id, payload.discord_id, payload.first_name, payload.last_name, payload.username, master_id)
+                        WHERE id = $4
+                    """, payload.email, payload.google_id, payload.discord_id, master_id)
                 else:
-                    # 🔵 กรณีหน้าใหม่แกะกล่อง: สร้างใหม่!
+                    # 🔵 กรณีหน้าใหม่แกะกล่อง: สร้างใหม่! (ดึงชื่อจาก Google/Discord มาใช้เป็นค่าเริ่มต้น)
                     master_id = await conn.fetchval("""
                         INSERT INTO users (email, google_id, discord_id, first_name, last_name, username)
                         VALUES ($1, $2, $3, $4, $5, $6)
