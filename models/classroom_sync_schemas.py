@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date, datetime
-from typing import Optional, List, Literal
+from typing import Optional, List
 from enum import Enum
 
 class DayOfWeek(str, Enum):
@@ -17,10 +17,6 @@ class TaskStatus(str, Enum):
     DONE = "done"
 
 # --- Common Schemas ---
-class TargetResolution(BaseModel):
-    server_id: Optional[int] = None
-    room_id: Optional[int] = None
-
 class SuccessResponse(BaseModel):
     status: str = "success"
     message: Optional[str] = None

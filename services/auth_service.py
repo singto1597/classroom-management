@@ -59,40 +59,26 @@ async def get_google_user_info(access_token: str) -> dict:
         return response.json()
 
 async def process_user_login(pool: asyncpg.Pool, payload: OAuthProfilePayload) -> UserLoginResult:
-    """ 
-    Unified Login & Merge Processor: 
-    ระบบผสานร่างบัญชีขั้นสูง ถ้าเจอว่า 1 คนมี 2 บัญชี ระบบจะโอนกรรมสิทธิ์และรวมข้อมูลให้ทันที
-    """
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # 1. หาบัญชีจาก Provider ID (Discord หรือ Google)
             existing_by_provider = await conn.fetchrow(
                 "SELECT * FROM users WHERE (discord_id = $1 AND $1 IS NOT NULL) OR (google_id = $2 AND $2 IS NOT NULL) LIMIT 1",
                 payload.discord_id, payload.google_id
             )
             
-            # 2. หาบัญชีจาก Email
             existing_by_email = await conn.fetchrow(
                 "SELECT * FROM users WHERE email = $1", payload.email
             )
 
             master_id = None
 
-            # 🔥 กรณีสุดวิสัย: มี 2 บัญชีแยกกัน -> ต้อง MERGE ร่าง!
             if existing_by_provider and existing_by_email and existing_by_provider['id'] != existing_by_email['id']:
-                
-                # ให้ยึดบัญชีเก่าที่มี Provider เป็นร่างหลัก
                 id_to_keep = existing_by_provider['id']
                 id_to_delete = existing_by_email['id']
                 row_to_delete = existing_by_email
                 
-                # ก้าวที่ 1: โอนกรรมสิทธิ์นักเรียนในห้องเรียนทั้งหมด ไปให้ร่างหลัก
                 await conn.execute("UPDATE students SET user_id = $1 WHERE user_id = $2", id_to_keep, id_to_delete)
-                
-                # ก้าวที่ 2: ล้างค่า Unique ของร่างโคลนทิ้ง เพื่อหลบ Error
                 await conn.execute("UPDATE users SET email = NULL, google_id = NULL, discord_id = NULL WHERE id = $1", id_to_delete)
-                
-                # ก้าวที่ 3: ดูดข้อมูลจากร่างโคลน มารวมในร่างหลัก (ลบ first_name/last_name ออก เพื่อรักษาชื่อเดิมในระบบไว้)
                 await conn.execute("""
                     UPDATE users SET 
                         email = COALESCE($1, email, $2),
@@ -104,17 +90,13 @@ async def process_user_login(pool: asyncpg.Pool, payload: OAuthProfilePayload) -
                 payload.google_id, row_to_delete['google_id'],
                 payload.discord_id, row_to_delete['discord_id'],
                 id_to_keep)
-                
-                # ก้าวที่ 4: สังหารร่างโคลนทิ้ง
                 await conn.execute("DELETE FROM users WHERE id = $1", id_to_delete)
                 master_id = id_to_keep
 
-            # 🟢 กรณีทั่วไป: เจออันเดียว หรือ ทั้งคู่ชี้ไปที่ไอดีเดียวกันอยู่แล้ว
             else:
                 master_id = existing_by_provider['id'] if existing_by_provider else (existing_by_email['id'] if existing_by_email else None)
                 
                 if master_id:
-                    # อัปเดตแค่พวก ID และ Email ที่จำเป็น ไม่แตะต้องชื่อ-นามสกุล หรือ username เดิม
                     await conn.execute("""
                         UPDATE users SET 
                             email = COALESCE($1, email),
@@ -124,17 +106,14 @@ async def process_user_login(pool: asyncpg.Pool, payload: OAuthProfilePayload) -
                         WHERE id = $4
                     """, payload.email, payload.google_id, payload.discord_id, master_id)
                 else:
-                    # 🔵 กรณีหน้าใหม่แกะกล่อง: สร้างใหม่! (ดึงชื่อจาก Google/Discord มาใช้เป็นค่าเริ่มต้น)
                     master_id = await conn.fetchval("""
                         INSERT INTO users (email, google_id, discord_id, first_name, last_name, username)
                         VALUES ($1, $2, $3, $4, $5, $6)
                         RETURNING id
                     """, payload.email, payload.google_id, payload.discord_id, payload.first_name, payload.last_name, payload.username)
 
-            # ดึง ID สุทธิ 
             final_user = await conn.fetchrow("SELECT id, discord_id FROM users WHERE id = $1", master_id)
             
-            # 🎁 ส่งกลับเป็น Pydantic Object แทน Dict
             return UserLoginResult(
                 user_id=final_user["id"], 
                 discord_id=final_user["discord_id"]

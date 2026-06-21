@@ -27,14 +27,12 @@ class RoomManagementService:
                     room_name, code
                 )
 
-                # ✨ หากไม่ได้ส่งชื่อมา ให้พยายามดึงจากตาราง users 
                 if not first_name or not last_name:
                     user = await conn.fetchrow("SELECT first_name, last_name FROM users WHERE id = $1", user_id)
                     if user:
                         first_name = user['first_name'] or "Teacher"
                         last_name = user['last_name'] or ""
 
-                # ✨ แก้ไขการ Insert ให้มี first_name และ last_name
                 await conn.execute(
                     """INSERT INTO students (room_id, user_id, student_no, class_role, status, first_name, last_name) 
                        VALUES ($1, $2, 0, 'president', 'active', $3, $4)""",
@@ -58,7 +56,6 @@ class RoomManagementService:
                 if await conn.fetchval("SELECT id FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", room_id, payload.student_no):
                     raise HTTPException(status_code=400, detail=f"เลขที่ {payload.student_no} มีคนใช้งานแล้ว หรือกำลังรออนุมัติ")
 
-                # ✨ แก้ไขการ Insert ให้มี first_name และ last_name จาก Payload
                 student_id = await conn.fetchval(
                     """INSERT INTO students (room_id, user_id, student_no, class_role, status, first_name, last_name) 
                        VALUES ($1, $2, $3, 'student', 'pending', $4, $5) RETURNING id""",
@@ -68,10 +65,10 @@ class RoomManagementService:
                 return {"room_id": room_id, "student_id": student_id, "room_name": room["room_name"]}
 
     @classmethod
-    async def get_pending_requests(cls, pool: asyncpg.Pool, room_id: int, requester_id: int) -> list:
+    async def get_pending_requests(cls, pool: asyncpg.Pool, room_id: int, user_id: int) -> list:
         async with pool.acquire() as conn:
-            await require_permission(conn, room_id, requester_id, "MANAGE_STUDENTS")
-            # ดึง first_name / last_name จากตาราง students ด้วยเลย
+            # 🚨 จุดนี้เปลี่ยน requester_id -> user_id
+            await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
             rows = await conn.fetch(
                 """SELECT student_no, first_name, last_name, created_at
                    FROM students
@@ -82,10 +79,11 @@ class RoomManagementService:
             return [dict(row) for row in rows]
 
     @classmethod
-    async def approve_join_request(cls, pool: asyncpg.Pool, room_id: int, student_no: int, requester_id: int, approver_name: str):
+    async def approve_join_request(cls, pool: asyncpg.Pool, room_id: int, student_no: int, user_id: int, approver_name: str):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, requester_id, "MANAGE_STUDENTS")
+                # 🚨 เปลี่ยน requester_id -> user_id
+                await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
                 res = await conn.execute(
                     "UPDATE students SET status = 'active' WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL",
                     room_id, student_no
@@ -95,10 +93,11 @@ class RoomManagementService:
                 await log_action(conn, room_id, approver_name, "Approve Join", f"อนุมัติคำขอเข้าร่วมของเลขที่ {student_no}")
 
     @classmethod
-    async def reject_join_request(cls, pool: asyncpg.Pool, room_id: int, student_no: int, requester_id: int, rejector_name: str):
+    async def reject_join_request(cls, pool: asyncpg.Pool, room_id: int, student_no: int, user_id: int, rejector_name: str):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, requester_id, "MANAGE_STUDENTS")
+                # 🚨 เปลี่ยน requester_id -> user_id
+                await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
                 res = await conn.execute(
                     "DELETE FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending'",
                     room_id, student_no

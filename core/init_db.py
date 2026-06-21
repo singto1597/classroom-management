@@ -90,35 +90,18 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE TABLE IF NOT EXISTS students (
                     id SERIAL PRIMARY KEY,
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
-                    discord_id BIGINT,
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, -- 🚨 ลิงก์ไปยังตาราง users
                     student_no INTEGER NOT NULL,
-                    student_id VARCHAR(10),  -- 🚨 ลบ UNIQUE ออกจากตรงนี้แล้ว
-                    prefix TEXT, 
-                    first_name TEXT NOT NULL, 
-                    last_name TEXT NOT NULL,
-                    nickname TEXT,
-                    birthday DATE,
+                    student_id VARCHAR(10),
+                    
+                    -- ข้อมูลบริบทที่เกี่ยวกับ "ห้องเรียนนี้" เท่านั้น
                     class_role TEXT DEFAULT 'student', 
                     cleaning_duty TEXT, 
                     olympic_camp TEXT,
                     portfolio TEXT,
                     target_faculty TEXT,
-                    blood_group VARCHAR(3),
-                    shirt_size TEXT,
-                    food_allergy TEXT,
-                    congenital_disease TEXT, 
-                    phone_number TEXT,
-                    phone_number_parent TEXT,
-                    phone_number_parent_relation TEXT, 
-                    line_id TEXT,
-                    ig_username TEXT,
-                    email TEXT,
-                    address_house_no TEXT,
-                    address_road TEXT,
-                    address_sub_district TEXT,
-                    address_district TEXT,
-                    address_province TEXT,
-                    address_post_code VARCHAR(10), 
+                    
+                    -- Metadata
                     status TEXT DEFAULT 'active',
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -322,6 +305,33 @@ async def init_db(pool: asyncpg.Pool):
                 ON student_payments(collection_id, student_id) 
                 WHERE deleted_at IS NULL;
             """)
+
+            await conn.execute("""
+                ALTER TABLE students
+                    DROP COLUMN IF EXISTS discord_id,
+                    DROP COLUMN IF EXISTS prefix,
+                    DROP COLUMN IF EXISTS first_name,
+                    DROP COLUMN IF EXISTS last_name,
+                    DROP COLUMN IF EXISTS nickname,
+                    DROP COLUMN IF EXISTS birthday,
+                    DROP COLUMN IF EXISTS blood_group,
+                    DROP COLUMN IF EXISTS shirt_size,
+                    DROP COLUMN IF EXISTS food_allergy,
+                    DROP COLUMN IF EXISTS congenital_disease,
+                    DROP COLUMN IF EXISTS phone_number,
+                    DROP COLUMN IF EXISTS phone_number_parent,
+                    DROP COLUMN IF EXISTS phone_number_parent_relation,
+                    DROP COLUMN IF EXISTS line_id,
+                    DROP COLUMN IF EXISTS ig_username,
+                    DROP COLUMN IF EXISTS email,
+                    DROP COLUMN IF EXISTS address_house_no,
+                    DROP COLUMN IF EXISTS address_road,
+                    DROP COLUMN IF EXISTS address_sub_district,
+                    DROP COLUMN IF EXISTS address_district,
+                    DROP COLUMN IF EXISTS address_province,
+                    DROP COLUMN IF EXISTS address_post_code;
+            """)
+
 
             logger.info("✅ Database Tables & Smart Constraints Initialized Successfully!")
 

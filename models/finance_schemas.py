@@ -1,24 +1,18 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Literal
+from typing import Optional, List
 from datetime import date, datetime
 from dataclasses import dataclass
 from fastapi import Query
-
-# 🌟 เพิ่มเข้ามาใหม่: รองรับกระบวนการ Target Resolution (Dual-Identity Support)
-class TargetResolution(BaseModel):
-    server_id: Optional[int] = None
-    room_id: Optional[int] = None
 
 class SuccessResponse(BaseModel):
     status: str = "success"
     message: Optional[str] = None
 
 # --- Schemas สำหรับรับข้อมูล (Requests) ---
-
 class AccountCreate(BaseModel):
     account_name: str = Field(..., max_length=100)
     initial_balance: float = Field(0.0, ge=0.0)
-    user_name: Optional[str] = Field(None, max_length=100)  # audit (จาก client ถ้ามี)
+    user_name: Optional[str] = Field(None, max_length=100)
 
 class TransactionCreate(BaseModel):
     account_id: int
@@ -49,7 +43,6 @@ class PaymentConfirm(BaseModel):
     user_name: str
 
 # --- Schemas สำหรับส่งออกข้อมูล (Responses) ---
-
 class AccountResponse(BaseModel):
     id: int
     account_name: str

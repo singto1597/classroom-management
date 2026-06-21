@@ -1,8 +1,8 @@
-from fastapi import Request, Security, HTTPException, status, Header, Depends
+from fastapi import Request, Security, HTTPException, status, Header, Depends, Query, Path
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 import asyncpg
-from typing import Optional
+from typing import Optional, Literal
 from core.config import settings
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -16,6 +16,7 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
     return api_key
 
+# 🚀 1. แปลงทุกอย่างให้เป็น user_id
 async def get_current_user(
     request: Request,
     x_api_key: Optional[str] = Security(api_key_header),
@@ -23,50 +24,64 @@ async def get_current_user(
     auth: Optional[HTTPAuthorizationCredentials] = Security(bearer_auth)
 ) -> dict:
     """
-    The Bridge Dependency: รองรับทั้งระบบเก่าและใหม่แบบไร้รอยต่อ
-    Return: {"user_id": int | None, "discord_id": int | None}
+    Return: {"user_id": int} เท่านั้น! (ไม่มี discord_id หลุดเข้าไปในระบบแล้ว)
     """
-    
-    # 1. เช็คแบบ API Key (Discord Bot - ระบบเดิม)
+    # กรณี 1: มาจาก Discord Bot
     if x_api_key:
         if x_api_key == settings.API_KEY:
             if not x_discord_id:
                 raise HTTPException(status_code=400, detail="X-Discord-Id header is required")
             try:
                 discord_id = int(x_discord_id)
-                
-                # 🌉 Mapping discord_id เป็น user_id 
                 pool: asyncpg.Pool = request.app.state.db_pool
                 async with pool.acquire() as conn:
-                    row = await conn.fetchrow("SELECT id FROM users WHERE discord_id = $1", discord_id)
+                    # แปลง discord_id เป็น user_id ตรงนี้เลย
+                    user_id = await conn.fetchval("SELECT id FROM users WHERE discord_id = $1", discord_id)
                 
-                user_id = row["id"] if row else None
+                if not user_id:
+                    raise HTTPException(status_code=404, detail="ไม่พบบัญชีผู้ใช้ที่ผูกกับ Discord ID นี้")
                 
-                return {"user_id": user_id, "discord_id": discord_id}
-                
+                return {"user_id": user_id}
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid X-Discord-Id format")
         else:
             raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    # 2. เช็คแบบ JWT (Vue.js SPA - ระบบใหม่)
+    # กรณี 2: มาจาก Web (SPA)
     if auth:
         try:
             token = auth.credentials
             payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-            
             user_id = payload.get("user_id")
-            discord_id = payload.get("discord_id") 
             
             if user_id is None:
                 raise HTTPException(status_code=401, detail="Invalid token: Missing user_id")
                 
-            return {
-                "user_id": int(user_id) if user_id else None, 
-                "discord_id": int(discord_id) if discord_id else None
-            }
-            
+            return {"user_id": int(user_id)}
         except JWTError:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     raise HTTPException(status_code=401, detail="Not authenticated: API Key or Bearer Token required")
+
+# 🚀 2. ฟังก์ชันใหม่! แปลง Target ให้กลายเป็น room_id เลยทันที (ลบ TargetResolution ทิ้งได้เลย)
+async def resolve_target_to_room_id(
+    target_id: int = Path(...),
+    target_type: Literal["server", "room"] = Query("room", description="ระบุ 'room' สำหรับเว็บ หรือ 'server' สำหรับบอท"),
+    pool: asyncpg.Pool = Depends(get_db_pool)
+) -> int:
+    """
+    แปลง server_id หรือ room_id ให้กลายเป็น room_id สุทธิ
+    ทำให้ Router และ Service ไม่ต้องสนใจเรื่องข้ามแพลตฟอร์มอีกต่อไป
+    """
+    async with pool.acquire() as conn:
+        if target_type == "room":
+            exists = await conn.fetchval("SELECT 1 FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_id)
+            if not exists:
+                raise HTTPException(status_code=404, detail=f"ไม่พบห้องเรียน ID: {target_id}")
+            return target_id
+            
+        elif target_type == "server":
+            room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", target_id)
+            if not room_id:
+                raise HTTPException(status_code=404, detail=f"ไม่พบห้องเรียนที่ผูกกับ Server ID: {target_id}")
+            return room_id

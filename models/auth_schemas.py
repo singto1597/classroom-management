@@ -9,7 +9,7 @@ class ProviderLoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    # 🔥 แก้ไขจุดตายตรงนี้: เปลี่ยน int เป็น str เพื่อกัน JavaScript ปัดเศษ!
+    # 🔥 จุดตาย: เปลี่ยน int เป็น str เพื่อกัน JavaScript ปัดเศษ!
     user_id: str
 
 # 📦 Schema สำหรับรับข้อมูลโปรไฟล์จาก OAuth (Google/Discord) เพื่อส่งเข้า Service

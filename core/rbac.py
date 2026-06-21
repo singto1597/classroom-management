@@ -30,29 +30,29 @@ class RBACManager:
         roles_with_permission = cls.load_roles().get(permission, [])
         return role in roles_with_permission
 
-async def require_permission(conn: asyncpg.Connection, room_id: int, discord_id: int, required_permission: str):
+async def require_permission(conn: asyncpg.Connection, room_id: int, user_id: int, required_permission: str):
     """
-    ฟังก์ชันเช็คสิทธิ์แบบ Async
+    ฟังก์ชันเช็คสิทธิ์แบบ Async (เปลี่ยนมาใช้ user_id เป็นแกนหลัก)
     - รองรับ Super Admin (God Mode)
     - เช็คสิทธิ์จากตาราง students และเทียบกับ roles.json
     """
     
     # 1. เช็ค Super Admin (God Mode)
-    if settings.SUPER_ADMIN_ID and int(discord_id) == int(settings.SUPER_ADMIN_ID):
+    # 🚨 สำคัญ: ไปเปลี่ยน SUPER_ADMIN_ID ใน .env ให้เป็น user_id ด้วยนะครับ
+    if settings.SUPER_ADMIN_ID and int(user_id) == int(settings.SUPER_ADMIN_ID):
         return True
 
     # 2. Query ดึงค่า class_role จากตาราง students
-    # เช็ค status='active' และ deleted_at IS NULL ตามกฎ
+    # เปลี่ยนการค้นหาจาก discord_id เป็น user_id 
     query = """
         SELECT class_role 
         FROM students 
         WHERE room_id = $1 
-          AND discord_id = $2 
+          AND user_id = $2 
           AND status = 'active' 
           AND deleted_at IS NULL
     """
-    # discord_id ใน DB เป็น BIGINT ดังนั้นส่งเป็น int ได้เลย
-    row = await conn.fetchrow(query, room_id, int(discord_id))
+    row = await conn.fetchrow(query, room_id, int(user_id))
     
     if not row:
         raise ForbiddenError("Access Denied: ไม่พบข้อมูลนักเรียน หรือบัญชีของคุณถูกระงับ")

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request
+from fastapi import APIRouter, HTTPException, status, Depends
 from services import auth_service
 from core.dependencies import get_current_user, get_db_pool
 import asyncpg
@@ -20,21 +20,16 @@ async def discord_login(payload: ProviderLoginRequest, pool: asyncpg.Pool = Depe
         if not email:
             raise HTTPException(status_code=400, detail="Verified email is required on your Discord account.")
         
-        # 📦 แพ็คข้อมูลใส่ Schema
         user_payload = OAuthProfilePayload(
             email=email,
             discord_id=int(profile["id"]),
             username=profile.get("username")
         )
         
-        # 🚀 ส่งเข้า Service
         user_data = await auth_service.process_user_login(pool=pool, payload=user_payload)
         
-        # 🔑 สร้าง Token (อ้างอิงค่าแบบ Object properties)
+        # 🔑 สร้าง Token เก็บแค่ user_id สบายใจที่สุด
         token_payload = {"user_id": str(user_data.user_id)}
-        if user_data.discord_id:
-            token_payload["discord_id"] = str(user_data.discord_id)
-            
         access_token = auth_service.create_access_token(data=token_payload)
         
         return TokenResponse(
@@ -57,7 +52,6 @@ async def google_login(payload: ProviderLoginRequest, pool: asyncpg.Pool = Depen
         if not email:
             raise HTTPException(status_code=400, detail="Email is required from Google.")
             
-        # 📦 แพ็คข้อมูลใส่ Schema
         user_payload = OAuthProfilePayload(
             email=email,
             google_id=profile.get("sub"),
@@ -65,14 +59,10 @@ async def google_login(payload: ProviderLoginRequest, pool: asyncpg.Pool = Depen
             last_name=profile.get("family_name")
         )
         
-        # 🚀 ส่งเข้า Service
         user_data = await auth_service.process_user_login(pool=pool, payload=user_payload)
         
-        # 🔑 สร้าง Token (อ้างอิงค่าแบบ Object properties)
+        # 🔑 สร้าง Token เก็บแค่ user_id
         token_payload = {"user_id": str(user_data.user_id)}
-        if user_data.discord_id:
-            token_payload["discord_id"] = str(user_data.discord_id)
-            
         access_token = auth_service.create_access_token(data=token_payload)
         
         return TokenResponse(
@@ -82,21 +72,15 @@ async def google_login(payload: ProviderLoginRequest, pool: asyncpg.Pool = Depen
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-# ... ส่วน @router.get("/me") คงไว้เหมือนเดิม
 @router.get("/me")
-async def get_current_user_profile(current_user: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
-    user_id = current_user.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=404, detail="User mapping not found.")
-        
+async def get_current_user_profile(user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    user_id = user_ctx.get("user_id")
     async with pool.acquire() as conn:
         user = await conn.fetchrow("""
             SELECT id, email, first_name, last_name, username, discord_id, google_id 
             FROM users 
             WHERE id = $1
         """, user_id)
-        
         if not user:
             raise HTTPException(status_code=404, detail="User not found in database.")
-            
         return dict(user)

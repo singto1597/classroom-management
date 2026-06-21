@@ -78,7 +78,11 @@ class StudentCompletionStatus(BaseModel):
 class StudentResponse(BaseModel):
     id: int
     room_id: int
-    discord_id: Optional[int]
+    
+    # 🔥 เพิ่ม user_id เข้ามาให้ Frontend เอาไปเช็คสิทธิ์ได้ง่ายๆ
+    user_id: Optional[int] = None
+    
+    discord_id: Optional[int] = None
     discord_id_str: Optional[str] = None
     
     student_no: int

@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import datetime
 
 class RoomCreateRequest(BaseModel):
     room_name: str = Field(..., max_length=100, description="ชื่อห้องเรียน")
@@ -10,7 +9,6 @@ class RoomJoinRequest(BaseModel):
     student_no: int = Field(..., gt=0, description="เลขที่นักเรียน")
     first_name: str = Field(..., max_length=100)
     last_name: str = Field(..., max_length=100)
-    # เพิ่มฟิลด์อื่นๆ ตามต้องการ เช่น prefix, nickname
 
 class RoomResponse(BaseModel):
     room_id: int
