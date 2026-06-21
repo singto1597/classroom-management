@@ -18,7 +18,11 @@ async def create_room(
     if not user_id:
         raise HTTPException(status_code=401, detail="User account required to create a room")
 
-    result = await RoomManagementService.create_room(pool, req.room_name, user_id)
+    # ✨ ดึงชื่อจาก token (ถ้ามี) ส่งเข้าไปตอนสร้างห้อง
+    first_name = current_user.get("first_name", "")
+    last_name = current_user.get("last_name", "")
+
+    result = await RoomManagementService.create_room(pool, req.room_name, user_id, first_name, last_name)
     
     return RoomResponse(
         room_id=result["room_id"],
