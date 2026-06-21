@@ -415,6 +415,7 @@ class StudentService:
                 SELECT 
                     r.id as room_id,
                     r.server_id, 
+                    r.room_code,
                     r.room_name, 
                     s.class_role as role
                 FROM students s
