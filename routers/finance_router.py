@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Header, Path
 import asyncpg
 from typing import List, Optional, Literal
+from pydantic import BaseModel
 
 from models.finance_schemas import *
 from core.dependencies import get_db_pool, get_current_user
@@ -8,6 +9,11 @@ from core.exceptions import RoomNotFoundError, PaymentNotFoundError, Transaction
 from services.finance_service import FinanceService
 
 router = APIRouter()
+
+# 🚨 เพิ่มคลาส TargetResolution ไว้ตรงนี้แทน เพื่อให้ Router ใช้งานได้
+class TargetResolution(BaseModel):
+    server_id: Optional[int] = None
+    room_id: Optional[int] = None
 
 def get_target(
     target_id: int = Path(...),
@@ -83,7 +89,6 @@ async def delete_account(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @router.post("/{target_id}/finance/transactions", response_model=SuccessResponse)
 async def add_transaction(
@@ -176,7 +181,6 @@ async def confirm_payment(
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @router.get("/{target_id}/finance/collections", response_model=List[FeeCollectionResponse])
 async def get_all_collections(
@@ -359,7 +363,6 @@ async def get_student_debts(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาด: {str(e)}")
-
 
 @router.get("/{target_id}/finance/debtors", response_model=List[DebtorItem])
 async def get_all_debtors(
