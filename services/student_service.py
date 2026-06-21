@@ -76,7 +76,7 @@ class StudentService:
         percent = int((filled / total) * 100)
         return {"percentage": percent, "missing_fields": missing}
 
-@classmethod
+    @classmethod
     async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
