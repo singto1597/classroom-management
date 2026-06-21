@@ -374,7 +374,7 @@ class StudentService:
             return target_data
 
     @classmethod
-    async def get_user_rooms(cls, pool, discord_id: int):
+    async def get_user_rooms(cls, pool, user_id: int): # 🚨 เปลี่ยนชื่อ parameter เป็น user_id
         async with pool.acquire() as conn:
             query = """
                 SELECT 
@@ -386,12 +386,12 @@ class StudentService:
                     s.status
                 FROM students s
                 JOIN rooms r ON s.room_id = r.id
-                JOIN users u ON s.user_id = u.id
-                WHERE u.discord_id = $1  
+                -- 🚨 ลบ JOIN users u ON s.user_id = u.id ออกไปได้เลย ไม่จำเป็นต้องใช้แล้ว
+                WHERE s.user_id = $1  -- 🚨 แก้ตรงนี้สำคัญมาก! ให้หาจาก s.user_id
                 AND s.deleted_at IS NULL
                 AND r.deleted_at IS NULL
             """
-            rows = await conn.fetch(query, discord_id)
+            rows = await conn.fetch(query, user_id)
             return [dict(row) for row in rows]
 
     @classmethod

@@ -83,13 +83,18 @@ async def sync_discord(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{discord_id}/rooms", response_model=List[UserRoomResponse])
+# 🚨 แก้ชื่อ path parameter และตัวแปรรับค่าให้เป็น user_id
+@router.get("/{user_id}/rooms", response_model=List[UserRoomResponse])
 async def get_user_rooms(
-    discord_id: int, 
+    user_id: int, 
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    rooms = await StudentService.get_user_rooms(pool, discord_id)
+    # 🔒 Security: กันไม่ให้ยูสเซอร์คนอื่น แอบพิมพ์ URL ดึงข้อมูลห้องของเพื่อน
+    if user_id != user_ctx["user_id"]:
+        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์ดูข้อมูลห้องของผู้อื่น")
+
+    rooms = await StudentService.get_user_rooms(pool, user_id)
     return rooms
 
 @router.get("/{target_id}/students/profile/{student_no}", response_model=StudentResponse)
