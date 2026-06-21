@@ -1,72 +1,103 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Header, Path
 import asyncpg
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from models.finance_schemas import *
-from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id
-from core.exceptions import PaymentNotFoundError, TransactionNotFoundError, ForbiddenError
+from core.dependencies import get_db_pool, get_current_user
+from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError, ForbiddenError
 from services.finance_service import FinanceService
 
 router = APIRouter()
 
+def get_target(
+    target_id: int = Path(...),
+    target_type: Literal["server", "room"] = Query("server", description="ระบุประเภทไอดีว่าเป็น server หรือ room")
+) -> TargetResolution:
+    return TargetResolution(
+        server_id=target_id if target_type == "server" else None,
+        room_id=target_id if target_type == "room" else None
+    )
+
 @router.post("/{target_id}/finance/accounts", response_model=SuccessResponse)
 async def create_account(
     req: AccountCreate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.create_account(pool, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.create_account(
+            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
 @router.get("/{target_id}/finance/accounts", response_model=List[AccountResponse])
 async def get_accounts(
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    return await FinanceService.get_accounts(pool, room_id=room_id)
+    try:
+        return await FinanceService.get_accounts(
+            pool, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.patch("/{target_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
 async def update_account(
     account_id: int, 
     req: AccountUpdate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.update_account(pool, account_id, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.update_account(
+            pool, account_id, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     
 @router.delete("/{target_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
 async def delete_account(
     account_id: int,
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     req: Optional[ActionWithUserRequest] = Body(None),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
         actor = req.user_name if req else "—"
-        return await FinanceService.delete_account(pool, account_id, user_ctx["user_id"], actor, room_id=room_id)
+        return await FinanceService.delete_account(
+            pool, account_id, user_ctx["user_id"], actor, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.post("/{target_id}/finance/transactions", response_model=SuccessResponse)
 async def add_transaction(
     req: TransactionCreate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.add_transaction(pool, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.add_transaction(
+            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -75,25 +106,39 @@ async def add_transaction(
 @router.get("/{target_id}/finance/transactions", response_model=TransactionListResponse)
 async def get_transactions(
     filters: TransactionFilter = Depends(), 
-    room_id: int = Depends(resolve_target_to_room_id),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
-):
-    return await FinanceService.get_transactions(
-        pool, limit=filters.limit, offset=filters.offset, start_date=filters.start_date, 
-        end_date=filters.end_date, account_id=filters.account_id, category_id=filters.category_id, 
-        transaction_type=filters.transaction_type, room_id=room_id
-    )
-
-@router.post("/{target_id}/finance/transfer", response_model=SuccessResponse)
-async def transfer_money(
-    req: TransferCreate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.transfer_money(pool, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.get_transactions(
+            pool, 
+            limit=filters.limit, 
+            offset=filters.offset, 
+            start_date=filters.start_date, 
+            end_date=filters.end_date, 
+            account_id=filters.account_id, 
+            category_id=filters.category_id, 
+            transaction_type=filters.transaction_type,
+            server_id=target.server_id,
+            room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/{target_id}/finance/transfer", response_model=SuccessResponse)
+async def transfer_money(
+    req: TransferCreate, 
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        return await FinanceService.transfer_money(
+            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e: 
@@ -102,12 +147,16 @@ async def transfer_money(
 @router.post("/{target_id}/finance/collections", response_model=SuccessResponse)
 async def create_fee_collection(
     req: FeeCollectionCreate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.create_fee_collection(pool, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.create_fee_collection(
+            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -115,52 +164,69 @@ async def create_fee_collection(
 async def confirm_payment(
     payment_id: int, 
     req: PaymentConfirm, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.confirm_payment(pool, payment_id, req, room_id=room_id)
-    except PaymentNotFoundError as e:
+        return await FinanceService.confirm_payment(
+            pool, payment_id, req, server_id=target.server_id, room_id=target.room_id
+        )
+    except (RoomNotFoundError, PaymentNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.get("/{target_id}/finance/collections", response_model=List[FeeCollectionResponse])
 async def get_all_collections(
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    return await FinanceService.get_all_collections(pool, room_id=room_id)
+    try:
+        return await FinanceService.get_all_collections(
+            pool, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.put("/{target_id}/finance/collections/{collection_id}", response_model=SuccessResponse)
 async def update_collection(
     collection_id: int, 
     req: FeeCollectionUpdate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.update_collection(pool, collection_id, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.update_collection(
+            pool, collection_id, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
 @router.get("/{target_id}/finance/collections/{collection_id}", response_model=CollectionStatusResponse)
 async def get_collection_status(
     collection_id: int, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    return await FinanceService.get_collection_status(pool, collection_id, room_id=room_id)
+    try:
+        return await FinanceService.get_collection_status(
+            pool, collection_id, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{target_id}/finance/collections/{collection_id}/students/{student_id}", response_model=SuccessResponse)
 async def add_student_to_collection(
     collection_id: int,
     student_id: int,
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     req: Optional[ActionWithUserRequest] = Body(None),
     user_ctx: dict = Depends(get_current_user)
@@ -168,8 +234,10 @@ async def add_student_to_collection(
     try:
         actor = req.user_name if req else "—"
         return await FinanceService.add_student_to_collection(
-            pool, collection_id, student_id, user_ctx["user_id"], actor, room_id=room_id
+            pool, collection_id, student_id, user_ctx["user_id"], actor, server_id=target.server_id, room_id=target.room_id
         )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -178,48 +246,65 @@ async def add_student_to_collection(
 @router.post("/{target_id}/finance/categories", response_model=SuccessResponse)
 async def create_category(
     req: CategoryCreate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.create_category(pool, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.create_category(
+            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
 @router.get("/{target_id}/finance/categories", response_model=List[CategoryResponse])
 async def get_categories(
-    cat_type: str = Query(None), 
-    room_id: int = Depends(resolve_target_to_room_id),
+    cat_type: str = Query(None, description="income หรือ expense"), 
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    return await FinanceService.get_categories(pool, cat_type, room_id=room_id)
+    try:
+        return await FinanceService.get_categories(
+            pool, cat_type, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.patch("/{target_id}/finance/categories/{category_id}", response_model=SuccessResponse)
 async def update_category(
     category_id: int, 
     req: CategoryUpdate, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.update_category(pool, category_id, req, user_ctx["user_id"], room_id=room_id)
+        return await FinanceService.update_category(
+            pool, category_id, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
 @router.delete("/{target_id}/finance/categories/{category_id}", response_model=SuccessResponse)
 async def delete_category(
     category_id: int,
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     req: Optional[ActionWithUserRequest] = Body(None),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
         actor = req.user_name if req else "—"
-        return await FinanceService.delete_category(pool, category_id, user_ctx["user_id"], actor, room_id=room_id)
+        return await FinanceService.delete_category(
+            pool, category_id, user_ctx["user_id"], actor, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -229,15 +314,15 @@ async def delete_category(
 async def revert_transaction(
     transaction_id: int, 
     req: ActionWithUserRequest, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
         return await FinanceService.revert_transaction(
-            pool, transaction_id, req.user_name, user_ctx["user_id"], room_id=room_id
+            pool, transaction_id, req.user_name, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id
         )
-    except TransactionNotFoundError as e:
+    except (RoomNotFoundError, TransactionNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -246,30 +331,45 @@ async def revert_transaction(
 async def get_summary(
     month: Optional[int] = Query(None, ge=1, le=12),
     year: Optional[int] = Query(None, ge=2000),
-    room_id: int = Depends(resolve_target_to_room_id),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
-):
-    return await FinanceService.get_summary(pool, month, year, room_id=room_id)
-    
-@router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
-async def get_student_debts(
-    student_id: int, 
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await FinanceService.get_student_debts(pool, student_id, room_id=room_id)
+        return await FinanceService.get_summary(
+            pool, month, year, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+@router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
+async def get_student_debts(
+    student_id: int, 
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        return await FinanceService.get_student_debts(
+            pool, student_id, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาด: {str(e)}")
 
+
 @router.get("/{target_id}/finance/debtors", response_model=List[DebtorItem])
 async def get_all_debtors(
-    room_id: int = Depends(resolve_target_to_room_id),
+    target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    return await FinanceService.get_all_debtors(pool, room_id=room_id)
+    try:
+        return await FinanceService.get_all_debtors(
+            pool, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))

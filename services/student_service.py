@@ -14,6 +14,7 @@ from models.student_schemas import StudentUpdateRequest
 
 STUDENT_PATCHABLE_COLUMNS: FrozenSet[str] = frozenset(StudentUpdateRequest.model_fields.keys())
 
+# 🚨 แบ่งเขตข้อมูลชัดเจน
 GLOBAL_FIELDS: FrozenSet[str] = frozenset([
     'prefix', 'first_name', 'last_name', 'nickname', 'birthday',
     'blood_group', 'shirt_size', 'food_allergy', 'congenital_disease',
@@ -30,7 +31,20 @@ LOCAL_FIELDS: FrozenSet[str] = frozenset([
 
 class StudentService:
 
-    # 🚨 เพิ่ม u.id as user_id ตรงนี้ เพื่อใช้อ้างอิงถึงตัวบุคคลได้แม่นยำ
+    @staticmethod
+    async def resolve_room_id(conn: asyncpg.Connection, server_id: Optional[int] = None, room_id: Optional[int] = None) -> int:
+        if room_id:
+            if not await conn.fetchval("SELECT 1 FROM rooms WHERE id = $1 AND deleted_at IS NULL", room_id):
+                raise RoomNotFoundError("ไม่พบห้องเรียนนี้")
+            return room_id
+        if server_id:
+            r_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", server_id)
+            if not r_id: 
+                raise RoomNotFoundError(f"ไม่พบห้องสำหรับ server {server_id}")
+            return r_id
+        raise ValueError("ต้องระบุ server_id หรือ room_id")
+
+    # 🚨 ศูนย์รวมข้อมูล: เชื่อม students เข้ากับ users เสมอ!
     BASE_STUDENT_SELECT = """
         SELECT 
             s.id, s.room_id, u.id as user_id, u.discord_id, s.student_no, s.student_id,
@@ -63,9 +77,12 @@ class StudentService:
         return {"percentage": percent, "missing_fields": missing}
 
     @classmethod
-    async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, room_id: int):
+    async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                
+                # ไปจัดการที่ Users ก่อน!
                 user_id = await conn.fetchval(
                     "SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL", 
                     first_name, last_name
@@ -76,17 +93,19 @@ class StudentService:
                         first_name, last_name
                     )
 
+                # เอา user_id มาลงทะเบียนห้อง
                 await conn.execute(
                     """INSERT INTO students (room_id, student_no, user_id) 
                        VALUES ($1, $2, $3) ON CONFLICT (room_id, student_no) DO NOTHING""",
-                    room_id, student_no, user_id
+                    target_room_id, student_no, user_id
                 )
-                await log_action(conn, room_id, user_name, "Add Student", f"เพิ่มเลขที่ {student_no}")
+                await log_action(conn, target_room_id, user_name, "Add Student", f"เพิ่มเลขที่ {student_no}")
 
     @classmethod
-    async def bulk_add_students(cls, pool: asyncpg.Pool, students: List[dict], user_name: str, room_id: int):
+    async def bulk_add_students(cls, pool: asyncpg.Pool, students: List[dict], user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 first_names = [s['first_name'] for s in students]
                 last_names = [s['last_name'] for s in students]
                 
@@ -119,7 +138,7 @@ class StudentService:
                         user_map[(row['first_name'], row['last_name'])] = row['id']
                 
                 student_tuples = [
-                    (room_id, s['student_no'], user_map[(s['first_name'], s['last_name'])]) 
+                    (target_room_id, s['student_no'], user_map[(s['first_name'], s['last_name'])]) 
                     for s in students
                 ]
                 
@@ -131,15 +150,17 @@ class StudentService:
                     """,
                     student_tuples
                 )
-                await log_action(conn, room_id, user_name, "Bulk Add", f"เพิ่มนักเรียน {len(students)} คน")
+                await log_action(conn, target_room_id, user_name, "Bulk Add", f"เพิ่มนักเรียน {len(students)} คน")
     
     @classmethod
-    async def sync_discord(cls, pool: asyncpg.Pool, student_no: int, discord_id: int, user_name: str, room_id: int):
+    async def sync_discord(cls, pool: asyncpg.Pool, student_no: int, discord_id: int, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                
                 user_id = await conn.fetchval(
                     "SELECT user_id FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL",
-                    room_id, student_no
+                    target_room_id, student_no
                 )
                 if not user_id: raise StudentNotFoundError("ไม่พบเลขที่นี้ในระบบ")
                 
@@ -148,10 +169,10 @@ class StudentService:
                 except asyncpg.exceptions.UniqueViolationError:
                     raise ValidationError("บัญชี Discord นี้ถูกผูกกับนักเรียนคนอื่นในระบบไปแล้วครับ")
                 
-                await log_action(conn, room_id, user_name, "Sync Discord", f"ผูกดิสคอร์ดเข้ากับเลขที่ {student_no}")
+                await log_action(conn, target_room_id, user_name, "Sync Discord", f"ผูกดิสคอร์ดเข้ากับเลขที่ {student_no}")
 
     @classmethod
-    async def update_student(cls, pool: asyncpg.Pool, student_no: int, update_data: dict, updater_user_id: int, room_id: int):
+    async def update_student(cls, pool: asyncpg.Pool, student_no: int, update_data: dict, updater_user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
         clean_data = {k: v for k, v in update_data.items() if v is not None and k in STUDENT_PATCHABLE_COLUMNS}
         if not clean_data: return
 
@@ -160,21 +181,22 @@ class StudentService:
 
         async with pool.acquire() as conn:
             async with conn.transaction():
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 target_info = await conn.fetchrow(
                     """SELECT s.user_id 
                        FROM students s 
                        WHERE s.room_id = $1 AND s.student_no = $2 AND s.deleted_at IS NULL""", 
-                    room_id, student_no
+                    target_room_id, student_no
                 )
                 if not target_info:
                     raise StudentNotFoundError("ไม่พบเลขที่นี้")
                 
                 target_user_id = target_info['user_id']
 
-                # ถ้าไม่ได้แก้ข้อมูลตัวเอง ต้องเช็ค Permission
                 if target_user_id != updater_user_id:
-                    await require_permission(conn, room_id, updater_user_id, "MANAGE_STUDENTS")
+                    await require_permission(conn, target_room_id, updater_user_id, "MANAGE_STUDENTS")
 
+                # อัปเดตข้อมูลกลาง
                 if global_updates and target_user_id:
                     keys = sorted(global_updates.keys())
                     set_clauses = [f"{key} = ${i+2}" for i, key in enumerate(keys)]
@@ -184,10 +206,11 @@ class StudentService:
                         *values
                     )
 
+                # อัปเดตข้อมูลประจำห้อง
                 if local_updates:
                     keys = sorted(local_updates.keys())
                     set_clauses = [f"{key} = ${i+3}" for i, key in enumerate(keys)]
-                    values = [room_id, student_no] + [local_updates[k] for k in keys]
+                    values = [target_room_id, student_no] + [local_updates[k] for k in keys]
                     await conn.execute(
                         f"UPDATE students SET {', '.join(set_clauses)}, updated_at = CURRENT_TIMESTAMP WHERE room_id = $1 AND student_no = $2", 
                         *values
@@ -199,14 +222,16 @@ class StudentService:
                 actor_name = f"{actor_row['first_name'] or ''} {actor_row['last_name'] or ''}".strip() if actor_row else f"User:{updater_user_id}"
                 
                 fields_desc = ", ".join(sorted(clean_data.keys()))
-                await log_action(conn, room_id, actor_name, "Update Student", f"แก้ไขเลขที่ {student_no} ฟิลด์: {fields_desc}")
+                await log_action(conn, target_room_id, actor_name, "Update Student", f"แก้ไขเลขที่ {student_no} ฟิลด์: {fields_desc}")
 
     @classmethod
-    async def get_student_by_user_id(cls, pool: asyncpg.Pool, user_id: int, room_id: int) -> dict:
+    async def get_student_by_discord(cls, pool: asyncpg.Pool, discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        """สำหรับดึงโปรไฟล์ของคนที่เรียกคำสั่งจาก Discord"""
         async with pool.acquire() as conn:
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             row = await conn.fetchrow(
-                f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND u.id = $2 AND s.deleted_at IS NULL", 
-                room_id, user_id
+                f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND u.discord_id = $2 AND s.deleted_at IS NULL", 
+                target_room_id, discord_id
             )
             if not row: raise StudentNotFoundError("ยังไม่ได้เชื่อมต่อข้อมูล หรือไม่ได้อยู่ในห้องนี้")
             
@@ -215,17 +240,18 @@ class StudentService:
             return data
 
     @classmethod
-    async def get_all_students(cls, pool: asyncpg.Pool, user_id: int, room_id: int) -> List[dict]:
+    async def get_all_students(cls, pool: asyncpg.Pool, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
         async with pool.acquire() as conn:
-            # เช็คว่าคนขอ ดูอยู่ในห้องมั้ย
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+            
             is_member = await conn.fetchval(
                 "SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL",
-                room_id, user_id
+                target_room_id, user_id
             )
             if not is_member:
                 raise ForbiddenError("คุณไม่มีสิทธิ์ดูรายชื่อ เพราะคุณไม่ได้อยู่ในห้องเรียนนี้")
 
-            rows = await conn.fetch(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.deleted_at IS NULL ORDER BY s.student_no ASC", room_id)
+            rows = await conn.fetch(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.deleted_at IS NULL ORDER BY s.student_no ASC", target_room_id)
             
             results = []
             for row in rows:
@@ -249,12 +275,13 @@ class StudentService:
             return results
 
     @classmethod
-    async def export_students_excel(cls, pool, fields: List[str], user_name: str, user_id: int, room_id: int):
+    async def export_students_excel(cls, pool, fields: List[str], user_name: str, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "EXPORT_STUDENTS")
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                await require_permission(conn, target_room_id, user_id, "EXPORT_STUDENTS")
 
-                rows = await conn.fetch(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.deleted_at IS NULL ORDER BY s.student_no ASC", room_id)
+                rows = await conn.fetch(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.deleted_at IS NULL ORDER BY s.student_no ASC", target_room_id)
                 if not rows: raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนในห้องนี้")
 
                 data = []
@@ -269,13 +296,14 @@ class StudentService:
                     df.to_excel(writer, index=False, sheet_name='Students_List')
                 
                 output.seek(0)
-                await log_action(conn, room_id, user_name, "Export Data", f"Exported fields: {', '.join(fields)}")
+                await log_action(conn, target_room_id, user_name, "Export Data", f"Exported fields: {', '.join(fields)}")
                 
                 return output
 
     @classmethod
-    async def search_students(cls, pool, query: str, room_id: int):
+    async def search_students(cls, pool, query: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             sql_query = f"""
                 {cls.BASE_STUDENT_SELECT}
                 WHERE s.room_id = $1 
@@ -290,15 +318,16 @@ class StudentService:
                 LIMIT 5
             """
             search_pattern = f"%{query}%"
-            rows = await conn.fetch(sql_query, room_id, search_pattern, query)
+            rows = await conn.fetch(sql_query, target_room_id, search_pattern, query)
             return [dict(r) for r in rows]
     
     @classmethod
-    async def get_student_profile(cls, pool: asyncpg.Pool, student_no: int, requester_user_id: int, room_id: int) -> dict:
+    async def get_student_profile(cls, pool: asyncpg.Pool, student_no: int, requester_user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
         async with pool.acquire() as conn:
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             target_row = await conn.fetchrow(
                 f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.student_no = $2 AND s.deleted_at IS NULL", 
-                room_id, student_no
+                target_room_id, student_no
             )
             if not target_row: 
                 raise StudentNotFoundError("ไม่พบข้อมูลนักเรียน")
@@ -314,7 +343,7 @@ class StudentService:
                 requester_row = await conn.fetchrow(
                     """SELECT class_role FROM students 
                        WHERE room_id = $1 AND user_id = $2 AND status = 'active' AND deleted_at IS NULL""",
-                    room_id, requester_user_id
+                    target_room_id, requester_user_id
                 )
                 if not requester_row:
                     raise ForbiddenError("คุณไม่ได้อยู่ในห้องเรียนนี้")
@@ -345,7 +374,7 @@ class StudentService:
             return target_data
 
     @classmethod
-    async def get_user_rooms(cls, pool, user_id: int):
+    async def get_user_rooms(cls, pool, discord_id: int):
         async with pool.acquire() as conn:
             query = """
                 SELECT 
@@ -357,48 +386,53 @@ class StudentService:
                     s.status
                 FROM students s
                 JOIN rooms r ON s.room_id = r.id
-                WHERE s.user_id = $1  
+                JOIN users u ON s.user_id = u.id
+                WHERE u.discord_id = $1  
                 AND s.deleted_at IS NULL
                 AND r.deleted_at IS NULL
             """
-            rows = await conn.fetch(query, user_id)
+            rows = await conn.fetch(query, discord_id)
             return [dict(row) for row in rows]
 
     @classmethod
-    async def update_status(cls, pool, student_no: int, status: str, user_name: str, room_id: int):
+    async def update_status(cls, pool, student_no: int, status: str, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 res = await conn.execute(
                     "UPDATE students SET status = $1 WHERE room_id = $2 AND student_no = $3 AND deleted_at IS NULL",
-                    status, room_id, student_no
+                    status, target_room_id, student_no
                 )
                 if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบเลขที่นี้")
-                await log_action(conn, room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
+                await log_action(conn, target_room_id, user_name, "Status Change", f"เปลี่ยนสถานะเลขที่ {student_no} เป็น {status}")
     
     @classmethod
-    async def delete_student(cls, pool: asyncpg.Pool, student_no: int, user_name: str, user_id: int, room_id: int):
+    async def delete_student(cls, pool: asyncpg.Pool, student_no: int, user_name: str, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                await require_permission(conn, target_room_id, user_id, "MANAGE_STUDENTS")
                 res = await conn.execute(
                     "UPDATE students SET deleted_at = NOW() WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL",
-                    room_id, student_no
+                    target_room_id, student_no
                 )
                 if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบข้อมูล หรือถูกลบไปแล้ว")
-                await log_action(conn, room_id, user_name, "Soft Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} (Soft Delete)")
+                await log_action(conn, target_room_id, user_name, "Soft Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} (Soft Delete)")
 
     @classmethod
-    async def delete_student_permanent(cls, pool: asyncpg.Pool, student_no: int, user_name: str, user_id: int, room_id: int):
+    async def delete_student_permanent(cls, pool: asyncpg.Pool, student_no: int, user_name: str, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "HARD_DELETE_STUDENTS")
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                await require_permission(conn, target_room_id, user_id, "HARD_DELETE_STUDENTS")
+                
                 has_payments = await conn.fetchval(
                     "SELECT 1 FROM student_payments WHERE student_id = (SELECT id FROM students WHERE room_id = $1 AND student_no = $2) LIMIT 1",
-                    room_id, student_no
+                    target_room_id, student_no
                 )
                 if has_payments:
                     raise ValidationError("ไม่สามารถลบข้อมูลถาวรได้ เนื่องจากมีประวัติการเงิน ให้ใช้ Soft Delete แทน")
 
-                res = await conn.execute("DELETE FROM students WHERE room_id = $1 AND student_no = $2", room_id, student_no)
+                res = await conn.execute("DELETE FROM students WHERE room_id = $1 AND student_no = $2", target_room_id, student_no)
                 if res == "DELETE 0": raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนเลขที่นี้")
-                await log_action(conn, room_id, user_name, "Hard Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} (Hard Delete)")
+                await log_action(conn, target_room_id, user_name, "Hard Delete", f"ลบข้อมูลนักเรียนเลขที่ {student_no} (Hard Delete)")
