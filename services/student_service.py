@@ -76,7 +76,7 @@ class StudentService:
         percent = int((filled / total) * 100)
         return {"percentage": percent, "missing_fields": missing}
 
-    @classmethod
+@classmethod
     async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -93,14 +93,23 @@ class StudentService:
                         first_name, last_name
                     )
 
-                # เอา user_id มาลงทะเบียนห้อง
-                await conn.execute(
-                    """INSERT INTO students (room_id, student_no, user_id) 
-                       VALUES ($1, $2, $3) ON CONFLICT (room_id, student_no) DO NOTHING""",
+                # 🚨 ใช้ WHERE NOT EXISTS แทน ON CONFLICT
+                # 🚨 และตั้งสถานะเป็น 'active' เลย เพราะแอดมินเพิ่มเอง ไม่ต้องรออนุมัติ
+                res = await conn.execute(
+                    """INSERT INTO students (room_id, student_no, user_id, status) 
+                       SELECT $1, $2, $3, 'active'
+                       WHERE NOT EXISTS (
+                           SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
+                       )""",
                     target_room_id, student_no, user_id
                 )
-                await log_action(conn, target_room_id, user_name, "Add Student", f"เพิ่มเลขที่ {student_no}")
-
+                
+                # เช็คว่าเพิ่มสำเร็จมั้ย (ถ้าเป็น 0 แปลว่ามีเลขที่นี้ในห้องอยู่แล้ว)
+                if res == "INSERT 0 1":
+                    await log_action(conn, target_room_id, user_name, "Add Student", f"เพิ่มเลขที่ {student_no}")
+                else:
+                    raise ValueError(f"เลขที่ {student_no} มีรายชื่ออยู่ในห้องนี้แล้ว")
+                
     @classmethod
     async def bulk_add_students(cls, pool: asyncpg.Pool, students: List[dict], user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
@@ -142,11 +151,14 @@ class StudentService:
                     for s in students
                 ]
                 
+                # 🚨 แก้ไขการ Insert ให้ใช้ WHERE NOT EXISTS และกำหนด status เป็น active
                 await conn.executemany(
                     """
-                    INSERT INTO students (room_id, student_no, user_id) 
-                    VALUES ($1, $2, $3) 
-                    ON CONFLICT (room_id, student_no) DO NOTHING
+                    INSERT INTO students (room_id, student_no, user_id, status) 
+                    SELECT $1, $2, $3, 'active'
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
+                    )
                     """,
                     student_tuples
                 )
