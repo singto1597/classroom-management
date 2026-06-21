@@ -5,8 +5,12 @@ from typing import List
 from models.room_schemas import RoomCreateRequest, RoomJoinRequest, RoomResponse, JoinRoomResponse
 from services.room_service import RoomManagementService
 from core.dependencies import get_db_pool, get_current_user
+from core.exceptions import ForbiddenError
 
 router = APIRouter()
+
+def _extract_id(user_dict: dict):
+    return user_dict.get("discord_id") or user_dict.get("user_id")
 
 @router.post("/create", response_model=RoomResponse, summary="สร้างห้องเรียนใหม่ (Web)")
 async def create_room(
@@ -60,8 +64,11 @@ async def get_pending_requests(
     pool: asyncpg.Pool = Depends(get_db_pool),
     current_user: dict = Depends(get_current_user)
 ):
-    user_id = current_user.get("user_id")
-    return await RoomManagementService.get_pending_requests(pool, room_id, user_id)
+    user_id = _extract_id(current_user) # ใช้ Helper
+    try:
+        return await RoomManagementService.get_pending_requests(pool, room_id, user_id)
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e)) # ดัก Error 500 เปลี่ยนเป็น 403
 
 @router.put("/{room_id}/requests/{student_no}/approve", summary="อนุมัตินักเรียนเข้าห้อง")
 async def approve_student(
@@ -70,12 +77,13 @@ async def approve_student(
     pool: asyncpg.Pool = Depends(get_db_pool),
     current_user: dict = Depends(get_current_user)
 ):
-    user_id = current_user.get("user_id")
-    # ใช้ username สำหรับบันทึก Audit Log 
+    user_id = _extract_id(current_user)
     user_name = current_user.get("first_name") or "Admin"
-    
-    await RoomManagementService.approve_join_request(pool, room_id, student_no, user_id, user_name)
-    return {"status": "success", "message": f"อนุมัตินักเรียนเลขที่ {student_no} สำเร็จ"}
+    try:
+        await RoomManagementService.approve_join_request(pool, room_id, student_no, user_id, user_name)
+        return {"status": "success", "message": f"อนุมัตินักเรียนเลขที่ {student_no} สำเร็จ"}
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.delete("/{room_id}/requests/{student_no}/reject", summary="ปฏิเสธนักเรียนเข้าห้อง")
 async def reject_student(
@@ -84,8 +92,10 @@ async def reject_student(
     pool: asyncpg.Pool = Depends(get_db_pool),
     current_user: dict = Depends(get_current_user)
 ):
-    user_id = current_user.get("user_id")
+    user_id = _extract_id(current_user)
     user_name = current_user.get("first_name") or "Admin"
-    
-    await RoomManagementService.reject_join_request(pool, room_id, student_no, user_id, user_name)
-    return {"status": "success", "message": f"ปฏิเสธนักเรียนเลขที่ {student_no} สำเร็จ"}
+    try:
+        await RoomManagementService.reject_join_request(pool, room_id, student_no, user_id, user_name)
+        return {"status": "success", "message": f"ปฏิเสธนักเรียนเลขที่ {student_no} สำเร็จ"}
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))

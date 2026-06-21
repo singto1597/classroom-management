@@ -417,7 +417,8 @@ class StudentService:
                     r.server_id, 
                     r.room_code,
                     r.room_name, 
-                    s.class_role as role
+                    s.class_role as role,
+                    s.status
                 FROM students s
                 JOIN rooms r ON s.room_id = r.id
                 JOIN users u ON s.user_id = u.id

@@ -134,6 +134,7 @@ class UserRoomResponse(BaseModel):
     room_code: Optional[str] = None 
     room_name: str
     role: str
+    status: str = "active"
 
     @model_validator(mode='after')
     def set_server_id_str(self):
