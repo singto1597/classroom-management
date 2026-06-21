@@ -237,15 +237,15 @@ class StudentService:
                 await log_action(conn, target_room_id, actor_name, "Update Student", f"แก้ไขเลขที่ {student_no} ฟิลด์: {fields_desc}")
 
     @classmethod
-    async def get_student_by_discord(cls, pool: asyncpg.Pool, discord_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
-        """สำหรับดึงโปรไฟล์ของคนที่เรียกคำสั่งจาก Discord"""
+    async def get_student_by_user_id(cls, pool: asyncpg.Pool, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        """สำหรับดึงโปรไฟล์ของตัวเอง (รองรับทั้ง Web และ Bot ผ่าน user_id)"""
         async with pool.acquire() as conn:
             target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             row = await conn.fetchrow(
-                f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND u.discord_id = $2 AND s.deleted_at IS NULL", 
-                target_room_id, discord_id
+                f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND u.id = $2 AND s.deleted_at IS NULL", 
+                target_room_id, user_id
             )
-            if not row: raise StudentNotFoundError("ยังไม่ได้เชื่อมต่อข้อมูล หรือไม่ได้อยู่ในห้องนี้")
+            if not row: raise StudentNotFoundError("คุณยังไม่มีรายชื่อนักเรียนในห้องนี้ (อาจเป็น Admin)")
             
             data = dict(row)
             data['data_completion'] = cls._calculate_completion(data)

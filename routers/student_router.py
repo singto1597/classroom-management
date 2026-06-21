@@ -190,9 +190,9 @@ async def get_my_profile(
     pool: asyncpg.Pool = Depends(get_db_pool)
 ):
     try:
-        # ฟังก์ชันนี้สำหรับบอท Discord โดยเฉพาะ
-        data = await StudentService.get_student_by_discord(
-            pool, user_ctx["discord_id"],
+        # 🚨 เปลี่ยนมาใช้ user_id ในการค้นหาโปรไฟล์ตัวเอง
+        data = await StudentService.get_student_by_user_id(
+            pool, user_ctx["user_id"],
             server_id=target.server_id, room_id=target.room_id
         )
         return data
