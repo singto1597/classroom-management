@@ -15,7 +15,6 @@ class FinanceService:
             return str(n).strip()[:200]
         return "—"
 
-    # 🚨 เปลี่ยนจาก _get_room_id เป็น resolve_room_id รองรับทั้งระบบ Web และ Discord
     @staticmethod
     async def resolve_room_id(conn: asyncpg.Connection, server_id: Optional[int] = None, room_id: Optional[int] = None) -> int:
         if room_id:
@@ -78,7 +77,6 @@ class FinanceService:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 await require_permission(conn, target_room_id, requester_discord_id, "MANAGE_FINANCE")
                 
-                # ตรวจสอบว่าเป็นกระเป๋าของห้องนี้จริงไหม และเช็คยอดเงินกรณีจ่ายออก
                 current_balance = await conn.fetchval(
                     "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 FOR UPDATE",
                     req.account_id, target_room_id
@@ -271,7 +269,6 @@ class FinanceService:
                 valid_account = await conn.fetchval("SELECT id FROM finance_accounts WHERE id = $1 AND room_id = $2", req.paid_to_account_id, target_room_id)
                 if not valid_account: raise ValueError("กระเป๋าเงินที่เลือกรับเงิน ไม่มีอยู่ หรือไม่ใช่ของห้องนี้!")
 
-                # 🚨 ซ่อม SQL JOIN: โยงตาราง users เข้ามาเพื่อนำ first_name และ nickname มาใช้
                 payment_info = await conn.fetchrow(
                     """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title, U.first_name, U.nickname 
                        FROM student_payments SP
@@ -298,7 +295,7 @@ class FinanceService:
                     new_status = 'pending' 
                     status_msg = f"ทยอยจ่าย (ขาดอีก {total_amount - new_total_paid} ฿)"
 
-                # Fallback ให้กรณีที่ไม่มีข้อมูล First Name (ถึงแม้ Database จะบังคับ แต่ทำ Defensive ไว้ก่อน)
+                # Fallback ให้กรณีที่ไม่มีข้อมูล First Name 
                 stu_name = payment_info['first_name'] or "Unknown"
                 if payment_info['nickname']: stu_name += f" ({payment_info['nickname']})"
                 dynamic_desc = f"รับเงิน: {payment_info['title']} จาก {stu_name} [{status_msg}]"
@@ -335,7 +332,6 @@ class FinanceService:
         async with pool.acquire() as conn:
             target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             
-            # 🚨 ซ่อม SQL JOIN: ดึงข้อมูลส่วนตัวมาจาก users U
             sql = """
                 SELECT 
                     SP.id as payment_id, SP.status, SP.paid_amount, SP.paid_at, SP.slip_image_url,
@@ -539,7 +535,6 @@ class FinanceService:
         async with pool.acquire() as conn:
             target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
 
-            # 🚨 ซ่อม SQL JOIN: นำ users เข้ามาร่วมดึงข้อมูล
             student = await conn.fetchrow(
                 """SELECT S.id, U.first_name, U.nickname 
                    FROM students S
@@ -758,7 +753,6 @@ class FinanceService:
         async with pool.acquire() as conn:
             target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             
-            # 🚨 ซ่อม SQL JOIN: เชื่อมตาราง users เพื่อดึงข้อมูล U.first_name และ U.nickname 
             rows = await conn.fetch("""
                 SELECT S.id as student_id, S.student_no, U.first_name, U.nickname,
                        COUNT(SP.id) as overdue_count,
