@@ -37,7 +37,7 @@ class RoomManagementService:
                 # ✨ แก้ไขการ Insert ให้มี first_name และ last_name
                 await conn.execute(
                     """INSERT INTO students (room_id, user_id, student_no, class_role, status, first_name, last_name) 
-                       VALUES ($1, $2, 0, 'teacher', 'active', $3, $4)""",
+                       VALUES ($1, $2, 0, 'president', 'active', $3, $4)""",
                     room_id, user_id, first_name, last_name
                 )
                 await log_action(conn, room_id, "System/WebUser", "Create Room", f"สร้างห้อง {room_name} รหัส {code}")
