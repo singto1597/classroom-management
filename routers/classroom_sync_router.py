@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Literal
 
 from models.classroom_sync_schemas import (
-    TargetResolution, SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
+    SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
     DefaultScheduleRequest, OverrideScheduleRequest,
     TaskCreateRequest, TaskEditRequest, TaskResponse, TaskActionResponse,
     DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse
