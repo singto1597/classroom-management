@@ -128,9 +128,10 @@ class StudentResponse(BaseModel):
 
 
 class UserRoomResponse(BaseModel):
-    room_id: int # 🚨 เพิ่มสำหรับการทำงาน Web-Centric
-    server_id: Optional[int] = None # 🚨 ปรับเป็น Optional ให้สอดคล้องกับ DB
+    room_id: int 
+    server_id: Optional[int] = None 
     server_id_str: Optional[str] = None
+    room_code: Optional[str] = None 
     room_name: str
     role: str
 
