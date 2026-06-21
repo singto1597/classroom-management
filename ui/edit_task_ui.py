@@ -3,7 +3,6 @@ import datetime
 from services.api_client import api_client, APIException
 
 class EditTaskModal(discord.ui.Modal, title='✏️ แก้ไขรายละเอียดงาน'):
-    # 🚨 ไม่ต้องรับ db แล้ว รับแค่ข้อมูลเก่ามาโชว์ในช่อง
     def __init__(self, task_id: int, old_name: str, old_detail: str, old_date: str):
         super().__init__()
         self.task_id = task_id
@@ -46,7 +45,8 @@ class EditTaskModal(discord.ui.Modal, title='✏️ แก้ไขรายล�
 
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            await api_client.request("PUT", f"/{interaction.guild_id}/tasks/{self.task_id}", json=payload, headers=headers)
+            # 🚨 แทรก target_type="server"
+            await api_client.request("PUT", f"/{interaction.guild_id}/tasks/{self.task_id}", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.response.send_message(
                 f"✅ **อัปเดตงานสำเร็จ!**\n📌 ชื่องาน: {self.task_name.value}\nℹ️ รายละเอียด: {detail_val}\n⏳ ส่งวันที่: {self.due_date.value}"
             )

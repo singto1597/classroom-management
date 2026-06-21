@@ -49,7 +49,8 @@ class AddTaskModal(discord.ui.Modal, title='📝 เพิ่มงาน/กา
 
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            await api_client.request("POST", f"/{self.server_id}/tasks", json=payload, headers=headers)
+            # 🚨 แทรก target_type="server"
+            await api_client.request("POST", f"/{self.server_id}/tasks", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.response.send_message(
                 f"📝 **เพิ่มงานใหม่:** {self.task_name.value}\n"
                 f"ℹ️ **รายละเอียด:** {detail_val}\n"
