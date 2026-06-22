@@ -224,8 +224,8 @@ async def delete_daily_note(
 async def get_daily_summary(
     target_date: date, 
     room_id: int = Depends(resolve_target_to_room_id),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
+    pool: asyncpg.Pool = Depends(get_db_pool)
+    # user_ctx: dict = Depends(get_current_user)
 ):
     return await ClassroomService.get_daily_summary(pool, target_date, room_id=room_id)
 
