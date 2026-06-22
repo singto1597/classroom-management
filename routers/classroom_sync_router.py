@@ -9,7 +9,8 @@ from models.classroom_sync_schemas import (
     TaskCreateRequest, TaskEditRequest, TaskResponse, TaskActionResponse,
     DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse
 )
-from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id
+# 🚨 เพิ่มการ Import verify_api_key เข้ามา
+from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id, verify_api_key
 from core.exceptions import TaskNotFoundError, ForbiddenError
 from services.classroom_sync_service import ClassroomService
 
@@ -20,16 +21,16 @@ async def setup_room(
     req: RoomSetupRequest, 
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user),
-    # Setup เป็นกรณีพิเศษที่อาจจะยังไม่มีห้อง เลยต้องส่ง server_id เพื่อผูกห้องใหม่
 ):
     await ClassroomService.setup_room(pool, req.room_name, req.user_name, server_id=req.server_id)
     return SuccessResponse(message=f"Setup room {req.room_name} completed.")
 
+# 🌟 ฟังก์ชันแจ้งเตือนบอทอัตโนมัติ (แก้ไขระบบสิทธิ์ให้บอทเข้าถึงได้โดยไม่ต้องยืนยันตัวตนมนุษย์)
 @router.get("/notifications/targets", response_model=List[RoomNotifyResponse])
 async def get_rooms_to_notify(
     current_time: str = Query(...), 
     pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
+    api_key: str = Depends(verify_api_key) # 🚨 เปลี่ยนมาใช้ตรวจสอบแค่ API Key แทน!
 ):
     return await ClassroomService.get_rooms_to_notify(pool, current_time)
 
