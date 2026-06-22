@@ -3,8 +3,7 @@ from services import auth_service
 from core.dependencies import get_current_user, get_db_pool
 import asyncpg
 
-from models.auth_schemas import ProviderLoginRequest, TokenResponse, OAuthProfilePayload
-
+from models.auth_schemas import ProviderLoginRequest, TokenResponse, OAuthProfilePayload, UserProfileUpdate
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 @router.post("/discord/login", response_model=TokenResponse)
@@ -80,3 +79,22 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
         user = await conn.fetchrow("SELECT id, email, first_name, last_name, username, discord_id, google_id FROM users WHERE id = $1", user_id)
         if not user: raise HTTPException(status_code=404, detail="User not found in database.")
         return dict(user)
+
+@router.patch("/me", summary="อัปเดตข้อมูลโปรไฟล์ส่วนตัว (Onboarding)")
+async def update_my_profile(
+    payload: UserProfileUpdate,
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db_pool)
+):
+    try:
+        user_id = current_user.get("user_id")
+        if not user_id: 
+            raise HTTPException(status_code=401, detail="User mapping not found.")
+        
+        # แปลง user_id เป็น int ก่อนส่งเข้า DB เพราะใน token คุณเก็บเป็น str (กัน JS ปัดเศษ)
+        return await auth_service.update_user_profile(pool, int(user_id), payload)
+        
+    except HTTPException as he:
+        raise he # โยน HTTP Exception เดิมออกไป
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

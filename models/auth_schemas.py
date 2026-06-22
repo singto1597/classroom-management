@@ -1,6 +1,8 @@
 from pydantic import BaseModel
 from typing import Optional
 from pydantic import EmailStr
+from pydantic import Field
+
 
 class ProviderLoginRequest(BaseModel):
     code: Optional[str] = None  # สำหรับ Discord
@@ -25,3 +27,8 @@ class OAuthProfilePayload(BaseModel):
 class UserLoginResult(BaseModel):
     user_id: int
     discord_id: Optional[int] = None
+
+class UserProfileUpdate(BaseModel):
+    prefix: str = Field(..., description="คำนำหน้า")
+    first_name: str = Field(..., description="ชื่อจริง")
+    last_name: str = Field(..., description="นามสกุล")

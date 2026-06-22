@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from core.config import settings
 import asyncpg
 from typing import Optional
-from models.auth_schemas import OAuthProfilePayload, UserLoginResult
+from models.auth_schemas import OAuthProfilePayload, UserLoginResult, UserProfileUpdate
 
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_USER_URL = "https://discord.com/api/users/@me"
@@ -170,3 +170,18 @@ def create_access_token(data: dict) -> str:
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
+
+async def update_user_profile(pool: asyncpg.Pool, user_id: int, profile_data: UserProfileUpdate) -> dict:
+    async with pool.acquire() as conn:
+        # ใช้ execute เพื่อรันคำสั่ง UPDATE (คืนค่าเป็น string เช่น 'UPDATE 1')
+        result = await conn.execute("""
+            UPDATE users
+            SET prefix = $1, first_name = $2, last_name = $3, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $4
+        """, profile_data.prefix, profile_data.first_name, profile_data.last_name, user_id)
+        
+        # เช็คกรณีที่หา user ไม่เจอ (เผื่อไว้)
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="User not found")
+            
+    return {"status": "success", "message": "อัปเดตโปรไฟล์สำเร็จ"}
