@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date, datetime
-from typing import Optional, List, Literal
+from typing import Optional, List
 from enum import Enum
 
 class DayOfWeek(str, Enum):
@@ -16,14 +16,25 @@ class TaskStatus(str, Enum):
     PENDING = "pending"
     DONE = "done"
 
+# --- Common Schemas ---
 class SuccessResponse(BaseModel):
     status: str = "success"
     message: Optional[str] = None
 
+class ActionWithUserRequest(BaseModel):
+    user_name: str
+
+# --- Room & Settings Schemas ---
 class RoomSetupRequest(BaseModel):
-    server_id: int
+    server_id: Optional[int] = None  # รองรับการสร้างห้องผ่าน Web ที่อาจจะยังไม่มี server_id
     room_name: str = Field(..., max_length=100)
     user_name: str 
+
+class RoomDataResponse(BaseModel):
+    server_id: Optional[int] = None
+    room_name: str
+    announcement_channel_id: Optional[int] = None
+    notify_time: Optional[str] = None
 
 class ChannelSetRequest(BaseModel):
     channel_id: int
@@ -37,6 +48,7 @@ class RoomNotifyResponse(BaseModel):
     server_id: int
     announcement_channel_id: int
 
+# --- Schedule Schemas ---
 class DefaultScheduleRequest(BaseModel):
     day_of_week: DayOfWeek
     attire: str = Field(..., max_length=100)
@@ -49,6 +61,7 @@ class OverrideScheduleRequest(BaseModel):
     note: str = Field(..., max_length=255)
     user_name: str
 
+# --- Task Schemas ---
 class TaskCreateRequest(BaseModel):
     task_name: str = Field(..., max_length=200)
     task_detail: Optional[str] = Field(None, max_length=1000)
@@ -59,9 +72,6 @@ class TaskEditRequest(BaseModel):
     task_name: str = Field(..., max_length=200)
     task_detail: Optional[str] = Field(None, max_length=1000)
     due_date: date
-    user_name: str
-
-class ActionWithUserRequest(BaseModel):
     user_name: str
 
 class TaskResponse(BaseModel):
@@ -77,6 +87,7 @@ class TaskActionResponse(BaseModel):
     status: str = "success"
     task_name: str
 
+# --- Note & Summary Schemas ---
 class DailyNoteRequest(BaseModel):
     target_date: date
     bring_items: str = Field(..., max_length=255)
@@ -100,9 +111,3 @@ class DailySummaryResponse(BaseModel):
     bring: str
     note: str
     tasks_due: List[TaskDueInfo]
-
-class RoomDataResponse(BaseModel):
-    server_id: int
-    room_name: str
-    announcement_channel_id: Optional[int] = None
-    notify_time: Optional[str] = None
