@@ -5,8 +5,8 @@ from pydantic import BaseModel
 
 from models.student_schemas import (
     SuccessResponse, StudentAddRequest, StudentBulkAddRequest, StudentUpdateRequest, 
-    ChangeStatusRequest, StudentResponse,
-    StudentExportRequest, StudentStatusUpdate, UserRoomResponse, StudentDeleteRequest, StudentSummaryResponse
+    StudentResponse, StudentExportRequest, StudentStatusUpdate, 
+    UserRoomResponse, StudentDeleteRequest, StudentSummaryResponse
 )
 from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
@@ -48,8 +48,6 @@ async def bulk_add_students(req: StudentBulkAddRequest, target: TargetResolution
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-# ❌ ลบ @router.post("/{target_id}/students/sync") ออกจากไฟล์นี้แล้ว ❌
 
 @router.get("/{user_id}/rooms", response_model=List[UserRoomResponse])
 async def get_user_rooms(user_id: int, pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
