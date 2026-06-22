@@ -73,8 +73,9 @@ async def sync_discord(
     user_ctx: dict = Depends(get_current_user)
 ):
     try:
+        # ส่ง current_user_id ไปให้เพื่อใช้ในการ Merge
         await StudentService.sync_discord(
-            pool, req.student_no, req.discord_id, req.user_name,
+            pool, req.student_no, req.discord_id, req.user_name, user_ctx["user_id"],
             server_id=target.server_id, room_id=target.room_id
         )
         return SuccessResponse(message="Discord synced successfully.")
@@ -83,14 +84,12 @@ async def sync_discord(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# 🚨 แก้ชื่อ path parameter และตัวแปรรับค่าให้เป็น user_id
 @router.get("/{user_id}/rooms", response_model=List[UserRoomResponse])
 async def get_user_rooms(
     user_id: int, 
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    # 🔒 Security: กันไม่ให้ยูสเซอร์คนอื่น แอบพิมพ์ URL ดึงข้อมูลห้องของเพื่อน
     if user_id != user_ctx["user_id"]:
         raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์ดูข้อมูลห้องของผู้อื่น")
 
@@ -190,7 +189,7 @@ async def get_my_profile(
     pool: asyncpg.Pool = Depends(get_db_pool)
 ):
     try:
-        # 🚨 เปลี่ยนมาใช้ user_id ในการค้นหาโปรไฟล์ตัวเอง
+        # 🌟 เรียกดูข้อมูลตัวเองผ่าน user_id แทน
         data = await StudentService.get_student_by_user_id(
             pool, user_ctx["user_id"],
             server_id=target.server_id, room_id=target.room_id

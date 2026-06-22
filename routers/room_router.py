@@ -38,12 +38,15 @@ async def join_room(
     if not user_id:
         raise HTTPException(status_code=401, detail="User account required to join a room")
 
-    result = await RoomManagementService.join_room(pool, req, user_id)
-    return JoinRoomResponse(
-        room_id=result["room_id"],
-        student_id=result["student_id"],
-        message=f"ส่งคำขอเข้าสู่ห้อง {result['room_name']} แล้ว กรุณารอครูผู้สอนอนุมัติ"
-    )
+    try:
+        result = await RoomManagementService.join_room(pool, req, user_id)
+        return JoinRoomResponse(
+            room_id=result["room_id"],
+            student_id=result.get("student_id", 0),
+            message=result.get("message", "ส่งคำขอเข้าสู่ห้องแล้ว กรุณารอครูผู้สอนอนุมัติ")
+        )
+    except HTTPException as e:
+        raise e
 
 @router.get("/{room_id}/requests", summary="ดึงรายชื่อนักเรียนที่รออนุมัติ")
 async def get_pending_requests(

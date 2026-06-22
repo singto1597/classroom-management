@@ -14,7 +14,6 @@ from models.student_schemas import StudentUpdateRequest
 
 STUDENT_PATCHABLE_COLUMNS: FrozenSet[str] = frozenset(StudentUpdateRequest.model_fields.keys())
 
-# 🚨 แบ่งเขตข้อมูลชัดเจน
 GLOBAL_FIELDS: FrozenSet[str] = frozenset([
     'prefix', 'first_name', 'last_name', 'nickname', 'birthday',
     'blood_group', 'shirt_size', 'food_allergy', 'congenital_disease',
@@ -44,7 +43,6 @@ class StudentService:
             return r_id
         raise ValueError("ต้องระบุ server_id หรือ room_id")
 
-    # 🚨 ศูนย์รวมข้อมูล: เชื่อม students เข้ากับ users เสมอ!
     BASE_STUDENT_SELECT = """
         SELECT 
             s.id, s.room_id, u.id as user_id, u.discord_id, s.student_no, s.student_id,
@@ -82,7 +80,6 @@ class StudentService:
             async with conn.transaction():
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 
-                # ไปจัดการที่ Users ก่อน!
                 user_id = await conn.fetchval(
                     "SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL", 
                     first_name, last_name
@@ -93,8 +90,6 @@ class StudentService:
                         first_name, last_name
                     )
 
-                # 🚨 ใช้ WHERE NOT EXISTS แทน ON CONFLICT
-                # 🚨 และตั้งสถานะเป็น 'active' เลย เพราะแอดมินเพิ่มเอง ไม่ต้องรออนุมัติ
                 res = await conn.execute(
                     """INSERT INTO students (room_id, student_no, user_id, status) 
                        SELECT $1, $2, $3, 'active'
@@ -104,7 +99,6 @@ class StudentService:
                     target_room_id, student_no, user_id
                 )
                 
-                # เช็คว่าเพิ่มสำเร็จมั้ย (ถ้าเป็น 0 แปลว่ามีเลขที่นี้ในห้องอยู่แล้ว)
                 if res == "INSERT 0 1":
                     await log_action(conn, target_room_id, user_name, "Add Student", f"เพิ่มเลขที่ {student_no}")
                 else:
@@ -151,7 +145,6 @@ class StudentService:
                     for s in students
                 ]
                 
-                # 🚨 แก้ไขการ Insert ให้ใช้ WHERE NOT EXISTS และกำหนด status เป็น active
                 await conn.executemany(
                     """
                     INSERT INTO students (room_id, student_no, user_id, status) 
@@ -165,23 +158,43 @@ class StudentService:
                 await log_action(conn, target_room_id, user_name, "Bulk Add", f"เพิ่มนักเรียน {len(students)} คน")
     
     @classmethod
-    async def sync_discord(cls, pool: asyncpg.Pool, student_no: int, discord_id: int, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+    async def sync_discord(cls, pool: asyncpg.Pool, student_no: int, discord_id: int, user_name: str, current_user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
         async with pool.acquire() as conn:
             async with conn.transaction():
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 
-                user_id = await conn.fetchval(
-                    "SELECT user_id FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL",
-                    target_room_id, student_no
-                )
-                if not user_id: raise StudentNotFoundError("ไม่พบเลขที่นี้ในระบบ")
+                # 🌟 ระบบ MERGE ACCOUNT! 🌟
                 
-                try:
-                    await conn.execute("UPDATE users SET discord_id = $1 WHERE id = $2", discord_id, user_id)
-                except asyncpg.exceptions.UniqueViolationError:
-                    raise ValidationError("บัญชี Discord นี้ถูกผูกกับนักเรียนคนอื่นในระบบไปแล้วครับ")
+                # ตรวจสอบว่ามีคนอื่นใช้ discord_id นี้อยู่หรือไม่
+                old_user = await conn.fetchrow("SELECT id, first_name, last_name, phone_number, birthday FROM users WHERE discord_id = $1", discord_id)
                 
-                await log_action(conn, target_room_id, user_name, "Sync Discord", f"ผูกดิสคอร์ดเข้ากับเลขที่ {student_no}")
+                if old_user:
+                    old_user_id = old_user['id']
+                    if old_user_id != current_user_id:
+                        # 🚀 ย้ายสิทธิ์นักเรียนในห้องต่างๆ มาให้ current_user_id
+                        try:
+                            await conn.execute("UPDATE students SET user_id = $1 WHERE user_id = $2", current_user_id, old_user_id)
+                        except asyncpg.exceptions.UniqueViolationError:
+                            # ถ้าบัญชีเก่ากับใหม่ดันอยู่ห้องเดียวกัน ให้ลบบัญชีเก่าออกจากห้องซะ
+                            await conn.execute("DELETE FROM students WHERE user_id = $1", old_user_id)
+                            
+                        # ปลดล็อก discord ออกจากคนเก่า และโอนข้อมูลให้คนใหม่
+                        await conn.execute("UPDATE users SET discord_id = NULL WHERE id = $1", old_user_id)
+                        await conn.execute("""
+                            UPDATE users SET 
+                                discord_id = $1,
+                                phone_number = COALESCE(phone_number, $3),
+                                birthday = COALESCE(birthday, $4)
+                            WHERE id = $2
+                        """, discord_id, current_user_id, old_user.get('phone_number'), old_user.get('birthday'))
+                        
+                        # สังหารคนเก่า
+                        await conn.execute("DELETE FROM users WHERE id = $1", old_user_id)
+                else:
+                    # ถ้าไม่มีใครใช้ ก็อัปเดตปกติ
+                    await conn.execute("UPDATE users SET discord_id = $1 WHERE id = $2", discord_id, current_user_id)
+                
+                await log_action(conn, target_room_id, user_name, "Sync & Merge Discord", f"ผูกดิสคอร์ดเข้ากับเลขที่ {student_no} และทำการผสานบัญชี")
 
     @classmethod
     async def update_student(cls, pool: asyncpg.Pool, student_no: int, update_data: dict, updater_user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None):
@@ -208,7 +221,6 @@ class StudentService:
                 if target_user_id != updater_user_id:
                     await require_permission(conn, target_room_id, updater_user_id, "MANAGE_STUDENTS")
 
-                # อัปเดตข้อมูลกลาง
                 if global_updates and target_user_id:
                     keys = sorted(global_updates.keys())
                     set_clauses = [f"{key} = ${i+2}" for i, key in enumerate(keys)]
@@ -218,7 +230,6 @@ class StudentService:
                         *values
                     )
 
-                # อัปเดตข้อมูลประจำห้อง
                 if local_updates:
                     keys = sorted(local_updates.keys())
                     set_clauses = [f"{key} = ${i+3}" for i, key in enumerate(keys)]
@@ -238,14 +249,13 @@ class StudentService:
 
     @classmethod
     async def get_student_by_user_id(cls, pool: asyncpg.Pool, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
-        """สำหรับดึงโปรไฟล์ของตัวเอง (รองรับทั้ง Web และ Bot ผ่าน user_id)"""
         async with pool.acquire() as conn:
             target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             row = await conn.fetchrow(
                 f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND u.id = $2 AND s.deleted_at IS NULL", 
                 target_room_id, user_id
             )
-            if not row: raise StudentNotFoundError("คุณยังไม่มีรายชื่อนักเรียนในห้องนี้ (อาจเป็น Admin)")
+            if not row: raise StudentNotFoundError("คุณยังไม่มีรายชื่อนักเรียนในห้องนี้ (อาจเป็น Admin หรือยังไม่ได้รับการอนุมัติ)")
             
             data = dict(row)
             data['data_completion'] = cls._calculate_completion(data)
@@ -386,7 +396,7 @@ class StudentService:
             return target_data
 
     @classmethod
-    async def get_user_rooms(cls, pool, user_id: int): # 🚨 เปลี่ยนชื่อ parameter เป็น user_id
+    async def get_user_rooms(cls, pool, user_id: int):
         async with pool.acquire() as conn:
             query = """
                 SELECT 
@@ -398,8 +408,7 @@ class StudentService:
                     s.status
                 FROM students s
                 JOIN rooms r ON s.room_id = r.id
-                -- 🚨 ลบ JOIN users u ON s.user_id = u.id ออกไปได้เลย ไม่จำเป็นต้องใช้แล้ว
-                WHERE s.user_id = $1  -- 🚨 แก้ตรงนี้สำคัญมาก! ให้หาจาก s.user_id
+                WHERE s.user_id = $1  
                 AND s.deleted_at IS NULL
                 AND r.deleted_at IS NULL
             """

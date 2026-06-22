@@ -9,7 +9,6 @@ class RoomManagementService:
     
     @staticmethod
     def _generate_room_code(length: int = 6) -> str:
-        """สุ่มรหัสเข้าห้อง A-Z, 0-9"""
         chars = string.ascii_uppercase + string.digits
         return ''.join(random.choice(chars) for _ in range(length))
 
@@ -17,7 +16,6 @@ class RoomManagementService:
     async def create_room(cls, pool: asyncpg.Pool, room_name: str, user_id: int, first_name: str = "", last_name: str = "") -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                # 🚨 1. อัปเดตข้อมูลชื่อลงตาราง 'users' ตรงกลาง
                 if first_name or last_name:
                     await conn.execute("""
                         UPDATE users 
@@ -30,7 +28,6 @@ class RoomManagementService:
                     if not user_record or not user_record['first_name']:
                         await conn.execute("UPDATE users SET first_name = 'Teacher' WHERE id = $1", user_id)
 
-                # 2. สร้างห้อง
                 while True:
                     code = cls._generate_room_code()
                     if not await conn.fetchval("SELECT 1 FROM rooms WHERE room_code = $1", code):
@@ -41,7 +38,6 @@ class RoomManagementService:
                     room_name, code
                 )
 
-                # 🚨 3. Insert เข้า students โดยไม่มีคอลัมน์ชื่อแล้ว! (เพราะชื่ออยู่ตาราง users)
                 await conn.execute(
                     """INSERT INTO students (room_id, user_id, student_no, class_role, status) 
                        VALUES ($1, $2, 0, 'president', 'active')""",
@@ -62,10 +58,6 @@ class RoomManagementService:
                 if await conn.fetchval("SELECT id FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL", room_id, user_id):
                     raise HTTPException(status_code=400, detail="คุณอยู่ในห้องเรียนนี้อยู่แล้ว หรือกำลังรอการอนุมัติ")
 
-                if await conn.fetchval("SELECT id FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", room_id, payload.student_no):
-                    raise HTTPException(status_code=400, detail=f"เลขที่ {payload.student_no} มีคนใช้งานแล้ว หรือกำลังรออนุมัติ")
-
-                # 🚨 อัปเดตตาราง 'users' หากมีการส่งชื่อมาใหม่
                 await conn.execute("""
                     UPDATE users 
                     SET first_name = COALESCE(NULLIF($1, ''), first_name), 
@@ -73,20 +65,68 @@ class RoomManagementService:
                     WHERE id = $3
                 """, payload.first_name, payload.last_name, user_id)
 
-                # 🚨 Insert เข้า students แบบไร้คอลัมน์ชื่อ
+                # 🌟 เช็คว่าเลขที่ที่จะเข้า มีคนอยู่หรือยัง
+                existing_student = await conn.fetchrow(
+                    "SELECT id, user_id, status FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", 
+                    room_id, payload.student_no
+                )
+
+                if existing_student:
+                    ghost_user_id = existing_student['user_id']
+                    
+                    # 🌟 ตรวจประวัติบัญชีว่าใช่ตัวผีไหม?
+                    ghost_user = await conn.fetchrow(
+                        "SELECT first_name, last_name, email, google_id, discord_id, phone_number, birthday FROM users WHERE id = $1", 
+                        ghost_user_id
+                    )
+
+                    is_ghost = not ghost_user['google_id'] and not ghost_user['discord_id'] and not ghost_user['email']
+
+                    if is_ghost:
+                        # 🔮 เทียบชื่อแบบลบช่องว่างและตัวพิมพ์เล็กทั้งหมด
+                        real_full_name = f"{payload.first_name}{payload.last_name}".replace(" ", "").lower()
+                        ghost_full_name = f"{ghost_user['first_name']}{ghost_user['last_name']}".replace(" ", "").lower()
+
+                        if real_full_name == ghost_full_name:
+                            # 🚀 MERGE ACTION: สวมรอยและรวมร่าง
+                            await conn.execute(
+                                "UPDATE students SET user_id = $1, status = 'active' WHERE id = $2", 
+                                user_id, existing_student['id']
+                            )
+
+                            # ดูดข้อมูลจากตัวผีมาใส่ตัวจริง (ถ้ายืนยันตัวตนผ่าน)
+                            await conn.execute("""
+                                UPDATE users SET 
+                                    phone_number = COALESCE(phone_number, $2),
+                                    birthday = COALESCE(birthday, $3)
+                                WHERE id = $1
+                            """, user_id, ghost_user.get('phone_number'), ghost_user.get('birthday'))
+
+                            # ลบผีทิ้ง
+                            await conn.execute("DELETE FROM users WHERE id = $1", ghost_user_id)
+                            
+                            actor = await conn.fetchval("SELECT first_name FROM users WHERE id = $1", user_id)
+                            await log_action(conn, room_id, actor or f"User:{user_id}", "Claim Account", f"ยืนยันตัวตนผูกบัญชีเข้ากับเลขที่ {payload.student_no}")
+                            return {"room_id": room_id, "student_id": existing_student['id'], "room_name": room["room_name"], "message": "ผูกบัญชีเข้ากับรายชื่อในระบบสำเร็จ!"}
+                        else:
+                            # ชื่อไม่ตรง เตะออกเพื่อความปลอดภัย
+                            raise HTTPException(status_code=400, detail=f"❌ ไม่สามารถสวมรอยได้! เลขที่ {payload.student_no} มีชื่อในระบบคือ '{ghost_user['first_name']} {ghost_user['last_name']}' โปรดแจ้งหัวหน้าห้องให้แก้ไขชื่อให้ตรงกันครับ")
+                    else:
+                        raise HTTPException(status_code=400, detail=f"❌ เลขที่ {payload.student_no} มีผู้ใช้งานตัวจริงผูกบัญชีไว้แล้ว")
+
+                # ถ้าเลขที่ว่าง ลงทะเบียนปกติ
                 student_id = await conn.fetchval(
                     """INSERT INTO students (room_id, user_id, student_no, class_role, status) 
                        VALUES ($1, $2, $3, 'student', 'pending') RETURNING id""",
                     room_id, user_id, payload.student_no
                 )
                 await log_action(conn, room_id, f"User:{user_id}", "Join Request", f"ส่งคำขอเข้าห้องเลขที่ {payload.student_no}")
-                return {"room_id": room_id, "student_id": student_id, "room_name": room["room_name"]}
+                return {"room_id": room_id, "student_id": student_id, "room_name": room["room_name"], "message": "ส่งคำขอเข้าร่วมห้องแล้ว รอการอนุมัติ"}
 
     @classmethod
     async def get_pending_requests(cls, pool: asyncpg.Pool, room_id: int, user_id: int) -> list:
         async with pool.acquire() as conn:
             await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
-            # 🚨 JOIN ตาราง users เพื่อเอา first_name, last_name มาแสดงผล
             rows = await conn.fetch(
                 """SELECT s.student_no, u.first_name, u.last_name, s.created_at
                    FROM students s
@@ -109,7 +149,6 @@ class RoomManagementService:
                 if res == "UPDATE 0":
                     raise HTTPException(status_code=404, detail="ไม่พบคำขอเข้าร่วม หรืออนุมัติไปแล้ว")
                 
-                # ดึงชื่อจริงคนอนุมัติมาเก็บลง Audit Log
                 actor = await conn.fetchval("SELECT first_name FROM users WHERE id = $1", user_id)
                 approver_name = actor or f"User:{user_id}"
                 await log_action(conn, room_id, approver_name, "Approve Join", f"อนุมัติคำขอเข้าร่วมของเลขที่ {student_no}")
