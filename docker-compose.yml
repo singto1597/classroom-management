@@ -8,6 +8,8 @@ services:
       - ./backend/.env
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"
     networks:
       - app-network
     healthcheck:
