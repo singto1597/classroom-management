@@ -52,7 +52,8 @@ class SetOverrideModal(discord.ui.Modal, title='🚨 ตั้งค่าข้
 
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            await api_client.request("POST", f"/{self.server_id}/schedule/override", json=payload, headers=headers)
+            # 🚨 แทรก target_type="server"
+            await api_client.request("POST", f"/{self.server_id}/schedule/override", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.response.send_message(
                 f"🚨 **ตั้งค่าข้อยกเว้นวันที่ {self.target_date.value}**\n👕 ใส่ชุด: {new_attire}\n📝 หมายเหตุ: {announcement}"
             )

@@ -11,7 +11,8 @@ class BotActionService:
     async def _get_announcement_channel(self, server_id: int):
         try:
             headers = {"X-Discord-Id": str(self.bot.user.id)}
-            room_data = await api_client.request("GET", f"/{server_id}", headers=headers)
+            # 🚨 แจ้ง Backend ว่าไอดีที่ส่งไปคือ server
+            room_data = await api_client.request("GET", f"/{server_id}", params={"target_type": "server"}, headers=headers)
             channel_id = room_data.get("announcement_channel_id")
             if channel_id: return self.bot.get_channel(int(channel_id))
         except Exception as e:
@@ -22,7 +23,6 @@ class BotActionService:
         channel = await self._get_announcement_channel(server_id)
         if not channel: return
 
-        # 🚨 ปรับคำให้ดูเป็นทางการและกระชับขึ้น
         embed = discord.Embed(
             title="📝 แจ้งเตือน: มีการบ้าน/ภาระงานใหม่", 
             description="มีการเพิ่มภาระงานใหม่ลงในระบบ กรุณาตรวจสอบรายละเอียดครับ",
@@ -30,7 +30,6 @@ class BotActionService:
         )
         embed.add_field(name="📌 ชื่องาน", value=data.get("task_name"), inline=False)
         
-        # 🚨 เช็คว่ามีรายละเอียดงานมั้ย ถ้ามีและไม่ใช่ค่าว่าง ก็ให้แสดงผล
         task_detail = data.get("task_detail")
         if task_detail and str(task_detail).strip() not in ["", "-"]:
             embed.add_field(name="📄 รายละเอียด", value=task_detail, inline=False)
@@ -65,7 +64,6 @@ class BotActionService:
         
         await channel.send(embed=embed)
 
-    # 🚨 ฟังก์ชันใหม่! รับข้อความ Custom จากเว็บ
     async def notify_custom_message(self, server_id: int, data: dict):
         channel = await self._get_announcement_channel(server_id)
         if not channel: return

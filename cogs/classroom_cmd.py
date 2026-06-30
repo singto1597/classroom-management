@@ -5,13 +5,11 @@ import datetime
 from datetime import timezone, timedelta
 import re
 
-# นำเข้า UI Modals (เดี๋ยวเราค่อยไปแก้ไฟล์พวกนี้ให้ยิง API ทีหลัง)
 from ui import edit_task_ui
 from ui import add_task_ui
 from ui import add_note_ui
 from ui import set_override_ui
 
-# 🚨 นำเข้าตัวยิง API จากโครงสร้างใหม่ที่เราจะสร้างกัน
 from services.api_client import api_client, APIException
 
 THAI_TZ = timezone(timedelta(hours=7))
@@ -20,7 +18,6 @@ THAI_TZ = timezone(timedelta(hours=7))
 class BotCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # 🚨 ลบ self.db ออกไปแล้ว เพราะเราใช้ api_client แบบ Global แทน
         self.daily_notification.start()
     
     def cog_unload(self):
@@ -36,15 +33,12 @@ class BotCommands(commands.Cog):
         days = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
         return days[date_obj.weekday()]
 
-    # ==========================================
-    # ระบบ Autocomplete 
-    # ==========================================
     async def task_autocomplete(self, interaction: discord.Interaction, current: str):
         server_id = interaction.guild_id
         try:
-            # 🚨 ยิง API ขอข้อมูล Tasks
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            tasks_data = await api_client.request("GET", f"/{server_id}/tasks", params={"status": "pending"}, headers=headers)
+            # 🚨 แทรก target_type="server"
+            tasks_data = await api_client.request("GET", f"/{server_id}/tasks", params={"status": "pending", "target_type": "server"}, headers=headers)
             
             choices = []
             for t in tasks_data:
@@ -62,11 +56,11 @@ class BotCommands(commands.Cog):
         server_id = interaction.guild_id
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            tasks_data = await api_client.request("GET", f"/{server_id}/tasks/deleted", headers=headers)
+            # 🚨 แทรก target_type="server"
+            tasks_data = await api_client.request("GET", f"/{server_id}/tasks/deleted", params={"target_type": "server"}, headers=headers)
             choices = []
             for t in tasks_data:
                 if current.lower() in t['task_name'].lower():
-                    # เอาวันที่ลบมาโชว์ด้วย จะได้จำได้
                     deleted_date = t['deleted_at'].split("T")[0] if t.get('deleted_at') else "ไม่ระบุ"
                     display_name = f"🗑️ {t['task_name']} (ลบเมื่อ {deleted_date})"
                     if len(display_name) > 100: display_name = display_name[:95] + "..."
@@ -75,18 +69,14 @@ class BotCommands(commands.Cog):
         except:
             return []
     
-    # ==========================================
-    # ระบบ Loop แจ้งเตือนอัตโนมัติ
-    # ==========================================
     @tasks.loop(minutes=1)
     async def daily_notification(self):
-        """ฟังก์ชันนี้จะรันเช็คตัวเองทุกๆ 1 นาที"""
         now = datetime.datetime.now(THAI_TZ)
         current_time_str = now.strftime("%H:%M")
 
         try:
-            # 🚨 ยิง API ขอรายชื่อห้องที่ต้องเตือน
             headers = {"X-Discord-Id": str(self.bot.user.id)}
+            # อันนี้ไม่มี target_id ไม่ต้องเติม target_type
             rooms_to_notify = await api_client.request("GET", "/notifications/targets", params={"current_time": current_time_str}, headers=headers)
             if not rooms_to_notify: 
                 return
@@ -99,8 +89,8 @@ class BotCommands(commands.Cog):
                 
                 channel = self.bot.get_channel(channel_id)
                 if channel:
-                    # 🚨 ยิง API ดึงข้อมูล Summary ของพรุ่งนี้
-                    data = await api_client.request("GET", f"/{server_id}/summary", params={"target_date": str(target_date)}, headers=headers)
+                    # 🚨 แทรก target_type="server"
+                    data = await api_client.request("GET", f"/{server_id}/summary", params={"target_date": str(target_date), "target_type": "server"}, headers=headers)
                     if data:
                         embed = self.build_summary_embed("🌙 แจ้งเตือนอัตโนมัติ: เตรียมตัวสำหรับวันพรุ่งนี้!", data)
                         await channel.send(content="📢 @everyone สรุปตารางเรียนและงานของวันพรุ่งนี้", embed=embed)
@@ -130,7 +120,6 @@ class BotCommands(commands.Cog):
             "`/mark_done` - ติ๊กส่งงาน (จะได้เลิกเตือน)\n"
             "`/delete_task` - ลบงานทิ้งไปเลย\n"
             "`/restore_task` - นำงานที่ลบกลับมา\n"
-            
             , inline=False)
 
         embed.add_field(name="📌 หมวดโน้ตและข้อยกเว้น", value=
@@ -155,18 +144,13 @@ class BotCommands(commands.Cog):
             "`/class_list` - ดูรายชื่อเพื่อน\n"
             "`/deactivate` - นำเพื่อนที่ ย้ายห้อง/ลาออก ออก\n"
             "`/activate` - นำเพื่อนที่กดผิดกลับเข้ามา\n\n"
-            
             "`/add_student` - เพิ่มเพื่อนเข้าห้อง\n"
             "`/bulk_add` - เพิ่มเพื่อนเข้าห้อง ทีละเยอะๆ\n"
             , inline=False)
         
-
         embed.set_footer(text="💡 ทริค: หลายคำสั่งมีเมนูให้กดเลือก ไม่ต้องพิมพ์เองทั้งหมดนะ")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # ==========================================
-    # คำสั่งให้แอดมินเปลี่ยนเวลาได้
-    # ==========================================
     @app_commands.command(name="set_time", description="ตั้งเวลาแจ้งเตือนรายวัน (ค่าเริ่มต้น 19:00)")
     @app_commands.describe(time_str="ระบุเวลาแบบ 24 ชั่วโมง เช่น 19:00, 20:30")
     async def set_time(self, interaction: discord.Interaction, time_str: str):
@@ -175,19 +159,18 @@ class BotCommands(commands.Cog):
             
         try:
             payload = {"notify_time": time_str, "user_name": interaction.user.name}
-            await api_client.request("PUT", f"/{interaction.guild_id}/time", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            await api_client.request("PUT", f"/{interaction.guild_id}/time", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"⏰ เปลี่ยนเวลาแจ้งเตือนอัตโนมัติเป็น **{time_str} น.** เรียบร้อยแล้ว!")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
-    # ==========================================
-    # หมวด 1: จัดการห้อง
-    # ==========================================
     @app_commands.command(name="setup_room", description="ตั้งค่าบอทและกำหนดชื่อห้องเรียน")
     async def setup_room(self, interaction: discord.Interaction, room_name: str):
         try:
             payload = {"server_id": interaction.guild_id, "room_name": room_name, "user_name": interaction.user.name}
-            await api_client.request("POST", "/setup", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            await api_client.request("POST", "/setup", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"✅ ลงทะเบียนห้อง **{room_name}** สำเร็จ!\n👉 กด `/set_channel` ด้วยนะ")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -196,14 +179,12 @@ class BotCommands(commands.Cog):
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         try:
             payload = {"channel_id": channel.id, "user_name": interaction.user.name}
-            await api_client.request("PUT", f"/{interaction.guild_id}/channel", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            await api_client.request("PUT", f"/{interaction.guild_id}/channel", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"📢 ตั้งค่าสำเร็จ! บอทจะแจ้งเตือนที่ห้อง {channel.mention}")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
-    # ==========================================
-    # หมวด 2: ตารางเรียนและข้อยกเว้น
-    # ==========================================
     @app_commands.command(name="set_schedule", description="ตั้งตารางเรียนยืนพื้น")
     @app_commands.choices(day=[app_commands.Choice(name=d, value=d) for d in ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์"]])
     async def set_schedule(self, interaction: discord.Interaction, day: app_commands.Choice[str], attire: str, subjects: str):
@@ -214,23 +195,19 @@ class BotCommands(commands.Cog):
                 "subjects": subjects, 
                 "user_name": interaction.user.name
             }
-            await api_client.request("POST", f"/{interaction.guild_id}/schedule/default", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            await api_client.request("POST", f"/{interaction.guild_id}/schedule/default", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"✅ บันทึกตารางวัน**{day.value}**\n👕 ชุด: {attire}\n📚 วิชา: {subjects}")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
     @app_commands.command(name="set_override", description="ตั้งค่าข้อยกเว้นฉุกเฉิน")
     async def set_override(self, interaction: discord.Interaction):
-        # 🚨 ตัด db ออก ส่งแค่ server_id
         modal = set_override_ui.SetOverrideModal(server_id=interaction.guild_id)
         await interaction.response.send_modal(modal)
 
-    # ==========================================
-    # หมวด 3: จัดการงาน 
-    # ==========================================
     @app_commands.command(name="add_task", description="เพิ่มงานใหม่")
     async def add_task(self, interaction: discord.Interaction):
-        # 🚨 ตัด db ออก ส่งแค่ server_id
         modal = add_task_ui.AddTaskModal(server_id=interaction.guild_id)
         await interaction.response.send_modal(modal)
 
@@ -239,7 +216,8 @@ class BotCommands(commands.Cog):
     async def mark_done(self, interaction: discord.Interaction, task_id: int):
         try:
             payload = {"user_name": interaction.user.name}
-            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/done", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/done", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"✅ ทำสัญลักษณ์ว่างาน **{res['task_name']}** เสร็จ เรียบร้อยแล้ว!")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -249,7 +227,8 @@ class BotCommands(commands.Cog):
     async def delete_task(self, interaction: discord.Interaction, task_id: int):
         try:
             payload = {"user_name": interaction.user.name}
-            res = await api_client.request("DELETE", f"/{interaction.guild_id}/tasks/{task_id}", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            res = await api_client.request("DELETE", f"/{interaction.guild_id}/tasks/{task_id}", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"🗑️ ลบงาน **{res['task_name']}** ทิ้งแล้ว")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -259,7 +238,8 @@ class BotCommands(commands.Cog):
     async def restore_task(self, interaction: discord.Interaction, task_id: int):
         try:
             payload = {"user_name": interaction.user.name}
-            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/restore", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/restore", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"♻️ กู้คืนงาน **{res['task_name']}** กลับมาที่หน้าหลักเรียบร้อยแล้ว!", ephemeral=False)
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -268,12 +248,12 @@ class BotCommands(commands.Cog):
     async def list_tasks(self, interaction: discord.Interaction):
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            tasks_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks", params={"status": "pending"}, headers=headers)
+            # 🚨 แทรก target_type="server"
+            tasks_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks", params={"status": "pending", "target_type": "server"}, headers=headers)
             if not tasks_data: return await interaction.response.send_message("🎉 ไม่มีงานเลยจ้าา")
 
             embed = discord.Embed(title="📋 รายการงานที่ยังไม่เสร็จ", color=discord.Color.blue())
             for task in tasks_data:
-                # API จะส่ง created_at มาเป็น ISO string (เช่น "2026-05-05T12:00:00")
                 created_str = task['created_at'].split("T")[0] if task.get('created_at') else "ไม่ระบุ"
                 embed.add_field(
                     name=f"📌 {task['task_name']}", 
@@ -289,8 +269,8 @@ class BotCommands(commands.Cog):
     async def edit_task(self, interaction: discord.Interaction, task_id: int):
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            task_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks/{task_id}", headers=headers)
-            # 🚨 ตัด db ออก
+            # 🚨 แทรก target_type="server"
+            task_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks/{task_id}", params={"target_type": "server"}, headers=headers)
             modal = edit_task_ui.EditTaskModal(
                 task_id=task_id, 
                 old_name=task_data['task_name'], 
@@ -301,12 +281,8 @@ class BotCommands(commands.Cog):
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
     
-    # ==========================================
-    # หมวด 4: โน้ตรายวัน
-    # ==========================================
     @app_commands.command(name="add_note", description="เพิ่มโน้ตรายวัน")
     async def add_note(self, interaction: discord.Interaction):
-        # 🚨 ตัด db ออก และแถมส่ง server_id เข้าไปให้ Modal ด้วย เพื่อให้มันยิง API ได้ถูกห้อง
         modal = add_note_ui.AddNoteModal(server_id=interaction.guild_id)
         await interaction.response.send_modal(modal)
         
@@ -317,14 +293,11 @@ class BotCommands(commands.Cog):
 
         try:
             payload = {"user_name": interaction.user.name}
-            deleted_data = await api_client.request("DELETE", f"/{interaction.guild_id}/notes/{target_date}", json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
+            # 🚨 แทรก target_type="server"
+            deleted_data = await api_client.request("DELETE", f"/{interaction.guild_id}/notes/{target_date}", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
             await interaction.response.send_message(f"🗑️ **ลบโน้ตวันที่ {target_date} แล้ว!**\nสิ่งที่ลบไป:\n🎒 {deleted_data['bring_items']}\n📢 {deleted_data['announcement']}")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
-
-    # ==========================================
-    # หมวด 5: เรียกดูข้อมูล
-    # ==========================================
 
 
     def build_summary_embed(self, title, data):
@@ -336,7 +309,6 @@ class BotCommands(commands.Cog):
         if data['note'] != "-": embed.add_field(name="📢 ประกาศ/หมายเหตุ", value=data['note'], inline=False)
             
         if data['tasks_due']:
-            # 🚨 ดึงข้อมูลจาก display_text ที่ Backend จัดเตรียม format สวยๆ มาให้แล้ว
             task_list = "\n".join([t['display_text'] for t in data['tasks_due']])
             if len(task_list) > 1024:
                 task_list = task_list[:1000] + "...\n*(และงานอื่นๆ อีกเพียบ ไปเคลียร์ด้วย!)*"
@@ -351,7 +323,8 @@ class BotCommands(commands.Cog):
         target = datetime.datetime.now(THAI_TZ).date()
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target)}, headers=headers)
+            # 🚨 แทรก target_type="server"
+            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target), "target_type": "server"}, headers=headers)
             await interaction.response.send_message(embed=self.build_summary_embed("☀️ สรุปตารางวันนี้", data))
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -361,7 +334,8 @@ class BotCommands(commands.Cog):
         target = datetime.datetime.now(THAI_TZ).date() + timedelta(days=1)
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target)}, headers=headers)
+            # 🚨 แทรก target_type="server"
+            data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target), "target_type": "server"}, headers=headers)
             await interaction.response.send_message(embed=self.build_summary_embed("🌙 เตรียมตัวสำหรับวันพรุ่งนี้", data))
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -370,19 +344,18 @@ class BotCommands(commands.Cog):
     async def view_logs(self, interaction: discord.Interaction):
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            logs = await api_client.request("GET", f"/{interaction.guild_id}/logs", headers=headers)
+            # 🚨 แทรก target_type="server"
+            logs = await api_client.request("GET", f"/{interaction.guild_id}/logs", params={"target_type": "server"}, headers=headers)
             if not logs:
                 return await interaction.response.send_message("📭 ยังไม่มีประวัติการทำรายการในระบบครับ", ephemeral=True)
             
             embed = discord.Embed(title="📜 ประวัติการทำรายการล่าสุด (Audit Logs)", color=discord.Color.dark_theme())
             text = ""
             for log in logs:
-                # จัด Format วันเวลาให้ดูง่ายขึ้น 
-                # (API มักจะส่งมาเป็น ISO Format เช่น 2026-05-08T14:30:00.123456)
                 dt_parts = log['created_at'].split("T")
                 if len(dt_parts) == 2:
-                    date_str = dt_parts[0][5:] # เอาแค่เดือนกับวัน (MM-DD)
-                    time_str = dt_parts[1][:5] # เอาแค่ชั่วโมงกับนาที (HH:MM)
+                    date_str = dt_parts[0][5:] 
+                    time_str = dt_parts[1][:5] 
                     display_time = f"{date_str} {time_str}"
                 else:
                     display_time = "Unknown"

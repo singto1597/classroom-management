@@ -25,7 +25,8 @@ class QuickAddModal(discord.ui.Modal, title='👤 เพิ่มนักเร
                 "last_name": self.last_name.value.strip(),
                 "user_name": interaction.user.name
             }
-            await api_client.request("POST", f"/{self.server_id}/students", json=payload, headers=headers)
+            # 🚨 แทรก target_type="server"
+            await api_client.request("POST", f"/{self.server_id}/students", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.response.send_message(f"✅ เพิ่มเลขที่ {self.student_no.value} สำเร็จ!", ephemeral=True)
         except ValueError:
             await interaction.response.send_message("❌ เลขที่ต้องเป็นตัวเลขเท่านั้น!", ephemeral=True)
@@ -60,14 +61,28 @@ class BulkAddModal(discord.ui.Modal, title='🚀 เพิ่มนักเร�
             
             payload = {"students": students, "user_name": interaction.user.name}
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            await api_client.request("POST", f"/{self.server_id}/students/bulk", json=payload, headers=headers)
+            # 🚨 แทรก target_type="server"
+            await api_client.request("POST", f"/{self.server_id}/students/bulk", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.response.send_message(f"✅ เพิ่มข้อมูลรวดเดียว {len(students)} คน สำเร็จ!", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message("❌ รูปแบบข้อมูลผิดพลาด เช็คลูกน้ำ (,) ให้ดีนะ", ephemeral=True)
 
 
-class EditBaseModal(discord.ui.Modal):
-    """คลาสแม่ เอาไว้เก็บลอจิกยิง API ตอนกด Save"""
+class EditUserBaseModal(discord.ui.Modal):
+    def __init__(self, title):
+        super().__init__(title=title)
+
+    async def save_data(self, interaction: discord.Interaction, payload: dict):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            headers = {"X-Discord-Id": str(interaction.user.id)}
+            # 🚨 ไม่ต้องแก้ตัวนี้ เพราะไม่ได้อ้างอิงถึง server_id/room_id (เป็นข้อมูลกลาง)
+            await api_client.request("PATCH", "/users/me", headers=headers, json=payload)
+            await interaction.followup.send("✅ อัปเดตข้อมูลส่วนตัวสำเร็จ! พิมพ์ `/my_profile` เพื่อดูข้อมูลล่าสุด", ephemeral=True)
+        except APIException as e:
+            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+
+class EditStudentBaseModal(discord.ui.Modal):
     def __init__(self, title, server_id, student_no):
         super().__init__(title=title)
         self.server_id = server_id
@@ -75,29 +90,27 @@ class EditBaseModal(discord.ui.Modal):
 
     async def save_data(self, interaction: discord.Interaction, payload: dict):
         await interaction.response.defer(ephemeral=True)
-        
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            await api_client.request("PATCH", f"/{self.server_id}/students/{self.student_no}", headers=headers, json=payload)
-            
-            await interaction.followup.send("✅ อัปเดตข้อมูลสำเร็จ! พิมพ์ `/my_profile` เพื่อดูข้อมูลล่าสุด", ephemeral=True)
+            # 🚨 แทรก target_type="server"
+            await api_client.request("PATCH", f"/{self.server_id}/students/{self.student_no}", params={"target_type": "server"}, headers=headers, json=payload)
+            await interaction.followup.send("✅ อัปเดตข้อมูลห้องเรียนสำเร็จ! พิมพ์ `/my_profile` เพื่อดูข้อมูลล่าสุด", ephemeral=True)
         except APIException as e:
             await interaction.followup.send(f"❌ {e}", ephemeral=True)
 
-class EditCoreModal(EditBaseModal):
-    def __init__(self, server_id, student_no, data):
-        super().__init__('🔵 ข้อมูลส่วนตัว', server_id, student_no)
-        self.student_id = discord.ui.TextInput(label='รหัสนักเรียน', default=data.get('student_id', ''), required=False)
-        self.prefix = discord.ui.TextInput(label='คำนำหน้า (นาย/นางสาว)', default=data.get('prefix', ''), required=False)
-        self.nickname = discord.ui.TextInput(label='ชื่อเล่น', default=data.get('nickname', ''), required=False)
-        self.birthday = discord.ui.TextInput(label='วันเกิด (YYYY-MM-DD)', default=data.get('birthday', ''), required=False)
-        self.email = discord.ui.TextInput(label='อีเมล', default=data.get('email', ''), required=False)
+
+class EditCoreModal(EditUserBaseModal):
+    def __init__(self, current_data):
+        super().__init__('🔵 ข้อมูลส่วนตัว (Global)')
+        self.prefix = discord.ui.TextInput(label='คำนำหน้า (นาย/นางสาว)', default=current_data.get('prefix', ''), required=False)
+        self.nickname = discord.ui.TextInput(label='ชื่อเล่น', default=current_data.get('nickname', ''), required=False)
+        self.birthday = discord.ui.TextInput(label='วันเกิด (YYYY-MM-DD)', default=current_data.get('birthday', ''), required=False)
+        self.email = discord.ui.TextInput(label='อีเมล', default=current_data.get('email', ''), required=False)
         
-        for item in [self.student_id, self.prefix, self.nickname, self.birthday, self.email]: self.add_item(item)
+        for item in [self.prefix, self.nickname, self.birthday, self.email]: self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         payload = {
-            "student_id": self.student_id.value or None,
             "prefix": self.prefix.value or None,
             "nickname": self.nickname.value or None,
             "birthday": self.birthday.value or None,
@@ -105,20 +118,20 @@ class EditCoreModal(EditBaseModal):
         }
         await self.save_data(interaction, payload)
 
-class EditAcademicModal(EditBaseModal):
+class EditAcademicModal(EditStudentBaseModal):
     def __init__(self, server_id, student_no, data):
-        super().__init__('🟡 ข้อมูลวิชาการและผลงาน', server_id, student_no)
-        
+        super().__init__('🟡 ข้อมูลวิชาการและห้องเรียน', server_id, student_no)
+        self.student_id = discord.ui.TextInput(label='รหัสนักเรียน', default=data.get('student_id', ''), required=False)
         self.duty = discord.ui.TextInput(label='หน้าที่เวรทำความสะอาด', default=data.get('cleaning_duty', ''), required=False)
         self.faculty = discord.ui.TextInput(label='คณะที่ใฝ่ฝัน', default=data.get('target_faculty', ''), required=False)
-        
         self.camp = discord.ui.TextInput(label='ค่าย สอวน. / ค่ายวิชาการ', style=discord.TextStyle.paragraph, default=data.get('olympic_camp', ''), required=False)
         self.portfolio = discord.ui.TextInput(label='ผลงาน / รางวัลที่เคยได้รับ', style=discord.TextStyle.paragraph, default=data.get('portfolio', ''), required=False)
         
-        for item in [self.duty, self.faculty, self.camp, self.portfolio]: self.add_item(item)
+        for item in [self.student_id, self.duty, self.faculty, self.camp, self.portfolio]: self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         payload = {
+            "student_id": self.student_id.value or None,
             "cleaning_duty": self.duty.value or None,
             "target_faculty": self.faculty.value or None,
             "olympic_camp": self.camp.value or None,
@@ -126,9 +139,9 @@ class EditAcademicModal(EditBaseModal):
         }
         await self.save_data(interaction, payload)
 
-class EditHealthModal(EditBaseModal):
-    def __init__(self, server_id, student_no, data):
-        super().__init__('🔴 สุขภาพและกายภาพ', server_id, student_no)
+class EditHealthModal(EditUserBaseModal):
+    def __init__(self, data):
+        super().__init__('🔴 สุขภาพและกายภาพ')
         self.blood = discord.ui.TextInput(label='กรุ๊ปเลือด (A, B, AB, O)', default=data.get('blood_group', ''), required=False)
         self.shirt = discord.ui.TextInput(label='ไซส์เสื้อ', default=data.get('shirt_size', ''), required=False)
         self.allergy = discord.ui.TextInput(label='แพ้อาหาร (ไม่มีให้ขีด -)', default=data.get('food_allergy', ''), required=False)
@@ -145,9 +158,9 @@ class EditHealthModal(EditBaseModal):
         }
         await self.save_data(interaction, payload)
 
-class EditContactModal(EditBaseModal):
-    def __init__(self, server_id, student_no, data):
-        super().__init__('🟣 ข้อมูลการติดต่อ', server_id, student_no)
+class EditContactModal(EditUserBaseModal):
+    def __init__(self, data):
+        super().__init__('🟣 ข้อมูลการติดต่อ')
         self.phone = discord.ui.TextInput(label='เบอร์โทรศัพท์มือถือ', default=data.get('phone_number', ''), required=False)
         self.p_phone = discord.ui.TextInput(label='เบอร์โทรผู้ปกครอง', default=data.get('phone_number_parent', ''), required=False)
         self.p_rel = discord.ui.TextInput(label='เกี่ยวข้องเป็น (พ่อ/แม่/ญาติ)', default=data.get('phone_number_parent_relation', ''), required=False)
@@ -166,9 +179,9 @@ class EditContactModal(EditBaseModal):
         }
         await self.save_data(interaction, payload)
 
-class EditAddress1Modal(EditBaseModal):
-    def __init__(self, server_id, student_no, data):
-        super().__init__('🟤 ข้อมูลที่อยู่ (ส่วนที่ 1)', server_id, student_no)
+class EditAddress1Modal(EditUserBaseModal):
+    def __init__(self, data):
+        super().__init__('🟤 ข้อมูลที่อยู่ (ส่วนที่ 1)')
         self.house_no = discord.ui.TextInput(label='บ้านเลขที่/หมู่/ซอย', default=data.get('address_house_no', ''), required=False)
         self.road = discord.ui.TextInput(label='ถนน', default=data.get('address_road', ''), required=False)
         
@@ -181,9 +194,9 @@ class EditAddress1Modal(EditBaseModal):
         }
         await self.save_data(interaction, payload)
 
-class EditAddress2Modal(EditBaseModal):
-    def __init__(self, server_id, student_no, data):
-        super().__init__('🟤 ข้อมูลที่อยู่ (ส่วนที่ 2)', server_id, student_no)
+class EditAddress2Modal(EditUserBaseModal):
+    def __init__(self, data):
+        super().__init__('🟤 ข้อมูลที่อยู่ (ส่วนที่ 2)')
         self.sub_dist = discord.ui.TextInput(label='ตำบล/แขวง', default=data.get('address_sub_district', ''), required=False)
         self.dist = discord.ui.TextInput(label='อำเภอ/เขต', default=data.get('address_district', ''), required=False)
         self.province = discord.ui.TextInput(label='จังหวัด', default=data.get('address_province', ''), required=False)
@@ -207,19 +220,15 @@ class RoleSelectMenu(discord.ui.Select):
 
         options = [
             discord.SelectOption(label='นักเรียนทั่วไป (Student)', value='student', emoji='🧑‍🎓'),
-
             discord.SelectOption(label='หัวหน้าห้อง (Class President)', value='president', emoji='👑'),
-
             discord.SelectOption(label='รองฯ ฝ่ายวิชาการ (Vice Academic)', value='vice_academic', emoji='📖'),
             discord.SelectOption(label='รองฯ ฝ่ายกิจกรรม (Vice Activity)', value='vice_activity', emoji='🎭'),
             discord.SelectOption(label='รองฯ ฝ่ายระเบียบวินัย (Vice Discipline)', value='vice_discipline', emoji='⚖️'),
             discord.SelectOption(label='รองฯ ฝ่ายปฏิคม (Vice Receptionist)', value='vice_reception', emoji='🤝'),
-
             discord.SelectOption(label='กรรมการฝ่ายวิชาการ (Academic Staff)', value='staff_academic', emoji='📝'),
             discord.SelectOption(label='กรรมการฝ่ายกิจกรรม (Activity Staff)', value='staff_activity', emoji='🎪'),
             discord.SelectOption(label='กรรมการฝ่ายระเบียบวินัย (Discipline Staff)', value='staff_discipline', emoji='🛡️'),
             discord.SelectOption(label='กรรมการฝ่ายปฏิคม (Reception Staff)', value='staff_reception', emoji='🎀'),
-            
             discord.SelectOption(label='เหรัญญิก (Treasurer)', value='treasurer', emoji='💰'),
         ]
         
@@ -234,7 +243,8 @@ class RoleSelectMenu(discord.ui.Select):
         payload = {"class_role": self.values[0]}
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            await api_client.request("PATCH", f"/{self.server_id}/students/{self.student_no}", headers=headers, json=payload)
+            # 🚨 แทรก target_type="server"
+            await api_client.request("PATCH", f"/{self.server_id}/students/{self.student_no}", params={"target_type": "server"}, headers=headers, json=payload)
             selected_label = next(opt.label for opt in self.options if opt.value == self.values[0])
             await interaction.followup.send(f"✅ อัปเดตบทบาทเป็น **{selected_label}** สำเร็จ!", ephemeral=True)
         except APIException as e:
@@ -245,7 +255,6 @@ class RoleSelectView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(RoleSelectMenu(server_id, student_no))
 
-
 class ProfileEditDropdown(discord.ui.Select):
     def __init__(self, server_id: int, student_no: int, current_data: dict):
         self.server_id = server_id
@@ -253,13 +262,12 @@ class ProfileEditDropdown(discord.ui.Select):
         self.current_data = current_data
         
         options = [
-            discord.SelectOption(label='🔵 แก้ไขข้อมูลส่วนตัว', description='รหัสนักเรียน, ชื่อเล่น, วันเกิด, อีเมล', value='core', emoji='🆔'),
-            discord.SelectOption(label='🟡 แก้ไขหน้าที่และผลงาน', description='เวร, คณะ, สอวน., ผลงานต่างๆ', value='academic', emoji='📚'),
+            discord.SelectOption(label='🔵 แก้ไขข้อมูลส่วนตัว', description='คำนำหน้า, ชื่อเล่น, วันเกิด, อีเมล', value='core', emoji='🆔'),
+            discord.SelectOption(label='🟡 แก้ไขหน้าที่และผลงาน', description='รหัสนักเรียน, เวร, คณะ, สอวน., ผลงาน', value='academic', emoji='📚'),
             discord.SelectOption(label='🔴 แก้ไขข้อมูลสุขภาพ', description='กรุ๊ปเลือด, ไซส์เสื้อ, โรคประจำตัว', value='health', emoji='🏥'),
             discord.SelectOption(label='🟣 แก้ไขช่องทางติดต่อ', description='เบอร์โทร, LINE, IG, ผู้ปกครอง', value='contact', emoji='📱'),
             discord.SelectOption(label='🟤 แก้ไขที่อยู่ (ส่วนที่ 1)', description='บ้านเลขที่, ถนน', value='address1', emoji='🏠'),
             discord.SelectOption(label='🟤 แก้ไขที่อยู่ (ส่วนที่ 2)', description='ตำบล, อำเภอ, จังหวัด, รหัสไปรษณีย์', value='address2', emoji='📮'),
-            
             discord.SelectOption(label='👑 เปลี่ยนบทบาทในห้อง', description='หัวหน้า, รองหัวหน้า, ฝ่ายต่างๆ', value='role', emoji='⚙️'),
         ]
         super().__init__(placeholder='คลิกเพื่อเลือกหมวดหมู่ที่ต้องการแก้ไข...', min_values=1, max_values=1, options=options)
@@ -267,17 +275,17 @@ class ProfileEditDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         selected = self.values[0]
         if selected == 'core':
-            await interaction.response.send_modal(EditCoreModal(self.server_id, self.student_no, self.current_data))
+            await interaction.response.send_modal(EditCoreModal(self.current_data))
         elif selected == 'academic':
             await interaction.response.send_modal(EditAcademicModal(self.server_id, self.student_no, self.current_data))
         elif selected == 'health':
-            await interaction.response.send_modal(EditHealthModal(self.server_id, self.student_no, self.current_data))
+            await interaction.response.send_modal(EditHealthModal(self.current_data))
         elif selected == 'contact':
-            await interaction.response.send_modal(EditContactModal(self.server_id, self.student_no, self.current_data))
+            await interaction.response.send_modal(EditContactModal(self.current_data))
         elif selected == 'address1':
-            await interaction.response.send_modal(EditAddress1Modal(self.server_id, self.student_no, self.current_data))
+            await interaction.response.send_modal(EditAddress1Modal(self.current_data))
         elif selected == 'address2':
-            await interaction.response.send_modal(EditAddress2Modal(self.server_id, self.student_no, self.current_data))
+            await interaction.response.send_modal(EditAddress2Modal(self.current_data))
         elif selected == 'role':
             from ui.student_ui import RoleSelectView 
             await interaction.response.send_message("👑 กรุณาเลือกบทบาทของคุณจากเมนูด้านล่าง:", view=RoleSelectView(self.server_id, self.student_no), ephemeral=True)
@@ -320,7 +328,8 @@ class ExportSelectMenu(discord.ui.Select):
         }
         
         try:
-            url = f"{API_BASE_URL}/{self.server_id}/export"
+            # 🚨 แทรก ?target_type=server ตรงเข้าไปใน URL เพราะอันนี้เราเรียก aiohttp.post โดยตรง
+            url = f"{API_BASE_URL}/{self.server_id}/export?target_type=server"
             headers = {
                 "X-API-Key": api_client.session._default_headers.get("X-API-Key"),
                 "X-Discord-Id": str(interaction.user.id)
