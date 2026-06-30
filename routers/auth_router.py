@@ -76,7 +76,7 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
     if not user_id: raise HTTPException(status_code=404, detail="User mapping not found.")
         
     async with pool.acquire() as conn:
-        user = await conn.fetchrow("SELECT id, email, first_name, last_name, username, discord_id, google_id FROM users WHERE id = $1", user_id)
+        user = await conn.fetchrow("SELECT id, prefix, email, first_name, last_name, username, discord_id, google_id FROM users WHERE id = $1", user_id)
         if not user: raise HTTPException(status_code=404, detail="User not found in database.")
         return dict(user)
 
