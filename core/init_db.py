@@ -31,7 +31,8 @@ async def init_db(pool: asyncpg.Pool):
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS rooms (
                     id SERIAL PRIMARY KEY,
-                    server_id BIGINT UNIQUE NOT NULL,
+                    server_id BIGINT UNIQUE,  -- 🚨 ปลด NOT NULL ออกเพื่อรองรับ Web-Centric
+                    room_code VARCHAR(10) UNIQUE, -- 🚨 เพิ่มรหัสเข้าห้องสำหรับเว็บ
                     room_name TEXT NOT NULL,
                     announcement_channel_id BIGINT,
                     notify_time VARCHAR(5) DEFAULT '19:00',
@@ -89,35 +90,18 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE TABLE IF NOT EXISTS students (
                     id SERIAL PRIMARY KEY,
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
-                    discord_id BIGINT,
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, -- 🚨 ลิงก์ไปยังตาราง users
                     student_no INTEGER NOT NULL,
-                    student_id VARCHAR(10),  -- 🚨 ลบ UNIQUE ออกจากตรงนี้แล้ว
-                    prefix TEXT, 
-                    first_name TEXT NOT NULL, 
-                    last_name TEXT NOT NULL,
-                    nickname TEXT,
-                    birthday DATE,
+                    student_id VARCHAR(10),
+                    
+                    -- ข้อมูลบริบทที่เกี่ยวกับ "ห้องเรียนนี้" เท่านั้น
                     class_role TEXT DEFAULT 'student', 
                     cleaning_duty TEXT, 
                     olympic_camp TEXT,
                     portfolio TEXT,
                     target_faculty TEXT,
-                    blood_group VARCHAR(3),
-                    shirt_size TEXT,
-                    food_allergy TEXT,
-                    congenital_disease TEXT, 
-                    phone_number TEXT,
-                    phone_number_parent TEXT,
-                    phone_number_parent_relation TEXT, 
-                    line_id TEXT,
-                    ig_username TEXT,
-                    email TEXT,
-                    address_house_no TEXT,
-                    address_road TEXT,
-                    address_sub_district TEXT,
-                    address_district TEXT,
-                    address_province TEXT,
-                    address_post_code VARCHAR(10), 
+                    
+                    -- Metadata
                     status TEXT DEFAULT 'active',
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -220,6 +204,7 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
                     discord_id BIGINT UNIQUE,
+                    google_id VARCHAR(255) UNIQUE, -- 🚨 รองรับ Google Login สำหรับเว็บ
                     
                     -- ระบบ Login (รองรับอนาคต)
                     username VARCHAR(100) UNIQUE,
@@ -241,7 +226,7 @@ async def init_db(pool: asyncpg.Pool):
 
                     -- ข้อมูลติดต่อ (ส่วนตัว)
                     phone_number TEXT,
-                    email TEXT,                   
+                    email TEXT UNIQUE,            -- 🚨 อัปเดตให้บังคับ UNIQUE       
                     line_id TEXT,
                     ig_username TEXT,
 
@@ -266,6 +251,7 @@ async def init_db(pool: asyncpg.Pool):
                 -- 2. เพิ่ม Foreign Key กลับไปที่ตาราง students เดิม
                 ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
             """)
+            
             # --- 4. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
             await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
@@ -281,14 +267,23 @@ async def init_db(pool: asyncpg.Pool):
             await conn.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             await conn.execute("ALTER TABLE daily_notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             
-            # 🚨 5. DROP กฎเกณฑ์เก่าที่งี่เง่าทิ้ง
+            # 🚨 5. Big Refactoring Alterations (Migration Update)
+            await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_code VARCHAR(10) UNIQUE;")
+            await conn.execute("ALTER TABLE rooms ALTER COLUMN server_id DROP NOT NULL;")
+            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;")
+            
+            # การเพิ่ม Constraint อย่างปลอดภัย (กัน Error กรณีมีคีย์นี้อยู่แล้ว)
+            await conn.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;")
+            await conn.execute("ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email);")
+
+            # 🚨 6. DROP กฎเกณฑ์เก่าที่งี่เง่าทิ้ง
             await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_student_id_key CASCADE;")
             await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_room_id_student_no_key CASCADE;")
             await conn.execute("ALTER TABLE student_payments DROP CONSTRAINT IF EXISTS student_payments_collection_id_student_id_key CASCADE;")
             # ดรอป Index เก่าที่ผมให้ไปเมื่อกี้ (เผื่อคุณเผลอรันไปแล้ว)
             await conn.execute("DROP INDEX IF EXISTS idx_students_student_id_active;")
 
-            # 🚨 6. สร้าง PARTIAL UNIQUE INDEX (ผูกกับ room_id ทั้งหมด)
+            # 🚨 7. สร้าง PARTIAL UNIQUE INDEX (ผูกกับ room_id ทั้งหมด)
             
             # - รหัส นร. ห้ามซ้ำ "ภายในห้องเดียวกัน" (ถ้ายังไม่ถูกลบ)
             await conn.execute("""
@@ -310,6 +305,33 @@ async def init_db(pool: asyncpg.Pool):
                 ON student_payments(collection_id, student_id) 
                 WHERE deleted_at IS NULL;
             """)
+
+            await conn.execute("""
+                ALTER TABLE students
+                    DROP COLUMN IF EXISTS discord_id,
+                    DROP COLUMN IF EXISTS prefix,
+                    DROP COLUMN IF EXISTS first_name,
+                    DROP COLUMN IF EXISTS last_name,
+                    DROP COLUMN IF EXISTS nickname,
+                    DROP COLUMN IF EXISTS birthday,
+                    DROP COLUMN IF EXISTS blood_group,
+                    DROP COLUMN IF EXISTS shirt_size,
+                    DROP COLUMN IF EXISTS food_allergy,
+                    DROP COLUMN IF EXISTS congenital_disease,
+                    DROP COLUMN IF EXISTS phone_number,
+                    DROP COLUMN IF EXISTS phone_number_parent,
+                    DROP COLUMN IF EXISTS phone_number_parent_relation,
+                    DROP COLUMN IF EXISTS line_id,
+                    DROP COLUMN IF EXISTS ig_username,
+                    DROP COLUMN IF EXISTS email,
+                    DROP COLUMN IF EXISTS address_house_no,
+                    DROP COLUMN IF EXISTS address_road,
+                    DROP COLUMN IF EXISTS address_sub_district,
+                    DROP COLUMN IF EXISTS address_district,
+                    DROP COLUMN IF EXISTS address_province,
+                    DROP COLUMN IF EXISTS address_post_code;
+            """)
+
 
             logger.info("✅ Database Tables & Smart Constraints Initialized Successfully!")
 

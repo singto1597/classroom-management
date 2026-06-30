@@ -101,7 +101,7 @@ if __name__ == "__main__":
             server_id=target_server_id,
             title=custom_title,
             message=custom_message,
-            user_name="Singto (Terminal)"
+            user_name="Terminal"
         )
         
         print("✅ ส่งคำสั่งเข้า Redis สำเร็จ! ลองเช็คใน Discord ดูเลย")

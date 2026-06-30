@@ -9,11 +9,10 @@ class SuccessResponse(BaseModel):
     message: Optional[str] = None
 
 # --- Schemas สำหรับรับข้อมูล (Requests) ---
-
 class AccountCreate(BaseModel):
     account_name: str = Field(..., max_length=100)
     initial_balance: float = Field(0.0, ge=0.0)
-    user_name: Optional[str] = Field(None, max_length=100)  # audit (จาก client ถ้ามี)
+    user_name: Optional[str] = Field(None, max_length=100)
 
 class TransactionCreate(BaseModel):
     account_id: int
@@ -44,7 +43,6 @@ class PaymentConfirm(BaseModel):
     user_name: str
 
 # --- Schemas สำหรับส่งออกข้อมูล (Responses) ---
-
 class AccountResponse(BaseModel):
     id: int
     account_name: str
@@ -140,7 +138,6 @@ class StudentDebtProfileResponse(BaseModel):
     student_name: str
     total_pending_amount: float
     debts: List[StudentDebtItem]
-
 
 class FeeCollectionResponse(BaseModel):
     id: int

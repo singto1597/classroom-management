@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
 from datetime import date
-from typing import List, Optional
+from typing import List
 
 from models.classroom_sync_schemas import (
     SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
@@ -9,8 +9,9 @@ from models.classroom_sync_schemas import (
     TaskCreateRequest, TaskEditRequest, TaskResponse, TaskActionResponse,
     DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse
 )
-from core.dependencies import get_db_pool, get_current_user
-from core.exceptions import RoomNotFoundError, TaskNotFoundError, ForbiddenError
+# 🚨 เพิ่มการ Import verify_api_key เข้ามา
+from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id, verify_api_key
+from core.exceptions import TaskNotFoundError, ForbiddenError
 from services.classroom_sync_service import ClassroomService
 
 router = APIRouter()
@@ -19,249 +20,219 @@ router = APIRouter()
 async def setup_room(
     req: RoomSetupRequest, 
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user),
 ):
-    await ClassroomService.setup_room(pool, req.server_id, req.room_name, req.user_name)
+    await ClassroomService.setup_room(pool, req.room_name, req.user_name, server_id=req.server_id)
     return SuccessResponse(message=f"Setup room {req.room_name} completed.")
 
-@router.get("/{server_id}", response_model=RoomDataResponse)
-async def get_room_data(
-    server_id: int, 
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
-):
-    """ดึงข้อมูลการตั้งค่าของห้องเรียน (เช่น ช่องแจ้งเตือนหลัก, เวลาแจ้งเตือน)"""
-    try:
-        return await ClassroomService.get_room_data(pool, server_id)
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-@router.put("/{server_id}/channel", response_model=SuccessResponse)
-async def set_channel(
-    server_id: int, 
-    req: ChannelSetRequest, 
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
-):
-    try:
-        await ClassroomService.set_channel(pool, server_id, req.channel_id, req.user_name, discord_id)
-        return SuccessResponse()
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ForbiddenError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-
-@router.put("/{server_id}/time", response_model=SuccessResponse)
-async def set_notify_time(
-    server_id: int, 
-    req: TimeSetRequest, 
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
-):
-    try:
-        await ClassroomService.set_notify_time(pool, server_id, req.notify_time, req.user_name, discord_id)
-        return SuccessResponse()
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ForbiddenError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-
+# 🌟 ฟังก์ชันแจ้งเตือนบอทอัตโนมัติ (แก้ไขระบบสิทธิ์ให้บอทเข้าถึงได้โดยไม่ต้องยืนยันตัวตนมนุษย์)
 @router.get("/notifications/targets", response_model=List[RoomNotifyResponse])
 async def get_rooms_to_notify(
     current_time: str = Query(...), 
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    api_key: str = Depends(verify_api_key) # 🚨 เปลี่ยนมาใช้ตรวจสอบแค่ API Key แทน!
 ):
     return await ClassroomService.get_rooms_to_notify(pool, current_time)
 
-@router.post("/{server_id}/schedule/default", response_model=SuccessResponse)
+@router.get("/{target_id}", response_model=RoomDataResponse)
+async def get_room_data(
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    return await ClassroomService.get_room_data(pool, room_id=room_id)
+
+@router.put("/{target_id}/channel", response_model=SuccessResponse)
+async def set_channel(
+    req: ChannelSetRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        await ClassroomService.set_channel(pool, req.channel_id, req.user_name, user_ctx["user_id"], room_id=room_id)
+        return SuccessResponse()
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.put("/{target_id}/time", response_model=SuccessResponse)
+async def set_notify_time(
+    req: TimeSetRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        await ClassroomService.set_notify_time(pool, req.notify_time, req.user_name, user_ctx["user_id"], room_id=room_id)
+        return SuccessResponse()
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.post("/{target_id}/schedule/default", response_model=SuccessResponse)
 async def set_default_schedule(
-    server_id: int, 
     req: DefaultScheduleRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        await ClassroomService.set_default_schedule(pool, server_id, req.day_of_week, req.attire, req.subjects, req.user_name, discord_id)
+        await ClassroomService.set_default_schedule(pool, req.day_of_week, req.attire, req.subjects, req.user_name, user_ctx["user_id"], room_id=room_id)
         return SuccessResponse()
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.post("/{server_id}/schedule/override", response_model=SuccessResponse)
+@router.post("/{target_id}/schedule/override", response_model=SuccessResponse)
 async def set_override(
-    server_id: int, 
     req: OverrideScheduleRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        await ClassroomService.set_override(pool, server_id, req.target_date, req.new_attire, req.note, req.user_name, discord_id)
+        await ClassroomService.set_override(pool, req.target_date, req.new_attire, req.note, req.user_name, user_ctx["user_id"], room_id=room_id)
         return SuccessResponse()
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-
-@router.post("/{server_id}/tasks", response_model=SuccessResponse)
+@router.post("/{target_id}/tasks", response_model=SuccessResponse)
 async def add_task(
-    server_id: int, 
     req: TaskCreateRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
-    try:
-        await ClassroomService.add_task(pool, server_id, req.task_name, req.task_detail, req.due_date, req.user_name)
-        return SuccessResponse()
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    await ClassroomService.add_task(pool, req.task_name, req.task_detail, req.due_date, req.user_name, room_id=room_id)
+    return SuccessResponse()
 
-@router.get("/{server_id}/tasks", response_model=List[TaskResponse])
+@router.get("/{target_id}/tasks", response_model=List[TaskResponse])
 async def get_tasks(
-    server_id: int, 
+    room_id: int = Depends(resolve_target_to_room_id),
     status: TaskStatus = Query(TaskStatus.PENDING), 
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
-    try:
-        return await ClassroomService.get_tasks(pool, server_id, status.value)
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return await ClassroomService.get_tasks(pool, status.value, room_id=room_id)
 
-@router.get("/{server_id}/tasks/deleted", response_model=List[TaskResponse])
+@router.get("/{target_id}/tasks/deleted", response_model=List[TaskResponse])
 async def get_deleted_tasks(
-    server_id: int, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
-    return await ClassroomService.get_deleted_tasks(pool, server_id)
+    return await ClassroomService.get_deleted_tasks(pool, room_id=room_id)
 
-@router.get("/{server_id}/tasks/{task_id}", response_model=TaskResponse)
+@router.get("/{target_id}/tasks/{task_id}", response_model=TaskResponse)
 async def get_task_by_id(
-    server_id: int, 
     task_id: int, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        return await ClassroomService.get_task_by_id(pool, server_id, task_id)
-    except (RoomNotFoundError, TaskNotFoundError) as e:
+        return await ClassroomService.get_task_by_id(pool, task_id, room_id=room_id)
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.put("/{server_id}/tasks/{task_id}", response_model=SuccessResponse)
+@router.put("/{target_id}/tasks/{task_id}", response_model=SuccessResponse)
 async def edit_task(
-    server_id: int, 
     task_id: int, 
     req: TaskEditRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        await ClassroomService.edit_task(pool, server_id, task_id, req.task_name, req.task_detail, req.due_date, req.user_name)
+        await ClassroomService.edit_task(pool, task_id, req.task_name, req.task_detail, req.due_date, req.user_name, room_id=room_id)
         return SuccessResponse()
-    except (RoomNotFoundError, TaskNotFoundError) as e:
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.delete("/{server_id}/tasks/{task_id}", response_model=TaskActionResponse)
+@router.delete("/{target_id}/tasks/{task_id}", response_model=TaskActionResponse)
 async def delete_task(
-    server_id: int, 
     task_id: int, 
     req: ActionWithUserRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        task_name = await ClassroomService.delete_task(pool, server_id, task_id, req.user_name, discord_id)
+        task_name = await ClassroomService.delete_task(pool, task_id, req.user_name, user_ctx["user_id"], room_id=room_id)
         return TaskActionResponse(task_name=task_name)
-    except (RoomNotFoundError, TaskNotFoundError) as e:
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     
-
-@router.patch("/{server_id}/tasks/{task_id}/done", response_model=TaskActionResponse)
+@router.patch("/{target_id}/tasks/{task_id}/done", response_model=TaskActionResponse)
 async def mark_task_done(
-    server_id: int, 
     task_id: int, 
     req: ActionWithUserRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        task_name = await ClassroomService.mark_task_done(pool, server_id, task_id, req.user_name)
+        task_name = await ClassroomService.mark_task_done(pool, task_id, req.user_name, room_id=room_id)
         return TaskActionResponse(task_name=task_name)
-    except (RoomNotFoundError, TaskNotFoundError) as e:
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.patch("/{server_id}/tasks/{task_id}/restore", response_model=TaskActionResponse)
+@router.patch("/{target_id}/tasks/{task_id}/restore", response_model=TaskActionResponse)
 async def restore_task(
-    server_id: int, 
     task_id: int, 
     req: ActionWithUserRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        task_name = await ClassroomService.restore_task(pool, server_id, task_id, req.user_name)
+        task_name = await ClassroomService.restore_task(pool, task_id, req.user_name, room_id=room_id)
         return TaskActionResponse(task_name=task_name)
-    except (RoomNotFoundError, TaskNotFoundError) as e:
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.post("/{server_id}/notes", response_model=SuccessResponse)
+@router.post("/{target_id}/notes", response_model=SuccessResponse)
 async def add_daily_note(
-    server_id: int, 
     req: DailyNoteRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        await ClassroomService.add_daily_note(pool, server_id, req.target_date, req.bring_items, req.announcement, req.user_name, discord_id)
+        await ClassroomService.add_daily_note(pool, req.target_date, req.bring_items, req.announcement, req.user_name, user_ctx["user_id"], room_id=room_id)
         return SuccessResponse()
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.delete("/{server_id}/notes/{target_date}", response_model=DailyNoteDeletedResponse)
+@router.delete("/{target_id}/notes/{target_date}", response_model=DailyNoteDeletedResponse)
 async def delete_daily_note(
-    server_id: int, 
     target_date: date, 
     req: ActionWithUserRequest, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
     try:
-        data = await ClassroomService.delete_daily_note(pool, server_id, target_date, req.user_name, discord_id)
+        data = await ClassroomService.delete_daily_note(pool, target_date, req.user_name, user_ctx["user_id"], room_id=room_id)
         return DailyNoteDeletedResponse(bring_items=data["bring_items"], announcement=data["announcement"])
-    except (RoomNotFoundError, TaskNotFoundError) as e:
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-
-@router.get("/{server_id}/summary", response_model=DailySummaryResponse)
+@router.get("/{target_id}/summary", response_model=DailySummaryResponse)
 async def get_daily_summary(
-    server_id: int, 
     target_date: date, 
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool)
+    # user_ctx: dict = Depends(get_current_user)
 ):
-    try:
-        return await ClassroomService.get_daily_summary(pool, server_id, target_date)
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return await ClassroomService.get_daily_summary(pool, target_date, room_id=room_id)
 
-
-
-@router.get("/{server_id}/logs")
+@router.get("/{target_id}/logs")
 async def get_logs(
-    server_id: int, 
+    room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    discord_id: int = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user)
 ):
-    try:
-        return await ClassroomService.get_audit_logs(pool, server_id)
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    return await ClassroomService.get_audit_logs(pool, room_id=room_id)

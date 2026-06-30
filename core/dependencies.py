@@ -1,8 +1,8 @@
-from fastapi import Request, Security, HTTPException, status, Header
+from fastapi import Request, Security, HTTPException, status, Header, Depends, Query, Path
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 import asyncpg
-from typing import Optional
+from typing import Optional, Literal
 from core.config import settings
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -13,74 +13,75 @@ async def get_db_pool(request: Request) -> asyncpg.Pool:
 
 def verify_api_key(api_key: str = Security(api_key_header)):
     if not api_key or api_key != settings.API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: Invalid API Key"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
     return api_key
 
+# 🚀 1. แปลงทุกอย่างให้เป็น user_id
 async def get_current_user(
+    request: Request,
     x_api_key: Optional[str] = Security(api_key_header),
     x_discord_id: Optional[str] = Header(None),
     auth: Optional[HTTPAuthorizationCredentials] = Security(bearer_auth)
-) -> int:
+) -> dict:
     """
-    Dependency ตรวจสอบสิทธิ์รองรับ 2 รูปแบบ:
-    1. API Key + X-Discord-Id (สำหรับ Discord Bot)
-    2. JWT Bearer Token (สำหรับ Vue.js SPA)
-    Return: discord_id (int)
+    Return: {"user_id": int} เท่านั้น! (ไม่มี discord_id หลุดเข้าไปในระบบแล้ว)
     """
-    
-    # 1. เช็คแบบ API Key (Discord Bot)
+    # กรณี 1: มาจาก Discord Bot
     if x_api_key:
         if x_api_key == settings.API_KEY:
             if not x_discord_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="X-Discord-Id header is required when using API Key"
-                )
+                raise HTTPException(status_code=400, detail="X-Discord-Id header is required")
             try:
-                return int(x_discord_id)
+                discord_id = int(x_discord_id)
+                pool: asyncpg.Pool = request.app.state.db_pool
+                async with pool.acquire() as conn:
+                    # แปลง discord_id เป็น user_id ตรงนี้เลย
+                    user_id = await conn.fetchval("SELECT id FROM users WHERE discord_id = $1", discord_id)
+                
+                if not user_id:
+                    raise HTTPException(status_code=404, detail="ไม่พบบัญชีผู้ใช้ที่ผูกกับ Discord ID นี้")
+                
+                return {"user_id": user_id}
             except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid X-Discord-Id format"
-                )
+                raise HTTPException(status_code=400, detail="Invalid X-Discord-Id format")
         else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid API Key"
-            )
+            raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    # 2. เช็คแบบ JWT (Vue.js)
+    # กรณี 2: มาจาก Web (SPA)
     if auth:
         try:
             token = auth.credentials
-            payload = jwt.decode(
-                token, 
-                settings.JWT_SECRET, 
-                algorithms=[settings.JWT_ALGORITHM]
-            )
-            discord_id: str = payload.get("discord_id")
-            if discord_id is None:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid token: Missing discord_id"
-                )
-            return int(discord_id)
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+            user_id = payload.get("user_id")
+            
+            if user_id is None:
+                raise HTTPException(status_code=401, detail="Invalid token: Missing user_id")
+                
+            return {"user_id": int(user_id)}
         except JWTError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token"
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid discord_id format in token"
-            )
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # ถ้าไม่เข้าเงื่อนไขไหนเลย
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated: API Key or Bearer Token required"
-    )
+    raise HTTPException(status_code=401, detail="Not authenticated: API Key or Bearer Token required")
+
+# 🚀 2. ฟังก์ชันใหม่! แปลง Target ให้กลายเป็น room_id เลยทันที (ลบ TargetResolution ทิ้งได้เลย)
+async def resolve_target_to_room_id(
+    target_id: int = Path(...),
+    target_type: Literal["server", "room"] = Query("room", description="ระบุ 'room' สำหรับเว็บ หรือ 'server' สำหรับบอท"),
+    pool: asyncpg.Pool = Depends(get_db_pool)
+) -> int:
+    """
+    แปลง server_id หรือ room_id ให้กลายเป็น room_id สุทธิ
+    ทำให้ Router และ Service ไม่ต้องสนใจเรื่องข้ามแพลตฟอร์มอีกต่อไป
+    """
+    async with pool.acquire() as conn:
+        if target_type == "room":
+            exists = await conn.fetchval("SELECT 1 FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_id)
+            if not exists:
+                raise HTTPException(status_code=404, detail=f"ไม่พบห้องเรียน ID: {target_id}")
+            return target_id
+            
+        elif target_type == "server":
+            room_id = await conn.fetchval("SELECT id FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", target_id)
+            if not room_id:
+                raise HTTPException(status_code=404, detail=f"ไม่พบห้องเรียนที่ผูกกับ Server ID: {target_id}")
+            return room_id
