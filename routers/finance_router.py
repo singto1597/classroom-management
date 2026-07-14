@@ -10,7 +10,6 @@ from services.finance_service import FinanceService
 
 router = APIRouter()
 
-# 🚨 เพิ่มคลาส TargetResolution ไว้ตรงนี้แทน เพื่อให้ Router ใช้งานได้
 class TargetResolution(BaseModel):
     server_id: Optional[int] = None
     room_id: Optional[int] = None
@@ -23,6 +22,20 @@ def get_target(
         server_id=target_id if target_type == "server" else None,
         room_id=target_id if target_type == "room" else None
     )
+
+# ✨ API ใหม่: ดึงรายชื่อนักเรียนสำหรับสร้างแคมเปญ
+@router.get("/{target_id}/finance/students", response_model=List[StudentBasicInfo])
+async def get_active_students(
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        return await FinanceService.get_active_students(
+            pool, server_id=target.server_id, room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/{target_id}/finance/accounts", response_model=SuccessResponse)
 async def create_account(
@@ -164,6 +177,8 @@ async def create_fee_collection(
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{target_id}/finance/payments/{payment_id}/pay", response_model=SuccessResponse)
 async def confirm_payment(
@@ -241,6 +256,28 @@ async def add_student_to_collection(
             pool, collection_id, student_id, user_ctx["user_id"], actor, server_id=target.server_id, room_id=target.room_id
         )
     except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ✨ API ใหม่: ลบรายชื่อคนออกจากแคมเปญ
+@router.delete("/{target_id}/finance/collections/{collection_id}/students/{student_id}", response_model=SuccessResponse)
+async def remove_student_from_collection(
+    collection_id: int,
+    student_id: int,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    req: Optional[ActionWithUserRequest] = Body(None),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        actor = req.user_name if req else "—"
+        return await FinanceService.remove_student_from_collection(
+            pool, collection_id, student_id, user_ctx["user_id"], actor, server_id=target.server_id, room_id=target.room_id
+        )
+    except (RoomNotFoundError, PaymentNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))

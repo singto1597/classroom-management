@@ -8,6 +8,14 @@ class SuccessResponse(BaseModel):
     status: str = "success"
     message: Optional[str] = None
 
+# --- Schemas สำหรับดึงรายชื่อนักเรียน (ใหม่) ---
+class StudentBasicInfo(BaseModel):
+    id: int
+    student_no: int
+    first_name: str
+    last_name: Optional[str]
+    nickname: Optional[str]
+
 # --- Schemas สำหรับรับข้อมูล (Requests) ---
 class AccountCreate(BaseModel):
     account_name: str = Field(..., max_length=100)
@@ -34,6 +42,8 @@ class FeeCollectionCreate(BaseModel):
     title: str = Field(..., max_length=150)
     amount: float = Field(..., gt=0.0)
     due_date: date
+    # ✨ อนุญาตให้ส่งรายชื่อเด็กที่ต้องการเรียกเก็บ (ถ้าเป็น None คือเก็บทุกคน)
+    student_ids: Optional[List[int]] = None 
     user_name: Optional[str] = Field(None, max_length=100)
 
 class PaymentConfirm(BaseModel):
@@ -76,6 +86,7 @@ class StudentPaymentDetail(BaseModel):
     total_amount: float
     paid_at: Optional[datetime]
     slip_image_url: Optional[str]
+    student_id: int  # ✨ เพิ่ม student_id กลับไปเผื่อใช้ลบ
     student_no: int
     first_name: str
     last_name: str
