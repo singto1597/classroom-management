@@ -1,4 +1,5 @@
-import api from './api'; // (อย่าลืมเช็ค path import api ให้ตรงกับของจริง)
+import api from './api'; 
+
 import type { 
   Account, 
   AccountCreate, 
@@ -15,7 +16,8 @@ import type {
   PaymentConfirm,
   FinanceSummary,
   Debtor,
-  StudentDebtProfile
+  StudentDebtProfile,
+  BasicStudent // ✨ Import เพิ่มเติม
 } from '@/types/finance';
 
 export const FinanceService = {
@@ -43,7 +45,6 @@ export const FinanceService = {
   },
 
   async getCategories(roomId: number, type?: 'income' | 'expense'): Promise<Category[]> {
-    // ✨ เพิ่ม target_type เข้าไปใน params object
     const params: any = { target_type: 'room' };
     if (type) params.cat_type = type;
     
@@ -70,7 +71,6 @@ export const FinanceService = {
   // ==========================================
 
   async getTransactions(roomId: number, filters: any = {}): Promise<TransactionList> {
-    // ✨ ผสม target_type เข้ากับ filters เดิม
     const params = { ...filters, target_type: 'room' };
     return await api.get(`/api/classroom/${roomId}/finance/transactions`, { params }) as unknown as TransactionList;
   },
@@ -93,6 +93,11 @@ export const FinanceService = {
   // 📦 3. Fee Collections & Payments
   // ==========================================
 
+  // ✨ ดึงรายชื่อนักเรียนสำหรับ UI เลือกติ๊กตอนสร้างแคมเปญ
+  async getActiveStudents(roomId: number): Promise<BasicStudent[]> {
+    return await api.get(`/api/classroom/${roomId}/finance/students?target_type=room`) as unknown as BasicStudent[];
+  },
+
   async getCollections(roomId: number): Promise<Collection[]> {
     return await api.get(`/api/classroom/${roomId}/finance/collections?target_type=room`) as unknown as Collection[];
   },
@@ -113,12 +118,18 @@ export const FinanceService = {
     return await api.put(`/api/classroom/${roomId}/finance/payments/${paymentId}/pay?target_type=room`, payload);
   },
 
+  // ✨ API สำหรับลบรายชื่อนักเรียนออกจากแคมเปญ
+  async removeStudentFromCollection(roomId: number, collectionId: number, studentId: number, userName: string): Promise<any> {
+    return await api.delete(`/api/classroom/${roomId}/finance/collections/${collectionId}/students/${studentId}?target_type=room`, {
+      data: { user_name: userName }
+    });
+  },
+
   // ==========================================
   // 📊 4. Summary & Reports
   // ==========================================
 
   async getSummary(roomId: number, month?: number, year?: number): Promise<FinanceSummary> {
-    // ✨ เพิ่ม target_type เข้าไปใน params object
     const params: any = { target_type: 'room' };
     if (month) params.month = month;
     if (year) params.year = year;
