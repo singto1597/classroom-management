@@ -47,6 +47,7 @@ const router = createRouter({
       path: '/',
       component: MainLayout,
       meta: { requiresAuth: true },
+      redirect: '/dashboard',
       children: [
         {
           path: 'dashboard',

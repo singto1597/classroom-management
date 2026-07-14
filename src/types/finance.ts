@@ -49,6 +49,7 @@ export interface StudentPaymentDetail {
   total_amount: number;
   paid_at: string | null;
   slip_image_url: string | null;
+  student_id: number; // ✨ ฟีเจอร์ใหม่จาก AI
   student_no: number;
   first_name: string;
   last_name: string;
@@ -81,7 +82,7 @@ export interface StudentDebtProfile {
   student_id: number;
   student_name: string;
   total_pending_amount: number;
-  debts: StudentDebtItem[];
+  debts: StudentDebtItem[]; // ดึง Type เดิมที่ปลอดภัยกว่า any[] กลับมา
 }
 
 export interface CategoryBreakdown {
@@ -95,7 +96,16 @@ export interface FinanceSummary {
   total_expense: number;
   pending_collection_amount: number;
   period: string;
-  expense_breakdown: CategoryBreakdown[];
+  expense_breakdown: CategoryBreakdown[]; // ดึง Type เดิมที่ปลอดภัยกว่า any[] กลับมา
+}
+
+// ✨ เพิ่ม Type ใหม่สำหรับดึงรายชื่อเด็กโดยเฉพาะ
+export interface BasicStudent {
+  id: number;
+  student_no: number;
+  first_name: string;
+  last_name: string;
+  nickname: string;
 }
 
 // --- Request Payloads ---
@@ -134,6 +144,7 @@ export interface FeeCollectionCreate {
   title: string;
   amount: number;
   due_date: string;
+  student_ids?: number[]; // ✨ ฟีเจอร์ใหม่จาก AI
   user_name?: string;
 }
 
