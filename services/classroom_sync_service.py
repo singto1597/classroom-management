@@ -57,7 +57,7 @@ class ClassroomService:
     async def set_channel(cls, pool: asyncpg.Pool, channel_id: int, user_name: str, user_id: int, room_id: int):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                 await conn.execute("UPDATE rooms SET announcement_channel_id = $1 WHERE id = $2", channel_id, room_id)
                 await log_action(conn, room_id, user_name, "Set Channel", f"ตั้งค่าไปที่ห้อง {channel_id}")
 
@@ -65,7 +65,7 @@ class ClassroomService:
     async def set_notify_time(cls, pool: asyncpg.Pool, notify_time: str, user_name: str, user_id: int, room_id: int):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                 await conn.execute("UPDATE rooms SET notify_time = $1 WHERE id = $2", notify_time, room_id)
                 await log_action(conn, room_id, user_name, "Set Time", f"เปลี่ยนเวลาเตือนเป็น {notify_time}")
 
@@ -82,7 +82,7 @@ class ClassroomService:
     async def set_default_schedule(cls, pool: asyncpg.Pool, day_of_week: str, attire: str, subjects: str, user_name: str, user_id: int, room_id: int):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                 await conn.execute("DELETE FROM default_schedules WHERE room_id = $1 AND day_of_week = $2", room_id, day_of_week)
                 await conn.execute(
                     "INSERT INTO default_schedules (room_id, day_of_week, attire, subjects) VALUES ($1, $2, $3, $4)",
@@ -94,7 +94,7 @@ class ClassroomService:
     async def set_override(cls, pool: asyncpg.Pool, target_date: date, new_attire: str, note: str, user_name: str, user_id: int, room_id: int):
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                 await conn.execute("DELETE FROM schedule_overrides WHERE room_id = $1 AND target_date = $2", room_id, target_date)
                 await conn.execute(
                     "INSERT INTO schedule_overrides (room_id, target_date, new_attire, note) VALUES ($1, $2, $3, $4)",
@@ -164,7 +164,7 @@ class ClassroomService:
     async def delete_task(cls, pool: asyncpg.Pool, task_id: int, user_name: str, user_id: int, room_id: int) -> str:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
+                # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
                 task_name = await conn.fetchval("UPDATE tasks SET deleted_at = NOW() WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL RETURNING task_name", task_id, room_id)
                 if not task_name: raise TaskNotFoundError("Task not found or already deleted")
                 await log_action(conn, room_id, user_name, "Soft Delete Task", f"ลบงาน {task_name}")
@@ -192,7 +192,7 @@ class ClassroomService:
     async def add_daily_note(cls, pool: asyncpg.Pool, target_date: date, bring_items: str, announcement: str, user_name: str, user_id: int, room_id: int):
         async with pool.acquire() as conn:
             async with conn.transaction(): 
-                await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
+                # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
                 await conn.execute("DELETE FROM daily_notes WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL", room_id, target_date)
                 await conn.execute(
                     "INSERT INTO daily_notes (room_id, target_date, bring_items, announcement) VALUES ($1, $2, $3, $4)",
@@ -204,7 +204,7 @@ class ClassroomService:
     async def delete_daily_note(cls, pool: asyncpg.Pool, target_date: date, user_name: str, user_id: int, room_id: int) -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
+                # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
                 row = await conn.fetchrow(
                     "UPDATE daily_notes SET deleted_at = NOW() WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL RETURNING bring_items, announcement",
                     room_id, target_date

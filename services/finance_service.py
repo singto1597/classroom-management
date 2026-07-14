@@ -27,6 +27,20 @@ class FinanceService:
             return r_id
         raise ValueError("ต้องระบุ server_id หรือ room_id")
 
+    # ✨ เมธอดใหม่: สำหรับดึงรายชื่อเด็กในห้องไปแสดงให้แอดมินติ๊กเลือก
+    @classmethod
+    async def get_active_students(cls, pool: asyncpg.Pool, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+        async with pool.acquire() as conn:
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+            rows = await conn.fetch("""
+                SELECT S.id, S.student_no, U.first_name, U.last_name, U.nickname 
+                FROM students S
+                LEFT JOIN users U ON S.user_id = U.id
+                WHERE S.room_id = $1 AND S.status = 'active' AND S.deleted_at IS NULL
+                ORDER BY S.student_no ASC
+            """, target_room_id)
+            return [dict(row) for row in rows]
+
     @classmethod
     async def create_account(cls, pool: asyncpg.Pool, req, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
         async with pool.acquire() as conn:
@@ -189,15 +203,29 @@ class FinanceService:
                     target_room_id, req.title, req.amount, req.due_date
                 )
                 
-                all_students = await conn.fetch("SELECT id, status FROM students WHERE room_id = $1", target_room_id)
-                active_students = [s['id'] for s in all_students if s['status'] == 'active']
+                # ✨ ลอจิกใหม่: ตรวจสอบว่ามีระบุตัวบุคคลมาหรือไม่
+                target_students = []
+                if req.student_ids is not None:
+                    if len(req.student_ids) == 0:
+                        raise ValueError("ไม่สามารถสร้างรายการได้ เนื่องจากไม่ได้เลือกนักเรียนเลยแม้แต่คนเดียว")
+                    
+                    # ตรวจสอบว่าไอดีที่ส่งมา เป็นนักเรียนในห้องนี้จริงๆ
+                    valid_students = await conn.fetch(
+                        "SELECT id FROM students WHERE room_id = $1 AND id = ANY($2) AND status = 'active'", 
+                        target_room_id, req.student_ids
+                    )
+                    target_students = [s['id'] for s in valid_students]
+                else:
+                    # ถ้าไม่ส่งอะไรมาเลย ถือว่าเอา "ทุกคน" เหมือนระบบเดิม
+                    all_students = await conn.fetch("SELECT id FROM students WHERE room_id = $1 AND status = 'active'", target_room_id)
+                    target_students = [s['id'] for s in all_students]
                 
-                if active_students:
-                    records = [(collection_id, sid, 'pending') for sid in active_students]
+                if target_students:
+                    records = [(collection_id, sid, 'pending') for sid in target_students]
                     await conn.executemany("INSERT INTO student_payments (collection_id, student_id, status) VALUES ($1, $2, $3)", records)
                 
-                msg = f"สร้างแคมเปญสำเร็จ เรียกเก็บเพื่อน {len(active_students)} คน"
-                await log_action(conn, target_room_id, cls._finance_actor(req), "Finance: Create Collection", f"id={collection_id} {req.title}")
+                msg = f"สร้างแคมเปญสำเร็จ เรียกเก็บเพื่อน {len(target_students)} คน"
+                await log_action(conn, target_room_id, cls._finance_actor(req), "Finance: Create Collection", f"id={collection_id} {req.title} (เรียกเก็บ {len(target_students)} คน)")
                 return {"status": "success", "message": msg}
 
     @classmethod
@@ -256,7 +284,7 @@ class FinanceService:
             target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             sql = """
                 SELECT 
-                    SP.id as payment_id, SP.status, SP.paid_amount, SP.paid_at, SP.slip_image_url,
+                    SP.id as payment_id, SP.student_id, SP.status, SP.paid_amount, SP.paid_at, SP.slip_image_url,
                     S.student_no, U.first_name, U.last_name, U.nickname, FC.amount as total_amount
                 FROM student_payments SP
                 JOIN students S ON SP.student_id = S.id
@@ -269,7 +297,36 @@ class FinanceService:
             total = len(rows)
             paid_count = sum(1 for r in rows if r['status'] == 'paid')
             return {"collection_id": collection_id, "summary": {"total": total, "paid": paid_count, "pending": total - paid_count}, "students": [dict(r) for r in rows]}
-    
+
+    # ✨ เมธอดใหม่: ลบรายชื่อคนออกจากแคมเปญ
+    @classmethod
+    async def remove_student_from_collection(cls, pool: asyncpg.Pool, collection_id: int, student_id: int, user_id: int, user_name: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                # เช็คก่อนว่ามีบิลนี้ไหม และจ่ายเงินไปหรือยัง
+                payment = await conn.fetchrow("""
+                    SELECT SP.id, SP.paid_amount, FC.title 
+                    FROM student_payments SP
+                    JOIN fee_collections FC ON SP.collection_id = FC.id
+                    WHERE SP.collection_id = $1 AND SP.student_id = $2 AND FC.room_id = $3
+                    FOR UPDATE OF SP
+                """, collection_id, student_id, target_room_id)
+
+                if not payment:
+                    raise PaymentNotFoundError("ไม่พบข้อมูลการเรียกเก็บเงินของนักเรียนคนนี้")
+                
+                if payment['paid_amount'] > 0:
+                    raise ValueError("ไม่สามารถลบได้ เนื่องจากนักเรียนมีการจ่ายเงิน (หรือทยอยจ่าย) เข้ามาแล้ว ให้ใช้วิธียกเลิกธุรกรรมการเงินแทน")
+
+                # ลบทิ้งเลย เพราะยังไม่จ่ายตังค์
+                await conn.execute("DELETE FROM student_payments WHERE id = $1", payment['id'])
+
+                await log_action(conn, target_room_id, user_name, "Finance: Remove Student", f"ลบนักเรียน id={student_id} ออกจาก {payment['title']}")
+                return {"status": "success", "message": "ลบรายชื่อนักเรียนออกจากรายการนี้สำเร็จ"}
+
     @classmethod
     async def create_category(cls, pool: asyncpg.Pool, req, user_id: int, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
         async with pool.acquire() as conn:
