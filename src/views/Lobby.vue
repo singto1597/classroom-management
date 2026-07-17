@@ -54,11 +54,19 @@ const filteredRooms = computed(() => {
 });
 
 const selectRoom = (room: UserRoom) => {
-  authStore.setRoom(room.room_id, room.room_name, room.room_code, room.role, authStore.currentUserName);
+  // 🎯 ยัดสิทธิ์ (is_admin, permissions) เข้า Store ตอนเลือกห้อง!
+  authStore.setRoom(
+    room.room_id, 
+    room.room_name, 
+    room.room_code, 
+    room.role, 
+    authStore.currentUserName,
+    room.is_admin || false,
+    room.permissions || []
+  );
   router.push('/dashboard');
 };
 
-// 🌟 ฟังก์ชันเปิด Modal เข้าร่วมห้อง (ดึงชื่อจริงมาใส่ให้เลย)
 const openJoinModal = () => {
   joinForm.value = {
     room_code: '',
@@ -69,7 +77,6 @@ const openJoinModal = () => {
   showJoinModal.value = true;
 };
 
-// 🌟 ฟังก์ชันส่งข้อมูลเข้าร่วมห้อง (เชื่อม Backend สวมรอยผี)
 const submitJoinRoom = async () => {
   try {
     Swal.fire({ title: 'กำลังตรวจสอบข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
@@ -81,7 +88,6 @@ const submitJoinRoom = async () => {
       last_name: joinForm.value.last_name
     };
 
-    // ยิง API (Backend จะทำ Auto-Merge ให้ถ้าชื่อตรงกับผี)
     const result = await ClassroomService.joinRoom(payload);
 
     Swal.fire({
@@ -93,13 +99,12 @@ const submitJoinRoom = async () => {
       customClass: { popup: 'rounded-[2rem]', confirmButton: 'rounded-xl px-8 font-bold' }
     }).then(() => {
       showJoinModal.value = false;
-      // อัปเดตข้อมูลห้องแล้วพุ่งไป Dashboard
-      authStore.setRoom(result.room_id, result.room_name, payload.room_code, 'student', authStore.currentUserName);
+      // 🎯 เข้าห้องใหม่ สิทธิ์ตั้งต้นจะเป็น False และ []
+      authStore.setRoom(result.room_id, result.room_name, payload.room_code, 'student', authStore.currentUserName, false, []);
       router.push('/dashboard');
     });
 
   } catch (error: any) {
-    // 🚨 ดัก Error จาก Backend (เช่น ชื่อไม่ตรง พิมพ์ผิด)
     Swal.fire({
       icon: 'error',
       title: 'ไม่สามารถเข้าร่วมได้',
@@ -189,9 +194,18 @@ const submitCreateRoom = async () => {
           <div class="w-14 h-14 bg-gradient-to-br from-slate-100 to-slate-50 rounded-2xl border border-slate-200/60 flex items-center justify-center text-slate-400 text-2xl group-hover:from-blue-50 group-hover:to-indigo-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-all duration-500 shadow-inner">
             <i class="bi bi-buildings-fill"></i>
           </div>
-          <span class="px-3 py-1 bg-slate-50 border border-slate-100 text-[10px] font-black tracking-widest uppercase text-slate-500 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-colors">
-            {{ room.role }}
-          </span>
+          <!-- 🎯 โซนโชว์ป้าย (Role & Admin Badges) -->
+          <div class="flex flex-col items-end gap-1.5">
+            <span class="px-3 py-1 bg-slate-50 border border-slate-100 text-[10px] font-black tracking-widest uppercase text-slate-500 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-colors">
+              {{ room.role }}
+            </span>
+            <span v-if="room.is_admin" class="px-2.5 py-0.5 bg-gradient-to-r from-amber-500 to-orange-400 text-white text-[9px] font-black tracking-widest uppercase rounded-md shadow-sm shadow-orange-500/20 border border-orange-300 flex items-center gap-1">
+              <i class="bi bi-shield-lock-fill"></i> ADMIN
+            </span>
+            <span v-else-if="room.permissions && room.permissions.length > 0" class="px-2.5 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 text-[9px] font-black tracking-widest uppercase rounded-md shadow-sm flex items-center gap-1">
+              <i class="bi bi-key-fill"></i> STAFF
+            </span>
+          </div>
         </div>
         
         <div class="relative z-10">
@@ -213,6 +227,7 @@ const submitCreateRoom = async () => {
       </div>
     </div>
 
+    <!-- Modals... (ยังคงเหมือนเดิม) -->
     <Transition name="fade">
       <div v-if="showJoinModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
         <div class="bg-white rounded-[2.5rem] p-8 md:p-10 w-full max-w-md shadow-2xl transform transition-all border border-slate-100">
@@ -275,7 +290,6 @@ const submitCreateRoom = async () => {
         </div>
       </div>
     </Transition>
-
   </div>
 </template>
 

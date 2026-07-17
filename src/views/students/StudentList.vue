@@ -8,25 +8,27 @@ import Swal from 'sweetalert2';
 const authStore = useAuthStore();
 const currentRoomId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName!;
-const isAdmin = computed(() => authStore.isAdmin);
+
+// 🎯 แกะสิทธิ์แบบละเอียดยิบ
+const isGodAdmin = computed(() => authStore.isAdmin);
+const canManageStudents = computed(() => isGodAdmin.value || authStore.currentPermissions.includes('MANAGE_STUDENTS'));
+const canExportStudents = computed(() => isGodAdmin.value || authStore.currentPermissions.includes('EXPORT_STUDENTS'));
 
 // --- States ---
 const currentTab = ref<'active' | 'pending'>('active');
-const students = ref<Student[]>([]);
-const pendingStudents = ref<any[]>([]); // สำหรับเก็บรายชื่อคนรออนุมัติ
+const students = ref<any[]>([]); // เปลี่ยนเป็น any เพื่อรองรับ is_admin
+const pendingStudents = ref<any[]>([]);
 const isLoading = ref(true);
 const searchQuery = ref('');
 const showInactive = ref(false);
 
-// --- Fetch Data ---
 const fetchData = async () => {
   isLoading.value = true;
   try {
     if (currentTab.value === 'active') {
       const data = await StudentService.getStudents(currentRoomId);
       students.value = Array.isArray(data) ? data : [];
-    } else if (isAdmin.value) {
-      // โหลดเฉพาะแท็บ pending และต้องเป็น Admin/Teacher
+    } else if (canManageStudents.value) {
       pendingStudents.value = await StudentService.getPendingRequests(currentRoomId);
     }
   } catch (error: any) {
@@ -41,41 +43,29 @@ const switchTab = (tab: 'active' | 'pending') => {
   fetchData();
 };
 
-onMounted(() => {
-  fetchData();
-});
+onMounted(() => fetchData());
 
-// --- Computed ---
 const filteredStudents = computed(() => {
   if (!students.value || students.value.length === 0) return [];
   
   return students.value.filter((student) => {
-    // Filter by status
     if (!showInactive.value && student.status === 'inactive') return false;
     
-    // Filter by search query
     const query = searchQuery.value.toLowerCase().trim();
     if (!query) return true;
     
-    // ดึงฟังก์ชันค้นหาจากโค้ดเก่ากลับมา (ค้นหาชื่อเล่น และ รหัสนักเรียนได้)
     const fullName = `${student.first_name || ''} ${student.last_name || ''}`.toLowerCase();
     const studentNo = student.student_no?.toString() || '';
     const studentId = student.student_id?.toString().toLowerCase() || '';
     const nickname = student.nickname?.toLowerCase() || '';
 
-    return (
-      fullName.includes(query) ||
-      studentNo.includes(query) ||
-      studentId.includes(query) ||
-      nickname.includes(query)
-    );
+    return fullName.includes(query) || studentNo.includes(query) || studentId.includes(query) || nickname.includes(query);
   });
 });
 
-// --- Actions (Active Tab) ---
-const confirmDelete = async (student: Student) => {
-  if (!isAdmin.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่ลบข้อมูลได้', 'error');
+const confirmDelete = async (student: any) => {
+  if (!canManageStudents.value) {
+    return Swal.fire('ไม่มีสิทธิ์', 'คุณไม่มีสิทธิ์ลบข้อมูลนักเรียน', 'error');
   }
 
   const result = await Swal.fire({
@@ -99,11 +89,10 @@ const confirmDelete = async (student: Student) => {
   }
 };
 
-// --- Actions (Pending Tab) ---
 const approveJoin = async (studentNo: number) => {
   try {
     await StudentService.approveStudent(currentRoomId, studentNo);
-    await fetchData(); // รีเฟรชตาราง
+    await fetchData(); 
     Swal.fire({ title: 'อนุมัติสำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false });
   } catch (error: any) {
     Swal.fire('ข้อผิดพลาด', error.response?.data?.detail, 'error');
@@ -139,17 +128,18 @@ const rejectJoin = async (studentNo: number) => {
       <h1 class="text-2xl font-black text-slate-800 tracking-tight">
         <i class="bi bi-people-fill me-2 text-blue-600"></i>จัดการนักเรียน
       </h1>
-      <div v-if="isAdmin" class="flex gap-2">
-        <RouterLink to="/students/export" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 font-bold px-4 py-2.5 rounded-xl transition-all flex items-center justify-center border border-emerald-200 shadow-sm active:scale-95">
+      <div class="flex gap-2">
+        <RouterLink v-if="canExportStudents" to="/students/export" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 font-bold px-4 py-2.5 rounded-xl transition-all flex items-center justify-center border border-emerald-200 shadow-sm active:scale-95">
           <i class="bi bi-file-earmark-excel-fill text-lg"></i>
         </RouterLink>
-        <RouterLink to="/students/add" class="bg-slate-900 hover:bg-slate-800 text-white font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-slate-900/20 transition-all flex items-center justify-center active:scale-95">
+        <RouterLink v-if="canManageStudents" to="/students/add" class="bg-slate-900 hover:bg-slate-800 text-white font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-slate-900/20 transition-all flex items-center justify-center active:scale-95">
           <i class="bi bi-person-plus-fill me-2"></i>เพิ่มนักเรียน
         </RouterLink>
       </div>
     </div>
 
-    <div v-if="isAdmin" class="border-b border-slate-200 mb-6 flex gap-6 px-2">
+    <!-- ซ่อนแท็บรออนุมัติ ถ้าไม่มีสิทธิ์จัดการนักเรียน -->
+    <div v-if="canManageStudents" class="border-b border-slate-200 mb-6 flex gap-6 px-2">
       <button 
         @click="switchTab('active')" 
         class="py-3 px-1 font-bold text-sm transition-all border-b-2"
@@ -203,8 +193,12 @@ const rejectJoin = async (studentNo: number) => {
               <td class="py-4 px-5 text-center font-bold text-slate-800">{{ student.student_no }}</td>
               <td class="py-4 px-5">{{ student.prefix || '' }}{{ student.first_name }} {{ student.last_name }}</td>
               <td class="py-4 px-5">{{ student.nickname || '-' }}</td>
-              <td class="py-4 px-5">
-                <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase" :class="student.class_role === 'student' ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'">{{ student.class_role }}</span>
+              <td class="py-4 px-5 flex items-center gap-2">
+                <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase" :class="student.class_role === 'student' ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'">
+                  {{ student.class_role }}
+                </span>
+                <!-- 🎯 ติดมงกุฎหรือประแจ ให้แอดมิน/สต๊าฟในตารางรายชื่อ -->
+                <i v-if="student.is_admin" class="bi bi-shield-lock-fill text-amber-500 text-lg" title="System Admin"></i>
               </td>
               <td class="py-4 px-5 text-center">
                 <span v-if="student.status === 'active'" class="bg-emerald-50 text-emerald-600 py-1 px-3 rounded-full text-[10px] font-bold border border-emerald-100">Active</span>
@@ -214,7 +208,8 @@ const rejectJoin = async (studentNo: number) => {
               <td class="py-4 px-5 text-center">
                 <div class="flex items-center justify-center gap-2">
                   <RouterLink :to="`/students/${student.student_no}`" class="w-8 h-8 flex items-center justify-center bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-colors"><i class="bi bi-eye-fill"></i></RouterLink>
-                  <template v-if="isAdmin">
+                  <!-- ซ่อนปุ่มแก้ไข/ลบ ถ้าไม่ใช่คนที่ดูแลนักเรียนได้ -->
+                  <template v-if="canManageStudents">
                     <RouterLink :to="`/students/${student.student_no}/edit`" class="w-8 h-8 flex items-center justify-center bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-500 hover:text-white transition-colors"><i class="bi bi-pencil-fill"></i></RouterLink>
                     <button @click="confirmDelete(student)" class="w-8 h-8 flex items-center justify-center bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white transition-colors"><i class="bi bi-trash-fill"></i></button>
                   </template>
