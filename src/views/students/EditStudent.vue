@@ -15,77 +15,38 @@ const loading = ref(true)
 const saving = ref(false)
 
 const currentRoomId = authStore.currentRoomId!
-const currentUserName = authStore.currentUserName!
 
-// --- 💡 1. สร้างตัวแปรตรวจสอบสิทธิ์ (Permissions) ---
+// --- 💡 1. จัดการสิทธิ์ ---
 const isAdmin = computed(() => authStore.isAdmin)
-
-// สมมติว่านักเรียนคนนี้คือเจ้าของโปรไฟล์ (ดึงข้อมูลนักเรียนของตัวเองในห้องนี้มาเทียบ)
 const currentUserProfile = ref<any>(null);
+
 const isOwner = computed(() => {
-  if (isAdmin.value) return true; // ถ้าเป็น Admin ก็ถือว่าผ่าน
+  if (isAdmin.value) return true;
   if (!currentUserProfile.value) return false;
-  // เทียบเลขที่จาก URL กับเลขที่ของ User ที่ล็อกอินอยู่ในห้องนี้
   return String(currentUserProfile.value.student_no) === studentNo;
 })
-
-// รวมสิทธิ์: เป็น Admin หรือเป็นเจ้าของโปรไฟล์ถึงจะแก้ได้
 const canEdit = computed(() => isAdmin.value || isOwner.value)
 
-const form = ref<Partial<Student>>({
-  student_id: null,
-  prefix: '',
-  first_name: '',
-  last_name: '',
-  nickname: '',
-  blood_group: '',
-  shirt_size: '',
-  food_allergy: '',
-  phone_number: '',
-  phone_number_parent: '',
-  phone_number_parent_relation: '',
-  line_id: '',
-  ig_username: '',
-  target_faculty: '',
-  cleaning_duty: '',
-  olympic_camp: '',
-  portfolio: '',
-  address_house_no: '',
-  address_road: '',
-  address_sub_district: '',
-  address_district: '',
-  address_province: '',
-  address_post_code: ''
-})
+// ปล่อยว่างไว้ก่อน เดี๋ยวเอาของจาก Backend มายัดใส่ทีเดียว
+const form = ref<Partial<Student>>({})
 
 const fetchStudent = async () => {
   try {
     loading.value = true
-    
-    // โหลดข้อมูลโปรไฟล์ของคนที่คลิกเข้ามาดู (ตาม URL)
     const data = await StudentService.getStudentByNo(currentRoomId, studentNo)
-    Object.keys(form.value).forEach(key => {
-      if (key in data) {
-        (form.value as any)[key] = (data as any)[key] || ''
-      }
-    })
+    // 💡 2. ยัดข้อมูลทุกอย่างลง form.value (ป้องกันการทำฟิลด์ status หล่นหาย)
+    form.value = { ...data }
 
-    // โหลดข้อมูลตัวเอง เพื่อเอามาเช็คสิทธิ์ (ถ้าไม่ใช่ Admin)
     if (!isAdmin.value) {
         try {
             currentUserProfile.value = await StudentService.getMyProfile(currentRoomId);
         } catch (e) {
-            console.log("Not a student in this room or error fetching my profile", e)
+            console.log("Not a student in this room", e)
         }
     }
-
   } catch (error: any) {
     console.error("🔴 สอดแนม Error:", error)
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: 'ไม่สามารถโหลดข้อมูลได้'
-    })
+    Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด', text: 'ไม่สามารถโหลดข้อมูลได้' })
     router.push('/students')
   } finally {
     loading.value = false
@@ -93,7 +54,6 @@ const fetchStudent = async () => {
 }
 
 const handleSubmit = async () => {
-  // 💡 2. เปลี่ยนเงื่อนไขการเช็คสิทธิ์ก่อนบันทึก
   if (!canEdit.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'คุณสามารถแก้ไขได้เฉพาะข้อมูลของตัวเองเท่านั้น', 'error')
   }
@@ -102,62 +62,36 @@ const handleSubmit = async () => {
     saving.value = true
     const payload: any = { ...form.value }
     
-    // 💡 3. Data Sanitization: ล้างข้อมูลก่อนส่งไป Backend เพื่อป้องกัน Error 422
+    // 💡 3. Data Sanitization: แปลงช่องว่างให้เป็น null ให้ Backend อารมณ์ดี
     Object.keys(payload).forEach(key => {
-      // 3.1 ลบช่องว่างหัวท้าย ถ้าเป็น String
       if (typeof payload[key] === 'string') {
         payload[key] = payload[key].trim();
-        // 3.2 แปลง String ว่างๆ เป็น null (Pydantic Backend ชอบแบบนี้)
-        if (payload[key] === "") {
-          payload[key] = null;
-        }
+        if (payload[key] === "") payload[key] = null;
       }
     })
-
-    // 3.3 บังคับให้ user_name มีค่าเสมอ
-    payload.user_name = currentUserName || 'System';
 
     await StudentService.updateStudent(currentRoomId, studentNo, payload)
     
     await Swal.fire({
-      icon: 'success',
-      title: 'สำเร็จ',
-      text: 'อัปเดตข้อมูลเรียบร้อยแล้ว',
-      timer: 1500,
-      showConfirmButton: false
+      icon: 'success', title: 'สำเร็จ', text: 'อัปเดตข้อมูลเรียบร้อยแล้ว',
+      timer: 1500, showConfirmButton: false
     })
-    
     router.push(`/students/${studentNo}`)
+    
   } catch (error: any) {
     console.error("Save Error:", error)
-    // แกะ Error Message จาก FastAPI 422 ออกมาโชว์ให้คนอ่านรู้เรื่อง
-    let errorMsg = 'เกิดข้อผิดพลาดในการบันทึกข้อมูล';
-    if (error.response?.status === 422) {
-      errorMsg = 'ข้อมูลบางช่องไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง';
-      // ถ้า Backend ส่ง Validation Error กลับมา พยายามแกะมาโชว์
-      if (error.response?.data?.detail && Array.isArray(error.response.data.detail)) {
-        const errors = error.response.data.detail.map((e: any) => e.loc.join('.') + ': ' + e.msg);
-        errorMsg += '\n' + errors.join('\n');
-      }
-    } else if (error.response?.data?.detail) {
-      errorMsg = error.response.data.detail;
-    } else if (error.message) {
-      errorMsg = error.message;
-    }
-
+    // คราวนี้ error.message จะเป็นภาษาคนอ่านออกแล้ว เพราะเราแก้ api.ts ไปแล้ว!
     Swal.fire({
       icon: 'error',
       title: 'บันทึกไม่สำเร็จ',
-      text: errorMsg
+      text: error.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล'
     })
   } finally {
     saving.value = false
   }
 }
 
-onMounted(() => {
-  fetchStudent()
-})
+onMounted(() => fetchStudent())
 </script>
 
 <template>
@@ -179,7 +113,7 @@ onMounted(() => {
               </div>
               <h2 class="text-2xl font-bold text-slate-800">แก้ไขข้อมูลโปรไฟล์</h2>
             </div>
-            <p class="text-slate-500 text-sm ml-11">รหัสนักเรียน: <span class="font-semibold text-slate-700">#{{ studentNo }}</span> • อัปเดตข้อมูลให้เป็นปัจจุบัน</p>
+            <p class="text-slate-500 text-sm ml-11">รหัสนักเรียน: <span class="font-semibold text-slate-700">#{{ studentNo }}</span> • อัปเดตข้อมูลของคุณให้เป็นปัจจุบัน</p>
           </div>
           
           <div class="flex gap-3 w-full md:w-auto ml-11 md:ml-0">
@@ -191,7 +125,6 @@ onMounted(() => {
             >
               ยกเลิก
             </button>
-            <!-- 💡 4. เปลี่ยนปุ่ม Save เป็นเช็ค canEdit -->
             <template v-if="canEdit">
               <button 
                 type="submit" 
@@ -204,7 +137,7 @@ onMounted(() => {
               </button>
             </template>
             <div v-else class="flex items-center px-4 bg-slate-100 text-slate-500 rounded-lg text-sm font-medium border border-slate-200">
-              🔒 สิทธิ์การแก้ไขจำกัด
+              🔒 เฉพาะแอดมินหรือเจ้าของ
             </div>
           </div>
         </div>
@@ -218,7 +151,6 @@ onMounted(() => {
             </div>
             <div class="p-6 space-y-5 bg-slate-50/30">
               <div class="form-control">
-                <!-- 💡 5. เปลี่ยน :disabled ให้ยึดตาม canEdit ทุกช่อง -->
                 <label class="label pb-1"><span class="label-text font-medium text-slate-700">รหัสนักเรียน</span></label>
                 <input :disabled="!canEdit" v-model="form.student_id" type="text" class="input input-bordered w-full bg-white border-slate-300 shadow-sm focus:border-primary focus:ring-2 focus:ring-primary/20 text-slate-800 h-11 disabled:bg-slate-100" />
               </div>
