@@ -1,6 +1,7 @@
 import asyncpg
 import random
 import string
+import json
 from fastapi import HTTPException
 from core.audit import log_action
 from core.rbac import require_permission
@@ -11,11 +12,11 @@ class RoomManagementService:
     def _generate_room_code(length: int = 6) -> str:
         chars = string.ascii_uppercase + string.digits
         return ''.join(random.choice(chars) for _ in range(length))
-
     @classmethod
     async def create_room(cls, pool: asyncpg.Pool, room_name: str, user_id: int, first_name: str = "", last_name: str = "") -> dict:
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # อัปเดตข้อมูลผู้สร้างห้อง
                 if first_name or last_name:
                     await conn.execute("""
                         UPDATE users SET first_name = COALESCE(NULLIF($1, ''), first_name), last_name = COALESCE(NULLIF($2, ''), last_name) WHERE id = $3
@@ -30,8 +31,23 @@ class RoomManagementService:
                     if not await conn.fetchval("SELECT 1 FROM rooms WHERE room_code = $1", code):
                         break
 
-                room_id = await conn.fetchval("INSERT INTO rooms (room_name, room_code) VALUES ($1, $2) RETURNING id", room_name, code)
-                await conn.execute("INSERT INTO students (room_id, user_id, student_no, class_role, status) VALUES ($1, $2, 0, 'president', 'active')", room_id, user_id)
+                # 🚨 1. สร้างห้อง โดยบันทึก owner_id เป็นของคนสร้าง (เพื่อกันตาย กรณีแอดมินโดนปลดหมด)
+                room_id = await conn.fetchval("""
+                    INSERT INTO rooms (room_name, room_code, owner_id) 
+                    VALUES ($1, $2, $3) 
+                    RETURNING id
+                """, room_name, code, user_id)
+                
+                # 🚨 2. บันทึกคนสร้างเข้าเป็นนักเรียนในห้อง (ให้เลขที่ 0 หรืออะไรก็ได้) 
+                # พร้อมเสก is_admin = TRUE และให้ permissions เป็น ["all"] หรือเผื่อเอาไว้
+                await conn.execute("""
+                    INSERT INTO students (
+                        room_id, user_id, student_no, class_role, status, is_admin, permissions
+                    ) VALUES (
+                        $1, $2, 0, 'president', 'active', TRUE, $3::jsonb
+                    )
+                """, room_id, user_id, json.dumps(["all"]))
+                
                 await log_action(conn, room_id, "System/WebUser", "Create Room", f"สร้างห้อง {room_name} รหัส {code}")
                 return {"room_id": room_id, "room_name": room_name, "room_code": code}
 

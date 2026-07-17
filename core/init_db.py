@@ -332,6 +332,33 @@ async def init_db(pool: asyncpg.Pool):
                     DROP COLUMN IF EXISTS address_post_code;
             """)
 
+            # --- 4. Extra Alterations & Smart Constraints ---
+            # (โค้ดเดิมของคุณที่แก้ ALTER TABLE ต่างๆ...)
+            
+            # 🚨 8. New RBAC System (ระบบสิทธิ์แบบใหม่ที่แยกจากตำแหน่ง)
+            logger.info("Applying new RBAC schema...")
+            
+            # 1. เพิ่ม owner_id ให้ตาราง rooms (เก็บว่า User ID ไหนคือคนสร้างห้อง)
+            await conn.execute("""
+                ALTER TABLE rooms 
+                ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+            """)
+
+            # 2. เพิ่มระบบสิทธิ์ให้ตาราง students
+            await conn.execute("""
+                ALTER TABLE students 
+                ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '[]'::jsonb;
+            """)
+
+            # 3. อัปเดตข้อมูลเก่า (Migration) 
+            # (เผื่อมีข้อมูลเดิมอยู่แล้ว ให้คนที่เคยเป็น president กลายเป็น admin ชั่วคราวก่อน)
+            await conn.execute("""
+                UPDATE students 
+                SET is_admin = TRUE 
+                WHERE class_role = 'president' AND is_admin = FALSE;
+            """)
+
 
             logger.info("✅ Database Tables & Smart Constraints Initialized Successfully!")
 
