@@ -4,7 +4,6 @@ import router from '@/router';
 import api from '@/services/api'; 
 
 // ✨ ฟังก์ชันกวาดล้างข้อมูลผี (Ghost Data Cleaner)
-// ถ้าไปเจอคำว่า "null" ในระบบ ให้เตะทิ้งเป็นค่าว่างทันที
 const safeGetItem = (key: string) => {
   const val = localStorage.getItem(key);
   if (!val || val === 'null' || val === 'undefined' || val === 'ไม่ระบุชื่อ') return null;
@@ -29,8 +28,14 @@ export const useAuthStore = defineStore('auth', () => {
   const currentRoomCode = ref<string | null>(safeGetItem('current_room_code')); 
   const currentRole = ref<string | null>(safeGetItem('current_role'));
 
+  // 🎯 เพิ่มตัวแปรเก็บสิทธิ์ที่แท้จริง (RBAC)
+  const currentIsAdmin = ref<boolean>(safeGetItem('current_is_admin') === 'true');
+  const currentPermissions = ref<string[]>(JSON.parse(safeGetItem('current_permissions') || '[]'));
+
   const isAuthenticated = computed(() => !!token.value);
-  const isAdmin = computed(() => currentRole.value !== 'student' && currentRole.value !== null);
+  
+  // 🚨 เปลี่ยนนิยามของ isAdmin ใหม่ทั้งหมด (เช็คจาก Flag ของ DB ไม่ใช่ป้ายชื่อตำแหน่ง)
+  const isAdmin = computed(() => currentIsAdmin.value === true);
 
   const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '');
 
@@ -40,10 +45,10 @@ export const useAuthStore = defineStore('auth', () => {
     const f = firstName.value || '';
     const l = lastName.value || '';
     const full = `${p}${f} ${l}`.trim();
-    return full || 'ผู้ใช้งานระบบ'; // ถ้าว่างจริง จะตกมาที่คำนี้แทน null
+    return full || 'ผู้ใช้งานระบบ'; 
   });
 
-  const isFetchingProfile = ref(false); // 🚨 ตัวล็อกป้องกันการยิง API ซ้ำซ้อน
+  const isFetchingProfile = ref(false); 
 
   const fetchProfile = async () => {
     if (!token.value || isFetchingProfile.value) return;
@@ -54,7 +59,6 @@ export const useAuthStore = defineStore('auth', () => {
       
       if (data.id) setUserId(data.id);
       
-      // กรองข้อมูลจาก API อีกชั้น เผื่อ Database ส่งข้อความ 'null' มา
       prefix.value = data.prefix && data.prefix !== 'null' ? data.prefix : '';
       firstName.value = data.first_name && data.first_name !== 'null' && data.first_name !== 'ไม่ระบุชื่อ' ? data.first_name : '';
       lastName.value = data.last_name && data.last_name !== 'null' ? data.last_name : '';
@@ -62,7 +66,6 @@ export const useAuthStore = defineStore('auth', () => {
       discordId.value = data.discord_id ? String(data.discord_id) : null;
       googleId.value = data.google_id ? String(data.google_id) : null;
       
-      // เซฟลง LocalStorage อย่างปลอดภัย
       if (prefix.value) localStorage.setItem('user_prefix', prefix.value);
       else localStorage.removeItem('user_prefix');
 
@@ -99,16 +102,29 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
-  const setRoom = (roomId: number, roomName: string, roomCode: string | null | undefined, role: string, userName?: string) => {
+  // 🎯 อัปเดต setRoom ให้รับพารามิเตอร์เรื่องสิทธิ์เพิ่ม
+  const setRoom = (
+    roomId: number, 
+    roomName: string, 
+    roomCode: string | null | undefined, 
+    role: string, 
+    userName?: string,
+    isAdminFlag: boolean = false,
+    permissionsArray: string[] = []
+  ) => {
     currentRoomId.value = roomId;
     currentRoomName.value = roomName;
     currentRoomCode.value = roomCode || 'N/A';
     currentRole.value = role;
+    currentIsAdmin.value = isAdminFlag;
+    currentPermissions.value = permissionsArray;
 
     localStorage.setItem('current_room_id', String(roomId));
     localStorage.setItem('current_room_name', roomName);
     localStorage.setItem('current_room_code', roomCode || 'N/A');
     localStorage.setItem('current_role', role);
+    localStorage.setItem('current_is_admin', String(isAdminFlag));
+    localStorage.setItem('current_permissions', JSON.stringify(permissionsArray));
   };
 
   const clearRoom = () => {
@@ -116,10 +132,15 @@ export const useAuthStore = defineStore('auth', () => {
     currentRoomName.value = null;
     currentRoomCode.value = null;
     currentRole.value = null;
+    currentIsAdmin.value = false;
+    currentPermissions.value = [];
+    
     localStorage.removeItem('current_room_id');
     localStorage.removeItem('current_room_name');
     localStorage.removeItem('current_room_code');
     localStorage.removeItem('current_role');
+    localStorage.removeItem('current_is_admin');
+    localStorage.removeItem('current_permissions');
   };
 
   const logout = () => {
@@ -140,6 +161,7 @@ export const useAuthStore = defineStore('auth', () => {
     token, userId, prefix, firstName, lastName, currentUserName,
     email, discordId, googleId, isOnboarded,
     currentRoomId, currentRoomName, currentRoomCode, currentRole,
+    currentIsAdmin, currentPermissions, // 🎯 Expose ไปให้ Component อื่นดึงไปใช้ได้
     isAuthenticated, isAdmin,
     setToken, setUserId, setRoom, clearRoom, logout, fetchProfile
   };

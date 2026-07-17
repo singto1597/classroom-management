@@ -11,12 +11,18 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const studentNo = route.params.id as string
-const student = ref<Student | null>(null)
+const student = ref<any | null>(null) // ใส่ any เพราะมี is_admin
 const loading = ref(true)
 
-// --- ถอด Mock Data เปลี่ยนมาดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
-const isAdmin = computed(() => authStore.isAdmin) // ใช้ getter จาก store โดยตรง
+
+// 🎯 สร้างเงื่อนไขสำหรับแสดงปุ่ม "แก้ไขข้อมูล" ให้แม่นยำ
+// คนที่เห็นปุ่มได้ = แอดมิน หรือ คนที่มีสิทธิ์ MANAGE_STUDENTS หรือ เจ้าของโปรไฟล์เอง
+const canEdit = computed(() => {
+  return authStore.isAdmin || 
+         authStore.currentPermissions.includes('MANAGE_STUDENTS') || 
+         String(student.value?.user_id) === String(authStore.userId);
+})
 
 const fetchStudent = async () => {
   try {
@@ -44,7 +50,6 @@ onMounted(() => {
 
 <template>
   <div class="min-h-screen bg-slate-50/80 p-4 sm:p-6 md:p-8 pb-20">
-    <!-- Loading State -->
     <div v-if="loading" class="flex flex-col justify-center items-center h-[60vh] gap-4">
       <div class="relative w-16 h-16">
         <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
@@ -55,7 +60,6 @@ onMounted(() => {
 
     <div v-else-if="student" class="max-w-5xl mx-auto space-y-4 md:space-y-6">
       
-      <!-- Smart Header Navigation -->
       <div class="flex justify-between items-center px-1 mb-2">
         <button 
           @click="router.push('/students')" 
@@ -65,8 +69,9 @@ onMounted(() => {
           <span class="hidden md:inline">กลับหน้ารายชื่อ</span>
         </button>
         
+        <!-- 🎯 โชว์ปุ่มให้เฉพาะคนที่มีสิทธิ์ -->
         <RouterLink 
-          v-if="isAdmin"
+          v-if="canEdit"
           :to="`/students/${student.student_no}/edit`" 
           class="w-10 h-10 md:w-auto md:px-6 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white rounded-full md:rounded-2xl shadow-lg shadow-slate-900/20 active:scale-95 transition-all font-bold group"
         >
@@ -75,26 +80,22 @@ onMounted(() => {
         </RouterLink>
       </div>
 
-      <!-- Profile Container -->
       <div class="bg-white rounded-[2rem] md:rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden border border-slate-100">
         
-        <!-- Hero Banner (Digital ID Card) -->
         <div class="relative bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-6 sm:p-8 md:p-14 text-white overflow-hidden">
-          <!-- Glass Effects -->
           <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
           <div class="absolute bottom-0 left-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
           
           <div class="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             
             <div class="space-y-4 md:space-y-5 w-full md:w-auto">
-              <!-- Mobile Student No. Badge (Shows only on small screens) -->
               <div class="flex md:hidden justify-between items-center w-full mb-2">
                 <div class="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-1.5 rounded-full text-[11px] font-black tracking-widest text-white shadow-inner flex items-center gap-2">
                   เลขที่ <span class="text-lg text-blue-300">{{ student.student_no }}</span>
                 </div>
               </div>
 
-              <!-- Status Tags -->
+              <!-- 🎯 โซน Badge สถานะและสิทธิ์ -->
               <div class="flex flex-wrap items-center gap-2.5">
                 <span class="bg-white/10 backdrop-blur-md border border-white/20 px-3 py-1.5 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-widest text-blue-100 shadow-sm">
                   {{ student.class_role }}
@@ -105,9 +106,17 @@ onMounted(() => {
                 ]">
                   {{ student.status === 'active' ? 'กำลังศึกษา' : 'พ้นสภาพ' }}
                 </span>
+
+                <!-- 🌟 โชว์มงกุฎสำหรับคนที่เป็น Admin ในหน้าโปรไฟล์ -->
+                <span v-if="student.is_admin" class="bg-gradient-to-r from-amber-500 to-orange-400 px-3 py-1.5 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-orange-500/30 flex items-center gap-1.5 border border-orange-300/50">
+                  <i class="bi bi-shield-lock-fill"></i> SYSTEM ADMIN
+                </span>
+                <!-- หรือถ้ามีสิทธิ์ย่อย ก็โชว์ STAFF ให้เท่ๆ -->
+                <span v-else-if="student.permissions && student.permissions.length > 0" class="bg-purple-500/20 border-purple-500/30 px-3 py-1.5 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-widest text-purple-200 backdrop-blur-md border shadow-sm flex items-center gap-1.5">
+                  <i class="bi bi-key-fill"></i> STAFF
+                </span>
               </div>
 
-              <!-- Name & ID -->
               <div>
                 <h1 class="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black tracking-tight mb-2 md:mb-3 leading-tight">
                   {{ student.prefix }}{{ student.first_name }} {{ student.last_name }}
@@ -124,7 +133,6 @@ onMounted(() => {
               </div>
             </div>
             
-            <!-- Desktop Student No. Box (Shows only on medium+ screens) -->
             <div class="hidden md:flex bg-white/10 backdrop-blur-md border border-white/20 px-8 py-6 rounded-3xl text-center min-w-[140px] shadow-2xl flex-col items-center justify-center transform hover:scale-105 transition-transform">
               <p class="text-xs font-bold text-blue-200/70 uppercase tracking-widest mb-1">เลขที่</p>
               <p class="text-5xl font-black text-white">{{ student.student_no }}</p>
@@ -133,7 +141,6 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Body Content -->
         <div class="p-5 sm:p-8 md:p-10 lg:p-14">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
             
@@ -146,7 +153,6 @@ onMounted(() => {
                   <i class="bi bi-person-lines-fill text-indigo-500 text-sm"></i> ข้อมูลการติดต่อ
                 </h3>
                 <div class="space-y-3">
-                  <!-- App-like List Items -->
                   <div class="flex items-center gap-4 bg-white border border-slate-100 shadow-sm rounded-2xl p-4 hover:border-blue-100 transition-colors">
                     <div class="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-slate-700">
                       <i class="bi bi-telephone-fill text-lg"></i>
@@ -252,7 +258,7 @@ onMounted(() => {
               </section>
 
               <!-- Basic Info Grid -->
-<section>
+              <section>
                 <h3 class="text-[11px] md:text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                   <i class="bi bi-grid-fill text-blue-500 text-sm"></i> ข้อมูลส่วนตัวพื้นฐาน
                 </h3>
@@ -306,7 +312,6 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Footer Sections (Portfolio & Academics) -->
           <div class="mt-8 md:mt-12 space-y-6 md:space-y-8 border-t border-slate-100 pt-8 md:pt-10">
             
             <section>
@@ -336,7 +341,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ลดความแข็งของ Highlighting สีน้ำเงินเวลาเอานิ้วกดบนมือถือ */
 * {
   -webkit-tap-highlight-color: transparent;
 }
