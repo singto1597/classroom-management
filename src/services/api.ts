@@ -8,7 +8,7 @@ export const api = axios.create({
   },
 });
 
-// Interceptor ขาออก: แนบ Header Authorization: Bearer <token>
+// Interceptor ขาออก
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
@@ -27,13 +27,22 @@ api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (error.response) {
-      // ถ้าเป็น 401 (Unauthorized) ให้เคลียร์ Token และเด้งไปหน้า Login
       if (error.response.status === 401) {
         localStorage.removeItem('access_token');
         window.location.href = '/login';
       }
       
-      const detail = error.response.data?.detail || 'เกิดข้อผิดพลาดจาก API';
+      let detail = error.response.data?.detail || 'เกิดข้อผิดพลาดจาก API';
+      
+      // ✨ ปลดล็อก Pydantic 422 Error ให้อ่านรู้เรื่อง!
+      // ถ้า Backend ส่ง Array Error มา จะจับมาแกะชื่อฟิลด์บอกให้ชัดเจน
+      if (Array.isArray(detail)) {
+        detail = detail.map((err: any) => {
+          const field = err.loc ? err.loc[err.loc.length - 1] : 'Unknown';
+          return `ฟิลด์ '${field}': ${err.msg}`;
+        }).join('\n');
+      }
+      
       return Promise.reject(new Error(detail));
     }
     return Promise.reject(new Error('ไม่สามารถเชื่อมต่อกับ Backend ได้: ' + error.message));
