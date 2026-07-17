@@ -5,5 +5,8 @@ export interface UserRoom {
   room_code?: string;
   room_name: string;
   role: string;
-  status: string; // ✨ เพิ่มบรรทัดนี้เข้าไปแค่นี้เลยครับ!
+  status: string; 
+
+  is_admin?: boolean;
+  permissions?: string[];
 }
