@@ -68,11 +68,11 @@ class StudentUpdateRequest(BaseModel):
     
     data_completion: Optional[dict] = None
 
-    @model_validator(mode='after')
-    def set_discord_id_str(self):
-        if self.discord_id is not None:
-            self.discord_id_str = str(self.discord_id)
-        return self
+    # @model_validator(mode='after')
+    # def set_discord_id_str(self):
+    #     if self.discord_id is not None:
+    #         self.discord_id_str = str(self.discord_id)
+    #     return self
 
 class UserRoomResponse(BaseModel):
     room_id: int 
