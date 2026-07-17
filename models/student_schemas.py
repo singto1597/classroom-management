@@ -48,23 +48,23 @@ class StudentUpdateRequest(BaseModel):
     food_allergy: Optional[str] = Field(None, max_length=255)
     congenital_disease: Optional[str] = Field(None, max_length=255)
     
-    phone_number: Optional[str]
-    phone_number_parent: Optional[str]
-    phone_number_parent_relation: Optional[str]
-    line_id: Optional[str]
-    ig_username: Optional[str]
-    email: Optional[str]
+    phone_number: Optional[str] = None
+    phone_number_parent: Optional[str] = None
+    phone_number_parent_relation: Optional[str] = None
+    line_id: Optional[str] = None
+    ig_username: Optional[str] = None
+    email: Optional[str] = None
     
-    address_house_no: Optional[str]
-    address_road: Optional[str]
-    address_sub_district: Optional[str]
-    address_district: Optional[str]
-    address_province: Optional[str]
-    address_post_code: Optional[str]
+    address_house_no: Optional[str] = None
+    address_road: Optional[str] = None
+    address_sub_district: Optional[str] = None
+    address_district: Optional[str] = None
+    address_province: Optional[str] = None
+    address_post_code: Optional[str] = None
     
-    status: str
-    created_at: Optional[datetime]
-    updated_at: Optional[datetime]
+    status: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     data_completion: Optional[dict] = None
 
