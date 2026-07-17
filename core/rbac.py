@@ -1,60 +1,69 @@
 import json
-import os
-from typing import Dict, List
 import asyncpg
 from core.exceptions import ForbiddenError
 from core.config import settings
 
-class RBACManager:
-    _roles_config: Dict[str, List[str]] = {}
-
-    @classmethod
-    def load_roles(cls):
-        """โหลดไฟล์ roles.json ครั้งเดียวและ Cache ไว้"""
-        if not cls._roles_config:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            config_path = os.path.join(base_dir, "config", "roles.json")
-            
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    cls._roles_config = json.load(f)
-            except FileNotFoundError:
-                cls._roles_config = {}
-        return cls._roles_config
-
-    @classmethod
-    def has_permission(cls, role: str, permission: str) -> bool:
-        roles_with_permission = cls.load_roles().get(permission, [])
-        return role in roles_with_permission
+# 💡 กำหนดรายการสิทธิ์ทั้งหมดที่มีในระบบ (เก็บเป็น List ไว้ดูอ้างอิง)
+# เวลามีการมอบหมายสิทธิ์ให้ใคร ระบบจะเก็บค่าพวกนี้ลงในช่อง permissions (JSONB)
+AVAILABLE_PERMISSIONS = [
+    "VIEW_ALL_STUDENTS",
+    "MANAGE_STUDENTS",
+    "EXPORT_STUDENTS",
+    "HARD_DELETE_STUDENTS",
+    "MANAGE_FINANCE",
+    "MANAGE_CLASSROOM_SETTINGS",
+    "MANAGE_CLASSROOM_TASKS"
+]
 
 async def require_permission(conn: asyncpg.Connection, room_id: int, user_id: int, required_permission: str):
     """
-    ฟังก์ชันเช็คสิทธิ์แบบ Async
-    - 🚨 เปลี่ยนจากรับ discord_id มาใช้ user_id แบบ 100%
+    ระบบเช็คสิทธิ์ (Granular RBAC) รูปแบบใหม่
+    - ไม่สนใจ class_role (ป้ายชื่อ) อีกต่อไป
+    - เช็คจาก is_admin (ผ่านฉลุย) และฟิลด์ permissions (แบบรายตัว)
     """
     
-    # 1. เช็ค Super Admin (God Mode)
+    # 1. เช็ค Super Admin (God Mode ระดับ Server - คนถือ Config)
     if settings.SUPER_ADMIN_ID and int(user_id) == int(settings.SUPER_ADMIN_ID):
         return True
 
-    # 2. Query ดึงค่า class_role จากตาราง students
+    # 2. Query ดึงค่า is_admin และ permissions ออกมาจากตาราง students
     query = """
-        SELECT class_role 
+        SELECT is_admin, permissions, status
         FROM students 
         WHERE room_id = $1 
           AND user_id = $2 
-          AND status = 'active' 
           AND deleted_at IS NULL
     """
     row = await conn.fetchrow(query, room_id, int(user_id))
     
     if not row:
-        raise ForbiddenError("Access Denied: ไม่พบข้อมูลนักเรียน หรือบัญชีของคุณถูกระงับ")
+        raise ForbiddenError("Access Denied: ไม่พบข้อมูลของคุณในห้องเรียนนี้")
+        
+    if row['status'] != 'active':
+        raise ForbiddenError("Access Denied: บัญชีของคุณในห้องนี้ยังไม่ได้รับการอนุมัติ หรือถูกระงับ")
+
+    is_admin = row['is_admin']
     
-    user_role = row['class_role']
+    # 3. 🛡️ เช็คระดับ 1 (God Mode ของห้อง): ถ้าเป็น Admin คือข้ามการเช็คสิทธิ์ย่อยไปเลย ทำได้ทุกอย่าง!
+    if is_admin:
+        return True
+
+    # 4. 🛡️ เช็คระดับ 2 (Custom Mode): ถ้าไม่ใช่ Admin ให้เช็คจาก Array สิทธิ์ย่อย (permissions)
+    user_permissions = []
+    raw_perms = row['permissions']
     
-    # 3. ตรวจสอบสิทธิ์ใน RBAC Engine
-    if not user_role or not RBACManager.has_permission(user_role, required_permission):
-        raise ForbiddenError(f"Access Denied: สิทธิ์ของคุณ ({user_role or 'student'}) ไม่เพียงพอสำหรับทำรายการนี้")
+    if raw_perms:
+        if isinstance(raw_perms, str):
+            try:
+                user_permissions = json.loads(raw_perms)
+            except json.JSONDecodeError:
+                user_permissions = []
+        else:
+            # กรณีที่ asyncpg แปลง JSONB กลับมาเป็น List Python ให้อัตโนมัติ
+            user_permissions = raw_perms
+    
+    # ถ้าสิทธิ์ที่ต้องการ (required_permission) ไม่มีใน Array ของ User คนนี้ ให้ดีดออกทันที
+    if required_permission not in user_permissions:
+        raise ForbiddenError(f"Access Denied: คุณไม่มีสิทธิ์ '{required_permission}'")
     
     return True
