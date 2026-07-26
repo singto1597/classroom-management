@@ -185,10 +185,10 @@ class ClassroomService:
                 )
                 
                 exec_time = int((time.time() - start_time) * 1000)
-                await service_logger.log(
-                    conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
-                    entity_type="ROOM", endpoint_or_command="get_rooms_to_notify", execution_time_ms=exec_time
-                )
+                # await service_logger.log(
+                #     conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                #     entity_type="ROOM", endpoint_or_command="get_rooms_to_notify", execution_time_ms=exec_time
+                # )
                 return [dict(row) for row in rows]
         except Exception as e:
             async with pool.acquire() as fallback_conn:
