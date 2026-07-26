@@ -30,8 +30,14 @@ def get_target(
 
 @router.post("/{target_id}/students", response_model=SuccessResponse)
 async def add_student(req: StudentAddRequest, target: TargetResolution = Depends(get_target), pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        await StudentService.add_student(pool, req.student_no, req.first_name, req.last_name, req.user_name, server_id=target.server_id, room_id=target.room_id)
+        await StudentService.add_student(
+            pool, req.student_no, req.first_name, req.last_name, req.user_name,
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
         return SuccessResponse(message=f"Added student No. {req.student_no}")
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -40,9 +46,15 @@ async def add_student(req: StudentAddRequest, target: TargetResolution = Depends
 
 @router.post("/{target_id}/students/bulk", response_model=SuccessResponse)
 async def bulk_add_students(req: StudentBulkAddRequest, target: TargetResolution = Depends(get_target), pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
         students_dict = [s.model_dump() for s in req.students]
-        await StudentService.bulk_add_students(pool, students_dict, req.user_name, server_id=target.server_id, room_id=target.room_id)
+        await StudentService.bulk_add_students(
+            pool, students_dict, req.user_name,
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
         return SuccessResponse(message=f"Successfully bulk added {len(req.students)} students.")
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -51,22 +63,36 @@ async def bulk_add_students(req: StudentBulkAddRequest, target: TargetResolution
 
 @router.get("/{user_id}/rooms", response_model=List[UserRoomResponse])
 async def get_user_rooms(user_id: int, pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     if user_id != user_ctx["user_id"]: raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์ดูข้อมูลห้องของผู้อื่น")
-    return await StudentService.get_user_rooms(pool, user_id)
+    return await StudentService.get_user_rooms(pool, user_id, client_source=client_source, actor_identifier=actor_identifier)
 
 @router.get("/{target_id}/students/profile/{student_no}", response_model=StudentResponse)
 async def get_student_by_no(student_no: int, target: TargetResolution = Depends(get_target), user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        return await StudentService.get_student_profile(pool, student_no, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id)
+        return await StudentService.get_student_profile(
+            pool, student_no, user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
     except ForbiddenError as e: raise HTTPException(status_code=403, detail=str(e))
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 
 @router.patch("/{target_id}/students/{student_no}", response_model=SuccessResponse)
 async def update_student(student_no: int, req: StudentUpdateRequest, target: TargetResolution = Depends(get_target), user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
         update_data = req.model_dump(exclude_unset=True) 
-        await StudentService.update_student(pool, student_no, update_data, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id)
+        await StudentService.update_student(
+            pool, student_no, update_data, user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
         return SuccessResponse(message="Student updated successfully.")
     except ForbiddenError as e: raise HTTPException(status_code=403, detail=str(e))
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
@@ -74,8 +100,14 @@ async def update_student(student_no: int, req: StudentUpdateRequest, target: Tar
 
 @router.delete("/{target_id}/students/{student_no}", response_model=SuccessResponse)
 async def delete_student(student_no: int, req: StudentDeleteRequest, target: TargetResolution = Depends(get_target), user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        await StudentService.delete_student(pool, student_no, req.user_name, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id)
+        await StudentService.delete_student(
+            pool, student_no, req.user_name, user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
         return SuccessResponse(message=f"Student No. {student_no} has been soft-deleted.")
     except ForbiddenError as e: raise HTTPException(status_code=403, detail=str(e))
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
@@ -83,8 +115,14 @@ async def delete_student(student_no: int, req: StudentDeleteRequest, target: Tar
 
 @router.delete("/{target_id}/students/{student_no}/permanent", response_model=SuccessResponse)
 async def delete_student_permanent(student_no: int, req: StudentDeleteRequest, target: TargetResolution = Depends(get_target), user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        await StudentService.delete_student_permanent(pool, student_no, req.user_name, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id)
+        await StudentService.delete_student_permanent(
+            pool, student_no, req.user_name, user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
         return SuccessResponse(message=f"Permanently deleted student No. {student_no}")
     except ForbiddenError as e: raise HTTPException(status_code=403, detail=str(e))
     except ValidationError as e: raise HTTPException(status_code=400, detail=str(e))
@@ -93,23 +131,41 @@ async def delete_student_permanent(student_no: int, req: StudentDeleteRequest, t
 
 @router.get("/{target_id}/students/me", response_model=StudentResponse)
 async def get_my_profile(target: TargetResolution = Depends(get_target), user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        return await StudentService.get_student_by_user_id(pool, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id)
+        return await StudentService.get_student_by_user_id(
+            pool, user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{target_id}/students", response_model=List[StudentSummaryResponse])
 async def get_all_students(target: TargetResolution = Depends(get_target), user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        return await StudentService.get_all_students(pool, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id)
+        return await StudentService.get_all_students(
+            pool, user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
     except ForbiddenError as e: raise HTTPException(status_code=403, detail=str(e))
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
     
 @router.post("/{target_id}/export")
 async def export_students(req: StudentExportRequest, target: TargetResolution = Depends(get_target), user_ctx: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        excel_file = await StudentService.export_students_excel(pool, req.fields, req.user_name, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id)
+        excel_file = await StudentService.export_students_excel(
+            pool, req.fields, req.user_name, user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
         ref_id = target.server_id or target.room_id
         return StreamingResponse(
             excel_file, 
@@ -122,15 +178,27 @@ async def export_students(req: StudentExportRequest, target: TargetResolution = 
 
 @router.get("/{target_id}/search")
 async def search_students(target: TargetResolution = Depends(get_target), q: str = Query(...), pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        return await StudentService.search_students(pool, q, server_id=target.server_id, room_id=target.room_id)
+        return await StudentService.search_students(
+            pool, q,
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 
 @router.patch("/{target_id}/students/{student_no}/status")
 async def deactivate_student(student_no: int, req: StudentStatusUpdate, target: TargetResolution = Depends(get_target), pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
+    client_source = "WEB_APP"
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        await StudentService.update_status(pool, student_no, req.status, req.user_name, server_id=target.server_id, room_id=target.room_id)
+        await StudentService.update_status(
+            pool, student_no, req.status, req.user_name,
+            client_source=client_source, actor_identifier=actor_identifier,
+            server_id=target.server_id, room_id=target.room_id
+        )
         return SuccessResponse(message=f"Status of No. {student_no} changed to {req.status}")
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))

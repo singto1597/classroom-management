@@ -12,6 +12,7 @@ router = APIRouter()
 @router.post("/create", response_model=RoomResponse, summary="สร้างห้องเรียนใหม่ (Web)")
 async def create_room(
     req: RoomCreateRequest,
+    request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
@@ -19,7 +20,16 @@ async def create_room(
     if not user_id:
         raise HTTPException(status_code=401, detail="User account required to create a room")
 
-    result = await RoomManagementService.create_room(pool, req.room_name, user_id)
+    client_source = request.headers.get("x-client-source", "WEB_APP")
+    actor_identifier = f"user_id:{user_id}"
+
+    result = await RoomManagementService.create_room(
+        pool, 
+        req.room_name, 
+        user_id, 
+        client_source=client_source, 
+        actor_identifier=actor_identifier
+    )
     
     return RoomResponse(
         room_id=result["room_id"],
@@ -31,6 +41,7 @@ async def create_room(
 @router.post("/join", response_model=JoinRoomResponse, summary="เข้าห้องเรียนด้วยรหัส (Web)")
 async def join_room(
     req: RoomJoinRequest,
+    request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
@@ -38,8 +49,17 @@ async def join_room(
     if not user_id:
         raise HTTPException(status_code=401, detail="User account required to join a room")
 
+    client_source = request.headers.get("x-client-source", "WEB_APP")
+    actor_identifier = f"user_id:{user_id}"
+
     try:
-        result = await RoomManagementService.join_room(pool, req, user_id)
+        result = await RoomManagementService.join_room(
+            pool, 
+            req, 
+            user_id,
+            client_source=client_source,
+            actor_identifier=actor_identifier
+        )
         return JoinRoomResponse(
             room_id=result["room_id"],
             student_id=result.get("student_id", 0),
@@ -51,11 +71,20 @@ async def join_room(
 @router.get("/{room_id}/requests", summary="ดึงรายชื่อนักเรียนที่รออนุมัติ")
 async def get_pending_requests(
     room_id: int,
+    request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
+    client_source = request.headers.get("x-client-source", "WEB_APP")
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        return await RoomManagementService.get_pending_requests(pool, room_id, user_ctx["user_id"])
+        return await RoomManagementService.get_pending_requests(
+            pool, 
+            room_id, 
+            user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor_identifier
+        )
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e)) 
 
@@ -63,11 +92,21 @@ async def get_pending_requests(
 async def approve_student(
     room_id: int,
     student_no: int,
+    request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
+    client_source = request.headers.get("x-client-source", "WEB_APP")
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        await RoomManagementService.approve_join_request(pool, room_id, student_no, user_ctx["user_id"])
+        await RoomManagementService.approve_join_request(
+            pool, 
+            room_id, 
+            student_no, 
+            user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor_identifier
+        )
         return {"status": "success", "message": f"อนุมัตินักเรียนเลขที่ {student_no} สำเร็จ"}
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -76,11 +115,21 @@ async def approve_student(
 async def reject_student(
     room_id: int,
     student_no: int,
+    request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
+    client_source = request.headers.get("x-client-source", "WEB_APP")
+    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
-        await RoomManagementService.reject_join_request(pool, room_id, student_no, user_ctx["user_id"])
+        await RoomManagementService.reject_join_request(
+            pool, 
+            room_id, 
+            student_no, 
+            user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor_identifier
+        )
         return {"status": "success", "message": f"ปฏิเสธนักเรียนเลขที่ {student_no} สำเร็จ"}
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
