@@ -9,6 +9,15 @@ from core.exceptions import ForbiddenError
 
 router = APIRouter()
 
+def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str]:
+    client_source = request.headers.get("x-client-source", "WEB_APP")
+    ip = request.client.host if request.client else "unknown"
+    if user_ctx and "user_id" in user_ctx:
+        actor_identifier = f"user_id:{user_ctx['user_id']}"
+    else:
+        actor_identifier = request.headers.get("x-actor-id", f"ip:{ip}")
+    return client_source, actor_identifier
+
 @router.post("/create", response_model=RoomResponse, summary="สร้างห้องเรียนใหม่ (Web)")
 async def create_room(
     req: RoomCreateRequest,
@@ -16,19 +25,17 @@ async def create_room(
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
+    client_source, actor = get_audit_context(request, user_ctx)
     user_id = user_ctx.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="User account required to create a room")
-
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    actor_identifier = f"user_id:{user_id}"
 
     result = await RoomManagementService.create_room(
         pool, 
         req.room_name, 
         user_id, 
         client_source=client_source, 
-        actor_identifier=actor_identifier
+        actor_identifier=actor
     )
     
     return RoomResponse(
@@ -45,12 +52,10 @@ async def join_room(
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
+    client_source, actor = get_audit_context(request, user_ctx)
     user_id = user_ctx.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="User account required to join a room")
-
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    actor_identifier = f"user_id:{user_id}"
 
     try:
         result = await RoomManagementService.join_room(
@@ -58,7 +63,7 @@ async def join_room(
             req, 
             user_id,
             client_source=client_source,
-            actor_identifier=actor_identifier
+            actor_identifier=actor
         )
         return JoinRoomResponse(
             room_id=result["room_id"],
@@ -75,15 +80,14 @@ async def get_pending_requests(
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
+        client_source, actor = get_audit_context(request, user_ctx)
         return await RoomManagementService.get_pending_requests(
             pool, 
             room_id, 
             user_ctx["user_id"],
             client_source=client_source,
-            actor_identifier=actor_identifier
+            actor_identifier=actor
         )
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e)) 
@@ -96,16 +100,15 @@ async def approve_student(
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
+        client_source, actor = get_audit_context(request, user_ctx)
         await RoomManagementService.approve_join_request(
             pool, 
             room_id, 
             student_no, 
             user_ctx["user_id"],
             client_source=client_source,
-            actor_identifier=actor_identifier
+            actor_identifier=actor
         )
         return {"status": "success", "message": f"อนุมัตินักเรียนเลขที่ {student_no} สำเร็จ"}
     except ForbiddenError as e:
@@ -119,16 +122,15 @@ async def reject_student(
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
 ):
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    actor_identifier = f"user_id:{user_ctx['user_id']}"
     try:
+        client_source, actor = get_audit_context(request, user_ctx)
         await RoomManagementService.reject_join_request(
             pool, 
             room_id, 
             student_no, 
             user_ctx["user_id"],
             client_source=client_source,
-            actor_identifier=actor_identifier
+            actor_identifier=actor
         )
         return {"status": "success", "message": f"ปฏิเสธนักเรียนเลขที่ {student_no} สำเร็จ"}
     except ForbiddenError as e:
