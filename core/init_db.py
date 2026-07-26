@@ -27,15 +27,77 @@ async def init_db(pool: asyncpg.Pool):
     try:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                # --- 1. Core / Classroom Modules ---
+                
+                # 🚨 [SMART MIGRATION] จัดการตาราง audit_logs เก่า
+                logger.info("Checking for legacy audit_logs table...")
+                await conn.execute("""
+                    DO $$ 
+                    BEGIN
+                        -- เช็คว่ามีตาราง audit_logs ไหม และดูว่าไม่มีคอลัมน์ trace_id ใช่หรือไม่
+                        -- ถ้าใช่ แปลว่าเป็นตารางเก่า ให้เปลี่ยนชื่อหลบไปเป็น audit_logs_legacy
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.tables WHERE table_name = 'audit_logs'
+                        ) AND NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns WHERE table_name = 'audit_logs' AND column_name = 'trace_id'
+                        ) THEN
+                            ALTER TABLE audit_logs RENAME TO audit_logs_legacy;
+                        END IF;
+                    END $$;
+                """)
+
+                # --- 1. สร้างตาราง Users กลาง (ศูนย์รวมตัวตนสากล) ---
+                await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    discord_id BIGINT UNIQUE,
+                    google_id VARCHAR(255) UNIQUE,
+                    
+                    username VARCHAR(100) UNIQUE,
+                    password_hash TEXT,
+                    avatar_url TEXT,              
+
+                    prefix TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    nickname TEXT,
+                    birthday DATE,                
+
+                    blood_group VARCHAR(3),
+                    shirt_size TEXT,
+                    food_allergy TEXT,            
+                    congenital_disease TEXT,      
+
+                    phone_number TEXT,
+                    email TEXT UNIQUE,            
+                    line_id TEXT,
+                    ig_username TEXT,
+
+                    phone_number_parent TEXT,     
+                    phone_number_parent_relation TEXT, 
+
+                    address_house_no TEXT,
+                    address_road TEXT,
+                    address_sub_district TEXT,
+                    address_district TEXT,
+                    address_province TEXT,
+                    address_post_code VARCHAR(10),
+
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL
+                );
+                """)
+
+                # --- 2. Core / Classroom Modules ---
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS rooms (
                     id SERIAL PRIMARY KEY,
-                    server_id BIGINT UNIQUE,  -- 🚨 ปลด NOT NULL ออกเพื่อรองรับ Web-Centric
-                    room_code VARCHAR(10) UNIQUE, -- 🚨 เพิ่มรหัสเข้าห้องสำหรับเว็บ
+                    server_id BIGINT UNIQUE,  
+                    room_code VARCHAR(10) UNIQUE, 
                     room_name TEXT NOT NULL,
                     announcement_channel_id BIGINT,
                     notify_time VARCHAR(5) DEFAULT '19:00',
+                    owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                     deleted_at TIMESTAMP DEFAULT NULL
                 );
 
@@ -77,31 +139,45 @@ async def init_db(pool: asyncpg.Pool):
                     deleted_at TIMESTAMP DEFAULT NULL
                 );
 
+                -- 🚨 ตาราง audit_logs โครงสร้างใหม่ 🚨
                 CREATE TABLE IF NOT EXISTS audit_logs (
-                    id SERIAL PRIMARY KEY,
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    trace_id VARCHAR(50),               
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
-                    user_name TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    detail TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    deleted_at TIMESTAMP DEFAULT NULL
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, 
+                    actor_identifier VARCHAR(100) NOT NULL, 
+                    client_source VARCHAR(20) NOT NULL, 
+                    service_name VARCHAR(50) NOT NULL,  
+                    action VARCHAR(50) NOT NULL,        
+                    entity_type VARCHAR(50),            
+                    entity_id VARCHAR(50),              
+                    status VARCHAR(20) DEFAULT 'success', 
+                    error_detail TEXT,                  
+                    old_values JSONB,                   
+                    new_values JSONB,                   
+                    endpoint_or_command TEXT,           
+                    ip_address VARCHAR(45),             
+                    user_agent TEXT,                    
+                    execution_time_ms INTEGER,          
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 );
 
                 CREATE TABLE IF NOT EXISTS students (
                     id SERIAL PRIMARY KEY,
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
-                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, -- 🚨 ลิงก์ไปยังตาราง users
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, 
                     student_no INTEGER NOT NULL,
                     student_id VARCHAR(10),
                     
-                    -- ข้อมูลบริบทที่เกี่ยวกับ "ห้องเรียนนี้" เท่านั้น
                     class_role TEXT DEFAULT 'student', 
                     cleaning_duty TEXT, 
                     olympic_camp TEXT,
                     portfolio TEXT,
                     target_faculty TEXT,
                     
-                    -- Metadata
+                    is_admin BOOLEAN DEFAULT FALSE,
+                    permissions JSONB DEFAULT '[]'::jsonb,
+                    
                     status TEXT DEFAULT 'active',
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -109,7 +185,7 @@ async def init_db(pool: asyncpg.Pool):
                 );
             """)
 
-            # --- 2. Maintenance Module ---
+            # --- 3. Maintenance Module ---
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS mtn_locations (
                     id SERIAL PRIMARY KEY,
@@ -140,7 +216,7 @@ async def init_db(pool: asyncpg.Pool):
                 );
             """)
 
-            # --- 3. Finance Module ---
+            # --- 4. Finance Module ---
             await conn.execute("""
                 CREATE SEQUENCE IF NOT EXISTS transfer_group_id_seq;
 
@@ -199,111 +275,42 @@ async def init_db(pool: asyncpg.Pool):
                     deleted_at TIMESTAMP DEFAULT NULL
                 );
             """)
-            await conn.execute("""
-                -- 1. สร้างตาราง Users กลาง (ศูนย์รวมตัวตนสากล)
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    discord_id BIGINT UNIQUE,
-                    google_id VARCHAR(255) UNIQUE, -- 🚨 รองรับ Google Login สำหรับเว็บ
-                    
-                    -- ระบบ Login (รองรับอนาคต)
-                    username VARCHAR(100) UNIQUE,
-                    password_hash TEXT,
-                    avatar_url TEXT,              -- เผื่อเก็บลิงก์รูปโปรไฟล์
-
-                    -- ข้อมูลส่วนตัวพื้นฐาน
-                    prefix TEXT,
-                    first_name TEXT,
-                    last_name TEXT,
-                    nickname TEXT,
-                    birthday DATE,                
-
-                    -- ข้อมูลทางกายภาพและสุขภาพ
-                    blood_group VARCHAR(3),
-                    shirt_size TEXT,
-                    food_allergy TEXT,            
-                    congenital_disease TEXT,      
-
-                    -- ข้อมูลติดต่อ (ส่วนตัว)
-                    phone_number TEXT,
-                    email TEXT UNIQUE,            -- 🚨 อัปเดตให้บังคับ UNIQUE       
-                    line_id TEXT,
-                    ig_username TEXT,
-
-                    -- ข้อมูลติดต่อ (ผู้ปกครอง)
-                    phone_number_parent TEXT,     
-                    phone_number_parent_relation TEXT, 
-
-                    -- ที่อยู่ (ตามทะเบียนบ้าน / ปัจจุบัน)
-                    address_house_no TEXT,
-                    address_road TEXT,
-                    address_sub_district TEXT,
-                    address_district TEXT,
-                    address_province TEXT,
-                    address_post_code VARCHAR(10),
-
-                    -- Metadata ระบบ
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    deleted_at TIMESTAMP DEFAULT NULL
-                );
-
-                -- 2. เพิ่ม Foreign Key กลับไปที่ตาราง students เดิม
-                ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
-            """)
             
-            # --- 4. Extra Alterations & Smart Constraints ---
-            await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS portfolio TEXT;")
-            await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE default_schedules ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE schedule_overrides ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE finance_categories ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE finance_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE fee_collections ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE student_payments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
+            # --- 5. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
-            await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
-            await conn.execute("ALTER TABLE daily_notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;")
             
-            # 🚨 5. Big Refactoring Alterations (Migration Update)
-            await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_code VARCHAR(10) UNIQUE;")
-            await conn.execute("ALTER TABLE rooms ALTER COLUMN server_id DROP NOT NULL;")
-            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;")
-            
-            # การเพิ่ม Constraint อย่างปลอดภัย (กัน Error กรณีมีคีย์นี้อยู่แล้ว)
+            # การเพิ่ม Constraint อย่างปลอดภัย
             await conn.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;")
             await conn.execute("ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email);")
 
-            # 🚨 6. DROP กฎเกณฑ์เก่าที่งี่เง่าทิ้ง
+            # DROP กฎเกณฑ์เก่าที่งี่เง่าทิ้ง
             await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_student_id_key CASCADE;")
             await conn.execute("ALTER TABLE students DROP CONSTRAINT IF EXISTS students_room_id_student_no_key CASCADE;")
             await conn.execute("ALTER TABLE student_payments DROP CONSTRAINT IF EXISTS student_payments_collection_id_student_id_key CASCADE;")
-            # ดรอป Index เก่าที่ผมให้ไปเมื่อกี้ (เผื่อคุณเผลอรันไปแล้ว)
             await conn.execute("DROP INDEX IF EXISTS idx_students_student_id_active;")
 
-            # 🚨 7. สร้าง PARTIAL UNIQUE INDEX (ผูกกับ room_id ทั้งหมด)
-            
-            # - รหัส นร. ห้ามซ้ำ "ภายในห้องเดียวกัน" (ถ้ายังไม่ถูกลบ)
+            # สร้าง PARTIAL UNIQUE INDEX (ผูกกับ room_id ทั้งหมด)
             await conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_students_room_student_id_active 
                 ON students(room_id, student_id) 
                 WHERE deleted_at IS NULL AND student_id IS NOT NULL;
             """)
             
-            # - เลขที่ ห้ามซ้ำ "ภายในห้องเดียวกัน" (ถ้ายังไม่ถูกลบ)
             await conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_students_room_no_active 
                 ON students(room_id, student_no) 
                 WHERE deleted_at IS NULL;
             """)
             
-            # - บิลเก็บเงิน 1 บิลต่อ 1 นักเรียน ห้ามสร้างซ้ำ (ถ้ายังไม่ถูกยกเลิก)
             await conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_student_payments_active 
                 ON student_payments(collection_id, student_id) 
                 WHERE deleted_at IS NULL;
+            """)
+
+            # 🚨 สร้าง Index สำหรับการค้นหา Log ความเร็วสูง
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_audit_new_values ON audit_logs USING GIN (new_values);
             """)
 
             await conn.execute("""
@@ -331,34 +338,13 @@ async def init_db(pool: asyncpg.Pool):
                     DROP COLUMN IF EXISTS address_province,
                     DROP COLUMN IF EXISTS address_post_code;
             """)
-
-            # --- 4. Extra Alterations & Smart Constraints ---
-            # (โค้ดเดิมของคุณที่แก้ ALTER TABLE ต่างๆ...)
             
-            # 🚨 8. New RBAC System (ระบบสิทธิ์แบบใหม่ที่แยกจากตำแหน่ง)
-            logger.info("Applying new RBAC schema...")
-            
-            # 1. เพิ่ม owner_id ให้ตาราง rooms (เก็บว่า User ID ไหนคือคนสร้างห้อง)
-            await conn.execute("""
-                ALTER TABLE rooms 
-                ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
-            """)
-
-            # 2. เพิ่มระบบสิทธิ์ให้ตาราง students
-            await conn.execute("""
-                ALTER TABLE students 
-                ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '[]'::jsonb;
-            """)
-
-            # 3. อัปเดตข้อมูลเก่า (Migration) 
-            # (เผื่อมีข้อมูลเดิมอยู่แล้ว ให้คนที่เคยเป็น president กลายเป็น admin ชั่วคราวก่อน)
+            # อัปเดตข้อมูลเก่า (Migration) ให้คนที่เคยเป็น president เป็น admin 
             await conn.execute("""
                 UPDATE students 
                 SET is_admin = TRUE 
                 WHERE class_role = 'president' AND is_admin = FALSE;
             """)
-
 
             logger.info("✅ Database Tables & Smart Constraints Initialized Successfully!")
 
