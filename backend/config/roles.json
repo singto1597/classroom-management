@@ -1,0 +1,9 @@
+{
+  "VIEW_ALL_STUDENTS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "staff_academic", "staff_activity", "staff_discipline", "staff_reception", "treasurer"],
+  "MANAGE_STUDENTS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception"],
+  "EXPORT_STUDENTS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "treasurer"],
+  "HARD_DELETE_STUDENTS": ["president"],
+  "MANAGE_FINANCE": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "treasurer"],
+  "MANAGE_CLASSROOM_SETTINGS": ["president", "vice_academic", "staff_academic"],
+  "MANAGE_CLASSROOM_TASKS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "staff_academic", "staff_activity", "staff_discipline", "staff_reception", "treasurer"]
+}
