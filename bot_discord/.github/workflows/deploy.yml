@@ -1,0 +1,29 @@
+name: Auto Deploy Discord Bot
+on:
+  push:
+    branches: [ main, staging ]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into Server and Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            if [ "${{ github.ref }}" = "refs/heads/staging" ]; then
+              echo "🚀 Deploying Discord Bot STAGING..."
+              cd ~/classroom-staging/classroom-management_discord-announcement
+              git pull origin staging
+              # เอาคอมเมนต์ออกแล้วแก้ชื่อ service ตอนมึงทำ service bot เทสเสร็จ
+              # sudo systemctl restart discord-bot-staging
+
+            elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              echo "🔥 Deploying Discord Bot PRODUCTION..."
+              cd ~/classroom-management/classroom-management_discord-announcement
+              git pull origin main
+              # sudo systemctl restart discord-bot-production
+            fi
