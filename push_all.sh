@@ -1,15 +1,12 @@
 #!/bin/bash
 
-# รับข้อความ Commit จากตอนพิมพ์คำสั่ง
+# รับข้อความ Commit จากตอนพิมพ์คำสั่ง (ถ้าไม่พิมพ์จะใช้ค่า default)
 MESSAGE=${1:-"chore: auto update"}
 
-echo "🚀 กำลัง Push โค้ดทุก Repo สู่ GitHub..."
-
-# ใช้ origin HEAD เพื่อสั่งให้ push branch ปัจจุบันที่กำลัง active อยู่ขึ้นไปเลย (ไม่ว่าจะ main หรือ staging)
-git submodule foreach "git add . && git commit -m '$MESSAGE' && git push origin HEAD || true"
+echo "🚀 กำลัง Push โค้ด Monorepo สู่ GitHub..."
 
 git add .
 git commit -m "$MESSAGE"
 git push origin HEAD
 
-echo "✅ เรียบร้อย! อัปเดตทุกอย่างจบในปุ่มเดียว"
+echo "✅ เรียบร้อย! อัปเดตทุกอย่างขึ้น GitHub จบในปุ่มเดียว"

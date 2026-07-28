@@ -15,19 +15,10 @@ if [ -z "$CURRENT_BRANCH" ]; then
     exit 1
 fi
 
-# 2. ดึงโค้ดล่าสุด
+# 2. ดึงโค้ดล่าสุดของ Monorepo (ไม่ต้องยุ่งกับ Submodule แล้ว)
 echo "⬇️ กำลังดึงโค้ดล่าสุด..."
 git fetch origin
 git reset --hard origin/$CURRENT_BRANCH
-git submodule update --init
-
-export CURRENT_BRANCH
-git submodule foreach '
-  if [ "$name" = "frontend_php" ]; then exit 0; fi
-  git fetch origin
-  git checkout $CURRENT_BRANCH || git checkout -b $CURRENT_BRANCH
-  git reset --hard origin/$CURRENT_BRANCH
-'
 
 # 3. Build Image
 echo "🔨 กำลังสร้าง Docker Image สำหรับ $ENV_NAME..."
