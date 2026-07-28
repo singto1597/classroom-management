@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 1. โหลดตัวแปรจากไฟล์ .env
+# 1. โหลดตัวแปรจากไฟล์ .env นอกสุด
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
     echo "⚙️ โหลด Environment: $ENV_NAME"
@@ -15,18 +15,22 @@ if [ -z "$CURRENT_BRANCH" ]; then
     exit 1
 fi
 
-# 2. ดึงโค้ดล่าสุดของ Monorepo (ไม่ต้องยุ่งกับ Submodule แล้ว)
-echo "⬇️ กำลังดึงโค้ดล่าสุด..."
+# 2. ดึงโค้ดล่าสุด (ลบโค้ด Submodule ทิ้งไปให้หมด!)
+echo "⬇️ กำลังดึงโค้ดล่าสุดจาก Monorepo..."
 git fetch origin
 git reset --hard origin/$CURRENT_BRANCH
 
-# 3. Build Image
+# 3. เตรียมไฟล์ .env ให้ Frontend (Vite) ก่อน Build
+echo "📝 คัดลอก .env โยนให้ Frontend..."
+cp .env frontend/.env
+
+# 4. Build Image (แก้พาธเป็น ./frontend)
 echo "🔨 กำลังสร้าง Docker Image สำหรับ $ENV_NAME..."
 docker build -t classroom-${ENV_NAME}-backend:latest ./backend
-docker build -t classroom-${ENV_NAME}-frontend:latest ./frontend_ts
+docker build -t classroom-${ENV_NAME}-frontend:latest ./frontend
 docker build -t classroom-${ENV_NAME}-bot:latest ./bot_discord
 
-# 4. Deploy อัปเดตระบบแบบ Zero Downtime
+# 5. Deploy อัปเดตระบบแบบ Zero Downtime
 echo "🚀 กำลังสลับสวิตช์ระบบ $ENV_NAME แบบ Zero Downtime..."
 docker stack deploy -c docker-compose.app.yml ${ENV_NAME}_app
 
