@@ -6,7 +6,7 @@ services:
     env_file:
       - .env # <--- เปลี่ยนมาอ่าน .env ตัวแม่ (ไฟล์เดียวจบ)
     environment:
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://staging_infra_redis:6379/0
     networks:
       - app-internal-${ENV_NAME}
       - traefik-public
@@ -24,6 +24,7 @@ services:
         - "traefik.enable=true"
         - "traefik.http.routers.${ENV_NAME}_backend.rule=Host(`${API_DOMAIN}`)"
         - "traefik.http.services.${ENV_NAME}_backend.loadbalancer.server.port=8000"
+        - "traefik.docker.network=traefik-public"
 
   frontend: # <--- เปลี่ยนชื่อจาก frontend_ts เป็น frontend
     image: classroom-${ENV_NAME}-frontend:latest
@@ -38,6 +39,7 @@ services:
         - "traefik.enable=true"
         - "traefik.http.routers.${ENV_NAME}_frontend.rule=Host(`${WEB_DOMAIN}`)"
         - "traefik.http.services.${ENV_NAME}_frontend.loadbalancer.server.port=80"
+        - "traefik.docker.network=traefik-public"
 
   bot_discord:
     image: classroom-${ENV_NAME}-bot:latest
