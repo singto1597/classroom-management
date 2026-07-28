@@ -1,0 +1,158 @@
+import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
+import MainLayout from '@/layouts/MainLayout.vue';
+import GlobalLayout from '@/layouts/GlobalLayout.vue';
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/auth/Login.vue'),
+      meta: { requiresAuth: false }
+    },
+    {
+      path: '/auth/google/callback',
+      name: 'google-callback',
+      component: () => import('@/views/auth/GoogleCallback.vue'), 
+      meta: { requiresAuth: false }
+    },
+    {
+      path: '/auth/discord/callback',
+      name: 'discord-callback',
+      component: () => import('@/views/auth/DiscordCallback.vue'), 
+      meta: { requiresAuth: false }
+    },
+    // 🌟 เพิ่มหน้า Onboarding (บังคับกรอกชื่อ)
+    {
+      path: '/onboarding',
+      name: 'onboarding',
+      component: () => import('@/views/auth/Onboarding.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/lobby',
+      component: GlobalLayout,
+      meta: { requiresAuth: true },
+      children: [
+        {
+          path: '',
+          name: 'lobby',
+          component: () => import('@/views/Lobby.vue'),
+        }
+      ]
+    },
+    {
+      path: '/',
+      component: MainLayout,
+      meta: { requiresAuth: true },
+      redirect: '/dashboard',
+      children: [
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('@/views/Dashboard.vue'),
+        },
+        {
+          path: 'students',
+          name: 'students', 
+          component: () => import('@/views/students/StudentList.vue'),
+        },
+        {
+          path: 'students/add',
+          name: 'add-student',
+          component: () => import('@/views/students/AddStudent.vue'),
+        },
+        {
+          path: 'students/export',
+          name: 'export-students',
+          component: () => import('@/views/students/ExportStudent.vue'),
+        },
+        {
+          path: 'students/:id',
+          name: 'student-profile',
+          component: () => import('@/views/students/StudentProfile.vue'),
+        },
+        {
+          path: 'students/:id/edit',
+          name: 'edit-student',
+          component: () => import('@/views/students/EditStudent.vue'),
+        },
+        {
+          path: 'schedules',
+          name: 'schedules',
+          component: () => import('@/views/schedules/ScheduleManager.vue'),
+        },
+        {
+          path: 'tasks',
+          name: 'tasks',
+          component: () => import('@/views/tasks/TaskList.vue'),
+        },
+        {
+          path: 'tasks/add',
+          name: 'add-task',
+          component: () => import('@/views/tasks/AddTask.vue'),
+        },
+        {
+          path: 'tasks/:id/edit',
+          name: 'edit-task',
+          component: () => import('@/views/tasks/EditTask.vue'),
+        },
+        {
+          path: 'finance',
+          name: 'finance-dashboard',
+          component: () => import('@/views/finance/FinanceDashboard.vue'),
+        },
+        {
+          path: 'finance/settings',
+          name: 'finance-settings',
+          component: () => import('@/views/finance/FinanceSettings.vue'),
+        },
+        {
+          path: 'finance/transactions/add',
+          name: 'finance-add-transaction',
+          component: () => import('@/views/finance/AddTransaction.vue'),
+        },
+        {
+          path: 'finance/transactions',
+          name: 'finance-transaction-history',
+          component: () => import('@/views/finance/TransactionHistory.vue'),
+        },
+        {
+          path: 'finance/collections',
+          name: 'finance-collections',
+          component: () => import('@/views/finance/CollectionList.vue'),
+        },
+        {
+          path: 'finance/collections/:id',
+          name: 'finance-collection-detail',
+          component: () => import('@/views/finance/CollectionDetail.vue'),
+        },
+        {
+          path: 'finance/debtors',
+          name: 'finance-debtors',
+          component: () => import('@/views/finance/DebtorList.vue'),
+        }
+      ]
+    }
+  ],
+});
+
+router.beforeEach((to, from) => {
+  const authStore = useAuthStore();
+  const isAuthenticated = authStore.isAuthenticated;
+  const currentRoomId = authStore.currentRoomId;
+  const currentRole = authStore.currentRole; 
+
+  if (to.meta.requiresAuth && !isAuthenticated) return '/login';
+  if (to.path === '/login' && isAuthenticated) return '/lobby';
+
+  const isGlobalRoute = to.path.startsWith('/lobby') || to.path === '/login' || to.path === '/onboarding';
+  
+  if (isAuthenticated && (!currentRoomId || !currentRole) && !isGlobalRoute) {
+    return '/lobby';
+  }
+});
+
+export default router;

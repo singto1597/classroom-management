@@ -1,0 +1,168 @@
+import { defineStore } from 'pinia';
+import { ref, computed } from 'vue';
+import router from '@/router';
+import api from '@/services/api'; 
+
+// ✨ ฟังก์ชันกวาดล้างข้อมูลผี (Ghost Data Cleaner)
+const safeGetItem = (key: string) => {
+  const val = localStorage.getItem(key);
+  if (!val || val === 'null' || val === 'undefined' || val === 'ไม่ระบุชื่อ') return null;
+  return val;
+};
+
+export const useAuthStore = defineStore('auth', () => {
+  // ดึงค่าผ่าน safeGetItem ทั้งหมด
+  const token = ref<string | null>(safeGetItem('access_token'));
+  const userId = ref<string | null>(safeGetItem('user_id_str'));
+  
+  const prefix = ref<string | null>(safeGetItem('user_prefix'));
+  const firstName = ref<string | null>(safeGetItem('user_first_name'));
+  const lastName = ref<string | null>(safeGetItem('user_last_name'));
+  const email = ref<string | null>(safeGetItem('user_email'));
+  const discordId = ref<string | null>(safeGetItem('user_discord_id'));
+  const googleId = ref<string | null>(safeGetItem('user_google_id'));
+
+  const storedRoomId = safeGetItem('current_room_id');
+  const currentRoomId = ref<number | null>(storedRoomId ? Number(storedRoomId) : null);
+  const currentRoomName = ref<string | null>(safeGetItem('current_room_name'));
+  const currentRoomCode = ref<string | null>(safeGetItem('current_room_code')); 
+  const currentRole = ref<string | null>(safeGetItem('current_role'));
+
+  // 🎯 เพิ่มตัวแปรเก็บสิทธิ์ที่แท้จริง (RBAC)
+  const currentIsAdmin = ref<boolean>(safeGetItem('current_is_admin') === 'true');
+  const currentPermissions = ref<string[]>(JSON.parse(safeGetItem('current_permissions') || '[]'));
+
+  const isAuthenticated = computed(() => !!token.value);
+  
+  // 🚨 เปลี่ยนนิยามของ isAdmin ใหม่ทั้งหมด (เช็คจาก Flag ของ DB ไม่ใช่ป้ายชื่อตำแหน่ง)
+  const isAdmin = computed(() => currentIsAdmin.value === true);
+
+  const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '');
+
+  // ประกอบชื่อให้สมบูรณ์
+  const currentUserName = computed(() => {
+    const p = prefix.value || '';
+    const f = firstName.value || '';
+    const l = lastName.value || '';
+    const full = `${p}${f} ${l}`.trim();
+    return full || 'ผู้ใช้งานระบบ'; 
+  });
+
+  const isFetchingProfile = ref(false); 
+
+  const fetchProfile = async () => {
+    if (!token.value || isFetchingProfile.value) return;
+    
+    isFetchingProfile.value = true;
+    try {
+      const data: any = await api.get(`/api/auth/me`);
+      
+      if (data.id) setUserId(data.id);
+      
+      prefix.value = data.prefix && data.prefix !== 'null' ? data.prefix : '';
+      firstName.value = data.first_name && data.first_name !== 'null' && data.first_name !== 'ไม่ระบุชื่อ' ? data.first_name : '';
+      lastName.value = data.last_name && data.last_name !== 'null' ? data.last_name : '';
+      email.value = data.email && data.email !== 'null' ? data.email : '';
+      discordId.value = data.discord_id ? String(data.discord_id) : null;
+      googleId.value = data.google_id ? String(data.google_id) : null;
+      
+      if (prefix.value) localStorage.setItem('user_prefix', prefix.value);
+      else localStorage.removeItem('user_prefix');
+
+      if (firstName.value) localStorage.setItem('user_first_name', firstName.value);
+      else localStorage.removeItem('user_first_name');
+
+      if (lastName.value) localStorage.setItem('user_last_name', lastName.value);
+      else localStorage.removeItem('user_last_name');
+
+      if (email.value) localStorage.setItem('user_email', email.value);
+      if (discordId.value) localStorage.setItem('user_discord_id', discordId.value);
+      if (googleId.value) localStorage.setItem('user_google_id', googleId.value);
+
+    } catch (error) {
+      console.error("Failed to fetch user profile", error);
+    } finally {
+      isFetchingProfile.value = false;
+    }
+  };
+
+  const setToken = (newToken: string) => {
+    token.value = newToken;
+    localStorage.setItem('access_token', newToken);
+  };
+
+  const setUserId = (id: string | number | null | undefined) => {
+    if (id === null || id === undefined) {
+      userId.value = null;
+      localStorage.removeItem('user_id_str');
+    } else {
+      const idStr = String(id);
+      userId.value = idStr;
+      localStorage.setItem('user_id_str', idStr);
+    }
+  };
+
+  // 🎯 อัปเดต setRoom ให้รับพารามิเตอร์เรื่องสิทธิ์เพิ่ม
+  const setRoom = (
+    roomId: number, 
+    roomName: string, 
+    roomCode: string | null | undefined, 
+    role: string, 
+    userName?: string,
+    isAdminFlag: boolean = false,
+    permissionsArray: string[] = []
+  ) => {
+    currentRoomId.value = roomId;
+    currentRoomName.value = roomName;
+    currentRoomCode.value = roomCode || 'N/A';
+    currentRole.value = role;
+    currentIsAdmin.value = isAdminFlag;
+    currentPermissions.value = permissionsArray;
+
+    localStorage.setItem('current_room_id', String(roomId));
+    localStorage.setItem('current_room_name', roomName);
+    localStorage.setItem('current_room_code', roomCode || 'N/A');
+    localStorage.setItem('current_role', role);
+    localStorage.setItem('current_is_admin', String(isAdminFlag));
+    localStorage.setItem('current_permissions', JSON.stringify(permissionsArray));
+  };
+
+  const clearRoom = () => {
+    currentRoomId.value = null;
+    currentRoomName.value = null;
+    currentRoomCode.value = null;
+    currentRole.value = null;
+    currentIsAdmin.value = false;
+    currentPermissions.value = [];
+    
+    localStorage.removeItem('current_room_id');
+    localStorage.removeItem('current_room_name');
+    localStorage.removeItem('current_room_code');
+    localStorage.removeItem('current_role');
+    localStorage.removeItem('current_is_admin');
+    localStorage.removeItem('current_permissions');
+  };
+
+  const logout = () => {
+    token.value = null;
+    userId.value = null;
+    prefix.value = null;
+    firstName.value = null;
+    lastName.value = null;
+    email.value = null;
+    discordId.value = null;
+    googleId.value = null;
+    clearRoom();
+    localStorage.clear();
+    router.push('/login');
+  };
+
+  return {
+    token, userId, prefix, firstName, lastName, currentUserName,
+    email, discordId, googleId, isOnboarded,
+    currentRoomId, currentRoomName, currentRoomCode, currentRole,
+    currentIsAdmin, currentPermissions, // 🎯 Expose ไปให้ Component อื่นดึงไปใช้ได้
+    isAuthenticated, isAdmin,
+    setToken, setUserId, setRoom, clearRoom, logout, fetchProfile
+  };
+});
