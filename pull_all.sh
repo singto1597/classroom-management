@@ -1,41 +1,42 @@
 #!/bin/bash
 
-# 1. ให้มันอ่านชื่อ Branch ปัจจุบันที่คุณกำลังยืนอยู่
-CURRENT_BRANCH=$(git branch --show-current)
-
-# ดักไว้เผื่อหัวหลุด (Detached HEAD)
-if [ -z "$CURRENT_BRANCH" ]; then
-  echo "❌ ไม่สามารถหาชื่อ Branch ได้ (คุณอาจจะหัวหลุดอยู่) กรุณา git checkout ชื่อbranch ก่อนรัน"
-  exit 1
+# 1. โหลดตัวแปรจากไฟล์ .env
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+    echo "⚙️ โหลด Environment: $ENV_NAME"
+else
+    echo "❌ ไม่พบไฟล์ .env"
+    exit 1
 fi
 
-echo "⬇️ กำลังดึงโค้ดล่าสุดของ Repo แม่ (Branch: $CURRENT_BRANCH)..."
-git fetch origin
-# ไม่ต้องใช้ git checkout ซ้ำ เพราะเรายืนอยู่บน branch นี้อยู่แล้ว
-git reset --hard origin/$CURRENT_BRANCH
+CURRENT_BRANCH=$(git branch --show-current)
+if [ -z "$CURRENT_BRANCH" ]; then
+    echo "❌ ไม่สามารถหาชื่อ Branch ได้"
+    exit 1
+fi
 
-echo "🔄 กำลังเตรียมโครงสร้าง Submodule..."
+# 2. ดึงโค้ดล่าสุด
+echo "⬇️ กำลังดึงโค้ดล่าสุด..."
+git fetch origin
+git reset --hard origin/$CURRENT_BRANCH
 git submodule update --init
 
-echo "📥 กำลังบังคับจับลูกๆ ทุกตัวเข้ากิ่ง $CURRENT_BRANCH และซิงค์กับ GitHub..."
-
-# 2. ต้อง export ตัวแปรนี้ เพื่อให้สคริปต์ใน foreach มองเห็น
 export CURRENT_BRANCH
-
 git submodule foreach '
-  if [ "$name" = "frontend_php" ]; then
-    echo "⏭️ ข้าม $name"
-    exit 0
-  fi
-  
-  # ดึงข้อมูลจากเซิร์ฟเวอร์
+  if [ "$name" = "frontend_php" ]; then exit 0; fi
   git fetch origin
-  
-  # บังคับสลับไปกิ่งเดียวกับตัวแม่ (ถ้าไม่มีให้สร้างใหม่)
   git checkout $CURRENT_BRANCH || git checkout -b $CURRENT_BRANCH
-  
-  # บังคับทับโค้ดให้เหมือนบนเซิร์ฟเวอร์แบบ 100%
   git reset --hard origin/$CURRENT_BRANCH
 '
 
-echo "✅ ดึงโค้ดเสร็จสิ้น! ทุกโปรเจกต์อยู่บนกิ่ง $CURRENT_BRANCH อย่างปลอดภัย 🚀"
+# 3. Build Image
+echo "🔨 กำลังสร้าง Docker Image สำหรับ $ENV_NAME..."
+docker build -t classroom-${ENV_NAME}-backend:latest ./backend
+docker build -t classroom-${ENV_NAME}-frontend:latest ./frontend_ts
+docker build -t classroom-${ENV_NAME}-bot:latest ./bot_discord
+
+# 4. Deploy อัปเดตระบบแบบ Zero Downtime
+echo "🚀 กำลังสลับสวิตช์ระบบ $ENV_NAME แบบ Zero Downtime..."
+docker stack deploy -c docker-compose.app.yml ${ENV_NAME}_app
+
+echo "✅ อัปเดตเสร็จสมบูรณ์ ระบบทำงานต่อเนื่องไม่มีสะดุด!"
