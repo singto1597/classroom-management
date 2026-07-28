@@ -594,7 +594,7 @@ class ClassroomService:
 
         try:
             async with pool.acquire() as conn:
-                async with conn.transaction(readonly=True):
+                async with conn.transaction():
                     default = await conn.fetchrow("SELECT attire, subjects FROM default_schedules WHERE room_id = $1 AND day_of_week = $2", room_id, day_name)
                     if default:
                         data["attire"] = default["attire"]
