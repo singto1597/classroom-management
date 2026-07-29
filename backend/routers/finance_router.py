@@ -33,8 +33,8 @@ def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str
     return client_source, actor_identifier
 
 
-# --- SUMMARY ENDPOINT (จุดแก้ไขปัญหาหลัก) ---
-@router.get("/{target_id}/finance/summary", response_model=FinanceSummary)
+# --- SUMMARY ENDPOINT (แก้ไข response_model และการส่ง Parameter แล้ว) ---
+@router.get("/{target_id}/finance/summary", response_model=FinanceSummaryResponse)
 async def get_summary(
     request: Request,
     month: Optional[int] = Query(None),
@@ -58,7 +58,7 @@ async def get_summary(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{target_id}/finance/students", response_model=List[BasicStudent])
+@router.get("/{target_id}/finance/students", response_model=List[StudentBasicInfo])
 async def get_active_students(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -101,7 +101,7 @@ async def create_account(
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.get("/{target_id}/finance/accounts", response_model=List[Account])
+@router.get("/{target_id}/finance/accounts", response_model=List[AccountResponse])
 async def get_accounts(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -201,7 +201,7 @@ async def add_transaction(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{target_id}/finance/transactions", response_model=TransactionList)
+@router.get("/{target_id}/finance/transactions", response_model=TransactionListResponse)
 async def get_transactions(
     request: Request,
     filters: TransactionFilter = Depends(), 
@@ -334,7 +334,7 @@ async def confirm_payment(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{target_id}/finance/collections", response_model=List[Collection])
+@router.get("/{target_id}/finance/collections", response_model=List[FeeCollectionResponse])
 async def get_all_collections(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -379,7 +379,7 @@ async def update_collection(
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.get("/{target_id}/finance/collections/{collection_id}", response_model=CollectionStatus)
+@router.get("/{target_id}/finance/collections/{collection_id}", response_model=CollectionStatusResponse)
 async def get_collection_status(
     collection_id: int, 
     request: Request,
@@ -486,7 +486,7 @@ async def create_category(
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.get("/{target_id}/finance/categories", response_model=List[Category])
+@router.get("/{target_id}/finance/categories", response_model=List[CategoryResponse])
 async def get_categories(
     request: Request,
     cat_type: Optional[str] = Query(None, description="income หรือ expense"), 
@@ -562,7 +562,7 @@ async def delete_category(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{target_id}/finance/debtors", response_model=List[Debtor])
+@router.get("/{target_id}/finance/debtors", response_model=List[DebtorItem])
 async def get_all_debtors(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -581,7 +581,7 @@ async def get_all_debtors(
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfile)
+@router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
 async def get_student_debts(
     student_id: int,
     request: Request,
