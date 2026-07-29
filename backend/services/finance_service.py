@@ -41,7 +41,6 @@ class FinanceService:
             return r_id
         raise ValueError("ต้องระบุ server_id หรือ room_id")
 
-    # ✨ เมธอดใหม่: สำหรับดึงรายชื่อเด็กในห้องไปแสดงให้แอดมินติ๊กเลือก
     @classmethod
     async def get_active_students(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
@@ -260,8 +259,8 @@ class FinanceService:
     @classmethod
     async def get_transactions(
         cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, limit: int = 50, offset: int = 0,
-        start_date: date = None, end_date: date = None,
-        account_id: int = None, category_id: int = None, transaction_type: str = None,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        account_id: Optional[int] = None, category_id: Optional[int] = None, transaction_type: Optional[str] = None,
         server_id: Optional[int] = None, room_id: Optional[int] = None
     ) -> dict: 
         start_time = time.time()
@@ -582,7 +581,7 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def get_categories(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, cat_type: str = None, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+    async def get_categories(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, cat_type: Optional[str] = None, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         target_room_id = room_id
         try:
@@ -615,7 +614,7 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def revert_transaction(cls, pool: asyncpg.Pool, transaction_id: int, user_name: str, user_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+    async def revert_transaction(cls, pool: asyncpg.Pool, transaction_id: int, user_id: int, client_source: str, actor_identifier: str, user_name: str = "—", server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
@@ -681,7 +680,7 @@ class FinanceService:
             raise e
             
     @classmethod
-    async def get_summary(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, month: int = None, year: int = None, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+    async def get_summary(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, month: Optional[int] = None, year: Optional[int] = None, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
@@ -912,7 +911,7 @@ class FinanceService:
                 async with pool.acquire() as log_conn:
                     await service_logger.log(
                         conn=log_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
-                        room_id=target_room_id, user_id=user_id, entity_type="FEE_COLLECTION", entity_id=str(collection_id), status="failed", error_detail=str(e),
+                        room_id=target_room_id, user_id=user_id, entity_type="FEE_COLLECTION", status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.update_collection", execution_time_ms=exec_time
                     )
             except Exception:
@@ -950,7 +949,7 @@ class FinanceService:
                 async with pool.acquire() as log_conn:
                     await service_logger.log(
                         conn=log_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
-                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_ACCOUNT", entity_id=str(account_id), status="failed", error_detail=str(e),
+                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_ACCOUNT", status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.update_account", execution_time_ms=exec_time
                     )
             except Exception:
@@ -991,7 +990,7 @@ class FinanceService:
                 async with pool.acquire() as log_conn:
                     await service_logger.log(
                         conn=log_conn, action="DELETE", actor_identifier=actor_identifier, client_source=client_source,
-                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_ACCOUNT", entity_id=str(account_id), status="failed", error_detail=str(e),
+                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_ACCOUNT", status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.delete_account", execution_time_ms=exec_time
                     )
             except Exception:
@@ -1069,7 +1068,7 @@ class FinanceService:
                 async with pool.acquire() as log_conn:
                     await service_logger.log(
                         conn=log_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
-                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_CATEGORY", entity_id=str(category_id), status="failed", error_detail=str(e),
+                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_CATEGORY", status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.update_category", execution_time_ms=exec_time
                     )
             except Exception:
@@ -1108,7 +1107,7 @@ class FinanceService:
                 async with pool.acquire() as log_conn:
                     await service_logger.log(
                         conn=log_conn, action="DELETE", actor_identifier=actor_identifier, client_source=client_source,
-                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_CATEGORY", entity_id=str(category_id), status="failed", error_detail=str(e),
+                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_CATEGORY", status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.delete_category", execution_time_ms=exec_time
                     )
             except Exception:

@@ -23,7 +23,6 @@ def get_target(
         room_id=target_id if target_type == "room" else None
     )
 
-# 🌟 ฟังก์ชันแกะรอย
 def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str]:
     client_source = request.headers.get("x-client-source", "WEB_APP")
     ip = request.client.host if request.client else "unknown"
@@ -34,7 +33,32 @@ def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str
     return client_source, actor_identifier
 
 
-@router.get("/{target_id}/finance/students", response_model=List[StudentBasicInfo])
+# --- SUMMARY ENDPOINT (จุดแก้ไขปัญหาหลัก) ---
+@router.get("/{target_id}/finance/summary", response_model=FinanceSummary)
+async def get_summary(
+    request: Request,
+    month: Optional[int] = Query(None),
+    year: Optional[int] = Query(None),
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.get_summary(
+            pool=pool,
+            client_source=client_source,
+            actor_identifier=actor,
+            month=month,
+            year=year,
+            server_id=target.server_id,
+            room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{target_id}/finance/students", response_model=List[BasicStudent])
 async def get_active_students(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -44,8 +68,11 @@ async def get_active_students(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_active_students(
-            pool, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -61,15 +88,20 @@ async def create_account(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.create_account(
-            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.get("/{target_id}/finance/accounts", response_model=List[AccountResponse])
+@router.get("/{target_id}/finance/accounts", response_model=List[Account])
 async def get_accounts(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -79,8 +111,11 @@ async def get_accounts(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_accounts(
-            pool, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -88,7 +123,7 @@ async def get_accounts(
 @router.patch("/{target_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
 async def update_account(
     account_id: int, 
-    req: AccountUpdate, 
+    req: AccountCreate, 
     request: Request,
     target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
@@ -97,8 +132,14 @@ async def update_account(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.update_account(
-            pool, account_id, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            account_id=account_id,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -118,8 +159,14 @@ async def delete_account(
         client_source, actor = get_audit_context(request, user_ctx)
         actor_name = req.user_name if req else "—"
         return await FinanceService.delete_account(
-            pool, account_id, user_ctx["user_id"], actor_name, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            account_id=account_id,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            user_name=actor_name,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -139,8 +186,13 @@ async def add_transaction(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.add_transaction(
-            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -149,7 +201,7 @@ async def add_transaction(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{target_id}/finance/transactions", response_model=TransactionListResponse)
+@router.get("/{target_id}/finance/transactions", response_model=TransactionList)
 async def get_transactions(
     request: Request,
     filters: TransactionFilter = Depends(), 
@@ -160,7 +212,7 @@ async def get_transactions(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_transactions(
-            pool, 
+            pool=pool, 
             limit=filters.limit, 
             offset=filters.offset, 
             start_date=filters.start_date, 
@@ -176,6 +228,35 @@ async def get_transactions(
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+@router.delete("/{target_id}/finance/transactions/{transaction_id}", response_model=SuccessResponse)
+async def revert_transaction(
+    transaction_id: int,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    req: Optional[ActionWithUserRequest] = Body(None),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        actor_name = req.user_name if req else "—"
+        return await FinanceService.revert_transaction(
+            pool=pool,
+            transaction_id=transaction_id,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            user_name=actor_name,
+            server_id=target.server_id,
+            room_id=target.room_id
+        )
+    except (RoomNotFoundError, TransactionNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.post("/{target_id}/finance/transfer", response_model=SuccessResponse)
 async def transfer_money(
     req: TransferCreate, 
@@ -187,8 +268,13 @@ async def transfer_money(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.transfer_money(
-            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -208,8 +294,13 @@ async def create_fee_collection(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.create_fee_collection(
-            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -230,15 +321,20 @@ async def confirm_payment(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.confirm_payment(
-            pool, payment_id, req, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            payment_id=payment_id,
+            req=req,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except (RoomNotFoundError, PaymentNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{target_id}/finance/collections", response_model=List[FeeCollectionResponse])
+@router.get("/{target_id}/finance/collections", response_model=List[Collection])
 async def get_all_collections(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -248,8 +344,11 @@ async def get_all_collections(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_all_collections(
-            pool, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -266,15 +365,21 @@ async def update_collection(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.update_collection(
-            pool, collection_id, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            collection_id=collection_id,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.get("/{target_id}/finance/collections/{collection_id}", response_model=CollectionStatusResponse)
+@router.get("/{target_id}/finance/collections/{collection_id}", response_model=CollectionStatus)
 async def get_collection_status(
     collection_id: int, 
     request: Request,
@@ -285,8 +390,12 @@ async def get_collection_status(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_collection_status(
-            pool, collection_id, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            collection_id=collection_id,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -305,8 +414,15 @@ async def add_student_to_collection(
         client_source, actor = get_audit_context(request, user_ctx)
         actor_name = req.user_name if req else "—"
         return await FinanceService.add_student_to_collection(
-            pool, collection_id, student_id, user_ctx["user_id"], actor_name, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            collection_id=collection_id,
+            student_id=student_id,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            user_name=actor_name,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -329,8 +445,15 @@ async def remove_student_from_collection(
         client_source, actor = get_audit_context(request, user_ctx)
         actor_name = req.user_name if req else "—"
         return await FinanceService.remove_student_from_collection(
-            pool, collection_id, student_id, user_ctx["user_id"], actor_name, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            collection_id=collection_id,
+            student_id=student_id,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            user_name=actor_name,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except (RoomNotFoundError, PaymentNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -350,18 +473,23 @@ async def create_category(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.create_category(
-            pool, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.get("/{target_id}/finance/categories", response_model=List[CategoryResponse])
+@router.get("/{target_id}/finance/categories", response_model=List[Category])
 async def get_categories(
     request: Request,
-    cat_type: str = Query(None, description="income หรือ expense"), 
+    cat_type: Optional[str] = Query(None, description="income หรือ expense"), 
     target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user)
@@ -369,8 +497,12 @@ async def get_categories(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_categories(
-            pool, cat_type, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            client_source=client_source,
+            actor_identifier=actor,
+            cat_type=cat_type,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -378,7 +510,7 @@ async def get_categories(
 @router.patch("/{target_id}/finance/categories/{category_id}", response_model=SuccessResponse)
 async def update_category(
     category_id: int, 
-    req: CategoryUpdate, 
+    req: CategoryCreate, 
     request: Request,
     target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
@@ -387,8 +519,14 @@ async def update_category(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.update_category(
-            pool, category_id, req, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            category_id=category_id,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -408,8 +546,14 @@ async def delete_category(
         client_source, actor = get_audit_context(request, user_ctx)
         actor_name = req.user_name if req else "—"
         return await FinanceService.delete_category(
-            pool, category_id, user_ctx["user_id"], actor_name, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            category_id=category_id,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            user_name=actor_name,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -418,66 +562,7 @@ async def delete_category(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.delete("/{target_id}/finance/transactions/{transaction_id}", response_model=SuccessResponse)
-async def revert_transaction(
-    transaction_id: int, 
-    req: ActionWithUserRequest, 
-    request: Request,
-    target: TargetResolution = Depends(get_target),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
-):
-    try:
-        client_source, actor = get_audit_context(request, user_ctx)
-        return await FinanceService.revert_transaction(
-            pool, transaction_id, req.user_name, user_ctx["user_id"], server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
-        )
-    except (RoomNotFoundError, TransactionNotFoundError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ForbiddenError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-
-@router.get("/{target_id}/finance/summary", response_model=FinanceSummaryResponse)
-async def get_summary(
-    request: Request,
-    month: Optional[int] = Query(None, ge=1, le=12),
-    year: Optional[int] = Query(None, ge=2000),
-    target: TargetResolution = Depends(get_target),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
-):
-    try:
-        client_source, actor = get_audit_context(request, user_ctx)
-        return await FinanceService.get_summary(
-            pool, month, year, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
-        )
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    
-@router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
-async def get_student_debts(
-    student_id: int, 
-    request: Request,
-    target: TargetResolution = Depends(get_target),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
-):
-    try:
-        client_source, actor = get_audit_context(request, user_ctx)
-        return await FinanceService.get_student_debts(
-            pool, student_id, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
-        )
-    except RoomNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาด: {str(e)}")
-
-@router.get("/{target_id}/finance/debtors", response_model=List[DebtorItem])
+@router.get("/{target_id}/finance/debtors", response_model=List[Debtor])
 async def get_all_debtors(
     request: Request,
     target: TargetResolution = Depends(get_target),
@@ -487,8 +572,32 @@ async def get_all_debtors(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_all_debtors(
-            pool, server_id=target.server_id, room_id=target.room_id,
-            client_source=client_source, actor_identifier=actor
+            pool=pool,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfile)
+async def get_student_debts(
+    student_id: int,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.get_student_debts(
+            pool=pool,
+            student_id=student_id,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
