@@ -1,69 +1,156 @@
-# 🏫 Classroom Management System (Deployment & Infrastructure)
+# 🏫 Classroom Management System
 
-Repository นี้เป็นศูนย์กลาง (Monorepo) สำหรับจัดการ Infrastructure และ Deployment ของระบบบริหารจัดการห้องเรียน (Classroom Management) โดยเชื่อมโยงบริการต่างๆ เข้าด้วยกันผ่าน Git Submodules และรันระบบทั้งหมดด้วย Docker Compose
+ระบบบริหารจัดการห้องเรียนที่ออกแบบมาด้วยสถาปัตยกรรม **Microservices & Monorepo** รองรับการ Deploy ด้วย Docker Swarm และ Traefik 
 
-## 📂 โครงสร้างโปรเจกต์ (Architecture)
+## 📂 โครงสร้างโปรเจกต์ (Monorepo Architecture)
 
-โปรเจกต์นี้แบ่งออกเป็นส่วนต่างๆ ดังนี้:
+โปรเจกต์นี้ได้ยุบรวม Submodules ทั้งหมดเข้าด้วยกันเพื่อให้จัดการโค้ดและ CI/CD ได้ง่ายที่สุด:
 
-- `backend/` : FastAPI Backend สำหรับจัดการฐานข้อมูลและ API กลาง
-- `bot_discord/` : Discord Bot สำหรับแจ้งเตือนและรับคำสั่งจากนักเรียน
-- `frontend_ts/` : หน้าเว็บ Frontend หลัก (Vue/Vite + TypeScript)
-- `frontend_php/` : *(Deprecated)* หน้าเว็บเวอร์ชันเก่า (PHP) เก็บไว้เป็น Reference
-- `docker-compose.yml` : ไฟล์ตั้งค่าสำหรับรันระบบทั้งหมด (รวม PostgreSQL และ Redis)
+- `backend/` : FastAPI (Python) - จัดการ Database, Business Logic และ API กลาง
+- `frontend/` : Vue.js + Vite + TypeScript - หน้าเว็บสำหรับนักเรียนและครู
+- `bot_discord/` : Discord.py - บอทสำหรับรับคำสั่ง แจ้งเตือน และเชื่อมต่อ API
+- `docker-compose.infra.yml` : ไฟล์รันฐานข้อมูล (PostgreSQL & Redis)
+- `docker-compose.app.yml` : ไฟล์รันตัวแอปพลิเคชัน (Backend, Frontend, Bot)
+
+## 🏗️ สถาปัตยกรรมเซิร์ฟเวอร์ (Infrastructure)
+
+ระบบนี้ใช้ **Docker Swarm** ในการทำ Cluster และใช้ **Traefik** เป็น Reverse Proxy / Load Balancer ทำให้เราสามารถ:
+1. แยกระบบ `Staging` และ `Production` ออกจากกันอย่างเด็ดขาดบนเซิร์ฟเวอร์เดียว
+2. อัปเดตโค้ดแบบ **Zero Downtime** (เว็บไม่ล่มระหว่างรอโหลดคอนเทนเนอร์ใหม่)
+3. รัน API และ Web ซ้อนกันหลาย Replicas เพื่อรองรับโหลดที่มากขึ้น
+
+---
 
 ## 🚀 วิธีติดตั้งและใช้งาน (Getting Started)
 
-### 1. โคลนโปรเจกต์ (สำคัญมาก)
-เนื่องจากโปรเจกต์นี้ใช้ Git Submodules **ต้อง** โคลนด้วย flag `--recurse-submodules` เพื่อดึงโค้ดของทุกส่วนมาพร้อมกัน:
-
+### 1. โคลนโปรเจกต์
 ```bash
-git clone --recurse-submodules https://github.com/singto1597/classroom-management.git
+git clone [https://github.com/singto1597/classroom-management.git](https://github.com/singto1597/classroom-management.git)
 cd classroom-management
 
 ```
 
-*(หากโคลนมาแบบธรรมดาแล้วโฟลเดอร์ลูกว่างเปล่า ให้รัน `git submodule update --init --recursive`)*
-
 ### 2. ตั้งค่า Environment Variables
 
-สำหรับ Repo หลักนี้ จะมี .env ที่เก็บการตั้งค่าของระบบหลักเอาไว้ ให้สร้างไฟล์ `.env` เอาไว้หน้าสุดด้วย 
-
-```env
-COMPOSE_PROJECT_NAME=classroom_staging
-ENV_NAME=staging
-WEB_PORT=8200
-API_PORT=8000
-```
-
-สำหรับ Services ย่อย ให้เข้าไปสร้างและแก้ไขไฟล์ `.env` ในแต่ละ Services ให้เรียบร้อย:
-
-* `/backend/.env`
-* `/bot_discord/.env`
-* `/frontend_ts/.env`
-
-*(ดูตัวอย่างตัวแปรที่ต้องใช้ได้ในไฟล์ `.env.example` ของแต่ละโฟลเดอร์)*
-
-### 3. รันระบบด้วย Docker Compose
-
-เมื่อตั้งค่าเสร็จแล้ว สามารถสั่งรันทุกระบบพร้อมกันได้เลย:
+คัดลอกไฟล์ `.env.example` มาสร้างเป็นไฟล์ `.env` ที่โฟลเดอร์นอกสุดของโปรเจกต์ (Root Directory) **เพียงไฟล์เดียวเท่านั้น**:
 
 ```bash
-docker compose up -d --build
+cp .env.example .env
+nano .env
 
 ```
 
-ระบบจะทำการ Build Images และผูก Network ให้โดยอัตโนมัติ
+*(ระบบทั้งหมดจะดึงค่าคอนฟิกจากไฟล์ตัวแม่ไฟล์นี้โดยอัตโนมัติ)*
 
-* 🌐 **Web Frontend:** เข้าถึงได้ที่ Port ตามที่ตั้งใน Docker Compose (เช่น `8080` หรือ `9090`)
-* ⚙️ **API Backend:** วิ่งอยู่บน Port `8000` (สื่อสารภายในวง Docker)
+### 3. เปิดใช้งาน Docker Swarm & Traefik (สำหรับรันครั้งแรก)
 
-## 🔄 วิธีดึงอัปเดตล่าสุด
-
-หากมีการ Push โค้ดใหม่เข้าไปใน Submodule ย่อยๆ สามารถดึงโค้ดล่าสุดของทุกเซอร์วิสได้ด้วยคำสั่ง:
+หากเซิร์ฟเวอร์ยังไม่เคยเปิดโหมด Swarm ให้รันคำสั่งต่อไปนี้:
 
 ```bash
-git submodule update --remote --merge
-docker compose up -d --build
+docker swarm init
+docker network create --driver=overlay traefik-public
+
+```
+
+*(ต้องรัน Traefik Proxy ไว้ที่เซิร์ฟเวอร์เพื่อรอรับทราฟฟิกพอร์ต 80 เสมอ)*
+
+สำหรับการรัน Traefik Proxy ให้สร้างไฟล์ `docker-compose.yml` เอาไว้ที่ไหนก็ได้ใน server ที่ไม่ได้อยู่ใน repo นี้
+
+```bash
+cd ..
+mkdir traefik-proxy
+nano docker-compose.yml
+
+```
+
+และนำ Setting นี้เข้าไปใส่:
+
+```yaml
+version: "3.8"
+services:
+  traefik:
+    image: traefik:latest
+    command:
+      - "--api.insecure=false"
+      - "--providers.swarm=true"
+      - "--providers.swarm.exposedbydefault=false"
+      - "--providers.swarm.network=traefik-public"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - traefik-public
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+
+networks:
+  traefik-public:
+    external: true
+
+```
+
+รันด้วยคำสั่งนี้:
+
+```bash
+docker stack deploy -c docker-compose.yml global_proxy
+
+```
+
+### 4. สตาร์ท Infrastructure (ฐานข้อมูล)
+
+เราจะแยกฐานข้อมูลให้ทำงานเป็นอิสระ รันคำสั่งนี้ทิ้งไว้เลย:
+
+```bash
+# โหลดตัวแปรสภาพแวดล้อมชั่วคราว
+export $(grep -v '^#' .env | xargs)
+docker stack deploy -c docker-compose.infra.yml ${ENV_NAME}_infra
+
+```
+
+### 5. Deploy แอปพลิเคชัน (ครั้งแรก & อัปเดตโค้ด)
+
+เมื่อต้องการปล่อยระบบขึ้นเซิร์ฟเวอร์ หรืออัปเดตโค้ดใหม่ ให้รันสคริปต์กู้ชีพปุ่มเดียวจบ:
+
+```bash
+chmod +x pull_all.sh
+./pull_all.sh
+
+```
+
+สคริปต์นี้จะทำการดึงโค้ดล่าสุด -> Build Image ตามเลข Commit ล่าสุด -> สลับสวิตช์ตู้คอนเทนเนอร์แบบ Zero Downtime ทันที!
+
+---
+
+## 🚨 การกู้ภัยฉุกเฉิน (Rollback)
+
+ด้วยความที่เราตั้งชื่อ Docker Image ตาม **Git Commit Hash** ทำให้ระบบเก็บ Image ของเวอร์ชันก่อนหน้าไว้เสมอ หากคุณ Deploy ระบบไปแล้วพบว่าเว็บพัง (Cowboy Coding) คุณสามารถกู้ภัยได้ 2 วิธี:
+
+### วิธีที่ 1: สลับคอนเทนเนอร์ทันที (Hot Rollback - ไวที่สุด)
+
+หากต้องการให้เว็บกลับมาใช้งานได้ทันทีโดยยังไม่ต้องแก้โค้ด ให้ใช้คำสั่งของ Docker Swarm เพื่อดึง Container ตัวก่อนหน้ากลับมา (ใช้เวลา ~2 วินาที):
+
+```bash
+docker service rollback staging_app_backend
+# หรือ
+docker service rollback staging_app_frontend
+
+```
+
+*(เปลี่ยน `staging` เป็น `production` หากเกิดเหตุบนระบบจริง)*
+
+### วิธีที่ 2: ถอยหลังเต็มรูปแบบ (Full Rollback Script)
+
+หากต้องการให้ **โค้ดบนเซิร์ฟเวอร์ถอยกลับไป 1 Commit** พร้อมกับสลับระบบกลับไปใช้ Image ตัวเก่าที่ทำงานได้ ให้รันสคริปต์:
+
+```bash
+chmod +x oh_shit.sh
+./oh_shit.sh
+
+```
+
+สคริปต์นี้จะดึง Image ของ Commit ก่อนหน้าที่อยู่ในเครื่องขึ้นมารันทันที **โดยไม่ต้องเสียเวลา Build ใหม่** ระบบจะกลับสู่สภาวะปกติ 100%
 
 ```

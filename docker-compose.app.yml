@@ -2,11 +2,11 @@ version: "3.8"
 
 services:
   backend:
-    image: classroom-${ENV_NAME}-backend:latest
+    image: classroom-${ENV_NAME}-backend:${IMAGE_TAG:-latest}
     env_file:
-      - .env # <--- เปลี่ยนมาอ่าน .env ตัวแม่ (ไฟล์เดียวจบ)
+      - .env
     environment:
-      - REDIS_URL=redis://staging_infra_redis:6379/0
+      - REDIS_URL=redis://${ENV_NAME}_infra_redis:6379/0
     networks:
       - shared_network
       - traefik-public
@@ -20,19 +20,25 @@ services:
       update_config:
         parallelism: 1
         order: start-first
+      rollback_config:
+        parallelism: 1
+        order: start-first
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.${ENV_NAME}_backend.rule=Host(`${API_DOMAIN}`)"
         - "traefik.http.services.${ENV_NAME}_backend.loadbalancer.server.port=8000"
         - "traefik.docker.network=traefik-public"
 
-  frontend: # <--- เปลี่ยนชื่อจาก frontend_ts เป็น frontend
-    image: classroom-${ENV_NAME}-frontend:latest
+  frontend:
+    image: classroom-${ENV_NAME}-frontend:${IMAGE_TAG:-latest}
     networks:
       - traefik-public
     deploy:
       replicas: 3
       update_config:
+        parallelism: 1
+        order: start-first
+      rollback_config:
         parallelism: 1
         order: start-first
       labels:
@@ -42,15 +48,18 @@ services:
         - "traefik.docker.network=traefik-public"
 
   bot_discord:
-    image: classroom-${ENV_NAME}-bot:latest
+    image: classroom-${ENV_NAME}-bot:${IMAGE_TAG:-latest}
     env_file:
-      - .env # <--- เปลี่ยนมาอ่าน .env ตัวแม่ด้วย
+      - .env
     networks:
       - shared_network
     deploy:
       replicas: 1
       update_config:
         order: stop-first
+      rollback_config:
+        parallelism: 1
+        order: start-first
 
 networks:
   traefik-public:
