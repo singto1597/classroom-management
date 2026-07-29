@@ -30,8 +30,6 @@ volumes:
 
 networks:
   app-internal-staging:
-    driver: overlay
-    attachable: true
+    external: true
   app-internal-production:
-    driver: overlay
-    attachable: true
+    external: true
