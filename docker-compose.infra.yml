@@ -25,7 +25,14 @@ services:
   # เปลี่ยนจาก adminer เป็น bytebase
   bytebase:
     image: bytebase/bytebase:latest
-    command: ["--data", "/var/opt/bytebase", "--port", "5678"]
+    # เติม --external-url เข้าไปตรงนี้!
+    command: 
+      - "--data"
+      - "/var/opt/bytebase"
+      - "--port"
+      - "5678"
+      - "--external-url"
+      - "https://db-${ENV_NAME}.singto1597.xyz"
     volumes:
       - ${ENV_NAME}_bytebase_data:/var/opt/bytebase
     networks:
@@ -47,6 +54,7 @@ volumes:
   staging_bytebase_data:
   production_bytebase_data:
 
+# ใช้ Alias ชื่อ shared_network แล้วชี้ name ไปที่ตัวแปร
 networks:
   shared_network:
     name: app-internal-${ENV_NAME}
