@@ -8,7 +8,7 @@ services:
     environment:
       - REDIS_URL=redis://staging_infra_redis:6379/0
     networks:
-      - app-internal-${ENV_NAME}
+      - shared_network
       - traefik-public
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -46,7 +46,7 @@ services:
     env_file:
       - .env # <--- เปลี่ยนมาอ่าน .env ตัวแม่ด้วย
     networks:
-      - app-internal-${ENV_NAME}
+      - shared_network
     deploy:
       replicas: 1
       update_config:
@@ -55,7 +55,6 @@ services:
 networks:
   traefik-public:
     external: true
-  app-internal-staging:
-    external: true
-  app-internal-production:
+  shared_network:
+    name: app-internal-${ENV_NAME}
     external: true
