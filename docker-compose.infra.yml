@@ -22,29 +22,6 @@ services:
     deploy:
       replicas: 1
     
-  # เปลี่ยนจาก adminer เป็น bytebase
-  bytebase:
-    image: bytebase/bytebase:latest
-    # เติม --external-url เข้าไปตรงนี้!
-    command: 
-      - "--data"
-      - "/var/opt/bytebase"
-      - "--port"
-      - "5678"
-      - "--external-url"
-      - "https://db-${ENV_NAME}.singto1597.xyz"
-    volumes:
-      - ${ENV_NAME}_bytebase_data:/var/opt/bytebase
-    networks:
-      - shared_network
-      - traefik-public
-    deploy:
-      replicas: 1
-      labels:
-        - "traefik.enable=true"
-        - "traefik.http.routers.${ENV_NAME}_bytebase.rule=Host(`db-${ENV_NAME}.singto1597.xyz`)" 
-        - "traefik.http.services.${ENV_NAME}_bytebase.loadbalancer.server.port=5678"
-        - "traefik.docker.network=traefik-public"
 
 volumes:
   staging_postgres_data:
