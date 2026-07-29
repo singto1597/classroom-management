@@ -46,3 +46,5 @@ networks:
   shared_network:
     name: app-internal-${ENV_NAME}
     external: true
+  traefik-public:
+    external: true
