@@ -9,6 +9,7 @@ services:
       - ${ENV_NAME}_postgres_data:/var/lib/postgresql/data
     networks:
       - shared_network
+      - db-management
     deploy:
       replicas: 1
 
@@ -37,4 +38,6 @@ networks:
     name: app-internal-${ENV_NAME}
     external: true
   traefik-public:
+    external: true
+  db-management:
     external: true
