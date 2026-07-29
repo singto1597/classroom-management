@@ -21,6 +21,19 @@ services:
       - shared_network
     deploy:
       replicas: 1
+    
+  adminer:
+    image: adminer:latest
+    networks:
+      - shared_network
+      - traefik-public
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.${ENV_NAME}_adminer.rule=Host(`db-${ENV_NAME}.singto1597.xyz`)" 
+        - "traefik.http.services.${ENV_NAME}_adminer.loadbalancer.server.port=8080"
+        - "traefik.docker.network=traefik-public"
 
 volumes:
   staging_postgres_data:
