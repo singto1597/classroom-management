@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     
     logger.info("🛑 Shutting down... Closing Database Pool.")
     await asyncio.sleep(3)
-    app.state.db_pool.close()
+    await app.state.db_pool.close()
     logger.info("✅ Database Pool Closed.")
 
 
