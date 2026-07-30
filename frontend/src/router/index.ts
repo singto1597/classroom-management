@@ -133,6 +133,11 @@ const router = createRouter({
           path: 'finance/debtors',
           name: 'finance-debtors',
           component: () => import('@/views/finance/DebtorList.vue'),
+        },
+        {
+          path: 'discord-connect',
+          name: 'DiscordConnect',
+          component: () => import('@/components/discord/DiscordConnectGuide.vue'),
         }
       ]
     }

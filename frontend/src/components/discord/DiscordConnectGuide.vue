@@ -36,7 +36,8 @@ const copyRoomCode = async () => {
 </script>
 
 <template>
-  <div class="card bg-base-100 shadow-xl border border-slate-200/60 rounded-[2.5rem] overflow-hidden">
+  <div class="min-h-[80vh] w-full flex items-center justify-center p-4">
+    <div class="card bg-base-100 shadow-xl border border-slate-200/60 rounded-[2.5rem] overflow-hidden max-w-2xl w-full">
     <!-- Header -->
     <div class="bg-gradient-to-r from-[#5865F2] to-[#4752C4] px-6 py-5 flex items-center gap-4">
       <!-- Discord SVG icon -->
@@ -164,6 +165,12 @@ const copyRoomCode = async () => {
           </div>
         </div>
       </div>
+    </div>
+    <!-- Back to dashboard button -->
+    <div class="px-6 pb-6">
+      <RouterLink to="/dashboard" class="btn btn-outline btn-sm rounded-xl w-full">
+        กลับสู่หน้าหลัก
+      </RouterLink>
     </div>
   </div>
 </template>
