@@ -82,7 +82,7 @@ const copyRoomCode = async () => {
             :href="botInviteUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="btn btn-primary gap-2 rounded-2xl"
+            class="inline-flex items-center gap-2 px-6 py-3 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-2xl transition-all shadow-md"
           >
             <svg
               class="w-5 h-5"
@@ -103,7 +103,7 @@ const copyRoomCode = async () => {
       <div class="flex items-center gap-3">
         <span class="flex-1 h-px bg-slate-200"></span>
         <span class="text-xs font-bold text-slate-400 uppercase tracking-widest"
-          >หรือ</span
+          >จากนั้น</span
         >
         <span class="flex-1 h-px bg-slate-200"></span>
       </div>
@@ -132,8 +132,7 @@ const copyRoomCode = async () => {
               class="bg-slate-800 text-green-300 font-mono text-sm px-4 py-3 rounded-xl overflow-x-auto whitespace-nowrap"
             >
               <span class="text-slate-400">/</span>sync_room
-              <span class="text-yellow-300">{{ currentRoomCode }}</span>
-              <span class="text-blue-300">5</span>
+              <span class="text-yellow-300">{{ currentRoomCode }}&nbsp;</span><span class="text-blue-300">5</span>
             </div>
             <p class="text-xs text-slate-400 leading-relaxed">
               เปลี่ยนเลข
@@ -168,7 +167,7 @@ const copyRoomCode = async () => {
     </div>
     <!-- Back to dashboard button -->
     <div class="px-6 pb-6">
-      <RouterLink to="/dashboard" class="btn btn-outline btn-sm rounded-xl w-full">
+      <RouterLink to="/dashboard" class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all active:scale-95 w-full inline-flex items-center justify-center">
         กลับสู่หน้าหลัก
       </RouterLink>
     </div>
