@@ -43,4 +43,47 @@
 - **ก่อน Delete ต้องเช็ค Dependency:** หากมีการลบข้อมูล Master Data (เช่น กระเป๋าเงิน, หมวดหมู่) ต้อง Query เช็คก่อนเสมอว่าข้อมูลนี้ถูกผูกใช้งานในตารางอื่น (เช่น `finance_transactions` หรือ `student_payments`) หรือไม่ หากมีให้ `raise ValueError` ห้ามลบทิ้งเด็ดขาด ป้องกันข้อมูลกำพร้า (Orphan Data)
 
 ## 10. Router Response Models
-- ใน Router ต้องบังคับใส่ `response_model=...` ทุกครั้ง เพื่อให้ Pydantic กรองฟิลด์ที่ไม่จำเป็น (หรือฟิลด์ลับ) ออกจาก JSON ก่อนส่งกลับไปหา Client ช่วยทั้งเรื่อง Security และ Performance
+- ใน Router ต้องบังคับใส่ `response_model=...` ทุกครั้ง เพื่อให้ Pydantic กรองฟิลด์ที่ไม่จำเป็น (หรือฟิลด์ลับ) ออกจาก JSON ก่อนส่งกลับไปหา Client ช่วยทั้งเรื่อง Security และ Performance# ⚙️ Backend Rules (FastAPI + asyncpg)
+
+คุณคือ Senior Backend Engineer ที่ดูแลระบบ Classroom Management System กฎเหล่านี้คือมาตรฐานที่ต้องปฏิบัติตามอย่างเคร่งครัด
+
+## 1. Stack & Core Technologies
+- **Framework:** FastAPI (Python 3.12+)
+- **Database:** `asyncpg` สำหรับ PostgreSQL (**ห้ามใช้ ORM/SQLAlchemy เด็ดขาด**)
+- **Validation:** `Pydantic` v2 (ใช้ `model_dump()` แทน `dict()`)
+- **Logging:** `AuditLogger` (จาก `core.logger`) สำหรับบันทึกพฤติกรรมผู้ใช้
+
+## 2. โครงสร้างและการแยก Layer (Strict MVC-like)
+- **Routers (`backend/routers/`):**
+  - หน้าที่: รับ Request, จัดการ Dependency Injection (เช่น `get_db_pool`, `get_current_user`), และจัดการ Exception เป็น `HTTPException`
+  - **กฎเหล็ก:** ห้ามมี SQL Query หรือ Business Logic ซับซ้อนใน Router
+  - ต้องมีฟังก์ชัน `get_audit_context` เพื่อดึง `client_source` และ `actor_identifier`
+- **Services (`backend/services/`):**
+  - หน้าที่: บรรจุ Business Logic ทั้งหมด, คำนวณข้อมูล, และเขียน Raw SQL
+  - การเรียกใช้: รับ `pool: asyncpg.Pool` และจัดการ Transaction เอง
+- **Models (`backend/models/`):**
+  - ใช้ Pydantic Models สำหรับ Request และ Response
+  - ทุก Success Response ควรใช้ `SuccessResponse` หรือ Model ที่ระบุฟิลด์ชัดเจน
+
+## 3. Database & SQL Standard
+- **Raw SQL Only:** เขียน SQL โดยใช้ Parameterized Query (`$1, $2, ...`) เพื่อป้องกัน SQL Injection
+- **Transaction:** ทุก Mutation (INSERT, UPDATE, DELETE) ต้องครอบด้วย `async with conn.transaction():`
+- **Soft Delete:** ห้ามลบข้อมูลสำคัญออกจาก Disk ให้ใช้ `UPDATE ... SET deleted_at = NOW()`
+- **Hard Delete:** อนุญาตเฉพาะในฟังก์ชันที่ระบุว่า `permanent` และต้องเช็ค Foreign Key Dependency ก่อนเสมอ (เช่น ห้ามลบคนที่มีประวัติการเงิน)
+- **Row Locking:** สำหรับข้อมูลการเงินหรือยอดเงิน (Finance) ให้ใช้ `FOR UPDATE` เมื่อดึงข้อมูลมาคำนวณ
+
+## 4. Audit Logging (หัวใจสำคัญ)
+- ทุก Action ที่เปลี่ยนสถานะข้อมูล (CREATE, UPDATE, DELETE, EXPORT) **ต้อง** บันทึกลงตาราง `audit_logs`
+- การบันทึก Log ต้องใช้ `service_logger.log(...)` ภายใน Transaction เดียวกับข้อมูลหลัก
+- เก็บข้อมูล `execution_time_ms`, `old_values`, และ `new_values` (ถ้ามี) ให้ครบถ้วน
+
+## 5. Error Handling & Response
+- **Service Layer:** Raise Exception เฉพาะทางจาก `core.exceptions` (เช่น `StudentNotFoundError`, `ForbiddenError`)
+- **Router Layer:** ครอบ `try...except` และแปลง Exception เป็น `HTTPException` พร้อม Status Code ที่เหมาะสม (400, 403, 404)
+- **Response Models:** ต้องใส่ `response_model` ใน Decorator ของ Router ทุกครั้งเพื่อความปลอดภัยของข้อมูล
+
+## 6. Coding Standards
+- **Naming:** ใช้ `snake_case` สำหรับตัวแปรและฟังก์ชัน, `PascalCase` สำหรับ Classes
+- **Type Hinting:** ต้องระบุ Type Hint ให้ครบถ้วนทั้ง Parameter และ Return Type
+- **Async:** ทุกการทำงานที่เกี่ยวกับ I/O (DB, Redis, API) ต้องเป็น `async/await`
+- **Bangkok Time:** การจัดการเวลาให้ยึดตาม `Asia/Bangkok` หรือ UTC+7 เสมอ
