@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from models.student_schemas import (
     SuccessResponse, StudentAddRequest, StudentBulkAddRequest, StudentUpdateRequest, 
     StudentResponse, StudentExportRequest, StudentStatusUpdate, 
-    UserRoomResponse, StudentDeleteRequest, StudentSummaryResponse
+    UserRoomResponse, StudentDeleteRequest, StudentSummaryResponse,
+    DiscordSyncRequest
 )
 from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
@@ -200,3 +201,35 @@ async def deactivate_student(student_no: int, req: StudentStatusUpdate, request:
         return SuccessResponse(message=f"Status of No. {student_no} changed to {req.status}")
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/discord/sync")
+async def sync_discord(
+    req: DiscordSyncRequest,
+    request: Request,
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+    x_discord_id: Optional[str] = Header(None),
+    x_discord_username: Optional[str] = Header(None),
+):
+    if not x_discord_id:
+        raise HTTPException(status_code=400, detail="Missing X-Discord-Id header")
+    client_source, actor = get_audit_context(request, user_ctx)
+    try:
+        await StudentService.sync_discord_account(
+            pool,
+            room_code=req.room_code,
+            student_no=req.student_no,
+            discord_id=x_discord_id,
+            discord_username=x_discord_username or "",
+            client_source=client_source,
+            actor_identifier=actor,
+        )
+        return SuccessResponse(message="Discord account synced successfully.")
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except StudentNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

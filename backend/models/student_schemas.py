@@ -149,3 +149,7 @@ class StudentSummaryResponse(BaseModel):
     is_admin: bool = False # 🎯 เพิ่ม
     discord_id_str: Optional[str] = None
     data_completion: Optional[StudentCompletionStatus] = None
+
+class DiscordSyncRequest(BaseModel):
+    room_code: str
+    student_no: int

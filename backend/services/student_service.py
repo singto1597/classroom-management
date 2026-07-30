@@ -648,3 +648,71 @@ class StudentService:
                     old_values=old_values, endpoint_or_command="delete_student_permanent", execution_time_ms=exec_time
                 )
             raise e
+
+    @classmethod
+    async def sync_discord_account(
+        cls,
+        pool: asyncpg.Pool,
+        room_code: str,
+        student_no: int,
+        discord_id: str,
+        discord_username: str,
+        client_source: str,
+        actor_identifier: str,
+    ) -> None:
+        start_time = time.time()
+        target_room_id = None
+        new_values = {"room_code": room_code, "student_no": student_no, "discord_id": discord_id, "discord_username": discord_username}
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    # find room by room_code
+                    row = await conn.fetchrow(
+                        "SELECT id FROM rooms WHERE room_code = $1 AND deleted_at IS NULL", room_code
+                    )
+                    if not row:
+                        raise RoomNotFoundError("ไม่พบรหัสห้องนี้")
+                    target_room_id = row["id"]
+
+                    # find student in this room
+                    student_row = await conn.fetchrow(
+                        "SELECT user_id FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL",
+                        target_room_id, student_no
+                    )
+                    if not student_row:
+                        raise StudentNotFoundError("ไม่พบเลขที่นักเรียนในห้องนี้")
+
+                    user_id = student_row["user_id"]
+
+                    # check if discord_id is already used by another user
+                    existing = await conn.fetchval(
+                        "SELECT id FROM users WHERE discord_id = $1 AND id != $2 AND deleted_at IS NULL",
+                        discord_id, user_id
+                    )
+                    if existing:
+                        raise ValidationError("Discord ID นี้ถูกผูกไว้กับบัญชีอื่นแล้ว")
+
+                    # update user's discord_id and discord_username
+                    await conn.execute(
+                        "UPDATE users SET discord_id = $1, discord_username = $2, updated_at = NOW() WHERE id = $3",
+                        discord_id, discord_username, user_id
+                    )
+
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action="SYNC_DISCORD", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=target_room_id, user_id=user_id,
+                        entity_type="STUDENT", entity_id=str(student_no), status="success",
+                        new_values=new_values, endpoint_or_command="sync_discord_account", execution_time_ms=exec_time
+                    )
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="SYNC_DISCORD", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=target_room_id, user_id=None,
+                    entity_type="STUDENT", entity_id=str(student_no) if student_no else None,
+                    status="failed", error_detail=str(e), new_values=new_values,
+                    endpoint_or_command="sync_discord_account", execution_time_ms=exec_time
+                )
+            raise e
