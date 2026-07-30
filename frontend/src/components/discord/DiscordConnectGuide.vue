@@ -173,4 +173,5 @@ const copyRoomCode = async () => {
       </RouterLink>
     </div>
   </div>
+</div>
 </template>
