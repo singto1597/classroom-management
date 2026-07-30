@@ -2,111 +2,37 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from services.api_client import api_client, APIException
-from ui.student_ui import QuickAddModal, BulkAddModal, ProfileView
-import re
 
-@app_commands.guild_only()
 class StudentCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author == self.bot.user:
-            return
-
-        text = message.content
-        
-        if "ประกาศใหม่" in text and "หัวข้อ:" in text and "กำหนดส่ง" in text:
-            try:
-                clean_text = text.replace('*', '')
-
-                topic_match = re.search(r"หัวข้อ:\s*(.+)", clean_text)
-                type_match = re.search(r"ประเภท:\s*(.+)", clean_text)
-                
-                detail_match = re.search(r"รายละเอียด:\s*(.*?)(?=\n.*?กำหนดส่ง/วันที่:|$)", clean_text, re.DOTALL)
-                date_match = re.search(r"กำหนดส่ง/วันที่:\s*(\d{2}/\d{2}/\d{4})", clean_text)
-
-                if not (topic_match and type_match and detail_match and date_match):
-                    return
-
-                topic = topic_match.group(1).strip()
-                msg_type = type_match.group(1).strip()
-                detail = detail_match.group(1).strip()
-                date_str = date_match.group(1).strip()
-                
-                d, m, y = date_str.split('/')
-                db_date = f"{y}-{m}-{d}"
-
-                server_id = message.guild.id
-                
-                headers = {"X-Discord-Id": str(message.author.id)}
-                payload = {"user_name": str(message.author.name)}
-
-                try:
-                    # 🚨 แทรก target_type="server"
-                    room_data = await api_client.request("GET", f"/{server_id}", params={"target_type": "server"}, headers=headers)
-                    main_channel_id = room_data.get('announcement_channel_id')
-                    main_channel = self.bot.get_channel(main_channel_id) if main_channel_id else None
-                except:
-                    main_channel = None
-
-                if "งาน" in msg_type or "การบ้าน" in msg_type:
-                    payload.update({
-                        "task_name": topic,
-                        "task_detail": detail,
-                        "due_date": db_date
-                    })
-                    # 🚨 แทรก target_type="server"
-                    await api_client.request("POST", f"/{server_id}/tasks", params={"target_type": "server"}, json=payload, headers=headers)
-                    await message.add_reaction("✅") 
-
-                    if main_channel and message.channel.id != main_channel_id:
-                        embed = discord.Embed(title="🚨 มีงานใหม่เข้าตาราง!", description=f"ดึงงานเข้าตารางให้เรียบร้อยแล้ว ไม่ต้องเหนื่อยพิมพ์!", color=discord.Color.green())
-                        embed.add_field(name="📌 ชื่องาน", value=topic, inline=False)
-                        embed.add_field(name="📅 กำหนดส่ง", value=f"{d}/{m}/{y}", inline=True)
-                        await main_channel.send(content="<@&ROLE_ID_EVERYONE> เห้ยพวกมึง!", embed=embed)
-
-                else: 
-                    payload.update({
-                        "target_date": db_date,
-                        "bring_items": "-", 
-                        "announcement": f"[{topic}] {detail}"
-                    })
-                    # 🚨 แทรก target_type="server"
-                    await api_client.request("POST", f"/{server_id}/notes", params={"target_type": "server"}, json=payload, headers=headers)
-                    await message.add_reaction("📌") 
-
-                    if main_channel and message.channel.id != main_channel_id:
-                        embed = discord.Embed(title="📌 มีประกาศใหม่เข้าตาราง!", description=f"อัปเดตโน้ตรายวันให้แล้ว เข้าไปดูตารางพรุ่งนี้ได้เลย!", color=discord.Color.gold())
-                        embed.add_field(name="หัวข้อ", value=topic, inline=False)
-                        await main_channel.send(embed=embed)
-
-            except Exception as e:
-                print(f"⚠️ กวาดข้อมูลจากข้อความไม่สำเร็จ: {e}")
-
-    @app_commands.command(name="sync_me", description="ผูก Discord ของคุณเข้ากับเลขที่นักเรียน (ทำครั้งแรกครั้งเดียว)")
-    async def sync_me(self, interaction: discord.Interaction, student_no: int):
+    @app_commands.command(name="sync_room", description="ผูก Discord ของคุณเข้ากับรหัสห้องและเลขที่นักเรียน (ทำครั้งแรกครั้งเดียว)")
+    async def sync_room(self, interaction: discord.Interaction, room_code: str, student_no: int):
+        """Sync Discord account with a classroom using room_code and student_no"""
+        await interaction.response.defer(ephemeral=True)
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
             payload = {
-                "student_no": student_no,
-                "discord_id": interaction.user.id,
-                "user_name": interaction.user.name
+                "room_code": room_code,
+                "student_no": student_no
             }
-            # 🚨 แทรก target_type="server"
-            await api_client.request("POST", f"/{interaction.guild_id}/students/sync", params={"target_type": "server"}, json=payload, headers=headers)
-            await interaction.response.send_message(f"🎉 ผูกบัญชีกับเลขที่ {student_no} สำเร็จ! ลองพิมพ์ `/my_profile` ดูสิ!", ephemeral=True)
+            # New endpoint POST /discord/sync
+            await api_client.request("POST", "/discord/sync", headers=headers, json=payload)
+            await interaction.followup.send(
+                f"🎉 ผูกบัญชีกับห้อง {room_code} เลขที่ {student_no} สำเร็จ! ลองพิมพ์ `/my_profile` ดูสิ!",
+                ephemeral=True
+            )
         except APIException as e:
-            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ {e}", ephemeral=True)
 
-    @app_commands.command(name="my_profile", description="ดูบัตรประจำตัวและอัปเดตข้อมูลของคุณ")
+    @app_commands.command(name="my_profile", description="ดูโปรไฟล์ส่วนตัวของคุณ")
     async def my_profile(self, interaction: discord.Interaction):
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            # 🚨 แทรก target_type="server"
-            data = await api_client.request("GET", f"/{interaction.guild_id}/students/me", params={"target_type": "server"}, headers=headers)
-            
+            # Global endpoint (no guild_id)
+            data = await api_client.request("GET", "/students/me", headers=headers)
+
             completion = data.get('data_completion', {})
             percent = completion.get('percentage', 0)
             missing = completion.get('missing_fields', [])
@@ -115,7 +41,7 @@ class StudentCommands(commands.Cog):
                 title=f"💳 บัตรนักเรียน: {data.get('prefix') or ''}{data['first_name']} {data['last_name']} ({data.get('nickname') or '-'})",
                 color=discord.Color.gold() if percent == 100 else discord.Color.red()
             )
-            
+
             embed.add_field(name="เลขที่", value=data['student_no'], inline=True)
             embed.add_field(name="รหัสนักเรียน", value=data.get('student_id') or "-", inline=True)
             embed.add_field(name="วันเกิด", value=data.get('birthday') or "-", inline=True)
@@ -160,143 +86,10 @@ class StudentCommands(commands.Cog):
                 missing_str = ", ".join(missing)
                 embed.add_field(name=f"📊 สถานะข้อมูล ({percent}%)", value=f"⚠️ ยังขาดข้อมูล: `{missing_str}`", inline=False)
 
-            from ui.student_ui import ProfileView
-            view = ProfileView(interaction.guild_id, data['student_no'], data)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-        except APIException as e:
-            await interaction.response.send_message(f"❌ {e} (ลองพิมพ์ `/sync_me` ก่อนนะ)", ephemeral=True)
-        
-    @app_commands.command(name="add_student", description="(แอดมิน) เพิ่มนักเรียนใหม่แบบด่วน")
-    async def add_student(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(QuickAddModal(interaction.guild_id))
-
-    @app_commands.command(name="bulk_add", description="(แอดมิน) เพิ่มนักเรียนรวดเดียวจาก Excel")
-    async def bulk_add(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(BulkAddModal(interaction.guild_id))
-
-    @app_commands.command(name="class_list", description="(หัวหน้า) เช็คสถานะการกรอกข้อมูลของเพื่อนทั้งห้อง")
-    async def class_list(self, interaction: discord.Interaction):
-        try:
-            headers = {"X-Discord-Id": str(interaction.user.id)}
-            # 🚨 แทรก target_type="server"
-            students = await api_client.request("GET", f"/{interaction.guild_id}/students", params={"target_type": "server"}, headers=headers)
-            
-            embed = discord.Embed(title="📋 รายงานสถานะการกรอกข้อมูลทั้งห้อง", color=discord.Color.blue())
-            
-            text = ""
-            for s in students:
-                percent = s.get('data_completion', {}).get('percentage', 0)
-                icon = "✅" if percent == 100 else "⚠️"
-                text += f"`เลขที่ {s['student_no']:02d}` | {icon} {percent}% | {s['first_name']}\n"
-                
-                if len(text) > 900:
-                    embed.add_field(name="รายชื่อ", value=text, inline=False)
-                    text = ""
-            
-            if text:
-                embed.add_field(name="รายชื่อ (ต่อ)", value=text, inline=False)
-                
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            
-        except APIException as e:
-            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
-    
-    async def student_search_autocomplete(self, interaction: discord.Interaction, current: str):
-        if len(current) < 1: return []
-        try:
-            headers = {"X-Discord-Id": str(interaction.user.id)}
-            # 🚨 แทรก target_type="server"
-            results = await api_client.request("GET", f"/{interaction.guild_id}/search", params={"q": current, "target_type": "server"}, headers=headers)
-            choices = []
-            for r in results:
-                name = f"เลขที่ {r['student_no']} | {r['first_name']} {r['last_name']} ({r.get('nickname') or '-'})"
-                choices.append(app_commands.Choice(name=name, value=r['student_no']))
-            return choices[:25] 
-        except:
-            return []
-    
-    @app_commands.command(name="search", description="ค้นหาและดูโปรไฟล์เพื่อนในห้อง")
-    @app_commands.autocomplete(student_no=student_search_autocomplete)
-    async def search_student(self, interaction: discord.Interaction, student_no: int):
-        try:
-            headers = {"X-Discord-Id": str(interaction.user.id)}
-            # 🚨 แทรก target_type="server"
-            results = await api_client.request("GET", f"/{interaction.guild_id}/search", params={"q": str(student_no), "target_type": "server"}, headers=headers)
-            if not results:
-                return await interaction.response.send_message("❌ ไม่พบข้อมูลนักเรียนคนนี้ หรืออาจจะย้ายออกไปแล้ว", ephemeral=True)
-            
-            data = results[0] 
-            
-            embed = discord.Embed(
-                title=f"🔎 ข้อมูลของ: {data.get('prefix') or ''}{data['first_name']} {data['last_name']}",
-                color=discord.Color.blue()
-            )
-            embed.add_field(name="เลขที่", value=data['student_no'], inline=True)
-            embed.add_field(name="ชื่อเล่น", value=data.get('nickname') or "-", inline=True)
-            embed.add_field(name="เบอร์โทร", value=data.get('phone_number') or "-", inline=True)
-            embed.add_field(name="LINE ID", value=data.get('line_id') or "-", inline=True)
-            embed.add_field(name="IG", value=data.get('ig_username') or "-", inline=True)
-            embed.add_field(name="คณะที่ใฝ่ฝัน", value=data.get('target_faculty') or "-", inline=False)
-            
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        except APIException as e:
-            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
-    @app_commands.command(name="deactivate", description="(หัวหน้า) จำหน่ายเพื่อนออกจากห้อง (ย้าย/ลาออก)")
-    @app_commands.autocomplete(student_no=student_search_autocomplete)
-    async def deactivate_student(self, interaction: discord.Interaction, student_no: int):
-        try:
-            headers = {"X-Discord-Id": str(interaction.user.id)}
-            payload = {"status": "inactive", "user_name": interaction.user.name}
-            
-            # 🚨 แทรก target_type="server"
-            await api_client.request("PATCH", f"/{interaction.guild_id}/students/{student_no}/status", params={"target_type": "server"}, headers=headers, json=payload)
-            await interaction.response.send_message(f"✅ นำเลขที่ **{student_no}** ออกจากรายชื่อปัจจุบันเรียบร้อยแล้ว (ข้อมูลถูกซ่อนไว้ ไม่ถูกลบ)", ephemeral=True)
         except APIException as e:
-            await interaction.response.send_message(f"❌ {e} (คุณไม่มีสิทธิ์ที่จะนำเพื่อนออก)", ephemeral=True)
-
-    @app_commands.command(name="activate", description="(หัวหน้า) จำหน่ายเพื่อนกลับเข้าห้อง (เช่น กดผิด)")
-    async def activate_student(self, interaction: discord.Interaction, student_no: int):
-        try:
-            headers = {"X-Discord-Id": str(interaction.user.id)}
-            payload = {"status": "active", "user_name": interaction.user.name}
-            
-            # 🚨 แทรก target_type="server"
-            await api_client.request("PATCH", f"/{interaction.guild_id}/students/{student_no}/status", params={"target_type": "server"}, headers=headers, json=payload)
-            await interaction.response.send_message(f"✅ นำเลขที่ **{student_no}** เข้ารายชื่อปัจจุบันเรียบร้อยแล้ว", ephemeral=True)
-        except APIException as e:
-            await interaction.response.send_message(f"❌ {e} (คุณไม่มีสิทธิ์ที่จะนำเพื่อนเข้า)", ephemeral=True)
-
-    @app_commands.command(name="export_students", description="(หัวหน้า) ดาวน์โหลดข้อมูลเพื่อนเป็นไฟล์ Excel")
-    async def export_students(self, interaction: discord.Interaction):
-        from ui.student_ui import ExportSelectView
-        await interaction.response.send_message("📊 **เลือกหมวดหมู่ข้อมูลที่ต้องการ Export ลง Excel:**\n*(สามารถติ๊กได้หลายอัน หากติ๊กเสร็จ ให้กดที่ว่างเปล่าข้างแชท)*", view=ExportSelectView(interaction.guild_id), ephemeral=True)
-
-    @app_commands.command(name="check_incomplete", description="(หัวหน้า) ดูรายชื่อคนที่ยังกรอกข้อมูลโปรไฟล์ไม่ครบ")
-    async def check_incomplete(self, interaction: discord.Interaction):
-        try:
-            headers = {"X-Discord-Id": str(interaction.user.id)}
-            # 🚨 แทรก target_type="server"
-            students = await api_client.request("GET", f"/{interaction.guild_id}/students", params={"target_type": "server"}, headers=headers)
-            
-            incomplete = [s for s in students if s.get('data_completion', {}).get('percentage', 0) < 100]
-            
-            if not incomplete:
-                return await interaction.response.send_message("🎉 ทุกคนในห้องกรอกข้อมูลครบ 100% หมดแล้ว!", ephemeral=True)
-
-            embed = discord.Embed(title="⚠️ รายชื่อคนดองประวัติ (กรอกไม่ครบ 100%)", color=discord.Color.orange())
-            text = ""
-            for s in incomplete:
-                percent = s.get('data_completion', {}).get('percentage', 0)
-                text += f"`เลขที่ {s['student_no']:02d}` | ความคืบหน้า: **{percent}%** | {s['first_name']}\n"
-            
-            embed.description = text
-            embed.set_footer(text="ไปตามได้เลยครับ!")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            
-        except APIException as e:
-            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            await interaction.response.send_message(f"❌ {e} (ลองพิมพ์ `/sync_room` ก่อนนะ)", ephemeral=True)
 
 
 async def setup(bot):
