@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import Swal from 'sweetalert2';
+import DiscordConnectGuide from '@/components/discord/DiscordConnectGuide.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -85,6 +86,9 @@ const goToMyProfile = async () => {
           </div>
         </div>
       </div>
+
+      <!-- Discord Connect Guide Card (full width) -->
+      <DiscordConnectGuide />
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
         
