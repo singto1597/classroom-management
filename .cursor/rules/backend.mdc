@@ -1,50 +1,5 @@
 # ⚙️ Backend Rules (FastAPI + asyncpg)
 
-## 1. Stack & Environment
-- **Framework:** FastAPI รันบน Python 3.12+
-- **Database:** `asyncpg` (เขียน Raw SQL เท่านั้น)
-- **Data Validation:** `Pydantic` v2
-
-## 2. โครงสร้างโฟลเดอร์ (Strict MVC-like Pattern)
-- `routers/`: มีหน้าที่รับ Request, ตรวจสอบ Header/Dependencies, โยนงานให้ `services/` และ Return ค่ากลับ **(ห้ามเขียน SQL หรือ Business Logic ซับซ้อนที่นี่)**
-- `services/`: เป็นสมองของระบบ เขียน Business Logic, จัดการ Transaction, และยิง SQL Query ที่นี่ทั้งหมด
-- `models/`: เก็บ Pydantic Schemas (`BaseModel`) สำหรับตรวจ Request/Response
-- `core/`: เก็บไฟล์ตั้งค่า, Dependencies (เช่น `get_db_pool`, `verify_api_key`)
-
-## 3. Database & asyncpg Best Practices
-- **Connection Pool:** ห้ามสร้าง Connection ใหม่พร่ำเพรื่อ ให้รับ `pool: asyncpg.Pool` มาจาก Dependency Injection เสมอ
-- **Transaction:** ถ้ามีการทำงานที่ต้อง Query หลายคำสั่งต่อเนื่องกัน (เช่น Insert แล้ว Update) ต้องครอบด้วย `async with conn.transaction():` เสมอ เพื่อป้องกันข้อมูลพังถ้าเกิด Error กลางทาง
-- **Dynamic Updates (PATCH):** เมื่อรับข้อมูลอัปเดตแบบบางส่วน ให้ใช้ `req.model_dump(exclude_unset=True)` เพื่อเอาเฉพาะฟิลด์ที่ส่งมาจริงๆ ไปอัปเดต (ป้องกันการเอาค่า None ไปทับของเดิม)
-- **Data Limits:** การดึงข้อมูลแบบ List (เช่น ประวัติ หรือรายการแจ้งซ่อม) ควรมีการทำ Pagination หรือใส่ `LIMIT` เสมอ ห้ามดึงข้อมูลทั้งตาราง
-
-## 4. Security & Role Management
-- **Dependency Injection:** ทุก Router ที่ไม่ได้เป็น Public ต้องมี `Depends(verify_api_key)`
-- **Header Extraction:** การดึง Discord ID ของผู้ใช้ ให้ดึงผ่าน `x_discord_id: str = Header(...)` ที่ฝั่ง Router แล้วโยนเข้า Service
-- **Assume Identity (God Mode):** หากมีระบบ Super Admin การสลับสิทธิ์จะเกิดขึ้นที่ฝั่ง Client (PHP) ส่งค่า `room_id` และสวมรอยสิทธิ์มา ฝั่ง Backend ให้เชื่อใจ `room_id` และ `x_discord_id` ที่ส่งมา (ตราบใดที่ API Key ถูกต้อง)
-
-## 5. Audit Logging (กฎเหล็กห้ามลืม)
-- ทุกๆ Endpoint ที่มีผลกับการเปลี่ยนแปลงข้อมูล (POST, PUT, PATCH, DELETE) **ต้อง** มีการเรียกใช้ฟังก์ชัน `_log_action(conn, room_id, user_name, action, detail)` เพื่อบันทึกประวัติลงตาราง `audit_logs`
-- การบันทึก Log ต้องอยู่ภายใน `transaction()` เดียวกันกับการแก้ข้อมูลเสมอ
-
-## 6. Error Handling
-- หากหาข้อมูลไม่พบ หรือ Query ไม่สำเร็จ ให้ `raise` Custom Exception (เช่น `StudentNotFoundError`, `ForbiddenError`) จากใน `services/`
-- ฝั่ง `routers/` ต้องทำ `try...except` ดัก Custom Exception เหล่านี้ แล้วแปลงเป็น `HTTPException` พร้อมระบุ `status_code` ให้ถูกต้อง (เช่น 404, 403, 400)
-
-## 7. Data Types & asyncpg Quirks (ข้อควรระวังเรื่อง Type)
-- **Decimal vs Float:** คอลัมน์ประเภท `NUMERIC` หรือ `DECIMAL` ใน PostgreSQL เมื่อใช้ `asyncpg` ดึงข้อมูลมา มันจะกลายเป็นอ็อบเจกต์ `decimal.Decimal` ของ Python ซึ่ง **ห้ามนำไปบวก/ลบกับ `float` ตรงๆ เด็ดขาด (จะเกิด TypeError)** ต้องทำการแปลงไทป์ เช่น `float(row['amount'])` ก่อนคำนวณเสมอ
-- **Date/Datetime Params:** ตัวแปรที่รับค่าวันที่ผ่าน Query Parameter (เช่น `start_date`, `end_date`) ใน Pydantic ต้องกำหนด Type เป็น `date` หรือ `datetime` เท่านั้น ห้ามใช้ `str` เพื่อให้ FastAPI แปลงค่า String เป็น Date Object ให้อัตโนมัติ ป้องกันบั๊ก `toordinal()`
-
-## 8. Concurrency & Database Locks (ป้องกัน Race Condition)
-- ในระบบที่มีการคำนวณยอดเงิน (Finance) หรือตัดสต๊อก **ต้องใช้ `FOR UPDATE` เสมอ**
-- ตัวอย่าง: เวลาจะเพิ่ม/ลด เงินในกระเป๋า ต้องดึงยอดล่าสุดด้วย `SELECT balance FROM finance_accounts WHERE id = $1 FOR UPDATE` เพื่อล็อกแถวข้อมูลนั้นไว้ ป้องกันผู้ใช้กดย้ำๆ แล้วเงินเบิ้ล
-
-## 9. Soft Deletes & Foreign Key Checks
-- **ห้าม Hard Delete ข้อมูลสำคัญ:** ข้อมูลจำพวก Transaction ประวัติการเงิน หรืองานที่ส่งแล้ว ต้องใช้วิธี Soft Delete (`UPDATE ... SET deleted_at = NOW()`) 
-- **ก่อน Delete ต้องเช็ค Dependency:** หากมีการลบข้อมูล Master Data (เช่น กระเป๋าเงิน, หมวดหมู่) ต้อง Query เช็คก่อนเสมอว่าข้อมูลนี้ถูกผูกใช้งานในตารางอื่น (เช่น `finance_transactions` หรือ `student_payments`) หรือไม่ หากมีให้ `raise ValueError` ห้ามลบทิ้งเด็ดขาด ป้องกันข้อมูลกำพร้า (Orphan Data)
-
-## 10. Router Response Models
-- ใน Router ต้องบังคับใส่ `response_model=...` ทุกครั้ง เพื่อให้ Pydantic กรองฟิลด์ที่ไม่จำเป็น (หรือฟิลด์ลับ) ออกจาก JSON ก่อนส่งกลับไปหา Client ช่วยทั้งเรื่อง Security และ Performance# ⚙️ Backend Rules (FastAPI + asyncpg)
-
 คุณคือ Senior Backend Engineer ที่ดูแลระบบ Classroom Management System กฎเหล่านี้คือมาตรฐานที่ต้องปฏิบัติตามอย่างเคร่งครัด
 
 ## 1. Stack & Core Technologies
@@ -55,35 +10,37 @@
 
 ## 2. โครงสร้างและการแยก Layer (Strict MVC-like)
 - **Routers (`backend/routers/`):**
-  - หน้าที่: รับ Request, จัดการ Dependency Injection (เช่น `get_db_pool`, `get_current_user`), และจัดการ Exception เป็น `HTTPException`
+  - หน้าที่: รับ Request, จัดการ Dependency Injection, และจัดการ Exception เป็น `HTTPException`
   - **กฎเหล็ก:** ห้ามมี SQL Query หรือ Business Logic ซับซ้อนใน Router
+  - **Header Extraction:** ดึง Discord ID ผ่าน `x_discord_id: str = Header(...)` แล้วโยนเข้า Service เสมอ
   - ต้องมีฟังก์ชัน `get_audit_context` เพื่อดึง `client_source` และ `actor_identifier`
 - **Services (`backend/services/`):**
-  - หน้าที่: บรรจุ Business Logic ทั้งหมด, คำนวณข้อมูล, และเขียน Raw SQL
-  - การเรียกใช้: รับ `pool: asyncpg.Pool` และจัดการ Transaction เอง
+  - หน้าที่: บรรจุ Business Logic ทั้งหมด, จัดการ Transaction, และเขียน Raw SQL ที่นี่
+  - การเรียกใช้: รับ `pool: asyncpg.Pool` มาจาก Dependency Injection
 - **Models (`backend/models/`):**
   - ใช้ Pydantic Models สำหรับ Request และ Response
-  - ทุก Success Response ควรใช้ `SuccessResponse` หรือ Model ที่ระบุฟิลด์ชัดเจน
+  - **Date Params:** ตัวแปรรับค่าวันที่ต้องใช้ Type `date` หรือ `datetime` เท่านั้น ห้ามใช้ `str` ป้องกันบั๊ก `toordinal()`
+  - ใน Router ต้องบังคับใส่ `response_model=...` ทุกครั้ง เพื่อกรองฟิลด์ลับออกก่อนส่งหา Client
 
-## 3. Database & SQL Standard
-- **Raw SQL Only:** เขียน SQL โดยใช้ Parameterized Query (`$1, $2, ...`) เพื่อป้องกัน SQL Injection
-- **Transaction:** ทุก Mutation (INSERT, UPDATE, DELETE) ต้องครอบด้วย `async with conn.transaction():`
-- **Soft Delete:** ห้ามลบข้อมูลสำคัญออกจาก Disk ให้ใช้ `UPDATE ... SET deleted_at = NOW()`
-- **Hard Delete:** อนุญาตเฉพาะในฟังก์ชันที่ระบุว่า `permanent` และต้องเช็ค Foreign Key Dependency ก่อนเสมอ (เช่น ห้ามลบคนที่มีประวัติการเงิน)
-- **Row Locking:** สำหรับข้อมูลการเงินหรือยอดเงิน (Finance) ให้ใช้ `FOR UPDATE` เมื่อดึงข้อมูลมาคำนวณ
+## 3. Database & SQL Standard (asyncpg Best Practices)
+- **Raw SQL Only:** ใช้ Parameterized Query (`$1, $2, ...`) ป้องกัน SQL Injection เสมอ
+- **Transaction:** ถ้ามี Mutation ต่อเนื่อง (Insert/Update หลายตาราง) ต้องครอบด้วย `async with conn.transaction():` เสมอ
+- **Dynamic Updates (PATCH):** ใช้ `req.model_dump(exclude_unset=True)` เอาเฉพาะฟิลด์ที่ส่งมาไปอัปเดต ป้องกันค่า None ทับของเดิม
+- **Row Locking (ป้องกัน Race Condition):** ข้อมูลการเงินหรือตัดสต๊อก ต้องดึงยอดด้วย `SELECT ... FOR UPDATE` เสมอ
+- **Data Limits:** การดึงข้อมูล List ยาวๆ ต้องทำ Pagination หรือใส่ `LIMIT` ห้ามดึงทั้งตาราง
+- **Type Casting Quirk:** คอลัมน์ `NUMERIC/DECIMAL` ใน DB จะถูกดึงมาเป็น `decimal.Decimal` **ห้ามนำไปบวก/ลบกับ float ตรงๆ** ให้ใช้ `float(row['amount'])` แปลงก่อนคำนวณ
 
-## 4. Audit Logging (หัวใจสำคัญ)
-- ทุก Action ที่เปลี่ยนสถานะข้อมูล (CREATE, UPDATE, DELETE, EXPORT) **ต้อง** บันทึกลงตาราง `audit_logs`
-- การบันทึก Log ต้องใช้ `service_logger.log(...)` ภายใน Transaction เดียวกับข้อมูลหลัก
-- เก็บข้อมูล `execution_time_ms`, `old_values`, และ `new_values` (ถ้ามี) ให้ครบถ้วน
+## 4. Deletion & Audit Logging (กฎเหล็ก)
+- **Soft Delete:** ห้ามลบข้อมูลสำคัญ (เช่น ประวัติการเงิน, งานที่ส่ง) ออกจาก Disk ให้ใช้ `UPDATE ... SET deleted_at = NOW()`
+- **Hard Delete:** อนุญาตเฉพาะฟังก์ชัน `permanent` และ **ต้องเช็ค Foreign Key Dependency ก่อนเสมอ** หากถูกใช้งานอยู่ให้ `raise ValueError`
+- **Audit Logs:** ทุก Action ที่เปลี่ยนสถานะข้อมูล (CREATE, UPDATE, DELETE) **ต้อง** เรียกใช้ `service_logger.log(...)` ภายใน Transaction เดียวกับข้อมูลหลัก พร้อมเก็บ `old_values` และ `new_values` ให้ครบถ้วน
 
-## 5. Error Handling & Response
-- **Service Layer:** Raise Exception เฉพาะทางจาก `core.exceptions` (เช่น `StudentNotFoundError`, `ForbiddenError`)
-- **Router Layer:** ครอบ `try...except` และแปลง Exception เป็น `HTTPException` พร้อม Status Code ที่เหมาะสม (400, 403, 404)
-- **Response Models:** ต้องใส่ `response_model` ใน Decorator ของ Router ทุกครั้งเพื่อความปลอดภัยของข้อมูล
+## 5. Security & Error Handling
+- **Assume Identity (God Mode):** หาก Admin สลับสิทธิ์ผ่าน Client ส่ง `room_id` และ `x_discord_id` เข้ามา ให้ Backend เชื่อใจค่าที่ส่งมา (หากผ่าน verify_api_key แล้ว)
+- **Error in Service:** หากหาข้อมูลไม่พบ หรือ Query พัง ให้ Raise Exception เฉพาะทางจาก `core.exceptions` (เช่น `StudentNotFoundError`)
+- **Error in Router:** ครอบ `try...except` ดัก Exception จาก Service แล้วแปลงเป็น `HTTPException` พร้อม Status Code (400, 403, 404) ที่ถูกต้อง
 
 ## 6. Coding Standards
-- **Naming:** ใช้ `snake_case` สำหรับตัวแปรและฟังก์ชัน, `PascalCase` สำหรับ Classes
+- **Naming:** ใช้ `snake_case` สำหรับตัวแปร/ฟังก์ชัน, `PascalCase` สำหรับ Classes
 - **Type Hinting:** ต้องระบุ Type Hint ให้ครบถ้วนทั้ง Parameter และ Return Type
-- **Async:** ทุกการทำงานที่เกี่ยวกับ I/O (DB, Redis, API) ต้องเป็น `async/await`
-- **Bangkok Time:** การจัดการเวลาให้ยึดตาม `Asia/Bangkok` หรือ UTC+7 เสมอ
+- **Bangkok Time:** การจัดการเวลาให้ยึดตาม `Asia/Bangkok` (UTC+7) เสมอ
