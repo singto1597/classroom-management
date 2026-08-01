@@ -154,3 +154,11 @@ chmod +x oh_shit.sh
 สคริปต์นี้จะดึง Image ของ Commit ก่อนหน้าที่อยู่ในเครื่องขึ้นมารันทันที **โดยไม่ต้องเสียเวลา Build ใหม่** ระบบจะกลับสู่สภาวะปกติ 100%
 
 ```
+
+
+## การเทส 
+
+### คำสั่งที่ใช้ในการเทส
+```
+docker compose -f docker-compose.test.yml run --rm test_runner sh -c "export PYTHONDONTWRITEBYTECODE=1 && python -m pytest -p no:cacheprovider -v /app/tests/"
+```

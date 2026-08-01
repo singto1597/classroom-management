@@ -84,6 +84,25 @@ When you (the AI) run `/test` and encounter a failure (AssertionError, HTTP 422,
 * If the *main service code* has a bug (e.g., missing a `deleted_at IS NULL` check), INFORM the user and FIX the main service file.
 
 
+## 🚨 RULE 6: KNOWLEDGE RETENTION & SKILLS LOGGING (MANDATORY)
+
+Whenever you successfully fix a bug in the main service code or discover a non-obvious architecture pattern/database behavior during testing:
+1. **Document the Skill:** You MUST immediately log this knowledge into `docs/skills.md`.
+2. **Format Standard:** Follow this strict format when adding to `docs/skills.md`:
+
+```markdown
+### 🛠️ [Feature/Module Name] - [Short Title of the Learned Behavior]
+- **Context/Problem:** Briefly explain what failed or what constraint exists (e.g., PostgreSQL Unique Violation during OAuth merge).
+- **Root Cause:** Explain why it happened (e.g., updating target user's google_id before clearing old user's google_id).
+- **Correct Pattern/Solution:** Show the correct SQL/Python pattern to handle this properly.
+- **Date Added:** YYYY-MM-DD
+
+```
+
+3. **Continuous Learning:** Before fixing any new issue, check `docs/skills.md` to see if a similar problem has already been solved and documented.
+
+
+
 
 # 🧪 TEST FILE STRUCTURE TEMPLATE
 
