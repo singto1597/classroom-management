@@ -47,15 +47,13 @@ async def _insert_user(
 async def _insert_room(pool, owner_id: int) -> int:
     async with pool.acquire() as conn:
         code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        server_id = random.randint(1_000_000, 9_999_999)
         room_id = await conn.fetchval(
             """
-            INSERT INTO rooms (room_name, room_code, server_id, owner_id)
-            VALUES ('Test Room', $1, $2, $3)
+            INSERT INTO rooms (room_name, room_code, owner_id)
+            VALUES ('Test Room', $1, $2)
             RETURNING id
             """,
             code,
-            server_id,
             owner_id,
         )
     return room_id
