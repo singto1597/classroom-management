@@ -1,6 +1,7 @@
 import random
 import string
 import uuid
+from datetime import datetime
 
 import asyncpg
 import pytest
@@ -21,10 +22,14 @@ async def _insert_user(
     discord_id=None,
     first_name="Test",
     last_name="User",
-    username="tester",
+    username=None,
     phone_number=None,
     birthday=None,
 ) -> int:
+    if username is None:
+        username = f"u{uuid.uuid4().hex[:12]}"
+    if birthday is not None and isinstance(birthday, str):
+        birthday = datetime.strptime(birthday, "%Y-%m-%d").date()
     async with pool.acquire() as conn:
         return await conn.fetchval(
             """
