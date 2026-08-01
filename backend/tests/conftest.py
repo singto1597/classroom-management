@@ -1,4 +1,4 @@
-import pytest_asyncio  # 🚨 1. ห้ามลืม import ตัวนี้
+import pytest_asyncio
 import pytest
 import asyncpg
 import asyncio
@@ -8,15 +8,9 @@ from fastapi.testclient import TestClient
 
 from core.config import settings
 from main import app
+# 👇 Import ฟังก์ชันสร้างตารางของมึงมา
+from core.init_db import init_db 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_pool(test_db_url):
-    pool = await asyncpg.create_pool(test_db_url)
-    yield pool
-    await pool.close()
-
-# 2. ฟิกซ์เจอร์สำหรับสร้างและทำลาย Test Database
-# 🚨 2. เปลี่ยนตรงนี้จุดเดียว! จาก @pytest เป็น @pytest_asyncio
 @pytest_asyncio.fixture(scope="session")
 async def test_db_url():
     """
@@ -36,6 +30,23 @@ async def test_db_url():
         await sys_conn.close()
 
     new_db_url = f"{base_url}/{db_name}"
+    
+    # 👇 เปลี่ยน URL ชั่วคราว แล้วสั่งสร้างตารางให้ครบทุกตาราง
+    original_db_url = settings.DATABASE_URL
+    settings.DATABASE_URL = new_db_url
+    
+    temp_pool = None
+    try:
+        # 🚨 สร้าง Pool ชั่วคราวเพื่อส่งให้ init_db ของมึงทำงานได้
+        temp_pool = await asyncpg.create_pool(new_db_url)
+        await init_db(temp_pool)
+    except Exception as e:
+        print(f"Error initializing test database schema: {e}")
+    finally:
+        if temp_pool:
+            await temp_pool.close()
+        settings.DATABASE_URL = original_db_url
+
     yield new_db_url  
 
     sys_conn = await asyncpg.connect(sys_db_url)
@@ -50,8 +61,28 @@ async def test_db_url():
     finally:
         await sys_conn.close()
 
-# 3. ฟิกซ์เจอร์ Client ที่ Override Database ไปใช้ Test DB
-# 🚨 3. อันนี้เป็น def ธรรมดา ไม่ใช่ async def เลยใช้ @pytest.fixture ได้เหมือนเดิม!
+
+@pytest_asyncio.fixture(scope="function")
+async def db_pool(test_db_url):
+    pool = await asyncpg.create_pool(test_db_url)
+    yield pool
+    await pool.close()
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def clean_database(db_pool):
+    """
+    ล้างข้อมูลทุกตารางในฐานข้อมูลก่อนที่แต่ละฟังก์ชัน Test จะทำงาน
+    (ใช้ CASCADE เพื่อเคลียร์ Foreign Key ทะลุลงไปถึงตารางลูก)
+    """
+    async with db_pool.acquire() as conn:
+        # 🚨 ล้างแค่ Master Tables หลักๆ CASCADE จะจัดการตารางลูกให้เอง
+        await conn.execute("""
+            TRUNCATE TABLE users, rooms, mtn_locations CASCADE;
+        """)
+    yield
+
+
 @pytest.fixture(scope="function")
 def client(test_db_url):
     """
@@ -65,4 +96,3 @@ def client(test_db_url):
         yield test_client
         
     settings.DATABASE_URL = original_db_url
-    app.state.db_pool = None

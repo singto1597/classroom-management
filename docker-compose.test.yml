@@ -21,6 +21,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: classroom_test_runner
+    user: "root"
+    volumes:
+      - ./backend:/app:z
     environment:
       # 🚨 OVERRIDE DATABASE_URL ให้ชี้มาที่ Test DB ตัวนี้แทน!
       - DATABASE_URL=postgresql://test_admin:test_password@test_db:5432/test_smte_bot_db
@@ -28,10 +31,19 @@ services:
       - SECRET_KEY=test-secret
       - JWT_SECRET=test-jwt-secret
       - SUPER_ADMIN_ID=999999999999999
+      # 👇 ป้อนของปลอมเพื่อปิดปาก Pydantic (อิงตัวแปรตาม .env ของมึง)
+      - DISCORD_CLIENT_ID=dummy_discord_id
+      - DISCORD_CLIENT_SECRET=dummy_discord_secret
+      - DISCORD_REDIRECT_URI=http://localhost/dummy_discord_callback
+      - GOOGLE_CLIENT_ID=dummy_google_id
+      - GOOGLE_CLIENT_SECRET=dummy_google_secret
+      - GOOGLE_REDIRECT_URI=http://localhost/dummy_google_callback
     depends_on:
       test_db:
         condition: service_healthy
 
+    # 🚨 เปลี่ยนคำสั่งตรงนี้ด้วย! ให้มันรันหาไฟล์เทสทั้งหมดในโฟลเดอร์แทนที่จะเจาะจงไฟล์เดียว
     command: >
       sh -c "pip install pytest pytest-asyncio httpx && 
-             python -m pytest -v /app/tests/test_finance.py"
+             export PYTHONDONTWRITEBYTECODE=1 &&
+             python -m pytest -p no:cacheprovider -v /app/tests/"
