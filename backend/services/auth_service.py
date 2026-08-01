@@ -144,7 +144,7 @@ async def process_user_login(
                     entity_id=str(master_id),
                     status="success",
                     old_values=old_values if old_values else None,
-                    new_values=payload.dict() if hasattr(payload, 'dict') else dict(payload),
+                    new_values=payload.model_dump(),
                     endpoint_or_command="process_user_login",
                     execution_time_ms=exec_time
                 )
@@ -308,22 +308,24 @@ async def update_user_profile(
 ) -> dict:
     start_time = time.time()
     async with pool.acquire() as conn:
+        # Fetch old record strictly before applying changes
+        old_record = await conn.fetchrow("SELECT prefix, first_name, last_name FROM users WHERE id = $1", user_id)
+        if old_record is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        old_values = dict(old_record)
+
         try:
-            # Fetch old record strictly before applying changes
-            old_record = await conn.fetchrow("SELECT prefix, first_name, last_name FROM users WHERE id = $1", user_id)
-            old_values = dict(old_record) if old_record else None
-            
             # ใช้ execute เพื่อรันคำสั่ง UPDATE (คืนค่าเป็น string เช่น 'UPDATE 1')
             result = await conn.execute("""
                 UPDATE users
                 SET prefix = $1, first_name = $2, last_name = $3, updated_at = CURRENT_TIMESTAMP
                 WHERE id = $4
             """, profile_data.prefix, profile_data.first_name, profile_data.last_name, user_id)
-            
+
             # เช็คกรณีที่หา user ไม่เจอ (เผื่อไว้)
             if result == "UPDATE 0":
                 raise HTTPException(status_code=404, detail="User not found")
-                
+
             exec_time = int((time.time() - start_time) * 1000)
             await service_logger.log(
                 conn=conn,
@@ -335,11 +337,11 @@ async def update_user_profile(
                 entity_id=str(user_id),
                 status="success",
                 old_values=old_values,
-                new_values=profile_data.dict() if hasattr(profile_data, 'dict') else dict(profile_data),
+                new_values=profile_data.model_dump(),
                 endpoint_or_command="update_user_profile",
                 execution_time_ms=exec_time
             )
-            
+
             return {"status": "success", "message": "อัปเดตโปรไฟล์สำเร็จ"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
