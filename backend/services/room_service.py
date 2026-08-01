@@ -321,7 +321,7 @@ class RoomManagementService:
                     old_student = await conn.fetchrow("SELECT id, status FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL", room_id, student_no)
                     old_values = dict(old_student) if old_student else {}
 
-                    res = await conn.execute("DELETE FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending'", room_id, student_no)
+                    res = await conn.execute("DELETE FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL", room_id, student_no)
                     if res == "DELETE 0": raise HTTPException(status_code=404, detail="ไม่พบคำขอ หรือถูกลบไปแล้ว")
                     
                     exec_time = int((time.time() - start_time) * 1000)
