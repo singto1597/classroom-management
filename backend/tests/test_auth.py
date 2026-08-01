@@ -4,6 +4,7 @@ import uuid
 
 import asyncpg
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from core.exceptions import ForbiddenError
@@ -465,3 +466,55 @@ async def test_process_user_login_payload_requires_identifier(payload_kwargs):
     }
     with pytest.raises(ValidationError):
         OAuthProfilePayload(**base, **payload_kwargs)
+
+
+# === Section 5: More Auth Edge Cases ===
+
+
+async def test_process_user_login_invalid_email_raises_validation():
+    with pytest.raises(ValidationError):
+        OAuthProfilePayload(
+            email="invalid-email",
+            google_id=None,
+            discord_id=None,
+            first_name="Test",
+            last_name="User",
+            username="invalid",
+        )
+
+
+async def test_process_user_login_with_both_provider_ids(db_pool):
+    email = f"both_{uuid.uuid4().hex}@example.com"
+    payload = OAuthProfilePayload(
+        email=email,
+        google_id="google-both-123",
+        discord_id=555666777,
+        first_name="Dual",
+        last_name="Identity",
+        username="dual",
+    )
+    result = await process_user_login(
+        pool=db_pool,
+        payload=payload,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert result.user_id is not None
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", result.user_id)
+        assert row["google_id"] == "google-both-123"
+        assert row["discord_id"] == 555666777
+
+
+async def test_update_user_profile_nonexistent_user_raises_404(db_pool):
+    profile_update = UserProfileUpdate(prefix="Mr.", first_name="Ghost", last_name="No")
+    with pytest.raises(HTTPException) as exc_info:
+        await update_user_profile(
+            pool=db_pool,
+            user_id=999_999,
+            profile_data=profile_update,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 404

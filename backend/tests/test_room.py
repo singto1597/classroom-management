@@ -6,9 +6,10 @@ from datetime import datetime
 import asyncpg
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from core.exceptions import ForbiddenError
-from models.room_schemas import RoomJoinRequest
+from models.room_schemas import RoomJoinRequest, RoomCreateRequest
 from services.room_service import RoomManagementService
 
 pytestmark = pytest.mark.asyncio
@@ -374,6 +375,240 @@ async def test_approve_join_request_rejects_non_admin(db_pool):
             room_id=room_id,
             student_no=7,
             user_id=normal_user_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+
+
+# === Section 5: Edge Cases & Boundary Tests ===
+
+
+async def test_create_room_with_room_name_too_long_raises_validation():
+    with pytest.raises(ValidationError):
+        RoomCreateRequest(room_name="x" * 101)
+
+
+async def test_create_room_with_empty_room_name_is_allowed(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Empty", last_name="Name")
+    result = await RoomManagementService.create_room(
+        pool=db_pool,
+        room_name="",
+        user_id=owner_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert result["room_id"] is not None
+
+
+async def test_join_room_unknown_code_returns_404(db_pool):
+    user_id = await _insert_user(db_pool, first_name="No", last_name="Room")
+    with pytest.raises(HTTPException) as exc_info:
+        await RoomManagementService.join_room(
+            pool=db_pool,
+            payload=RoomJoinRequest(
+                room_code="XXXXXX",
+                student_no=1,
+                first_name="No",
+                last_name="Room",
+            ),
+            user_id=user_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 404
+
+
+async def test_join_room_student_no_zero_raises_validation():
+    with pytest.raises(ValidationError):
+        RoomJoinRequest(
+            room_code="ABC123",
+            student_no=0,
+            first_name="Test",
+            last_name="User",
+        )
+
+
+async def test_join_room_student_no_negative_raises_validation():
+    with pytest.raises(ValidationError):
+        RoomJoinRequest(
+            room_code="ABC123",
+            student_no=-1,
+            first_name="Test",
+            last_name="User",
+        )
+
+
+async def test_join_room_with_empty_names_creates_pending(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    async with db_pool.acquire() as conn:
+        room_code = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
+
+    student_id = await _insert_user(db_pool, first_name="", last_name="")
+    result = await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(
+            room_code=room_code,
+            student_no=10,
+            first_name="",
+            last_name="",
+        ),
+        user_id=student_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert result["student_id"] is not None
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM students WHERE room_id = $1 AND student_no = 10 AND deleted_at IS NULL",
+            room_id,
+        )
+        assert row is not None
+        assert row["status"] == "pending"
+
+
+async def test_join_room_existing_real_user_same_number_raises_400(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    async with db_pool.acquire() as conn:
+        room_code = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
+
+    existing_user = await _insert_user(db_pool, first_name="Real", last_name="Person")
+    async with db_pool.acquire() as conn:
+        await _insert_student(db_pool, room_id, existing_user, 22, status="active", is_admin=False)
+
+    new_user = await _insert_user(db_pool, first_name="Try", last_name="Join")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await RoomManagementService.join_room(
+            pool=db_pool,
+            payload=RoomJoinRequest(
+                room_code=room_code,
+                student_no=22,
+                first_name="Try",
+                last_name="Join",
+            ),
+            user_id=new_user,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 400
+
+
+async def test_join_room_ghost_name_mismatch_raises_400(db_pool):
+    ghost_id = await _insert_user(
+        db_pool,
+        email=None,
+        google_id=None,
+        discord_id=None,
+        first_name="Jane",
+        last_name="Doe",
+        username="ghost",
+    )
+
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    async with db_pool.acquire() as conn:
+        room_code = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
+        await _insert_student(db_pool, room_id, ghost_id, 5, status="pending")
+
+    real_id = await _insert_user(
+        db_pool,
+        discord_id=111222777,
+        first_name="Other",
+        last_name="Person",
+        username="real",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await RoomManagementService.join_room(
+            pool=db_pool,
+            payload=RoomJoinRequest(
+                room_code=room_code,
+                student_no=5,
+                first_name="Other",
+                last_name="Person",
+            ),
+            user_id=real_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 400
+
+
+async def test_approve_join_request_with_no_pending_row_returns_404(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await RoomManagementService.approve_join_request(
+            pool=db_pool,
+            room_id=room_id,
+            student_no=999,
+            user_id=owner_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 404
+
+
+async def test_reject_join_request_with_no_pending_row_returns_404(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await RoomManagementService.reject_join_request(
+            pool=db_pool,
+            room_id=room_id,
+            student_no=998,
+            user_id=owner_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 404
+
+
+async def test_approve_join_request_with_normal_user_raises_forbidden(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    normal_id = await _insert_user(db_pool, first_name="Normal", last_name="Guy")
+    async with db_pool.acquire() as conn:
+        await _insert_student(db_pool, room_id, normal_id, 2, status="active", is_admin=False)
+        other_id = await _insert_user(db_pool, first_name="Other", last_name="Pending")
+        await _insert_student(db_pool, room_id, other_id, 8, status="pending")
+
+    with pytest.raises(ForbiddenError):
+        await RoomManagementService.approve_join_request(
+            pool=db_pool,
+            room_id=room_id,
+            student_no=8,
+            user_id=normal_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+
+
+async def test_reject_join_request_with_normal_user_raises_forbidden(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    normal_id = await _insert_user(db_pool, first_name="Normal", last_name="Guy")
+    async with db_pool.acquire() as conn:
+        await _insert_student(db_pool, room_id, normal_id, 3, status="active", is_admin=False)
+        other_id = await _insert_user(db_pool, first_name="Other", last_name="Pending")
+        await _insert_student(db_pool, room_id, other_id, 9, status="pending")
+
+    with pytest.raises(ForbiddenError):
+        await RoomManagementService.reject_join_request(
+            pool=db_pool,
+            room_id=room_id,
+            student_no=9,
+            user_id=normal_id,
             client_source="test",
             actor_identifier="test",
         )
