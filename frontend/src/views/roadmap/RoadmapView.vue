@@ -31,7 +31,7 @@ const rolesConfig: Record<string, { label: string, icon: string, theme: string }
   staff_activity: { label: 'กรรมการกิจกรรม', icon: 'bi-star-fill', theme: 'purple' },
   staff_discipline: { label: 'กรรมการระเบียบวินัย', icon: 'bi-shield-fill-exclamation', theme: 'rose' },
   staff_reception: { label: 'กรรมการปฏิคม', icon: 'bi-emoji-smile-fill', theme: 'emerald' },
-  treasurer: { label: 'เหรัญญิก', icon: 'bi-safe2-fill', theme: 'amber' },
+  treasurer: { label: 'เหรัญญิก', icon: 'bi-cash-coin', theme: 'amber' },
 };
 
 const viceToStaff: Record<string, string> = {
@@ -52,16 +52,17 @@ const displayName = (student: Student) => student.nickname || `${student.first_n
 const president = computed(() => findStudentByRole('president'));
 const treasurer = computed(() => findStudentByRole('treasurer'));
 
-// จัดกลุ่มเป็น "ฝ่าย" (Department)
+// จัดกลุ่มเป็น "ฝ่าย" (Department) พร้อมแก้ปัญหา TypeScript Possible Undefined
 const viceRoles = ['vice_academic', 'vice_activity', 'vice_discipline', 'vice_reception'] as const;
 const departments = computed<DepartmentNode[]>(() =>
   viceRoles.map((role) => {
     const staffRole = viceToStaff[role];
+    const config = rolesConfig[role]; // ดึงค่า config ออกมาก่อนเพื่อเช็คความปลอดภัย
     return {
       role,
-      label: rolesConfig[role].label.replace('รองฯ ', 'ฝ่าย'), // แปลงชื่อเป็นชื่อฝ่าย
-      icon: rolesConfig[role].icon,
-      colorTheme: rolesConfig[role].theme,
+      label: config?.label?.replace('รอง', 'ฝ่าย') || role, // ใส่ ?. เพื่อกัน undefined
+      icon: config?.icon || 'bi-person',
+      colorTheme: config?.theme || 'blue',
       head: findStudentByRole(role),
       staffs: students.value.filter((s) => s.class_role === staffRole),
     };
@@ -172,7 +173,8 @@ const getThemeClasses = (theme: string, type: 'bg' | 'text' | 'border' | 'lightB
                   <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-4 transition-transform group-hover:scale-110" :class="getThemeClasses(dept.colorTheme, 'iconBg')">
                     <i :class="`bi ${dept.icon}`"></i>
                   </div>
-                  <p class="text-[10px] font-black uppercase tracking-widest mb-1.5" :class="getThemeClasses(dept.colorTheme, 'text')">{{ rolesConfig[dept.role].label }}</p>
+                  <!-- แก้ไข Possible Undefined ตรงนี้โดยเพิ่ม ?. -->
+                  <p class="text-[10px] font-black uppercase tracking-widest mb-1.5" :class="getThemeClasses(dept.colorTheme, 'text')">{{ rolesConfig[dept.role]?.label || dept.label }}</p>
                   <h3 class="text-lg font-black text-slate-800 leading-tight mb-2">{{ displayName(dept.head) }}</h3>
                   <span class="text-xs font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-full">เลขที่ {{ dept.head.student_no }}</span>
                 </div>
@@ -181,7 +183,8 @@ const getThemeClasses = (theme: string, type: 'bg' | 'text' | 'border' | 'lightB
               <!-- Empty Vice -->
               <div v-else class="bg-white/50 border-2 border-dashed border-slate-200 rounded-[1.8rem] p-6 text-center h-full flex flex-col items-center justify-center">
                 <div class="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-xl mb-3 text-slate-300"><i :class="`bi ${dept.icon}`"></i></div>
-                <p class="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">{{ rolesConfig[dept.role].label }}</p>
+                <!-- แก้ไข Possible Undefined ตรงนี้โดยเพิ่ม ?. -->
+                <p class="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">{{ rolesConfig[dept.role]?.label || dept.label }}</p>
                 <p class="text-sm font-bold text-slate-300">ตำแหน่งว่าง</p>
               </div>
             </div>
