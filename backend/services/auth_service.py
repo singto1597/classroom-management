@@ -219,7 +219,10 @@ async def link_oauth_account(
                         except asyncpg.exceptions.UniqueViolationError:
                             await conn.execute("DELETE FROM students WHERE id = $1", ost['id'])
 
-                    # 2. ดูดข้อมูลส่วนตัวมาให้บัญชีปัจจุบัน
+                    # 2. ล้าง provider_id ของบัญชีเก่าก่อน เพื่อไม่ให้ชนกับ Unique constraint
+                    await conn.execute(f"UPDATE users SET {provider_id_col} = NULL, email = NULL WHERE id = $1", old_user_id)
+
+                    # 3. ดูดข้อมูลส่วนตัวมาให้บัญชีปัจจุบัน
                     await conn.execute(f"""
                         UPDATE users SET
                             {provider_id_col} = $2,
@@ -229,8 +232,7 @@ async def link_oauth_account(
                         WHERE id = $1
                     """, current_user_id, provider_id_val, email or old_user['email'], old_user['phone_number'], old_user['birthday'])
 
-                    # 3. ลบบัญชีเก่าทิ้งอย่างถาวร
-                    await conn.execute(f"UPDATE users SET {provider_id_col} = NULL, email = NULL WHERE id = $1", old_user_id)
+                    # 4. ลบบัญชีเก่าทิ้งอย่างถาวร
                     await conn.execute("DELETE FROM users WHERE id = $1", old_user_id)
 
                     response = {"status": "success", "message": f"รวมประวัติ {provider.capitalize()} เก่าเข้ากับบัญชีปัจจุบันสำเร็จ!"}
