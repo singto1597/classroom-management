@@ -60,6 +60,16 @@ async def _insert_room(pool, owner_id: int, room_name="Test Room") -> int:
             code,
             owner_id,
         )
+        # รองรับผู้สร้างห้องให้เป็น Admin ในตาราง students ทันที
+        await conn.execute(
+            """
+            INSERT INTO students (room_id, user_id, student_no, class_role, status, is_admin, permissions)
+            VALUES ($1, $2, 0, 'president', 'active', TRUE, $3::jsonb)
+            """,
+            room_id,
+            owner_id,
+            '["all"]',
+        )
         return room_id
 
 
