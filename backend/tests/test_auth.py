@@ -4,7 +4,9 @@ import uuid
 
 import asyncpg
 import pytest
+from pydantic import ValidationError
 
+from core.exceptions import ForbiddenError
 from models.auth_schemas import OAuthProfilePayload, UserProfileUpdate
 from services.auth_service import (
     link_oauth_account,
@@ -334,3 +336,129 @@ async def test_update_user_profile_updates_fields_in_db(db_pool):
     assert row["prefix"] == "Mr."
     assert row["first_name"] == "John"
     assert row["last_name"] == "Doe"
+
+
+# === Section 4: Edge Cases & Validation ===
+
+
+@pytest.mark.parametrize(
+    "provider, existing_value, new_value, expected",
+    [
+        # ✅ ผูกซ้ำด้วย Provider เดิมและ ID เดิม → ควรยอมรับ (Idempotent)
+        ("google", "google-id-one", "google-id-one", "success"),
+        ("discord", 123456789, 123456789, "success"),
+        # ❌ ผูกซ้ำด้วย Provider เดิมแต่ ID ต่างกัน → ควรปฏิเสธ (ForbiddenError)
+        ("google", "google-id-one", "google-id-two", "forbidden"),
+        ("discord", 123456789, 987654321, "forbidden"),
+        # ✅ ยังไม่มี Provider มาก่อน → ผูก ID ใหม่ได้เสมอ
+        ("google", None, "google-new-id", "success"),
+        ("discord", None, 555666777, "success"),
+        # ❌ ใช้ Provider ที่ไม่รู้จัก → ควรมี ValidationError
+        ("unknown", None, "anything", "validation_error"),
+    ],
+)
+async def test_link_oauth_account_duplicate_provider_cases(
+    db_pool,
+    provider,
+    existing_value,
+    new_value,
+    expected,
+):
+    user_id = await _insert_user(
+        db_pool,
+        email=f"dup_{uuid.uuid4().hex}@example.com",
+        google_id=existing_value if provider == "google" else None,
+        discord_id=existing_value if provider == "discord" else None,
+        first_name="Dup",
+        last_name="User",
+        username="dupuser",
+    )
+    profile = {"sub": new_value, "email": "dup@example.com"}
+
+    if expected == "success":
+        result = await link_oauth_account(
+            pool=db_pool,
+            current_user_id=user_id,
+            provider=provider,
+            profile=profile,
+            client_source="test",
+            actor_identifier="test",
+        )
+        assert result["status"] == "success"
+    elif expected == "forbidden":
+        with pytest.raises(ForbiddenError):
+            await link_oauth_account(
+                pool=db_pool,
+                current_user_id=user_id,
+                provider=provider,
+                profile=profile,
+                client_source="test",
+                actor_identifier="test",
+            )
+    else:  # validation_error
+        with pytest.raises(ValidationError):
+            await link_oauth_account(
+                pool=db_pool,
+                current_user_id=user_id,
+                provider=provider,
+                profile=profile,
+                client_source="test",
+                actor_identifier="test",
+            )
+
+
+@pytest.mark.parametrize(
+    "field_name, invalid_value",
+    [
+        ("first_name", "x" * 101),
+        ("last_name", "y" * 101),
+        ("prefix", "z" * 11),
+    ],
+)
+async def test_update_user_profile_rejects_too_long_fields(field_name, invalid_value):
+    data = {
+        "prefix": "Mr.",
+        "first_name": "John",
+        "last_name": "Doe",
+    }
+    data[field_name] = invalid_value
+    with pytest.raises(ValidationError):
+        UserProfileUpdate(**data)
+
+
+@pytest.mark.parametrize(
+    "field_name, invalid_value",
+    [
+        ("prefix", None),
+        ("first_name", None),
+        ("last_name", None),
+    ],
+)
+async def test_update_user_profile_rejects_null_fields(field_name, invalid_value):
+    data = {
+        "prefix": "Mr.",
+        "first_name": "John",
+        "last_name": "Doe",
+    }
+    data[field_name] = invalid_value
+    with pytest.raises(ValidationError):
+        UserProfileUpdate(**data)
+
+
+@pytest.mark.parametrize(
+    "payload_kwargs",
+    [
+        {"email": None, "google_id": None, "discord_id": None},
+        {"email": "", "google_id": None, "discord_id": None},
+        {"email": None, "google_id": "", "discord_id": None},
+        {"email": None, "google_id": None, "discord_id": None},
+    ],
+)
+async def test_process_user_login_payload_requires_identifier(payload_kwargs):
+    base = {
+        "first_name": "Ident",
+        "last_name": "Test",
+        "username": "identtest",
+    }
+    with pytest.raises(ValidationError):
+        OAuthProfilePayload(**base, **payload_kwargs)
