@@ -15,6 +15,10 @@ from services.room_service import RoomManagementService
 pytestmark = pytest.mark.asyncio
 
 
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 async def _insert_user(
     pool,
     *,
@@ -699,7 +703,7 @@ async def test_join_after_soft_delete_allows_rejoin(db_pool):
         await conn.execute(
             "UPDATE students SET deleted_at = $2 WHERE id = $1",
             student_id,
-            datetime.now(timezone.utc),
+            _utcnow(),
         )
 
     # Second join with same user should succeed (no conflict with soft-deleted row)
@@ -734,7 +738,7 @@ async def test_join_same_student_no_when_previous_soft_deleted_allows_join(db_po
         await conn.execute(
             "UPDATE students SET deleted_at = $2 WHERE id = $1",
             student_a_id,
-            datetime.now(timezone.utc),
+            _utcnow(),
         )
 
     result_b = await RoomManagementService.join_room(
@@ -763,7 +767,7 @@ async def test_approve_after_soft_delete_raises_404(db_pool):
         await conn.execute(
             "UPDATE students SET deleted_at = $2 WHERE id = $1",
             student_id,
-            datetime.now(timezone.utc),
+            _utcnow(),
         )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -783,7 +787,7 @@ async def test_reject_after_soft_delete_raises_404(db_pool):
         await conn.execute(
             "UPDATE students SET deleted_at = $2 WHERE id = $1",
             student_id,
-            datetime.now(timezone.utc),
+            _utcnow(),
         )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -896,7 +900,7 @@ async def test_join_room_after_soft_deleted_ghost_claim_allows_reclaim(db_pool):
         await conn.execute(
             "UPDATE students SET deleted_at = $2 WHERE id = $1",
             ghost_student_id,
-            datetime.now(timezone.utc),
+            _utcnow(),
         )
 
     real_id = await _insert_user(
@@ -924,3 +928,205 @@ async def test_join_room_after_soft_deleted_ghost_claim_allows_reclaim(db_pool):
         assert row is not None
         assert row["user_id"] == real_id
         assert row["status"] == "pending"
+
+
+# === Section 7: Additional Data Collision & Soft Delete / State Edge Cases ===
+
+
+async def test_join_same_student_no_in_different_rooms_allowed(db_pool):
+    owner1 = await _insert_user(db_pool, first_name="Owner", last_name="One")
+    room1 = await _insert_room(db_pool, owner1, "Room One")
+    owner2 = await _insert_user(db_pool, first_name="Owner", last_name="Two")
+    room2 = await _insert_room(db_pool, owner2, "Room Two")
+
+    async with db_pool.acquire() as conn:
+        code1 = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room1)
+        code2 = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room2)
+
+    user = await _insert_user(db_pool, first_name="Multi", last_name="Room")
+
+    res1 = await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(room_code=code1, student_no=1, first_name="Multi", last_name="Room"),
+        user_id=user,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert res1["student_id"] is not None
+
+    res2 = await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(room_code=code2, student_no=1, first_name="Multi", last_name="Room"),
+        user_id=user,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert res2["student_id"] is not None
+
+    async with db_pool.acquire() as conn:
+        count1 = await conn.fetchval(
+            "SELECT COUNT(*) FROM students WHERE room_id=$1 AND student_no=1 AND deleted_at IS NULL",
+            room1,
+        )
+        count2 = await conn.fetchval(
+            "SELECT COUNT(*) FROM students WHERE room_id=$1 AND student_no=1 AND deleted_at IS NULL",
+            room2,
+        )
+        assert count1 == 1
+        assert count2 == 1
+
+
+async def test_ghost_claim_transfers_all_rooms(db_pool):
+    ghost_id = await _insert_user(
+        db_pool,
+        email=None,
+        google_id=None,
+        discord_id=None,
+        first_name="Niran",
+        last_name="Pong",
+        username="ghostniran",
+        phone_number="0800000000",
+        birthday="1999-12-31",
+    )
+    owner1 = await _insert_user(db_pool, first_name="Owner", last_name="A")
+    room1 = await _insert_room(db_pool, owner1, "Room A")
+    owner2 = await _insert_user(db_pool, first_name="Owner", last_name="B")
+    room2 = await _insert_room(db_pool, owner2, "Room B")
+
+    async with db_pool.acquire() as conn:
+        code1 = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room1)
+        code2 = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room2)
+        await _insert_student(db_pool, room1, ghost_id, 1, status="pending")
+        await _insert_student(db_pool, room2, ghost_id, 1, status="pending")
+
+    real_id = await _insert_user(
+        db_pool,
+        discord_id=987654321,
+        first_name="Niran",
+        last_name="Pong",
+        username="realniran",
+    )
+
+    await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(room_code=code1, student_no=1, first_name="Niran", last_name="Pong"),
+        user_id=real_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+
+    async with db_pool.acquire() as conn:
+        ghost_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE id = $1", ghost_id)
+        assert ghost_count == 0
+
+        for r_id in (room1, room2):
+            row = await conn.fetchrow(
+                "SELECT user_id, status FROM students WHERE room_id=$1 AND student_no=1 AND deleted_at IS NULL",
+                r_id,
+            )
+            assert row is not None
+            assert row["user_id"] == real_id
+            assert row["status"] == "active"
+
+
+async def test_approve_join_request_on_active_member_raises_404(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+    student_user_id = await _insert_user(db_pool, first_name="Active", last_name="Member")
+    async with db_pool.acquire() as conn:
+        await _insert_student(db_pool, room_id, student_user_id, 30, status="active", is_admin=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await RoomManagementService.approve_join_request(
+            pool=db_pool,
+            room_id=room_id,
+            student_no=30,
+            user_id=owner_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 404
+
+
+async def test_reject_join_request_on_active_member_raises_404(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+    student_user_id = await _insert_user(db_pool, first_name="Active", last_name="Reject")
+    async with db_pool.acquire() as conn:
+        await _insert_student(db_pool, room_id, student_user_id, 31, status="active", is_admin=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await RoomManagementService.reject_join_request(
+            pool=db_pool,
+            room_id=room_id,
+            student_no=31,
+            user_id=owner_id,
+            client_source="test",
+            actor_identifier="test",
+        )
+    assert exc_info.value.status_code == 404
+
+
+async def test_get_pending_requests_excludes_soft_deleted(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+    user1 = await _insert_user(db_pool, first_name="Pend", last_name="One")
+    user2 = await _insert_user(db_pool, first_name="Pend", last_name="Two")
+
+    async with db_pool.acquire() as conn:
+        s1 = await _insert_student(db_pool, room_id, user1, 40, status="pending")
+        await conn.execute(
+            "UPDATE students SET deleted_at = $2 WHERE id = $1",
+            s1,
+            _utcnow(),
+        )
+        await _insert_student(db_pool, room_id, user2, 41, status="pending")
+
+    rows = await RoomManagementService.get_pending_requests(
+        pool=db_pool,
+        room_id=room_id,
+        user_id=owner_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert len(rows) == 1
+    assert rows[0]["student_no"] == 41
+
+
+async def test_join_after_reject_same_user_allowed(db_pool):
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+    async with db_pool.acquire() as conn:
+        room_code = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
+
+    user_id = await _insert_user(db_pool, first_name="Retry", last_name="Join")
+
+    # First join creates pending, then admin rejects (hard delete)
+    await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(room_code=room_code, student_no=50, first_name="Retry", last_name="Join"),
+        user_id=user_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+    await RoomManagementService.reject_join_request(
+        pool=db_pool, room_id=room_id, student_no=50, user_id=owner_id,
+        client_source="test", actor_identifier="test",
+    )
+
+    # After rejection the row is gone, so join again should succeed
+    result = await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(room_code=room_code, student_no=50, first_name="Retry", last_name="Join"),
+        user_id=user_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert result["student_id"] is not None
+
+    async with db_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT COUNT(*) FROM students WHERE room_id=$1 AND student_no=50 AND deleted_at IS NULL",
+            room_id,
+        )
+        assert count == 1
