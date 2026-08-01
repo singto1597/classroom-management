@@ -31,16 +31,16 @@ const roleToLabel: Record<string, string> = {
 };
 
 const roleToIcon: Record<string, string> = {
-  president: '👑',
-  vice_academic: '📚',
-  vice_activity: '🎭',
-  vice_discipline: '⚖️',
-  vice_reception: '🤝',
-  staff_academic: '📝',
-  staff_activity: '🎪',
-  staff_discipline: '🛡️',
-  staff_reception: '🎀',
-  treasurer: '💰',
+  president: 'bi-award-fill',
+  vice_academic: 'bi-book-fill',
+  vice_activity: 'bi-music-note-beamed',
+  vice_discipline: 'bi-shield-fill-check',
+  vice_reception: 'bi-people-fill',
+  staff_academic: 'bi-journal-text',
+  staff_activity: 'bi-star-fill',
+  staff_discipline: 'bi-shield-fill-exclamation',
+  staff_reception: 'bi-emoji-smile-fill',
+  treasurer: 'bi-cash-coin',
 };
 
 const viceToStaff: Record<string, string> = {
@@ -102,47 +102,73 @@ const fetchStudents = async () => {
 onMounted(fetchStudents);
 
 const getRoleLabel = (role: string) => roleToLabel[role] ?? role;
-const getRoleIcon = (role: string) => roleToIcon[role] ?? '🎖️';
+const getRoleIcon = (role: string) => roleToIcon[role] ?? 'bi-person-fill';
+const getStudentLink = (student: Student) => `/students/${student.student_no}`;
+const displayName = (student: Student) => student.nickname || `${student.first_name} ${student.last_name}`;
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 py-8 md:py-10">
+  <div class="min-h-screen bg-slate-50 py-8 md:py-12">
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-      <header class="mb-8">
-        <h1 class="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">
-          <i class="bi bi-diagram-3-fill text-blue-600 mr-3"></i>แผนผังห้องเรียน
-        </h1>
-        <p class="text-slate-500 font-medium text-sm mt-2">แสดงโครงสร้างการบริหารห้องเรียนตามตำแหน่งต่าง ๆ</p>
+      <header class="mb-10">
+        <div class="flex items-start sm:items-center gap-4">
+          <span class="w-12 h-12 rounded-2xl bg-blue-600/10 text-blue-600 flex items-center justify-center text-3xl shadow-sm">
+            <i class="bi bi-diagram-3-fill"></i>
+          </span>
+          <div>
+            <h1 class="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">แผนผังห้องเรียน</h1>
+            <p class="text-slate-500 font-medium text-sm mt-1">แสดงโครงสร้างการบริหารห้องเรียนตามตำแหน่งต่าง ๆ</p>
+          </div>
+        </div>
       </header>
 
       <div v-if="isLoading" class="flex justify-center py-24">
         <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-blue-600"></div>
       </div>
 
-      <div v-else class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 md:p-10">
+      <div v-else class="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-6 md:p-10">
         <div class="org-chart overflow-x-auto">
           <ul class="tree">
             <li v-if="president">
-              <div class="node node-top">
-                <div class="text-4xl mb-2">{{ getRoleIcon('president') }}</div>
-                <p class="text-lg font-black text-white">{{ president.first_name }} {{ president.last_name }}</p>
-                <p class="text-[10px] uppercase tracking-widest text-blue-100 font-bold">{{ getRoleLabel('president') }}</p>
-              </div>
+              <RouterLink :to="getStudentLink(president)" class="node node-top">
+                <div class="node-icon">
+                  <i :class="`bi ${getRoleIcon('president')}`"></i>
+                </div>
+                <p class="node-name">{{ displayName(president) }}</p>
+                <p class="node-role">{{ getRoleLabel('president') }}</p>
+                <span class="node-number">เลขที่ {{ president.student_no }}</span>
+              </RouterLink>
 
               <ul v-if="leadershipNodes.length" class="tree">
                 <li v-for="node in leadershipNodes" :key="node.role">
-                  <div class="node node-level-2">
-                    <div class="text-3xl mb-1">{{ node.student ? getRoleIcon(node.role) : '➖' }}</div>
-                    <p class="font-bold text-slate-700 text-sm">{{ node.student ? `${node.student.first_name} ${node.student.last_name}` : 'ว่าง' }}</p>
-                    <p class="text-[10px] uppercase tracking-widest text-slate-400 font-bold">{{ node.label }}</p>
+                  <RouterLink
+                    v-if="node.student"
+                    :to="getStudentLink(node.student)"
+                    class="node node-level-2"
+                  >
+                    <div class="node-icon">
+                      <i :class="`bi ${getRoleIcon(node.role)}`"></i>
+                    </div>
+                    <p class="node-name">{{ displayName(node.student) }}</p>
+                    <p class="node-role">{{ node.label }}</p>
+                    <span class="node-number">เลขที่ {{ node.student.student_no }}</span>
+                  </RouterLink>
+
+                  <div v-else class="node node-level-2 node-empty">
+                    <div class="node-icon">
+                      <i :class="`bi ${getRoleIcon(node.role)}`"></i>
+                    </div>
+                    <p class="node-name">{{ node.label }}</p>
+                    <p class="node-role">ว่าง</p>
                   </div>
 
                   <ul v-if="node.staff.length" class="tree">
                     <li v-for="staff in node.staff" :key="staff.id">
-                      <div class="node node-sm">
-                        <p class="font-bold text-slate-600 text-xs">{{ staff.first_name }} {{ staff.last_name }}</p>
-                        <p class="text-[10px] text-slate-400">{{ getRoleLabel(staff.class_role) }}</p>
-                      </div>
+                      <RouterLink :to="getStudentLink(staff)" class="node node-sm">
+                        <p class="node-name">{{ displayName(staff) }}</p>
+                        <p class="node-role">{{ getRoleLabel(staff.class_role) }}</p>
+                        <span class="node-number">เลขที่ {{ staff.student_no }}</span>
+                      </RouterLink>
                     </li>
                   </ul>
                 </li>
@@ -169,7 +195,7 @@ const getRoleIcon = (role: string) => roleToIcon[role] ?? '🎖️';
   text-align: center;
 }
 .org-chart .tree ul {
-  padding-top: 20px;
+  padding-top: 24px;
   position: relative;
 }
 .org-chart .tree ul::before {
@@ -179,7 +205,7 @@ const getRoleIcon = (role: string) => roleToIcon[role] ?? '🎖️';
   left: 50%;
   border-left: 2px solid #cbd5e1;
   width: 0;
-  height: 20px;
+  height: 24px;
 }
 .org-chart .tree li {
   display: inline-block;
@@ -197,7 +223,7 @@ const getRoleIcon = (role: string) => roleToIcon[role] ?? '🎖️';
   right: 50%;
   border-top: 2px solid #cbd5e1;
   width: 50%;
-  height: 20px;
+  height: 24px;
 }
 .org-chart .tree li::after {
   right: auto;
@@ -230,28 +256,69 @@ const getRoleIcon = (role: string) => roleToIcon[role] ?? '🎖️';
   padding: 1rem 1.5rem;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.04);
   transition: all 0.3s;
-  min-width: 150px;
+  min-width: 160px;
+  text-align: center;
+  text-decoration: none;
+  color: #1e293b;
+  cursor: pointer;
 }
 .org-chart .node:hover {
-  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.15);
   border-color: #bfdbfe;
   transform: translateY(-2px);
-}
-.node-top {
-  background: linear-gradient(145deg, #1e293b, #334155);
-  color: white;
-  border: none;
-  box-shadow: 0 12px 30px rgba(30, 41, 59, 0.25);
-}
-.node-top p {
-  color: white !important;
-}
-.node-level-2 {
   background: #f8fafc;
 }
-.node-sm {
+.org-chart .node-top {
+  background: #f1f5f9;
+  border-color: #bfdbfe;
+  border-width: 2px;
+}
+.org-chart .node-top .node-icon {
+  color: #2563eb;
+}
+.org-chart .node-level-2 {
+  background: #f9fafb;
+}
+.org-chart .node-sm {
   padding: 0.75rem 1rem;
   border-radius: 1rem;
-  min-width: 120px;
+  min-width: 130px;
+}
+.org-chart .node-empty {
+  cursor: default;
+}
+.org-chart .node-empty:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.04);
+  border-color: #e2e8f0;
+  transform: none;
+  background: #f9fafb;
+}
+.org-chart .node-icon {
+  font-size: 1.9rem;
+  line-height: 1;
+  color: #64748b;
+  margin-bottom: 0.3rem;
+}
+.org-chart .node-name {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 0.95rem;
+  margin: 0.15rem 0 0;
+  line-height: 1.3;
+}
+.org-chart .node-role {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+.org-chart .node-number {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 0.2rem;
+  display: inline-block;
 }
 </style>
