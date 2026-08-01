@@ -38,12 +38,9 @@ services:
       - GOOGLE_CLIENT_ID=dummy_google_id
       - GOOGLE_CLIENT_SECRET=dummy_google_secret
       - GOOGLE_REDIRECT_URI=http://localhost/dummy_google_callback
+      - PYTHONPATH=/app
+    entrypoint: ["/bin/sh","-c", "export PYTHONDONTWRITEBYTECODE=1 && python -m pip install --no-cache-dir pytest pytest-asyncio httpx && exec \"$@\"", "test_runner"]
+    command: ["pytest", "/app/tests", "-v"]
     depends_on:
       test_db:
         condition: service_healthy
-
-    # 🚨 เปลี่ยนคำสั่งตรงนี้ด้วย! ให้มันรันหาไฟล์เทสทั้งหมดในโฟลเดอร์แทนที่จะเจาะจงไฟล์เดียว
-    command: >
-      sh -c "pip install pytest pytest-asyncio httpx && 
-             export PYTHONDONTWRITEBYTECODE=1 &&
-             python -m pytest -p no:cacheprovider -v /app/tests/"

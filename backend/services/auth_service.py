@@ -3,10 +3,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from jose import jwt
 from fastapi import HTTPException, status
+from pydantic import BaseModel, ValidationError
 from core.config import settings
 import asyncpg
-from typing import Optional
+from typing import Optional, Literal
 from models.auth_schemas import OAuthProfilePayload, UserLoginResult, UserProfileUpdate
+from core.exceptions import ForbiddenError
 from core.logger import AuditLogger
 
 service_logger = AuditLogger(service_name="AUTH")
@@ -142,7 +144,7 @@ async def process_user_login(
                     entity_id=str(master_id),
                     status="success",
                     old_values=old_values if old_values else None,
-                    new_values=payload.dict() if hasattr(payload, 'dict') else dict(payload),
+                    new_values=payload.model_dump(),
                     endpoint_or_command="process_user_login",
                     execution_time_ms=exec_time
                 )
@@ -177,6 +179,14 @@ async def link_oauth_account(
     async with pool.acquire() as conn:
         try:
             async with conn.transaction():
+                if provider not in ("google", "discord"):
+                    class _ProviderModel(BaseModel):
+                        provider: Literal["google", "discord"]
+                    try:
+                        _ProviderModel(provider=provider)
+                    except ValidationError:
+                        raise
+
                 provider_id_col = f"{provider}_id"
                 provider_id_val = str(profile.get('sub')) if provider == 'google' else int(profile['id'])
                 email = profile.get('email')
@@ -184,7 +194,10 @@ async def link_oauth_account(
                 query = f"SELECT id, email, phone_number, birthday FROM users WHERE {provider_id_col} = $1"
                 old_user = await conn.fetchrow(query, provider_id_val)
                 
-                curr_user = await conn.fetchrow("SELECT id, email, phone_number, birthday FROM users WHERE id = $1", current_user_id)
+                curr_user = await conn.fetchrow(f"SELECT id, email, phone_number, birthday, {provider_id_col} FROM users WHERE id = $1", current_user_id)
+
+                if curr_user and curr_user.get(provider_id_col) is not None and str(curr_user[provider_id_col]) != str(provider_id_val):
+                    raise ForbiddenError(f"บัญชีนี้ผูกกับ {provider} ID {curr_user[provider_id_col]} อยู่แล้ว กรุณาใช้ ID เดิม")
                 
                 old_values = {}
                 if curr_user:
@@ -219,7 +232,10 @@ async def link_oauth_account(
                         except asyncpg.exceptions.UniqueViolationError:
                             await conn.execute("DELETE FROM students WHERE id = $1", ost['id'])
 
-                    # 2. ดูดข้อมูลส่วนตัวมาให้บัญชีปัจจุบัน
+                    # 2. ล้าง provider_id ของบัญชีเก่าก่อน เพื่อไม่ให้ชนกับ Unique constraint
+                    await conn.execute(f"UPDATE users SET {provider_id_col} = NULL, email = NULL WHERE id = $1", old_user_id)
+
+                    # 3. ดูดข้อมูลส่วนตัวมาให้บัญชีปัจจุบัน
                     await conn.execute(f"""
                         UPDATE users SET
                             {provider_id_col} = $2,
@@ -229,8 +245,7 @@ async def link_oauth_account(
                         WHERE id = $1
                     """, current_user_id, provider_id_val, email or old_user['email'], old_user['phone_number'], old_user['birthday'])
 
-                    # 3. ลบบัญชีเก่าทิ้งอย่างถาวร
-                    await conn.execute(f"UPDATE users SET {provider_id_col} = NULL, email = NULL WHERE id = $1", old_user_id)
+                    # 4. ลบบัญชีเก่าทิ้งอย่างถาวร
                     await conn.execute("DELETE FROM users WHERE id = $1", old_user_id)
 
                     response = {"status": "success", "message": f"รวมประวัติ {provider.capitalize()} เก่าเข้ากับบัญชีปัจจุบันสำเร็จ!"}
@@ -293,22 +308,24 @@ async def update_user_profile(
 ) -> dict:
     start_time = time.time()
     async with pool.acquire() as conn:
+        # Fetch old record strictly before applying changes
+        old_record = await conn.fetchrow("SELECT prefix, first_name, last_name FROM users WHERE id = $1", user_id)
+        if old_record is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        old_values = dict(old_record)
+
         try:
-            # Fetch old record strictly before applying changes
-            old_record = await conn.fetchrow("SELECT prefix, first_name, last_name FROM users WHERE id = $1", user_id)
-            old_values = dict(old_record) if old_record else None
-            
             # ใช้ execute เพื่อรันคำสั่ง UPDATE (คืนค่าเป็น string เช่น 'UPDATE 1')
             result = await conn.execute("""
                 UPDATE users
                 SET prefix = $1, first_name = $2, last_name = $3, updated_at = CURRENT_TIMESTAMP
                 WHERE id = $4
             """, profile_data.prefix, profile_data.first_name, profile_data.last_name, user_id)
-            
+
             # เช็คกรณีที่หา user ไม่เจอ (เผื่อไว้)
             if result == "UPDATE 0":
                 raise HTTPException(status_code=404, detail="User not found")
-                
+
             exec_time = int((time.time() - start_time) * 1000)
             await service_logger.log(
                 conn=conn,
@@ -320,11 +337,11 @@ async def update_user_profile(
                 entity_id=str(user_id),
                 status="success",
                 old_values=old_values,
-                new_values=profile_data.dict() if hasattr(profile_data, 'dict') else dict(profile_data),
+                new_values=profile_data.model_dump(),
                 endpoint_or_command="update_user_profile",
                 execution_time_ms=exec_time
             )
-            
+
             return {"status": "success", "message": "อัปเดตโปรไฟล์สำเร็จ"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
