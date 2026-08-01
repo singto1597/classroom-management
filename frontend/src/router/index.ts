@@ -80,6 +80,11 @@ const router = createRouter({
           component: () => import('@/views/students/EditStudent.vue'),
         },
         {
+          path: 'roadmap',
+          name: 'roadmap',
+          component: () => import('@/views/roadmap/RoadmapView.vue'),
+        },
+        {
           path: 'schedules',
           name: 'schedules',
           component: () => import('@/views/schedules/ScheduleManager.vue'),

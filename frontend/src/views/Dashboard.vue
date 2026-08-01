@@ -220,8 +220,8 @@ const goToMyProfile = async () => {
                 🗺️
               </div>
               <div>
-                <h2 class="text-xl md:text-2xl font-bold text-white mb-1">Class Roadmap & Committee</h2>
-                <p class="text-slate-400 font-medium text-sm">แผนการดำเนินงานของคณะกรรมการห้อง</p>
+                <h2 class="text-xl md:text-2xl font-bold text-white mb-1">แผนผังห้องเรียน</h2>
+                <p class="text-slate-400 font-medium text-sm">โครงสร้างการบริหารห้องเรียนแบบเห็นภาพ</p>
               </div>
             </div>
             <div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-white group-hover:bg-blue-600 group-hover:shadow-lg group-hover:shadow-blue-500/30 transition-all shrink-0">
