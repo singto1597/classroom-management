@@ -373,7 +373,10 @@ async def test_link_oauth_account_duplicate_provider_cases(
         last_name="User",
         username="dupuser",
     )
-    profile = {"sub": new_value, "email": "dup@example.com"}
+    if provider == "discord":
+        profile = {"id": new_value, "email": "dup@example.com"}
+    else:
+        profile = {"sub": new_value, "email": "dup@example.com"}
 
     if expected == "success":
         result = await link_oauth_account(

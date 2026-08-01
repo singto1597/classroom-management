@@ -3,10 +3,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from jose import jwt
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from core.config import settings
 import asyncpg
 from typing import Optional
 from models.auth_schemas import OAuthProfilePayload, UserLoginResult, UserProfileUpdate
+from core.exceptions import ForbiddenError
 from core.logger import AuditLogger
 
 service_logger = AuditLogger(service_name="AUTH")
@@ -177,6 +179,18 @@ async def link_oauth_account(
     async with pool.acquire() as conn:
         try:
             async with conn.transaction():
+                if provider not in ("google", "discord"):
+                    raise ValidationError.from_exception_data(
+                        "link_oauth_account",
+                        [
+                            {
+                                "loc": ("provider",),
+                                "msg": "provider must be 'google' or 'discord'",
+                                "type": "value_error",
+                            }
+                        ],
+                    )
+
                 provider_id_col = f"{provider}_id"
                 provider_id_val = str(profile.get('sub')) if provider == 'google' else int(profile['id'])
                 email = profile.get('email')
@@ -185,6 +199,9 @@ async def link_oauth_account(
                 old_user = await conn.fetchrow(query, provider_id_val)
                 
                 curr_user = await conn.fetchrow("SELECT id, email, phone_number, birthday FROM users WHERE id = $1", current_user_id)
+
+                if curr_user and curr_user.get(provider_id_col) is not None and str(curr_user[provider_id_col]) != str(provider_id_val):
+                    raise ForbiddenError(f"บัญชีนี้ผูกกับ {provider} ID {curr_user[provider_id_col]} อยู่แล้ว กรุณาใช้ ID เดิม")
                 
                 old_values = {}
                 if curr_user:

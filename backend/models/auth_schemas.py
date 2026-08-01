@@ -29,6 +29,6 @@ class UserLoginResult(BaseModel):
     discord_id: Optional[int] = None
 
 class UserProfileUpdate(BaseModel):
-    prefix: str = Field(..., description="คำนำหน้า")
-    first_name: str = Field(..., description="ชื่อจริง")
-    last_name: str = Field(..., description="นามสกุล")
+    prefix: str = Field(..., max_length=10, description="คำนำหน้า")
+    first_name: str = Field(..., max_length=100, description="ชื่อจริง")
+    last_name: str = Field(..., max_length=100, description="นามสกุล")
