@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import api from '@/services/api';
 import Swal from 'sweetalert2';
 // @ts-ignore
-import ThailandAddress from 'thailand-address';
+import * as ThailandAddress from 'thailand-address';
 
 interface ThailandAddressResult {
   subDistrict?: string;
@@ -72,8 +72,12 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
   }
 
   searchTimeout = setTimeout(() => {
-    // Safely extract the search function from the default import
-    const searchFn = typeof ThailandAddress === 'function' ? ThailandAddress : ThailandAddress.search;
+    // Safely fallback to default if it's nested
+    const searchFn = ThailandAddress.search || (ThailandAddress.default && ThailandAddress.default.search) || (typeof ThailandAddress.default === 'function' ? ThailandAddress.default : null);
+    if (!searchFn) {
+      console.error('Could not find search function in thailand-address package');
+      return;
+    }
     const results = searchFn(query) as unknown as ThailandAddressResult[];
     addressSuggestions.value = (results || []).map((item) => ({
       subDistrict: item.subDistrict ?? item.tambon ?? '',
