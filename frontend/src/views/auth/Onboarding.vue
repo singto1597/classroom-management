@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import api from '@/services/api';
 import Swal from 'sweetalert2';
-import { search } from 'thailand-address';
+import ThailandAddress from 'thailand-address';
 
 interface ThailandAddressResult {
   subDistrict?: string;
@@ -71,7 +71,9 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
   }
 
   searchTimeout = setTimeout(() => {
-    const results = search(query) as unknown as ThailandAddressResult[];
+    // Safely extract the search function from the default import
+    const searchFn = typeof ThailandAddress === 'function' ? ThailandAddress : ThailandAddress.search;
+    const results = searchFn(query) as unknown as ThailandAddressResult[];
     addressSuggestions.value = (results || []).map((item) => ({
       subDistrict: item.subDistrict ?? item.tambon ?? '',
       district: item.district ?? item.amphoe ?? '',
