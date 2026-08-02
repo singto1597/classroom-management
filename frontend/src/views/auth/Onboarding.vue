@@ -6,18 +6,7 @@ import api from '@/services/api';
 import Swal from 'sweetalert2';
 
 // @ts-ignore
-import * as ThailandAddress from 'thailand-address';
-
-interface ThailandAddressResult {
-  subDistrict?: string;
-  district?: string;
-  province?: string;
-  zipcode?: string;
-  tambon?: string;
-  amphoe?: string;
-  changwat?: string;
-  postcode?: string;
-}
+import * as ThaiAddressDB from 'thai-address-database';
 
 interface AddressOption {
   subDistrict: string;
@@ -74,56 +63,28 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
   }
 
   searchTimeout = setTimeout(() => {
-    // 🛡️ ดึงฟังก์ชันค้นหาที่ถูกต้องจาก AddressService หรือ default
-    let searchFn: Function | null = null;
-
-    if (ThailandAddress && ThailandAddress.AddressService && typeof ThailandAddress.AddressService.searchAddressByDistrict === 'function') {
-      // ลองท่าแรก: หาผ่าน AddressService.searchAddressByDistrict
-      searchFn = ThailandAddress.AddressService.searchAddressByDistrict;
-    } else if (ThailandAddress && ThailandAddress.AddressService && typeof ThailandAddress.AddressService.searchAddressBySubdistrict === 'function') {
-        // ลองท่าสอง: หาผ่าน AddressService.searchAddressBySubdistrict
-        searchFn = ThailandAddress.AddressService.searchAddressBySubdistrict;
-    } else if (ThailandAddress && typeof (ThailandAddress as any).searchAddressByDistrict === 'function') {
-      searchFn = (ThailandAddress as any).searchAddressByDistrict;
-    } else if (ThailandAddress && typeof (ThailandAddress as any).searchAddressBySubdistrict === 'function') {
-      searchFn = (ThailandAddress as any).searchAddressBySubdistrict;
-    } else if (ThailandAddress && ThailandAddress.default && typeof ThailandAddress.default.searchAddressByDistrict === 'function') {
-      searchFn = ThailandAddress.default.searchAddressByDistrict;
-    } else if (ThailandAddress && ThailandAddress.default && typeof ThailandAddress.default.searchAddressBySubdistrict === 'function') {
-      searchFn = ThailandAddress.default.searchAddressBySubdistrict;
-    }
-
-    if (!searchFn) {
-        // ถ้าหาไม่เจอจริงๆ ถอยไปดึงจาก property ทั่วไป
-        if (ThailandAddress && typeof (ThailandAddress as any).search === 'function') {
-             searchFn = (ThailandAddress as any).search;
-        } else if (ThailandAddress && ThailandAddress.default && typeof ThailandAddress.default.search === 'function') {
-             searchFn = ThailandAddress.default.search;
-        } else if (ThailandAddress && typeof ThailandAddress.default === 'function') {
-             searchFn = ThailandAddress.default;
-        }
-    }
-
-
-    if (!searchFn) {
-      console.warn('[thailand-address] Search function could not be resolved from import.', ThailandAddress);
-      // Fallback: แค่หยุดการทำงาน (ผู้ใช้ยังพิมพ์เองได้)
+    // 🛡️ ดึงฟังก์ชันค้นหาจาก thai-address-database
+    const searchFn = ThaiAddressDB.search || (ThaiAddressDB.default && ThaiAddressDB.default.search);
+    
+    if (!searchFn || typeof searchFn !== 'function') {
+      console.warn('[thai-address-database] Search function not found.', ThaiAddressDB);
       return;
     }
 
     try {
-      const results = searchFn(query) as unknown as ThailandAddressResult[];
+      const results = searchFn(query);
       
-      addressSuggestions.value = (results || []).map((item) => ({
-        subDistrict: item.subDistrict ?? item.tambon ?? '',
-        district: item.district ?? item.amphoe ?? '',
-        province: item.province ?? item.changwat ?? '',
-        zipcode: item.zipcode ?? item.postcode ?? ''
-      })).filter((item) => item.subDistrict || item.district || item.province || item.zipcode);
+      // Map ข้อมูลให้ตรงกับโครงสร้างของ thai-address-database (district = ตำบล, amphoe = อำเภอ)
+      addressSuggestions.value = (results || []).map((item: any) => ({
+        subDistrict: item.district || item.subdistrict || item.tambon || '',
+        district: item.amphoe || item.district || '',
+        province: item.province || item.changwat || '',
+        zipcode: String(item.zipcode || item.postcode || '')
+      })).filter((item: AddressOption) => item.subDistrict || item.district || item.province || item.zipcode);
 
       isAddressDropdownOpen.value = addressSuggestions.value.length > 0;
     } catch (err) {
-      console.error('[thailand-address] Error executing search:', err);
+      console.error('[thai-address-database] Error executing search:', err);
     } finally {
       searchTimeout = null;
     }
@@ -163,7 +124,6 @@ onMounted(() => {
   form.value.last_name = authStore.lastName ?? '';
   form.value.nickname = authStore.nickname ?? '';
   form.value.phone_number = authStore.phoneNumber ?? '';
-  // ฟิลด์ที่ยังไม่มีใน store (birthday, line_id, address ฯลฯ) จะได้ค่าจาก initialize เริ่มต้นเป็น '' อยู่แล้ว
 });
 
 const submitProfile = async () => {
@@ -174,7 +134,7 @@ const submitProfile = async () => {
 
   const isAllFilled = requiredFields.every((field) => {
     const value = form.value[field];
-    return value && value.trim() !== '';
+    return value && String(value).trim() !== '';
   });
 
   if (!isAllFilled) {
