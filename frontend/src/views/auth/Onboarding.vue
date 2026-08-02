@@ -74,30 +74,40 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
   }
 
   searchTimeout = setTimeout(() => {
-    // 🛡️ THE ULTIMATE FALLBACK: Safe extraction to handle messy ESM/CJS interops
+    // 🛡️ ดึงฟังก์ชันค้นหาที่ถูกต้องจาก AddressService หรือ default
     let searchFn: Function | null = null;
 
-    if (typeof ThailandAddress === 'function') {
-      searchFn = ThailandAddress;
-    } else if (ThailandAddress && typeof ThailandAddress.search === 'function') {
-      searchFn = ThailandAddress.search;
-    } else if (ThailandAddress && ThailandAddress.default) {
-      if (typeof ThailandAddress.default === 'function') {
-        searchFn = ThailandAddress.default;
-      } else if (typeof ThailandAddress.default.search === 'function') {
-        searchFn = ThailandAddress.default.search;
-      }
+    if (ThailandAddress && ThailandAddress.AddressService && typeof ThailandAddress.AddressService.searchAddressByDistrict === 'function') {
+      // ลองท่าแรก: หาผ่าน AddressService.searchAddressByDistrict
+      searchFn = ThailandAddress.AddressService.searchAddressByDistrict;
+    } else if (ThailandAddress && ThailandAddress.AddressService && typeof ThailandAddress.AddressService.searchAddressBySubdistrict === 'function') {
+        // ลองท่าสอง: หาผ่าน AddressService.searchAddressBySubdistrict
+        searchFn = ThailandAddress.AddressService.searchAddressBySubdistrict;
+    } else if (ThailandAddress && typeof (ThailandAddress as any).searchAddressByDistrict === 'function') {
+      searchFn = (ThailandAddress as any).searchAddressByDistrict;
+    } else if (ThailandAddress && typeof (ThailandAddress as any).searchAddressBySubdistrict === 'function') {
+      searchFn = (ThailandAddress as any).searchAddressBySubdistrict;
+    } else if (ThailandAddress && ThailandAddress.default && typeof ThailandAddress.default.searchAddressByDistrict === 'function') {
+      searchFn = ThailandAddress.default.searchAddressByDistrict;
+    } else if (ThailandAddress && ThailandAddress.default && typeof ThailandAddress.default.searchAddressBySubdistrict === 'function') {
+      searchFn = ThailandAddress.default.searchAddressBySubdistrict;
     }
 
     if (!searchFn) {
-      const keys = Object.keys(ThailandAddress);
-      const exportNames = keys.length > 0 ? keys.join(', ') : 'No exports found (Empty Module)';
-      Swal.fire({
-        title: 'แงะกล่องแพ็กเกจ',
-        text: `ฟังก์ชันที่ใช้ได้คือ: ${exportNames}`,
-        icon: 'info'
-      });
-      console.log('Full module payload:', ThailandAddress);
+        // ถ้าหาไม่เจอจริงๆ ถอยไปดึงจาก property ทั่วไป
+        if (ThailandAddress && typeof (ThailandAddress as any).search === 'function') {
+             searchFn = (ThailandAddress as any).search;
+        } else if (ThailandAddress && ThailandAddress.default && typeof ThailandAddress.default.search === 'function') {
+             searchFn = ThailandAddress.default.search;
+        } else if (ThailandAddress && typeof ThailandAddress.default === 'function') {
+             searchFn = ThailandAddress.default;
+        }
+    }
+
+
+    if (!searchFn) {
+      console.warn('[thailand-address] Search function could not be resolved from import.', ThailandAddress);
+      // Fallback: แค่หยุดการทำงาน (ผู้ใช้ยังพิมพ์เองได้)
       return;
     }
 
