@@ -37,27 +37,17 @@ onMounted(() => {
 });
 
 const submitProfile = async () => {
-  const requiredFields = [
-    'prefix',
-    'first_name',
-    'last_name',
-    'nickname',
-    'birthday',
-    'phone_number',
-    'line_id',
-    'address_house_no',
-    'address_sub_district',
-    'address_district',
-    'address_province',
-    'address_post_code'
-  ] as const;
+  // ใช้ array เก็บ key ทั้งหมดของ form ยกเว้น address_road (ฟิลด์ optional)
+  const requiredFields = (Object.keys(form.value) as Array<keyof typeof form.value>).filter(
+    (field) => field !== 'address_road'
+  );
 
-  const missingField = requiredFields.find((field) => {
+  const isAllFilled = requiredFields.every((field) => {
     const value = form.value[field];
-    return !value || value.trim() === '';
+    return value && value.trim() !== '';
   });
 
-  if (missingField) {
+  if (!isAllFilled) {
     Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลให้ครบถ้วน', 'warning');
     return;
   }
