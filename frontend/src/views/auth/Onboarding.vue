@@ -46,6 +46,7 @@ const form = ref({
 const isSubmitting = ref(false);
 
 // ---------- Thai address autocomplete ----------
+let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 const addressSuggestions = ref<AddressOption[]>([]);
 const isAddressDropdownOpen = ref(false);
 const activeAddressField = ref<'address_sub_district' | 'address_district' | 'address_province' | 'address_post_code' | null>(null);
@@ -56,25 +57,49 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
   if (!query) {
     addressSuggestions.value = [];
     isAddressDropdownOpen.value = false;
+    activeAddressField.value = null;
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+      searchTimeout = null;
+    }
     return;
   }
 
-  const results = search(query) as unknown as ThailandAddressResult[];
-  addressSuggestions.value = (results || []).map((item) => ({
-    subDistrict: item.subDistrict ?? item.tambon ?? '',
-    district: item.district ?? item.amphoe ?? '',
-    province: item.province ?? item.changwat ?? '',
-    zipcode: item.zipcode ?? item.postcode ?? ''
-  })).filter((item) => item.subDistrict || item.district || item.province || item.zipcode);
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+    searchTimeout = null;
+  }
 
-  isAddressDropdownOpen.value = addressSuggestions.value.length > 0;
+  searchTimeout = setTimeout(() => {
+    const results = search(query) as unknown as ThailandAddressResult[];
+    addressSuggestions.value = (results || []).map((item) => ({
+      subDistrict: item.subDistrict ?? item.tambon ?? '',
+      district: item.district ?? item.amphoe ?? '',
+      province: item.province ?? item.changwat ?? '',
+      zipcode: item.zipcode ?? item.postcode ?? ''
+    })).filter((item) => item.subDistrict || item.district || item.province || item.zipcode);
+
+    isAddressDropdownOpen.value = addressSuggestions.value.length > 0;
+    searchTimeout = null;
+  }, 300);
 };
 
 const closeAddressDropdown = () => {
-  isAddressDropdownOpen.value = false;
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+    searchTimeout = null;
+  }
+  setTimeout(() => {
+    isAddressDropdownOpen.value = false;
+    activeAddressField.value = null;
+  }, 200);
 };
 
 const selectAddress = (option: AddressOption) => {
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+    searchTimeout = null;
+  }
   form.value.address_sub_district = option.subDistrict;
   form.value.address_district = option.district;
   form.value.address_province = option.province;
