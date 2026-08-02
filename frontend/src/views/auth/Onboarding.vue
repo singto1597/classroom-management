@@ -27,48 +27,45 @@ const form = ref({
 const isSubmitting = ref(false);
 
 onMounted(() => {
-  // ดึงชื่อที่ Google แอบให้มา เป็นค่าเริ่มต้นเบื้องต้น (เผื่อเด็กขี้เกียจพิมพ์)
-  form.value.first_name = authStore.firstName && authStore.firstName !== 'ไม่ระบุชื่อ' ? authStore.firstName : '';
-  form.value.last_name = authStore.lastName || '';
+  // 📥 Pre-fill ข้อมูลทั้งหมดที่มีจาก authStore เพื่อลดการพิมพ์ซ้ำ
+  form.value.prefix = authStore.prefix ?? '';
+  form.value.first_name = authStore.firstName ?? '';
+  form.value.last_name = authStore.lastName ?? '';
+  form.value.nickname = authStore.nickname ?? '';
+  form.value.phone_number = authStore.phoneNumber ?? '';
+  // ฟิลด์ที่ยังไม่มีใน store (birthday, line_id, address ฯลฯ) จะได้ค่าจาก initialize เริ่มต้นเป็น '' อยู่แล้ว
 });
 
 const submitProfile = async () => {
-  if (
-    !form.value.prefix ||
-    !form.value.first_name ||
-    !form.value.last_name ||
-    !form.value.nickname ||
-    !form.value.birthday ||
-    !form.value.phone_number ||
-    !form.value.line_id ||
-    !form.value.address_house_no ||
-    !form.value.address_sub_district ||
-    !form.value.address_district ||
-    !form.value.address_province ||
-    !form.value.address_post_code
-  ) {
+  const requiredFields = [
+    'prefix',
+    'first_name',
+    'last_name',
+    'nickname',
+    'birthday',
+    'phone_number',
+    'line_id',
+    'address_house_no',
+    'address_sub_district',
+    'address_district',
+    'address_province',
+    'address_post_code'
+  ] as const;
+
+  const missingField = requiredFields.find((field) => {
+    const value = form.value[field];
+    return !value || value.trim() === '';
+  });
+
+  if (missingField) {
     Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลให้ครบถ้วน', 'warning');
     return;
   }
 
   isSubmitting.value = true;
   try {
-    // 🚀 ยิง API อัปเดตข้อมูลตัวเอง
-    await api.patch('/api/auth/me', {
-      prefix: form.value.prefix,
-      first_name: form.value.first_name,
-      last_name: form.value.last_name,
-      nickname: form.value.nickname,
-      birthday: form.value.birthday,
-      phone_number: form.value.phone_number,
-      line_id: form.value.line_id,
-      address_house_no: form.value.address_house_no,
-      address_road: form.value.address_road,
-      address_sub_district: form.value.address_sub_district,
-      address_district: form.value.address_district,
-      address_province: form.value.address_province,
-      address_post_code: form.value.address_post_code,
-    });
+    // 🚀 ยิง API อัปเดตข้อมูลตัวเอง โดยส่ง form ทั้งตัวไปเลย
+    await api.patch('/api/auth/me', form.value);
 
     // 🔄 สั่งให้ Store ดึงข้อมูลใหม่ เพื่อรับรองว่า Onboard แล้ว
     await authStore.fetchProfile();
