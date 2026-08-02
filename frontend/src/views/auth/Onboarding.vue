@@ -4,6 +4,25 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import api from '@/services/api';
 import Swal from 'sweetalert2';
+import { search } from 'thailand-address';
+
+interface ThailandAddressResult {
+  subDistrict?: string;
+  district?: string;
+  province?: string;
+  zipcode?: string;
+  tambon?: string;
+  amphoe?: string;
+  changwat?: string;
+  postcode?: string;
+}
+
+interface AddressOption {
+  subDistrict: string;
+  district: string;
+  province: string;
+  zipcode: string;
+}
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -25,6 +44,46 @@ const form = ref({
 });
 
 const isSubmitting = ref(false);
+
+// ---------- Thai address autocomplete ----------
+const addressSuggestions = ref<AddressOption[]>([]);
+const isAddressDropdownOpen = ref(false);
+const activeAddressField = ref<'address_sub_district' | 'address_district' | 'address_province' | 'address_post_code' | null>(null);
+
+const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'address_province' | 'address_post_code') => {
+  activeAddressField.value = field;
+  const query = String(form.value[field] ?? '').trim();
+  if (!query) {
+    addressSuggestions.value = [];
+    isAddressDropdownOpen.value = false;
+    return;
+  }
+
+  const results = search(query) as unknown as ThailandAddressResult[];
+  addressSuggestions.value = (results || []).map((item) => ({
+    subDistrict: item.subDistrict ?? item.tambon ?? '',
+    district: item.district ?? item.amphoe ?? '',
+    province: item.province ?? item.changwat ?? '',
+    zipcode: item.zipcode ?? item.postcode ?? ''
+  })).filter((item) => item.subDistrict || item.district || item.province || item.zipcode);
+
+  isAddressDropdownOpen.value = addressSuggestions.value.length > 0;
+};
+
+const closeAddressDropdown = () => {
+  isAddressDropdownOpen.value = false;
+};
+
+const selectAddress = (option: AddressOption) => {
+  form.value.address_sub_district = option.subDistrict;
+  form.value.address_district = option.district;
+  form.value.address_province = option.province;
+  form.value.address_post_code = option.zipcode;
+  isAddressDropdownOpen.value = false;
+  activeAddressField.value = null;
+};
+
+// ----------------------------------------------
 
 onMounted(() => {
   // 📥 Pre-fill ข้อมูลทั้งหมดที่มีจาก authStore เพื่อลดการพิมพ์ซ้ำ
@@ -156,19 +215,51 @@ const submitProfile = async () => {
             </div>
             <div>
               <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ตำบล/แขวง <span class="text-rose-500">*</span></label>
-              <input v-model="form.address_sub_district" type="text" required placeholder="พระโขนง" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <div class="relative">
+                <input v-model="form.address_sub_district" type="text" required placeholder="พระโขนง" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_sub_district')" @focus="onAddressInput('address_sub_district')" @blur="closeAddressDropdown">
+                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_sub_district'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
+                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
+                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
+                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
             <div>
               <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">อำเภอ/เขต <span class="text-rose-500">*</span></label>
-              <input v-model="form.address_district" type="text" required placeholder="คลองเตย" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <div class="relative">
+                <input v-model="form.address_district" type="text" required placeholder="คลองเตย" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_district')" @focus="onAddressInput('address_district')" @blur="closeAddressDropdown">
+                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_district'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
+                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
+                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
+                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
             <div>
               <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">จังหวัด <span class="text-rose-500">*</span></label>
-              <input v-model="form.address_province" type="text" required placeholder="กรุงเทพมหานคร" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <div class="relative">
+                <input v-model="form.address_province" type="text" required placeholder="กรุงเทพมหานคร" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_province')" @focus="onAddressInput('address_province')" @blur="closeAddressDropdown">
+                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_province'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
+                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
+                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
+                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
             <div>
               <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">รหัสไปรษณีย์ <span class="text-rose-500">*</span></label>
-              <input v-model="form.address_post_code" type="text" required placeholder="10110" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <div class="relative">
+                <input v-model="form.address_post_code" type="text" required placeholder="10110" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_post_code')" @focus="onAddressInput('address_post_code')" @blur="closeAddressDropdown">
+                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_post_code'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
+                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
+                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
+                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
