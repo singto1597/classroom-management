@@ -11,7 +11,17 @@ const authStore = useAuthStore();
 const form = ref({
   prefix: '',
   first_name: '',
-  last_name: ''
+  last_name: '',
+  nickname: '',
+  birthday: '',
+  phone_number: '',
+  line_id: '',
+  address_house_no: '',
+  address_road: '',
+  address_sub_district: '',
+  address_district: '',
+  address_province: '',
+  address_post_code: ''
 });
 
 const isSubmitting = ref(false);
@@ -23,8 +33,21 @@ onMounted(() => {
 });
 
 const submitProfile = async () => {
-  if (!form.value.prefix || !form.value.first_name || !form.value.last_name) {
-    Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกคำนำหน้า ชื่อ และนามสกุลให้ครบถ้วน', 'warning');
+  if (
+    !form.value.prefix ||
+    !form.value.first_name ||
+    !form.value.last_name ||
+    !form.value.nickname ||
+    !form.value.birthday ||
+    !form.value.phone_number ||
+    !form.value.line_id ||
+    !form.value.address_house_no ||
+    !form.value.address_sub_district ||
+    !form.value.address_district ||
+    !form.value.address_province ||
+    !form.value.address_post_code
+  ) {
+    Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลให้ครบถ้วน', 'warning');
     return;
   }
 
@@ -34,7 +57,17 @@ const submitProfile = async () => {
     await api.patch('/api/auth/me', {
       prefix: form.value.prefix,
       first_name: form.value.first_name,
-      last_name: form.value.last_name
+      last_name: form.value.last_name,
+      nickname: form.value.nickname,
+      birthday: form.value.birthday,
+      phone_number: form.value.phone_number,
+      line_id: form.value.line_id,
+      address_house_no: form.value.address_house_no,
+      address_road: form.value.address_road,
+      address_sub_district: form.value.address_sub_district,
+      address_district: form.value.address_district,
+      address_province: form.value.address_province,
+      address_post_code: form.value.address_post_code,
     });
 
     // 🔄 สั่งให้ Store ดึงข้อมูลใหม่ เพื่อรับรองว่า Onboard แล้ว
@@ -67,32 +100,89 @@ const submitProfile = async () => {
         <p class="text-slate-500 font-medium text-sm">ข้อมูลนี้จะถูกใช้เพื่อยืนยันตัวตนและผูกเข้ากับรายชื่อในห้องเรียน กรุณากรอกให้ตรงตามความจริง</p>
       </div>
 
-      <form @submit.prevent="submitProfile" class="space-y-5">
-        
+      <form @submit.prevent="submitProfile" class="space-y-8">
+        <!-- Section 1: ข้อมูลส่วนตัว -->
         <div>
-          <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">คำนำหน้า <span class="text-rose-500">*</span></label>
-          <div class="relative">
-            <select v-model="form.prefix" required class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer">
-              <option value="" disabled selected>เลือกคำนำหน้า</option>
-              <option value="นาย">นาย</option>
-              <option value="นางสาว">นางสาว</option>
-              <option value="เด็กชาย">เด็กชาย (ด.ช.)</option>
-              <option value="เด็กหญิง">เด็กหญิง (ด.ญ.)</option>
-            </select>
-            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-5 text-slate-400">
-              <i class="bi bi-chevron-down"></i>
+          <h3 class="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 mb-4">ข้อมูลส่วนตัว</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div class="sm:col-span-2">
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">คำนำหน้า <span class="text-rose-500">*</span></label>
+              <div class="relative">
+                <select v-model="form.prefix" required class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer">
+                  <option value="" disabled selected>เลือกคำนำหน้า</option>
+                  <option value="นาย">นาย</option>
+                  <option value="นางสาว">นางสาว</option>
+                  <option value="เด็กชาย">เด็กชาย (ด.ช.)</option>
+                  <option value="เด็กหญิง">เด็กหญิง (ด.ญ.)</option>
+                </select>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-5 text-slate-400">
+                  <i class="bi bi-chevron-down"></i>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง <span class="text-rose-500">*</span></label>
+              <input v-model="form.first_name" type="text" required placeholder="สมชาย" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล <span class="text-rose-500">*</span></label>
+              <input v-model="form.last_name" type="text" required placeholder="ใจดี" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อเล่น <span class="text-rose-500">*</span></label>
+              <input v-model="form.nickname" type="text" required placeholder="เช่น โอม" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">วันเกิด <span class="text-rose-500">*</span></label>
+              <input v-model="form.birthday" type="date" required class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
             </div>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div>
-            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง <span class="text-rose-500">*</span></label>
-            <input v-model="form.first_name" type="text" required placeholder="สมชาย" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+        <!-- Section 2: ข้อมูลการติดต่อ -->
+        <div>
+          <h3 class="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 mb-4">ข้อมูลการติดต่อ</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">เบอร์โทรศัพท์ <span class="text-rose-500">*</span></label>
+              <input v-model="form.phone_number" type="tel" required placeholder="081-234-5678" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Line ID <span class="text-rose-500">*</span></label>
+              <input v-model="form.line_id" type="text" required placeholder="เช่น om_2005" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
           </div>
-          <div>
-            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล <span class="text-rose-500">*</span></label>
-            <input v-model="form.last_name" type="text" required placeholder="ใจดี" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+        </div>
+
+        <!-- Section 3: ที่อยู่ปัจจุบัน -->
+        <div>
+          <h3 class="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 mb-4">ที่อยู่ปัจจุบัน</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">บ้านเลขที่/หมู่ <span class="text-rose-500">*</span></label>
+              <input v-model="form.address_house_no" type="text" required placeholder="123/45 หมู่ 2" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ถนน/ซอย</label>
+              <input v-model="form.address_road" type="text" placeholder="ซอยสุขุมวิท 50" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ตำบล/แขวง <span class="text-rose-500">*</span></label>
+              <input v-model="form.address_sub_district" type="text" required placeholder="พระโขนง" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">อำเภอ/เขต <span class="text-rose-500">*</span></label>
+              <input v-model="form.address_district" type="text" required placeholder="คลองเตย" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">จังหวัด <span class="text-rose-500">*</span></label>
+              <input v-model="form.address_province" type="text" required placeholder="กรุงเทพมหานคร" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">รหัสไปรษณีย์ <span class="text-rose-500">*</span></label>
+              <input v-model="form.address_post_code" type="text" required placeholder="10110" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
           </div>
         </div>
 
