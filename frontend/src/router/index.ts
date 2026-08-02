@@ -152,16 +152,32 @@ const router = createRouter({
 router.beforeEach((to, from) => {
   const authStore = useAuthStore();
   const isAuthenticated = authStore.isAuthenticated;
+  const isOnboarded = authStore.isOnboarded;
   const currentRoomId = authStore.currentRoomId;
   const currentRole = authStore.currentRole; 
 
-  if (to.meta.requiresAuth && !isAuthenticated) return '/login';
-  if (to.path === '/login' && isAuthenticated) return '/lobby';
+  if (to.meta.requiresAuth && !isAuthenticated) {
+    return { name: 'login' };
+  }
+  if (to.path === '/login' && isAuthenticated) {
+    return { name: 'lobby' };
+  }
+
+  if (isAuthenticated) {
+    if (!isOnboarded) {
+      if (to.name !== 'onboarding') {
+        return { name: 'onboarding' };
+      }
+    } else {
+      if (to.name === 'onboarding') {
+        return { name: 'lobby' };
+      }
+    }
+  }
 
   const isGlobalRoute = to.path.startsWith('/lobby') || to.path === '/login' || to.path === '/onboarding';
-  
   if (isAuthenticated && (!currentRoomId || !currentRole) && !isGlobalRoute) {
-    return '/lobby';
+    return { name: 'lobby' };
   }
 });
 

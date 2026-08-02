@@ -21,6 +21,8 @@ export const useAuthStore = defineStore('auth', () => {
   const email = ref<string | null>(safeGetItem('user_email'));
   const discordId = ref<string | null>(safeGetItem('user_discord_id'));
   const googleId = ref<string | null>(safeGetItem('user_google_id'));
+  const nickname = ref<string | null>(safeGetItem('user_nickname'));
+  const phoneNumber = ref<string | null>(safeGetItem('user_phone_number'));
 
   const storedRoomId = safeGetItem('current_room_id');
   const currentRoomId = ref<number | null>(storedRoomId ? Number(storedRoomId) : null);
@@ -37,7 +39,7 @@ export const useAuthStore = defineStore('auth', () => {
   // 🚨 เปลี่ยนนิยามของ isAdmin ใหม่ทั้งหมด (เช็คจาก Flag ของ DB ไม่ใช่ป้ายชื่อตำแหน่ง)
   const isAdmin = computed(() => currentIsAdmin.value === true);
 
-  const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '');
+  const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '' && !!phoneNumber.value && phoneNumber.value.trim() !== '');
 
   // ประกอบชื่อให้สมบูรณ์
   const currentUserName = computed(() => {
@@ -65,6 +67,8 @@ export const useAuthStore = defineStore('auth', () => {
       email.value = data.email && data.email !== 'null' ? data.email : '';
       discordId.value = data.discord_id ? String(data.discord_id) : null;
       googleId.value = data.google_id ? String(data.google_id) : null;
+      nickname.value = data.nickname && data.nickname !== 'null' ? data.nickname : '';
+      phoneNumber.value = data.phone_number && data.phone_number !== 'null' ? data.phone_number : '';
       
       if (prefix.value) localStorage.setItem('user_prefix', prefix.value);
       else localStorage.removeItem('user_prefix');
@@ -78,6 +82,10 @@ export const useAuthStore = defineStore('auth', () => {
       if (email.value) localStorage.setItem('user_email', email.value);
       if (discordId.value) localStorage.setItem('user_discord_id', discordId.value);
       if (googleId.value) localStorage.setItem('user_google_id', googleId.value);
+      if (nickname.value) localStorage.setItem('user_nickname', nickname.value);
+      else localStorage.removeItem('user_nickname');
+      if (phoneNumber.value) localStorage.setItem('user_phone_number', phoneNumber.value);
+      else localStorage.removeItem('user_phone_number');
 
     } catch (error) {
       console.error("Failed to fetch user profile", error);
@@ -159,7 +167,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     token, userId, prefix, firstName, lastName, currentUserName,
-    email, discordId, googleId, isOnboarded,
+    email, discordId, googleId, nickname, phoneNumber, isOnboarded,
     currentRoomId, currentRoomName, currentRoomCode, currentRole,
     currentIsAdmin, currentPermissions, // 🎯 Expose ไปให้ Component อื่นดึงไปใช้ได้
     isAuthenticated, isAdmin,
