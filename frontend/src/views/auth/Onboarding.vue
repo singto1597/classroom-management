@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import api from '@/services/api';
 import Swal from 'sweetalert2';
+
 // @ts-ignore
 import * as ThailandAddress from 'thailand-address';
 
@@ -55,6 +56,7 @@ const activeAddressField = ref<'address_sub_district' | 'address_district' | 'ad
 const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'address_province' | 'address_post_code') => {
   activeAddressField.value = field;
   const query = String(form.value[field] ?? '').trim();
+  
   if (!query) {
     addressSuggestions.value = [];
     isAddressDropdownOpen.value = false;
@@ -72,22 +74,43 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
   }
 
   searchTimeout = setTimeout(() => {
-    // Safely fallback to default if it's nested
-    const searchFn = ThailandAddress.search || (ThailandAddress.default && ThailandAddress.default.search) || (typeof ThailandAddress.default === 'function' ? ThailandAddress.default : null);
-    if (!searchFn) {
-      console.error('Could not find search function in thailand-address package');
-      return;
-    }
-    const results = searchFn(query) as unknown as ThailandAddressResult[];
-    addressSuggestions.value = (results || []).map((item) => ({
-      subDistrict: item.subDistrict ?? item.tambon ?? '',
-      district: item.district ?? item.amphoe ?? '',
-      province: item.province ?? item.changwat ?? '',
-      zipcode: item.zipcode ?? item.postcode ?? ''
-    })).filter((item) => item.subDistrict || item.district || item.province || item.zipcode);
+    // 🛡️ THE ULTIMATE FALLBACK: Safe extraction to handle messy ESM/CJS interops
+    let searchFn: Function | null = null;
 
-    isAddressDropdownOpen.value = addressSuggestions.value.length > 0;
-    searchTimeout = null;
+    if (typeof ThailandAddress === 'function') {
+      searchFn = ThailandAddress;
+    } else if (ThailandAddress && typeof ThailandAddress.search === 'function') {
+      searchFn = ThailandAddress.search;
+    } else if (ThailandAddress && ThailandAddress.default) {
+      if (typeof ThailandAddress.default === 'function') {
+        searchFn = ThailandAddress.default;
+      } else if (typeof ThailandAddress.default.search === 'function') {
+        searchFn = ThailandAddress.default.search;
+      }
+    }
+
+    if (!searchFn) {
+      console.warn('[thailand-address] Search function could not be resolved from import.', ThailandAddress);
+      // Fallback: Just return, don't crash the app. The user can still type manually.
+      return; 
+    }
+
+    try {
+      const results = searchFn(query) as unknown as ThailandAddressResult[];
+      
+      addressSuggestions.value = (results || []).map((item) => ({
+        subDistrict: item.subDistrict ?? item.tambon ?? '',
+        district: item.district ?? item.amphoe ?? '',
+        province: item.province ?? item.changwat ?? '',
+        zipcode: item.zipcode ?? item.postcode ?? ''
+      })).filter((item) => item.subDistrict || item.district || item.province || item.zipcode);
+
+      isAddressDropdownOpen.value = addressSuggestions.value.length > 0;
+    } catch (err) {
+      console.error('[thailand-address] Error executing search:', err);
+    } finally {
+      searchTimeout = null;
+    }
   }, 300);
 };
 
