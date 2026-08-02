@@ -127,7 +127,7 @@ onMounted(() => {
               </h1>
               <p class="text-slate-500 font-medium text-sm flex items-center gap-2 mb-4">
                 <i class="bi bi-person-vcard text-blue-400"></i> {{ student.student_id || 'ไม่ระบุรหัส' }}
-                <span v-if="student.nickname"> • เล่น: {{ student.nickname }}</span>
+                <span v-if="student.nickname"> • ชื่อเล่น: {{ student.nickname }}</span>
               </p>
             </div>
           </div>
