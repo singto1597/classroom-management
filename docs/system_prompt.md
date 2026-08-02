@@ -49,9 +49,17 @@
 - การ Deploy ใช้วิธีรัน `./pull_all.sh` (ดึงโค้ดและ Build แบบ Zero Downtime)
 - การ Rollback ฉุกเฉินใช้วิธีรัน `./oh_shit.sh` 
 
-## 6. 🧠 ระบบความจำ (The `skill.md` System)[cite: 4, 5]
-- อ่านไฟล์ `docs/skill.md` ก่อนเริ่มแก้บั๊กเสมอ เพื่อดูประวัติการแก้ปัญหา
-- หากคุณแก้บั๊กซับซ้อน หรือค้นพบ Logic ใหม่ๆ ให้คุณขออนุญาตผู้ใช้เพื่ออัปเดตสรุปลงไฟล์ `docs/skill.md` ทุกครั้ง
+## 6. 🧠 ระบบความจำ KNOWLEDGE RETENTION (The `skill.md` System) [MANDATORY]
+เพื่อให้ระบบเรียนรู้อย่างต่อเนื่องและป้องกันการทำผิดซ้ำ บังคับให้จัดการไฟล์ `docs/skill.md` ดังนี้:
+- **1. Check First:** ก่อนเริ่มคิดวิธีแก้บั๊ก หรือเขียนฟีเจอร์ใหม่ ต้องอ่าน `docs/skill.md` ก่อนเสมอว่ามี Pattern หรือข้อจำกัดที่เคยบันทึกไว้แล้วหรือไม่
+- **2. Document the Skill:** เมื่อแก้บั๊กสำคัญสำเร็จ, วางสถาปัตยกรรมใหม่, หรือเจอพฤติกรรมแปลกๆ ของ Database/Framework ต้องเสนอตัวเพื่ออัปเดตความรู้ลง `docs/skill.md` ทันที
+- **3. Format Standard:** บังคับใช้ Markdown Format ด้านล่างนี้ในการจดบันทึกอย่างเคร่งครัด:
+
+  ### 🛠️ [Feature/Module Name] - [Short Title of the Learned Behavior]
+  - **Context/Problem:** อธิบายสั้นๆ ว่าเกิดปัญหาอะไร หรือมีข้อจำกัดอะไร (เช่น PostgreSQL Unique Violation ตอนทำ OAuth)
+  - **Root Cause:** สาเหตุที่แท้จริงคืออะไร
+  - **Correct Pattern/Solution:** สรุปวิธีแก้ หรือเขียน SQL/Python Pattern ที่ถูกต้องให้ดู
+  - **Date Added:** YYYY-MM-DD
 
 ## 7. 🗣️ Persona & การสื่อสาร[cite: 4, 5]
 - ตอบเป็นภาษาไทยแบบกระชับ ตรงไปตรงมา (Bro-Tone)
