@@ -90,9 +90,15 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
     }
 
     if (!searchFn) {
-      console.warn('[thailand-address] Search function could not be resolved from import.', ThailandAddress);
-      // Fallback: Just return, don't crash the app. The user can still type manually.
-      return; 
+      const keys = Object.keys(ThailandAddress);
+      const exportNames = keys.length > 0 ? keys.join(', ') : 'No exports found (Empty Module)';
+      Swal.fire({
+        title: 'แงะกล่องแพ็กเกจ',
+        text: `ฟังก์ชันที่ใช้ได้คือ: ${exportNames}`,
+        icon: 'info'
+      });
+      console.log('Full module payload:', ThailandAddress);
+      return;
     }
 
     try {
