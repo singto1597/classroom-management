@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import api from '@/services/api';
 import Swal from 'sweetalert2';
+// @ts-ignore
 import ThailandAddress from 'thailand-address';
 
 interface ThailandAddressResult {
