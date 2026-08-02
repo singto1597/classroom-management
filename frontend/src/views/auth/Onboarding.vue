@@ -63,11 +63,22 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
   }
 
   searchTimeout = setTimeout(() => {
-    // 🛡️ ดึงฟังก์ชันค้นหาจาก thai-address-database
-    const searchFn = ThaiAddressDB.search || (ThaiAddressDB.default && ThaiAddressDB.default.search);
+    // 🛡️ ดึงฟังก์ชันค้นหาจาก thai-address-database ให้ตรงกับช่องที่กำลังพิมพ์
+    const db: any = ThaiAddressDB.default || ThaiAddressDB;
+    let searchFn: Function | null = null;
+
+    if (field === 'address_sub_district') {
+      searchFn = db.searchAddressByDistrict;
+    } else if (field === 'address_district') {
+      searchFn = db.searchAddressByAmphoe;
+    } else if (field === 'address_province') {
+      searchFn = db.searchAddressByProvince;
+    } else if (field === 'address_post_code') {
+      searchFn = db.searchAddressByZipcode;
+    }
     
     if (!searchFn || typeof searchFn !== 'function') {
-      console.warn('[thai-address-database] Search function not found.', ThaiAddressDB);
+      console.warn('[thai-address-database] Specific search function not found for field:', field, db);
       return;
     }
 
