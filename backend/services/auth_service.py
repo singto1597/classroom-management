@@ -318,9 +318,29 @@ async def update_user_profile(
             # ใช้ execute เพื่อรันคำสั่ง UPDATE (คืนค่าเป็น string เช่น 'UPDATE 1')
             result = await conn.execute("""
                 UPDATE users
-                SET prefix = $1, first_name = $2, last_name = $3, updated_at = CURRENT_TIMESTAMP
-                WHERE id = $4
-            """, profile_data.prefix, profile_data.first_name, profile_data.last_name, user_id)
+                SET prefix = $1, first_name = $2, last_name = $3,
+                    nickname = $4, birthday = $5, phone_number = $6,
+                    line_id = $7, address_house_no = $8, address_road = $9,
+                    address_sub_district = $10, address_district = $11,
+                    address_province = $12, address_post_code = $13,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $14
+            """,
+                profile_data.prefix,
+                profile_data.first_name,
+                profile_data.last_name,
+                profile_data.nickname,
+                profile_data.birthday,
+                profile_data.phone_number,
+                profile_data.line_id,
+                profile_data.address_house_no,
+                profile_data.address_road,
+                profile_data.address_sub_district,
+                profile_data.address_district,
+                profile_data.address_province,
+                profile_data.address_post_code,
+                user_id
+            )
 
             # เช็คกรณีที่หา user ไม่เจอ (เผื่อไว้)
             if result == "UPDATE 0":

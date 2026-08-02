@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import Optional
 from pydantic import EmailStr
 from pydantic import Field
+from datetime import date
 
 
 class ProviderLoginRequest(BaseModel):
@@ -32,3 +33,13 @@ class UserProfileUpdate(BaseModel):
     prefix: str = Field(..., max_length=10, description="คำนำหน้า")
     first_name: str = Field(..., max_length=100, description="ชื่อจริง")
     last_name: str = Field(..., max_length=100, description="นามสกุล")
+    nickname: str = Field(..., max_length=50, description="ชื่อเล่น")
+    birthday: date = Field(..., description="วันเกิด (YYYY-MM-DD)")
+    phone_number: str = Field(..., max_length=20, description="เบอร์โทรศัพท์")
+    line_id: str = Field(..., max_length=50, description="LINE ID")
+    address_house_no: str = Field(..., max_length=20, description="เลขที่บ้าน")
+    address_road: Optional[str] = Field(None, max_length=100, description="ถนน (ถ้ามี)")
+    address_sub_district: str = Field(..., max_length=100, description="ตำบล/แขวง")
+    address_district: str = Field(..., max_length=100, description="อำเภอ/เขต")
+    address_province: str = Field(..., max_length=100, description="จังหวัด")
+    address_post_code: str = Field(..., max_length=10, description="รหัสไปรษณีย์")
