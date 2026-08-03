@@ -125,3 +125,9 @@
   3. Raise `ValueError` (→ 400) if no `server_id` or no matching web-created room.
   This keeps Discord-server↔room linking working for the bot while forcing the primary creation path through the authenticated web flow.
 - **Date Added:** 2026-08-03
+
+### 🛠️ Schema Audit Trap - `rooms` Table Has NO `updated_at` Column
+- **Context/Problem:** While adding PoC regression tests for the `setup_room` change, `UPDATE rooms SET server_id = $1, updated_at = CURRENT_TIMESTAMP` raised `asyncpg.exceptions.UndefinedColumnError: column "updated_at" of relation "rooms" does not exist`.
+- **Root Cause:** The `rooms` table (defined in `core/init_db.py`) only has `server_id, room_code, room_name, announcement_channel_id, notify_time, owner_id, deleted_at` — **no `updated_at`**. The original `setup_room` used `ON CONFLICT ... DO UPDATE` which doesn't touch `updated_at`, so this was only exposed once a manual `UPDATE` was written.
+- **Correct Pattern/Solution:** Before writing an `UPDATE ... SET ... updated_at = CURRENT_TIMESTAMP`, verify the target table actually has an `updated_at` column in `core/init_db.py`. Tables like `users`, `students`, `tasks` do; `rooms` does **not**. The fix removed `updated_at` from the `setup_room` UPDATE. **Rule:** when touching raw SQL against a table, check `init_db.py`'s DDL first — several tables in this project lack `updated_at`.
+- **Date Added:** 2026-08-03

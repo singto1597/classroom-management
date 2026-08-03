@@ -99,7 +99,7 @@ class ClassroomService:
                     if old_record:
                         old_values = dict(old_record)
                         room_id = old_record['id']
-                        await conn.execute("UPDATE rooms SET room_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", room_name, room_id)
+                        await conn.execute("UPDATE rooms SET room_name = $1 WHERE id = $2", room_name, room_id)
                     else:
                         # ยังไม่เคยผูก: ต้องมีห้องที่สร้างผ่านเว็บ และชื่อต้องตรงกันก่อนผูก
                         existing_room = await conn.fetchrow(
@@ -111,7 +111,7 @@ class ClassroomService:
                                 f"ไม่พบห้อง '{room_name}' ที่สร้างผ่านเว็บ กรุณาสร้างห้องผ่านเว็บแอปพลิเคชันก่อน แล้วลองใหม่อีกครั้ง"
                             )
                         room_id = existing_room['id']
-                        await conn.execute("UPDATE rooms SET server_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", server_id, room_id)
+                        await conn.execute("UPDATE rooms SET server_id = $1 WHERE id = $2", server_id, room_id)
                         action = "UPDATE"
 
                     exec_time = int((time.time() - start_time) * 1000)
