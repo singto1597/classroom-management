@@ -75,32 +75,45 @@ class ClassroomService:
 
     @classmethod
     async def setup_room(cls, pool: asyncpg.Pool, room_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None):
+        """
+        🛡️ ปิดความสามารถสร้างห้องใหม่จาก Bot แล้ว (Frontend /create เป็นระบบหลัก)
+        - ต้องมี server_id เสมอ: ห้องต้องถูกสร้างผ่านเว็บ (POST /api/classroom/create) ก่อน
+        - ห้องจะถูกค้นจาก server_id ว่าเคยผูกไว้หรือยัง
+        - ถ้ายังไม่เคยผูก: ต้องระบุ room_name ให้ตรงกับห้องที่มีอยู่ (สร้างผ่านเว็บ) แล้วจึงผูก server_id
+        - ถ้าเคยผูกแล้ว: อัปเดตแค่ชื่อห้อง (ห้อง Discord กับ Web จะได้ตรงกัน)
+        """
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
+                    # ห้องต้องถูกสร้างผ่านเว็บก่อนเสมอ — bot เป็นเพียง option เสริม
+                    if not server_id:
+                        raise ValueError("ไม่สามารถสร้างห้องจาก Bot ได้อีกต่อไป กรุณาสร้างห้องผ่านเว็บแอปพลิเคชันก่อน (POST /api/classroom/create)")
+
                     old_values = None
                     new_values = {"room_name": room_name, "server_id": server_id}
-                    action = "CREATE"
-                    
-                    if server_id:
-                        old_record = await conn.fetchrow("SELECT id, room_name FROM rooms WHERE server_id = $1", server_id)
-                        if old_record:
-                            old_values = dict(old_record)
-                            action = "UPDATE"
-                            
-                        room_id = await conn.fetchval(
-                            """INSERT INTO rooms (server_id, room_name) 
-                               VALUES ($1, $2) 
-                               ON CONFLICT (server_id) DO UPDATE SET room_name = EXCLUDED.room_name RETURNING id""",
-                            server_id, room_name
-                        )
+                    action = "UPDATE"
+
+                    # ค้นห้องที่เคยผูก server_id ไว้แล้ว
+                    old_record = await conn.fetchrow("SELECT id, room_name FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", server_id)
+                    if old_record:
+                        old_values = dict(old_record)
+                        room_id = old_record['id']
+                        await conn.execute("UPDATE rooms SET room_name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", room_name, room_id)
                     else:
-                        room_id = await conn.fetchval(
-                            "INSERT INTO rooms (room_name) VALUES ($1) RETURNING id",
+                        # ยังไม่เคยผูก: ต้องมีห้องที่สร้างผ่านเว็บ และชื่อต้องตรงกันก่อนผูก
+                        existing_room = await conn.fetchrow(
+                            "SELECT id FROM rooms WHERE room_name = $1 AND server_id IS NULL AND deleted_at IS NULL ORDER BY id LIMIT 1",
                             room_name
                         )
-                        
+                        if not existing_room:
+                            raise ValueError(
+                                f"ไม่พบห้อง '{room_name}' ที่สร้างผ่านเว็บ กรุณาสร้างห้องผ่านเว็บแอปพลิเคชันก่อน แล้วลองใหม่อีกครั้ง"
+                            )
+                        room_id = existing_room['id']
+                        await conn.execute("UPDATE rooms SET server_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", server_id, room_id)
+                        action = "UPDATE"
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action=action, actor_identifier=actor_identifier, client_source=client_source,
@@ -122,7 +135,7 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                     old_record = await conn.fetchrow("SELECT announcement_channel_id FROM rooms WHERE id = $1", room_id)
                     old_values = dict(old_record) if old_record else {}
                     
@@ -151,7 +164,7 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                     old_record = await conn.fetchrow("SELECT notify_time FROM rooms WHERE id = $1", room_id)
                     old_values = dict(old_record) if old_record else {}
                     
@@ -205,7 +218,7 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                     old_record = await conn.fetchrow("SELECT attire, subjects FROM default_schedules WHERE room_id = $1 AND day_of_week = $2", room_id, day_of_week)
                     old_values = dict(old_record) if old_record else None
                     
@@ -239,7 +252,7 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
                     old_record = await conn.fetchrow("SELECT new_attire, note FROM schedule_overrides WHERE room_id = $1 AND target_date = $2", room_id, target_date)
                     old_values = dict(old_record) if old_record else None
                     
@@ -432,7 +445,7 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
                     old_record = await conn.fetchrow("SELECT deleted_at FROM tasks WHERE id = $1 AND room_id = $2", task_id, room_id)
                     old_values = dict(old_record) if old_record else {}
                     
@@ -520,8 +533,8 @@ class ClassroomService:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
-                async with conn.transaction(): 
-                    # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
+                async with conn.transaction():
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
                     old_record = await conn.fetchrow("SELECT bring_items, announcement FROM daily_notes WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL", room_id, target_date)
                     old_values = dict(old_record) if old_record else None
                     
@@ -556,7 +569,7 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    # await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
                     old_record = await conn.fetchrow("SELECT bring_items, announcement, deleted_at FROM daily_notes WHERE room_id = $1 AND target_date = $2", room_id, target_date)
                     old_values = dict(old_record) if old_record else {}
                     

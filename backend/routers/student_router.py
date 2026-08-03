@@ -46,7 +46,8 @@ async def add_student(req: StudentAddRequest, request: Request, target: TargetRe
         await StudentService.add_student(
             pool, req.student_no, req.first_name, req.last_name, req.user_name,
             client_source=client_source, actor_identifier=actor,
-            server_id=target.server_id, room_id=target.room_id
+            server_id=target.server_id, room_id=target.room_id,
+            actor_user_id=user_ctx["user_id"]
         )
         return SuccessResponse(message=f"Added student No. {req.student_no}")
     except RoomNotFoundError as e:
@@ -62,7 +63,8 @@ async def bulk_add_students(req: StudentBulkAddRequest, request: Request, target
         await StudentService.bulk_add_students(
             pool, students_dict, req.user_name,
             client_source=client_source, actor_identifier=actor,
-            server_id=target.server_id, room_id=target.room_id
+            server_id=target.server_id, room_id=target.room_id,
+            actor_user_id=user_ctx["user_id"]
         )
         return SuccessResponse(message=f"Successfully bulk added {len(req.students)} students.")
     except RoomNotFoundError as e:

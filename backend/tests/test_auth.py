@@ -321,6 +321,16 @@ async def test_update_user_profile_updates_fields_in_db(db_pool):
         prefix="Mr.",
         first_name="John",
         last_name="Doe",
+        nickname="Johnny",
+        birthday="2005-01-15",
+        phone_number="081-234-5678",
+        line_id="john.doe",
+        address_house_no="123/45",
+        address_road="สุขุมวิท",
+        address_sub_district="คลองเตย",
+        address_district="คลองเตย",
+        address_province="กรุงเทพมหานคร",
+        address_post_code="10110",
     )
 
     result = await update_user_profile(
@@ -508,7 +518,20 @@ async def test_process_user_login_with_both_provider_ids(db_pool):
 
 
 async def test_update_user_profile_nonexistent_user_raises_404(db_pool):
-    profile_update = UserProfileUpdate(prefix="Mr.", first_name="Ghost", last_name="No")
+    profile_update = UserProfileUpdate(
+        prefix="Mr.",
+        first_name="Ghost",
+        last_name="No",
+        nickname="Ghosty",
+        birthday="2005-01-15",
+        phone_number="081-000-0000",
+        line_id="ghost.no",
+        address_house_no="1/1",
+        address_sub_district="ทดสอบ",
+        address_district="ทดสอบ",
+        address_province="กรุงเทพมหานคร",
+        address_post_code="10110",
+    )
     with pytest.raises(HTTPException) as exc_info:
         await update_user_profile(
             pool=db_pool,

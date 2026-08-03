@@ -27,18 +27,23 @@ def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str
 
 @router.post("/setup", response_model=SuccessResponse)
 async def setup_room(
-    req: RoomSetupRequest, 
+    req: RoomSetupRequest,
     request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user),
 ):
-    client_source, actor = get_audit_context(request, user_ctx)
-    await ClassroomService.setup_room(
-        pool, req.room_name, req.user_name, 
-        client_source=client_source, actor_identifier=actor, 
-        server_id=req.server_id
-    )
-    return SuccessResponse(message=f"Setup room {req.room_name} completed.")
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        await ClassroomService.setup_room(
+            pool, req.room_name, req.user_name,
+            client_source=client_source, actor_identifier=actor,
+            server_id=req.server_id
+        )
+        return SuccessResponse(message=f"Setup room {req.room_name} completed.")
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/notifications/targets", response_model=List[RoomNotifyResponse])
 async def get_rooms_to_notify(

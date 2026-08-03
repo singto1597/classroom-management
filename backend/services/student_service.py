@@ -87,7 +87,7 @@ class StudentService:
         return {"percentage": percent, "missing_fields": missing}
 
     @classmethod
-    async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+    async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, actor_user_id: Optional[int] = None):
         start_time = time.time()
         target_room_id = None
         new_values = {"student_no": student_no, "first_name": first_name, "last_name": last_name, "user_name": user_name}
@@ -95,6 +95,9 @@ class StudentService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                    # 🛡️ RBAC: ต้องมี MANAGE_STUDENTS ถึงจะเพิ่มนักเรียนได้ (กันนักเรียนธรรมดาเพิ่มเพื่อนเอง)
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_STUDENTS")
                     user_id = await conn.fetchval("SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL", first_name, last_name)
                     if not user_id:
                         user_id = await conn.fetchval("INSERT INTO users (first_name, last_name) VALUES ($1, $2) RETURNING id", first_name, last_name)
@@ -128,7 +131,7 @@ class StudentService:
             raise e
 
     @classmethod
-    async def bulk_add_students(cls, pool: asyncpg.Pool, students: List[dict], user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+    async def bulk_add_students(cls, pool: asyncpg.Pool, students: List[dict], user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, actor_user_id: Optional[int] = None):
         start_time = time.time()
         target_room_id = None
         new_values = {"students": students, "user_name": user_name}
@@ -136,6 +139,9 @@ class StudentService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                    # 🛡️ RBAC: ต้องมี MANAGE_STUDENTS ถึงจะเพิ่มนักเรียน bulk ได้
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_STUDENTS")
                     first_names = [s['first_name'] for s in students]
                     last_names = [s['last_name'] for s in students]
                     

@@ -52,10 +52,13 @@ async def get_summary(
             month=month,
             year=year,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 
 @router.get("/{target_id}/finance/students", response_model=List[StudentBasicInfo])
@@ -72,10 +75,13 @@ async def get_active_students(
             client_source=client_source,
             actor_identifier=actor,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.post("/{target_id}/finance/accounts", response_model=SuccessResponse)
 async def create_account(
@@ -115,10 +121,13 @@ async def get_accounts(
             client_source=client_source,
             actor_identifier=actor,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.patch("/{target_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
 async def update_account(
@@ -212,21 +221,24 @@ async def get_transactions(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.get_transactions(
-            pool=pool, 
-            limit=filters.limit, 
-            offset=filters.offset, 
-            start_date=filters.start_date, 
-            end_date=filters.end_date, 
-            account_id=filters.account_id, 
-            category_id=filters.category_id, 
+            pool=pool,
+            limit=filters.limit,
+            offset=filters.offset,
+            start_date=filters.start_date,
+            end_date=filters.end_date,
+            account_id=filters.account_id,
+            category_id=filters.category_id,
             transaction_type=filters.transaction_type,
             server_id=target.server_id,
             room_id=target.room_id,
             client_source=client_source,
-            actor_identifier=actor
+            actor_identifier=actor,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.delete("/{target_id}/finance/transactions/{transaction_id}", response_model=SuccessResponse)
 async def revert_transaction(
@@ -348,10 +360,13 @@ async def get_all_collections(
             client_source=client_source,
             actor_identifier=actor,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.put("/{target_id}/finance/collections/{collection_id}", response_model=SuccessResponse)
 async def update_collection(
@@ -395,10 +410,13 @@ async def get_collection_status(
             client_source=client_source,
             actor_identifier=actor,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.post("/{target_id}/finance/collections/{collection_id}/students/{student_id}", response_model=SuccessResponse)
 async def add_student_to_collection(
@@ -502,10 +520,13 @@ async def get_categories(
             actor_identifier=actor,
             cat_type=cat_type,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.patch("/{target_id}/finance/categories/{category_id}", response_model=SuccessResponse)
 async def update_category(
@@ -576,10 +597,13 @@ async def get_all_debtors(
             client_source=client_source,
             actor_identifier=actor,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
 async def get_student_debts(
@@ -597,7 +621,8 @@ async def get_student_debts(
             client_source=client_source,
             actor_identifier=actor,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
