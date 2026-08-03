@@ -186,7 +186,8 @@ async def search_students(request: Request, target: TargetResolution = Depends(g
         return await StudentService.search_students(
             pool, q,
             client_source=client_source, actor_identifier=actor,
-            server_id=target.server_id, room_id=target.room_id
+            server_id=target.server_id, room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
@@ -198,9 +199,11 @@ async def deactivate_student(student_no: int, req: StudentStatusUpdate, request:
         await StudentService.update_status(
             pool, student_no, req.status, req.user_name,
             client_source=client_source, actor_identifier=actor,
-            server_id=target.server_id, room_id=target.room_id
+            server_id=target.server_id, room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
         return SuccessResponse(message=f"Status of No. {student_no} changed to {req.status}")
+    except ForbiddenError as e: raise HTTPException(status_code=403, detail=str(e))
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 

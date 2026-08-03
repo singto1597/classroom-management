@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 
 from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, TaskNotFoundError, ForbiddenError
-from core.rbac import require_permission
+from core.rbac import require_permission, require_member
 from services.action_service import ActionService
 
 THAI_TZ = ZoneInfo("Asia/Bangkok")
@@ -16,7 +16,7 @@ service_logger = AuditLogger(service_name="CLASSROOM")
 class ClassroomService:
 
     @classmethod
-    async def get_room_data(cls, pool: asyncpg.Pool, room_id: int, client_source: str, actor_identifier: str):
+    async def get_room_data(cls, pool: asyncpg.Pool, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None):
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
@@ -24,7 +24,12 @@ class ClassroomService:
                     "SELECT id, server_id, room_code, room_name, announcement_channel_id, notify_time FROM rooms WHERE id = $1 AND deleted_at IS NULL",
                     room_id
                 )
-                
+                if not room:
+                    raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
+                # 🔒 ตรวจ member หลังจาก room มีอยู่จริง → 404 ก่อน 403
+                if user_id is not None:
+                    await require_member(conn, room_id, user_id)
+
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
                     conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
@@ -35,9 +40,11 @@ class ClassroomService:
         except Exception as e:
             async with pool.acquire() as fallback_conn:
                 exec_time = int((time.time() - start_time) * 1000)
+                # room ไม่มีอยู่จริง → อย่า log ผูกกับ room_id ที่ไม่มี FK (กัน FK violation กลบ exception เดิม)
+                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
                 await service_logger.log(
                     conn=fallback_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=room_id, entity_type="ROOM", entity_id=str(room_id), status="failed",
+                    room_id=safe_room_id, entity_type="ROOM", entity_id=str(room_id), status="failed",
                     error_detail=str(e), endpoint_or_command="get_room_data", execution_time_ms=exec_time
                 )
             raise e
@@ -48,13 +55,17 @@ class ClassroomService:
         return days[date_obj.weekday()]
 
     @classmethod
-    async def get_audit_logs(cls, pool: asyncpg.Pool, room_id: int, client_source: str, actor_identifier: str, limit: int = 20) -> List[dict]:
+    async def get_audit_logs(cls, pool: asyncpg.Pool, room_id: int, client_source: str, actor_identifier: str, limit: int = 20, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
+                if user_id is not None:
+                    await require_member(conn, room_id, user_id)
+                # ป้องกัน LIMIT ติดลบ → asyncpg error "LIMIT must not be negative"
+                safe_limit = max(0, limit)
                 rows = await conn.fetch(
-                    "SELECT user_name, action, detail, created_at FROM audit_logs WHERE room_id = $1 ORDER BY created_at DESC LIMIT $2",
-                    room_id, limit
+                    "SELECT actor_identifier AS user_name, action, endpoint_or_command AS detail, created_at FROM audit_logs WHERE room_id = $1 ORDER BY created_at DESC LIMIT $2",
+                    room_id, safe_limit
                 )
                 
                 exec_time = int((time.time() - start_time) * 1000)
@@ -74,7 +85,7 @@ class ClassroomService:
             raise e
 
     @classmethod
-    async def setup_room(cls, pool: asyncpg.Pool, room_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None):
+    async def setup_room(cls, pool: asyncpg.Pool, room_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, user_id: Optional[int] = None):
         """
         🛡️ ปิดความสามารถสร้างห้องใหม่จาก Bot แล้ว (Frontend /create เป็นระบบหลัก)
         - ต้องมี server_id เสมอ: ห้องต้องถูกสร้างผ่านเว็บ (POST /api/classroom/create) ก่อน
@@ -97,6 +108,9 @@ class ClassroomService:
                     # ค้นห้องที่เคยผูก server_id ไว้แล้ว
                     old_record = await conn.fetchrow("SELECT id, room_name FROM rooms WHERE server_id = $1 AND deleted_at IS NULL", server_id)
                     if old_record:
+                        # 🔒 เปลี่ยนชื่อห้องของ server ที่ผูกอยู่ → ต้องเป็นสมาชิกของห้องนั้นก่อน
+                        if user_id is not None:
+                            await require_member(conn, old_record['id'], user_id)
                         old_values = dict(old_record)
                         room_id = old_record['id']
                         await conn.execute("UPDATE rooms SET room_name = $1 WHERE id = $2", room_name, room_id)
@@ -136,9 +150,11 @@ class ClassroomService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
-                    old_record = await conn.fetchrow("SELECT announcement_channel_id FROM rooms WHERE id = $1", room_id)
-                    old_values = dict(old_record) if old_record else {}
-                    
+                    old_record = await conn.fetchrow("SELECT announcement_channel_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", room_id)
+                    if not old_record:
+                        raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
+                    old_values = dict(old_record)
+
                     await conn.execute("UPDATE rooms SET announcement_channel_id = $1 WHERE id = $2", channel_id, room_id)
                     new_values = {"announcement_channel_id": channel_id}
                     
@@ -151,9 +167,10 @@ class ClassroomService:
         except Exception as e:
             async with pool.acquire() as fallback_conn:
                 exec_time = int((time.time() - start_time) * 1000)
+                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
                 await service_logger.log(
                     conn=fallback_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=room_id, user_id=user_id, entity_type="ROOM", entity_id=str(room_id),
+                    room_id=safe_room_id, user_id=user_id, entity_type="ROOM", entity_id=str(room_id),
                     status="failed", error_detail=str(e), endpoint_or_command="set_channel", execution_time_ms=exec_time
                 )
             raise e
@@ -165,9 +182,11 @@ class ClassroomService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
-                    old_record = await conn.fetchrow("SELECT notify_time FROM rooms WHERE id = $1", room_id)
-                    old_values = dict(old_record) if old_record else {}
-                    
+                    old_record = await conn.fetchrow("SELECT notify_time FROM rooms WHERE id = $1 AND deleted_at IS NULL", room_id)
+                    if not old_record:
+                        raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
+                    old_values = dict(old_record)
+
                     await conn.execute("UPDATE rooms SET notify_time = $1 WHERE id = $2", notify_time, room_id)
                     new_values = {"notify_time": notify_time}
                     
@@ -180,9 +199,10 @@ class ClassroomService:
         except Exception as e:
             async with pool.acquire() as fallback_conn:
                 exec_time = int((time.time() - start_time) * 1000)
+                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
                 await service_logger.log(
                     conn=fallback_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=room_id, user_id=user_id, entity_type="ROOM", entity_id=str(room_id),
+                    room_id=safe_room_id, user_id=user_id, entity_type="ROOM", entity_id=str(room_id),
                     status="failed", error_detail=str(e), endpoint_or_command="set_notify_time", execution_time_ms=exec_time
                 )
             raise e
@@ -219,9 +239,10 @@ class ClassroomService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
-                    old_record = await conn.fetchrow("SELECT attire, subjects FROM default_schedules WHERE room_id = $1 AND day_of_week = $2", room_id, day_of_week)
+                    old_record = await conn.fetchrow("SELECT attire, subjects FROM default_schedules WHERE room_id = $1 AND day_of_week = $2 AND deleted_at IS NULL", room_id, day_of_week)
                     old_values = dict(old_record) if old_record else None
-                    
+
+                    # ลบทุกแถว (รวม soft-deleted) → กันการสะสม row เมื่อ add → delete → add ซ้ำ
                     await conn.execute("DELETE FROM default_schedules WHERE room_id = $1 AND day_of_week = $2", room_id, day_of_week)
                     await conn.execute(
                         "INSERT INTO default_schedules (room_id, day_of_week, attire, subjects) VALUES ($1, $2, $3, $4)",
@@ -253,9 +274,10 @@ class ClassroomService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
-                    old_record = await conn.fetchrow("SELECT new_attire, note FROM schedule_overrides WHERE room_id = $1 AND target_date = $2", room_id, target_date)
+                    old_record = await conn.fetchrow("SELECT new_attire, note FROM schedule_overrides WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL", room_id, target_date)
                     old_values = dict(old_record) if old_record else None
-                    
+
+                    # ลบทุกแถว (รวม soft-deleted) → กันการสะสม row เมื่อ add → delete → add ซ้ำ
                     await conn.execute("DELETE FROM schedule_overrides WHERE room_id = $1 AND target_date = $2", room_id, target_date)
                     await conn.execute(
                         "INSERT INTO schedule_overrides (room_id, target_date, new_attire, note) VALUES ($1, $2, $3, $4)",
@@ -281,19 +303,25 @@ class ClassroomService:
             raise e
 
     @classmethod
-    async def add_task(cls, pool: asyncpg.Pool, task_name: str, task_detail: str, due_date: date, user_name: str, room_id: int, client_source: str, actor_identifier: str):
+    async def add_task(cls, pool: asyncpg.Pool, task_name: str, task_detail: str, due_date: date, user_name: str, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None):
         start_time = time.time()
         discord_server_id = None
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
+                    # 🔒 กันคนนอกห้อง (ไม่ใช่สมาชิก active) เพิ่มงาน — สมาชิกทุกคน add ได้ (UX เดิม)
+                    if user_id is not None:
+                        await require_member(conn, room_id, user_id)
+                    room = await conn.fetchrow("SELECT id, server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", room_id)
+                    if not room:
+                        raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
                     await conn.execute(
                         "INSERT INTO tasks (room_id, task_name, task_detail, due_date) VALUES ($1, $2, $3, $4)",
                         room_id, task_name, task_detail, due_date
                     )
                     new_values = {"task_name": task_name, "task_detail": task_detail, "due_date": str(due_date)}
-                    
-                    discord_server_id = await conn.fetchval("SELECT server_id FROM rooms WHERE id = $1", room_id)
+
+                    discord_server_id = room['server_id']
                     
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -304,9 +332,10 @@ class ClassroomService:
         except Exception as e:
             async with pool.acquire() as fallback_conn:
                 exec_time = int((time.time() - start_time) * 1000)
+                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
                 await service_logger.log(
                     conn=fallback_conn, action="CREATE", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=room_id, entity_type="TASK", status="failed", error_detail=str(e),
+                    room_id=safe_room_id, entity_type="TASK", status="failed", error_detail=str(e),
                     endpoint_or_command="add_task", execution_time_ms=exec_time
                 )
             raise e
@@ -315,10 +344,12 @@ class ClassroomService:
             await ActionService.notify_new_task(discord_server_id, task_name, task_detail, due_date, user_name)
 
     @classmethod
-    async def get_tasks(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, status: str = 'pending', room_id: int = None) -> List[dict]:
+    async def get_tasks(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, status: str = 'pending', room_id: int = None, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
+                if user_id is not None:
+                    await require_member(conn, room_id, user_id)
                 rows = await conn.fetch(
                     "SELECT id, task_name, task_detail, due_date, status, created_at FROM tasks WHERE room_id = $1 AND status = $2 AND deleted_at IS NULL ORDER BY due_date ASC",
                     room_id, status
@@ -341,10 +372,12 @@ class ClassroomService:
             raise e
 
     @classmethod
-    async def get_task_by_id(cls, pool: asyncpg.Pool, task_id: int, room_id: int, client_source: str, actor_identifier: str) -> dict:
+    async def get_task_by_id(cls, pool: asyncpg.Pool, task_id: int, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None) -> dict:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
+                if user_id is not None:
+                    await require_member(conn, room_id, user_id)
                 row = await conn.fetchrow(
                     "SELECT id, task_name, task_detail, due_date, status, created_at FROM tasks WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL", 
                     task_id, room_id
@@ -369,16 +402,18 @@ class ClassroomService:
             raise e
 
     @classmethod
-    async def edit_task(cls, pool: asyncpg.Pool, task_id: int, task_name: str, task_detail: str, due_date: date, user_name: str, room_id: int, client_source: str, actor_identifier: str):
+    async def edit_task(cls, pool: asyncpg.Pool, task_id: int, task_name: str, task_detail: str, due_date: date, user_name: str, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None):
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    old_record = await conn.fetchrow("SELECT task_name, task_detail, due_date FROM tasks WHERE id = $1 AND room_id = $2", task_id, room_id)
+                    if user_id is not None:
+                        await require_member(conn, room_id, user_id)
+                    old_record = await conn.fetchrow("SELECT task_name, task_detail, due_date FROM tasks WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL", task_id, room_id)
                     old_values = dict(old_record) if old_record else {}
-                    
+
                     res = await conn.execute(
-                        "UPDATE tasks SET task_name = $1, task_detail = $2, due_date = $3 WHERE id = $4 AND room_id = $5",
+                        "UPDATE tasks SET task_name = $1, task_detail = $2, due_date = $3 WHERE id = $4 AND room_id = $5 AND deleted_at IS NULL",
                         task_name, task_detail, due_date, task_id, room_id
                     )
                     if res == "UPDATE 0": raise TaskNotFoundError("Task not found")
@@ -402,17 +437,19 @@ class ClassroomService:
             raise e
         
     @classmethod
-    async def mark_task_done(cls, pool: asyncpg.Pool, task_id: int, user_name: str, room_id: int, client_source: str, actor_identifier: str) -> str:
+    async def mark_task_done(cls, pool: asyncpg.Pool, task_id: int, user_name: str, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None) -> str:
         start_time = time.time()
         discord_server_id = None
         task_name = None
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    old_record = await conn.fetchrow("SELECT status FROM tasks WHERE id = $1 AND room_id = $2", task_id, room_id)
+                    if user_id is not None:
+                        await require_member(conn, room_id, user_id)
+                    old_record = await conn.fetchrow("SELECT status FROM tasks WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL", task_id, room_id)
                     old_values = dict(old_record) if old_record else {}
-                    
-                    task_name = await conn.fetchval("UPDATE tasks SET status = 'done' WHERE id = $1 AND room_id = $2 RETURNING task_name", task_id, room_id)
+
+                    task_name = await conn.fetchval("UPDATE tasks SET status = 'done' WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL RETURNING task_name", task_id, room_id)
                     if not task_name: raise TaskNotFoundError("Task not found")
                     
                     new_values = {"status": "done"}
@@ -472,10 +509,12 @@ class ClassroomService:
             raise e
 
     @classmethod
-    async def get_deleted_tasks(cls, pool: asyncpg.Pool, room_id: int, client_source: str, actor_identifier: str) -> List[dict]:
+    async def get_deleted_tasks(cls, pool: asyncpg.Pool, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
+                if user_id is not None:
+                    await require_member(conn, room_id, user_id)
                 rows = await conn.fetch(
                     "SELECT id, task_name, task_detail, due_date, status, created_at, deleted_at FROM tasks WHERE room_id = $1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
                     room_id
@@ -498,14 +537,16 @@ class ClassroomService:
             raise e
 
     @classmethod
-    async def restore_task(cls, pool: asyncpg.Pool, task_id: int, user_name: str, room_id: int, client_source: str, actor_identifier: str) -> str:
+    async def restore_task(cls, pool: asyncpg.Pool, task_id: int, user_name: str, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None) -> str:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
+                    if user_id is not None:
+                        await require_member(conn, room_id, user_id)
                     old_record = await conn.fetchrow("SELECT deleted_at FROM tasks WHERE id = $1 AND room_id = $2", task_id, room_id)
                     old_values = dict(old_record) if old_record else {}
-                    
+
                     task_name = await conn.fetchval("UPDATE tasks SET deleted_at = NULL WHERE id = $1 AND room_id = $2 AND deleted_at IS NOT NULL RETURNING task_name", task_id, room_id)
                     if not task_name: raise TaskNotFoundError("ไม่พบงานที่ถูกลบ")
                     
@@ -537,8 +578,9 @@ class ClassroomService:
                     await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_TASKS")
                     old_record = await conn.fetchrow("SELECT bring_items, announcement FROM daily_notes WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL", room_id, target_date)
                     old_values = dict(old_record) if old_record else None
-                    
-                    await conn.execute("DELETE FROM daily_notes WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL", room_id, target_date)
+
+                    # ลบทุกแถว (รวม soft-deleted) → กันการสะสม row เมื่อ add → delete → add ซ้ำ
+                    await conn.execute("DELETE FROM daily_notes WHERE room_id = $1 AND target_date = $2", room_id, target_date)
                     await conn.execute(
                         "INSERT INTO daily_notes (room_id, target_date, bring_items, announcement) VALUES ($1, $2, $3, $4)",
                         room_id, target_date, bring_items, announcement
@@ -608,13 +650,13 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    default = await conn.fetchrow("SELECT attire, subjects FROM default_schedules WHERE room_id = $1 AND day_of_week = $2", room_id, day_name)
+                    default = await conn.fetchrow("SELECT attire, subjects FROM default_schedules WHERE room_id = $1 AND day_of_week = $2 AND deleted_at IS NULL", room_id, day_name)
                     if default:
                         data["attire"] = default["attire"]
                         data["subjects"] = default["subjects"]
-                    
-                    override = await conn.fetchrow("SELECT new_attire, note FROM schedule_overrides WHERE room_id = $1 AND target_date = $2", room_id, target_date)
-                    note_data = await conn.fetchrow("SELECT bring_items, announcement FROM daily_notes WHERE room_id = $1 AND target_date = $2", room_id, target_date)
+
+                    override = await conn.fetchrow("SELECT new_attire, note FROM schedule_overrides WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL", room_id, target_date)
+                    note_data = await conn.fetchrow("SELECT bring_items, announcement FROM daily_notes WHERE room_id = $1 AND target_date = $2 AND deleted_at IS NULL", room_id, target_date)
 
                     if override: data["attire"] = f"🚨 {override['new_attire']} (กรณีพิเศษ)"
                     if note_data: data["bring"] = note_data["bring_items"]

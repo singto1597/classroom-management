@@ -10,7 +10,8 @@ import io
 
 from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
-from core.rbac import require_permission
+from core.rbac import require_permission, require_member
+from core.config import settings
 from models.student_schemas import StudentUpdateRequest
 
 service_logger = AuditLogger(service_name="STUDENT")
@@ -415,23 +416,27 @@ class StudentService:
             raise e
 
     @classmethod
-    async def search_students(cls, pool, query: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+    async def search_students(cls, pool, query: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None):
         start_time = time.time()
         target_room_id = None
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันการค้นหาข้ามห้อง / คนนอก)
+                if user_id is not None:
+                    await require_member(conn, target_room_id, user_id)
                 sql_query = f"""
                     {cls.BASE_STUDENT_SELECT}
-                    WHERE s.room_id = $1 
+                    WHERE s.room_id = $1
                     AND (
-                        u.first_name ILIKE $2 OR 
-                        u.last_name ILIKE $2 OR 
-                        u.nickname ILIKE $2 OR 
+                        u.first_name ILIKE $2 OR
+                        u.last_name ILIKE $2 OR
+                        u.nickname ILIKE $2 OR
                         CAST(s.student_no AS TEXT) = $3
                     )
                     AND s.status = 'active'
                     AND s.deleted_at IS NULL
+                    AND u.deleted_at IS NULL
                     LIMIT 5
                 """
                 search_pattern = f"%{query}%"
@@ -464,29 +469,36 @@ class StudentService:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 target_row = await conn.fetchrow(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.student_no = $2 AND s.deleted_at IS NULL", target_room_id, student_no)
                 if not target_row: raise StudentNotFoundError("ไม่พบข้อมูลนักเรียน")
-                
+
                 target_data = dict(target_row)
                 target_user_id = target_data.get('user_id')
                 target_data['permissions'] = cls._parse_permissions(target_data['permissions'])
-                
-                from core.config import settings
+
                 is_super_admin = settings.SUPER_ADMIN_ID and int(requester_user_id) == int(settings.SUPER_ADMIN_ID)
-                
+
                 is_self = (target_user_id == requester_user_id)
                 has_permission = False
-                
+
                 if not is_super_admin:
+                    # 🛡️ ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันการอ่านโปรไฟล์ข้ามห้อง)
+                    await require_member(conn, target_room_id, requester_user_id)
                     try:
                         await require_permission(conn, target_room_id, requester_user_id, "VIEW_ALL_STUDENTS")
                         has_permission = True
                     except ForbiddenError:
                         has_permission = False
-                
+
                 if not (is_super_admin or is_self or has_permission):
-                    private_fields = ['phone_number_parent', 'phone_number_parent_relation', 'address_house_no', 'address_road', 'address_sub_district', 'address_district', 'address_province', 'address_post_code', 'blood_group', 'shirt_size', 'food_allergy', 'congenital_disease']
+                    private_fields = [
+                        'phone_number', 'phone_number_parent', 'phone_number_parent_relation',
+                        'email', 'line_id', 'ig_username', 'birthday',
+                        'address_house_no', 'address_road', 'address_sub_district',
+                        'address_district', 'address_province', 'address_post_code',
+                        'blood_group', 'shirt_size', 'food_allergy', 'congenital_disease',
+                    ]
                     for field in private_fields:
                         if field in target_data: target_data[field] = "🔒 ไม่มีสิทธิ์เข้าถึง"
-                
+
                 target_data['data_completion'] = cls._calculate_completion(dict(target_row))
 
                 exec_time = int((time.time() - start_time) * 1000)
@@ -546,7 +558,7 @@ class StudentService:
             raise e
 
     @classmethod
-    async def update_status(cls, pool, student_no: int, status: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
+    async def update_status(cls, pool, student_no: int, status: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None):
         start_time = time.time()
         target_room_id = None
         old_values = None
@@ -555,17 +567,33 @@ class StudentService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
-                    old_row = await conn.fetchrow("SELECT status FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", target_room_id, student_no)
+                    # 🛡️ RBAC: มีแค่ผู้ดูแล (MANAGE_STUDENTS) ถึงจะเปลี่ยนสถานะสมาชิกได้
+                    if user_id is not None:
+                        await require_permission(conn, target_room_id, user_id, "MANAGE_STUDENTS")
+
+                    old_row = await conn.fetchrow(
+                        "SELECT user_id, status, is_admin FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL",
+                        target_room_id, student_no
+                    )
                     if old_row: old_values = dict(old_row)
-                    
+
+                    # 🛡️ กันการปลดตัวเอง / ปลด admin อีกคน / ปลด owner (เลข 0)
+                    if old_row and user_id is not None:
+                        is_super_admin = settings.SUPER_ADMIN_ID and int(user_id) == int(settings.SUPER_ADMIN_ID)
+                        if not is_super_admin:
+                            if int(old_row['user_id']) == int(user_id):
+                                raise ForbiddenError("ไม่สามารถเปลี่ยนสถานะของตนเองได้")
+                            if old_row['is_admin'] or student_no == 0:
+                                raise ForbiddenError("ไม่สามารถเปลี่ยนสถานะผู้ดูแลห้องได้")
+
                     res = await conn.execute("UPDATE students SET status = $1 WHERE room_id = $2 AND student_no = $3 AND deleted_at IS NULL", status, target_room_id, student_no)
                     if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบเลขที่นี้")
-                    
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="UPDATE", actor_identifier=actor_identifier,
                         client_source=client_source, room_id=target_room_id, entity_type="STUDENT",
-                        entity_id=str(student_no), status="success", old_values=old_values, 
+                        entity_id=str(student_no), status="success", old_values=old_values,
                         new_values=new_values, endpoint_or_command="update_status", execution_time_ms=exec_time
                     )
         except Exception as e:
@@ -589,13 +617,22 @@ class StudentService:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_STUDENTS")
-                    
+
                     old_row = await conn.fetchrow(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.student_no = $2 AND s.deleted_at IS NULL", target_room_id, student_no)
                     if old_row: old_values = dict(old_row)
 
+                    # 🛡️ กันการลบตัวเอง / ลบ admin อีกคน / ลบ owner (เลข 0) — ห้องต้องเหลือคนดูแลเสมอ
+                    if old_row:
+                        is_super_admin = settings.SUPER_ADMIN_ID and int(user_id) == int(settings.SUPER_ADMIN_ID)
+                        if not is_super_admin:
+                            if int(old_row['user_id']) == int(user_id):
+                                raise ForbiddenError("ไม่สามารถลบตนเองออกจากห้องได้")
+                            if old_row['is_admin'] or student_no == 0:
+                                raise ForbiddenError("ไม่สามารถลบผู้ดูแลห้องได้")
+
                     res = await conn.execute("UPDATE students SET deleted_at = NOW() WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", target_room_id, student_no)
                     if res == "UPDATE 0": raise StudentNotFoundError("ไม่พบข้อมูล หรือถูกลบไปแล้ว")
-                    
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="DELETE", actor_identifier=actor_identifier,
@@ -623,10 +660,17 @@ class StudentService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
-                    await require_permission(conn, target_room_id, user_id, "HARD_DELETE_STUDENTS")
-                    
+                    # 🛡️ กันการลบตัวเองถาวร (owner/เลข 0) — ห้องต้องเหลือคนดูแลเสมอ
                     old_row = await conn.fetchrow(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.student_no = $2", target_room_id, student_no)
                     if old_row: old_values = dict(old_row)
+                    if old_row:
+                        is_super_admin = settings.SUPER_ADMIN_ID and int(user_id) == int(settings.SUPER_ADMIN_ID)
+                        if not is_super_admin:
+                            if int(old_row['user_id']) == int(user_id):
+                                raise ForbiddenError("ไม่สามารถลบตนเองออกจากห้องได้")
+
+                    # 🛡️ RBAC: ตรวจสิทธิ์หลังเช็คว่ามีแถวจริง (กัน idempotency ทำ fail-log ซ้ำตอนลบซ้ำ)
+                    await require_permission(conn, target_room_id, user_id, "HARD_DELETE_STUDENTS")
 
                     has_payments = await conn.fetchval(
                         "SELECT 1 FROM student_payments WHERE student_id = (SELECT id FROM students WHERE room_id = $1 AND student_no = $2) LIMIT 1",

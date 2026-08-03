@@ -50,8 +50,9 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
                     discord_id BIGINT UNIQUE,
+                    discord_username TEXT,
                     google_id VARCHAR(255) UNIQUE,
-                    
+
                     username VARCHAR(100) UNIQUE,
                     password_hash TEXT,
                     avatar_url TEXT,              
