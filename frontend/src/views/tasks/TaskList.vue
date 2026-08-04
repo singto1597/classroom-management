@@ -52,9 +52,22 @@ const fetchData = async () => {
   }
 }
 
+const pendingCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
+const doneCount = computed(() => tasks.value.filter(task => task.status === 'done').length)
+
 const filteredTasks = computed(() => {
-  if (filter.value === 'all') return tasks.value
-  return tasks.value.filter(task => task.status === filter.value)
+  let result = tasks.value
+  if (filter.value !== 'all') {
+    result = tasks.value.filter(task => task.status === filter.value)
+  }
+  return [...result].sort((a, b) => {
+    // แท็บ "ทั้งหมด": งานที่ยังไม่เสร็จขึ้นก่อนเสมอ (ไม่ให้จมอยู่ข้างล่าง)
+    if (filter.value === 'all' && a.status !== b.status) {
+      return a.status === 'pending' ? -1 : 1
+    }
+    // เรียงตามกำหนดส่ง (ใกล้ก่อน) ทั้งในหมวดที่ยังทำและที่เสร็จแล้ว
+    return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+  })
 })
 
 // ปรับสี Badge ให้ดูพรีเมียมขึ้น (Pastel & Border)
@@ -151,9 +164,9 @@ onMounted(fetchData)
         
         <div class="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
           <div class="bg-slate-200/60 p-1.5 rounded-2xl flex flex-wrap sm:flex-nowrap items-center gap-1 shadow-inner backdrop-blur-sm w-full sm:w-auto justify-center sm:justify-start">
-            <button @click="filter = 'pending'" :class="filter === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center">กำลังทำ</button>
-            <button @click="filter = 'done'" :class="filter === 'done' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center">เสร็จแล้ว</button>
-            <button @click="filter = 'all'" :class="filter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center">ทั้งหมด</button>
+            <button @click="filter = 'pending'" :class="filter === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-2">กำลังทำ<span class="px-2 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'pending' ? 'bg-blue-100 text-blue-600' : 'bg-slate-300/50 text-slate-600'">{{ pendingCount }}</span></button>
+            <button @click="filter = 'done'" :class="filter === 'done' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-2">เสร็จแล้ว<span class="px-2 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'done' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-300/50 text-slate-600'">{{ doneCount }}</span></button>
+            <button @click="filter = 'all'" :class="filter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-2">ทั้งหมด<span class="px-2 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'all' ? 'bg-slate-200 text-slate-700' : 'bg-slate-300/50 text-slate-600'">{{ tasks.length }}</span></button>
           </div>
 
           <router-link v-if="isAdmin" to="/tasks/add" class="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 whitespace-nowrap">
