@@ -103,3 +103,88 @@
 - **Root Cause:** No debounce meant expensive search on every input; `@blur` closed the dropdown instantly, racing with touch/click events; `if (!query)` returned without clearing `activeAddressField`, keeping the dropdown visible.
 - **Correct Pattern/Solution:** Add a module-level `let searchTimeout: ReturnType<typeof setTimeout> | null = null;`. In `onAddressInput`, keep setting `activeAddressField` and extracting `query` outside the timer; if `query` is empty, set `activeAddressField = null` before returning; otherwise clear any existing timeout and start a 300ms `setTimeout` that performs the search and opens the dropdown. In `closeAddressDropdown`, wrap the closing logic in a 200ms `setTimeout`; ensure selecting an address also clears the timeout, sets the field values synchronously, closes the dropdown, and resets `activeAddressField` to `null`.
 - **Date Added:** 2026-08-02
+
+### 🛠️ RBAC Enforcement - Never Comment Out `require_permission` in Services
+- **Context/Problem:** The RBAC review found 7 `require_permission(...)` calls commented out inside `services/classroom_sync_service.py` (set_channel, set_notify_time, set_default_schedule, set_override, delete_task, add_daily_note, delete_daily_note). This let any authenticated member of a room change Discord channel/time/schedule/override or delete tasks/notes without permission — a privilege-escalation hole.
+- **Root Cause:** The permission checks were written but disabled (likely during debugging), and the router's `except ForbiddenError` handlers stayed in place — so the intent was clearly to enforce them but they were never re-enabled.
+- **Correct Pattern/Solution:** Permission checks belong **inside the service** (not the router), on every mutation. The routers already had the `ForbiddenError → 403` mapping; re-enabling the `require_permission` calls in the service made the RBAC effective again without any router change. **Rule:** never commit a commented-out `require_permission`; if a permission is not yet ready, remove the dead code rather than leaving it as a comment.
+- **Date Added:** 2026-08-03
+
+### 🛠️ RBAC - Read Transparency vs Write: `require_member` for Finance GET
+- **Context/Problem:** Finance GET endpoints (summary, accounts, transactions, collections, categories, debtors, student debts) had **no RBAC at all**, so any authenticated user could read another room's financial data by guessing `room_id`/`server_id`. But requiring `MANAGE_FINANCE` for reads would break the product requirement that "finance should be transparent to room members."
+- **Root Cause:** The `require_permission` granular model is write-focused (MANAGE_*), and the read endpoints were never given any authorization check — they assumed any caller was fine.
+- **Correct Pattern/Solution:** Add a `require_member(conn, room_id, user_id)` helper in `core/rbac.py` that checks the user is an **active student in that specific room** (`students` row with `status='active'`, `deleted_at IS NULL`; SUPER_ADMIN bypass). Use it on **read-only** endpoints where transparency is desired, keeping `require_permission("MANAGE_FINANCE")` for **mutations**. This prevents cross-room data leaks while preserving the "everyone in the room can see" requirement. **Also:** every read endpoint must `except ForbiddenError` → 403 in the router, otherwise the check silently fails into a 500.
+- **Date Added:** 2026-08-03
+
+### 🛠️ Room Creation - Frontend-Primary, Bot as Optional Adapter
+- **Context/Problem:** `POST /api/classroom/setup` (used by the Discord bot's `/setup`) could create rooms arbitrarily — no RBAC. The project direction is that **room creation belongs to the web app** (`POST /api/classroom/create` → `RoomManagementService.create_room`), with the bot as an optional integration that links a Discord server to an existing room.
+- **Root Cause:** `setup_room` had two modes: with `server_id` (upsert a room bound to a Discord server) and without (create a bare room). The create-bare-room mode was an unauthenticated path that duplicated the web flow.
+- **Correct Pattern/Solution:** `setup_room` now requires `server_id`, and it no longer creates new rooms:
+  1. If the `server_id` is already bound → update only the room name.
+  2. Otherwise, look up a room by `room_name` that was created via the web (has `server_id IS NULL`), and bind `server_id` to it.
+  3. Raise `ValueError` (→ 400) if no `server_id` or no matching web-created room.
+  This keeps Discord-server↔room linking working for the bot while forcing the primary creation path through the authenticated web flow.
+- **Date Added:** 2026-08-03
+
+### 🛠️ Schema Audit Trap - `rooms` Table Has NO `updated_at` Column
+- **Context/Problem:** While adding PoC regression tests for the `setup_room` change, `UPDATE rooms SET server_id = $1, updated_at = CURRENT_TIMESTAMP` raised `asyncpg.exceptions.UndefinedColumnError: column "updated_at" of relation "rooms" does not exist`.
+- **Root Cause:** The `rooms` table (defined in `core/init_db.py`) only has `server_id, room_code, room_name, announcement_channel_id, notify_time, owner_id, deleted_at` — **no `updated_at`**. The original `setup_room` used `ON CONFLICT ... DO UPDATE` which doesn't touch `updated_at`, so this was only exposed once a manual `UPDATE` was written.
+- **Correct Pattern/Solution:** Before writing an `UPDATE ... SET ... updated_at = CURRENT_TIMESTAMP`, verify the target table actually has an `updated_at` column in `core/init_db.py`. Tables like `users`, `students`, `tasks` do; `rooms` does **not**. The fix removed `updated_at` from the `setup_room` UPDATE. **Rule:** when touching raw SQL against a table, check `init_db.py`'s DDL first — several tables in this project lack `updated_at`.
+- **Date Added:** 2026-08-03
+
+### 🛠️ `users` Table Has NO `discord_username` Column - Sync Discord Endpoint Was Always Broken
+- **Context/Problem:** Writing `test_student.py` tests for `StudentService.sync_discord_account` surfaced `asyncpg.exceptions.UndefinedColumnError: column "discord_username" of relation "users" does not exist` on a successful-path test. The service runs `UPDATE users SET discord_id = $1, discord_username = $2` but the schema has no such column, so `POST /students/discord/sync` could never succeed.
+- **Root Cause:** `core/init_db.py` defines the `users` table with `discord_id` but only `username` (no `discord_username`). The router (`student_router.py`) reads the `X-Discord-Username` header and passes it down, but the column was never added to the DDL — a latent mismatch between the service's SQL and the schema.
+- **Correct Pattern/Solution:** Add `discord_username TEXT` to the `users` table definition in `core/init_db.py`. Because `init_db` runs `CREATE TABLE IF NOT EXISTS`, the column addition is applied on every fresh test DB; for an existing deployed DB you'd need an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS discord_username TEXT;` migration step. **Rule:** when a service `UPDATE`s a column, confirm the column exists in `init_db.py` — grep the whole repo for the column name (`grep -rn "<col>" core/init_db.py services routers models`).
+- **Date Added:** 2026-08-03
+
+### 🛠️ get_audit_logs - SELECT อ้างคอลัมน์ schema เก่า (user_name/detail) ที่ไม่มีอยู่จริง
+- **Context/Problem:** เขียน `test_get_audit_logs_returns_recent_logs` เรียก `GET /api/classroom/{id}/logs` แล้วเจอ `asyncpg.exceptions.UndefinedColumnError: column "user_name" does not exist` — `get_audit_logs` (classroom_sync_service.py) SELECT `user_name, action, detail` จากตาราง `audit_logs` ซึ่ง schema จริงมีแค่ `actor_identifier, endpoint_or_command, ...` → endpoint นี้พัง 500 เสมอ ตั้งแต่ schema ถูกย้ายมาใช้ AuditLogger
+- **Root Cause:** ตาราง `audit_logs` ถูก rework เป็นโครงสร้างใหม่ (trace_id, actor_identifier, endpoint_or_command) แต่ `get_audit_logs` ยังเขียนอ้างคอลัมน์เก่า `user_name`/`detail` ที่เคยมีในตาราง legacy (`core/audit.py` ก็เป็น dead code ที่ INSERT คอลัมน์เดียวกัน และไม่มีใครเรียกใช้)
+- **Correct Pattern/Solution:** เปลี่ยน SELECT ให้ใช้คอลัมน์จริง + alias ให้เข้ากับ contract เดิมที่ bot ใช้ (`actor_identifier AS user_name`, `endpoint_or_command AS detail`) → bot (`view_logs` cog) อ่าน `log['user_name']`/`log['detail']` ได้ต่อทันทีโดยไม่ต้องแก้ข้ามเลเยอร์ **Rule:** ก่อน fix error "column does not exist" ให้เช็ค `init_db.py` ว่าตารางมีคอลัมน์อะไรจริง แล้ว grep หา legacy helper ที่ INSERT คอลัมน์เดียวกัน
+- **Date Added:** 2026-08-03
+
+### 🛠️ get_daily_summary - query ไร้ `deleted_at IS NULL` → ข้อมูล soft-delete ยังโผล่
+- **Context/Problem:** เขียน `test_get_daily_summary_excludes_deleted_daily_note` (ลบ note แล้วเช็คว่า summary ต้องไม่แสดง `bring`) พบว่า summary ยังคืน `ของเก่า` ทั้งที่ `daily_notes.deleted_at` ถูก set แล้ว
+- **Root Cause:** `get_daily_summary` query `default_schedules`, `schedule_overrides`, `daily_notes` โดยไม่มี `deleted_at IS NULL` — 3 ตารางนี้มีคอลัมน์ `deleted_at` แต่ service ละเลย → ข้อมูลที่ soft-delete ไปแล้วยังโผล่ในสรุปรายวัน
+- **Correct Pattern/Solution:** เพิ่ม `AND deleted_at IS NULL` ให้ทั้ง 3 query ใน `get_daily_summary` สอดคล้องกับกฎ soft delete ของโปรเจกต์ **Rule:** ทุกครั้งที่ SELECT ตารางที่มี `deleted_at` ให้กรอง `deleted_at IS NULL` ไว้เสมอ — grep ไฟล์ service ทั้งหมดเพื่อหาจุดที่ลืม
+- **Date Added:** 2026-08-03
+
+### 🛠️ asyncpg JSONB Returns `str` or `list` Depending on Version
+- **Context/Problem:** In `test_update_student_admin_can_update_permissions`, asserting `sorted(row["permissions"]) == ["EXPORT_STUDENTS", "MANAGE_STUDENTS"]` failed because asyncpg returned the JSONB value as a **string** (`'["EXPORT_STUDENTS", "MANAGE_STUDENTS"]'`) instead of a Python list, depending on the Postgres/asyncpg version.
+- **Root Cause:** asyncpg's JSONB codec returns `str` on some versions/builds and a native `list` on others, so comparing directly against a list is version-dependent and flaky.
+- **Correct Pattern/Solution:** Normalize before comparing: `raw = row["permissions"]; perms = json.loads(raw) if isinstance(raw, str) else raw; assert sorted(perms) == [...]`. This mirrors the defensive `_parse_permissions` helper already used inside `student_service.py`.
+- **Date Added:** 2026-08-03
+
+### 🛠️ Classroom Task Mutations Missed Soft-Delete Guards — work on "deleted" tasks
+- **Context/Problem:** While expanding `test_classroom_sync_extended.py`, tests exposed that `mark_task_done` / `edit_task` could still mutate a task whose `deleted_at` was set. `add_task` also sent Redis notifications for tasks added to a soft-deleted room, and `add_daily_note` / `set_default_schedule` / `set_override` did `DELETE ... WHERE deleted_at IS NULL` before re-INSERT, so an add→soft-delete→add cycle accumulated duplicate rows (active + zombie soft-deleted).
+- **Root Cause:** `mark_task_done`'s `SELECT` and `UPDATE` had no `AND deleted_at IS NULL`; `edit_task` likewise; `add_task` didn't verify the room was alive before INSERT + notify; the delete-then-insert UPSERTs only removed non-deleted rows, leaving soft-deleted zombies behind.
+- **Correct Pattern/Solution:**
+  1. Every task mutation that should only touch live rows gets `AND deleted_at IS NULL` on both the `SELECT` (for old_values) and the `UPDATE`/`RETURNING`.
+  2. `add_task` fetches the room with `AND deleted_at IS NULL` first; if absent → `RoomNotFoundError`, no INSERT, no Redis notify.
+  3. The delete-then-insert UPSERTs (default_schedules, schedule_overrides, daily_notes) now `DELETE ... WHERE room_id=$1 AND key=$2` **without** the `deleted_at IS NULL` filter, so the new INSERT always leaves exactly one row.
+- **Date Added:** 2026-08-04
+
+### 🛠️ AuditLogger Fallback Can Mask the Real Exception (FK violation on phantom room_id)
+- **Context/Problem:** `test_get_room_data_nonexistent_raises_roomnotfound` failed with `ForeignKeyViolationError: key (room_id)=(999999) is not present in table "rooms"` — the *real* `RoomNotFoundError` was being swallowed.
+- **Root Cause:** Every `except Exception` block writes a `status="failed"` audit log to `audit_logs.room_id`, which is an FK to `rooms`. When the method itself raised `RoomNotFoundError` (room doesn't exist), the fallback log tried to insert with that phantom `room_id` → FK violation, overriding the original 404 into a 500.
+- **Correct Pattern/Solution:** In the fallback handler, null out the FK when the failure is a "not found": `safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id`. Apply to every method that can raise `RoomNotFoundError` inside its try block (get_room_data, set_channel, set_notify_time, add_task). **Rule:** the audit fallback must not reference a row that doesn't exist.
+- **Date Added:** 2026-08-04
+
+### 🛠️ Read RPC → `require_member` Design: Where It Is NOT Safe to Add
+- **Context/Problem:** The RBAC hardening pass added `require_member` to classroom read/write RPCs. But the daily-notification **loop** (`bot_discord/cogs/classroom_cmd.py:78,93`) calls `GET /{server_id}/summary` with `X-Discord-Id` = the **bot's own user id** (`self.bot.user.id`), which is NOT a member of any room.
+- **Root Cause:** `get_daily_summary` is a cross-layer RPC: used both by the bot-loop (system identity, no user) and by user slash commands (`/today`, `/tomorrow`). Its router has no `get_current_user`, and the bot-loop has no per-room membership.
+- **Correct Pattern/Solution:** **Do NOT add `require_member` to `get_daily_summary`** — it would break the scheduled notification loop. Instead, this read stays transparent at the RPC layer (same reasoning as Finance GET transparency, but here the "caller" is the bot). When hardening read RPCs, audit every caller (bot loops, schedulers, slash commands) before adding a check. `get_rooms_to_notify` is likewise system-only (`verify_api_key`), so it gets no membership check either.
+- **Date Added:** 2026-08-04
+
+### 🛠️ Flaky Summary Test — `datetime.now()` UTC vs `THAI_TZ` Midnight Rollover
+- **Context/Problem:** `test_get_daily_summary_combines_schedule_and_tasks` in `test_classroom_sync.py` failed with `days_left == -1` only during 00:00–06:59 Bangkok time.
+- **Root Cause:** The test computed "today" with `datetime.now().date()` (UTC) while the service uses `datetime.now(THAI_TZ).date()` (Asia/Bangkok). Between UTC midnight and 07:00 Bangkok time, the two dates differ by a day, so a task due "today" in Bangkok looks 1 day overdue from UTC.
+- **Correct Pattern/Solution:** Always compute test "today" with the same `THAI_TZ` as the service (`from services.classroom_sync_service import THAI_TZ`). **Rule:** any test that compares against "today" in a service that uses `THAI_TZ` must use `datetime.now(THAI_TZ).date()`, never bare `datetime.now()`.
+- **Date Added:** 2026-08-04
+
+### 🛠️ TaskStatus.ALL — enum มีค่า "all" แต่ service ยัง `WHERE status=$2` → Web ดูงานเสร็จไม่ได้
+- **Context/Problem:** หน้า Web `/tasks` (TaskList.vue) มีแท็บ filter `pending/done/all` แต่แท็บ "เสร็จแล้ว" กลับว่างเปล่าเสมอ เพราะ `TaskService.getAllTasks` เรียก `GET /tasks` โดยไม่ส่ง `status` → ตก default `pending` จึงได้แค่งานยังไม่เสร็จ `TaskStatus.ALL = "all"` มีอยู่ใน schema อยู่แล้ว (หมายเหตุว่า "ใช้ในหน้า Web") แต่ service ยัง `WHERE status = $2` ตรง ๆ ทำให้ส่ง `all` มาก็ได้ 0 แถว (ไม่มีงานไหน status = 'all')
+- **Root Cause:** `ClassroomService.get_tasks` สร้าง SQL แบบ fix `status = $2` โดยไม่รู้จัก special value `all` — enum เพิ่มค่าให้แล้วแต่ backend query ยังไม่ support → "ดึงงานทั้งหมด" ทำไม่ได้ทั้งจาก frontend และ API ตรง ๆ
+- **Correct Pattern/Solution:** branch ใน `get_tasks`: ถ้า `status == "all"` ให้ drop `status = $2` ออกจาก WHERE (ยังเก็บ `deleted_at IS NULL` + `ORDER BY due_date ASC`) ส่วน `pending/done` ยังกรองเหมือนเดิม → bot (ส่ง pending/done) ไม่กระทบ, Web ส่ง `status=all` แล้ว filter ฝั่ง client เอง **Rule:** เวลาเพิ่ม special value ให้ Enum/query ที่มี default filter (เช่น status, type) ต้องตรวจ service layer ด้วยว่า SELECT อ่านค่านั้นแล้วได้ผลถูกต้อง — enum กับ query ต้องอัปเดตพร้อมกัน
+- **Date Added:** 2026-08-04

@@ -4,7 +4,8 @@ import type { Task, TaskCreate, TaskUpdate, DailyNote, DailyNoteCreate } from '@
 export const TaskService = {
   // --- Task API ---
   async getAllTasks(roomId: number): Promise<Task[]> {
-    return await api.get(`/api/classroom/${roomId}/tasks?target_type=room`) as any[]
+    // status=all → ดึงทั้ง pending + done มาให้หน้า filter เอง (เริ่มที่ 'pending')
+    return await api.get(`/api/classroom/${roomId}/tasks?target_type=room&status=all`) as any[]
   },
 
   async getTaskById(roomId: number, taskId: number): Promise<Task> {

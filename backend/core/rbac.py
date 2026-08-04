@@ -15,6 +15,25 @@ AVAILABLE_PERMISSIONS = [
     "MANAGE_CLASSROOM_TASKS"
 ]
 
+async def require_member(conn: asyncpg.Connection, room_id: int, user_id: int):
+    """
+    🔍 Membership check (ใช้สำหรับข้อมูลที่ต้องการความโปร่งใส เช่น Finance GET)
+    - เช็คว่า user เป็นสมาชิก active ของห้องนี้หรือไม่
+    - กันการอ่านข้อมูลข้ามห้อง (cross-room data leak) โดยไม่ต้องมี permission เฉพาะ
+    - Super Admin ผ่านฉลุย
+    """
+    if settings.SUPER_ADMIN_ID and int(user_id) == int(settings.SUPER_ADMIN_ID):
+        return True
+
+    row = await conn.fetchval(
+        "SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND status = 'active' AND deleted_at IS NULL",
+        room_id, int(user_id)
+    )
+    if not row:
+        raise ForbiddenError("คุณไม่ได้เป็นสมาชิกที่ใช้งานอยู่ในห้องเรียนนี้")
+
+    return True
+
 async def require_permission(conn: asyncpg.Connection, room_id: int, user_id: int, required_permission: str):
     """
     ระบบเช็คสิทธิ์ (Granular RBAC) รูปแบบใหม่

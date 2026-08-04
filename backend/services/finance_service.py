@@ -5,7 +5,7 @@ from datetime import date
 
 from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError
-from core.rbac import require_permission
+from core.rbac import require_permission, require_member
 
 service_logger = AuditLogger(service_name="FINANCE")
 
@@ -42,14 +42,16 @@ class FinanceService:
         raise ValueError("ต้องระบุ server_id หรือ room_id")
 
     @classmethod
-    async def get_active_students(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+    async def get_active_students(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch("""
-                    SELECT S.id, S.student_no, U.first_name, U.last_name, U.nickname 
+                    SELECT S.id, S.student_no, U.first_name, U.last_name, U.nickname
                     FROM students S
                     LEFT JOIN users U ON S.user_id = U.id
                     WHERE S.room_id = $1 AND S.status = 'active' AND S.deleted_at IS NULL
@@ -114,12 +116,14 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def get_accounts(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+    async def get_accounts(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch("SELECT id, account_name, balance FROM finance_accounts WHERE room_id = $1 ORDER BY id", target_room_id)
                 result = [dict(row) for row in rows]
 
@@ -261,13 +265,15 @@ class FinanceService:
         cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, limit: int = 50, offset: int = 0,
         start_date: Optional[date] = None, end_date: Optional[date] = None,
         account_id: Optional[int] = None, category_id: Optional[int] = None, transaction_type: Optional[str] = None,
-        server_id: Optional[int] = None, room_id: Optional[int] = None
-    ) -> dict: 
+        server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None
+    ) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 where_clause = "WHERE T.room_id = $1 AND T.deleted_at IS NULL"
                 params = [target_room_id]
                 param_idx = 2
@@ -459,12 +465,14 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def get_collection_status(cls, pool: asyncpg.Pool, collection_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+    async def get_collection_status(cls, pool: asyncpg.Pool, collection_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 sql = """
                     SELECT 
                         SP.id as payment_id, SP.student_id, SP.status, SP.paid_amount, SP.paid_at, SP.slip_image_url,
@@ -581,12 +589,14 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def get_categories(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, cat_type: Optional[str] = None, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+    async def get_categories(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, cat_type: Optional[str] = None, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 if cat_type:
                     rows = await conn.fetch("SELECT id, category_name, category_type FROM finance_categories WHERE room_id = $1 AND category_type = $2 ORDER BY id", target_room_id, cat_type)
                 else:
@@ -680,12 +690,14 @@ class FinanceService:
             raise e
             
     @classmethod
-    async def get_summary(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, month: Optional[int] = None, year: Optional[int] = None, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+    async def get_summary(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, month: Optional[int] = None, year: Optional[int] = None, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 net_worth = await conn.fetchval("SELECT SUM(balance) FROM finance_accounts WHERE room_id = $1", target_room_id) or 0.0
 
                 params = [target_room_id]
@@ -747,12 +759,14 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def get_student_debts(cls, pool: asyncpg.Pool, student_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+    async def get_student_debts(cls, pool: asyncpg.Pool, student_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 student = await conn.fetchrow("SELECT S.id, U.first_name, U.nickname FROM students S LEFT JOIN users U ON S.user_id = U.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
                 if not student: raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
 
@@ -836,12 +850,14 @@ class FinanceService:
             raise e
     
     @classmethod
-    async def get_all_collections(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+    async def get_all_collections(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch("SELECT id, title, amount, due_date, status FROM fee_collections WHERE room_id = $1 ORDER BY id DESC", target_room_id)
                 result = [dict(row) for row in rows]
 
@@ -998,12 +1014,14 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def get_all_debtors(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> List[dict]:
+    async def get_all_debtors(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> List[dict]:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch("""
                     SELECT S.id as student_id, S.student_no, U.first_name, U.nickname, COUNT(SP.id) as overdue_count, SUM(FC.amount - SP.paid_amount) as total_pending_amount
                     FROM students S LEFT JOIN users U ON S.user_id = U.id

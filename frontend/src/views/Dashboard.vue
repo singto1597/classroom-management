@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
+import { TaskService } from '@/services/task';
 import Swal from 'sweetalert2';
 
 const router = useRouter();
@@ -15,6 +16,22 @@ const isAdmin = computed(() => authStore.isAdmin);
 
 // ✨ ดึง roomCode จาก Store
 const roomCode = computed(() => authStore.currentRoomCode || 'N/A');
+
+// ✨ นับจำนวนงานในห้อง เพื่อแสดงบนการ์ดตารางและงาน
+const taskCount = ref(0);
+const pendingTaskCount = ref(0);
+
+const fetchTaskCount = async () => {
+  try {
+    const result = await TaskService.getAllTasks(authStore.currentRoomId!);
+    taskCount.value = result.length;
+    pendingTaskCount.value = result.filter((task: any) => task.status === 'pending').length;
+  } catch {
+    // การ์ดยังแสดงได้โดยไม่ต้องมีตัวเลขถ้าดึงไม่สำเร็จ
+  }
+};
+
+onMounted(fetchTaskCount);
 
 // ✨ ฟีเจอร์สลับห้องเรียน (กลับไปหน้า lobby)
 const handleChangeRoom = () => {
@@ -106,7 +123,10 @@ const goToMyProfile = async () => {
             <router-link to="/tasks" class="flex items-center justify-between p-5 bg-slate-50 hover:bg-white hover:shadow-lg active:scale-[0.98] rounded-[1.5rem] transition-all duration-300 border border-slate-100 hover:border-blue-100 group">
               <div class="flex items-center gap-4">
                 <div class="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-xl border border-slate-100 group-hover:scale-110 transition-transform">📋</div>
-                <span class="font-bold text-slate-700 text-base">ดูรายการงานทั้งหมด</span>
+                <div class="flex flex-col">
+                  <span class="font-bold text-slate-700 text-base">ดูรายการงานทั้งหมด</span>
+                  <span v-if="taskCount > 0" class="text-xs text-slate-400 font-semibold mt-0.5">ยังไม่เสร็จ {{ pendingTaskCount }} / ทั้งหมด {{ taskCount }} ชิ้น</span>
+                </div>
               </div>
               <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center border border-slate-200 group-hover:border-blue-200 group-hover:bg-blue-50 transition-colors shadow-sm">
                 <i class="bi bi-arrow-right text-slate-400 group-hover:text-blue-600"></i>

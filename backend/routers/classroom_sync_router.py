@@ -27,18 +27,23 @@ def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str
 
 @router.post("/setup", response_model=SuccessResponse)
 async def setup_room(
-    req: RoomSetupRequest, 
+    req: RoomSetupRequest,
     request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user),
 ):
-    client_source, actor = get_audit_context(request, user_ctx)
-    await ClassroomService.setup_room(
-        pool, req.room_name, req.user_name, 
-        client_source=client_source, actor_identifier=actor, 
-        server_id=req.server_id
-    )
-    return SuccessResponse(message=f"Setup room {req.room_name} completed.")
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        await ClassroomService.setup_room(
+            pool, req.room_name, req.user_name,
+            client_source=client_source, actor_identifier=actor,
+            server_id=req.server_id, user_id=user_ctx.get("user_id")
+        )
+        return SuccessResponse(message=f"Setup room {req.room_name} completed.")
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/notifications/targets", response_model=List[RoomNotifyResponse])
 async def get_rooms_to_notify(
@@ -62,8 +67,9 @@ async def get_room_data(
 ):
     client_source, actor = get_audit_context(request, user_ctx)
     return await ClassroomService.get_room_data(
-        pool, room_id=room_id, 
-        client_source=client_source, actor_identifier=actor
+        pool, room_id=room_id,
+        client_source=client_source, actor_identifier=actor,
+        user_id=user_ctx.get("user_id")
     )
 
 @router.put("/{target_id}/channel", response_model=SuccessResponse)
@@ -149,7 +155,7 @@ async def add_task(
     client_source, actor = get_audit_context(request, user_ctx)
     await ClassroomService.add_task(
         pool, req.task_name, req.task_detail, req.due_date, req.user_name, room_id=room_id,
-        client_source=client_source, actor_identifier=actor
+        client_source=client_source, actor_identifier=actor, user_id=user_ctx.get("user_id")
     )
     return SuccessResponse()
 
@@ -163,8 +169,8 @@ async def get_tasks(
 ):
     client_source, actor = get_audit_context(request, user_ctx)
     return await ClassroomService.get_tasks(
-        pool, client_source=client_source, actor_identifier=actor, 
-        status=status.value, room_id=room_id
+        pool, client_source=client_source, actor_identifier=actor,
+        status=status.value, room_id=room_id, user_id=user_ctx.get("user_id")
     )
 
 @router.get("/{target_id}/tasks/deleted", response_model=List[TaskResponse])
@@ -176,8 +182,8 @@ async def get_deleted_tasks(
 ):
     client_source, actor = get_audit_context(request, user_ctx)
     return await ClassroomService.get_deleted_tasks(
-        pool, room_id=room_id, 
-        client_source=client_source, actor_identifier=actor
+        pool, room_id=room_id,
+        client_source=client_source, actor_identifier=actor, user_id=user_ctx.get("user_id")
     )
 
 @router.get("/{target_id}/tasks/{task_id}", response_model=TaskResponse)
@@ -191,8 +197,8 @@ async def get_task_by_id(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await ClassroomService.get_task_by_id(
-            pool, task_id, room_id=room_id, 
-            client_source=client_source, actor_identifier=actor
+            pool, task_id, room_id=room_id,
+            client_source=client_source, actor_identifier=actor, user_id=user_ctx.get("user_id")
         )
     except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -210,7 +216,7 @@ async def edit_task(
         client_source, actor = get_audit_context(request, user_ctx)
         await ClassroomService.edit_task(
             pool, task_id, req.task_name, req.task_detail, req.due_date, req.user_name, room_id=room_id,
-            client_source=client_source, actor_identifier=actor
+            client_source=client_source, actor_identifier=actor, user_id=user_ctx.get("user_id")
         )
         return SuccessResponse()
     except TaskNotFoundError as e:
@@ -250,7 +256,7 @@ async def mark_task_done(
         client_source, actor = get_audit_context(request, user_ctx)
         task_name = await ClassroomService.mark_task_done(
             pool, task_id, req.user_name, room_id=room_id,
-            client_source=client_source, actor_identifier=actor
+            client_source=client_source, actor_identifier=actor, user_id=user_ctx.get("user_id")
         )
         return TaskActionResponse(task_name=task_name)
     except TaskNotFoundError as e:
@@ -269,7 +275,7 @@ async def restore_task(
         client_source, actor = get_audit_context(request, user_ctx)
         task_name = await ClassroomService.restore_task(
             pool, task_id, req.user_name, room_id=room_id,
-            client_source=client_source, actor_identifier=actor
+            client_source=client_source, actor_identifier=actor, user_id=user_ctx.get("user_id")
         )
         return TaskActionResponse(task_name=task_name)
     except TaskNotFoundError as e:
@@ -337,5 +343,5 @@ async def get_logs(
     client_source, actor = get_audit_context(request, user_ctx)
     return await ClassroomService.get_audit_logs(
         pool, room_id=room_id,
-        client_source=client_source, actor_identifier=actor
+        client_source=client_source, actor_identifier=actor, user_id=user_ctx.get("user_id")
     )
