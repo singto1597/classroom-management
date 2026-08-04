@@ -162,7 +162,9 @@ class FinanceService:
                         req.account_id, target_room_id
                     )
                     if current_balance is None: raise ValueError("ไม่พบบัญชีนี้ในห้องของคุณ")
-                    if req.transaction_type == 'expense' and current_balance < req.amount:
+                    # 💡 balance กลับมาจาก DECIMAL เป็น Decimal (มี binary noise จาก float ที่เก็บเข้า)
+                    # ต้อง cast float() ทั้งสองฝั่งก่อนเปรียบเทียบ (ตาม CLAUDE.md: cast float ก่อนเสมอ)
+                    if req.transaction_type == 'expense' and float(current_balance) < float(req.amount):
                         raise ValueError(f"เงินไม่พอ! ยอดคงเหลือคือ {current_balance} บาท")
                     
                     cat = await conn.fetchrow("SELECT room_id, category_type FROM finance_categories WHERE id = $1", req.category_id)
@@ -221,7 +223,8 @@ class FinanceService:
                         req.from_account_id, target_room_id
                     )
                     if current_balance is None: raise RoomNotFoundError("ไม่พบบัญชีต้นทาง")
-                    if current_balance < req.amount: raise ValueError("ยอดเงินในบัญชีต้นทางไม่เพียงพอ!")
+                    # Decimal vs float — cast float() ทั้งสองฝั่ง (ลบ binary noise) ก่อนเทียบ
+                    if float(current_balance) < float(req.amount): raise ValueError("ยอดเงินในบัญชีต้นทางไม่เพียงพอ!")
 
                     # 🛡️ กันการโอนเงินข้ามห้อง (cross-room leak): ต้องเช็คบัญชีปลายทางด้วย
                     if not await conn.fetchval(
@@ -359,17 +362,21 @@ class FinanceService:
                     if req.student_ids is not None:
                         if len(req.student_ids) == 0:
                             raise ValueError("ไม่สามารถสร้างรายการได้ เนื่องจากไม่ได้เลือกนักเรียนเลยแม้แต่คนเดียว")
-                        
+
+                        # 💡 กรอง id ซ้ำก่อน query + INSERT กัน UniqueViolationError (student_payments มี UNIQUE(collection_id, student_id))
+                        unique_ids = list(dict.fromkeys(req.student_ids))
                         valid_students = await conn.fetch(
-                            "SELECT id FROM students WHERE room_id = $1 AND id = ANY($2) AND status = 'active'", 
-                            target_room_id, req.student_ids
+                            "SELECT id FROM students WHERE room_id = $1 AND id = ANY($2) AND status = 'active'",
+                            target_room_id, unique_ids
                         )
                         target_students = [s['id'] for s in valid_students]
                     else:
                         all_students = await conn.fetch("SELECT id FROM students WHERE room_id = $1 AND status = 'active'", target_room_id)
                         target_students = [s['id'] for s in all_students]
-                    
+
                     if target_students:
+                        # 🛡️ กัน id ซ้ำใน target_students (ป้องกัน UniqueViolation ถ้า query คืนค่าซ้ำ)
+                        target_students = list(dict.fromkeys(target_students))
                         records = [(collection_id, sid, 'pending') for sid in target_students]
                         await conn.executemany("INSERT INTO student_payments (collection_id, student_id, status) VALUES ($1, $2, $3)", records)
                     
@@ -412,15 +419,15 @@ class FinanceService:
                     old_values = dict(old_sp_data) if old_sp_data else {}
 
                     payment_info = await conn.fetchrow(
-                        """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title, U.first_name, U.nickname 
+                        """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title, U.first_name, U.nickname
                            FROM student_payments SP
                            JOIN fee_collections FC ON SP.collection_id = FC.id
                            JOIN students S ON SP.student_id = S.id
-                           LEFT JOIN users U ON S.user_id = U.id 
-                           WHERE SP.id = $1 AND FC.room_id = $2""", 
-                        payment_id, target_room_id 
+                           LEFT JOIN users U ON S.user_id = U.id
+                           WHERE SP.id = $1 AND FC.room_id = $2 AND FC.status = 'active'""",
+                        payment_id, target_room_id
                     )
-                    if not payment_info: raise PaymentNotFoundError("ไม่พบรายการนี้")
+                    if not payment_info: raise PaymentNotFoundError("ไม่พบรายการนี้ หรือแคมเปญถูกปิดไปแล้ว")
                     
                     current_paid = float(payment_info['current_paid'])
                     total_amount = float(payment_info['total_amount'])
@@ -651,16 +658,16 @@ class FinanceService:
                         for gt in group_trans:
                             if gt['transaction_type'] == 'expense': 
                                 await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", gt['amount'], gt['account_id'])
-                            elif gt['transaction_type'] == 'income': 
+                            elif gt['transaction_type'] == 'income':
                                 curr_bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 FOR UPDATE", gt['account_id'])
-                                if curr_bal < gt['amount']: raise ValueError("เงินในบัญชีรับโอนไม่พอหักคืน")
+                                if float(curr_bal) < float(gt['amount']): raise ValueError("เงินในบัญชีรับโอนไม่พอหักคืน")
                                 await conn.execute("UPDATE finance_accounts SET balance = balance - $1 WHERE id = $2", gt['amount'], gt['account_id'])
                         await conn.execute("UPDATE finance_transactions SET deleted_at = NOW() WHERE transfer_group_id = $1 AND room_id = $2", t['transfer_group_id'], target_room_id)
                         action_detail = "ยกเลิกรายการโอนเงิน"
                     else:
-                        if t['transaction_type'] == 'income': 
+                        if t['transaction_type'] == 'income':
                             curr_bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 FOR UPDATE", t['account_id'])
-                            if curr_bal < t['amount']: raise ValueError("เงินในบัญชีไม่พอหักคืน")
+                            if float(curr_bal) < float(t['amount']): raise ValueError("เงินในบัญชีไม่พอหักคืน")
                             await conn.execute("UPDATE finance_accounts SET balance = balance - $1 WHERE id = $2", t['amount'], t['account_id'])
                             
                             if t['student_payment_id']:
@@ -668,7 +675,17 @@ class FinanceService:
                                 sp_info = await conn.fetchrow("SELECT paid_amount, FC.amount as total_amount FROM student_payments SP JOIN fee_collections FC ON SP.collection_id = FC.id WHERE SP.id = $1 FOR UPDATE", sp_id)
                                 new_paid = float(sp_info['paid_amount']) - float(t['amount'])
                                 new_status = 'paid' if new_paid >= float(sp_info['total_amount']) else 'pending'
-                                await conn.execute("UPDATE student_payments SET paid_amount = $1, status = $2 WHERE id = $3", new_paid, new_status, sp_id)
+                                # 💡 ถ้ายกเลิกจน paid_amount กลับเป็น 0 ให้ล้าง field การชำระทั้งหมด
+                                # (กันสถานะ "จ่ายครบ" ค้างทั้งที่ยอดโดนหักคืนแล้ว)
+                                if new_paid <= 0:
+                                    await conn.execute(
+                                        """UPDATE student_payments
+                                           SET paid_amount = 0, status = 'pending', paid_to_account_id = NULL,
+                                               slip_image_url = NULL, recorded_by = NULL, paid_at = NULL, transaction_id = NULL
+                                           WHERE id = $1""", sp_id
+                                    )
+                                else:
+                                    await conn.execute("UPDATE student_payments SET paid_amount = $1, status = $2 WHERE id = $3", new_paid, new_status, sp_id)
 
                         elif t['transaction_type'] == 'expense': 
                             await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", t['amount'], t['account_id'])
@@ -707,6 +724,9 @@ class FinanceService:
                 await require_member(conn, target_room_id, user_id)
                 net_worth = await conn.fetchval("SELECT SUM(balance) FROM finance_accounts WHERE room_id = $1", target_room_id) or 0.0
 
+                # 💡 month/year ต้องระบุพร้อมกันเสมอ (ไม่งั้น params เลื่อนทำให้ SQL error)
+                if (month is None) != (year is None):
+                    raise ValueError("ต้องระบุทั้ง month และ year พร้อมกัน หรือไม่ระบุทั้งคู่")
                 params = [target_room_id]
                 if month and year:
                     date_cond = "AND EXTRACT(MONTH FROM created_at) = $2 AND EXTRACT(YEAR FROM created_at) = $3"
@@ -826,7 +846,8 @@ class FinanceService:
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
 
-                    if not await conn.fetchval("SELECT id FROM students WHERE id = $1 AND room_id = $2", student_id, target_room_id):
+                    # 🛡️ ต้องเป็นสมาชิก active เท่านั้น (กัน pending/left student เข้ารายการเก็บเงิน)
+                    if not await conn.fetchval("SELECT id FROM students WHERE id = $1 AND room_id = $2 AND status = 'active'", student_id, target_room_id):
                         raise RoomNotFoundError("ไม่พบเด็กคนนี้ในห้อง")
                     if not await conn.fetchval("SELECT id FROM fee_collections WHERE id = $1 AND room_id = $2 AND status = 'active'", collection_id, target_room_id):
                         raise ValueError("ไม่พบรายการเรียกเก็บเงินนี้ หรือแคมเปญถูกปิดไปแล้ว!")
@@ -905,7 +926,7 @@ class FinanceService:
                     
                     if req.title is not None:
                         updates.append(f"title = ${idx}"); values.append(req.title); idx += 1; changed_labels.append("title")
-                    if req.amount is not None and req.amount != current_data['amount']:
+                    if req.amount is not None and float(req.amount) != float(current_data['amount']):
                         if await conn.fetchval("SELECT 1 FROM student_payments WHERE collection_id = $1 AND paid_amount > 0 LIMIT 1", collection_id):
                             raise ValueError("ไม่สามารถแก้จำนวนเงินได้ เนื่องจากมีเงินโอนเข้ามาแล้ว!")
                         updates.append(f"amount = ${idx}"); values.append(req.amount); idx += 1; changed_labels.append("amount")
@@ -997,7 +1018,11 @@ class FinanceService:
                     if bal > 0: raise ValueError("ไม่สามารถลบบัญชีได้ เนื่องจากยังมีเงินคงเหลืออยู่!")
                     if await conn.fetchval("SELECT 1 FROM student_payments WHERE paid_to_account_id = $1 LIMIT 1", account_id):
                         raise ValueError("ไม่สามารถลบบัญชีได้ เนื่องจากมีประวัติการรับเงินผูกกับบัญชีนี้อยู่!")
-                    
+                    # 🛡️ กันประวัติธุรกรรมหาย: ถ้ามี finance_transactions อ้างถึงบัญชีนี้ ห้าม hard-delete
+                    # (FK account_id ON DELETE SET NULL → ประวัติรายรับ/รายจ่ายจะกลายเป็น NULL)
+                    if await conn.fetchval("SELECT 1 FROM finance_transactions WHERE account_id = $1 LIMIT 1", account_id):
+                        raise ValueError("ไม่สามารถลบบัญชีได้ เนื่องจากมีประวัติธุรกรรมผูกกับบัญชีนี้!")
+
                     await conn.execute("DELETE FROM finance_accounts WHERE id = $1", account_id)
                     
                     exec_time = int((time.time() - start_time) * 1000)

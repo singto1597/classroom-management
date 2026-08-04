@@ -16,7 +16,7 @@ class TargetResolution(BaseModel):
 
 def get_target(
     target_id: int = Path(...),
-    target_type: Literal["server", "room"] = Query("server", description="ระบุประเภทไอดีว่าเป็น server หรือ room")
+    target_type: Literal["server", "room"] = Query("room", description="ระบุประเภทไอดีว่าเป็น server หรือ room (default=room สำหรับ web)")
 ) -> TargetResolution:
     return TargetResolution(
         server_id=target_id if target_type == "server" else None,
