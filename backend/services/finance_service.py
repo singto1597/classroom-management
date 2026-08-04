@@ -217,11 +217,18 @@ class FinanceService:
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
                     
                     current_balance = await conn.fetchval(
-                        "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 FOR UPDATE", 
+                        "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 FOR UPDATE",
                         req.from_account_id, target_room_id
                     )
                     if current_balance is None: raise RoomNotFoundError("ไม่พบบัญชีต้นทาง")
                     if current_balance < req.amount: raise ValueError("ยอดเงินในบัญชีต้นทางไม่เพียงพอ!")
+
+                    # 🛡️ กันการโอนเงินข้ามห้อง (cross-room leak): ต้องเช็คบัญชีปลายทางด้วย
+                    if not await conn.fetchval(
+                        "SELECT 1 FROM finance_accounts WHERE id = $1 AND room_id = $2",
+                        req.to_account_id, target_room_id
+                    ):
+                        raise RoomNotFoundError("ไม่พบบัญชีปลายทาง")
 
                     group_id = await conn.fetchval("SELECT nextval('transfer_group_id_seq')")
                     

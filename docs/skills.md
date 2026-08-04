@@ -183,6 +183,24 @@
 - **Correct Pattern/Solution:** Always compute test "today" with the same `THAI_TZ` as the service (`from services.classroom_sync_service import THAI_TZ`). **Rule:** any test that compares against "today" in a service that uses `THAI_TZ` must use `datetime.now(THAI_TZ).date()`, never bare `datetime.now()`.
 - **Date Added:** 2026-08-04
 
+### 🛠️ Finance transfer_money — โอนเงินข้ามห้องได้ (cross-room money leak) ตรวจไม่เจอปลายทาง
+- **Context/Problem:** เขียน `test_transfer_from_account_not_in_room_raises` (โอนจากบัญชีต่างห้อง) แล้วเจอว่าโอนไปบัญชีต่างห้อง **ไม่ error** — `transfer_money` เช็คความถูกต้องของ `from_account_id` เท่านั้น ไม่ได้เช็ค `to_account_id` ว่าเป็นของห้องเดียวกัน → เงินรั่วไปอีกห้องได้
+- **Root Cause:** ใน `finance_service.py` `transfer_money` validate เฉพาะ `from_account_id` (`SELECT balance ... WHERE id=$1 AND room_id=$2`) แล้ว `UPDATE balance = balance - $1` ฝั่งต้นทาง แต่บัญชีปลายทาง (`to_account_id`) ไม่ถูกตรวจ → `UPDATE balance = balance + $1` ไปบวกยอดให้บัญชีคนละห้อง
+- **Correct Pattern/Solution:** หลัง validate ต้นทาง ต้องเช็คปลายทางก่อนทำ transaction เสมอ: `if not await conn.fetchval("SELECT 1 FROM finance_accounts WHERE id = $1 AND room_id = $2", req.to_account_id, target_room_id): raise RoomNotFoundError("ไม่พบบัญชีปลายทาง")`. **Rule:** ทุก multi-table mutation ที่รับ `*_account_id`/`*_id` ต้อง validate ว่า entity ทุกตัวอยู่ใน `target_room_id` เดียวกันก่อน (same-pattern จุดเดียวกับ `add_transaction` ที่เช็คทั้ง account+category)
+- **Date Added:** 2026-08-04
+
+### 🛠️ Finance confirm_payment — ไม่มี RBAC + รับ overpay ได้ (สองจุดที่ต้อง flag)
+- **Context/Problem:** เขียน `test_plain_member_cannot_confirm_payment_mutation_via_transactions` ตั้งใจเช็คว่า member ธรรมดาต้องโดน ForbiddenError แต่ **ผ่าน** — เพราะ `confirm_payment` ไม่มีพารามิเตอร์ `user_id` เลย ไม่มี `require_permission` อยู่ด้านใน และ router (`finance_router.py`) ก็ไม่ส่ง `user_id` ให้ (ทุก mutation ตัวอื่นส่ง `user_id=user_ctx["user_id"]` แต่ตัวนี้ไม่มี) ส่วน `test_confirm_payment_overpay_allowed_documents_current_behavior` เจอว่า current_paid 600 + paid_amount 500 = 1100 เกินยอดจริง 1000 แต่ระบบยังรับและ mark paid
+- **Root Cause:** 1) `confirm_payment` ถูกออกแบบให้ bot/web โทรผ่านก็ได้ จึงไม่ได้ส่ง actor `user_id` ลงไป → ไม่มีชั้น RBAC 2) ตรวจแค่ `if current_paid >= total_amount: raise` (จ่ายครบแล้ว) แต่ไม่ตรวจ `paid_amount` เกินยอดที่เหลือ
+- **Correct Pattern/Solution:** สองจุดนี้เป็น **pending fix** — test เอกสารพฤติกรรมปัจจุบันไว้แล้ว (`# ⚠️ document BUG`) เพื่อให้ regression เปลี่ยนชัดเจนเมื่อแก้จริง: 1) ต้องเพิ่ม `user_id` param + `require_permission(conn, room_id, user_id, "MANAGE_FINANCE")` ให้ `confirm_payment` ทั้ง service และ router 2) ต้องเช็ค `if req.paid_amount > total_amount - current_paid: raise ValueError` (ห้ามรับเกิน) **Rule:** mutation endpoint ที่รับได้ทั้ง bot+web ต้องมี path RBAC ให้ครบทั้งสองทางเสมอ
+- **Date Added:** 2026-08-04
+
+### 🛠️ Finance service: asyncpg ปฏิเสธ `str` ใส่คอลัมน์ TIMESTAMP — ต้องใช้ datetime object
+- **Context/Problem:** `test_get_transactions_pagination` ส่ง `f"2026-01-0{i} 10:00:00"` (string) ไปที่ `UPDATE finance_transactions SET created_at = $2` แล้วเจอ `asyncpg.exceptions.DataError: invalid input for query argument $2: ... (expected a datetime.date or datetime.datetime instance, got 'str')`
+- **Root Cause:** asyncpg เป็น codec แบบ strict — ต่างจาก psycopg2 ตรงที่ถ้าคอลัมน์เป็น TIMESTAMP และ parameter เป็น str จะไม่แปลงให้เอง ทั้งที่ `date`/`datetime` Python เป็น codec native
+- **Correct Pattern/Solution:** ใน test ที่จะ `UPDATE`/`INSERT` คอลัมน์เวลาที่ parameterized ต้องส่ง `datetime(2026, 1, i, 10, 0, 0)` object เสมอ ห้ามส่ง string (แต่ส่ง `date` object ไปคอลัมน์ DATE ได้ และเขียน literal วันที่ใน SQL string ได้) **Rule:** ถ้า asyncpg ขึ้น `DataError ... expected a datetime.date or datetime.datetime instance` ให้เปลี่ยน str → `datetime` object ใน test ไม่ใช่แก้ SQL
+- **Date Added:** 2026-08-04
+
 ### 🛠️ TaskStatus.ALL — enum มีค่า "all" แต่ service ยัง `WHERE status=$2` → Web ดูงานเสร็จไม่ได้
 - **Context/Problem:** หน้า Web `/tasks` (TaskList.vue) มีแท็บ filter `pending/done/all` แต่แท็บ "เสร็จแล้ว" กลับว่างเปล่าเสมอ เพราะ `TaskService.getAllTasks` เรียก `GET /tasks` โดยไม่ส่ง `status` → ตก default `pending` จึงได้แค่งานยังไม่เสร็จ `TaskStatus.ALL = "all"` มีอยู่ใน schema อยู่แล้ว (หมายเหตุว่า "ใช้ในหน้า Web") แต่ service ยัง `WHERE status = $2` ตรง ๆ ทำให้ส่ง `all` มาก็ได้ 0 แถว (ไม่มีงานไหน status = 'all')
 - **Root Cause:** `ClassroomService.get_tasks` สร้าง SQL แบบ fix `status = $2` โดยไม่รู้จัก special value `all` — enum เพิ่มค่าให้แล้วแต่ backend query ยังไม่ support → "ดึงงานทั้งหมด" ทำไม่ได้ทั้งจาก frontend และ API ตรง ๆ
