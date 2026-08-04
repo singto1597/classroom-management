@@ -15,6 +15,7 @@ class DayOfWeek(str, Enum):
 class TaskStatus(str, Enum):
     PENDING = "pending"
     DONE = "done"
+    ALL = "all"  # ✨ ดึงทั้ง 2 สถานะ (ใช้ในหน้า Web) — bot ยังส่ง pending/done ตามเดิม
 
 # --- Common Schemas ---
 class SuccessResponse(BaseModel):

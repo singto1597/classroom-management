@@ -350,10 +350,17 @@ class ClassroomService:
             async with pool.acquire() as conn:
                 if user_id is not None:
                     await require_member(conn, room_id, user_id)
-                rows = await conn.fetch(
-                    "SELECT id, task_name, task_detail, due_date, status, created_at FROM tasks WHERE room_id = $1 AND status = $2 AND deleted_at IS NULL ORDER BY due_date ASC",
-                    room_id, status
-                )
+                if status == "all":
+                    # ✨ status=all → คืนทั้ง pending + done (ใช้ในหน้า Web) — bot ยังส่ง pending/done ตามเดิม
+                    rows = await conn.fetch(
+                        "SELECT id, task_name, task_detail, due_date, status, created_at FROM tasks WHERE room_id = $1 AND deleted_at IS NULL ORDER BY due_date ASC",
+                        room_id
+                    )
+                else:
+                    rows = await conn.fetch(
+                        "SELECT id, task_name, task_detail, due_date, status, created_at FROM tasks WHERE room_id = $1 AND status = $2 AND deleted_at IS NULL ORDER BY due_date ASC",
+                        room_id, status
+                    )
                 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(

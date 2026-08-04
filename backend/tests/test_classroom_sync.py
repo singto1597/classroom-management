@@ -326,6 +326,39 @@ async def test_get_tasks_returns_done_tasks_by_status(db_pool):
     assert [r["id"] for r in rows] == [done_id]
 
 
+async def test_get_tasks_status_all_returns_both_statuses(db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+
+    pending_id = await _insert_task(db_pool, room_id, task_name="ยังไม่ส่ง", status="pending")
+    done_id = await _insert_task(db_pool, room_id, task_name="ส่งแล้ว", status="done")
+
+    rows = await ClassroomService.get_tasks(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        status="all", room_id=room_id,
+    )
+
+    assert {r["id"] for r in rows} == {pending_id, done_id}
+    assert {r["status"] for r in rows} == {"pending", "done"}
+
+
+async def test_get_tasks_status_all_orders_by_due_date_and_excludes_deleted(db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+
+    later = await _insert_task(db_pool, room_id, task_name="งานช้า", due_date=date(2026, 12, 31), status="pending")
+    sooner_done = await _insert_task(db_pool, room_id, task_name="ส่งเร็ว", due_date=date(2026, 8, 1), status="done")
+    await _insert_task(db_pool, room_id, task_name="ถูกลบ", due_date=date(2026, 9, 1), status="pending", deleted=True)
+
+    rows = await ClassroomService.get_tasks(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        status="all", room_id=room_id,
+    )
+
+    assert [r["id"] for r in rows] == [sooner_done, later]  # ORDER BY due_date ASC
+    assert "ถูกลบ" not in [r["task_name"] for r in rows]  # deleted_at IS NULL
+
+
 async def test_get_task_by_id_returns_task(db_pool):
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
