@@ -142,5 +142,20 @@ export const FinanceService = {
 
   async getStudentDebts(roomId: number, studentId: number): Promise<StudentDebtProfile> {
     return await api.get(`/api/classroom/${roomId}/finance/students/${studentId}/debts?target_type=room`) as unknown as StudentDebtProfile;
+  },
+
+  // ✨ ส่งออกประวัติการทำรายการเป็นไฟล์ Excel (รับกลับมาเป็น Blob)
+  async exportTransactionsExcel(roomId: number, month?: number, year?: number, userName?: string): Promise<Blob> {
+    const response = await api.post(`/api/classroom/${roomId}/finance/export?target_type=room`, {
+      month,
+      year,
+      user_name: userName
+    }, {
+      // 🚨 สำคัญมาก! บังคับให้ Axios รับข้อมูลมาเป็นไฟล์ไบนารี
+      responseType: 'blob'
+    });
+
+    // 👇 เติม as unknown as Blob เพื่อตบตา TypeScript ให้ยอม Build ผ่าน
+    return response as unknown as Blob;
   }
 };

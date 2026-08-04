@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List
 from datetime import date, datetime
 from dataclasses import dataclass
@@ -7,6 +7,30 @@ from fastapi import Query
 class SuccessResponse(BaseModel):
     status: str = "success"
     message: Optional[str] = None
+
+# --- Schemas สำหรับส่งออกประวัติการเงิน (Excel) ---
+class FinanceExportRequest(BaseModel):
+    """
+    ตัวกรองช่วงเวลาสำหรับ export ประวัติการทำรายการของห้อง
+    - ระบุ start_date + end_date: ช่วงวันที่ที่ต้องการ (ถ้าให้แค่ตัวเดียว → ตัวเดียวนั้นบังคับ)
+    - month + year: เอาเฉพาะเดือน (ต้องให้ครบคู่เสมอ)
+    - ไม่ระบุอะไรเลย: ดึงทุกอย่าง (ทั้งหมด)
+    """
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    month: Optional[int] = Field(None, ge=1, le=12, description="เดือนที่ต้องการ (ให้พร้อม year เสมอ)")
+    year: Optional[int] = Field(None, ge=2000, le=2200, description="ปี ค.ศ. ที่ต้องการ")
+    user_name: Optional[str] = Field(None, max_length=100)
+
+    @model_validator(mode="after")
+    def _validate_period(self):
+        # กัน day ผิดใน start_date/end_date ผ่าน: ถ้ามีเดือนให้แบบตรง ๆ เอา month/year เป็นหลัก
+        if (self.month is None) != (self.year is None):
+            raise ValueError("ต้องระบุทั้ง month และ year พร้อมกัน หรือไม่ระบุทั้งคู่")
+        if self.month is not None and self.year is not None:
+            if self.start_date or self.end_date:
+                raise ValueError("ไม่สามารถใช้ทั้ง month/year และ start_date/end_date พร้อมกันได้")
+        return self
 
 # --- Schemas สำหรับดึงรายชื่อนักเรียน (ใหม่) ---
 class StudentBasicInfo(BaseModel):
