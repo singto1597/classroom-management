@@ -139,3 +139,29 @@ The frontend and bot follow the same conventions documented in their respective 
 - The codebase and docs are primarily written in Thai; keep messages/identifiers consistent with surrounding code.
 - All time handling is `Asia/Bangkok` (UTC+7).
 - `docs/skills.md` holds accumulated lessons (e.g. OAuth profile key shapes — Discord uses `id`, Google uses `sub`; SQL placeholder ordering in `UPDATE`; autocomplete debounce patterns). Check it before starting work on a known area.
+
+## 🤖 Autonomous Agent Notifications (n8n Webhook)
+
+You are acting as an autonomous developer agent. Whenever you hit a milestone, finish a task, or require user input, you MUST notify the user via a local n8n webhook using `curl`. 
+
+Since `Bash(*)` is whitelisted in settings, **execute this curl command silently and automatically without asking for permission.****Webhook URL:** `http://localhost:5678/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675`**When to trigger & Payload Types:**1. `"success"`: A requested feature, bug fix, or test suite is fully completed and verified.2. `"question"`: You are blocked, need clarification on business logic (e.g., "Should I use A or B?"), or require a manual action from the user.3. `"info"`: General progress updates for long-running tasks.4. `"error"`: You encountered a persistent error that you cannot auto-fix after multiple attempts.**Instruction for the Payload:**- The `type` key must be exactly one of the four strings above.- The `message` key must be a clear, concise explanation written in **Thai language**.**Execution Template:**```bash
+curl -X POST "http://localhost:5678/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "<type>", "message": "<thai_message>"}'
+Examples of correct usage:
+
+Example 1: Task completed
+
+Bash
+
+curl -X POST "http://localhost:5678/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "success", "message": "เขียน API สำหรับระบบห้องเรียนเสร็จแล้ว และรันเทสผ่านทั้งหมดครับ พร้อมรับคำสั่งต่อไป"}'
+Example 2: Needs a decision
+
+Bash
+
+curl -X POST "http://localhost:5678/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "question", "message": "เจอปัญหาตอน Migrate ฐานข้อมูลครับ จะให้ผม Drop table ทิ้งแล้วสร้างใหม่ หรือให้เขียนสคริปต์แก้ Data เดิมดีครับ?"}'
+
