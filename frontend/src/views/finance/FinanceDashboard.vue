@@ -6,15 +6,19 @@ import { Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, ArcElement, CategoryScale } from 'chart.js';
 
 import { useAuthStore } from '@/stores/auth';
+import Swal from 'sweetalert2';
 
 ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale);
 
 const authStore = useAuthStore();
 const currentServerId = authStore.currentRoomId!;
+const currentUserName = authStore.currentUserName || 'Admin';
 
 const summary = ref<FinanceSummary | null>(null);
 const accounts = ref<Account[]>([]);
 const isLoading = ref(true);
+
+const isExporting = ref(false);
 
 const selectedMonth = ref(new Date().getMonth() + 1);
 const selectedYear = ref(new Date().getFullYear());
@@ -105,6 +109,59 @@ const formatNumber = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num);
 };
 
+// 📥 ส่งออกประวัติการทำรายการของเดือนที่เลือกเป็นไฟล์ Excel
+const handleExport = async () => {
+  if (isExporting.value) return;
+
+  isExporting.value = true;
+  Swal.fire({
+    title: 'กำลังคราฟต์ไฟล์ Excel...',
+    text: 'ระบบกำลังรวบรวมประวัติการทำรายการให้คุณ',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const blob = await FinanceService.exportTransactionsExcel(
+      currentServerId,
+      selectedMonth.value,
+      selectedYear.value,
+      currentUserName
+    );
+
+    // เปลี่ยน Blob ให้เป็นลิงก์ดาวน์โหลด
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+
+    // ตั้งชื่อไฟล์สวยๆ (ใช้เดือน/ปีที่เลือกบนหน้า)
+    const filename = `ประวัติการเงิน_${String(selectedMonth.value).padStart(2, '0')}-${selectedYear.value + 543}.xlsx`;
+    link.setAttribute('download', filename);
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+
+    Swal.fire({
+      icon: 'success',
+      title: 'สำเร็จ!',
+      text: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว',
+      timer: 1500,
+      showConfirmButton: false
+    });
+  } catch (error) {
+    console.error(error);
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง'
+    });
+  } finally {
+    isExporting.value = false;
+  }
+};
+
 onMounted(() => {
   fetchDashboardData();
 });
@@ -152,8 +209,8 @@ watch([selectedMonth, selectedYear], () => {
             <i class="bi bi-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
           </div>
           <div class="relative flex-1 md:flex-none">
-            <select 
-              v-model="selectedYear" 
+            <select
+              v-model="selectedYear"
               class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-4 pr-10 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer"
             >
               <option v-for="y in [2024, 2025, 2026]" :key="y" :value="y">
@@ -162,6 +219,17 @@ watch([selectedMonth, selectedYear], () => {
             </select>
             <i class="bi bi-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
           </div>
+
+          <!-- 📥 ปุ่มส่งออกประวัติการเงิน (ตามเดือน/ปีที่เลือก) -->
+          <button
+            @click="handleExport"
+            :disabled="isExporting"
+            class="flex-1 md:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-2xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all"
+            title="ส่งออกประวัติการทำรายการของเดือนนี้เป็น Excel"
+          >
+            <i class="bi bi-file-earmark-excel-fill text-lg"></i>
+            <span class="hidden lg:inline">ส่งออก Excel</span>
+          </button>
         </div>
       </div>
 

@@ -1973,3 +1973,23 @@ async def test_confirm_payment_to_other_room_account_raises(db_pool):
             req=PaymentConfirm(paid_to_account_id=account_b, paid_amount=1000.0, user_name="Owner"),
             client_source="test", actor_identifier="test", room_id=room_a,
         )
+
+
+# === Section 9: Seed ข้อมูลเริ่มต้น (สร้างห้องเท่านั้น) ===
+
+
+async def test_raw_inserted_room_starts_without_finance_seed(db_pool):
+    """ห้องที่ถูก INSERT ตรง ๆ (ไม่ผ่าน create_room) ต้องไม่มีหมวดหมู่/บัญชี seed —
+    ยืนยันว่าการ seed เกิดจาก create_room เท่านั้น ไม่ใช่ schema/cron"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+
+    async with db_pool.acquire() as conn:
+        cats = await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_categories WHERE room_id = $1", room_id
+        )
+        accs = await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_accounts WHERE room_id = $1", room_id
+        )
+    assert cats == 0
+    assert accs == 0

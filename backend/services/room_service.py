@@ -6,6 +6,11 @@ import time
 from fastapi import HTTPException
 from core.logger import AuditLogger
 from core.rbac import require_permission
+from services.finance_service import (
+    DEFAULT_INCOME_CATEGORIES,
+    DEFAULT_EXPENSE_CATEGORIES,
+    DEFAULT_FINANCE_ACCOUNTS,
+)
 
 service_logger = AuditLogger(service_name="ROOM_MANAGEMENT")
 
@@ -62,7 +67,40 @@ class RoomManagementService:
                             $1, $2, 0, 'president', 'active', TRUE, $3::jsonb
                         )
                     """, room_id, user_id, json.dumps(["all"]))
-                    
+
+                    # 🎯 Seed หมวดหมู่รายรับ/รายจ่าย + บัญชีเงินสดค่าเริ่มต้น ให้ห้องใหม่ใช้เลย
+                    # (อยู่ภายใน transaction เดียวกับ create_room → สร้างห้องสำเร็จ = มีของครบ)
+                    await conn.executemany(
+                        "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, 'income')",
+                        [(room_id, name) for name in DEFAULT_INCOME_CATEGORIES],
+                    )
+                    await conn.executemany(
+                        "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, 'expense')",
+                        [(room_id, name) for name in DEFAULT_EXPENSE_CATEGORIES],
+                    )
+                    await conn.executemany(
+                        "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, 0.0)",
+                        [(room_id, name) for name in DEFAULT_FINANCE_ACCOUNTS],
+                    )
+                    await service_logger.log(
+                        conn=conn,
+                        action="CREATE",
+                        actor_identifier=actor_identifier,
+                        client_source=client_source,
+                        room_id=room_id,
+                        user_id=user_id,
+                        entity_type="FINANCE_SEED",
+                        entity_id=str(room_id),
+                        status="success",
+                        new_values={
+                            "income_categories": DEFAULT_INCOME_CATEGORIES,
+                            "expense_categories": DEFAULT_EXPENSE_CATEGORIES,
+                            "accounts": DEFAULT_FINANCE_ACCOUNTS,
+                        },
+                        endpoint_or_command="create_room",
+                        execution_time_ms=0,
+                    )
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn,

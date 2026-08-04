@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Header, Path, Request
+from fastapi.responses import StreamingResponse
 import asyncpg
 from typing import List, Optional, Literal
 from pydantic import BaseModel
@@ -239,6 +240,38 @@ async def get_transactions(
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
+
+@router.post("/{target_id}/finance/export")
+async def export_transactions(
+    req: FinanceExportRequest,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        excel_file = await FinanceService.export_transactions_excel(
+            pool=pool,
+            req=req,
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
+        )
+        ref_id = target.server_id or target.room_id
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=finance_export_{ref_id}.xlsx"}
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{target_id}/finance/transactions/{transaction_id}", response_model=SuccessResponse)
 async def revert_transaction(

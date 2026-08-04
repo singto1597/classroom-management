@@ -12,11 +12,13 @@ HTTP-layer integration tests for finance_router.py.
 Pattern ตาม docs/rules/testing.md: mock ActionService/aioredis เพื่อไม่แตะ Redis จริง,
 deep DB verification หลัง HTTP call
 """
+import io
 import random
 import string
 import uuid
 from datetime import date, datetime
 
+import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
@@ -834,3 +836,123 @@ async def test_web_update_category_200(client, db_pool):
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT category_name FROM finance_categories WHERE id = $1", cat_id)
     assert row["category_name"] == "ค่ากิน"
+
+
+# =====================================================================
+# Section: Export Excel (ประวัติการเงิน)
+# =====================================================================
+
+
+async def test_web_export_finance_excel_200(client, db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat_id = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    from models.finance_schemas import TransactionCreate
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(
+            account_id=account_id, category_id=cat_id, amount=300.0,
+            description="รับบริจาค", transaction_type="income", user_name="Owner",
+        ),
+        user_id=owner, client_source="test", actor_identifier="test",
+        room_id=room_id,
+    )
+
+    resp = client.post(
+        _room_api(room_id, "/finance/export"),
+        json={},  # ไม่ระบุช่วงเวลา → ทั้งหมด
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "attachment" in resp.headers["content-disposition"]
+
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == ["สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่"]
+    ws_data = wb["ประวัติรายการ"]
+    rows = list(ws_data.values)
+    assert len(rows) == 2  # header + 1 รายการ
+
+
+async def test_web_export_finance_excel_month_filter(client, db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat_id = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    from models.finance_schemas import TransactionCreate
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(
+            account_id=account_id, category_id=cat_id, amount=100.0,
+            description="ม.ค.", transaction_type="income", user_name="Owner",
+        ),
+        user_id=owner, client_source="test", actor_identifier="test",
+        room_id=room_id,
+    )
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(
+            account_id=account_id, category_id=cat_id, amount=200.0,
+            description="ก.พ.", transaction_type="income", user_name="Owner",
+        ),
+        user_id=owner, client_source="test", actor_identifier="test",
+        room_id=room_id,
+    )
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT id FROM finance_transactions WHERE room_id = $1 ORDER BY id", room_id)
+        # คอลัมน์ TIMESTAMP ต้องส่ง datetime object (asyncpg ปฏิเสธ string — ตาม docs/skills.md)
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = $2 WHERE id = $1",
+            rows[1]["id"], datetime(2026, 2, 10, 10, 0, 0),
+        )
+
+    resp = client.post(
+        _room_api(room_id, "/finance/export"),
+        json={"month": 2, "year": 2026},
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    rows_out = list(wb["ประวัติรายการ"].values)
+    assert len(rows_out) == 2  # header + 1 รายการ (เฉพาะ ก.พ.)
+    assert "ก.พ." in rows_out[1][6]
+
+
+async def test_web_export_finance_excel_cross_room_forbidden(client, db_pool):
+    owner_a = await _insert_user(db_pool, first_name="Admin", last_name="A")
+    room_a = await _insert_room(db_pool, owner_a, room_name="ห้อง A")
+    owner_b = await _insert_user(db_pool, first_name="Admin", last_name="B")
+    room_b = await _insert_room(db_pool, owner_b, room_name="ห้อง B")
+    member_a = await _insert_user(db_pool, first_name="Member", last_name="A")
+    await _insert_student(db_pool, room_a, member_a, 1, status="active")
+
+    resp = client.post(
+        _room_api(room_b, "/finance/export"),
+        json={},
+        headers=_make_web_headers(member_a),
+    )
+    assert resp.status_code == 403
+
+
+async def test_web_export_finance_excel_bad_period_400(client, db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+
+    # month โดยไม่มี year → 422 (Pydantic validator)
+    resp = client.post(
+        _room_api(room_id, "/finance/export"),
+        json={"month": 2},
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 422
+
+    # start_date หลัง end_date → 400
+    resp = client.post(
+        _room_api(room_id, "/finance/export"),
+        json={"start_date": "2026-02-01", "end_date": "2026-01-01"},
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400

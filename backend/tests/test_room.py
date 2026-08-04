@@ -11,6 +11,11 @@ from pydantic import ValidationError
 from core.exceptions import ForbiddenError
 from models.room_schemas import RoomJoinRequest, RoomCreateRequest
 from services.room_service import RoomManagementService
+from services.finance_service import (
+    DEFAULT_INCOME_CATEGORIES,
+    DEFAULT_EXPENSE_CATEGORIES,
+    DEFAULT_FINANCE_ACCOUNTS,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -147,6 +152,80 @@ async def test_create_room_creates_room_and_president_student(db_pool):
         assert student["class_role"] == "president"
         assert student["is_admin"] is True
         assert student["status"] == "active"
+
+
+async def test_create_room_seeds_default_finance_categories_and_accounts(db_pool):
+    """สร้างห้องต้อง seed หมวดหมู่รายรับ/รายจ่าย + บัญชีเงินสดค่าเริ่มต้นให้อัตโนมัติ"""
+    owner_id = await _insert_user(db_pool, first_name="Creator", last_name="Teacher")
+
+    result = await RoomManagementService.create_room(
+        pool=db_pool,
+        room_name="Finance Room",
+        user_id=owner_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+    room_id = result["room_id"]
+
+    async with db_pool.acquire() as conn:
+        inc_rows = await conn.fetch(
+            "SELECT category_name FROM finance_categories WHERE room_id = $1 AND category_type = 'income' ORDER BY id",
+            room_id,
+        )
+        exp_rows = await conn.fetch(
+            "SELECT category_name FROM finance_categories WHERE room_id = $1 AND category_type = 'expense' ORDER BY id",
+            room_id,
+        )
+        acc_rows = await conn.fetch(
+            "SELECT account_name, balance FROM finance_accounts WHERE room_id = $1 ORDER BY id",
+            room_id,
+        )
+
+    assert [r["category_name"] for r in inc_rows] == DEFAULT_INCOME_CATEGORIES
+    assert [r["category_name"] for r in exp_rows] == DEFAULT_EXPENSE_CATEGORIES
+    assert len(inc_rows) == len(DEFAULT_INCOME_CATEGORIES)
+    assert len(exp_rows) == len(DEFAULT_EXPENSE_CATEGORIES)
+
+    assert [r["account_name"] for r in acc_rows] == DEFAULT_FINANCE_ACCOUNTS
+    # บัญชี seed ต้องเริ่มต้นที่ 0 บาท และไม่ถูก soft-delete
+    assert all(float(r["balance"]) == pytest.approx(0.0) for r in acc_rows)
+    async with db_pool.acquire() as conn:
+        alive = await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_categories WHERE room_id = $1 AND deleted_at IS NULL",
+            room_id,
+        )
+    assert alive == len(DEFAULT_INCOME_CATEGORIES) + len(DEFAULT_EXPENSE_CATEGORIES)
+
+
+async def test_join_room_does_not_seed_finance_data(db_pool):
+    """เฉพาะ create_room เท่านั้นที่ seed — join ต้องไม่สร้างหมวดหมู่/บัญชีเพิ่ม"""
+    owner_id = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner_id)
+
+    async with db_pool.acquire() as conn:
+        room_code = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
+
+    student_user_id = await _insert_user(db_pool, first_name="Join", last_name="User")
+
+    await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(
+            room_code=room_code, student_no=5, first_name="Join", last_name="User"
+        ),
+        user_id=student_user_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+
+    async with db_pool.acquire() as conn:
+        cats = await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_categories WHERE room_id = $1", room_id
+        )
+        accs = await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_accounts WHERE room_id = $1", room_id
+        )
+    assert cats == 0
+    assert accs == 0
 
 
 # === Section 2: join_room (normal flow) ===
