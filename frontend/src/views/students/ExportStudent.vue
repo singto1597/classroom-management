@@ -198,7 +198,7 @@ const handleExport = async () => {
         <div>
           <h2 class="text-3xl md:text-4xl font-black text-slate-800 tracking-tight flex items-center gap-3">
             <span class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner">🪄</span>
-            Custom Export Builder
+            เครื่องมือสร้างไฟล์ Export
           </h2>
           <p class="text-slate-500 mt-3 font-medium md:text-lg">เลือกหมวดหมู่ที่ต้องการ และลากวางคอลัมน์ฝั่งขวาเพื่อจัดลำดับไฟล์ Excel ได้อย่างอิสระ</p>
         </div>

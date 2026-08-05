@@ -216,7 +216,7 @@ const rejectJoin = async (studentNo: number) => {
           <tbody class="text-slate-700 text-sm font-medium">
             <tr v-for="student in filteredStudents" :key="student.id" class="border-b border-slate-50 hover:bg-slate-50 transition-colors" :class="{ 'opacity-50 grayscale-[0.5]': student.status === 'inactive' }">
               <td class="py-4 px-5 text-center font-bold text-slate-800">{{ student.student_no }}</td>
-              <td class="py-4 px-5">{{ student.prefix || '' }}{{ student.first_name }} {{ student.last_name }}</td>
+              <td class="py-4 px-5">{{ student.prefix ? student.prefix + ' ' : '' }}{{ student.first_name }} {{ student.last_name }}</td>
               <td class="py-4 px-5">{{ student.nickname || '-' }}</td>
               <td class="py-4 px-5 flex items-center gap-2">
                 <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase" :class="student.class_role === 'student' || !student.class_role ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'">

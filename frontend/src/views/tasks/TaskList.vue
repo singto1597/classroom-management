@@ -212,7 +212,7 @@ onMounted(fetchData)
             </div>
             <div class="mb-4">
               <span class="text-xs font-bold text-amber-700 bg-amber-200/50 px-3 py-1.5 rounded-full backdrop-blur-sm">
-                📅 {{ note.target_date }}
+                📅 {{ formatDueDate(note.target_date) }}
               </span>
             </div>
             <div class="space-y-3">
