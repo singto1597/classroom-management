@@ -39,7 +39,7 @@ const fetchInitData = async () => {
     accounts.value = accRes;
     categories.value = catRes;
   } catch (error: any) {
-    Swal.fire('Error', 'ไม่สามารถโหลดข้อมูลเริ่มต้นได้', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลเริ่มต้นได้', 'error');
   } finally {
     isLoading.value = false;
   }

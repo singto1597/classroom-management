@@ -26,7 +26,7 @@ const fetchSettingsData = async () => {
     accounts.value = accRes;
     categories.value = catRes;
   } catch (error: any) {
-    Swal.fire('Error', error.message || 'โหลดข้อมูลล้มเหลว', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', error.message || 'โหลดข้อมูลล้มเหลว', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -66,7 +66,7 @@ const handleAddAccount = async () => {
       Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -93,7 +93,7 @@ const handleEditAccount = async (account: Account) => {
       Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -117,7 +117,7 @@ const handleDeleteAccount = async (id: number) => {
       Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -156,7 +156,7 @@ const handleAddCategory = async () => {
       Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -183,7 +183,7 @@ const handleEditCategory = async (category: Category) => {
       Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -207,7 +207,7 @@ const handleDeleteCategory = async (id: number) => {
       Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };

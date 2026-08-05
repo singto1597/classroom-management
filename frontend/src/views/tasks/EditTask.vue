@@ -36,7 +36,7 @@ const fetchTask = async () => {
     form.task_detail = task.task_detail || ''
     form.due_date = task.due_date
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to fetch task', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถโหลดข้อมูลงานได้', 'error')
     router.push('/tasks')
   } finally {
     isLoading.value = false
@@ -64,7 +64,7 @@ const handleUpdateTask = async () => {
     })
     router.push('/tasks')
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to update task', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถอัปเดตงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -96,7 +96,7 @@ onMounted(fetchTask)
           <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md border border-white/20">
             <i class="bi bi-pencil-square text-lg"></i>
           </div>
-          <h4 class="text-xl font-bold">ฟอร์มแก้ไขงาน (ID: {{ taskId }})</h4>
+          <h4 class="text-xl font-bold">ฟอร์มแก้ไขงาน (รหัสงาน #{{ taskId }})</h4>
         </div>
 
         <div class="p-8 md:p-10">

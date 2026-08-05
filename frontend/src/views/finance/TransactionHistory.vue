@@ -46,7 +46,7 @@ const fetchTransactions = async () => {
     transactions.value = res.items;
     totalCount.value = res.total_count;
   } catch (error: any) {
-    Swal.fire('Error', error.message || 'โหลดข้อมูลไม่สำเร็จ', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', error.message || 'โหลดข้อมูลไม่สำเร็จ', 'error');
   } finally {
     isLoading.value = false;
   }

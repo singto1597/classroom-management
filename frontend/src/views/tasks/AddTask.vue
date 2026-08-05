@@ -60,7 +60,7 @@ const handleAddTask = async () => {
     })
     router.push('/tasks')
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to add task', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถเพิ่มงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -87,7 +87,7 @@ const handleAddNote = async () => {
     })
     router.push('/tasks')
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to add note', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถเพิ่มโน้ตได้', 'error')
   } finally {
     isSubmitting.value = false
   }

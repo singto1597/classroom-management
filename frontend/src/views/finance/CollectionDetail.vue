@@ -32,7 +32,7 @@ const fetchDetail = async () => {
     data.value = detailRes;
     accounts.value = accountsRes;
   } catch (error: any) {
-    Swal.fire('Error', 'ไม่สามารถโหลดรายละเอียดแคมเปญได้', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดรายละเอียดแคมเปญได้', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -90,7 +90,7 @@ const handlePay = async (student: StudentPaymentDetail) => {
       Swal.fire({ icon: 'success', title: 'รับเงินสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchDetail();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -117,7 +117,7 @@ const handleRemoveStudent = async (student: StudentPaymentDetail) => {
       Swal.fire({ icon: 'success', title: 'ลบเรียบร้อย', timer: 1500, showConfirmButton: false });
       fetchDetail();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
