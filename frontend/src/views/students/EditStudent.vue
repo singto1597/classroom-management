@@ -23,6 +23,11 @@ const currentUserName = authStore.currentUserName!
 // เช็คว่าคนที่ Login เป็น God Admin ไหม
 const isAdmin = computed(() => authStore.isAdmin)
 
+// 🎯 Staff ที่มี MANAGE_STUDENTS แก้ข้อมูลได้ แต่เห็นเฉพาะโซนแก้ไขทั่วไป (ไม่เห็น Admin Zone)
+const canManageStudents = computed(
+  () => isAdmin.value || authStore.currentPermissions.includes('MANAGE_STUDENTS')
+)
+
 // รายการสิทธิ์ย่อยทั้งหมดที่มีในระบบ
 const AVAILABLE_PERMISSIONS = [
   { id: 'VIEW_ALL_STUDENTS', label: 'ดูข้อมูลนักเรียนทุกคนแบบเชิงลึก' },
@@ -41,8 +46,8 @@ const isOwner = computed(() => {
   return String(currentUserProfile.value.student_no) === studentNo;
 })
 
-// รวมสิทธิ์: เป็น Admin หรือเป็นเจ้าของโปรไฟล์ถึงจะกด "เปิดโหมดแก้ไข" ได้
-const canEdit = computed(() => isAdmin.value || isOwner.value)
+// รวมสิทธิ์: เป็น Admin / Staff ที่ดูแลนักเรียน / หรือเจ้าของโปรไฟล์ ถึงจะกด "เปิดโหมดแก้ไข" ได้
+const canEdit = computed(() => canManageStudents.value || isOwner.value)
 
 // 🎯 เพิ่มฟิลด์สำหรับระบบ RBAC และ Moving Target
 const form = ref<Partial<Student> & { new_student_no?: number | null, is_admin?: boolean, permissions?: string[] }>({

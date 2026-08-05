@@ -84,7 +84,7 @@ const showAccountInfo = () => {
     html: `
       <div class="text-left mt-4 space-y-3">
         <p class="text-sm text-gray-600"><b>Discord ID:</b> <span class="bg-gray-100 px-2 py-1 rounded font-mono">${authStore.discordId || 'ยังไม่ระบุ'}</span></p>
-        <p class="text-sm text-gray-600"><b>Room Role:</b> <span class="uppercase font-bold text-blue-600">${authStore.currentRole}</span></p>
+        <p class="text-sm text-gray-600"><b>บทบาทในห้อง:</b> <span class="uppercase font-bold text-blue-600">${authStore.currentRoleLabel}</span></p>
       </div>
     `,
     icon: 'info',
@@ -212,7 +212,7 @@ const goToProfileSettings = async () => {
                 </div>
                 <div class="ms-3 overflow-hidden">
                   <p class="text-sm font-bold text-gray-800 truncate leading-none mb-1">{{ displayName }}</p>
-                  <p class="text-[10px] tracking-wider text-blue-500 font-bold uppercase truncate leading-none">{{ authStore.currentRole || 'User' }}</p>
+                  <p class="text-[10px] tracking-wider text-blue-500 font-bold uppercase truncate leading-none">{{ authStore.currentRoleLabel }}</p>
                 </div>
               </div>
               
@@ -394,7 +394,7 @@ const goToProfileSettings = async () => {
               <div v-if="activeDropdown === 'headerSettings'" class="absolute top-full right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 origin-top-right">
                 <div class="px-4 py-3 mb-1 border-b border-gray-50 bg-gray-50/50">
                   <p class="text-sm font-bold text-gray-800 truncate">{{ displayName }}</p>
-                  <p class="text-xs text-blue-500 font-bold uppercase truncate">{{ authStore.currentRole }}</p>
+                  <p class="text-xs text-blue-500 font-bold uppercase truncate">{{ authStore.currentRoleLabel }}</p>
                 </div>
                 <button @click.stop="goToMyProfile" class="w-full text-left px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors flex items-center gap-3">
                   <i class="bi bi-person-badge text-lg"></i> โปรไฟล์ของฉัน

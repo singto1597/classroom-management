@@ -81,10 +81,20 @@ const handleRevert = async (transaction: Transaction) => {
   }
 };
 
+// 🕐 แสดงเวลาเป็นภาษาไทยและ Timezone Asia/Bangkok (กฎของโปรเจกต์)
 const formatDate = (dateStr: string) => {
   const date = new Date(dateStr);
-  const datePart = date.toLocaleDateString('en-GB'); // dd/mm/yyyy
-  const timePart = date.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  const datePart = date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Bangkok'
+  });
+  const timePart = date.toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Bangkok'
+  });
   return { datePart, timePart };
 };
 

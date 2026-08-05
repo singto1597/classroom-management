@@ -35,9 +35,32 @@ export const useAuthStore = defineStore('auth', () => {
   const currentPermissions = ref<string[]>(JSON.parse(safeGetItem('current_permissions') || '[]'));
 
   const isAuthenticated = computed(() => !!token.value);
-  
+
   // 🚨 เปลี่ยนนิยามของ isAdmin ใหม่ทั้งหมด (เช็คจาก Flag ของ DB ไม่ใช่ป้ายชื่อตำแหน่ง)
   const isAdmin = computed(() => currentIsAdmin.value === true);
+
+  // 🏷️ แปลง class_role (จาก Backend เป็นภาษาอังกฤษ) → ป้ายภาษาไทยสำหรับ UI
+  const ROLE_LABELS: Record<string, string> = {
+    student: 'นักเรียน',
+    president: 'หัวหน้าห้อง',
+    vice_academic: 'รองวิชาการ',
+    vice_activity: 'รองกิจกรรม',
+    vice_discipline: 'รองระเบียบวินัย',
+    vice_reception: 'รองปฏิคม',
+    staff_academic: 'กรรมการวิชาการ',
+    staff_activity: 'กรรมการกิจกรรม',
+    staff_discipline: 'กรรมการระเบียบวินัย',
+    staff_reception: 'กรรมการปฏิคม',
+    treasurer: 'เหรัญญิก',
+    admin: 'ผู้ดูแลระบบ'
+  };
+
+  // computed ใช้กับทุกหน้า (Sidebar, Header, Dashboard) แทนการโชว์ raw role
+  const currentRoleLabel = computed(() => {
+    const raw = currentRole.value || '';
+    if (!raw) return 'สมาชิก';
+    return ROLE_LABELS[raw] || raw;
+  });
 
   const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '' && !!phoneNumber.value && phoneNumber.value.trim() !== '');
 
@@ -192,7 +215,7 @@ export const useAuthStore = defineStore('auth', () => {
     email, discordId, googleId, nickname, phoneNumber, isOnboarded,
     currentRoomId, currentRoomName, currentRoomCode, currentRole,
     currentIsAdmin, currentPermissions, // 🎯 Expose ไปให้ Component อื่นดึงไปใช้ได้
-    isAuthenticated, isAdmin,
+    isAuthenticated, isAdmin, currentRoleLabel,
     setToken, setUserId, setRoom, clearRoom, logout, fetchProfile
   };
 });

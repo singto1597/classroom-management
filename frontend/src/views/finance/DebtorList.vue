@@ -104,6 +104,11 @@ const handleBatchPay = async () => {
     return Swal.fire('อ๊ะ!', 'กรุณาเลือกรายการที่ต้องการชำระเงิน', 'warning');
   }
 
+  // ✅ กันเผลอกดยืนยันตอนไม่มีกระเป๋าเงินเป้าหมาย
+  if (!paidToAccountId.value) {
+    return Swal.fire('ยังไม่เลือกบัญชี', 'กรุณาเลือกกระเป๋าเงินที่รับเงินก่อน', 'warning');
+  }
+
   // จดจำการตั้งค่าก่อนกดยืนยัน
   lastSelectedMemory.value = studentDebts.value
     .filter(d => selectedPaymentIds.value.includes(d.payment_id))

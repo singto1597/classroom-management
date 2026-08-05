@@ -50,6 +50,15 @@ const filteredCategories = computed(() => {
   return categories.value.filter(c => c.category_type === activeTab.value);
 });
 
+// 🔄 เมื่อสลับแท็บ ให้เคลียร์ค่าที่เลือกไว้ เพื่อไม่ให้ส่ง id ค้างจาก tab ก่อน
+const switchTab = (tab: 'expense' | 'income' | 'transfer') => {
+  activeTab.value = tab;
+  form.value.account_id = '';
+  form.value.category_id = '';
+  form.value.from_account_id = '';
+  form.value.to_account_id = '';
+};
+
 const handleSubmit = async () => {
   if (activeTab.value === 'transfer') {
     if (form.value.from_account_id === form.value.to_account_id) {
@@ -121,10 +130,10 @@ onMounted(() => {
 
     <!-- Tabs -->
     <div class="bg-gray-100 p-1 rounded-2xl flex mb-8">
-      <button 
-        v-for="tab in ['expense', 'income', 'transfer']" 
+      <button
+        v-for="tab in ['expense', 'income', 'transfer']"
         :key="tab"
-        @click="activeTab = tab as any"
+        @click="switchTab(tab as any)"
         :class="[
           'flex-1 py-2.5 rounded-xl font-bold transition-all',
           activeTab === tab 

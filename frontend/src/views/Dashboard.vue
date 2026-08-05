@@ -11,11 +11,8 @@ const authStore = useAuthStore();
 
 // ✨ ระบบชื่อใหม่ ดึงจาก authStore โดยตรง
 const userName = computed(() => authStore.currentUserName || 'ผู้ใช้งาน');
-const role = computed(() => {
-  const raw = authStore.currentRole || '';
-  if (!raw || raw === 'Unknown') return 'สมาชิก';
-  return raw;
-});
+// บทบาทเป็นภาษาไทย ผ่าน computed จาก store (รองรับ class_role ทุกตำแหน่ง)
+const role = computed(() => authStore.currentRoleLabel);
 const isAdmin = computed(() => authStore.isAdmin);
 
 // ✨ สิทธิ์ละเอียดสำหรับการ์ด (ให้ตรงกับหน้า StudentList)

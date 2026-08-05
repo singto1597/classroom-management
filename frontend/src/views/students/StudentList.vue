@@ -254,7 +254,7 @@ const rejectJoin = async (studentNo: number) => {
             <tr v-for="req in pendingStudents" :key="req.student_no" class="border-b border-slate-50 hover:bg-amber-50/30 transition-colors">
               <td class="py-4 px-5 text-center font-black text-slate-800">{{ req.student_no }}</td>
               <td class="py-4 px-5">{{ req.first_name }} {{ req.last_name }}</td>
-              <td class="py-4 px-5 text-xs text-slate-500">{{ new Date(req.created_at).toLocaleString('th-TH') }}</td>
+              <td class="py-4 px-5 text-xs text-slate-500">{{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) }}</td>
               <td class="py-4 px-5 text-center">
                 <div class="flex items-center justify-center gap-2">
                   <button @click="approveJoin(req.student_no)" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white rounded-lg text-xs font-bold transition-all border border-emerald-100 hover:border-emerald-500">

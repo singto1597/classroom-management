@@ -104,6 +104,24 @@ const submitJoinRoom = async () => {
 
     const result = await ClassroomService.joinRoom(payload);
 
+    // ✅ ตรวจสอบว่าเป็น "รอการอนุมัติ" (สมาชิกใหม่) หรือ "ยืนยันตัวตนสำเร็จ" (บัญชีผีถูกอ้างสิทธิ์ = active)
+    const isPending = (result.message || '').includes('รอการอนุมัติ');
+
+    if (isPending) {
+      // 🚧 ยังไม่ active → อยู่หน้าเลือกห้อง รอหัวหน้าห้องอนุมัติ
+      showJoinModal.value = false;
+      await fetchRooms();
+      return Swal.fire({
+        icon: 'success',
+        title: 'ส่งคำขอแล้ว!',
+        text: 'รอหัวหน้าห้อง / ผู้ดูแลอนุมัติคำขอของคุณ',
+        confirmButtonText: 'รับทราบ',
+        confirmButtonColor: '#10b981',
+        customClass: { popup: 'rounded-[2rem]', confirmButton: 'rounded-xl px-8 font-bold' }
+      });
+    }
+
+    // ✅ เข้าห้องได้เลย (ยืนยันตัวตนสำเร็จ)
     Swal.fire({
       icon: 'success',
       title: 'สำเร็จ!',
