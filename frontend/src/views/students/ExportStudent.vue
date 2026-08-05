@@ -24,6 +24,7 @@ interface Category {
   color: string;
   bg: string;
   border: string;
+  ring: string; // ✨ คลาส ring แบบเต็ม (Tailwind ต้องเห็นข้อความเต็ม ถึงจะ compile)
   fields: Field[];
 }
 
@@ -36,7 +37,7 @@ interface SelectedColumn {
 // --- 📂 2. Schema ข้อมูล ---
 const exportSchema: Category[] = [
   {
-    id: 'core', name: 'ข้อมูลส่วนตัวพื้นฐาน', icon: 'bi-person-badge-fill', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200',
+    id: 'core', name: 'ข้อมูลส่วนตัวพื้นฐาน', icon: 'bi-person-badge-fill', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', ring: 'ring-blue-500/30',
     fields: [
       { id: 'student_no', label: 'เลขที่' },
       { id: 'student_id', label: 'รหัสนักเรียน' },
@@ -48,7 +49,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'academic', name: 'วิชาการและหน้าที่', icon: 'bi-journal-bookmark-fill', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200',
+    id: 'academic', name: 'วิชาการและหน้าที่', icon: 'bi-journal-bookmark-fill', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', ring: 'ring-amber-500/30',
     fields: [
       { id: 'class_role', label: 'บทบาทในห้อง' },
       { id: 'cleaning_duty', label: 'เวรทำความสะอาด' },
@@ -58,7 +59,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'health', name: 'ข้อมูลสุขภาพ', icon: 'bi-heart-pulse-fill', color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200',
+    id: 'health', name: 'ข้อมูลสุขภาพ', icon: 'bi-heart-pulse-fill', color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200', ring: 'ring-rose-500/30',
     fields: [
       { id: 'blood_group', label: 'กรุ๊ปเลือด' },
       { id: 'shirt_size', label: 'ไซส์เสื้อ' },
@@ -67,7 +68,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'contact', name: 'การติดต่อ', icon: 'bi-telephone-fill', color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200',
+    id: 'contact', name: 'การติดต่อ', icon: 'bi-telephone-fill', color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', ring: 'ring-indigo-500/30',
     fields: [
       { id: 'phone_number', label: 'เบอร์โทรศัพท์' },
       { id: 'phone_number_parent', label: 'เบอร์ผู้ปกครอง' },
@@ -78,7 +79,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'address', name: 'ที่อยู่', icon: 'bi-house-door-fill', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200',
+    id: 'address', name: 'ที่อยู่', icon: 'bi-house-door-fill', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', ring: 'ring-emerald-500/30',
     fields: [
       { id: 'address_house_no', label: 'บ้านเลขที่/หมู่/ซอย' },
       { id: 'address_road', label: 'ถนน' },
@@ -254,7 +255,7 @@ const handleExport = async () => {
                   :key="field.id"
                   @click="toggleField(field, cat)"
                   class="px-4 py-2 rounded-xl text-sm font-bold border transition-all active:scale-95 select-none flex items-center"
-                  :class="isFieldSelected(field.id) ? `${cat.color} ${cat.bg} border-transparent shadow-sm ring-1 ring-inset ring-${cat.color.replace('text-', '')}/30` : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'"
+                  :class="isFieldSelected(field.id) ? `${cat.color} ${cat.bg} border-transparent shadow-sm ring-1 ring-inset ${cat.ring}` : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'"
                 >
                   <i v-if="isFieldSelected(field.id)" class="bi bi-check2 me-1.5 text-lg leading-none"></i>
                   <i v-else class="bi bi-plus me-1.5 text-lg leading-none opacity-50"></i>

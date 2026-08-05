@@ -59,6 +59,26 @@ const fetchData = async () => {
 const pendingCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
 const doneCount = computed(() => tasks.value.filter(task => task.status === 'done').length)
 
+// 🗓️ แปลงวันที่ YYYY-MM-DD → ไทย (เช่น 5 ส.ค. 2569) และโชว์ว่าวันนี้/พรุ่งนี้
+const formatDueDate = (dateStr: string) => {
+  if (!dateStr) return '-';
+  const date = new Date(dateStr + 'T00:00:00');
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffTime = date.getTime() - today.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'วันนี้ (เลยกำหนด)';
+  if (diffDays === 1) return 'พรุ่งนี้';
+
+  return date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+};
+
 const filteredTasks = computed(() => {
   let result = tasks.value
   if (filter.value !== 'all') {
@@ -241,8 +261,8 @@ onMounted(fetchData)
           </div>
           
           <div class="flex items-center gap-2 text-slate-500 text-xs font-semibold mb-4 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
-            <i class="bi bi-calendar-event text-blue-500"></i> 
-            กำหนดส่ง: <span class="text-slate-700">{{ task.due_date }}</span>
+            <i class="bi bi-calendar-event text-blue-500"></i>
+            กำหนดส่ง: <span class="text-slate-700">{{ formatDueDate(task.due_date) }}</span>
           </div>
           
           <p class="text-slate-600 text-sm mb-6 whitespace-pre-wrap leading-relaxed flex-grow" :class="{ 'line-through text-slate-400': task.status === 'done' }">

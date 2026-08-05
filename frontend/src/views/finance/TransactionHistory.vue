@@ -291,10 +291,10 @@ const resetFilters = () => {
                     <div v-if="t.transfer_group_id && t.transaction_type === 'income'" class="text-slate-300 italic text-[11px] font-medium" title="ยกเลิกได้ที่รายการขาออก">
                       <i class="bi bi-link-45deg"></i> โอนเงิน
                     </div>
-                    <button 
+                    <button
                       v-else-if="isAdmin"
                       @click="handleRevert(t)"
-                      class="w-9 h-9 flex items-center justify-center text-rose-500 bg-white border border-slate-200 hover:border-rose-200 hover:bg-rose-50 hover:shadow-sm rounded-xl transition-all opacity-0 group-hover:opacity-100 mx-auto"
+                      class="w-9 h-9 flex items-center justify-center text-rose-500 bg-white border border-slate-200 hover:border-rose-200 hover:bg-rose-50 hover:shadow-sm rounded-xl transition-all md:opacity-0 md:group-hover:opacity-100 mx-auto"
                       title="ยกเลิกรายการ"
                     >
                       <i class="bi bi-arrow-counterclockwise text-lg"></i>

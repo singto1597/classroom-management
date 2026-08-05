@@ -272,7 +272,7 @@ const formatNumber = (num: number) => {
                 <h4 class="font-bold text-gray-800">{{ acc.account_name }}</h4>
                 <p class="text-gray-500 text-sm">คงเหลือ: <span class="text-blue-600 font-bold">฿ {{ formatNumber(acc.balance) }}</span></p>
               </div>
-              <div v-if="isAdmin" class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div v-if="isAdmin" class="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 <button @click="handleEditAccount(acc)" class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="แก้ไข">
                   <i class="bi bi-pencil-square"></i>
                 </button>
@@ -313,7 +313,7 @@ const formatNumber = (num: number) => {
                   class="bg-emerald-50 text-emerald-700 border border-emerald-100 py-1.5 px-3 rounded-full text-sm font-semibold flex items-center gap-2 group hover:bg-emerald-600 hover:text-white transition-all"
                 >
                   {{ cat.category_name }}
-                  <div v-if="isAdmin" class="flex gap-1 overflow-hidden w-0 group-hover:w-10 transition-all duration-300">
+                  <div v-if="isAdmin" class="flex gap-1.5 w-10 md:w-0 md:overflow-hidden md:group-hover:w-10 transition-all duration-300">
                     <i @click.stop="handleEditCategory(cat)" class="bi bi-pencil text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
                     <i @click.stop="handleDeleteCategory(cat.id)" class="bi bi-x-lg text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
                   </div>
@@ -327,13 +327,13 @@ const formatNumber = (num: number) => {
               </h5>
               <div v-if="expenseCategories.length === 0" class="text-center py-4 text-gray-300 text-xs italic">ไม่มีข้อมูล</div>
               <div class="flex flex-wrap gap-2">
-                <div 
-                  v-for="cat in expenseCategories" 
+                <div
+                  v-for="cat in expenseCategories"
                   :key="cat.id"
                   class="bg-rose-50 text-rose-700 border border-rose-100 py-1.5 px-3 rounded-full text-sm font-semibold flex items-center gap-2 group hover:bg-rose-600 hover:text-white transition-all"
                 >
                   {{ cat.category_name }}
-                  <div v-if="isAdmin" class="flex gap-1 overflow-hidden w-0 group-hover:w-10 transition-all duration-300">
+                  <div v-if="isAdmin" class="flex gap-1.5 w-10 md:w-0 md:overflow-hidden md:group-hover:w-10 transition-all duration-300">
                     <i @click.stop="handleEditCategory(cat)" class="bi bi-pencil text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
                     <i @click.stop="handleDeleteCategory(cat.id)" class="bi bi-x-lg text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
                   </div>
