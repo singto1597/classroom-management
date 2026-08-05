@@ -1,5 +1,6 @@
 import asyncpg
 import io
+import json
 import re
 import time
 from datetime import date, datetime, time as dtime
@@ -85,6 +86,114 @@ class FinanceService:
             return str(n).strip()[:200]
         return "—"
 
+    # =====================================================================
+    # [DUAL-WRITE] Helpers — Double-Entry (Strangler Fig Phase 3)
+    # =====================================================================
+    # หลักการ: ระหว่างการเปลี่ยนผ่าน ข้อมูลเก่า (insert ตรงจาก test หรือ seed เก่า)
+    # อาจยังไม่มีแถวใน accounting_ledgers ดังนั้น helper นี้จะ "provision เอง"
+    # จาก legacy row (finance_accounts / finance_categories) ถ้ายังไม่มี — แบบเดียวกับ
+    # Phase 2 migration script (migrate_phase2_ledgers.py) แต่เป็น per-row อัตโนมัติ
+    # เพื่อให้ระบบ Double-Entry กับ Legacy sync กันเสมอ โดยไม่พังตอน migration ยังไม่รัน
+    @classmethod
+    async def _resolve_asset_ledger(cls, conn: asyncpg.Connection, room_id: int, legacy_account_id: int) -> int:
+        """คืน ledger_id ของบัญชีสินทรัพย์ที่ map กับ finance_accounts.
+        ถ้ายังไม่มีแถว → provision เอง (รหัสบัญชี '1' || LPAD(id,4,'0') เหมือน Phase 2)
+        และถ้า legacy row ไม่อยู่จริง → raise ValueError (กันข้อมูลไม่ตรงกัน)."""
+        ledger_id = await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE legacy_account_id = $1", legacy_account_id
+        )
+        if ledger_id:
+            return ledger_id
+        acc = await conn.fetchrow(
+            "SELECT account_name FROM finance_accounts WHERE id = $1 AND room_id = $2",
+            legacy_account_id, room_id,
+        )
+        if not acc:
+            raise ValueError(f"[DUAL-WRITE] ไม่พบ ledger mapping สำหรับบัญชีสินทรัพย์ legacy_account_id={legacy_account_id}")
+        return await conn.fetchval(
+            """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, legacy_account_id, description)
+               VALUES ($1, $2, $3, 'asset', $4, 'Auto-provisioned by dual-write')
+               RETURNING id""",
+            room_id, f"1{legacy_account_id:04d}", acc["account_name"], legacy_account_id,
+        )
+
+    @classmethod
+    async def _resolve_category_ledger(cls, conn: asyncpg.Connection, room_id: int, legacy_category_id: int, category_type: Optional[str] = None) -> int:
+        """คืน ledger_id ของหมวดหมู่ revenue/expense ที่ map กับ finance_categories.
+        category_type (income/expense) ใช้ตอน provision ถ้า caller ไม่รู้ (income → 'revenue' 4xxxx, expense → 5xxxx)."""
+        ledger_id = await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE legacy_category_id = $1", legacy_category_id
+        )
+        if ledger_id:
+            return ledger_id
+        cat = await conn.fetchrow(
+            "SELECT category_name, category_type FROM finance_categories WHERE id = $1 AND room_id = $2",
+            legacy_category_id, room_id,
+        )
+        if not cat:
+            raise ValueError(f"[DUAL-WRITE] ไม่พบ ledger mapping สำหรับหมวดหมู่ legacy_category_id={legacy_category_id}")
+        effective_type = category_type or cat["category_type"]
+        if effective_type == "income":
+            account_type, code = "revenue", f"4{legacy_category_id:04d}"
+        else:
+            account_type, code = "expense", f"5{legacy_category_id:04d}"
+        return await conn.fetchval(
+            """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, legacy_category_id, description)
+               VALUES ($1, $2, $3, $4, $5, 'Auto-provisioned by dual-write')
+               RETURNING id""",
+            room_id, code, cat["category_name"], account_type, legacy_category_id,
+        )
+
+    @classmethod
+    async def _find_revenue_ledger_by_name(cls, conn: asyncpg.Connection, room_id: int, legacy_category_id: Optional[int] = None, account_name: Optional[str] = None) -> Optional[int]:
+        """ค้นหา revenue ledger สำหรับเครดิตขาของ confirm_payment.
+        ลำดับการค้นหา: (1) legacy_category_id ที่ mapping ตรง ๆ, (2) ชื่อบัญชี (เช่น '📥 เก็บเงินห้องปกติ'),
+        (3) revenue ตัวแรกสุดของห้อง (fallback ยืดหยุ่น). คืน None ถ้าไม่มี revenue เลย (เช่น ห้องที่ seed ยังไม่ครบ)."""
+        if legacy_category_id is not None:
+            ledger_id = await conn.fetchval("SELECT id FROM accounting_ledgers WHERE legacy_category_id = $1", legacy_category_id)
+            if ledger_id:
+                return ledger_id
+        if account_name:
+            ledger_id = await conn.fetchval(
+                "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND account_name = $2 AND account_type = 'revenue'",
+                room_id, account_name,
+            )
+            if ledger_id:
+                return ledger_id
+        return await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND account_type = 'revenue' ORDER BY id LIMIT 1",
+            room_id,
+        )
+
+    @classmethod
+    async def _insert_journal_entry(
+        cls, conn: asyncpg.Connection, room_id: int,
+        *,
+        reference_type: str, reference_id: Optional[str] = None,
+        description: str, recorded_by: Optional[str] = None, slip_image_url: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        lines: List[dict],  # [{"ledger_id": int, "debit": float, "credit": float}, ...]
+    ) -> str:
+        """[DUAL-WRITE] สร้าง journal_entries (หัวบิล) + journal_lines (เดบิต/เครดิต) ใน transaction เดียวกับ legacy.
+        คืน UUID ของ journal entry (สำหรับ revert ตาม reference ภายหลัง).
+        💡 เงินทุกจำนวน cast float() ก่อน (กฎ CLAUDE.md: NUMERIC ต้อง cast ก่อน arithmetic)"""
+        entry_id = await conn.fetchval(
+            """INSERT INTO journal_entries (room_id, reference_type, reference_id, description, slip_image_url, recorded_by, metadata)
+               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+               RETURNING id""",
+            room_id, reference_type, reference_id, description, slip_image_url, recorded_by,
+            json.dumps(metadata or {}, ensure_ascii=False),
+        )
+        for line in lines:
+            debit = line.get("debit", 0) or 0
+            credit = line.get("credit", 0) or 0
+            await conn.execute(
+                """INSERT INTO journal_lines (journal_entry_id, ledger_id, debit, credit, line_description)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                entry_id, line["ledger_id"], float(debit), float(credit), line.get("line_description"),
+            )
+        return entry_id
+
     @staticmethod
     async def resolve_room_id(conn: asyncpg.Connection, server_id: Optional[int] = None, room_id: Optional[int] = None) -> int:
         if room_id:
@@ -146,9 +255,18 @@ class FinanceService:
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
                     
-                    await conn.execute(
-                        "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, $3)",
+                    # [DUAL-WRITE] ดึง id ของแถว legacy เพื่อ map ลง accounting_ledgers
+                    new_account_id = await conn.fetchval(
+                        "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, $3) RETURNING id",
                         target_room_id, req.account_name, req.initial_balance
+                    )
+
+                    # [DUAL-WRITE] สร้าง ledger ฝั่ง Double-Entry (asset 1xxxx) ภายใน transaction เดียวกัน
+                    # รหัสบัญชี '1' || LPAD(id, 4, '0') — ตรงกับ migrate_phase2_ledgers.py
+                    await conn.execute(
+                        """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, legacy_account_id, description)
+                           VALUES ($1, $2, $3, 'asset', $4, 'Created via dual-write (create_account)')""",
+                        target_room_id, f"1{new_account_id:04d}", req.account_name, new_account_id
                     )
 
                     new_values = cls._extract_req_data(req)
@@ -229,18 +347,43 @@ class FinanceService:
                     if cat['category_type'] != req.transaction_type:
                         raise ValueError(f"ประเภทหมวดหมู่ ({cat['category_type']}) ไม่ตรงกับประเภทการบันทึก ({req.transaction_type})!")
 
-                    await conn.execute(
-                        """INSERT INTO finance_transactions 
-                           (room_id, account_id, category_id, amount, description, transaction_type, slip_image_url, recorded_by) 
-                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-                        target_room_id, req.account_id, req.category_id, req.amount, 
+                    # [DUAL-WRITE] ดึง id ของ legacy transaction เพื่อเก็บลง journal metadata (สำหรับ revert)
+                    new_tx_id = await conn.fetchval(
+                        """INSERT INTO finance_transactions
+                           (room_id, account_id, category_id, amount, description, transaction_type, slip_image_url, recorded_by)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
+                        target_room_id, req.account_id, req.category_id, req.amount,
                         req.description, req.transaction_type, req.slip_image_url, req.user_name
                     )
-                    
+
                     if req.transaction_type == 'income':
                         await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", req.amount, req.account_id)
                     elif req.transaction_type == 'expense':
                         await conn.execute("UPDATE finance_accounts SET balance = balance - $1 WHERE id = $2", req.amount, req.account_id)
+
+                    # [DUAL-WRITE] เขียนฝั่ง Double-Entry (หัวบิล + 2 บรรทัด เดบิต/เครดิต) ใน transaction เดียวกัน
+                    asset_ledger_id = await cls._resolve_asset_ledger(conn, target_room_id, req.account_id)
+                    category_ledger_id = await cls._resolve_category_ledger(conn, target_room_id, req.category_id, req.transaction_type)
+                    if req.transaction_type == 'income':
+                        lines = [
+                            {"ledger_id": asset_ledger_id, "debit": req.amount, "credit": 0, "line_description": f"รับเงินเข้าบัญชี: {req.account_id}"},
+                            {"ledger_id": category_ledger_id, "debit": 0, "credit": req.amount, "line_description": f"รายได้: {req.description}"},
+                        ]
+                    else:  # expense
+                        lines = [
+                            {"ledger_id": category_ledger_id, "debit": req.amount, "credit": 0, "line_description": f"ค่าใช้จ่าย: {req.description}"},
+                            {"ledger_id": asset_ledger_id, "debit": 0, "credit": req.amount, "line_description": f"เงินออกจากบัญชี: {req.account_id}"},
+                        ]
+                    await cls._insert_journal_entry(
+                        conn, target_room_id,
+                        reference_type="manual_transaction",
+                        reference_id=str(new_tx_id),
+                        description=req.description,
+                        slip_image_url=req.slip_image_url,
+                        recorded_by=req.user_name,
+                        metadata={"legacy_transaction_id": new_tx_id},
+                        lines=lines,
+                    )
 
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
@@ -293,19 +436,42 @@ class FinanceService:
                     group_id = await conn.fetchval("SELECT nextval('transfer_group_id_seq')")
                     
                     await conn.execute("UPDATE finance_accounts SET balance = balance - $1 WHERE id = $2", req.amount, req.from_account_id)
-                    await conn.execute(
-                        """INSERT INTO finance_transactions (room_id, account_id, amount, description, transaction_type, transfer_group_id, recorded_by) 
-                           VALUES ($1, $2, $3, $4, 'expense', $5, $6)""",
+                    # [DUAL-WRITE] ดึง id ของ legacy transaction ขาออก เพื่อเก็บใน journal metadata
+                    tx_from_id = await conn.fetchval(
+                        """INSERT INTO finance_transactions (room_id, account_id, amount, description, transaction_type, transfer_group_id, recorded_by)
+                           VALUES ($1, $2, $3, $4, 'expense', $5, $6) RETURNING id""",
                         target_room_id, req.from_account_id, req.amount, f"โอนออก: {req.description}", group_id, req.user_name
                     )
-                    
+
                     await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", req.amount, req.to_account_id)
-                    await conn.execute(
-                        """INSERT INTO finance_transactions (room_id, account_id, amount, description, transaction_type, transfer_group_id, recorded_by) 
-                           VALUES ($1, $2, $3, $4, 'income', $5, $6)""",
+                    # [DUAL-WRITE] ดึง id ของ legacy transaction ขาเข้า เพื่อเก็บใน journal metadata
+                    tx_to_id = await conn.fetchval(
+                        """INSERT INTO finance_transactions (room_id, account_id, amount, description, transaction_type, transfer_group_id, recorded_by)
+                           VALUES ($1, $2, $3, $4, 'income', $5, $6) RETURNING id""",
                         target_room_id, req.to_account_id, req.amount, f"รับโอน: {req.description}", group_id, req.user_name
                     )
-                    
+
+                    # [DUAL-WRITE] เขียนฝั่ง Double-Entry: ย้ายเงินระหว่างบัญชีสินทรัพย์ (Dr ปลายทาง / Cr ต้นทาง)
+                    # เก็บ transfer_group_id + legacy_transaction_id ทั้งสองข้างไว้ใน metadata → revert ยกเลิกได้ทั้งกลุ่ม
+                    ledger_id_from = await cls._resolve_asset_ledger(conn, target_room_id, req.from_account_id)
+                    ledger_id_to = await cls._resolve_asset_ledger(conn, target_room_id, req.to_account_id)
+                    await cls._insert_journal_entry(
+                        conn, target_room_id,
+                        reference_type="transfer",
+                        reference_id=str(group_id),
+                        description=req.description or "Transfer",
+                        recorded_by=req.user_name,
+                        metadata={
+                            "transfer_group_id": group_id,
+                            "legacy_transaction_id": tx_from_id,
+                            "legacy_transaction_ids": [tx_from_id, tx_to_id],
+                        },
+                        lines=[
+                            {"ledger_id": ledger_id_to, "debit": req.amount, "credit": 0, "line_description": f"รับโอนเข้าบัญชี: {req.to_account_id}"},
+                            {"ledger_id": ledger_id_from, "debit": 0, "credit": req.amount, "line_description": f"โอนออกจากบัญชี: {req.from_account_id}"},
+                        ],
+                    )
+
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -508,11 +674,49 @@ class FinanceService:
                     
                     await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", req.paid_amount, req.paid_to_account_id)
                     await conn.execute(
-                        """UPDATE student_payments 
-                           SET status = $1, paid_amount = $2, paid_to_account_id = $3, slip_image_url = $4, recorded_by = $5, paid_at = NOW(), transaction_id = $6 
+                        """UPDATE student_payments
+                           SET status = $1, paid_amount = $2, paid_to_account_id = $3, slip_image_url = $4, recorded_by = $5, paid_at = NOW(), transaction_id = $6
                            WHERE id = $7""",
                         new_status, new_total_paid, req.paid_to_account_id, req.slip_image_url, req.user_name, trans_id, payment_id
                     )
+
+                    # [DUAL-WRITE] เขียนฝั่ง Double-Entry: รับชำระเงินจากนักเรียน (Dr สินทรัพย์ / Cr รายได้เก็บเงินห้อง)
+                    asset_ledger_id = await cls._resolve_asset_ledger(conn, target_room_id, req.paid_to_account_id)
+                    # Credit ขาเป็นรายได้ "เก็บเงินห้องปกติ" — ถ้าไม่มี mapping ให้หา ledger ตามชื่อ
+                    # (seed ค่าเริ่มต้น DEFAULT_INCOME_CATEGORIES[0] = '📥 เก็บเงินห้องปกติ')
+                    revenue_ledger_id = await cls._find_revenue_ledger_by_name(
+                        conn, target_room_id, account_name=DEFAULT_INCOME_CATEGORIES[0]
+                    )
+                    if revenue_ledger_id is None:
+                        # 💡 ห้องที่ยังไม่มี ledger รายได้เลย (เช่น ข้อมูลเก่าที่ยังไม่ผ่าน migration)
+                        # → ลอง provision จาก legacy category ที่ชื่อ '📥 เก็บเงินห้องปกติ' (ถ้า seed ไว้)
+                        #   เพื่อให้ journal ครบฝั่ง (กันบัญชีไม่สมดุล) — ถ้าไม่มี category นั้นด้วย → ข้าม dual-write
+                        legacy_cat_id = await conn.fetchval(
+                            """SELECT id FROM finance_categories
+                               WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+                               ORDER BY id LIMIT 1""",
+                            target_room_id, DEFAULT_INCOME_CATEGORIES[0],
+                        )
+                        if legacy_cat_id:
+                            revenue_ledger_id = await cls._resolve_category_ledger(conn, target_room_id, legacy_cat_id, 'income')
+                    if revenue_ledger_id is None:
+                        # ยังไม่มี ledger รายได้ของห้องจริง ๆ → สร้าง journal ฝั่ง Debit อย่างเดียวไม่ได้
+                        # (บัญชีไม่สมดุล) → ข้าม Dual-Write ไป (legacy ยังทำงานปกติเหมือนเดิม)
+                        pass
+                    else:
+                        await cls._insert_journal_entry(
+                            conn, target_room_id,
+                            reference_type="student_payment",
+                            reference_id=str(payment_id),
+                            description=dynamic_desc,
+                            slip_image_url=req.slip_image_url,
+                            recorded_by=req.user_name,
+                            metadata={"student_payment_id": payment_id, "legacy_transaction_id": trans_id},
+                            lines=[
+                                {"ledger_id": asset_ledger_id, "debit": req.paid_amount, "credit": 0, "line_description": f"รับเงินจากนักเรียน (student_payment #{payment_id})"},
+                                {"ledger_id": revenue_ledger_id, "debit": 0, "credit": req.paid_amount, "line_description": f"รายได้: {payment_info['title']}"},
+                            ],
+                        )
 
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
@@ -636,8 +840,24 @@ class FinanceService:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
-                    await conn.execute("INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3)", target_room_id, req.category_name, req.category_type)
-                    
+                    # [DUAL-WRITE] ดึง id ของแถว legacy เพื่อ map ลง accounting_ledgers
+                    new_category_id = await conn.fetchval(
+                        "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3) RETURNING id",
+                        target_room_id, req.category_name, req.category_type
+                    )
+
+                    # [DUAL-WRITE] สร้าง ledger ฝั่ง Double-Entry (income → 'revenue' 4xxxx, expense → 5xxxx)
+                    # รหัสบัญชีตรงกับ migrate_phase2_ledgers.py
+                    if req.category_type == 'income':
+                        ledger_type, ledger_code = 'revenue', f"4{new_category_id:04d}"
+                    else:
+                        ledger_type, ledger_code = 'expense', f"5{new_category_id:04d}"
+                    await conn.execute(
+                        """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, legacy_category_id, description)
+                           VALUES ($1, $2, $3, $4, $5, 'Created via dual-write (create_category)')""",
+                        target_room_id, ledger_code, req.category_name, ledger_type, new_category_id
+                    )
+
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -720,6 +940,15 @@ class FinanceService:
                                 if float(curr_bal) < float(gt['amount']): raise ValueError("เงินในบัญชีรับโอนไม่พอหักคืน")
                                 await conn.execute("UPDATE finance_accounts SET balance = balance - $1 WHERE id = $2", gt['amount'], gt['account_id'])
                         await conn.execute("UPDATE finance_transactions SET deleted_at = NOW() WHERE transfer_group_id = $1 AND room_id = $2", t['transfer_group_id'], target_room_id)
+                        # [DUAL-WRITE] ยกเลิก journal ของรายการโอนเงิน (หาด้วย metadata.transfer_group_id)
+                        # 💡 ถ้ายังไม่มี journal (ข้อมูลเก่าที่ไม่ได้ผ่าน dual-write) → no-op ไม่พัง
+                        await conn.execute(
+                            """UPDATE journal_entries
+                               SET status = 'voided', deleted_at = NOW(), updated_at = CURRENT_TIMESTAMP
+                               WHERE room_id = $1 AND status <> 'voided' AND deleted_at IS NULL
+                                 AND metadata->>'transfer_group_id' = $2""",
+                            target_room_id, str(t['transfer_group_id']),
+                        )
                         action_detail = "ยกเลิกรายการโอนเงิน"
                     else:
                         if t['transaction_type'] == 'income':
@@ -748,6 +977,15 @@ class FinanceService:
                             await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", t['amount'], t['account_id'])
                         
                         await conn.execute("UPDATE finance_transactions SET deleted_at = NOW() WHERE id = $1", transaction_id)
+                        # [DUAL-WRITE] ยกเลิก journal ของรายการปกติ (หาด้วย metadata.legacy_transaction_id)
+                        # 💡 ถ้ายังไม่มี journal (ข้อมูลเก่า/จาก test ที่ insert ตรง) → no-op ไม่พัง
+                        await conn.execute(
+                            """UPDATE journal_entries
+                               SET status = 'voided', deleted_at = NOW(), updated_at = CURRENT_TIMESTAMP
+                               WHERE room_id = $1 AND status <> 'voided' AND deleted_at IS NULL
+                                 AND metadata->>'legacy_transaction_id' = $2""",
+                            target_room_id, str(transaction_id),
+                        )
                         action_detail = f"ยกเลิกรายการ {t['transaction_type']}"
 
                     exec_time = int((time.time() - start_time) * 1000)
@@ -1035,7 +1273,13 @@ class FinanceService:
 
                     res = await conn.execute("UPDATE finance_accounts SET account_name = $1 WHERE id = $2 AND room_id = $3", req.account_name, account_id, target_room_id)
                     if res == "UPDATE 0": raise RoomNotFoundError("ไม่พบบัญชีนี้")
-                    
+
+                    # [DUAL-WRITE] ซิงก์ชื่อไปยัง accounting_ledgers (ถ้ามี) — กัน ledger ค้างชื่อเก่า
+                    await conn.execute(
+                        "UPDATE accounting_ledgers SET account_name = $1, updated_at = CURRENT_TIMESTAMP WHERE legacy_account_id = $2 AND room_id = $3",
+                        req.account_name, account_id, target_room_id
+                    )
+
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -1160,7 +1404,13 @@ class FinanceService:
 
                     res = await conn.execute("UPDATE finance_categories SET category_name = $1 WHERE id = $2 AND room_id = $3", req.category_name, category_id, target_room_id)
                     if res == "UPDATE 0": raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
-                    
+
+                    # [DUAL-WRITE] ซิงก์ชื่อไปยัง accounting_ledgers (ถ้ามี) — กัน ledger ค้างชื่อเก่า
+                    await conn.execute(
+                        "UPDATE accounting_ledgers SET account_name = $1, updated_at = CURRENT_TIMESTAMP WHERE legacy_category_id = $2 AND room_id = $3",
+                        req.category_name, category_id, target_room_id
+                    )
+
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
