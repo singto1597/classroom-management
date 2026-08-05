@@ -25,11 +25,18 @@ const showInactive = ref(false);
 const fetchData = async () => {
   isLoading.value = true;
   try {
-    if (currentTab.value === 'active') {
-      const data = await StudentService.getStudents(currentRoomId);
-      students.value = Array.isArray(data) ? data : [];
-    } else if (canManageStudents.value) {
-      pendingStudents.value = await StudentService.getPendingRequests(currentRoomId);
+    // ✅ ดึงทั้งรายชื่อ active และ pending พร้อมกันเสมอ
+    // (แอดมินที่อยู่ tab active ต้องเห็น badge จำนวนคำรออนุมัติด้วย)
+    const [activeRes, pendingRes] = await Promise.allSettled([
+      StudentService.getStudents(currentRoomId),
+      canManageStudents.value ? StudentService.getPendingRequests(currentRoomId) : Promise.resolve([])
+    ]);
+
+    if (activeRes.status === 'fulfilled') {
+      students.value = Array.isArray(activeRes.value) ? activeRes.value : [];
+    }
+    if (pendingRes.status === 'fulfilled' && canManageStudents.value) {
+      pendingStudents.value = Array.isArray(pendingRes.value) ? pendingRes.value : [];
     }
   } catch (error: any) {
     Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: error.response?.data?.detail || 'ไม่สามารถโหลดข้อมูลได้' });
@@ -40,6 +47,7 @@ const fetchData = async () => {
 
 const switchTab = (tab: 'active' | 'pending') => {
   currentTab.value = tab;
+  // fetchData ดึงทั้งสองรายการพร้อมกันอยู่แล้ว (active + pending badge) จึงไม่ต้องแบ่งสาขา
   fetchData();
 };
 
