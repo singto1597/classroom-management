@@ -3,7 +3,7 @@ import io
 import json
 import re
 import time
-from datetime import date, datetime, time as dtime
+from datetime import date, datetime, time as dtime, timedelta
 from typing import List, Optional, Dict, Any
 from zoneinfo import ZoneInfo
 
@@ -18,7 +18,58 @@ from core.rbac import require_permission, require_member
 
 THAI_TZ = ZoneInfo("Asia/Bangkok")
 
+# [ROUTER] 🗓️ จุดแบ่งยุค (Cut-off) ระหว่างระบบ Single-Entry (legacy) กับ Double-Entry
+# =================================================================================
+# วันที่ 2026-09-01 เป็นวันที่ยอดยกมา (Opening Balance, Phase 2.5) เข้า journal_entries
+# → ข้อมูลก่อนวันนี้ อ่านจากตารางเก่า (finance_transactions) เท่านั้น
+# → ข้อมูลตั้งแต่วันนี้ขึ้นไป อ่านจากระบบบัญชีคู่ (journal_entries/journal_lines)
+#   เพื่อไม่ให้รายการเก่า/ยอดยกมา เบิ้ลหรือตกหล่น
+CUTOFF_DATE = date(2026, 9, 1)
+
 service_logger = AuditLogger(service_name="FINANCE")
+
+
+# [ROUTER] view ขนาดเล็ก ใช้ส่ง month/year/start_date/end_date แบบสลับกันไปมา
+# ระหว่าง router กับ _resolve_export_period (เดิมรับ req object เดียว)
+def _legacy_id_from_journal(metadata: dict, journal_uuid: str) -> int:
+    """[DOUBLE-ENTRY] สังเคราะห์ TransactionResponse.id จาก journal.
+
+    ระบบเดิม (frontend + revert_transaction) อ้างอิงธุรกรรมด้วย finance_transactions.id
+    ซึ่ง journal เก็บไว้ใน metadata ('legacy_transaction_id' หรือ 'transfer_group_id').
+    - ถ้ามี → คืนค่า int นั้น (revert ได้จริง)
+    - ถ้าไม่มี (เช่น opening_balance) → คืนค่าลบที่ derived จาก UUID (คอลัมน์ไม่ซ้ำกัน,
+      แต่ไม่สามารถใช้ revert ได้ — ตรงกับธรรมชาติของยอดยกมาที่ไม่ใช่ธุรกรรมรายการ)
+    """
+    if not isinstance(metadata, dict):
+        metadata = {}
+    for key in ("legacy_transaction_id", "transfer_group_id"):
+        val = metadata.get(key)
+        if val is not None:
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                continue
+    # fallback: ใช้ hash ของ UUID มาสร้าง id ลบ (กันหน้าจอ key ซ้ำ)
+    try:
+        return -(abs(hash(str(journal_uuid))) % (2**31 - 1) + 1)
+    except Exception:
+        return -1
+
+
+# [ROUTER] view ขนาดเล็ก ใช้ส่ง month/year/start_date/end_date แบบสลับกันไปมา
+# ระหว่าง router กับ _resolve_export_period (เดิมรับ req object เดียว)
+class _ExportPeriodView:
+    def __init__(
+        self,
+        month: Optional[int] = None,
+        year: Optional[int] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ):
+        self.month = month
+        self.year = year
+        self.start_date = start_date
+        self.end_date = end_date
 
 # 🎯 หมวดหมู่รายรับ/รายจ่ายค่าเริ่มต้น — seed ให้ทุกห้องทันทีที่สร้างห้อง
 # (RoomManagementService.create_room นำไป INSERT ลง finance_categories)
@@ -85,6 +136,29 @@ class FinanceService:
         if n is not None and str(n).strip():
             return str(n).strip()[:200]
         return "—"
+
+    # =====================================================================
+    # [ROUTER] ตัวช่วยตัดสินใจว่าจะอ่านจากระบบเก่า (legacy) หรือบัญชีคู่ (v2)
+    # =====================================================================
+    @staticmethod
+    def _period_start(
+        month: Optional[int] = None, year: Optional[int] = None,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+    ) -> Optional[date]:
+        """จุดเริ่มต้นของช่วงเวลาที่ถูกขอ → ใช้ตัดสินใจ Route ไป legacy หรือ v2.
+
+        - month/year: วันที่ 1 ของเดือน
+        - start_date: ตัวมันเอง (หรือจุดเริ่มต้นของช่วง)
+        - ไม่ระบุเลย: ใช้จุดเริ่มต้นของเดือนปัจจุบัน (ทำนองเดียวกับ legacy fallback)
+        คืน None ไม่มีทางเกิดขึ้นจริง (เดือนปัจจุบันมีจุดเริ่มเสมอ) แต่ใส่เผื่อ type safety.
+        """
+        if month is not None and year is not None:
+            return date(year, month, 1)
+        if start_date is not None:
+            return start_date
+        # ไม่มีตัวกรองช่วงเวลา → default เป็นเดือนปัจจุบัน (ตรงกับ logic เดิมของ get_summary)
+        today = datetime.now(THAI_TZ).date()
+        return date(today.year, today.month, 1)
 
     # =====================================================================
     # [DUAL-WRITE] Helpers — Double-Entry (Strangler Fig Phase 3)
@@ -493,6 +567,9 @@ class FinanceService:
                 pass
             raise e
 
+    # =====================================================================
+    # [ROUTER] get_transactions — เลือกอ่านจาก legacy หรือ Double-Entry ตามช่วงเวลา
+    # =====================================================================
     @classmethod
     async def get_transactions(
         cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, limit: int = 50, offset: int = 0,
@@ -507,52 +584,47 @@ class FinanceService:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
-                where_clause = "WHERE T.room_id = $1 AND T.deleted_at IS NULL"
-                params = [target_room_id]
-                param_idx = 2
-                
-                if start_date:
-                    where_clause += f" AND DATE(T.created_at) >= ${param_idx}"
-                    params.append(start_date); param_idx += 1
-                if end_date:
-                    where_clause += f" AND DATE(T.created_at) <= ${param_idx}"
-                    params.append(end_date); param_idx += 1
-                if account_id:
-                    where_clause += f" AND T.account_id = ${param_idx}"
-                    params.append(account_id); param_idx += 1
-                if category_id:
-                    where_clause += f" AND T.category_id = ${param_idx}"
-                    params.append(category_id); param_idx += 1
-                if transaction_type:
-                    where_clause += f" AND T.transaction_type = ${param_idx}"
-                    params.append(transaction_type); param_idx += 1
-                    
-                total_count = await conn.fetchval(f"SELECT COUNT(*) FROM finance_transactions T {where_clause}", *params)
 
-                data_sql = f"""
-                    SELECT 
-                        T.id, T.amount, T.description, T.transaction_type, T.created_at, 
-                        T.slip_image_url, T.recorded_by, T.transfer_group_id,
-                        A.account_name, C.category_name 
-                    FROM finance_transactions T
-                    LEFT JOIN finance_accounts A ON T.account_id = A.id
-                    LEFT JOIN finance_categories C ON T.category_id = C.id
-                    {where_clause}
-                    ORDER BY T.created_at DESC LIMIT ${param_idx} OFFSET ${param_idx+1}
-                """
-                data_params = params.copy()
-                data_params.extend([limit, offset])
-                
-                rows = await conn.fetch(data_sql, *data_params)
-                result = {"total_count": total_count, "items": [dict(row) for row in rows]}
+                # [ROUTER] ไม่ระบุช่วงเวลา = "ทั้งหมด" → ครอบทั้งสองยุค (มีข้อมูลก่อน cutoff
+                # อยู่ในตารางเก่าเท่านั้น) → ต้องอ่าน legacy เสมอ
+                if start_date is None and end_date is None:
+                    return await cls._get_transactions_legacy(
+                        conn=conn, room_id=target_room_id,
+                        limit=limit, offset=offset,
+                        start_date=start_date, end_date=end_date,
+                        account_id=account_id, category_id=category_id,
+                        transaction_type=transaction_type,
+                        client_source=client_source, actor_identifier=actor_identifier,
+                        start_time=start_time,
+                    )
 
-                exec_time = int((time.time() - start_time) * 1000)
-                await service_logger.log(
-                    conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=target_room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
-                    endpoint_or_command="FinanceService.get_transactions", execution_time_ms=exec_time
+                # [ROUTER] มีช่วงเวลา → ตัดสินจากจุดเริ่มของช่วง (ถ้าให้แค่ end_date
+                # จะมองว่าจุดเริ่ม = จุดเริ่มต้นประวัติ → ตกรุ่น legacy อย่างปลอดภัย)
+                period_start = start_date or date.min
+                use_v2 = period_start >= CUTOFF_DATE
+
+                if use_v2:
+                    # [ROUTER] ขอข้อมูลหลังวันที่ตัด → อ่านจาก journal_entries/journal_lines
+                    # (ถ้าเกินหน้าออกไปก่อนยอดยกมา เช่น start ก่อน 2026-09-01 จะตกรุ่นไปใช้ legacy)
+                    return await cls._get_transactions_v2(
+                        conn=conn, room_id=target_room_id,
+                        limit=limit, offset=offset,
+                        start_date=start_date, end_date=end_date,
+                        account_id=account_id, category_id=category_id,
+                        transaction_type=transaction_type,
+                        client_source=client_source, actor_identifier=actor_identifier,
+                        start_time=start_time,
+                    )
+                # [ROUTER] ข้อมูลก่อนวันที่ตัด (หรือข้ามช่วง) → อ่านจากตารางเก่า
+                return await cls._get_transactions_legacy(
+                    conn=conn, room_id=target_room_id,
+                    limit=limit, offset=offset,
+                    start_date=start_date, end_date=end_date,
+                    account_id=account_id, category_id=category_id,
+                    transaction_type=transaction_type,
+                    client_source=client_source, actor_identifier=actor_identifier,
+                    start_time=start_time,
                 )
-                return result
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
@@ -565,6 +637,283 @@ class FinanceService:
             except Exception:
                 pass
             raise e
+
+    @classmethod
+    async def _get_transactions_legacy(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        limit: int = 50, offset: int = 0,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        account_id: Optional[int] = None, category_id: Optional[int] = None, transaction_type: Optional[str] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> dict:
+        """[ROUTER-LEGACY] Logic เดิมของ get_transactions — อ่านจาก finance_transactions (Single-Entry)."""
+        where_clause = "WHERE T.room_id = $1 AND T.deleted_at IS NULL"
+        params = [room_id]
+        param_idx = 2
+
+        if start_date:
+            where_clause += f" AND DATE(T.created_at) >= ${param_idx}"
+            params.append(start_date); param_idx += 1
+        if end_date:
+            where_clause += f" AND DATE(T.created_at) <= ${param_idx}"
+            params.append(end_date); param_idx += 1
+        if account_id:
+            where_clause += f" AND T.account_id = ${param_idx}"
+            params.append(account_id); param_idx += 1
+        if category_id:
+            where_clause += f" AND T.category_id = ${param_idx}"
+            params.append(category_id); param_idx += 1
+        if transaction_type:
+            where_clause += f" AND T.transaction_type = ${param_idx}"
+            params.append(transaction_type); param_idx += 1
+
+        total_count = await conn.fetchval(f"SELECT COUNT(*) FROM finance_transactions T {where_clause}", *params)
+
+        data_sql = f"""
+            SELECT
+                T.id, T.amount, T.description, T.transaction_type, T.created_at,
+                T.slip_image_url, T.recorded_by, T.transfer_group_id,
+                A.account_name, C.category_name
+            FROM finance_transactions T
+            LEFT JOIN finance_accounts A ON T.account_id = A.id
+            LEFT JOIN finance_categories C ON T.category_id = C.id
+            {where_clause}
+            ORDER BY T.created_at DESC LIMIT ${param_idx} OFFSET ${param_idx+1}
+        """
+        data_params = params.copy()
+        data_params.extend([limit, offset])
+
+        rows = await conn.fetch(data_sql, *data_params)
+        result = {"total_count": total_count, "items": [dict(row) for row in rows]}
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
+                endpoint_or_command="FinanceService.get_transactions", execution_time_ms=exec_time
+            )
+        return result
+
+    # =====================================================================
+    # [DOUBLE-ENTRY] _get_transactions_v2 — แปลง Dr/Cr จาก journal กลับเป็น
+    # schema เดิมที่ frontend ใช้ (TransactionResponse) โดยไม่ให้ frontend แก้ไข
+    # =====================================================================
+    @classmethod
+    async def _get_transactions_v2(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        limit: int = 50, offset: int = 0,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        account_id: Optional[int] = None, category_id: Optional[int] = None, transaction_type: Optional[str] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> dict:
+        """อ่านประวัติจากระบบบัญชีคู่ (journal_entries + journal_lines) แล้วจัดรูป
+        ให้เหมือน legacy (TransactionResponse) เพื่อ frontend ไม่ต้องแก้เลย.
+
+        หลักการจัดประเภท (ตามสเปค Phase 4):
+        - income  : สินทรัพย์ เดบิต>0  + บัญชีรายได้ เครดิต>0  (รับเงินเข้า)
+        - expense : สินทรัพย์ เครดิต>0 + บัญชีค่าใช้จ่าย เดบิต>0 (เงินออก)
+        - transfer: สินทรัพย์ 2 บัญชี (ฝั่งหนึ่ง เดบิต>0 / อีกฝั่ง เครดิต>0)
+        - opening_balance: แสดงเป็น income (เงินเข้า Asset) — ยอด = เดบิตฝั่ง Asset
+        """
+        where_cond, params = ["JE.room_id = $1 AND JE.deleted_at IS NULL"], [room_id]
+        idx = 2
+        if start_date:
+            where_cond.append(f"DATE(JE.transaction_date) >= ${idx}"); params.append(start_date); idx += 1
+        if end_date:
+            where_cond.append(f"DATE(JE.transaction_date) <= ${idx}"); params.append(end_date); idx += 1
+        if account_id:
+            # [DOUBLE-ENTRY] กรองด้วยบัญชีสินทรัพย์: journal ใดก็ตามที่ asset ledger นี้มีบทบาท (Dr หรือ Cr)
+            where_cond.append(f"""
+                EXISTS (
+                    SELECT 1 FROM journal_lines JLx
+                    JOIN accounting_ledgers ALx ON JLx.ledger_id = ALx.id
+                    WHERE JLx.journal_entry_id = JE.id AND ALx.room_id = $1
+                      AND ALx.legacy_account_id = ${idx} AND (JLx.debit > 0 OR JLx.credit > 0)
+                )""")
+            params.append(account_id); idx += 1
+        if category_id:
+            # [DOUBLE-ENTRY] กรองด้วยหมวดหมู่ (revenue/expense): journal ที่ ledger นั้นมีบทบาท
+            where_cond.append(f"""
+                EXISTS (
+                    SELECT 1 FROM journal_lines JLx2
+                    JOIN accounting_ledgers ALx2 ON JLx2.ledger_id = ALx2.id
+                    WHERE JLx2.journal_entry_id = JE.id AND ALx2.room_id = $1
+                      AND ALx2.legacy_category_id = ${idx} AND (JLx2.debit > 0 OR JLx2.credit > 0)
+                )""")
+            params.append(category_id); idx += 1
+
+        # [DOUBLE-ENTRY] ยกทุกบรรทัดของ journal ที่ผ่าน filter ขึ้นมา (หลายบรรทัดต่อ 1 บิล)
+        # แล้วจัดประเภทที่ฝั่ง Python (อ่านง่ายกว่า SQL หลายชั้น)
+        data_sql = f"""
+            SELECT
+                JE.id AS journal_entry_id,
+                JE.reference_type, JE.reference_id,
+                JE.description AS entry_description,
+                JE.transaction_date, JE.recorded_by,
+                JE.slip_image_url, JE.metadata,
+                L.id AS line_id, L.debit, L.credit, L.line_description,
+                AL.id AS ledger_id, AL.account_code, AL.account_name, AL.account_type,
+                AL.legacy_account_id, AL.legacy_category_id
+            FROM journal_entries JE
+            JOIN journal_lines L ON L.journal_entry_id = JE.id
+            JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+            WHERE {' AND '.join(where_cond)}
+              AND JE.status <> 'voided'
+            ORDER BY JE.transaction_date DESC, JE.id DESC
+        """
+        rows = await conn.fetch(data_sql, *params)
+
+        # [DOUBLE-ENTRY] กลุ่มบรรทัดตามหัวบิล
+        entries: Dict[str, dict] = {}
+        for r in rows:
+            entry_id = str(r["journal_entry_id"])
+            if entry_id not in entries:
+                entries[entry_id] = {
+                    "journal_entry_id": entry_id,
+                    "reference_type": r["reference_type"],
+                    "reference_id": r["reference_id"],
+                    "description": r["entry_description"],
+                    "transaction_date": r["transaction_date"],
+                    "recorded_by": r["recorded_by"],
+                    "slip_image_url": r["slip_image_url"],
+                    "metadata": r["metadata"] or {},
+                    "lines": [],
+                }
+            entries[entry_id]["lines"].append(r)
+
+        # [DOUBLE-ENTRY] แปลงแต่ละบิล → TransactionResponse
+        # 📌 หมายเหตุเรื่อง id: TransactionResponse.id เป็น int และ frontend ใช้เรียก
+        # revert_transaction (ซึ่งค้นจาก finance_transactions.id) → สังเคราะห์จาก legacy
+        # transaction id ใน metadata; ถ้าไม่มี (เช่น opening_balance) ใช้ค่าลบจาก UUID
+        # เพื่อให้คอลัมน์มีค่าไม่ซ้ำกัน (เป็น id ที่ "ไม่ใช้ได้จริง" กับ revert)
+        items: List[dict] = []
+        for entry in entries.values():
+            txn = cls._classify_journal_entry(entry, transaction_type)
+            if txn is None:
+                continue  # ถูกกรองด้วย transaction_type ด้านบนแล้ว
+            items.append(txn)
+
+        # [DOUBLE-ENTRY] จำลอง pagination ฝั่ง application (ชุดข้อมูลนี้เล็ก —
+        # ต่อบิลมีแค่ 2-3 บรรทัด) เพื่อคง API เดิม (limit/offset + total_count)
+        total_count = len(items)
+        paged = items[offset:offset + limit]
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
+                endpoint_or_command="FinanceService.get_transactions", execution_time_ms=exec_time
+            )
+        return {"total_count": total_count, "items": paged}
+
+    @classmethod
+    def _classify_journal_entry(cls, entry: dict, transaction_type: Optional[str] = None) -> Optional[dict]:
+        """[DOUBLE-ENTRY] จัดประเภทบิลจากชุด journal_lines เป็นแถว TransactionResponse
+        ที่ frontend ใช้อยู่ (amount, description, transaction_type, account_name, category_name).
+
+        คืน None ถ้าบิลไม่ตรง transaction_type ที่กรอง (คล้าย WHERE ใน legacy).
+        """
+        lines = entry["lines"]
+        asset_lines = [ln for ln in lines if ln["account_type"] == "asset"]
+        revenue_lines = [ln for ln in lines if ln["account_type"] == "revenue"]
+        expense_lines = [ln for ln in lines if ln["account_type"] == "expense"]
+        # กันพวก liability/equity (เช่น ขา equity ของ opening balance) เข้ามารบกวน
+        asset_dr = sum(float(ln["debit"]) for ln in asset_lines)
+        asset_cr = sum(float(ln["credit"]) for ln in asset_lines)
+        revenue_cr = sum(float(ln["credit"]) for ln in revenue_lines)
+        expense_dr = sum(float(ln["debit"]) for ln in expense_lines)
+
+        description = entry["description"] or ""
+        recorded_by = entry["recorded_by"]
+        txn_type: Optional[str] = None
+        amount = 0.0
+        account_name: Optional[str] = None
+        category_name: Optional[str] = None
+        transfer_group_id = None
+
+        # [DOUBLE-ENTRY] 1) ยอดยกมา (Opening Balance) → เงินเข้าสินทรัพย์ = 'income'
+        if entry["reference_type"] == "opening_balance":
+            txn_type = "income"
+            # ยอด = เดบิตฝั่ง Asset (เงินที่มีจริงในกระเป๋า) ไม่รวมขา Equity
+            amount = asset_dr
+            # ถ้าสินทรัพย์ติดลบ (credit asset) → ให้รวมเครดิตเข้าด้วยเพื่อไม่ให้ amount เป็น 0
+            if amount == 0.0:
+                amount = asset_cr
+            if asset_lines:
+                account_name = asset_lines[0]["account_name"]
+            category_name = "ยอดยกมา (เปิดระบบบัญชีคู่)"
+            description = description or "ยอดยกมา"
+
+        # [DOUBLE-ENTRY] 2) Transfer ระหว่างบัญชีสินทรัพย์ → 'expense' (ขาออก) + transfer_group_id
+        elif len(asset_lines) >= 2 and asset_dr > 0 and asset_cr > 0:
+            txn_type = "expense"
+            amount = asset_cr
+            # บัญชีที่เงินออก (credit) — เป็นบัญชีต้นทาง
+            out_line = next((ln for ln in asset_lines if float(ln["credit"]) > 0), asset_lines[0])
+            account_name = out_line["account_name"]
+            category_name = "โอนเงิน"
+            transfer_group_id = entry["reference_id"] and int(entry["reference_id"]) or None
+            recorded_by = recorded_by
+
+        # [DOUBLE-ENTRY] 3) รายได้: Asset เดบิต + Revenue เครดิต (รับเงินเข้า)
+        elif asset_dr > 0 and revenue_cr > 0:
+            txn_type = "income"
+            amount = asset_dr
+            if asset_lines:
+                account_name = asset_lines[0]["account_name"]
+            if revenue_lines:
+                category_name = revenue_lines[0]["account_name"]
+            description = description or "รายได้"
+
+        # [DOUBLE-ENTRY] 4) รายจ่าย: Expense เดบิต + Asset เครดิต (เงินออก)
+        elif expense_dr > 0 and asset_cr > 0:
+            txn_type = "expense"
+            amount = asset_cr
+            if asset_lines:
+                account_name = asset_lines[0]["account_name"]
+            if expense_lines:
+                category_name = expense_lines[0]["account_name"]
+            description = description or "รายจ่าย"
+
+        # [DOUBLE-ENTRY] 5) กรณีโครงสร้างอื่น (ไม่มี asset) → พยายามเดาจากฝั่งที่มี
+        else:
+            if revenue_cr > 0:
+                txn_type = "income"
+                amount = revenue_cr
+                if revenue_lines:
+                    category_name = revenue_lines[0]["account_name"]
+            elif expense_dr > 0:
+                txn_type = "expense"
+                amount = expense_dr
+                if expense_lines:
+                    category_name = expense_lines[0]["account_name"]
+            else:
+                return None
+
+        # [DOUBLE-ENTRY] รองรับ filter transaction_type (income/expense) แบบเดียวกับ legacy
+        if transaction_type and txn_type != transaction_type:
+            return None
+
+        # 💡 เก็บบรรทัดแรกของ asset ไว้เป็น account (หน้า frontend ใช้แสดงกระเป๋าเงิน)
+        if not account_name and asset_lines:
+            account_name = asset_lines[0]["account_name"]
+        if not account_name:
+            account_name = "—"
+
+        return {
+            "id": _legacy_id_from_journal(entry.get("metadata") or {}, entry.get("journal_entry_id")),
+            "amount": float(amount),
+            "description": description,
+            "transaction_type": txn_type,
+            "created_at": entry["transaction_date"],
+            "slip_image_url": entry["slip_image_url"],
+            "recorded_by": recorded_by,
+            "account_name": account_name,
+            "category_name": category_name,
+            "transfer_group_id": transfer_group_id,
+        }
 
     @classmethod
     async def create_fee_collection(cls, pool: asyncpg.Pool, req, user_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
@@ -1009,7 +1358,15 @@ class FinanceService:
             raise e
             
     @classmethod
-    async def get_summary(cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str, month: Optional[int] = None, year: Optional[int] = None, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> dict:
+    # =====================================================================
+    # [ROUTER] get_summary — เลือกอ่านจาก legacy หรือ Double-Entry ตามช่วงเวลา
+    # =====================================================================
+    @classmethod
+    async def get_summary(
+        cls, pool: asyncpg.Pool, client_source: str, actor_identifier: str,
+        month: Optional[int] = None, year: Optional[int] = None,
+        server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None
+    ) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
@@ -1017,56 +1374,29 @@ class FinanceService:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
-                net_worth = await conn.fetchval("SELECT SUM(balance) FROM finance_accounts WHERE room_id = $1", target_room_id) or 0.0
 
                 # 💡 month/year ต้องระบุพร้อมกันเสมอ (ไม่งั้น params เลื่อนทำให้ SQL error)
                 if (month is None) != (year is None):
                     raise ValueError("ต้องระบุทั้ง month และ year พร้อมกัน หรือไม่ระบุทั้งคู่")
-                params = [target_room_id]
-                if month and year:
-                    date_cond = "AND EXTRACT(MONTH FROM created_at) = $2 AND EXTRACT(YEAR FROM created_at) = $3"
-                    date_cond_t = "AND EXTRACT(MONTH FROM T.created_at) = $2 AND EXTRACT(YEAR FROM T.created_at) = $3"
-                    params.extend([month, year])
-                    period_str = f"{year}-{month:02d}"
-                else:
-                    date_cond = "AND date_trunc('month', created_at) = date_trunc('month', CURRENT_DATE)"
-                    date_cond_t = "AND date_trunc('month', T.created_at) = date_trunc('month', CURRENT_DATE)"
-                    period_str = "current_month"
-                
-                stats = await conn.fetchrow(f"""
-                    SELECT 
-                        SUM(CASE WHEN transaction_type = 'income' AND transfer_group_id IS NULL THEN amount ELSE 0 END) as total_inc,
-                        SUM(CASE WHEN transaction_type = 'expense' AND transfer_group_id IS NULL THEN amount ELSE 0 END) as total_exp
-                    FROM finance_transactions WHERE room_id = $1 AND deleted_at IS NULL {date_cond}
-                """, *params)
-                
-                breakdown = await conn.fetch(f"""
-                    SELECT C.category_name, SUM(T.amount) as total_amount
-                    FROM finance_transactions T
-                    JOIN finance_categories C ON T.category_id = C.id
-                    WHERE T.room_id = $1 AND T.transaction_type = 'expense' AND T.transfer_group_id IS NULL AND T.deleted_at IS NULL {date_cond_t}
-                    GROUP BY C.category_name ORDER BY total_amount DESC
-                """, *params)
 
-                pending_collection = await conn.fetchval("""
-                    SELECT SUM(FC.amount - SP.paid_amount) FROM student_payments SP
-                    JOIN fee_collections FC ON SP.collection_id = FC.id
-                    WHERE SP.status = 'pending' AND FC.room_id = $1 AND FC.status = 'active'
-                """, target_room_id) or 0.0
+                # [ROUTER] จุดแบ่งเวลา: งวดที่เริ่มหลัง CUTOFF_DATE → ระบบบัญชีคู่
+                # (ไม่ระบุงวด = เดือนปัจจุบัน → ขึ้นอยู่กับ wall clock ว่าเลยวันที่ตัดหรือยัง)
+                period_start = cls._period_start(month, year, None, None)
+                use_v2 = period_start >= CUTOFF_DATE
 
-                result = {
-                    "net_worth": float(net_worth), "total_income": float(stats['total_inc'] or 0),       
-                    "total_expense": float(stats['total_exp'] or 0), "pending_collection_amount": float(pending_collection),
-                    "period": period_str, "expense_breakdown": [dict(b) for b in breakdown]
-                }
-
-                exec_time = int((time.time() - start_time) * 1000)
-                await service_logger.log(
-                    conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=target_room_id, user_id=None, entity_type="FINANCE_SUMMARY", status="success",
-                    endpoint_or_command="FinanceService.get_summary", execution_time_ms=exec_time
+                if use_v2:
+                    return await cls._get_summary_v2(
+                        conn=conn, room_id=target_room_id,
+                        month=month, year=year,
+                        client_source=client_source, actor_identifier=actor_identifier,
+                        start_time=start_time,
+                    )
+                return await cls._get_summary_legacy(
+                    conn=conn, room_id=target_room_id,
+                    month=month, year=year,
+                    client_source=client_source, actor_identifier=actor_identifier,
+                    start_time=start_time,
                 )
-                return result
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
@@ -1075,6 +1405,365 @@ class FinanceService:
                         conn=log_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
                         room_id=target_room_id, user_id=None, entity_type="FINANCE_SUMMARY", status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.get_summary", execution_time_ms=exec_time
+                    )
+            except Exception:
+                pass
+            raise e
+
+    @classmethod
+    async def _get_summary_legacy(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        month: Optional[int] = None, year: Optional[int] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> dict:
+        """[ROUTER-LEGACY] Logic เดิมของ get_summary — อ่านจาก finance_accounts + finance_transactions."""
+        net_worth = await conn.fetchval("SELECT SUM(balance) FROM finance_accounts WHERE room_id = $1", room_id) or 0.0
+
+        params = [room_id]
+        if month and year:
+            date_cond = "AND EXTRACT(MONTH FROM created_at) = $2 AND EXTRACT(YEAR FROM created_at) = $3"
+            date_cond_t = "AND EXTRACT(MONTH FROM T.created_at) = $2 AND EXTRACT(YEAR FROM T.created_at) = $3"
+            params.extend([month, year])
+            period_str = f"{year}-{month:02d}"
+        else:
+            date_cond = "AND date_trunc('month', created_at) = date_trunc('month', CURRENT_DATE)"
+            date_cond_t = "AND date_trunc('month', T.created_at) = date_trunc('month', CURRENT_DATE)"
+            period_str = "current_month"
+
+        stats = await conn.fetchrow(f"""
+            SELECT
+                SUM(CASE WHEN transaction_type = 'income' AND transfer_group_id IS NULL THEN amount ELSE 0 END) as total_inc,
+                SUM(CASE WHEN transaction_type = 'expense' AND transfer_group_id IS NULL THEN amount ELSE 0 END) as total_exp
+            FROM finance_transactions WHERE room_id = $1 AND deleted_at IS NULL {date_cond}
+        """, *params)
+
+        breakdown = await conn.fetch(f"""
+            SELECT C.category_name, SUM(T.amount) as total_amount
+            FROM finance_transactions T
+            JOIN finance_categories C ON T.category_id = C.id
+            WHERE T.room_id = $1 AND T.transaction_type = 'expense' AND T.transfer_group_id IS NULL AND T.deleted_at IS NULL {date_cond_t}
+            GROUP BY C.category_name ORDER BY total_amount DESC
+        """, *params)
+
+        pending_collection = await conn.fetchval("""
+            SELECT SUM(FC.amount - SP.paid_amount) FROM student_payments SP
+            JOIN fee_collections FC ON SP.collection_id = FC.id
+            WHERE SP.status = 'pending' AND FC.room_id = $1 AND FC.status = 'active'
+        """, room_id) or 0.0
+
+        result = {
+            "net_worth": float(net_worth), "total_income": float(stats['total_inc'] or 0),
+            "total_expense": float(stats['total_exp'] or 0), "pending_collection_amount": float(pending_collection),
+            "period": period_str, "expense_breakdown": [dict(b) for b in breakdown]
+        }
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_SUMMARY", status="success",
+                endpoint_or_command="FinanceService.get_summary", execution_time_ms=exec_time
+            )
+        return result
+
+    # =====================================================================
+    # [DOUBLE-ENTRY] _get_summary_v2 — สรุปยอดจาก ledger ตามหลักบัญชีคู่
+    # =====================================================================
+    @classmethod
+    async def _get_summary_v2(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        month: Optional[int] = None, year: Optional[int] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> dict:
+        """สรุปยอดจากระบบบัญชีคู่ (journal_lines) แทนการรวมจาก finance_transactions.
+
+        - Net Worth : SUM(Dr) − SUM(Cr) ของทุก ledger ประเภท 'asset' (ยอดสะสมทั้งหมด)
+        - รายได้     : SUM(Cr) − SUM(Dr) ของ 'revenue' ในงวดที่ขอ
+        - รายจ่าย   : SUM(Dr) − SUM(Cr) ของ 'expense' ในงวดที่ขอ
+        - Expense Breakdown: group ตาม account_name ของ ledger ประเภท 'expense'
+        - ยอดยกมา (opening_balance) ไม่ถูกนับเป็นรายได้ของงวด (มันคือทุน ไม่ใช่รายได้)
+        """
+        if month is not None and year is not None:
+            start_dt = date(year, month, 1)
+            if month == 12:
+                end_dt = date(year + 1, 1, 1)
+            else:
+                end_dt = date(year, month + 1, 1)
+            period_str = f"{year}-{month:02d}"
+        else:
+            today = datetime.now(THAI_TZ).date()
+            start_dt = date(today.year, today.month, 1)
+            if today.month == 12:
+                end_dt = date(today.year + 1, 1, 1)
+            else:
+                end_dt = date(today.year, today.month + 1, 1)
+            period_str = "current_month"
+
+        # [DOUBLE-ENTRY] ยอดสินทรัพย์สะสมทั้งห้อง (ไม่จำกัดงวด) — เทียบเท่า SUM(balance)
+        # 💡 นับเฉพาะ journal ที่ไม่ได้ void และไม่ได้ลบ (ลบ legacy ที่ delete ไป)
+        net_worth = await conn.fetchval(
+            """SELECT COALESCE(SUM(L.debit - L.credit), 0)
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE JE.room_id = $1 AND AL.account_type = 'asset'
+                 AND JE.deleted_at IS NULL AND JE.status <> 'voided'""",
+            room_id,
+        ) or 0.0
+
+        # [DOUBLE-ENTRY] ยอดรายได้/รายจ่ายภายในงวด (เฉพาะ journal ที่ไม่ใช่ opening_balance)
+        period_stats = await conn.fetchrow(
+            """SELECT
+                 COALESCE(SUM(CASE WHEN AL.account_type = 'revenue' THEN L.credit - L.debit ELSE 0 END), 0) AS total_inc,
+                 COALESCE(SUM(CASE WHEN AL.account_type = 'expense' THEN L.debit - L.credit ELSE 0 END), 0) AS total_exp
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE JE.room_id = $1 AND JE.deleted_at IS NULL AND JE.status <> 'voided'
+                 AND JE.reference_type <> 'opening_balance'
+                 AND JE.transaction_date >= $2 AND JE.transaction_date < $3""",
+            room_id, start_dt, end_dt,
+        )
+
+        # [DOUBLE-ENTRY] รายจ่ายรายหมวด (จากชื่อ ledger ฝั่ง expense) ภายในงวด
+        breakdown_rows = await conn.fetch(
+            """SELECT AL.account_name AS category_name, SUM(L.debit - L.credit) AS total_amount
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE JE.room_id = $1 AND JE.deleted_at IS NULL AND JE.status <> 'voided'
+                 AND JE.reference_type <> 'opening_balance'
+                 AND AL.account_type = 'expense'
+                 AND JE.transaction_date >= $2 AND JE.transaction_date < $3
+               GROUP BY AL.account_name
+               ORDER BY total_amount DESC""",
+            room_id, start_dt, end_dt,
+        )
+
+        pending_collection = await conn.fetchval("""
+            SELECT SUM(FC.amount - SP.paid_amount) FROM student_payments SP
+            JOIN fee_collections FC ON SP.collection_id = FC.id
+            WHERE SP.status = 'pending' AND FC.room_id = $1 AND FC.status = 'active'
+        """, room_id) or 0.0
+
+        result = {
+            "net_worth": float(net_worth),
+            "total_income": float(period_stats["total_inc"] or 0),
+            "total_expense": float(period_stats["total_exp"] or 0),
+            "pending_collection_amount": float(pending_collection),
+            "period": period_str,
+            "expense_breakdown": [
+                {"category_name": b["category_name"], "total_amount": float(b["total_amount"])}
+                for b in breakdown_rows
+            ],
+        }
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_SUMMARY", status="success",
+                endpoint_or_command="FinanceService.get_summary", execution_time_ms=exec_time
+            )
+        return result
+
+    # =====================================================================
+    # [DOUBLE-ENTRY] งบทดลอง (Trial Balance) — จุดแข็งของระบบบัญชีคู่
+    # =====================================================================
+    @classmethod
+    async def get_trial_balance(
+        cls, pool: asyncpg.Pool, room_id: int,
+        client_source: str = "", actor_identifier: str = "",
+        user_id: Optional[int] = None, as_of_date: Optional[date] = None, server_id: Optional[int] = None,
+    ) -> dict:
+        """งบทดลอง: ยอด YTD (Year-to-Date) ของทุก ledger ที่ยัง active ในห้อง.
+
+        กติกาการหักยอดตามประเภทบัญชี (สเปค Phase 4):
+        - Assets & Expenses   : Dr − Cr
+        - Liabilities, Equity, Revenue : Cr − Dr
+
+        คืน {"ledgers": [...], "total_debit": X, "total_credit": Y, "is_balanced": bool}
+        โดย total_debit/total_credit คือผลรวมของยอด Dr/Cr รวม (ไม่ใช่สุทธิ) ของทุก ledger
+        → ถ้า journal ทุกรายการสมดุล (Dr = Cr เสมอ) ค่าเท่ากัน และ is_balanced = True
+        """
+        start_time = time.time()
+        target_room_id = room_id
+        try:
+            async with pool.acquire() as conn:
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ ข้อมูลการเงิน → ต้องเป็นสมาชิกห้องเท่านั้น
+                await require_member(conn, target_room_id, user_id)
+
+                # [DOUBLE-ENTRY] ขอบเขตเวลา: ถึง as_of_date (ถ้าไม่ระบุ = ทั้งหมดจนถึงตอนนี้)
+                if as_of_date is not None:
+                    date_filter = "AND JE.transaction_date < $2"
+                    params = [target_room_id, datetime.combine(as_of_date, dtime(23, 59, 59))]
+                else:
+                    date_filter = ""
+                    params = [target_room_id]
+
+                # [DOUBLE-ENTRY] รวม Dr/Cr ของทุก ledger ที่ active ยังไม่ void
+                rows = await conn.fetch(
+                    f"""SELECT
+                            AL.id AS ledger_id,
+                            AL.account_code,
+                            AL.account_name,
+                            AL.account_type,
+                            COALESCE(SUM(L.debit), 0)  AS total_debit,
+                            COALESCE(SUM(L.credit), 0) AS total_credit
+                        FROM accounting_ledgers AL
+                        LEFT JOIN journal_lines L ON L.ledger_id = AL.id
+                        LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                            AND JE.deleted_at IS NULL AND JE.status <> 'voided'
+                        WHERE AL.room_id = $1 AND AL.is_active = TRUE {date_filter}
+                        GROUP BY AL.id, AL.account_code, AL.account_name, AL.account_type
+                        ORDER BY AL.account_code NULLS LAST, AL.id""",
+                    *params,
+                )
+
+                ledgers: List[dict] = []
+                grand_debit = 0.0
+                grand_credit = 0.0
+                for r in rows:
+                    dr = float(r["total_debit"])
+                    cr = float(r["total_credit"])
+                    # [DOUBLE-ENTRY] ตามสมการปกติของงบทดลอง
+                    if r["account_type"] in ("asset", "expense"):
+                        balance = dr - cr
+                    else:  # liability / equity / revenue
+                        balance = cr - dr
+                    grand_debit += dr
+                    grand_credit += cr
+                    ledgers.append({
+                        "ledger_id": r["ledger_id"],
+                        "account_code": r["account_code"],
+                        "account_name": r["account_name"],
+                        "account_type": r["account_type"],
+                        "total_debit": dr,
+                        "total_credit": cr,
+                        "balance": balance,
+                    })
+
+                result = {
+                    "ledgers": ledgers,
+                    "total_debit": grand_debit,
+                    "total_credit": grand_credit,
+                    "is_balanced": abs(grand_debit - grand_credit) < 0.01,  # เผื่อ floating noise
+                }
+
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                    room_id=target_room_id, user_id=None, entity_type="TRIAL_BALANCE", status="success",
+                    endpoint_or_command="FinanceService.get_trial_balance", execution_time_ms=exec_time
+                )
+                return result
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            try:
+                async with pool.acquire() as log_conn:
+                    await service_logger.log(
+                        conn=log_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                        room_id=target_room_id, user_id=None, entity_type="TRIAL_BALANCE", status="failed", error_detail=str(e),
+                        endpoint_or_command="FinanceService.get_trial_balance", execution_time_ms=exec_time
+                    )
+            except Exception:
+                pass
+            raise e
+
+    # =====================================================================
+    # [DOUBLE-ENTRY] งบกำไรขาดทุน (Income Statement) — ตามงวดเวลา
+    # =====================================================================
+    @classmethod
+    async def get_income_statement(
+        cls, pool: asyncpg.Pool, room_id: int, start_date: date, end_date: date,
+        client_source: str = "", actor_identifier: str = "",
+        user_id: Optional[int] = None, server_id: Optional[int] = None,
+    ) -> dict:
+        """งบกำไรขาดทุน: รวมรายได้/ค่าใช้จ่ายภายในช่วงเวลาที่กำหนด.
+
+        - revenues: group ตามชื่อ ledger ประเภท 'revenue' (SUM(credit − debit))
+        - expenses: group ตามชื่อ ledger ประเภท 'expense' (SUM(debit − credit))
+        - net_income = Total Revenue − Total Expense
+        - ไม่นับยอดยกมา (opening_balance) เพราะมันคือทุน ไม่ใช่รายได้ของงวด
+        """
+        start_time = time.time()
+        target_room_id = room_id
+        try:
+            async with pool.acquire() as conn:
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                await require_member(conn, target_room_id, user_id)
+
+                if start_date > end_date:
+                    raise ValueError("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด")
+
+                # [DOUBLE-ENTRY] ขอบเขตปลาย → คร่อมทั้งวันของ end_date
+                end_bound = datetime.combine(end_date, dtime(23, 59, 59))
+
+                rev_rows = await conn.fetch(
+                    """SELECT AL.account_name,
+                              COALESCE(SUM(L.credit - L.debit), 0) AS total
+                       FROM journal_lines L
+                       JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                       JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+                       WHERE JE.room_id = $1 AND JE.deleted_at IS NULL AND JE.status <> 'voided'
+                         AND JE.reference_type <> 'opening_balance'
+                         AND AL.account_type = 'revenue'
+                         AND JE.transaction_date >= $2 AND JE.transaction_date <= $3
+                       GROUP BY AL.account_name
+                       ORDER BY total DESC""",
+                    target_room_id, start_date, end_bound,
+                )
+
+                exp_rows = await conn.fetch(
+                    """SELECT AL.account_name,
+                              COALESCE(SUM(L.debit - L.credit), 0) AS total
+                       FROM journal_lines L
+                       JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                       JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+                       WHERE JE.room_id = $1 AND JE.deleted_at IS NULL AND JE.status <> 'voided'
+                         AND JE.reference_type <> 'opening_balance'
+                         AND AL.account_type = 'expense'
+                         AND JE.transaction_date >= $2 AND JE.transaction_date <= $3
+                       GROUP BY AL.account_name
+                       ORDER BY total DESC""",
+                    target_room_id, start_date, end_bound,
+                )
+
+                revenues = [
+                    {"account_name": r["account_name"], "amount": float(r["total"])} for r in rev_rows
+                ]
+                expenses = [
+                    {"account_name": r["account_name"], "amount": float(r["total"])} for r in exp_rows
+                ]
+                total_revenue = sum(r["amount"] for r in revenues)
+                total_expense = sum(r["amount"] for r in expenses)
+
+                result = {
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "revenues": revenues,
+                    "expenses": expenses,
+                    "total_revenue": total_revenue,
+                    "total_expense": total_expense,
+                    "net_income": total_revenue - total_expense,
+                }
+
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                    room_id=target_room_id, user_id=None, entity_type="INCOME_STATEMENT", status="success",
+                    endpoint_or_command="FinanceService.get_income_statement", execution_time_ms=exec_time
+                )
+                return result
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            try:
+                async with pool.acquire() as log_conn:
+                    await service_logger.log(
+                        conn=log_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                        room_id=target_room_id, user_id=None, entity_type="INCOME_STATEMENT", status="failed", error_detail=str(e),
+                        endpoint_or_command="FinanceService.get_income_statement", execution_time_ms=exec_time
                     )
             except Exception:
                 pass
@@ -1475,6 +2164,9 @@ class FinanceService:
     # 📤 Export ประวัติการเงินเป็นไฟล์ Excel (.xlsx)
     # =====================================================================
 
+    # =====================================================================
+    # [ROUTER] export_transactions_excel — เลือกอ่านจาก legacy หรือ Double-Entry ตามช่วงเวลา
+    # =====================================================================
     @classmethod
     async def export_transactions_excel(
         cls, pool: asyncpg.Pool, req, client_source: str, actor_identifier: str,
@@ -1499,48 +2191,33 @@ class FinanceService:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
 
-                where_clause, period_params, period_label = cls._resolve_export_period(req)
+                # [ROUTER] ตัดสินใจด้วยจุดเริ่มต้นของช่วง (ก่อน/หลัง CUTOFF_DATE)
+                month, year = getattr(req, "month", None), getattr(req, "year", None)
+                start_date = getattr(req, "start_date", None)
+                end_date = getattr(req, "end_date", None)
+                # โจทย์ export ไม่ระบุ → "ทั้งหมด" ซึ่งรวมทั้งก่อนและหลัง cutoff → ต้องอ่าน legacy
+                # (เพราะข้อมูลก่อน cutoff มีแค่ในตารางเก่า) → ใช้ month/start_date ตัดสินใจหลัก
+                if (month is not None and year is not None) or start_date is not None or end_date is not None:
+                    period_start = cls._period_start(month, year, start_date, end_date)
+                    use_v2 = period_start >= CUTOFF_DATE
+                else:
+                    # [ROUTER] ไม่ระบุช่วง = ขอทุกอย่าง → ครอบคลุมทั้งสองยุค → ใช้ legacy ทั้งหมด
+                    # (หลีกเลี่ยงการอ่านข้อมูลก่อน cutoff ผ่าน Double-Entry ที่ไม่มี ledger)
+                    use_v2 = False
 
-                room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
-                room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"
-
-                rows = await conn.fetch(
-                    f"""
-                    SELECT
-                        T.id, T.transaction_type, T.amount, T.description, T.recorded_by,
-                        T.created_at, T.transfer_group_id, T.student_payment_id,
-                        A.account_name, C.category_name
-                    FROM finance_transactions T
-                    LEFT JOIN finance_accounts A ON T.account_id = A.id
-                    LEFT JOIN finance_categories C ON T.category_id = C.id
-                    WHERE T.room_id = $1 AND T.deleted_at IS NULL {where_clause}
-                    ORDER BY T.created_at ASC, T.id ASC
-                    """,
-                    target_room_id, *period_params,
+                if use_v2:
+                    return await cls._export_transactions_excel_v2(
+                        conn=conn, room_id=target_room_id,
+                        month=month, year=year, start_date=start_date, end_date=end_date,
+                        client_source=client_source, actor_identifier=actor_identifier,
+                        start_time=start_time,
+                    )
+                return await cls._export_transactions_excel_legacy(
+                    conn=conn, room_id=target_room_id,
+                    month=month, year=year, start_date=start_date, end_date=end_date,
+                    client_source=client_source, actor_identifier=actor_identifier,
+                    start_time=start_time,
                 )
-
-                # ยอดคงเหลือปัจจุบันของแต่ละบัญชี (ดึงจาก finance_accounts ตรง ๆ
-                # เพื่อสะท้อนยอดจริงรวม seed/เปิดบัญชี — ไม่ใช่แค่เงินที่เคลื่อนในงวดนี้)
-                account_balances = await conn.fetch(
-                    "SELECT account_name, balance FROM finance_accounts WHERE room_id = $1 AND deleted_at IS NULL ORDER BY id",
-                    target_room_id,
-                )
-
-                final_rows = cls._consolidate_transfers([dict(r) for r in rows])
-                excel_file = cls._build_finance_workbook(
-                    room_name=room_name, period_label=period_label,
-                    rows=final_rows, account_balances=[(r["account_name"], r["balance"]) for r in account_balances],
-                    generated_at=datetime.now(THAI_TZ),
-                )
-
-                exec_time = int((time.time() - start_time) * 1000)
-                await service_logger.log(
-                    conn=conn, action="EXPORT", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=target_room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
-                    new_values={"period": period_label, "rows": len(final_rows)},
-                    endpoint_or_command="FinanceService.export_transactions_excel", execution_time_ms=exec_time
-                )
-                return excel_file
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
@@ -1553,6 +2230,177 @@ class FinanceService:
             except Exception:
                 pass
             raise e
+
+    @classmethod
+    async def _export_transactions_excel_legacy(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        month: Optional[int] = None, year: Optional[int] = None,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> io.BytesIO:
+        """[ROUTER-LEGACY] Logic เดิมของ export — อ่านจาก finance_transactions (Single-Entry)."""
+        where_clause, period_params, period_label = cls._resolve_export_period(
+            _ExportPeriodView(month=month, year=year, start_date=start_date, end_date=end_date)
+        )
+
+        room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", room_id)
+        room_name = room["room_name"] if room else f"ห้อง #{room_id}"
+
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                T.id, T.transaction_type, T.amount, T.description, T.recorded_by,
+                T.created_at, T.transfer_group_id, T.student_payment_id,
+                A.account_name, C.category_name
+            FROM finance_transactions T
+            LEFT JOIN finance_accounts A ON T.account_id = A.id
+            LEFT JOIN finance_categories C ON T.category_id = C.id
+            WHERE T.room_id = $1 AND T.deleted_at IS NULL {where_clause}
+            ORDER BY T.created_at ASC, T.id ASC
+            """,
+            room_id, *period_params,
+        )
+
+        # ยอดคงเหลือปัจจุบันของแต่ละบัญชี (ดึงจาก finance_accounts ตรง ๆ
+        # เพื่อสะท้อนยอดจริงรวม seed/เปิดบัญชี — ไม่ใช่แค่เงินที่เคลื่อนในงวดนี้)
+        account_balances = await conn.fetch(
+            "SELECT account_name, balance FROM finance_accounts WHERE room_id = $1 AND deleted_at IS NULL ORDER BY id",
+            room_id,
+        )
+
+        final_rows = cls._consolidate_transfers([dict(r) for r in rows])
+        excel_file = cls._build_finance_workbook(
+            room_name=room_name, period_label=period_label,
+            rows=final_rows, account_balances=[(r["account_name"], r["balance"]) for r in account_balances],
+            generated_at=datetime.now(THAI_TZ),
+        )
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="EXPORT", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
+                new_values={"period": period_label, "rows": len(final_rows)},
+                endpoint_or_command="FinanceService.export_transactions_excel", execution_time_ms=exec_time
+            )
+        return excel_file
+
+    # =====================================================================
+    # [DOUBLE-ENTRY] _export_transactions_excel_v2 — สร้าง Excel จาก journal
+    # (แปล Dr/Cr → แถว TransactionResponse แล้วใช้ _build_finance_workbook
+    #  เหมือนเดิม แต่ยอดคงเหลือรายบัญชีคำนวณจาก Net Balance ของ ledger)
+    # =====================================================================
+    @classmethod
+    async def _export_transactions_excel_v2(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        month: Optional[int] = None, year: Optional[int] = None,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> io.BytesIO:
+        # [DOUBLE-ENTRY] แปลงช่วงเวลา → ฉลากเหมือน legacy (ปี-เดือน / ช่วงวันที่ / ทั้งหมด)
+        # ⚠️ end_dt ต้องเป็นแบบ "ครอบถึง" (inclusive) เพราะ _get_transactions_v2 กรองด้วย `<= $3`
+        # (ต่างจาก legacy month/year ที่ใช้ `<` แบบ exclusive) — กันรายการวันที่ 1 ของเดือนถัดไปหลุดเข้า
+        if month is not None and year is not None:
+            period_label = f"{year}-{month:02d}"
+            start_dt = date(year, month, 1)
+            end_dt = date(year, 12, 31) if month == 12 else date(year, month + 1, 1) - timedelta(days=1)
+        elif start_date is not None or end_date is not None:
+            if start_date and end_date and start_date > end_date:
+                raise ValueError("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด")
+            if start_date and end_date:
+                period_label = f"{start_date.isoformat()} ถึง {end_date.isoformat()}"
+            elif start_date:
+                period_label = f"ตั้งแต่วันที่ {start_date.isoformat()}"
+            else:
+                period_label = f"จนถึงวันที่ {end_date.isoformat()}"
+            # วันที่เดียว → คร่อมทั้งวัน (inclusive อยู่แล้ว)
+            start_dt = start_date or date.min
+            end_dt = end_date or date.max
+        else:
+            period_label = "ทั้งหมด"
+            start_dt, end_dt = None, None
+
+        room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", room_id)
+        room_name = room["room_name"] if room else f"ห้อง #{room_id}"
+
+        # [DOUBLE-ENTRY] รายการทั้งหมด (แปลจาก journal) — เรียงตามเวลาเหมือน legacy export
+        txn_result = await cls._get_transactions_v2(
+            conn=conn, room_id=room_id,
+            limit=100000, offset=0,
+            start_date=start_dt, end_date=end_dt,
+            client_source=client_source, actor_identifier=actor_identifier,
+            start_time=None,  # ไม่ log อีกครั้ง (export จะ log เอง)
+        )
+        raw_items = txn_result["items"]
+
+        # [DOUBLE-ENTRY] จัดรูปให้ _build_finance_workbook ใช้ได้ (รายรับ/รายจ่าย/หมวด/บัญชี)
+        final_rows = cls._format_v2_rows(raw_items)
+        final_rows.sort(key=lambda x: (x["created_at"] or datetime.min, x["id"] or ""))
+
+        # [DOUBLE-ENTRY] ยอดคงเหลือรายบัญชีจาก Net Balance ของ ledger สินทรัพย์
+        # (SUM(debit) − SUM(credit)) — สะท้อนยอดจริงจากระบบบัญชีคู่ ไม่ใช่ finance_accounts
+        balances = await conn.fetch(
+            """SELECT AL.account_name,
+                      COALESCE(SUM(L.debit - L.credit), 0) AS net_balance
+               FROM accounting_ledgers AL
+               LEFT JOIN journal_lines L ON L.ledger_id = AL.id
+               LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                   AND JE.deleted_at IS NULL AND JE.status <> 'voided'
+               WHERE AL.room_id = $1 AND AL.account_type = 'asset' AND AL.is_active = TRUE
+               GROUP BY AL.id, AL.account_name
+               ORDER BY AL.id""",
+            room_id,
+        )
+
+        excel_file = cls._build_finance_workbook(
+            room_name=room_name, period_label=period_label,
+            rows=final_rows,
+            account_balances=[(r["account_name"], r["net_balance"]) for r in balances],
+            generated_at=datetime.now(THAI_TZ),
+        )
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="EXPORT", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
+                new_values={"period": period_label, "rows": len(final_rows)},
+                endpoint_or_command="FinanceService.export_transactions_excel", execution_time_ms=exec_time
+            )
+        return excel_file
+
+    @classmethod
+    def _format_v2_rows(cls, items: List[dict]) -> List[dict]:
+        """[DOUBLE-ENTRY] แปลงแถว TransactionResponse (จาก _get_transactions_v2)
+        → แถวที่ _build_finance_workbook ใช้ (income/expense/category/account/type)."""
+        formatted: List[dict] = []
+        for t in items:
+            amount = float(t["amount"] or 0.0)
+            if t["transaction_type"] == "income":
+                formatted.append({
+                    "id": t.get("id"),
+                    "created_at": t.get("created_at"),
+                    "type": "รายรับ",
+                    "income": amount,
+                    "expense": 0.0,
+                    "description": t.get("description") or "",
+                    "category": t.get("category_name") or "—",
+                    "account": t.get("account_name") or "—",
+                    "recorded_by": t.get("recorded_by") or "—",
+                })
+            else:  # expense (รวม transfer ที่แสดงเป็นรายจ่ายขาออก)
+                formatted.append({
+                    "id": t.get("id"),
+                    "created_at": t.get("created_at"),
+                    "type": "รายจ่าย",
+                    "income": 0.0,
+                    "expense": amount,
+                    "description": t.get("description") or "",
+                    "category": t.get("category_name") or "—",
+                    "account": t.get("account_name") or "—",
+                    "recorded_by": t.get("recorded_by") or "—",
+                })
+        return formatted
 
     @staticmethod
     def _resolve_export_period(req) -> tuple:
