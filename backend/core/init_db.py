@@ -275,6 +275,75 @@ async def init_db(pool: asyncpg.Pool):
                     transaction_id INTEGER REFERENCES finance_transactions(id) ON DELETE SET NULL,
                     deleted_at TIMESTAMP DEFAULT NULL
                 );
+
+                -- 1. ผังบัญชีกลาง (Chart of Accounts)
+                CREATE TABLE IF NOT EXISTS accounting_ledgers (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+                    account_code VARCHAR(20), -- รหัสบัญชี (เช่น 1001, 4001)
+                    account_name TEXT NOT NULL,
+                    account_type VARCHAR(20) NOT NULL, -- 'asset', 'liability', 'equity', 'revenue', 'expense'
+                    is_active BOOLEAN DEFAULT TRUE,
+                    
+                    -- 🔗 ฟิลด์สำหรับทำ Mapping (Phase 2) ถ้าระบบเก่าพังหรือต้องการย้อนดู
+                    legacy_account_id INTEGER REFERENCES finance_accounts(id) ON DELETE SET NULL,
+                    legacy_category_id INTEGER REFERENCES finance_categories(id) ON DELETE SET NULL,
+                    
+                    description TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- 2. สมุดรายวันทั่วไป (Journal Entries - หัวบิล)
+                CREATE TABLE IF NOT EXISTS journal_entries (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- ใช้ UUID ป้องกันการเดาเลขบิล (เหมือนตาราง audit_logs)
+                    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+                    
+                    -- 🔗 การเชื่อมโยงกับระบบห้องเรียน
+                    reference_type VARCHAR(50), -- เช่น 'fee_collection', 'transfer', 'manual_adjustment'
+                    reference_id VARCHAR(50), -- เก็บ ID อ้างอิง (เช่น student_payment_id)
+                    
+                    -- 📝 รายละเอียดการทำรายการ
+                    description TEXT NOT NULL,
+                    slip_image_url TEXT,
+                    recorded_by TEXT,
+                    
+                    -- ⚙️ สถานะและข้อมูลเชิงลึก
+                    status VARCHAR(20) DEFAULT 'posted', -- 'draft', 'posted', 'voided' (รองรับการ Revert)
+                    transaction_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- วันที่เกิดรายการจริง
+                    
+                    -- 💡 จุดซ่อนสเปค "เก็บให้เยอะที่สุด"
+                    metadata JSONB DEFAULT '{}'::jsonb, 
+                    
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL
+                );
+
+                -- 3. รายการบันทึกบัญชี (Journal Lines - รายละเอียดเดบิต/เครดิต)
+                CREATE TABLE IF NOT EXISTS journal_lines (
+                    id BIGSERIAL PRIMARY KEY,
+                    journal_entry_id UUID REFERENCES journal_entries(id) ON DELETE CASCADE,
+                    ledger_id INTEGER REFERENCES accounting_ledgers(id) ON DELETE RESTRICT,
+                    
+                    debit DECIMAL(15,4) DEFAULT 0.0000,
+                    credit DECIMAL(15,4) DEFAULT 0.0000,
+                    
+                    -- 📝 รายละเอียดเสริมเฉพาะบรรทัด
+                    line_description TEXT,
+                    
+                    -- 🛡️ ป้องกันการใส่ค่าติดลบ
+                    CONSTRAINT chk_positive_amounts CHECK (debit >= 0 AND credit >= 0),
+                    -- 🛡️ ป้องกันการใส่ข้อมูลซ้ำซ้อน (ต้องมีแค่ฝั่งใดฝั่งหนึ่ง หรือศูนย์ทั้งคู่)
+                    CONSTRAINT chk_mutually_exclusive CHECK ((debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0) OR (debit = 0 AND credit = 0)),
+                    
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- 🚀 สร้าง Index เพื่อความเร็วในการ Query งบการเงิน
+                CREATE INDEX IF NOT EXISTS idx_journal_lines_ledger ON journal_lines(ledger_id);
+                CREATE INDEX IF NOT EXISTS idx_journal_entries_room_date ON journal_entries(room_id, transaction_date);
+                CREATE INDEX IF NOT EXISTS idx_journal_entries_metadata ON journal_entries USING GIN (metadata);
             """)
             
             # --- 5. Extra Alterations & Smart Constraints ---
