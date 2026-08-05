@@ -22,10 +22,12 @@ onMounted(async () => {
 // ✨ ระบบชื่อใหม่ ดึงจาก authStore ที่จัดการแล้ว 100%
 const displayName = computed(() => authStore.currentUserName);
 
-// ✨ ดึงตัวอักษรตัวแรกของชื่อมาทำเป็นรูปโปรไฟล์
+// ✨ ดึงตัวอักษรตัวแรกของชื่อ/ชื่อเล่นมาทำเป็นรูปโปรไฟล์
 const avatarChar = computed(() => {
-  return authStore.firstName && authStore.firstName !== 'ไม่ระบุชื่อ' 
-    ? authStore.firstName.charAt(0).toUpperCase() : 'U';
+  const name = authStore.nickname || authStore.firstName;
+  return name && name !== 'ไม่ระบุชื่อ'
+    ? name.charAt(0).toUpperCase()
+    : 'ส'; // ส ตัวแรกของ "สมาชิก" (ระบบนี้ใช้ภาษาไทย)
 });
 
 const toggleDropdown = (dropdownName: string) => {
@@ -37,7 +39,7 @@ const closeDropdowns = () => {
 };
 
 const menuItems = [
-  { name: 'หน้าหลัก (เลือกห้อง)', path: '/dashboard', icon: 'bi-grid-fill' },
+  { name: 'แดชบอร์ด', path: '/dashboard', icon: 'bi-grid-fill' },
   { name: 'นักเรียน', path: '/students', icon: 'bi-people-fill' },
   { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check-fill' },
   { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event-fill' },
