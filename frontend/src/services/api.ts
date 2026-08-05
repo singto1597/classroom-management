@@ -23,15 +23,30 @@ api.interceptors.request.use(
 );
 
 // Interceptor ขาเข้า: จัดการ Error และดักจับ 401
+let isRedirectingToLogin = false;
+
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (error.response) {
       if (error.response.status === 401) {
+        // ✅ เคลียร์ Session ทั้งหมด (ไม่ใช่แค่ token) เพื่อป้องกัน redirect วนลูป
+        // และคืนค่าผู้ใช้ไปหน้า Login ครั้งเดียวเท่านั้น
         localStorage.removeItem('access_token');
-        window.location.href = '/login';
+        localStorage.removeItem('user_id_str');
+        localStorage.removeItem('current_room_id');
+        localStorage.removeItem('current_room_name');
+        localStorage.removeItem('current_room_code');
+        localStorage.removeItem('current_role');
+        localStorage.removeItem('current_is_admin');
+        localStorage.removeItem('current_permissions');
+
+        if (!isRedirectingToLogin && !window.location.pathname.startsWith('/login')) {
+          isRedirectingToLogin = true;
+          window.location.href = '/login';
+        }
       }
-      
+
       let detail = error.response.data?.detail || 'เกิดข้อผิดพลาดจาก API';
       
       // ✨ ปลดล็อก Pydantic 422 Error ให้อ่านรู้เรื่อง!

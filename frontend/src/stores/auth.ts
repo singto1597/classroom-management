@@ -151,6 +151,26 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('current_permissions');
   };
 
+  // 🧹 รายการ key ที่แอพเราใช้ใน localStorage (ลบเฉพาะ key ของเรา ไม่กวาดหมด)
+  const AUTH_KEYS = [
+    'access_token',
+    'user_id_str',
+    'user_prefix',
+    'user_first_name',
+    'user_last_name',
+    'user_email',
+    'user_discord_id',
+    'user_google_id',
+    'user_nickname',
+    'user_phone_number',
+    'current_room_id',
+    'current_room_name',
+    'current_room_code',
+    'current_role',
+    'current_is_admin',
+    'current_permissions'
+  ];
+
   const logout = () => {
     token.value = null;
     userId.value = null;
@@ -160,8 +180,10 @@ export const useAuthStore = defineStore('auth', () => {
     email.value = null;
     discordId.value = null;
     googleId.value = null;
+    nickname.value = null;
+    phoneNumber.value = null;
     clearRoom();
-    localStorage.clear();
+    AUTH_KEYS.forEach((key) => localStorage.removeItem(key));
     router.push('/login');
   };
 

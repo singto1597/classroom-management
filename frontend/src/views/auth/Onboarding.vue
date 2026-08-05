@@ -128,7 +128,12 @@ const selectAddress = (option: AddressOption) => {
 
 // ----------------------------------------------
 
-onMounted(() => {
+onMounted(async () => {
+  // 📥 ดึงโปรไฟล์ล่าสุดจาก Backend ก่อน Pre-fill เพื่อข้อมูลสดใหม่เสมอ
+  if (authStore.isAuthenticated) {
+    await authStore.fetchProfile();
+  }
+
   // 📥 Pre-fill ข้อมูลทั้งหมดที่มีจาก authStore เพื่อลดการพิมพ์ซ้ำ
   form.value.prefix = authStore.prefix ?? '';
   form.value.first_name = authStore.firstName ?? '';

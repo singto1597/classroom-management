@@ -46,7 +46,7 @@ export const loginWithGoogle = async (code: string): Promise<{ access_token: str
  * 3. ✨ แยกฟังก์ชันย่อยสำหรับแกะ JWT Token ออกมาต่างหาก (Separation of Concerns)
  * ช่วยให้โค้ดหลักอ่านง่ายขึ้น และดักจับ Error ได้เป็นสัดส่วน
  */
-const decodeJwtPayload = (token: string): JwtPayload => {
+export const decodeJwtPayload = (token: string): JwtPayload => {
   const parts = token.split('.');
   if (parts.length < 2) {
     throw new Error('โครงสร้าง JWT Token ไม่ถูกต้อง (รูปแบบไม่ครบ 3 ส่วน)');
