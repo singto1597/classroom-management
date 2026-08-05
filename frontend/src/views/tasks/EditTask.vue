@@ -98,7 +98,7 @@ onMounted(fetchTask)
         <div class="p-8 md:p-10">
           
           <div v-if="isLoading" class="flex flex-col items-center justify-center py-10 gap-3">
-            <span class="loading loading-spinner loading-lg text-blue-600"></span>
+            <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-200 border-t-blue-600"></div>
             <p class="text-slate-500 font-medium animate-pulse">กำลังโหลดข้อมูล...</p>
           </div>
 
@@ -149,7 +149,7 @@ onMounted(fetchTask)
                   class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
                   :disabled="isSubmitting"
                 >
-                  <span v-if="isSubmitting" class="loading loading-spinner loading-sm"></span>
+                  <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                   <i v-else class="bi bi-save-fill"></i> บันทึกการแก้ไข
                 </button>
               </template>

@@ -176,7 +176,7 @@ onMounted(() => {
     <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-6xl">
       
       <div v-if="loading" class="flex flex-col justify-center items-center h-[60vh] gap-4">
-        <span class="loading loading-spinner loading-lg text-blue-600"></span>
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-blue-600"></div>
         <p class="text-slate-500 font-bold animate-pulse tracking-wide">กำลังเตรียมข้อมูล...</p>
       </div>
 
@@ -195,16 +195,16 @@ onMounted(() => {
           </div>
           
           <div class="flex flex-wrap gap-3 w-full md:w-auto ml-[3.25rem] md:ml-0">
-            <button type="button" @click="router.back()" class="btn bg-slate-100 hover:bg-slate-200 text-slate-600 border-none flex-1 md:flex-none font-bold rounded-xl" :disabled="saving">
+            <button type="button" @click="router.back()" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 flex-1 md:flex-none font-bold rounded-xl transition-colors flex items-center justify-center gap-2" :disabled="saving">
               <i class="bi bi-arrow-left"></i> กลับ
             </button>
-            
+
             <template v-if="canEdit">
               <!-- 🎯 ปุ่มเปิด-ปิดโหมด -->
-              <button 
-                type="button" 
-                @click="toggleEditMode" 
-                class="btn border-none flex-1 md:flex-none transition-all rounded-xl shadow-sm"
+              <button
+                type="button"
+                @click="toggleEditMode"
+                class="flex-1 md:flex-none transition-all rounded-xl shadow-sm px-6 py-3 font-bold flex items-center justify-center gap-2"
                 :class="isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'"
                 :disabled="saving"
               >
@@ -213,14 +213,14 @@ onMounted(() => {
               </button>
 
               <!-- 🎯 ปุ่ม Save (ซ่อนไว้จนกว่าจะกดเปิดโหมด) -->
-              <button 
+              <button
                 v-if="isEditMode"
-                type="submit" 
-                class="btn bg-blue-600 hover:bg-blue-700 text-white border-none px-8 shadow-lg shadow-blue-600/30 rounded-xl flex-1 md:flex-none font-bold flex items-center gap-2"
+                type="submit"
+                class="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/30 rounded-xl flex-1 md:flex-none font-bold flex items-center justify-center gap-2 disabled:opacity-50"
                 :disabled="saving"
               >
-                <span v-if="saving" class="loading loading-spinner loading-sm"></span>
-                <span v-else><i class="bi bi-floppy2-fill"></i></span>
+                <span v-if="saving" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                <template v-else><i class="bi bi-floppy2-fill"></i></template>
                 บันทึกการเปลี่ยนแปลง
               </button>
             </template>
@@ -272,7 +272,8 @@ onMounted(() => {
 
             <div class="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
               <label class="flex items-center gap-4 cursor-pointer mb-6 pb-6 border-b border-slate-700/50 group">
-                <input type="checkbox" v-model="form.is_admin" class="toggle toggle-success toggle-lg group-hover:scale-105 transition-transform" />
+                <input type="checkbox" v-model="form.is_admin" class="sr-only peer" />
+                <div class="relative w-12 h-7 bg-slate-600 peer-checked:bg-emerald-500 rounded-full transition-colors duration-300 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-6 after:w-6 after:shadow after:transition-all peer-checked:after:translate-x-5"></div>
                 <div>
                   <span class="font-black text-emerald-400 text-lg block tracking-wide">GOD MODE (มอบสิทธิ์ผู้ดูแลระบบสูงสุด)</span>
                   <span class="text-xs text-slate-400 font-medium">หากเปิดโหมดนี้ นักเรียนคนนี้จะสามารถทำได้ทุกอย่างในห้องโดยไม่ต้องสนใจสิทธิ์ย่อยด้านล่าง</span>
@@ -285,9 +286,14 @@ onMounted(() => {
                 </p>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   <label v-for="perm in AVAILABLE_PERMISSIONS" :key="perm.id" class="flex items-start gap-3 bg-slate-900/80 p-4 rounded-xl border border-slate-700/80 cursor-pointer hover:border-blue-500/50 hover:bg-slate-800 transition-colors">
-                    <input type="checkbox" class="checkbox checkbox-info checkbox-sm mt-0.5" 
-                           :checked="form.permissions?.includes(perm.id)"
-                           @change="togglePermission(perm.id)" />
+                    <span class="relative inline-flex items-center mt-0.5">
+                      <input type="checkbox" class="sr-only peer"
+                             :checked="form.permissions?.includes(perm.id)"
+                             @change="togglePermission(perm.id)" />
+                      <span class="w-4 h-4 border-2 border-slate-500 peer-checked:border-blue-500 peer-checked:bg-blue-500 rounded transition-colors flex items-center justify-center">
+                        <i v-if="form.permissions?.includes(perm.id)" class="bi bi-check text-white text-[10px] font-black leading-none"></i>
+                      </span>
+                    </span>
                     <span class="text-xs font-bold text-slate-300 leading-relaxed">{{ perm.label }}</span>
                   </label>
                 </div>
