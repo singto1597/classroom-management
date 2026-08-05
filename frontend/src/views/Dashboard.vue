@@ -23,7 +23,7 @@ const canManageStudents = computed(() => isAdmin.value || authStore.currentPermi
 const canManageTasks = computed(() => isAdmin.value || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS'));
 
 // ✨ ดึง roomCode จาก Store
-const roomCode = computed(() => authStore.currentRoomCode || 'N/A');
+const roomCode = computed(() => authStore.currentRoomCode || 'ไม่มีรหัส');
 
 // ✨ นับจำนวนงานในห้อง เพื่อแสดงบนการ์ดตารางและงาน
 const taskCount = ref(0);

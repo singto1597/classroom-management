@@ -45,6 +45,23 @@ const switchTab = (tab: 'active' | 'pending') => {
 
 onMounted(() => fetchData());
 
+// 🏷️ แปลง class_role (ภาษาอังกฤษ) → ป้ายภาษาไทยที่เข้าใจง่าย
+const ROLE_LABELS: Record<string, string> = {
+  student: 'นักเรียน',
+  president: 'หัวหน้าห้อง',
+  vice_academic: 'รองวิชาการ',
+  vice_activity: 'รองกิจกรรม',
+  vice_discipline: 'รองระเบียบวินัย',
+  vice_reception: 'รองปฏิคม',
+  staff_academic: 'กรรมการวิชาการ',
+  staff_activity: 'กรรมการกิจกรรม',
+  staff_discipline: 'กรรมการระเบียบวินัย',
+  staff_reception: 'กรรมการปฏิคม',
+  treasurer: 'เหรัญญิก'
+};
+
+const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเรียน';
+
 const filteredStudents = computed(() => {
   if (!students.value || students.value.length === 0) return [];
   
@@ -194,8 +211,8 @@ const rejectJoin = async (studentNo: number) => {
               <td class="py-4 px-5">{{ student.prefix || '' }}{{ student.first_name }} {{ student.last_name }}</td>
               <td class="py-4 px-5">{{ student.nickname || '-' }}</td>
               <td class="py-4 px-5 flex items-center gap-2">
-                <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase" :class="student.class_role === 'student' ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'">
-                  {{ student.class_role }}
+                <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase" :class="student.class_role === 'student' || !student.class_role ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'">
+                  {{ roleLabel(student.class_role) }}
                 </span>
                 <!-- 🎯 ติดมงกุฎหรือประแจ ให้แอดมิน/สต๊าฟในตารางรายชื่อ -->
                 <i v-if="student.is_admin" class="bi bi-shield-lock-fill text-amber-500 text-lg" title="System Admin"></i>

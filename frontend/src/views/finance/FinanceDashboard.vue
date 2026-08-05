@@ -12,7 +12,7 @@ ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale);
 
 const authStore = useAuthStore();
 const currentServerId = authStore.currentRoomId!;
-const currentUserName = authStore.currentUserName || 'Admin';
+const currentUserName = authStore.currentUserName || 'ผู้ดูแลระบบ';
 
 const summary = ref<FinanceSummary | null>(null);
 const accounts = ref<Account[]>([]);

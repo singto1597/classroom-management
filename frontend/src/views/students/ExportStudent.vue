@@ -9,7 +9,7 @@ import draggable from 'vuedraggable'; // 📦 vuedraggable สำหรับ Vu
 const router = useRouter();
 const authStore = useAuthStore();
 const roomId = computed(() => authStore.currentRoomId!);
-const userName = computed(() => authStore.currentUserName || 'Admin');
+const userName = computed(() => authStore.currentUserName || 'ผู้ดูแลระบบ');
 
 // --- 💡 1. TypeScript Interfaces ช่วยป้องกันบัคตอน Build ---
 interface Field {

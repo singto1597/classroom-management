@@ -57,6 +57,11 @@ const handleSubmit = async () => {
     }
   }
 
+  // ✅ ป้องกันกรอกจำนวนเงินติดลบ / ศูนย์
+  if (!form.value.amount || Number(form.value.amount) <= 0) {
+    return Swal.fire('ตรวจสอบจำนวนเงิน', 'กรุณากรอกจำนวนเงินที่มากกว่า 0', 'warning');
+  }
+
   isSubmitting.value = true;
   try {
     if (activeTab.value === 'transfer') {
@@ -74,6 +79,7 @@ const handleSubmit = async () => {
         amount: form.value.amount,
         description: form.value.description,
         transaction_type: activeTab.value,
+        slip_image_url: form.value.slip_image_url || undefined,
         user_name: currentUserName
       });
     }
@@ -221,11 +227,11 @@ onMounted(() => {
       </div>
 
       <!-- Slip Image (Optional) -->
-      <div v-if="activeTab === 'transfer'">
+      <div>
         <label class="block text-sm font-bold text-gray-400 mb-2 uppercase">URL รูปสลิปหลักฐาน (ถ้ามี)</label>
-        <input 
-          v-model="form.slip_image_url" 
-          type="url" 
+        <input
+          v-model="form.slip_image_url"
+          type="url"
           class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-blue-100 outline-none transition"
           placeholder="https://..."
         >
