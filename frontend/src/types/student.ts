@@ -1,5 +1,6 @@
 export interface Student {
   id: number
+  user_id: number | null
   room_id: number | string
   discord_id: number | null
   discord_id_str: string | null

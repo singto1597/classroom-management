@@ -157,7 +157,7 @@ onMounted(() => {
             <i class="bi bi-arrow-left text-xl"></i>
           </RouterLink>
           <h1 class="text-xl md:text-2xl font-extrabold text-gray-800">
-            รายการ: Collection #{{ data.collection_id }}
+            รายละเอียดโปรเจกต์ #{{ data.collection_id }}
           </h1>
         </div>
 
