@@ -37,7 +37,7 @@ const copyRoomCode = async () => {
 
 <template>
   <div class="min-h-[80vh] w-full flex items-center justify-center p-4">
-    <div class="card bg-base-100 shadow-xl border border-slate-200/60 rounded-[2.5rem] overflow-hidden max-w-2xl w-full">
+    <div class="bg-white shadow-xl border border-slate-200/60 rounded-[2.5rem] overflow-hidden max-w-2xl w-full">
     <!-- Header -->
     <div class="bg-gradient-to-r from-[#5865F2] to-[#4752C4] px-6 py-5 flex items-center gap-4">
       <!-- Discord SVG icon -->
@@ -62,7 +62,7 @@ const copyRoomCode = async () => {
     </div>
 
     <!-- Body -->
-    <div class="card-body px-6 py-6 space-y-6">
+    <div class="px-6 py-6 space-y-6">
       <!-- Step 1 -->
       <div class="flex gap-4">
         <div
@@ -155,7 +155,7 @@ const copyRoomCode = async () => {
               {{ currentRoomCode }}
             </code>
             <button
-              class="btn btn-ghost btn-sm rounded-xl ml-auto"
+              class="ml-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-colors flex items-center gap-1.5 text-sm active:scale-95"
               @click="copyRoomCode"
             >
               <i class="bi bi-clipboard"></i>
@@ -167,7 +167,7 @@ const copyRoomCode = async () => {
     </div>
     <!-- Back to dashboard button -->
     <div class="px-6 pb-6">
-      <RouterLink to="/dashboard" class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all active:scale-95 w-full inline-flex items-center justify-center">
+      <RouterLink to="/dashboard" class="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all active:scale-95 w-full inline-flex items-center justify-center">
         กลับสู่หน้าหลัก
       </RouterLink>
     </div>

@@ -11,7 +11,11 @@ const authStore = useAuthStore()
 // --- ถอด Mock Data เปลี่ยนมาดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
-const isAdmin = computed(() => authStore.isAdmin)
+
+// สิทธิ์: แอดมิน หรือผู้ที่มี permission จัดการงาน/ตาราง
+const canManageTasks = computed(
+  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS')
+)
 
 const activeTab = ref<'task' | 'note'>('task')
 const isSubmitting = ref(false)
@@ -36,7 +40,7 @@ const noteForm = reactive({
 })
 
 const handleAddTask = async () => {
-  if (!isAdmin.value) {
+  if (!canManageTasks.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มงานได้', 'error')
   }
   
@@ -56,14 +60,14 @@ const handleAddTask = async () => {
     })
     router.push('/tasks')
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to add task', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถเพิ่มงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
 }
 
 const handleAddNote = async () => {
-  if (!isAdmin.value) {
+  if (!canManageTasks.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มประกาศได้', 'error')
   }
 
@@ -83,7 +87,7 @@ const handleAddNote = async () => {
     })
     router.push('/tasks')
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to add note', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถเพิ่มโน้ตได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -134,7 +138,7 @@ const handleAddNote = async () => {
                 <i class="bi bi-bookmark-fill text-blue-500"></i> ชื่องาน <span class="text-rose-500">*</span>
               </label>
               <input 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="taskForm.task_name" 
                 type="text" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60" 
@@ -148,7 +152,7 @@ const handleAddNote = async () => {
                 <i class="bi bi-card-text text-blue-500"></i> รายละเอียด
               </label>
               <textarea 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="taskForm.task_detail" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none resize-none disabled:opacity-60" 
                 placeholder="อธิบายรายละเอียดงาน, ขั้นตอนการทำ, หรือแนบลิงก์ที่เกี่ยวข้อง..."
@@ -160,7 +164,7 @@ const handleAddNote = async () => {
                 <i class="bi bi-calendar-event text-blue-500"></i> กำหนดส่ง <span class="text-rose-500">*</span>
               </label>
               <input 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="taskForm.due_date" 
                 type="date" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60" 
@@ -169,14 +173,14 @@ const handleAddNote = async () => {
             </div>
 
             <div class="pt-4">
-              <template v-if="isAdmin">
+              <template v-if="canManageTasks">
                 <button 
                   type="submit" 
                   class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
                   :disabled="isSubmitting"
                 >
-                  <span v-if="isSubmitting" class="loading loading-spinner loading-sm"></span>
-                  <i v-else class="bi bi-plus-lg"></i> บันทึกงานใหม่
+                  <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  <template v-else><i class="bi bi-plus-lg"></i> บันทึกงานใหม่</template>
                 </button>
               </template>
               <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-medium border border-slate-200 flex items-center justify-center gap-2">
@@ -192,7 +196,7 @@ const handleAddNote = async () => {
                 <i class="bi bi-calendar-check-fill text-amber-500"></i> วันที่เป้าหมาย <span class="text-rose-500">*</span>
               </label>
               <input 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="noteForm.target_date" 
                 type="date" 
                 class="w-full px-4 py-3 bg-amber-50/30 border border-amber-200/50 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none disabled:opacity-60" 
@@ -205,7 +209,7 @@ const handleAddNote = async () => {
                 <i class="bi bi-backpack-fill text-amber-500"></i> สิ่งที่ต้องเตรียม
               </label>
               <input 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="noteForm.bring_items" 
                 type="text" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none disabled:opacity-60" 
@@ -218,7 +222,7 @@ const handleAddNote = async () => {
                 <i class="bi bi-megaphone-fill text-amber-500"></i> ประกาศ / หมายเหตุ
               </label>
               <textarea 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="noteForm.announcement" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none resize-none disabled:opacity-60" 
                 placeholder="ประกาศแจ้งเตือนเพื่อนๆ ในห้อง... (ถ้าไม่มีให้เว้นว่างไว้)"
@@ -226,14 +230,14 @@ const handleAddNote = async () => {
             </div>
 
             <div class="pt-4">
-              <template v-if="isAdmin">
+              <template v-if="canManageTasks">
                 <button 
                   type="submit" 
                   class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
                   :disabled="isSubmitting"
                 >
-                  <span v-if="isSubmitting" class="loading loading-spinner loading-sm"></span>
-                  <i v-else class="bi bi-plus-lg"></i> บันทึกโน้ต/ประกาศ
+                  <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  <template v-else><i class="bi bi-plus-lg"></i> บันทึกโน้ต/ประกาศ</template>
                 </button>
               </template>
               <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-medium border border-slate-200 flex items-center justify-center gap-2">

@@ -12,7 +12,11 @@ const authStore = useAuthStore()
 // --- ถอด Mock Data เปลี่ยนมาดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
-const isAdmin = computed(() => authStore.isAdmin)
+
+// สิทธิ์: แอดมิน หรือผู้ที่มี permission จัดการงาน/ตาราง
+const canManageTasks = computed(
+  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS')
+)
 
 const taskId = Number(route.params.id)
 
@@ -32,7 +36,7 @@ const fetchTask = async () => {
     form.task_detail = task.task_detail || ''
     form.due_date = task.due_date
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to fetch task', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถโหลดข้อมูลงานได้', 'error')
     router.push('/tasks')
   } finally {
     isLoading.value = false
@@ -40,7 +44,7 @@ const fetchTask = async () => {
 }
 
 const handleUpdateTask = async () => {
-  if (!isAdmin.value) {
+  if (!canManageTasks.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถแก้ไขงานได้', 'error')
   }
 
@@ -60,7 +64,7 @@ const handleUpdateTask = async () => {
     })
     router.push('/tasks')
   } catch (error: any) {
-    Swal.fire('Error', error.response?.data?.detail || 'Failed to update task', 'error')
+    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถอัปเดตงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -92,13 +96,13 @@ onMounted(fetchTask)
           <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md border border-white/20">
             <i class="bi bi-pencil-square text-lg"></i>
           </div>
-          <h4 class="text-xl font-bold">ฟอร์มแก้ไขงาน (ID: {{ taskId }})</h4>
+          <h4 class="text-xl font-bold">ฟอร์มแก้ไขงาน (รหัสงาน #{{ taskId }})</h4>
         </div>
 
         <div class="p-8 md:p-10">
           
           <div v-if="isLoading" class="flex flex-col items-center justify-center py-10 gap-3">
-            <span class="loading loading-spinner loading-lg text-blue-600"></span>
+            <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-200 border-t-blue-600"></div>
             <p class="text-slate-500 font-medium animate-pulse">กำลังโหลดข้อมูล...</p>
           </div>
 
@@ -109,7 +113,7 @@ onMounted(fetchTask)
                 <i class="bi bi-bookmark-fill text-blue-500"></i> ชื่องาน <span class="text-rose-500">*</span>
               </label>
               <input 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="form.task_name" 
                 type="text" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed" 
@@ -122,7 +126,7 @@ onMounted(fetchTask)
                 <i class="bi bi-card-text text-blue-500"></i> รายละเอียด
               </label>
               <textarea 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="form.task_detail" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none resize-none disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed" 
                 placeholder="อธิบายรายละเอียดงาน, ขั้นตอนการทำ, หรือแนบลิงก์ที่เกี่ยวข้อง..."
@@ -134,7 +138,7 @@ onMounted(fetchTask)
                 <i class="bi bi-calendar-event text-blue-500"></i> กำหนดส่ง <span class="text-rose-500">*</span>
               </label>
               <input 
-                :disabled="!isAdmin"
+                :disabled="!canManageTasks"
                 v-model="form.due_date" 
                 type="date" 
                 class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed" 
@@ -143,18 +147,18 @@ onMounted(fetchTask)
             </div>
 
             <div class="pt-6 mt-6 border-t border-slate-100">
-              <template v-if="isAdmin">
+              <template v-if="canManageTasks">
                 <button 
                   type="submit" 
                   class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
                   :disabled="isSubmitting"
                 >
-                  <span v-if="isSubmitting" class="loading loading-spinner loading-sm"></span>
+                  <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                   <i v-else class="bi bi-save-fill"></i> บันทึกการแก้ไข
                 </button>
               </template>
               <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-medium border border-slate-200 flex items-center justify-center gap-2">
-                <i class="bi bi-lock-fill text-rose-500"></i> เฉพาะแอดมินเท่านั้นที่แก้ไขได้
+                <i class="bi bi-lock-fill text-rose-500"></i> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขได้
               </div>
             </div>
           </form>

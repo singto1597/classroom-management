@@ -25,11 +25,18 @@ const showInactive = ref(false);
 const fetchData = async () => {
   isLoading.value = true;
   try {
-    if (currentTab.value === 'active') {
-      const data = await StudentService.getStudents(currentRoomId);
-      students.value = Array.isArray(data) ? data : [];
-    } else if (canManageStudents.value) {
-      pendingStudents.value = await StudentService.getPendingRequests(currentRoomId);
+    // ✅ ดึงทั้งรายชื่อ active และ pending พร้อมกันเสมอ
+    // (แอดมินที่อยู่ tab active ต้องเห็น badge จำนวนคำรออนุมัติด้วย)
+    const [activeRes, pendingRes] = await Promise.allSettled([
+      StudentService.getStudents(currentRoomId),
+      canManageStudents.value ? StudentService.getPendingRequests(currentRoomId) : Promise.resolve([])
+    ]);
+
+    if (activeRes.status === 'fulfilled') {
+      students.value = Array.isArray(activeRes.value) ? activeRes.value : [];
+    }
+    if (pendingRes.status === 'fulfilled' && canManageStudents.value) {
+      pendingStudents.value = Array.isArray(pendingRes.value) ? pendingRes.value : [];
     }
   } catch (error: any) {
     Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: error.response?.data?.detail || 'ไม่สามารถโหลดข้อมูลได้' });
@@ -40,10 +47,28 @@ const fetchData = async () => {
 
 const switchTab = (tab: 'active' | 'pending') => {
   currentTab.value = tab;
+  // fetchData ดึงทั้งสองรายการพร้อมกันอยู่แล้ว (active + pending badge) จึงไม่ต้องแบ่งสาขา
   fetchData();
 };
 
 onMounted(() => fetchData());
+
+// 🏷️ แปลง class_role (ภาษาอังกฤษ) → ป้ายภาษาไทยที่เข้าใจง่าย
+const ROLE_LABELS: Record<string, string> = {
+  student: 'นักเรียน',
+  president: 'หัวหน้าห้อง',
+  vice_academic: 'รองวิชาการ',
+  vice_activity: 'รองกิจกรรม',
+  vice_discipline: 'รองระเบียบวินัย',
+  vice_reception: 'รองปฏิคม',
+  staff_academic: 'กรรมการวิชาการ',
+  staff_activity: 'กรรมการกิจกรรม',
+  staff_discipline: 'กรรมการระเบียบวินัย',
+  staff_reception: 'กรรมการปฏิคม',
+  treasurer: 'เหรัญญิก'
+};
+
+const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเรียน';
 
 const filteredStudents = computed(() => {
   if (!students.value || students.value.length === 0) return [];
@@ -191,11 +216,11 @@ const rejectJoin = async (studentNo: number) => {
           <tbody class="text-slate-700 text-sm font-medium">
             <tr v-for="student in filteredStudents" :key="student.id" class="border-b border-slate-50 hover:bg-slate-50 transition-colors" :class="{ 'opacity-50 grayscale-[0.5]': student.status === 'inactive' }">
               <td class="py-4 px-5 text-center font-bold text-slate-800">{{ student.student_no }}</td>
-              <td class="py-4 px-5">{{ student.prefix || '' }}{{ student.first_name }} {{ student.last_name }}</td>
+              <td class="py-4 px-5">{{ student.prefix ? student.prefix + ' ' : '' }}{{ student.first_name }} {{ student.last_name }}</td>
               <td class="py-4 px-5">{{ student.nickname || '-' }}</td>
               <td class="py-4 px-5 flex items-center gap-2">
-                <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase" :class="student.class_role === 'student' ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'">
-                  {{ student.class_role }}
+                <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase" :class="student.class_role === 'student' || !student.class_role ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'">
+                  {{ roleLabel(student.class_role) }}
                 </span>
                 <!-- 🎯 ติดมงกุฎหรือประแจ ให้แอดมิน/สต๊าฟในตารางรายชื่อ -->
                 <i v-if="student.is_admin" class="bi bi-shield-lock-fill text-amber-500 text-lg" title="System Admin"></i>
@@ -237,7 +262,7 @@ const rejectJoin = async (studentNo: number) => {
             <tr v-for="req in pendingStudents" :key="req.student_no" class="border-b border-slate-50 hover:bg-amber-50/30 transition-colors">
               <td class="py-4 px-5 text-center font-black text-slate-800">{{ req.student_no }}</td>
               <td class="py-4 px-5">{{ req.first_name }} {{ req.last_name }}</td>
-              <td class="py-4 px-5 text-xs text-slate-500">{{ new Date(req.created_at).toLocaleString('th-TH') }}</td>
+              <td class="py-4 px-5 text-xs text-slate-500">{{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) }}</td>
               <td class="py-4 px-5 text-center">
                 <div class="flex items-center justify-center gap-2">
                   <button @click="approveJoin(req.student_no)" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white rounded-lg text-xs font-bold transition-all border border-emerald-100 hover:border-emerald-500">

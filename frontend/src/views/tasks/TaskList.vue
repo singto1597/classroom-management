@@ -12,7 +12,11 @@ const authStore = useAuthStore()
 // --- ถอด Mock Data เปลี่ยนมาดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
-const isAdmin = computed(() => authStore.isAdmin)
+
+// สิทธิ์: แอดมิน หรือผู้ที่มี permission จัดการงาน/ตาราง
+const canManageTasks = computed(
+  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS')
+)
 
 const tasks = ref<Task[]>([])
 const notes = ref<DailyNote[]>([])
@@ -54,6 +58,26 @@ const fetchData = async () => {
 
 const pendingCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
 const doneCount = computed(() => tasks.value.filter(task => task.status === 'done').length)
+
+// 🗓️ แปลงวันที่ YYYY-MM-DD → ไทย (เช่น 5 ส.ค. 2569) และโชว์ว่าวันนี้/พรุ่งนี้
+const formatDueDate = (dateStr: string) => {
+  if (!dateStr) return '-';
+  const date = new Date(dateStr + 'T00:00:00');
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffTime = date.getTime() - today.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'วันนี้ (เลยกำหนด)';
+  if (diffDays === 1) return 'พรุ่งนี้';
+
+  return date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+};
 
 const filteredTasks = computed(() => {
   let result = tasks.value
@@ -105,7 +129,7 @@ const getStatusText = (task: Task) => {
 }
 
 const toggleStatus = async (task: Task) => {
-  if (!isAdmin.value) return Toast.fire({ icon: 'warning', title: 'เฉพาะแอดมินเท่านั้น' })
+  if (!canManageTasks.value) return Toast.fire({ icon: 'warning', title: 'เฉพาะผู้ดูแลเท่านั้น' })
   try {
     if (task.status === 'pending') {
       await TaskService.markDone(currentRoomId, task.id, currentUserName)
@@ -121,7 +145,7 @@ const toggleStatus = async (task: Task) => {
 }
 
 const deleteTask = async (taskId: number) => {
-  if (!isAdmin.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error')
+  if (!canManageTasks.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลเท่านั้น', 'error')
   const result = await Swal.fire({
     title: 'ลบงานนี้ทิ้งเลยไหม?',
     text: "คุณจะไม่สามารถกู้คืนข้อมูลได้!",
@@ -169,7 +193,7 @@ onMounted(fetchData)
             <button @click="filter = 'all'" :class="filter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-2">ทั้งหมด<span class="px-2 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'all' ? 'bg-slate-200 text-slate-700' : 'bg-slate-300/50 text-slate-600'">{{ tasks.length }}</span></button>
           </div>
 
-          <router-link v-if="isAdmin" to="/tasks/add" class="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 whitespace-nowrap">
+          <router-link v-if="canManageTasks" to="/tasks/add" class="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 whitespace-nowrap">
             <i class="bi bi-plus-lg"></i> สร้างใหม่
           </router-link>
         </div>
@@ -188,7 +212,7 @@ onMounted(fetchData)
             </div>
             <div class="mb-4">
               <span class="text-xs font-bold text-amber-700 bg-amber-200/50 px-3 py-1.5 rounded-full backdrop-blur-sm">
-                📅 {{ note.target_date }}
+                📅 {{ formatDueDate(note.target_date) }}
               </span>
             </div>
             <div class="space-y-3">
@@ -237,15 +261,15 @@ onMounted(fetchData)
           </div>
           
           <div class="flex items-center gap-2 text-slate-500 text-xs font-semibold mb-4 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
-            <i class="bi bi-calendar-event text-blue-500"></i> 
-            กำหนดส่ง: <span class="text-slate-700">{{ task.due_date }}</span>
+            <i class="bi bi-calendar-event text-blue-500"></i>
+            กำหนดส่ง: <span class="text-slate-700">{{ formatDueDate(task.due_date) }}</span>
           </div>
           
           <p class="text-slate-600 text-sm mb-6 whitespace-pre-wrap leading-relaxed flex-grow" :class="{ 'line-through text-slate-400': task.status === 'done' }">
             {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
           </p>
 
-          <div v-if="isAdmin" class="flex justify-between items-center mt-auto pt-4 border-t border-slate-100">
+          <div v-if="canManageTasks" class="flex justify-between items-center mt-auto pt-4 border-t border-slate-100">
             <button 
               @click="toggleStatus(task)"
               class="flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-sm font-bold transition-colors"

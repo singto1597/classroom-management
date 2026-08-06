@@ -12,7 +12,7 @@ ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale);
 
 const authStore = useAuthStore();
 const currentServerId = authStore.currentRoomId!;
-const currentUserName = authStore.currentUserName || 'Admin';
+const currentUserName = authStore.currentUserName || 'ผู้ดูแลระบบ';
 
 const summary = ref<FinanceSummary | null>(null);
 const accounts = ref<Account[]>([]);
@@ -27,6 +27,12 @@ const thaiMonths = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
 ];
+
+// ✨ ปีที่เลือก: ตั้งแต่ปีที่แล้วถึงปีหน้า (รอบปีปัจจุบัน) ไม่ต้องแก้โค้ดทุกปี
+const yearOptions = computed(() => {
+  const currentYear = new Date().getFullYear();
+  return [currentYear - 1, currentYear, currentYear + 1];
+});
 
 const fetchDashboardData = async () => {
   isLoading.value = true;
@@ -213,7 +219,7 @@ watch([selectedMonth, selectedYear], () => {
               v-model="selectedYear"
               class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-4 pr-10 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer"
             >
-              <option v-for="y in [2024, 2025, 2026]" :key="y" :value="y">
+              <option v-for="y in yearOptions" :key="y" :value="y">
                 พ.ศ. {{ y + 543 }}
               </option>
             </select>

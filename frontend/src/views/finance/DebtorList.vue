@@ -42,7 +42,7 @@ const fetchDebtors = async () => {
       paidToAccountId.value = accounts.value[0]?.id.toString() || '';
     }
   } catch (error: any) {
-    Swal.fire('Error', 'โหลดข้อมูลลูกหนี้ไม่สำเร็จ', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', 'โหลดข้อมูลลูกหนี้ไม่สำเร็จ', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -81,7 +81,7 @@ const handleClearDebt = async (debtor: Debtor) => {
       payAmounts.value[debt.payment_id] = debt.amount;
     });
   } catch (error: any) {
-    Swal.fire('Error', 'ดึงรายการค้างชำระไม่สำเร็จ', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', 'ดึงรายการค้างชำระไม่สำเร็จ', 'error');
     isModalOpen.value = false;
   } finally {
     isLoadingDebts.value = false;
@@ -102,6 +102,11 @@ const handleBatchPay = async () => {
 
   if (selectedPaymentIds.value.length === 0) {
     return Swal.fire('อ๊ะ!', 'กรุณาเลือกรายการที่ต้องการชำระเงิน', 'warning');
+  }
+
+  // ✅ กันเผลอกดยืนยันตอนไม่มีกระเป๋าเงินเป้าหมาย
+  if (!paidToAccountId.value) {
+    return Swal.fire('ยังไม่เลือกบัญชี', 'กรุณาเลือกกระเป๋าเงินที่รับเงินก่อน', 'warning');
   }
 
   // จดจำการตั้งค่าก่อนกดยืนยัน
@@ -132,7 +137,7 @@ const handleBatchPay = async () => {
     isModalOpen.value = false;
     fetchDebtors();
   } catch (error: any) {
-    Swal.fire('Error', error.message || 'บันทึกไม่สำเร็จ', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', error.message || 'บันทึกไม่สำเร็จ', 'error');
   }
 };
 

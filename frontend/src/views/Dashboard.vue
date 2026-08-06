@@ -10,12 +10,17 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 // ✨ ระบบชื่อใหม่ ดึงจาก authStore โดยตรง
-const userName = computed(() => authStore.currentUserName || 'User');
-const role = computed(() => authStore.currentRole || 'Unknown');
+const userName = computed(() => authStore.currentUserName || 'ผู้ใช้งาน');
+// บทบาทเป็นภาษาไทย ผ่าน computed จาก store (รองรับ class_role ทุกตำแหน่ง)
+const role = computed(() => authStore.currentRoleLabel);
 const isAdmin = computed(() => authStore.isAdmin);
 
+// ✨ สิทธิ์ละเอียดสำหรับการ์ด (ให้ตรงกับหน้า StudentList)
+const canManageStudents = computed(() => isAdmin.value || authStore.currentPermissions.includes('MANAGE_STUDENTS'));
+const canManageTasks = computed(() => isAdmin.value || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS'));
+
 // ✨ ดึง roomCode จาก Store
-const roomCode = computed(() => authStore.currentRoomCode || 'N/A');
+const roomCode = computed(() => authStore.currentRoomCode || 'ไม่มีรหัส');
 
 // ✨ นับจำนวนงานในห้อง เพื่อแสดงบนการ์ดตารางและงาน
 const taskCount = ref(0);
@@ -133,7 +138,7 @@ const goToMyProfile = async () => {
               </div>
             </router-link>
             
-            <router-link v-if="isAdmin" to="/tasks/add" class="flex items-center justify-between p-5 bg-slate-50 hover:bg-white hover:shadow-lg active:scale-[0.98] rounded-[1.5rem] transition-all duration-300 border border-slate-100 hover:border-blue-100 group">
+            <router-link v-if="canManageTasks" to="/tasks/add" class="flex items-center justify-between p-5 bg-slate-50 hover:bg-white hover:shadow-lg active:scale-[0.98] rounded-[1.5rem] transition-all duration-300 border border-slate-100 hover:border-blue-100 group">
               <div class="flex items-center gap-4">
                 <div class="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-xl border border-slate-100 group-hover:scale-110 transition-transform">➕</div>
                 <span class="font-bold text-slate-700 text-base">เพิ่มงาน / โน้ตใหม่</span>
@@ -144,14 +149,14 @@ const goToMyProfile = async () => {
             </router-link>
 
             <div v-else class="flex items-center justify-center p-5 bg-slate-50/50 rounded-[1.5rem] border border-dashed border-slate-200 text-slate-400 font-medium text-sm">
-              <i class="bi bi-lock-fill me-2"></i> เฉพาะแอดมินที่เพิ่มงานได้
+              <i class="bi bi-lock-fill me-2"></i> เฉพาะผู้ดูแลที่เพิ่มงานได้
             </div>
           </div>
 
           <div class="mt-auto pt-6 border-t border-slate-100">
             <div class="flex flex-wrap gap-3">
               <router-link to="/schedules" class="flex-1 text-center px-5 py-3.5 bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-600 font-bold text-sm rounded-2xl transition-colors active:scale-95">ตารางเรียนยืนพื้น</router-link>
-              <router-link v-if="isAdmin" to="/schedules" class="flex-1 text-center px-5 py-3.5 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 font-bold text-sm rounded-2xl transition-colors border border-rose-100 active:scale-95">ข้อยกเว้นฉุกเฉิน</router-link>
+              <router-link v-if="canManageTasks" to="/schedules" class="flex-1 text-center px-5 py-3.5 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 font-bold text-sm rounded-2xl transition-colors border border-rose-100 active:scale-95">ข้อยกเว้นฉุกเฉิน</router-link>
             </div>
           </div>
         </div>
@@ -185,7 +190,7 @@ const goToMyProfile = async () => {
               </div>
             </button>
 
-            <template v-if="isAdmin">
+            <template v-if="canManageStudents">
               <router-link to="/students/add" class="w-full bg-slate-50 hover:bg-white hover:shadow-lg active:scale-[0.98] text-slate-700 font-bold p-5 rounded-[1.5rem] border border-slate-100 hover:border-emerald-100 transition-all duration-300 flex items-center justify-between group text-left mt-2">
                 <div class="flex items-center gap-4">
                   <div class="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-xl border border-slate-100 group-hover:scale-110 transition-transform">➕</div>

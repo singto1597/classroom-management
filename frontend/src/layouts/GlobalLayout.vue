@@ -113,7 +113,7 @@ const goToProfileSettings = async () => {
             class="flex items-center gap-3 p-1.5 pe-4 bg-white/50 hover:bg-white border border-slate-200/60 rounded-full transition-all duration-300 shadow-sm hover:shadow-md cursor-pointer active:scale-95 group"
           >
             <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-blue-600 text-white flex items-center justify-center font-black shadow-inner group-hover:scale-105 transition-transform duration-300">
-              {{ authStore.firstName ? authStore.firstName.charAt(0).toUpperCase() : 'U' }}
+              {{ (authStore.nickname || authStore.firstName || 'ส').charAt(0).toUpperCase() }}
             </div>
             <span class="text-sm font-bold text-slate-700 hidden sm:block tracking-wide">{{ authStore.currentUserName }}</span>
             <i class="bi bi-chevron-down text-xs text-slate-400 ms-1 transition-transform duration-300" :class="{'rotate-180': activeDropdown}"></i>

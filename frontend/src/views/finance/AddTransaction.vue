@@ -39,7 +39,7 @@ const fetchInitData = async () => {
     accounts.value = accRes;
     categories.value = catRes;
   } catch (error: any) {
-    Swal.fire('Error', 'ไม่สามารถโหลดข้อมูลเริ่มต้นได้', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลเริ่มต้นได้', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -50,11 +50,25 @@ const filteredCategories = computed(() => {
   return categories.value.filter(c => c.category_type === activeTab.value);
 });
 
+// 🔄 เมื่อสลับแท็บ ให้เคลียร์ค่าที่เลือกไว้ เพื่อไม่ให้ส่ง id ค้างจาก tab ก่อน
+const switchTab = (tab: 'expense' | 'income' | 'transfer') => {
+  activeTab.value = tab;
+  form.value.account_id = '';
+  form.value.category_id = '';
+  form.value.from_account_id = '';
+  form.value.to_account_id = '';
+};
+
 const handleSubmit = async () => {
   if (activeTab.value === 'transfer') {
     if (form.value.from_account_id === form.value.to_account_id) {
       return Swal.fire('ห๊ะ!', 'จะโอนเข้ากระเป๋าตัวเองทำไมครับพี่!', 'warning');
     }
+  }
+
+  // ✅ ป้องกันกรอกจำนวนเงินติดลบ / ศูนย์
+  if (!form.value.amount || Number(form.value.amount) <= 0) {
+    return Swal.fire('ตรวจสอบจำนวนเงิน', 'กรุณากรอกจำนวนเงินที่มากกว่า 0', 'warning');
   }
 
   isSubmitting.value = true;
@@ -74,6 +88,7 @@ const handleSubmit = async () => {
         amount: form.value.amount,
         description: form.value.description,
         transaction_type: activeTab.value,
+        slip_image_url: form.value.slip_image_url || undefined,
         user_name: currentUserName
       });
     }
@@ -115,10 +130,10 @@ onMounted(() => {
 
     <!-- Tabs -->
     <div class="bg-gray-100 p-1 rounded-2xl flex mb-8">
-      <button 
-        v-for="tab in ['expense', 'income', 'transfer']" 
+      <button
+        v-for="tab in ['expense', 'income', 'transfer']"
         :key="tab"
-        @click="activeTab = tab as any"
+        @click="switchTab(tab as any)"
         :class="[
           'flex-1 py-2.5 rounded-xl font-bold transition-all',
           activeTab === tab 
@@ -221,11 +236,11 @@ onMounted(() => {
       </div>
 
       <!-- Slip Image (Optional) -->
-      <div v-if="activeTab === 'transfer'">
+      <div>
         <label class="block text-sm font-bold text-gray-400 mb-2 uppercase">URL รูปสลิปหลักฐาน (ถ้ามี)</label>
-        <input 
-          v-model="form.slip_image_url" 
-          type="url" 
+        <input
+          v-model="form.slip_image_url"
+          type="url"
           class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-blue-100 outline-none transition"
           placeholder="https://..."
         >

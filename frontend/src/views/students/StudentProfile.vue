@@ -16,6 +16,23 @@ const loading = ref(true)
 
 const currentRoomId = authStore.currentRoomId!
 
+// 🏷️ แปลง class_role → ภาษาไทย (ให้ตรงกับ StudentList)
+const ROLE_LABELS: Record<string, string> = {
+  student: 'นักเรียน',
+  president: 'หัวหน้าห้อง',
+  vice_academic: 'รองวิชาการ',
+  vice_activity: 'รองกิจกรรม',
+  vice_discipline: 'รองระเบียบวินัย',
+  vice_reception: 'รองปฏิคม',
+  staff_academic: 'กรรมการวิชาการ',
+  staff_activity: 'กรรมการกิจกรรม',
+  staff_discipline: 'กรรมการระเบียบวินัย',
+  staff_reception: 'กรรมการปฏิคม',
+  treasurer: 'เหรัญญิก'
+};
+
+const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเรียน';
+
 // 🎯 เงื่อนไขสำหรับแสดงปุ่ม "แก้ไขข้อมูล"
 const canEdit = computed(() => {
   return authStore.isAdmin || 
@@ -115,7 +132,7 @@ onMounted(() => {
                   {{ student.status === 'active' ? 'กำลังศึกษา' : 'พ้นสภาพ' }}
                 </span>
                 <span class="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider">
-                  {{ student.class_role }}
+                  {{ roleLabel(student.class_role) }}
                 </span>
                 <span v-if="student.is_admin" class="bg-gradient-to-r from-amber-500 to-orange-400 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase text-white flex items-center gap-1 shadow-sm">
                   <i class="bi bi-shield-lock-fill"></i> ADMIN

@@ -32,7 +32,7 @@ const fetchDetail = async () => {
     data.value = detailRes;
     accounts.value = accountsRes;
   } catch (error: any) {
-    Swal.fire('Error', 'ไม่สามารถโหลดรายละเอียดแคมเปญได้', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดรายละเอียดแคมเปญได้', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -90,7 +90,7 @@ const handlePay = async (student: StudentPaymentDetail) => {
       Swal.fire({ icon: 'success', title: 'รับเงินสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchDetail();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -117,7 +117,7 @@ const handleRemoveStudent = async (student: StudentPaymentDetail) => {
       Swal.fire({ icon: 'success', title: 'ลบเรียบร้อย', timer: 1500, showConfirmButton: false });
       fetchDetail();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
@@ -129,12 +129,13 @@ const formatNumber = (num: number) => {
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return '-';
   const date = new Date(dateStr);
-  return date.toLocaleString('th-TH', { 
-    day: '2-digit', 
-    month: '2-digit', 
+  return date.toLocaleString('th-TH', {
+    day: '2-digit',
+    month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: 'Asia/Bangkok'
   }) + ' น.';
 };
 
@@ -156,7 +157,7 @@ onMounted(() => {
             <i class="bi bi-arrow-left text-xl"></i>
           </RouterLink>
           <h1 class="text-xl md:text-2xl font-extrabold text-gray-800">
-            รายการ: Collection #{{ data.collection_id }}
+            รายละเอียดโปรเจกต์ #{{ data.collection_id }}
           </h1>
         </div>
 

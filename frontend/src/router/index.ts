@@ -164,18 +164,23 @@ router.beforeEach((to, from) => {
   }
 
   if (isAuthenticated) {
-    if (!isOnboarded) {
+    // 🔓 บังคับออนบอร์ด (กรอกโปรไฟล์) เฉพาะเมื่อเข้าพื้นที่ที่ต้องมีห้อง
+    // แต่ lobby / callback / login ยังเข้าถึงได้ เพื่อให้เลือกห้องก่อน
+    const isRoomlessGlobal = to.path.startsWith('/lobby') || to.path.startsWith('/auth/') || to.path === '/login';
+    if (!isOnboarded && !isRoomlessGlobal) {
       if (to.name !== 'onboarding') {
         return { name: 'onboarding' };
       }
     } else {
-      if (to.name === 'onboarding') {
+      if (to.name === 'onboarding' && isOnboarded) {
         return { name: 'lobby' };
       }
     }
   }
 
-  const isGlobalRoute = to.path.startsWith('/lobby') || to.path === '/login' || to.path === '/onboarding';
+  // 🌐 เส้นทาง Global (ไม่ต้องมีห้อง): lobby, login, onboarding, OAuth callback
+  // (สำคัญ: callback ใช้ผูกบัญชีตอนยังไม่มีห้องได้ — ต้องไม่ถูก redirect ไป lobby)
+  const isGlobalRoute = to.path.startsWith('/lobby') || to.path === '/login' || to.path === '/onboarding' || to.path.startsWith('/auth/');
   if (isAuthenticated && (!currentRoomId || !currentRole) && !isGlobalRoute) {
     return { name: 'lobby' };
   }

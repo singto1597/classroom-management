@@ -11,7 +11,11 @@ const authStore = useAuthStore()
 // --- นำ Mock Data ออก แล้วดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
-const isAdmin = computed(() => authStore.isAdmin)
+
+// สิทธิ์: แอดมิน หรือผู้ที่มี permission จัดการนักเรียน
+const canManageStudents = computed(
+  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_STUDENTS')
+)
 
 // --- State ---
 const activeTab = ref<'single' | 'bulk'>('single')
@@ -29,7 +33,7 @@ const bulkData = ref('')
 
 // --- Methods ---
 const submitSingle = async () => {
-  if (!isAdmin.value) {
+  if (!canManageStudents.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้', 'error')
   }
 
@@ -56,7 +60,7 @@ const submitSingle = async () => {
 }
 
 const submitBulk = async () => {
-  if (!isAdmin.value) {
+  if (!canManageStudents.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้', 'error')
   }
 
@@ -159,7 +163,7 @@ const submitBulk = async () => {
             </div>
           </div>
           <div class="pt-4">
-            <template v-if="isAdmin">
+            <template v-if="canManageStudents">
               <button
                 @click="submitSingle"
                 :disabled="isSubmitting"
@@ -190,7 +194,7 @@ const submitBulk = async () => {
             ></textarea>
           </div>
           <div class="pt-4">
-            <template v-if="isAdmin">
+            <template v-if="canManageStudents">
               <button
                 @click="submitBulk"
                 :disabled="isSubmitting"

@@ -30,7 +30,7 @@ const fetchCollections = async () => {
     const res = await FinanceService.getCollections(currentServerId);
     collections.value = res;
   } catch (error: any) {
-    Swal.fire('Error', 'โหลดโปรเจกต์เก็บเงินไม่สำเร็จ', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', 'โหลดโปรเจกต์เก็บเงินไม่สำเร็จ', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -92,7 +92,7 @@ const submitCreateCollection = async () => {
     isCreateModalOpen.value = false;
     fetchCollections();
   } catch (error: any) {
-    Swal.fire('Error', error.message, 'error');
+    Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
   } finally {
     isSubmitting.value = false;
   }
@@ -150,15 +150,19 @@ const handleEditCollection = async (col: Collection) => {
       Swal.fire({ icon: 'success', title: 'อัปเดตสำเร็จ!', timer: 1500, showConfirmButton: false, customClass: { popup: 'rounded-3xl' } });
       fetchCollections();
     } catch (error: any) {
-      Swal.fire('Error', error.message, 'error');
+      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
     }
   }
 };
 
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-GB');
+  const date = new Date(dateStr + 'T00:00:00');
+  return date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
 };
 
 const formatNumber = (num: number) => {

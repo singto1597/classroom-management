@@ -46,7 +46,7 @@ const fetchTransactions = async () => {
     transactions.value = res.items;
     totalCount.value = res.total_count;
   } catch (error: any) {
-    Swal.fire('Error', error.message || 'โหลดข้อมูลไม่สำเร็จ', 'error');
+    Swal.fire('เกิดข้อผิดพลาด', error.message || 'โหลดข้อมูลไม่สำเร็จ', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -81,10 +81,20 @@ const handleRevert = async (transaction: Transaction) => {
   }
 };
 
+// 🕐 แสดงเวลาเป็นภาษาไทยและ Timezone Asia/Bangkok (กฎของโปรเจกต์)
 const formatDate = (dateStr: string) => {
   const date = new Date(dateStr);
-  const datePart = date.toLocaleDateString('en-GB'); // dd/mm/yyyy
-  const timePart = date.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  const datePart = date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Bangkok'
+  });
+  const timePart = date.toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Bangkok'
+  });
   return { datePart, timePart };
 };
 
@@ -291,10 +301,10 @@ const resetFilters = () => {
                     <div v-if="t.transfer_group_id && t.transaction_type === 'income'" class="text-slate-300 italic text-[11px] font-medium" title="ยกเลิกได้ที่รายการขาออก">
                       <i class="bi bi-link-45deg"></i> โอนเงิน
                     </div>
-                    <button 
+                    <button
                       v-else-if="isAdmin"
                       @click="handleRevert(t)"
-                      class="w-9 h-9 flex items-center justify-center text-rose-500 bg-white border border-slate-200 hover:border-rose-200 hover:bg-rose-50 hover:shadow-sm rounded-xl transition-all opacity-0 group-hover:opacity-100 mx-auto"
+                      class="w-9 h-9 flex items-center justify-center text-rose-500 bg-white border border-slate-200 hover:border-rose-200 hover:bg-rose-50 hover:shadow-sm rounded-xl transition-all md:opacity-0 md:group-hover:opacity-100 mx-auto"
                       title="ยกเลิกรายการ"
                     >
                       <i class="bi bi-arrow-counterclockwise text-lg"></i>

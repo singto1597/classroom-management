@@ -78,18 +78,50 @@ const openJoinModal = () => {
 };
 
 const submitJoinRoom = async () => {
+  // ✅ ตรวจสอบข้อมูลก่อนส่ง (รหัส, เลขที่, ชื่อ-นามสกุล)
+  const code = joinForm.value.room_code.trim().toUpperCase();
+  const no = Number(joinForm.value.student_no);
+
+  if (!code) {
+    return Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกรหัสเข้าห้อง', 'warning');
+  }
+  if (!no || no <= 0) {
+    return Swal.fire('ข้อมูลไม่ถูกต้อง', 'กรุณากรอกเลขที่ที่ถูกต้อง', 'warning');
+  }
+  if (!joinForm.value.first_name.trim() || !joinForm.value.last_name.trim()) {
+    return Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อและนามสกุลให้ครบถ้วน', 'warning');
+  }
+
   try {
     Swal.fire({ title: 'กำลังตรวจสอบข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-    
+
     const payload = {
-      room_code: joinForm.value.room_code,
-      student_no: Number(joinForm.value.student_no),
-      first_name: joinForm.value.first_name,
-      last_name: joinForm.value.last_name
+      room_code: code,
+      student_no: no,
+      first_name: joinForm.value.first_name.trim(),
+      last_name: joinForm.value.last_name.trim()
     };
 
     const result = await ClassroomService.joinRoom(payload);
 
+    // ✅ ตรวจสอบว่าเป็น "รอการอนุมัติ" (สมาชิกใหม่) หรือ "ยืนยันตัวตนสำเร็จ" (บัญชีผีถูกอ้างสิทธิ์ = active)
+    const isPending = (result.message || '').includes('รอการอนุมัติ');
+
+    if (isPending) {
+      // 🚧 ยังไม่ active → อยู่หน้าเลือกห้อง รอหัวหน้าห้องอนุมัติ
+      showJoinModal.value = false;
+      await fetchRooms();
+      return Swal.fire({
+        icon: 'success',
+        title: 'ส่งคำขอแล้ว!',
+        text: 'รอหัวหน้าห้อง / ผู้ดูแลอนุมัติคำขอของคุณ',
+        confirmButtonText: 'รับทราบ',
+        confirmButtonColor: '#10b981',
+        customClass: { popup: 'rounded-[2rem]', confirmButton: 'rounded-xl px-8 font-bold' }
+      });
+    }
+
+    // ✅ เข้าห้องได้เลย (ยืนยันตัวตนสำเร็จ)
     Swal.fire({
       icon: 'success',
       title: 'สำเร็จ!',
