@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 import asyncpg
 from datetime import date
-from typing import List
+from typing import List, Optional
 
 from models.classroom_sync_schemas import (
     SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
@@ -64,13 +64,19 @@ async def get_room_data(
     request: Request,
     room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user)
+    user_ctx: dict = Depends(get_current_user),
+    x_api_key: Optional[str] = Header(None),
 ):
     client_source, actor = get_audit_context(request, user_ctx)
+    # 🤖 Bot path (X-API-Key): บอทใช้ endpoint นี้เพื่อหา announcement_channel_id
+    # โดยส่ง X-Discord-Id = bot user id ซึ่งไม่ใช่สมาชิกห้อง → ข้าม require_member
+    # (เป็น system RPC เดียวกับ get_daily_summary — ดู docs/skills.md)
+    # 🌐 Web path (JWT): ยังบังคับ require_member กันอ่านข้ามห้อง
+    is_bot_path = x_api_key is not None
     return await ClassroomService.get_room_data(
         pool, room_id=room_id,
         client_source=client_source, actor_identifier=actor,
-        user_id=user_ctx.get("user_id")
+        user_id=None if is_bot_path else user_ctx.get("user_id")
     )
 
 @router.put("/{target_id}/channel", response_model=SuccessResponse)

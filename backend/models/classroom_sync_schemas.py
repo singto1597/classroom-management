@@ -32,6 +32,7 @@ class RoomSetupRequest(BaseModel):
     user_name: str 
 
 class RoomDataResponse(BaseModel):
+    id: int
     server_id: Optional[int] = None
     room_name: str
     announcement_channel_id: Optional[int] = None

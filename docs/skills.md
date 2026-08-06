@@ -298,3 +298,14 @@
   5. **ข้อควรระวัง:** ห้องที่ยังไม่มี `server_id` (สร้างผ่านเว็บ ยังไม่ผูก Discord) → service ยัง publish ไม่ได้ (ไม่มีปลายทาง) — endpoint ตอบ success แต่ไม่ publish; เทสต้องสร้างห้อง **พร้อม server_id** ถึงจะ `assert_awaited_once`
 - **Rule:** endpoint ใหม่ที่ web+bot ใช้ทั้งคู่ ต้อง (1) ทำ RBAC ใน service (ไม่ใช่ router) (2) router จับ `ForbiddenError→403`, `RoomNotFoundError→404` (3) มี `response_model` เสมอ (4) test ผ่านทั้ง JWT web path และ X-API-Key bot path (5) mock `ActionService.notify_custom_message` เพื่อไม่แตะ Redis จริง
 - **Date Added:** 2026-08-06
+
+### 🛠️ GET /{target_id} (get_room_data) — `require_member` ทำบอทพัง (หา announcement_channel ไม่ได้)
+- **Context/Problem:** บอทเรียก `GET /api/classroom/<server_id>?target_type=server` (ใน `_get_announcement_channel`) เพื่อหา `announcement_channel_id` แล้วส่ง `X-Discord-Id` = **bot user id** (`self.bot.user.id`) ซึ่งไม่ใช่สมาชิกห้อง — `get_room_data` ใน main เรียก `require_member(conn, room_id, user_id)` → `ForbiddenError` → บอทหา channel ไม่ได้ → ประกาศ (NEW_TASK/TASK_DONE/NEW_NOTE/CUSTOM_MESSAGE) ไม่ไปถึง Discord เลย (production log เห็น `GET ...?target_type=server → 404`)
+- **Root Cause:** `get_room_data` ถูกเติม `require_member` ไว้ (RBAC hardening) แต่ endpoint นี้เป็น **cross-layer RPC** ที่บอทเรียกด้วย system identity (เหมือน `get_daily_summary` ที่มี note อยู่แล้วในไฟล์นี้) — บอทไม่เคยเป็น student ในห้องไหน จึงโดน block ทุกครั้ง
+- **Correct Pattern/Solution:** แยก bot path กับ web path ที่ router:
+  1. Router รับ `x_api_key: Optional[str] = Header(None)`
+  2. ถ้าเป็น bot path (มี X-API-Key) → ส่ง `user_id=None` ไป service (ข้าม `require_member`) — บอทเป็นระบบที่ไว้วางใจ ต้องอ่าน room data เพื่อ route ประกาศ
+  3. Web path (JWT) ยังส่ง `user_id` → `require_member` ยังทำงานกันอ่านข้ามห้อง
+  4. `RoomDataResponse` ต้องมี `id` ด้วย (service คืนแต่ schema ตัดทิ้ง — ไม่ครบ contract)
+- **Rule:** ก่อนใส่ `require_member`/`require_permission` ลง read RPC ที่บอทใช้ ต้องเช็ค **caller ทุกตัว** (bot-loop/scheduler/slash command) — ถ้าบอทเรียกด้วย bot user id ให้ข้าม membership check ที่ router (ส่ง `user_id=None`) แทนที่จะลบ check ทิ้งทั้ง endpoint; และ test ทั้ง bot path (X-API-Key + bot user id ที่ไม่ใช่สมาชิก) และ web path (JWT + outsider ต้อง 403)
+- **Date Added:** 2026-08-06
