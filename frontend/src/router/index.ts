@@ -143,6 +143,11 @@ const router = createRouter({
           path: 'discord-connect',
           name: 'DiscordConnect',
           component: () => import('@/components/discord/DiscordConnectGuide.vue'),
+        },
+        {
+          path: 'messages',
+          name: 'send-message',
+          component: () => import('@/views/actions/SendMessage.vue'),
         }
       ]
     }

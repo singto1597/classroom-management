@@ -11,5 +11,10 @@ export const ClassroomService = {
   async joinRoom(payload: { room_code: string; student_no: number; first_name: string; last_name: string }): Promise<any> {
     // 🚨 ยิง API เข้าห้อง (Backend จะจัดการรวมร่างให้ที่จุดนี้)
     return await api.post('/api/classroom/join', payload);
+  },
+
+  // 🏠 ดึงข้อมูลห้อง (server_id บอกว่าห้องผูก Discord ไว้แล้วหรือยัง)
+  async getRoomData(roomId: number): Promise<any> {
+    return await api.get(`/api/classroom/${roomId}?target_type=room`);
   }
 };

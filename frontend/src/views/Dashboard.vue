@@ -237,7 +237,31 @@ const goToMyProfile = async () => {
           </div>
         </div>
 
-        <!-- 5. ROADMAP WIDGET -->
+        <!-- 5. DISCORD ANNOUNCEMENT WIDGET (Web → Discord) -->
+        <div class="relative overflow-hidden bg-gradient-to-br from-rose-500 to-red-600 rounded-[2.5rem] shadow-xl shadow-rose-500/20 hover:shadow-2xl hover:-translate-y-1 transition-all duration-500 group border border-rose-400/50">
+          <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay"></div>
+
+          <div class="relative z-10 p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8">
+            <div class="flex items-center gap-6 w-full md:w-auto">
+              <div class="w-20 h-20 md:w-24 md:h-24 bg-white/20 backdrop-blur-xl rounded-[1.5rem] flex items-center justify-center text-4xl shadow-inner border border-white/30 shrink-0 group-hover:rotate-12 transition-transform duration-500">📢</div>
+              <div>
+                <h2 class="text-3xl md:text-4xl font-black text-white mb-2 tracking-tight drop-shadow-sm">ประกาศเข้า Discord</h2>
+                <p class="text-rose-100 font-bold text-sm md:text-base tracking-wide">ส่งข้อความประกาศจากเว็บให้บอทประกาศถึงเพื่อนทุกคนในห้อง</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:flex sm:flex-wrap md:justify-end gap-3 md:gap-4 w-full md:w-auto">
+              <router-link to="/messages" class="flex items-center justify-center py-4 px-6 bg-rose-950 hover:bg-slate-900 text-white text-sm font-bold rounded-2xl transition-all shadow-lg active:scale-95">
+                <i class="bi bi-megaphone-fill me-2"></i> เขียนประกาศ
+              </router-link>
+              <router-link to="/discord-connect" class="flex items-center justify-center py-4 px-6 bg-white/90 hover:bg-white text-rose-900 text-sm font-bold rounded-2xl transition-all shadow-lg backdrop-blur-md active:scale-95">
+                <i class="bi bi-discord me-2"></i> เชื่อมต่อ Discord
+              </router-link>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. ROADMAP WIDGET -->
         <div class="lg:col-span-2 group">
           <router-link to="/roadmap" class="bg-slate-900 rounded-[2.5rem] p-8 shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all duration-500 cursor-pointer border border-slate-800 flex items-center justify-between">
             <div class="flex items-center gap-6">
