@@ -174,18 +174,18 @@ async def test_get_room_data_unknown_server_id_404(client, db_pool):
 
 
 async def test_get_room_data_bot_identity_returns_200(client, db_pool):
-    """บอทใช้ X-Discord-Id = bot user id ซึ่งไม่ใช่สมาชิกห้อง — ต้องยังได้ 200 (server branch ไม่ผ่าน require_member)"""
+    """บอทใช้ X-Discord-Id = bot application id ที่ไม่ถูก insert ใน users → system bot → 200"""
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner", discord_id=778904)
     server_id = random.randint(1_000_000, 9_999_999)
     channel_id = random.randint(100_000, 999_999)
     await _insert_room(db_pool, owner, server_id=server_id, channel_id=channel_id)
 
-    # bot user id ที่ไม่เคยเป็นสมาชิกห้องเลย (ไม่ได้ถูก insert เป็น student)
-    bot_user = await _insert_user(db_pool, first_name="Bot", last_name="User", discord_id=778905)
+    # bot application id ที่ไม่เคยถูก insert ใน users (จำลอง self.bot.user.id)
+    bot_app_id = random.randint(10_000_000_000, 99_999_999_999)
 
     resp = client.get(
         f"/api/classroom/{server_id}?target_type=server",
-        headers=_make_bot_headers(778905),
+        headers=_make_bot_headers(bot_app_id),
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
