@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 import asyncpg
 from datetime import date
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from models.classroom_sync_schemas import (
     SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
@@ -10,7 +10,7 @@ from models.classroom_sync_schemas import (
     DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse,
     AuditLogResponse
 )
-from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id, verify_api_key
+from core.dependencies import get_db_pool, get_current_user, get_current_user_or_bot, resolve_target_to_room_id, verify_api_key
 from core.exceptions import TaskNotFoundError, ForbiddenError, RoomNotFoundError
 from services.classroom_sync_service import ClassroomService
 
@@ -65,20 +65,19 @@ async def get_room_data(
     target_id: int = Path(...),
     target_type: Literal["server", "room"] = Query("room", description="ระบุ 'server' สำหรับบอท (ค้นด้วย server_id) หรือ 'room' สำหรับเว็บ (ค้นด้วย id)"),
     pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user),
-    x_api_key: Optional[str] = Header(None),
+    user_ctx: dict = Depends(get_current_user_or_bot),
 ):
     client_source, actor = get_audit_context(request, user_ctx)
-    # 🤖 Bot path (X-API-Key): บอทใช้ endpoint นี้เพื่อหา announcement_channel_id
-    # โดยส่ง X-Discord-Id = bot user id ซึ่งไม่ใช่สมาชิกห้อง → ข้าม require_member
+    # 🤖 Bot system (X-API-Key + bot user id ที่ไม่ใช่สมาชิก): บอทใช้ endpoint นี้
+    # เพื่อหา announcement_channel_id → ข้าม require_member (ส่ง user_id=None)
     # (เป็น system RPC เดียวกับ get_daily_summary — ดู docs/skills.md)
-    # 🌐 Web path (JWT): ยังบังคับ require_member กันอ่านข้ามห้อง
-    is_bot_path = x_api_key is not None
+    # 🌐 Web path (JWT) หรือ bot ที่เป็น user จริง: ยังบังคับ require_member กันอ่านข้ามห้อง
+    is_bot_system = user_ctx.get("is_bot_system") is True
     try:
         return await ClassroomService.get_room_data(
             pool, target_id=target_id, target_type=target_type,
             client_source=client_source, actor_identifier=actor,
-            user_id=None if is_bot_path else user_ctx.get("user_id")
+            user_id=None if is_bot_system else user_ctx.get("user_id")
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

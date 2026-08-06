@@ -299,6 +299,16 @@
 - **Rule:** endpoint ใหม่ที่ web+bot ใช้ทั้งคู่ ต้อง (1) ทำ RBAC ใน service (ไม่ใช่ router) (2) router จับ `ForbiddenError→403`, `RoomNotFoundError→404` (3) มี `response_model` เสมอ (4) test ผ่านทั้ง JWT web path และ X-API-Key bot path (5) mock `ActionService.notify_custom_message` เพื่อไม่แตะ Redis จริง
 - **Date Added:** 2026-08-06
 
+### 🛠️ GET /{target_id} — แก้ด้วย `get_current_user_or_bot` (bot system identity ผ่าน, web ยังเข้ม)
+- **Context/Problem:** หลัง column-switch แล้ว production ยัง 404 — เพราะ 404 เกิดจาก `get_current_user` (auth) ก่อน resolve server_id ด้วยซ้ำ: bot ส่ง `X-Discord-Id = self.bot.user.id` (bot application) ที่ไม่มีใน `users` table → 404
+- **Correct Pattern/Solution:** เพิ่ม dependency `get_current_user_or_bot` ใน `core/dependencies.py`:
+  1. Bot path (X-API-Key ถูก + X-Discord-Id เป็นตัวเลข) → หา `users.discord_id` ถ้าเจอ → `{"user_id": id, "is_bot_system": False}`; ถ้าไม่เจอ (bot application) → `{"user_id": None, "is_bot_system": True}` (**ไม่ 404**)
+  2. Web path (JWT) → เหมือน `get_current_user` เดิม
+  3. Route `get_room_data` ใช้ dependency นี้ + `user_id=None if is_bot_system` → ข้าม require_member
+  4. **Security:** bot ที่เป็น user จริงแต่ไม่ใช่สมาชิก → ยังโดน require_member → 403 (ไม่เปิดช่องว่าง)
+- **Rule:** system RPC ที่บอท application ต้องเรียก อย่าใช้ `get_current_user` ตรง ๆ (มัน 404 เมื่อ bot id ไม่มีใน users) — ใช้ `get_current_user_or_bot`; อย่าเปลี่ยน `get_current_user` เดิม (มี 51 จุดใช้ `user_ctx["user_id"]` ที่พังถ้า None)
+- **Date Added:** 2026-08-07
+
 ### 🛠️ GET /{target_id} (get_room_data) — สลับคอลัมน์ WHERE ใน query ตรง ๆ แทน resolve แยก (กัน 404 งง ๆ)
 - **Context/Problem:** บอทเรียก `GET /api/classroom/<server_id>?target_type=server` เพื่อหา `announcement_channel_id` — เดิมการ resolve อยู่ที่ `resolve_target_to_room_id` dependency (query แยกก่อน แล้ว service query `WHERE id=$1` อีกที) ทำให้ 404 มาจาก query แยก ไม่เห็นภาพ และสับสนว่าเป็น data หรือ code
 - **Correct Pattern/Solution:** โยก column-switch เข้า `ClassroomService.get_room_data` ตรง ๆ:
