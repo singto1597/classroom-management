@@ -1,12 +1,19 @@
 import json
 import logging
+import time
+import asyncpg
 import redis.asyncio as aioredis
 from core.config import settings
+from core.logger import AuditLogger
+from core.exceptions import RoomNotFoundError, ForbiddenError
+from core.rbac import require_permission
 from datetime import date, datetime
-import asyncio 
+import asyncio
 import sys
 
 logger = logging.getLogger("API_MAIN")
+
+action_logger = AuditLogger(service_name="ACTION")
 
 class ActionService:
     @staticmethod
@@ -77,6 +84,63 @@ class ActionService:
             "message": message,
             "user_name": user_name
         })
+
+    @classmethod
+    async def send_custom_message(
+        cls,
+        pool: asyncpg.Pool,
+        room_id: int,
+        title: str,
+        message: str,
+        user_name: str,
+        client_source: str,
+        actor_identifier: str,
+        user_id: int,
+    ) -> dict:
+        """
+        🆕 Web → Discord: ผู้ใช้พิมพ์ประกาศแล้วกดส่ง
+        - ตรวจห้อง + ตรวจสิทธิ์ (membership) → ได้ server_id → publish CUSTOM_MESSAGE ผ่าน Redis
+        - เขียน audit log (ใน transaction เดียวกัน) ว่าใครส่งข้อความอะไรไปห้องไหน
+        """
+        start_time = time.time()
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    room = await conn.fetchrow(
+                        "SELECT id, server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL",
+                        room_id,
+                    )
+                    if not room:
+                        raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
+                    # 🔒 กันคนนอกห้อง (ไม่ใช่สมาชิก active) ยิงข้อความข้ามห้อง
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+
+                    server_id = room["server_id"]
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await action_logger.log(
+                        conn=conn, action="CREATE", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=room_id, entity_type="MESSAGE",
+                        new_values={"title": title, "message": message, "user_name": user_name},
+                        endpoint_or_command="send_custom_message", execution_time_ms=exec_time,
+                    )
+
+            if server_id:
+                await cls.notify_custom_message(
+                    server_id=server_id, title=title, message=message, user_name=user_name,
+                )
+
+            return {"status": "success", "message": "ส่งข้อความประกาศไปยัง Discord เรียบร้อยแล้ว"}
+        except Exception as e:
+            async with pool.acquire() as fallback_conn:
+                exec_time = int((time.time() - start_time) * 1000)
+                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
+                await action_logger.log(
+                    conn=fallback_conn, action="CREATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id, entity_type="MESSAGE",
+                    status="failed", error_detail=str(e),
+                    endpoint_or_command="send_custom_message", execution_time_ms=exec_time,
+                )
+            raise e
 
 if __name__ == "__main__":
     async def run_test():

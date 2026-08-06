@@ -275,3 +275,26 @@
 - **Tests:** อัปเดต `test_confirm_payment_overpay_allowed_documents_current_behavior` → `test_confirm_payment_overpay_now_blocked` (expect ValueError + no mutation), `test_plain_member_cannot_confirm_payment_mutation_via_transactions` → ตอนนี้ expect ForbiddenError (ส่ง user_id=member), เพิ่ม `test_sync_discord_account_actor_mismatch_raises_forbidden`
 - **Rule:** (1) ทุก mutation ที่รับได้ทั้ง bot+web ต้องมี RBAC ให้ครบทั้งสองทาง — ใช้ pattern `user_id: Optional[int] = None` + router ส่งเสมอ (2) ทุก "ผูก identity" ต้อง verify ว่า actor เป็นเจ้าของ target ก่อน (IDOR) (3) Router ที่ service raise ValueError ต้องมี `except ValueError → 400` เสมอ (4) เช็ค schema จริงใน `init_db.py` ก่อนเขียน UPDATE/SELECT — อย่าใช้ legacy column (5) ก่อนลบไฟล์ ให้ grep ทั้ง repo ยืนยันไม่มีใครใช้
 - **Date Added:** 2026-08-05
+
+### 🛠️ Redis Pub/Sub — Backend กับ Bot ต้องชี้ Redis instance เดียวกัน (compose override แค่ฝั่งเดียว = ฟังไม่เห็น)
+- **Context/Problem:** ฟีเจอร์ "ประกาศจากเว็บไป Discord" (CUSTOM_MESSAGE) ไม่ทำงาน — bot ไม่เคยรับ event จาก Redis เลยแม้ backend log ว่า publish สำเร็จ
+- **Root Cause:** `docker-compose.app.yml` override `REDIS_URL=redis://${ENV_NAME}_infra_redis:6379/0` ให้ **เฉพาะ backend** ส่วน bot_discord ไม่อ่าน override นั้น → ตกไปใช้ default ฮาร์ดโค้ด `redis://staging_infra_redis:6379/0` ใน `bot_discord/core/config.py` → backend publish กับ bot subscribe อยู่คนละ instance (หรือ instance ที่ไม่มี) → ข้ามกันตลอด. ส่วน `.env.example` เคยมีบรรทัด `REDIS_URL: str = "redis://..."` (คัด syntax Python ติดมา) ซึ่ง compose อ่านไม่รู้เรื่อง → เงียบ ๆ
+- **Correct Pattern/Solution:**
+  1. `docker-compose.app.yml`: เพิ่ม `environment: - REDIS_URL=redis://${ENV_NAME}_infra_redis:6379/0` ให้ `bot_discord` ด้วย (คัดจาก backend) → สองฝั่งชี้ instance เดียวกันเสมอ
+  2. `backend/core/config.py`: เอา default ออกจาก `REDIS_URL` (บังคับให้ต้องระบุ) — ถ้าเผลอ default ผิด instance บอทจะเงียบตลอด ควรพังเร็ว
+  3. `bot_discord/core/config.py`: อ่านจาก env ก่อน ถ้าไม่มี fallback ตาม convention `${ENV_NAME}_infra_redis` (local dev → 127.0.0.1) + validate format (กัน `str =` ติดมา)
+  4. `docker-compose.test.yml`: ต้องเติม `REDIS_URL` ให้ test_runner ด้วย (หลังทำให้เป็น required)
+  5. `redis_listener.py`: ห่อ `process_event` ใน try/except ต่อ event — เดิม event เดียว error → หลุด subscription ทั้งหมด
+- **Rule:** ก่อนเพิ่ม/แก้ฟีเจอร์ที่ใช้ Redis pub/sub ให้ grep `REDIS_URL` ทั้ง `docker-compose*.yml`, `backend/core/config.py`, `bot_discord/core/config.py`, `.env*` และเช็คว่า **ทุก consumer/producer ชี้ instance เดียวกัน** (โดยเฉพาะเมื่อมี env override ใน compose — ต้อง override ให้ครบทุก service ที่ใช้)
+- **Date Added:** 2026-08-06
+
+### 🛠️ Web→Discord ประกาศ — action endpoint (service-layer) + RBAC `MANAGE_CLASSROOM_SETTINGS`
+- **Context/Problem:** ฟีเจอร์ใหม่ของเว็บ: พิมพ์ข้อความแล้วกดส่งให้ประกาศใน Discord (event `CUSTOM_MESSAGE`) ต้องมี endpoint ใน backend + publish ผ่าน Redis
+- **Correct Pattern/Solution:**
+  1. `backend/models/action_schemas.py`: `CustomMessageRequest` (title, message, user_name) + `CustomMessageResponse`
+  2. `backend/services/action_service.py`: เพิ่ม `ActionService.send_custom_message(pool, room_id, ...)` — เช็คห้อง `deleted_at IS NULL` + `require_permission(..., "MANAGE_CLASSROOM_SETTINGS")` (ประกาศ @everyone ทั้งห้อง → ต้องเป็นผู้มีสิทธิ์) + audit log `entity_type="MESSAGE"` ใน transaction เดียวกัน แล้ว publish `CUSTOM_MESSAGE` ถ้ามี `server_id`
+  3. `backend/routers/action_router.py`: thin HTTP layer — `POST /api/classroom/{target_id}/messages` รับได้ทั้ง `target_type=room` (web) และ `target_type=server` (bot, X-API-Key) map `RoomNotFoundError→404`, `ForbiddenError→403`
+  4. `backend/main.py`: mount `action_router` ด้วย `prefix="/api/classroom"` tags `["Actions"]`
+  5. **ข้อควรระวัง:** ห้องที่ยังไม่มี `server_id` (สร้างผ่านเว็บ ยังไม่ผูก Discord) → service ยัง publish ไม่ได้ (ไม่มีปลายทาง) — endpoint ตอบ success แต่ไม่ publish; เทสต้องสร้างห้อง **พร้อม server_id** ถึงจะ `assert_awaited_once`
+- **Rule:** endpoint ใหม่ที่ web+bot ใช้ทั้งคู่ ต้อง (1) ทำ RBAC ใน service (ไม่ใช่ router) (2) router จับ `ForbiddenError→403`, `RoomNotFoundError→404` (3) มี `response_model` เสมอ (4) test ผ่านทั้ง JWT web path และ X-API-Key bot path (5) mock `ActionService.notify_custom_message` เพื่อไม่แตะ Redis จริง
+- **Date Added:** 2026-08-06

@@ -51,6 +51,10 @@ services:
     image: classroom-${ENV_NAME}-bot:${IMAGE_TAG:-latest}
     env_file:
       - .env
+    environment:
+      # 🚨 ต้องชี้ Redis instance เดียวกับ backend (ก่อนนี้ bot ไม่มี override นี้
+      #    เลยเผลอไปฟัง staging_infra_redis ตัวเก่า → รับ event ไม่ได้)
+      - REDIS_URL=redis://${ENV_NAME}_infra_redis:6379/0
     networks:
       - shared_network
     deploy:

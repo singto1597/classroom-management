@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
 
-    REDIS_URL: str = "redis://staging_infra_redis:6379/0"
+    # 🔴 ต้องระบุจาก .env / docker-compose เสมอ — ไม่มีค่า default เพราะถ้าเผลอชี้ผิด instance
+    # บอทจะฟัง channel ไม่ได้ยิน (backend publish กับ bot subscribe คนละ Redis)
+    REDIS_URL: str
 
     model_config = SettingsConfigDict(
         env_file=".env", 
