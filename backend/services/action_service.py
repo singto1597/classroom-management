@@ -17,17 +17,22 @@ action_logger = AuditLogger(service_name="ACTION")
 
 class ActionService:
     @staticmethod
-    async def _publish(event_type: str, server_id: int, payload_data: dict):
+    async def _publish(event_type: str, server_id: int, payload_data: dict, mention: bool = False, category: str = "📢 แจ้งเตือน"):
         """
         ฟังก์ชันหลังบ้าน (Private) สำหรับส่งข้อมูลเข้า Redis จริงๆ
+
+        - mention: True → บอทจะ @everyone ก่อน embed (เฉพาะเรื่องสำคัญที่ทุกคนต้องเห็น)
+        - category: หัวข้อสั้น ๆ ที่บอทเอาไปวางเป็นข้อความก่อน embed (เช่น 'มีงานใหม่นะ')
         """
         try:
             redis_client = aioredis.from_url(settings.REDIS_URL)
-            
+
             # ประกอบร่าง Payload พื้นฐาน
             payload = {
                 "event": event_type,
                 "server_id": server_id,
+                "mention": mention,
+                "category": category,
             }
             # เอาข้อมูลเฉพาะของ Event นั้นๆ ยัดรวมเข้าไป
             payload.update(payload_data)
@@ -38,9 +43,9 @@ class ActionService:
             # ตะโกนเข้าช่อง classroom_events
             await redis_client.publish("classroom_events", json_data)
             await redis_client.aclose()
-            
-            logger.info(f"📢 [ActionService] Published {event_type} to server {server_id}")
-            
+
+            logger.info(f"📢 [ActionService] Published {event_type} to server {server_id} (mention={mention}, category={category})")
+
         except Exception as e:
             # ถ้า Redis ล่ม API ต้องไม่พัง แค่เก็บ Log ไว้
             logger.error(f"❌ [ActionService] Redis Publish Error: {e}")
@@ -51,39 +56,83 @@ class ActionService:
 
     @classmethod
     async def notify_new_task(cls, server_id: int, task_name: str, task_detail: str, due_date: date, user_name: str):
-        """เรียกใช้เมื่อมีการสร้างงานใหม่"""
+        """เรียกใช้เมื่อมีการสร้างงานใหม่ — ทุกคนต้องเห็น → @everyone"""
         await cls._publish("NEW_TASK", server_id, {
             "task_name": task_name,
             "task_detail": task_detail,
             "due_date": due_date,
             "user_name": user_name
-        })
+        }, mention=True, category="📝 มีงานใหม่นะ")
 
     @classmethod
     async def notify_task_done(cls, server_id: int, task_name: str, user_name: str):
-        """เรียกใช้เมื่อมีคนกดส่งงาน"""
+        """เรียกใช้เมื่อมีคนกดส่งงาน — แจ้งเฉยๆ (ไม่ @everyone)"""
         await cls._publish("TASK_DONE", server_id, {
             "task_name": task_name,
             "user_name": user_name
-        })
+        }, mention=False, category="✅ ส่งงานแล้ว")
 
     @classmethod
     async def notify_new_note(cls, server_id: int, target_date: date, topic: str, user_name: str):
-        """เรียกใช้เมื่อมีการแปะประกาศรายวันใหม่"""
+        """เรียกใช้เมื่อมีการแปะประกาศรายวันใหม่ — ทุกคนต้องเห็น → @everyone"""
         await cls._publish("NEW_NOTE", server_id, {
             "target_date": target_date,
             "topic": topic,
             "user_name": user_name
-        })
+        }, mention=True, category="📌 ประกาศรายวันนะ")
 
     @classmethod
     async def notify_custom_message(cls, server_id: int, title: str, message: str, user_name: str):
-        """เรียกใช้เมื่อส่งข้อความประกาศตรงจากหน้าเว็บ"""
+        """เรียกใช้เมื่อส่งข้อความประกาศตรงจากหน้าเว็บ — @everyone (ประกาศทั้งห้อง)"""
         await cls._publish("CUSTOM_MESSAGE", server_id, {
             "title": title,
             "message": message,
             "user_name": user_name
-        })
+        }, mention=True, category="📢 ประกาศนะทุกคน")
+
+    @classmethod
+    async def notify_new_finance(cls, server_id: int, txn_type: str, amount: float, description: str, user_name: str):
+        """เรียกใช้เมื่อมีรายรับ/รายจ่ายใหม่ — แจ้งเฉยๆ (ไม่ต้อง @everyone แต่ทุกคนเห็นความโปร่งใส)"""
+        if txn_type == "income":
+            category = "💰 มีรายรับเข้ามา"
+        else:
+            category = "💸 มีรายจ่าย"
+        await cls._publish("FINANCE_TRANSACTION", server_id, {
+            "txn_type": txn_type,
+            "amount": amount,
+            "description": description,
+            "user_name": user_name
+        }, mention=False, category=category)
+
+    @classmethod
+    async def notify_payment_confirmed(cls, server_id: int, payer_name: str, title: str, amount: float, user_name: str):
+        """เรียกใช้เมื่อมีคนจ่ายเงินแล้ว — แจ้งเฉยๆ (ไม่ @everyone แต่โชว์ความโปร่งใส)"""
+        await cls._publish("FINANCE_PAYMENT", server_id, {
+            "payer_name": payer_name,
+            "title": title,
+            "amount": amount,
+            "user_name": user_name
+        }, mention=False, category="✅ จ่ายเงินแล้ว")
+
+    @classmethod
+    async def notify_new_collection(cls, server_id: int, title: str, amount: float, due_date: date, user_name: str):
+        """เรียกใช้เมื่อสร้างแคมเปญเก็บเงินใหม่ — ทุกคนต้องรู้ → @everyone"""
+        await cls._publish("FINANCE_COLLECTION", server_id, {
+            "title": title,
+            "amount": amount,
+            "due_date": due_date,
+            "user_name": user_name
+        }, mention=True, category="💳 แจ้งเก็บเงินนะทุกคน")
+
+    @classmethod
+    async def notify_new_student(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str):
+        """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งเฉยๆ (ไม่ @everyone)"""
+        await cls._publish("NEW_STUDENT", server_id, {
+            "student_no": student_no,
+            "first_name": first_name,
+            "last_name": last_name,
+            "user_name": user_name
+        }, mention=False, category="👤 มีสมาชิกใหม่")
 
     @classmethod
     async def send_custom_message(

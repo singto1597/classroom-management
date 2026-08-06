@@ -12,6 +12,7 @@ from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
 from core.rbac import require_permission, require_member
 from core.config import settings
+from services.action_service import ActionService
 from models.student_schemas import StudentUpdateRequest
 
 service_logger = AuditLogger(service_name="STUDENT")
@@ -118,6 +119,18 @@ class StudentService:
                             entity_type="STUDENT", entity_id=str(student_no), status="success",
                             new_values=new_values, endpoint_or_command="add_student", execution_time_ms=exec_time
                         )
+                        # 📢 แจ้งเตือน Discord: มีสมาชิกใหม่ (ไม่ @everyone)
+                        room_server_id = await conn.fetchval(
+                            "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id
+                        )
+                        if room_server_id:
+                            await ActionService.notify_new_student(
+                                server_id=room_server_id,
+                                student_no=student_no,
+                                first_name=first_name,
+                                last_name=last_name,
+                                user_name=user_name,
+                            )
                     else:
                         raise ValueError(f"เลขที่ {student_no} มีรายชื่ออยู่ในห้องนี้แล้ว")
         except Exception as e:
