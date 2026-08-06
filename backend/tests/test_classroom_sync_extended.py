@@ -252,7 +252,7 @@ async def test_get_room_data_nonexistent_raises_roomnotfound(db_pool):
 
     with pytest.raises(RoomNotFoundError):
         await ClassroomService.get_room_data(
-            pool=db_pool, room_id=999999,
+            pool=db_pool, target_id=999999, target_type="room",
             client_source="test", actor_identifier="test", user_id=owner,
         )
 
@@ -264,7 +264,7 @@ async def test_get_room_data_soft_deleted_room_raises_roomnotfound(db_pool):
 
     with pytest.raises(RoomNotFoundError):
         await ClassroomService.get_room_data(
-            pool=db_pool, room_id=room_id,
+            pool=db_pool, target_id=room_id, target_type="room",
             client_source="test", actor_identifier="test", user_id=owner,
         )
 
@@ -433,7 +433,7 @@ async def test_get_room_data_outside_member_forbidden(db_pool):
 
     with pytest.raises(ForbiddenError):
         await ClassroomService.get_room_data(
-            pool=db_pool, room_id=room_id,
+            pool=db_pool, target_id=room_id, target_type="room",
             client_source="test", actor_identifier="test", user_id=outsider,
         )
 

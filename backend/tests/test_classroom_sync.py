@@ -136,7 +136,7 @@ async def test_get_room_data_returns_room_fields(db_pool):
     room_id = await _insert_room(db_pool, owner, room_name="ห้อง 1/1")
 
     data = await ClassroomService.get_room_data(
-        pool=db_pool, room_id=room_id,
+        pool=db_pool, target_id=room_id, target_type="room",
         client_source="test", actor_identifier="test",
     )
 

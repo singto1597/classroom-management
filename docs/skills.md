@@ -299,7 +299,16 @@
 - **Rule:** endpoint ใหม่ที่ web+bot ใช้ทั้งคู่ ต้อง (1) ทำ RBAC ใน service (ไม่ใช่ router) (2) router จับ `ForbiddenError→403`, `RoomNotFoundError→404` (3) มี `response_model` เสมอ (4) test ผ่านทั้ง JWT web path และ X-API-Key bot path (5) mock `ActionService.notify_custom_message` เพื่อไม่แตะ Redis จริง
 - **Date Added:** 2026-08-06
 
-### 🛠️ GET /{target_id} (get_room_data) — `require_member` ทำบอทพัง (หา announcement_channel ไม่ได้)
+### 🛠️ GET /{target_id} (get_room_data) — สลับคอลัมน์ WHERE ใน query ตรง ๆ แทน resolve แยก (กัน 404 งง ๆ)
+- **Context/Problem:** บอทเรียก `GET /api/classroom/<server_id>?target_type=server` เพื่อหา `announcement_channel_id` — เดิมการ resolve อยู่ที่ `resolve_target_to_room_id` dependency (query แยกก่อน แล้ว service query `WHERE id=$1` อีกที) ทำให้ 404 มาจาก query แยก ไม่เห็นภาพ และสับสนว่าเป็น data หรือ code
+- **Correct Pattern/Solution:** โยก column-switch เข้า `ClassroomService.get_room_data` ตรง ๆ:
+  1. service รับ `target_id` + `target_type` → `where_column = "server_id" if target_type == "server" else "id"` → `SELECT ... FROM rooms WHERE {where_column} = $1 AND deleted_at IS NULL`
+  2. `room_id = room["id"]` ใช้สำหรับ audit log + `require_member`
+  3. router อ่าน `target_id: int = Path(...)` + `target_type: Literal["server","room"] = Query("room")` ตรง ๆ (ไม่ผ่าน resolve dependency) และ **จับ `RoomNotFoundError→404`** เอง (เดิม 404 มาจาก dependency ตอนนี้ service เป็นคน raise)
+  4. ใหญ่ integer (Discord snowflake 19 หลัก) ยังเป็น `int` ได้ (Python int ไม่จำกัดความยาว, BIGINT รับถึง 2^63-1) — ไม่ต้องเป็น str
+  5. fallback audit log: ค้น room_id ด้วย `WHERE id = $1 OR server_id = $1` (เผื่อ target เป็น server_id) แล้วใช้ `safe_room_id` กัน FK violation ตอน log failed
+- **Rule:** ถ้า endpoint ไหน resolve target ผ่าน dependency + query แยก แล้วเกิด 404 มืด ๆ → ให้สลับคอลัมน์ใน service query ตรง ๆ และให้ router จับ domain exception เอง (ไม่ใช่ dependency); ตรวจ `deleted_at IS NULL` เสมอ; response schema ต้องมี `id` + `announcement_channel_id` ครบ contract ที่ bot ใช้
+- **Date Added:** 2026-08-06
 - **Context/Problem:** บอทเรียก `GET /api/classroom/<server_id>?target_type=server` (ใน `_get_announcement_channel`) เพื่อหา `announcement_channel_id` แล้วส่ง `X-Discord-Id` = **bot user id** (`self.bot.user.id`) ซึ่งไม่ใช่สมาชิกห้อง — `get_room_data` ใน main เรียก `require_member(conn, room_id, user_id)` → `ForbiddenError` → บอทหา channel ไม่ได้ → ประกาศ (NEW_TASK/TASK_DONE/NEW_NOTE/CUSTOM_MESSAGE) ไม่ไปถึง Discord เลย (production log เห็น `GET ...?target_type=server → 404`)
 - **Root Cause:** `get_room_data` ถูกเติม `require_member` ไว้ (RBAC hardening) แต่ endpoint นี้เป็น **cross-layer RPC** ที่บอทเรียกด้วย system identity (เหมือน `get_daily_summary` ที่มี note อยู่แล้วในไฟล์นี้) — บอทไม่เคยเป็น student ในห้องไหน จึงโดน block ทุกครั้ง
 - **Correct Pattern/Solution:** แยก bot path กับ web path ที่ router:

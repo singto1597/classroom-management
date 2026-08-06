@@ -103,6 +103,47 @@ async def test_get_room_data_by_big_snowflake_server_id_200(client, db_pool):
     assert data["announcement_channel_id"] == channel_id
 
 
+async def test_get_room_data_server_id_no_room_match_404(client, db_pool):
+    """server_id ที่ไม่มีห้องผูก → 404 (พิสูจน์ว่า query ใช้ server_id จริง ไม่ใช่ id)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner", discord_id=778906)
+    # ห้อง A มี server_id แต่เราขอ server_id อีกตัวที่ไม่มี → ต้อง 404
+    await _insert_room(db_pool, owner, server_id=random.randint(1_000_000, 9_999_999))
+
+    resp = client.get(
+        f"/api/classroom/{random.randint(10_000_000, 99_999_999)}?target_type=server",
+        headers=_make_bot_headers(778906),
+    )
+    assert resp.status_code == 404
+
+
+async def test_get_room_data_service_queries_by_server_id_column(db_pool):
+    """Service-level: target_type='server' → query ใช้คอลัมน์ server_id ตรง ๆ (ไม่ใช่ id)"""
+    from services.classroom_sync_service import ClassroomService
+    from core.exceptions import RoomNotFoundError
+
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    server_id = random.randint(1_000_000, 9_999_999)
+    channel_id = random.randint(100_000, 999_999)
+    room_id = await _insert_room(db_pool, owner, server_id=server_id, channel_id=channel_id)
+
+    data = await ClassroomService.get_room_data(
+        pool=db_pool, target_id=server_id, target_type="server",
+        client_source="test", actor_identifier="test",
+    )
+    assert data["id"] == room_id
+    assert data["server_id"] == server_id
+    assert data["announcement_channel_id"] == channel_id
+
+    # ✨ พิสูจน์ว่า query ใช้ server_id column ไม่ใช่ id:
+    # ห้องนี้มี id = room_id (เลขเล็ก) แต่ server_id เป็นเลขคนละชุด — ถ้า query ผิดคอลัมน์จะเจอคนละห้อง/404
+    assert server_id != room_id  # server_id 7 หลักไม่มีทางเท่ากับ room_id (serial เล็ก)
+    data2 = await ClassroomService.get_room_data(
+        pool=db_pool, target_id=server_id, target_type="server",
+        client_source="test", actor_identifier="test",
+    )
+    assert data2["id"] == room_id  # ยังเจอห้องเดิมผ่าน server_id
+
+
 async def test_get_room_data_by_room_id_default_200(client, db_pool):
     """Web เรียก GET /api/classroom/<room_id> (ไม่ส่ง target_type → default room) ต้องได้ 200"""
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
