@@ -16,17 +16,38 @@ service_logger = AuditLogger(service_name="CLASSROOM")
 class ClassroomService:
 
     @classmethod
-    async def get_room_data(cls, pool: asyncpg.Pool, room_id: int, client_source: str, actor_identifier: str, user_id: Optional[int] = None):
+    async def get_room_data(cls, pool: asyncpg.Pool, target_id: int, target_type: str, client_source: str, actor_identifier: str, user_id: Optional[int] = None):
+        """
+        ดึงข้อมูลห้องตาม target_type:
+        - 'server' → ค้นจากคอลัมน์ server_id (Discord Server ID สโนว์เฟลก 19 หลัก)
+        - 'room' (หรืออื่น) → ค้นจากคอลัมน์ id (room_id)
+        สลับคอลัมน์ที่ WHERE โดยตรง ไม่ต้อง resolve ผ่าน query แยก (กัน 404 งง ๆ)
+        คืน dict ที่มี id, server_id, room_name, announcement_channel_id, notify_time
+        """
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
+                if target_type == "server":
+                    # 🤖 Bot path: ค้นด้วย server_id (Discord snowflake 19 หลัก)
+                    where_column = "server_id"
+                    not_found_msg = f"ไม่พบห้องเรียนที่ผูกกับ Server ID: {target_id}"
+                else:
+                    # 🌐 Web path: ค้นด้วย room_id
+                    where_column = "id"
+                    not_found_msg = f"ไม่พบห้องเรียน ID: {target_id}"
+
                 room = await conn.fetchrow(
-                    "SELECT id, server_id, room_code, room_name, announcement_channel_id, notify_time FROM rooms WHERE id = $1 AND deleted_at IS NULL",
-                    room_id
+                    f"SELECT id, server_id, room_code, room_name, announcement_channel_id, notify_time "
+                    f"FROM rooms WHERE {where_column} = $1 AND deleted_at IS NULL",
+                    target_id,
                 )
                 if not room:
-                    raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
+                    raise RoomNotFoundError(not_found_msg)
+
+                room_id = room["id"]
+
                 # 🔒 ตรวจ member หลังจาก room มีอยู่จริง → 404 ก่อน 403
+                # (บอท path ส่ง user_id=None → ข้าม กันบอทซึ่งไม่ใช่สมาชิกห้องถูก block)
                 if user_id is not None:
                     await require_member(conn, room_id, user_id)
 
@@ -41,10 +62,17 @@ class ClassroomService:
             async with pool.acquire() as fallback_conn:
                 exec_time = int((time.time() - start_time) * 1000)
                 # room ไม่มีอยู่จริง → อย่า log ผูกกับ room_id ที่ไม่มี FK (กัน FK violation กลบ exception เดิม)
-                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
+                safe_room_id = None
+                async with fallback_conn.transaction():
+                    # หา room_id จริงเพื่อ log (ถ้าเจอ) หรือปล่อย None ถ้าเป็น RoomNotFoundError
+                    if not isinstance(e, RoomNotFoundError):
+                        safe_room_id = await fallback_conn.fetchval(
+                            "SELECT id FROM rooms WHERE id = $1 OR server_id = $1",
+                            target_id,
+                        )
                 await service_logger.log(
                     conn=fallback_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
-                    room_id=safe_room_id, entity_type="ROOM", entity_id=str(room_id), status="failed",
+                    room_id=safe_room_id, entity_type="ROOM", entity_id=str(target_id), status="failed",
                     error_detail=str(e), endpoint_or_command="get_room_data", execution_time_ms=exec_time
                 )
             raise e

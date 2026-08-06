@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, Request
 import asyncpg
 from datetime import date
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from models.classroom_sync_schemas import (
     SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
@@ -11,7 +11,7 @@ from models.classroom_sync_schemas import (
     AuditLogResponse
 )
 from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id, verify_api_key
-from core.exceptions import TaskNotFoundError, ForbiddenError
+from core.exceptions import TaskNotFoundError, ForbiddenError, RoomNotFoundError
 from services.classroom_sync_service import ClassroomService
 
 router = APIRouter()
@@ -62,7 +62,8 @@ async def get_rooms_to_notify(
 @router.get("/{target_id}", response_model=RoomDataResponse)
 async def get_room_data(
     request: Request,
-    room_id: int = Depends(resolve_target_to_room_id),
+    target_id: int = Path(...),
+    target_type: Literal["server", "room"] = Query("room", description="ระบุ 'server' สำหรับบอท (ค้นด้วย server_id) หรือ 'room' สำหรับเว็บ (ค้นด้วย id)"),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user),
     x_api_key: Optional[str] = Header(None),
@@ -73,11 +74,16 @@ async def get_room_data(
     # (เป็น system RPC เดียวกับ get_daily_summary — ดู docs/skills.md)
     # 🌐 Web path (JWT): ยังบังคับ require_member กันอ่านข้ามห้อง
     is_bot_path = x_api_key is not None
-    return await ClassroomService.get_room_data(
-        pool, room_id=room_id,
-        client_source=client_source, actor_identifier=actor,
-        user_id=None if is_bot_path else user_ctx.get("user_id")
-    )
+    try:
+        return await ClassroomService.get_room_data(
+            pool, target_id=target_id, target_type=target_type,
+            client_source=client_source, actor_identifier=actor,
+            user_id=None if is_bot_path else user_ctx.get("user_id")
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.put("/{target_id}/channel", response_model=SuccessResponse)
 async def set_channel(
