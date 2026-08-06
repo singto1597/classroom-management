@@ -1758,8 +1758,8 @@ async def test_inactive_member_cannot_read(db_pool):
 
 async def test_plain_member_cannot_confirm_payment_mutation_via_transactions(db_pool):
     """
-    ⚠️ document: confirm_payment ไม่มี user_id param → ไม่มี require_permission
-    (Router ก็ไม่ส่ง user_id ให้ service) — นี่คือช่องโหว่ RBAC ที่ต้อง flag
+    ✅ FIXED: confirm_payment ตอนนี้มี RBAC (MANAGE_FINANCE)
+    สมาชิกธรรมดา (ไม่ใช่ admin) ต้องโดน ForbiddenError
     """
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
@@ -1770,16 +1770,18 @@ async def test_plain_member_cannot_confirm_payment_mutation_via_transactions(db_
     collection_id = await _insert_collection(db_pool, room_id, "ค่าเทอม", 1000.0)
     payment_id = await _insert_student_payment(db_pool, collection_id, student_id, "pending", 0.0)
 
-    # สมาชิกธรรมดาสามารถยืนยันการชำระเงินได้ (เพราะไม่มี RBAC) — เอกสารพฤติกรรมปัจจุบัน
-    result = await FinanceService.confirm_payment(
-        pool=db_pool, payment_id=payment_id,
-        req=PaymentConfirm(paid_to_account_id=account_id, paid_amount=1000.0, user_name="Member"),
-        client_source="test", actor_identifier="test", room_id=room_id,
-    )
-    assert result["status"] == "success"
+    with pytest.raises(ForbiddenError):
+        await FinanceService.confirm_payment(
+            pool=db_pool, payment_id=payment_id,
+            req=PaymentConfirm(paid_to_account_id=account_id, paid_amount=1000.0, user_name="Member"),
+            client_source="test", actor_identifier="test", room_id=room_id,
+            user_id=member,
+        )
+    # Deep verify: ไม่มีเงินเข้าบัญชี / status ยัง pending
+    assert await _fetch_balance(db_pool, account_id) == pytest.approx(0.0)
     async with db_pool.acquire() as conn:
         sp = await conn.fetchrow("SELECT status FROM student_payments WHERE id = $1", payment_id)
-        assert sp["status"] == "paid"
+        assert sp["status"] == "pending"
 
 
 async def test_plain_member_cannot_revert_or_delete(db_pool):
@@ -1932,11 +1934,11 @@ async def test_create_collection_silently_drops_invalid_student_ids(db_pool):
         assert [p["student_id"] for p in payments] == [s1]
 
 
-async def test_confirm_payment_overpay_allowed_documents_current_behavior(db_pool):
+async def test_confirm_payment_overpay_now_blocked(db_pool):
     """
-    ⚠️ document BUG: confirm_payment ไม่ได้จำกัดยอดเกิน (overpay)
-    current_paid 600 + paid_amount 500 = 1100 → เกินยอดจริง (1000) แต่ระบบยังรับ
-    และ mark เป็น paid — ยอดที่เกินเข้า balance เต็มจำนวน ต้องแก้ที่ service
+    ✅ FIXED: confirm_payment ตอนนี้ block overpay แล้ว
+    current_paid 600 + paid_amount 500 = 1100 → เกินยอดจริง (1000) → ต้อง raise ValueError
+    และไม่ให้เงินเข้าบัญชี / ไม่เปลี่ยน status
     """
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
@@ -1945,16 +1947,18 @@ async def test_confirm_payment_overpay_allowed_documents_current_behavior(db_poo
     collection_id = await _insert_collection(db_pool, room_id, "ค่าเทอม", 1000.0)
     payment_id = await _insert_student_payment(db_pool, collection_id, student_id, "pending", 600.0)
 
-    result = await FinanceService.confirm_payment(
-        pool=db_pool, payment_id=payment_id,
-        req=PaymentConfirm(paid_to_account_id=account_id, paid_amount=500.0, user_name="Owner"),
-        client_source="test", actor_identifier="test", room_id=room_id,
-    )
-    assert "จ่ายครบแล้ว" in result["message"]
+    with pytest.raises(ValueError):
+        await FinanceService.confirm_payment(
+            pool=db_pool, payment_id=payment_id,
+            req=PaymentConfirm(paid_to_account_id=account_id, paid_amount=500.0, user_name="Owner"),
+            client_source="test", actor_identifier="test", room_id=room_id,
+        )
+    # Deep verify: ไม่มีเงินเข้าบัญชี / status ยัง pending / ยอดเดิมยังอยู่
+    assert await _fetch_balance(db_pool, account_id) == pytest.approx(0.0)
     async with db_pool.acquire() as conn:
         sp = await conn.fetchrow("SELECT paid_amount, status FROM student_payments WHERE id = $1", payment_id)
-        assert float(sp["paid_amount"]) == pytest.approx(1100.0)  # เกินยอด!
-    assert await _fetch_balance(db_pool, account_id) == pytest.approx(500.0)
+        assert float(sp["paid_amount"]) == pytest.approx(600.0)
+        assert sp["status"] == "pending"
 
 
 async def test_confirm_payment_to_other_room_account_raises(db_pool):

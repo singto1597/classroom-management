@@ -22,7 +22,7 @@ class TargetResolution(BaseModel):
 
 def get_target(
     target_id: int = Path(...),
-    target_type: Literal["server", "room"] = Query("server")
+    target_type: Literal["server", "room"] = Query("room", description="ระบุ 'room' สำหรับเว็บ หรือ 'server' สำหรับบอท")
 ) -> TargetResolution:
     return TargetResolution(
         server_id=target_id if target_type == "server" else None,
@@ -192,7 +192,7 @@ async def search_students(request: Request, target: TargetResolution = Depends(g
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 
-@router.patch("/{target_id}/students/{student_no}/status")
+@router.patch("/{target_id}/students/{student_no}/status", response_model=SuccessResponse)
 async def deactivate_student(student_no: int, req: StudentStatusUpdate, request: Request, target: TargetResolution = Depends(get_target), pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
     client_source, actor = get_audit_context(request, user_ctx)
     try:
@@ -207,7 +207,7 @@ async def deactivate_student(student_no: int, req: StudentStatusUpdate, request:
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/discord/sync")
+@router.post("/discord/sync", response_model=SuccessResponse)
 async def sync_discord(
     req: DiscordSyncRequest,
     request: Request,
@@ -228,12 +228,15 @@ async def sync_discord(
             discord_username=x_discord_username or "",
             client_source=client_source,
             actor_identifier=actor,
+            actor_user_id=user_ctx["user_id"],
         )
         return SuccessResponse(message="Discord account synced successfully.")
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except StudentNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

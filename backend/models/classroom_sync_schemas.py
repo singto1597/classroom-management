@@ -112,3 +112,10 @@ class DailySummaryResponse(BaseModel):
     bring: str
     note: str
     tasks_due: List[TaskDueInfo]
+
+class AuditLogResponse(BaseModel):
+    """ประวัติการกระทำในห้อง (จาก audit_logs) — ใช้กับ GET /{target_id}/logs"""
+    user_name: Optional[str] = None
+    action: Optional[str] = None
+    detail: Optional[str] = None
+    created_at: Optional[datetime] = None

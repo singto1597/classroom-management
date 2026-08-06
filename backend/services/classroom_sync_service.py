@@ -495,8 +495,8 @@ class ClassroomService:
                     
                     task_name = await conn.fetchval("UPDATE tasks SET deleted_at = NOW() WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL RETURNING task_name", task_id, room_id)
                     if not task_name: raise TaskNotFoundError("Task not found or already deleted")
-                    
-                    new_values = {"deleted_at": "NOW()"}
+
+                    new_values = {"deleted_at": "soft-deleted"}
                     
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(

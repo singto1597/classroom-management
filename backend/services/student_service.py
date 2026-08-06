@@ -709,7 +709,14 @@ class StudentService:
         discord_username: str,
         client_source: str,
         actor_identifier: str,
+        actor_user_id: Optional[int] = None,
     ) -> None:
+        """ผูก Discord ID เข้ากับ student ที่ระบุ (room_code + student_no).
+
+        🛡️ IDOR guard: ถ้ามี actor_user_id (ผู้ยิง request จาก get_current_user) ต้องเป็น
+        เจ้าของ student เองเสมอ — กันคนอื่นส่ง X-Discord-Id/room_code ของคนอื่น
+        แล้วมา "จี้" ผูกบัญชี Discord ของตัวเองทับบัญชีเพื่อน (privilege escalation).
+        """
         start_time = time.time()
         target_room_id = None
         new_values = {"room_code": room_code, "student_no": student_no, "discord_id": discord_id, "discord_username": discord_username}
@@ -733,6 +740,12 @@ class StudentService:
                         raise StudentNotFoundError("ไม่พบเลขที่นักเรียนในห้องนี้")
 
                     user_id = student_row["user_id"]
+
+                    # 🛡️ IDOR guard: ผู้ยิงต้องเป็นเจ้าของ student นี้ (หรือ Super Admin)
+                    if actor_user_id is not None:
+                        is_super_admin = settings.SUPER_ADMIN_ID and int(actor_user_id) == int(settings.SUPER_ADMIN_ID)
+                        if not is_super_admin and int(actor_user_id) != int(user_id):
+                            raise ForbiddenError("ไม่สามารถผูก Discord ให้กับเลขที่ของผู้อื่นได้")
 
                     # check if discord_id is already used by another user
                     existing = await conn.fetchval(

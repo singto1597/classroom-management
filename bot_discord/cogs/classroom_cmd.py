@@ -128,25 +128,17 @@ class BotCommands(commands.Cog):
             "`/set_override` - ตั้งข้อยกเว้นชุดหรือกิจกรรมรายวัน", inline=False)
 
         embed.add_field(name="⚙️ หมวดตั้งค่าระบบ (แอดมิน)", value=
-            "`/setup_room` - ลงทะเบียนห้อง (ทำครั้งแรก)\n"
+            "`/setup_room` - ผูกห้อง Discord กับห้องที่สร้างไว้ในเว็บแล้ว\n"
             "`/set_channel` - เลือกห้องแชทให้บอทส่งแจ้งเตือน\n"
             "`/set_schedule` - ตั้งตารางเรียนยืนพื้นจันทร์-ศุกร์\n"
             "`/set_time` - ตั้งเวลาแจ้งเตือนรายวันอัตโนมัติ", inline=False)
 
         embed.add_field(name="👥 หมวดข้อมูลนักเรียน ", value=
-            "`/sync_me` - ผูกดิสคอร์ดกับเลขที่ (ทำครั้งแรก)\n"
-            "`/my_profile` - ดูบัตรนักเรียนและแก้ไขข้อมูลตัวเอง\n"
-            "`/search` - ค้นหาดูข้อมูลเพื่อนในห้อง", inline=False)
+            "`/sync_room` - ผูกดิสคอร์ดกับรหัสห้องและเลขที่ (ทำครั้งแรก)\n"
+            "`/my_profile` - ดูบัตรนักเรียนของตัวเอง", inline=False)
 
-        embed.add_field(name="👑 สำหรับผู้ดูแลห้อง", value=
-            "`/export_students` - ดาวน์โหลดข้อมูลเพื่อนเป็น Excel\n"
-            "`/check_incomplete` - เช็คว่าใครยังดองประวัติอยู่บ้าง\n"
-            "`/class_list` - ดูรายชื่อเพื่อน\n"
-            "`/deactivate` - นำเพื่อนที่ ย้ายห้อง/ลาออก ออก\n"
-            "`/activate` - นำเพื่อนที่กดผิดกลับเข้ามา\n\n"
-            "`/add_student` - เพิ่มเพื่อนเข้าห้อง\n"
-            "`/bulk_add` - เพิ่มเพื่อนเข้าห้อง ทีละเยอะๆ\n"
-            , inline=False)
+        embed.add_field(name="📜 หมวดประวัติระบบ", value=
+            "`/view_logs` - (ผู้ดูแล) ดูประวัติการแก้ไขข้อมูลย้อนหลัง 20 รายการ", inline=False)
         
         embed.set_footer(text="💡 ทริค: หลายคำสั่งมีเมนูให้กดเลือก ไม่ต้องพิมพ์เองทั้งหมดนะ")
         await interaction.response.send_message(embed=embed, ephemeral=True)

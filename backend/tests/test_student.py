@@ -1090,6 +1090,33 @@ async def test_sync_discord_account_unknown_student_raises_studentnotfound(db_po
         )
 
 
+async def test_sync_discord_account_actor_mismatch_raises_forbidden(db_pool):
+    """
+    🛡️ IDOR guard: ผู้ยิง (actor_user_id) ไม่ใช่เจ้าของ student ที่ระบุ room_code+student_no
+    → ต้องโดน ForbiddenError ห้ามผูก Discord ID ทับบัญชีเพื่อน
+    """
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    victim = await _insert_user(db_pool, first_name="Victim", last_name="User")
+    await _insert_student(db_pool, room_id, victim, 3)
+    attacker = await _insert_user(db_pool, first_name="Attacker", last_name="User")
+
+    async with db_pool.acquire() as conn:
+        room_code = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
+
+    with pytest.raises(ForbiddenError):
+        await StudentService.sync_discord_account(
+            pool=db_pool, room_code=room_code, student_no=3,
+            discord_id=999888777, discord_username="attacker",
+            client_source="test", actor_identifier="test",
+            actor_user_id=attacker,
+        )
+    # Deep verify: discord_id ของเหยื่อต้องไม่โดนแก้
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT discord_id FROM users WHERE id = $1", victim)
+        assert row["discord_id"] is None
+
+
 # === Section 8: Ghost / soft-delete interplay ===
 
 

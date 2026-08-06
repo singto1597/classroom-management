@@ -7,7 +7,8 @@ from models.classroom_sync_schemas import (
     SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
     DefaultScheduleRequest, OverrideScheduleRequest,
     TaskCreateRequest, TaskEditRequest, TaskResponse, TaskActionResponse,
-    DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse
+    DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse,
+    AuditLogResponse
 )
 from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id, verify_api_key
 from core.exceptions import TaskNotFoundError, ForbiddenError
@@ -333,7 +334,7 @@ async def get_daily_summary(
         client_source=client_source, actor_identifier=actor
     )
 
-@router.get("/{target_id}/logs")
+@router.get("/{target_id}/logs", response_model=List[AuditLogResponse])
 async def get_logs(
     request: Request,
     room_id: int = Depends(resolve_target_to_room_id),

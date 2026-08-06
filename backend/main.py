@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncpg
 import logging
-import asyncio
 
 from core.config import settings
 from core.init_db import init_db
@@ -46,7 +45,6 @@ async def lifespan(app: FastAPI):
     yield 
     
     logger.info("🛑 Shutting down... Closing Database Pool.")
-    await asyncio.sleep(3)
     await app.state.db_pool.close()
     logger.info("✅ Database Pool Closed.")
 

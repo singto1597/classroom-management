@@ -259,3 +259,19 @@
   7. **Helper `_ExportPeriodView`** ใช้ส่ง month/year/start_date/end_date เข้า `_resolve_export_period` (เดิมรับ req object) ให้ `_legacy` export variant ใช้ของเดิมได้
 - **Tests:** `test_finance_v2_read.py` — 16 service + 4 HTTP: router (ก่อน/หลัง cutoff, no-filter, ข้ามช่วง), classify income/expense/transfer/opening_balance, summary v2 (รวมยอดยกมาใน net worth แต่ไม่นับรายได้), export v2, trial balance (Dr=Cr + as_of_date), income statement (net_income + ไม่นับยอดยกมา), RBAC 403 สำหรับ v2 methods
 - **Date Added:** 2026-08-05
+
+### 🛠️ Backend Full-Audit Pass (2026-08-05) — RBAC, IDOR, dead code, debt
+- **Context/Problem:** อ่าน backend ทั้งหมดแบบละเอียด (core/services/routers/models) แล้วเจอ 7 จุดบั๊ก/เทคนิคอลเด็บบ์
+- **Findings & Fixes:**
+  1. **`confirm_payment` ไม่มี RBAC + รับ overpay:** ไม่มี `user_id` param ไม่มี `require_permission` (router ก็ไม่ส่ง user_id) → member ธรรมดารับเงินได้; และไม่เช็ค `paid_amount > total - current_paid` → จ่ายเกินยอดได้ แก้โดยเพิ่ม `user_id` param (optional เพื่อไม่พัง bot path) + `require_permission(..., "MANAGE_FINANCE")` + guard overpay `if req.paid_amount > total_amount - current_paid: raise ValueError`
+  2. **`sync_discord_account` เป็น IDOR:** ใครก็ผูก Discord ID ของตัวเองทับ student ของเพื่อน (ส่ง room_code+student_no) ได้ แก้โดยเพิ่ม `actor_user_id` param + guard `actor_user_id == user_id` (หรือ Super Admin) ก่อนผูก
+  3. **`get_summary` router จับ error ไม่ครบ:** service raise `ValueError` (month ไม่มี year) แต่ router จับแค่ RoomNotFoundError/ForbiddenError → 500 แก้โดยเพิ่ม `except ValueError → 400`
+  4. **Dead code:** `core/audit.py` (log_action INSERT คอลัมน์ user_name/detail ที่ไม่มีใน schema ใหม่ — legacy เดิม) และ `core/utils.py` (resolve_room_id ไม่มีใครใช้) → ลบทั้งคู่ (git rm)
+  5. **`main.py` shutdown `await asyncio.sleep(3)`:** delay การปิด 3 วิ โดยไม่มีเหตุผล → ลบ + ลบ unused import
+  6. **`student_router.get_target` default `target_type="server"`:** ต่างจาก finance/classroom router ที่ default `"room"` → ใครลืมส่ง ?target_type จะไป resolve ผิดเป็น server_id แก้เป็น default `"room"`
+  7. **`add_transaction` ไม่เช็ค `deleted_at`** ของ account/category (soft-delete แล้วยังใช้ได้) → เพิ่ม `AND deleted_at IS NULL`; **router ใช้ `AccountCreate`/`CategoryCreate` แทน `AccountUpdate`/`CategoryUpdate`** สำหรับ PATCH → เปลี่ยนเป็น schema ที่ถูกต้อง (field เหมือนกัน ไม่กระทบ frontend)
+  8. **`transfer_money` ไม่เช็ค `deleted_at`** ของบัญชีต้นทาง/ปลายทาง (โอนเข้ากระเป๋า soft-delete ได้) → เพิ่ม `AND deleted_at IS NULL` ให้ทั้ง 2 query (ต้นทาง FOR UPDATE + ปลายทาง)
+  9. **`GET /logs` / `/students/{no}/status` / `/discord/sync` ไม่มี `response_model`** (ผิดกฎ backend รอบ router ต้องบังคับทุกครั้ง) → เพิ่ม `AuditLogResponse` (ใหม่ใน schema) สำหรับ `/logs`, `SuccessResponse` สำหรับอีก 2 ตัว
+- **Tests:** อัปเดต `test_confirm_payment_overpay_allowed_documents_current_behavior` → `test_confirm_payment_overpay_now_blocked` (expect ValueError + no mutation), `test_plain_member_cannot_confirm_payment_mutation_via_transactions` → ตอนนี้ expect ForbiddenError (ส่ง user_id=member), เพิ่ม `test_sync_discord_account_actor_mismatch_raises_forbidden`
+- **Rule:** (1) ทุก mutation ที่รับได้ทั้ง bot+web ต้องมี RBAC ให้ครบทั้งสองทาง — ใช้ pattern `user_id: Optional[int] = None` + router ส่งเสมอ (2) ทุก "ผูก identity" ต้อง verify ว่า actor เป็นเจ้าของ target ก่อน (IDOR) (3) Router ที่ service raise ValueError ต้องมี `except ValueError → 400` เสมอ (4) เช็ค schema จริงใน `init_db.py` ก่อนเขียน UPDATE/SELECT — อย่าใช้ legacy column (5) ก่อนลบไฟล์ ให้ grep ทั้ง repo ยืนยันไม่มีใครใช้
+- **Date Added:** 2026-08-05

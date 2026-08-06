@@ -123,6 +123,9 @@ class FinanceService:
     def _extract_req_data(req) -> dict:
         if isinstance(req, dict):
             return req
+        # 🚀 Pydantic v2 ต้องใช้ model_dump() (dict() ถูกลบใน v3) — ตรงตามกฎ CLAUDE.md
+        if hasattr(req, 'model_dump') and callable(req.model_dump):
+            return req.model_dump()
         if hasattr(req, 'dict') and callable(req.dict):
             return req.dict()
         try:
@@ -407,7 +410,7 @@ class FinanceService:
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
                     
                     current_balance = await conn.fetchval(
-                        "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 FOR UPDATE",
+                        "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
                         req.account_id, target_room_id
                     )
                     if current_balance is None: raise ValueError("ไม่พบบัญชีนี้ในห้องของคุณ")
@@ -415,8 +418,8 @@ class FinanceService:
                     # ต้อง cast float() ทั้งสองฝั่งก่อนเปรียบเทียบ (ตาม CLAUDE.md: cast float ก่อนเสมอ)
                     if req.transaction_type == 'expense' and float(current_balance) < float(req.amount):
                         raise ValueError(f"เงินไม่พอ! ยอดคงเหลือคือ {current_balance} บาท")
-                    
-                    cat = await conn.fetchrow("SELECT room_id, category_type FROM finance_categories WHERE id = $1", req.category_id)
+
+                    cat = await conn.fetchrow("SELECT room_id, category_type FROM finance_categories WHERE id = $1 AND deleted_at IS NULL", req.category_id)
                     if not cat or cat['room_id'] != target_room_id: raise ValueError("หมวดหมู่นี้ไม่มีอยู่ หรือไม่ใช่ของห้องคุณ!")
                     if cat['category_type'] != req.transaction_type:
                         raise ValueError(f"ประเภทหมวดหมู่ ({cat['category_type']}) ไม่ตรงกับประเภทการบันทึก ({req.transaction_type})!")
@@ -493,7 +496,7 @@ class FinanceService:
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
                     
                     current_balance = await conn.fetchval(
-                        "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 FOR UPDATE",
+                        "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
                         req.from_account_id, target_room_id
                     )
                     if current_balance is None: raise RoomNotFoundError("ไม่พบบัญชีต้นทาง")
@@ -502,7 +505,7 @@ class FinanceService:
 
                     # 🛡️ กันการโอนเงินข้ามห้อง (cross-room leak): ต้องเช็คบัญชีปลายทางด้วย
                     if not await conn.fetchval(
-                        "SELECT 1 FROM finance_accounts WHERE id = $1 AND room_id = $2",
+                        "SELECT 1 FROM finance_accounts WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL",
                         req.to_account_id, target_room_id
                     ):
                         raise RoomNotFoundError("ไม่พบบัญชีปลายทาง")
@@ -977,13 +980,16 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def confirm_payment(cls, pool: asyncpg.Pool, payment_id: int, req, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+    async def confirm_payment(cls, pool: asyncpg.Pool, payment_id: int, req, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> dict:
         start_time = time.time()
         target_room_id = room_id
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                    # 🛡️ RBAC: มีแค่ผู้ดูแลการเงิน (MANAGE_FINANCE) ถึงจะรับเงินได้
+                    if user_id is not None:
+                        await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
                     valid_account = await conn.fetchval("SELECT id FROM finance_accounts WHERE id = $1 AND room_id = $2", req.paid_to_account_id, target_room_id)
                     if not valid_account: raise ValueError("กระเป๋าเงินไม่มีอยู่ หรือไม่ใช่ของห้องนี้!")
 
@@ -1005,6 +1011,13 @@ class FinanceService:
                     total_amount = float(payment_info['total_amount'])
 
                     if current_paid >= total_amount: raise ValueError("บิลนี้จ่ายครบไปเรียบร้อยแล้วครับ!")
+
+                    # 🛡️ กัน overpay: ห้ามรับเงินเกินยอดที่เหลือค้าง (current_paid + paid_amount > total)
+                    if req.paid_amount > total_amount - current_paid:
+                        raise ValueError(
+                            f"จำนวนเงินที่รับเกินยอดที่เหลือค้าง! "
+                            f"เหลือค้าง {total_amount - current_paid:.2f} บาท แต่ส่งมา {req.paid_amount:.2f} บาท"
+                        )
 
                     new_total_paid = current_paid + req.paid_amount
                     new_status = 'paid' if new_total_paid >= total_amount else 'pending'

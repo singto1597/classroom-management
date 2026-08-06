@@ -60,6 +60,8 @@ async def get_summary(
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # --- DOUBLE-ENTRY REPORTING (Phase 4) ---
@@ -187,8 +189,8 @@ async def get_accounts(
 
 @router.patch("/{target_id}/finance/accounts/{account_id}", response_model=SuccessResponse)
 async def update_account(
-    account_id: int, 
-    req: AccountCreate, 
+    account_id: int,
+    req: AccountUpdate,
     request: Request,
     target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
@@ -427,10 +429,13 @@ async def confirm_payment(
             client_source=client_source,
             actor_identifier=actor,
             server_id=target.server_id,
-            room_id=target.room_id
+            room_id=target.room_id,
+            user_id=user_ctx["user_id"]
         )
     except (RoomNotFoundError, PaymentNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -618,8 +623,8 @@ async def get_categories(
 
 @router.patch("/{target_id}/finance/categories/{category_id}", response_model=SuccessResponse)
 async def update_category(
-    category_id: int, 
-    req: CategoryCreate, 
+    category_id: int,
+    req: CategoryUpdate,
     request: Request,
     target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),

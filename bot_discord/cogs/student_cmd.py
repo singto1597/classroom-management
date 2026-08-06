@@ -30,8 +30,8 @@ class StudentCommands(commands.Cog):
     async def my_profile(self, interaction: discord.Interaction):
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
-            # Global endpoint (no guild_id)
-            data = await api_client.request("GET", "/students/me", headers=headers)
+            # 🚨 แทรก target_id=guild + target_type="server" — backend route คือ /{target_id}/students/me
+            data = await api_client.request("GET", f"/{interaction.guild_id}/students/me", params={"target_type": "server"}, headers=headers)
 
             completion = data.get('data_completion', {})
             percent = completion.get('percentage', 0)
