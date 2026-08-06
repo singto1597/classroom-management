@@ -309,12 +309,11 @@
   5. fallback audit log: ค้น room_id ด้วย `WHERE id = $1 OR server_id = $1` (เผื่อ target เป็น server_id) แล้วใช้ `safe_room_id` กัน FK violation ตอน log failed
 - **Rule:** ถ้า endpoint ไหน resolve target ผ่าน dependency + query แยก แล้วเกิด 404 มืด ๆ → ให้สลับคอลัมน์ใน service query ตรง ๆ และให้ router จับ domain exception เอง (ไม่ใช่ dependency); ตรวจ `deleted_at IS NULL` เสมอ; response schema ต้องมี `id` + `announcement_channel_id` ครบ contract ที่ bot ใช้
 - **Date Added:** 2026-08-06
-- **Context/Problem:** บอทเรียก `GET /api/classroom/<server_id>?target_type=server` (ใน `_get_announcement_channel`) เพื่อหา `announcement_channel_id` แล้วส่ง `X-Discord-Id` = **bot user id** (`self.bot.user.id`) ซึ่งไม่ใช่สมาชิกห้อง — `get_room_data` ใน main เรียก `require_member(conn, room_id, user_id)` → `ForbiddenError` → บอทหา channel ไม่ได้ → ประกาศ (NEW_TASK/TASK_DONE/NEW_NOTE/CUSTOM_MESSAGE) ไม่ไปถึง Discord เลย (production log เห็น `GET ...?target_type=server → 404`)
-- **Root Cause:** `get_room_data` ถูกเติม `require_member` ไว้ (RBAC hardening) แต่ endpoint นี้เป็น **cross-layer RPC** ที่บอทเรียกด้วย system identity (เหมือน `get_daily_summary` ที่มี note อยู่แล้วในไฟล์นี้) — บอทไม่เคยเป็น student ในห้องไหน จึงโดน block ทุกครั้ง
-- **Correct Pattern/Solution:** แยก bot path กับ web path ที่ router:
-  1. Router รับ `x_api_key: Optional[str] = Header(None)`
-  2. ถ้าเป็น bot path (มี X-API-Key) → ส่ง `user_id=None` ไป service (ข้าม `require_member`) — บอทเป็นระบบที่ไว้วางใจ ต้องอ่าน room data เพื่อ route ประกาศ
-  3. Web path (JWT) ยังส่ง `user_id` → `require_member` ยังทำงานกันอ่านข้ามห้อง
-  4. `RoomDataResponse` ต้องมี `id` ด้วย (service คืนแต่ schema ตัดทิ้ง — ไม่ครบ contract)
-- **Rule:** ก่อนใส่ `require_member`/`require_permission` ลง read RPC ที่บอทใช้ ต้องเช็ค **caller ทุกตัว** (bot-loop/scheduler/slash command) — ถ้าบอทเรียกด้วย bot user id ให้ข้าม membership check ที่ router (ส่ง `user_id=None`) แทนที่จะลบ check ทิ้งทั้ง endpoint; และ test ทั้ง bot path (X-API-Key + bot user id ที่ไม่ใช่สมาชิก) และ web path (JWT + outsider ต้อง 403)
+
+### 🛠️ GET /{target_id} (get_room_data) — 404 จริง ๆ มาจาก `get_current_user` ว่าบอท identity ไม่มีใน users ไม่ใช่ server_id query
+- **Context/Problem:** Production ยังเห็น `GET /api/classroom/<server_id>?target_type=server → 404` ทั้งที่ publish CUSTOM_MESSAGE สำเร็จ (อ่าน server_id จากห้องได้) — หลังแก้ column-switch แล้วก็ยัง 404 → สงสัยว่าสลับคอลัมน์ผิด แต่จริง ๆ แล้วบัคอยู่ชั้น auth
+- **Root Cause:** FastAPI resolve **ทุก dependency ก่อน** เข้า handler — `get_room_data` route มี `Depends(get_current_user)` ซึ่ง bot path ทำ `SELECT id FROM users WHERE discord_id = $1` (X-Discord-Id = `self.bot.user.id`) ถ้าไม่มีแถว → `raise HTTPException(404, "ไม่พบบัญชีผู้ใช้ที่ผูกกับ Discord ID นี้")` — บอท application ไม่เคยถูก insert ใน users table → **404 เกิดก่อน resolve server_id ด้วยซ้ำ**
+- **พิสูจน์ด้วยเทส:** `test_bot_unregistered_identity_404` (bot id ไม่มีใน users → 404 แม้ server_id ถูก) vs `test_bot_registered_identity_200` (insert bot id ใน users → 200) — ผ่านทั้งคู่
+- **Correct Pattern/Solution:** endpoint ที่บอทใช้เป็น **system RPC** (หา announcement_channel, ส่งประกาศ) ต้องไม่ต้องผ่าน `get_current_user` แบบเดียวกับมนุษย์ — ใช้ `verify_api_key` (เช็ค X-API-Key อย่างเดียว) แทน หรือให้ bot path ข้าม user lookup ไป resolve target ตรง ๆ
+- **Rule:** เมื่อบอทส่ง `X-Discord-Id = self.bot.user.id` (bot application) อย่าให้ endpoint ต้องหา `users.discord_id` — ไม่งั้น 404 ที่ auth ก่อนเสมอ; ถ้า endpoint ควรเป็น system RPC ให้ใช้ `verify_api_key` แทน `get_current_user` และเช็ค `docs/skills.md` เรื่อง "Read RPC → require_member Design: Where It Is NOT Safe to Add"
 - **Date Added:** 2026-08-06
