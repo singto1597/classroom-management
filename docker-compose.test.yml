@@ -31,6 +31,8 @@ services:
       - SECRET_KEY=test-secret
       - JWT_SECRET=test-jwt-secret
       - SUPER_ADMIN_ID=999999999999999
+      # 🚨 Redis ต้องระบุชัด (ตอนนี้ core/config.py บังคับแล้ว) — เทส mock ActionService อยู่แล้ว ไม่ได้เชื่อมจริง
+      - REDIS_URL=redis://127.0.0.1:6379/15
       # 👇 ป้อนของปลอมเพื่อปิดปาก Pydantic (อิงตัวแปรตาม .env ของมึง)
       - DISCORD_CLIENT_ID=dummy_discord_id
       - DISCORD_CLIENT_SECRET=dummy_discord_secret

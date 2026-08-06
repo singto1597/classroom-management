@@ -45,10 +45,15 @@ class RedisListener(commands.Cog):
                     message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                     
                     if message and message["type"] == "message":
-                        # ถอดรหัส JSON แล้วโยนไปทำงานต่อ
-                        data = json.loads(message["data"])
-                        await self.process_event(data)
-                    
+                        try:
+                            # ถอดรหัส JSON แล้วโยนไปทำงานต่อ
+                            data = json.loads(message["data"])
+                            await self.process_event(data)
+                        except Exception as e:
+                            # 🛡️ เหตุการณ์เดี่ยวพัง ไม่ควรทำให้ subscription ทั้งหมดหลุด
+                            # (เดิม event ตัวเดียว error → หลุดออกจาก loop → ฟังข้ามช่วงไป)
+                            logger.error(f"⚠️ Event ล้มเหลว (ข้ามไป ไม่ตัด subscription): {type(e).__name__}: {e}")
+
                     # หายใจเว้นจังหวะนิดนึง ปล่อยให้บอทไปประมวลผลคำสั่ง Discord อื่นๆ
                     await asyncio.sleep(0.1)
 
