@@ -3,6 +3,8 @@ import json
 import random
 import string
 import uuid
+from datetime import date
+from unittest.mock import AsyncMock, patch
 
 import openpyxl
 import pytest
@@ -34,6 +36,7 @@ async def _insert_user(
     phone_number_parent=None,
     line_id=None,
     blood_group=None,
+    birthday=None,
 ) -> int:
     if username is None:
         username = f"u{uuid.uuid4().hex[:12]}"
@@ -42,9 +45,9 @@ async def _insert_user(
             """
             INSERT INTO users (
                 email, google_id, discord_id, first_name, last_name, username,
-                phone_number, phone_number_parent, line_id, blood_group
+                phone_number, phone_number_parent, line_id, blood_group, birthday
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             """,
             email,
@@ -57,6 +60,7 @@ async def _insert_user(
             phone_number_parent,
             line_id,
             blood_group,
+            birthday,
         )
 
 
@@ -109,6 +113,7 @@ async def _insert_student(
     status="active",
     is_admin=False,
     permissions="[]",
+    class_role="student",
 ) -> int:
     async with pool.acquire() as conn:
         final_status = "active" if is_admin else status
@@ -116,12 +121,13 @@ async def _insert_student(
             """
             INSERT INTO students
                 (room_id, user_id, student_no, class_role, status, is_admin, permissions)
-            VALUES ($1, $2, $3, 'student', $4, $5, $6::jsonb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
             RETURNING id
             """,
             room_id,
             user_id,
             student_no,
+            class_role,
             final_status,
             is_admin,
             permissions,
@@ -339,10 +345,120 @@ async def test_export_students_excel_returns_valid_xlsx(db_pool):
 
     assert isinstance(excel_file, io.BytesIO)
     wb = openpyxl.load_workbook(excel_file)
-    ws = wb["Students_List"]
+    assert wb.sheetnames == ["สรุป", "รายชื่อ"]
+    ws = wb["รายชื่อ"]
     rows = list(ws.values)
-    assert rows[0] == ("student_no", "first_name", "last_name")
+    assert rows[0] == ("เลขที่", "ชื่อจริง", "นามสกุล")
     assert len(rows) >= 2  # header + ข้อมูล
+    assert rows[1][0] == 0  # owner (เลข 0) มาก่อน ตาม ORDER BY student_no
+
+
+async def test_export_students_excel_formats_birthday_as_thai_buddhist(db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    member = await _insert_user(db_pool, first_name="Born", last_name="Right", birthday=date(2010, 7, 25))
+    await _insert_student(db_pool, room_id, member, 2)
+
+    excel_file = await StudentService.export_students_excel(
+        pool=db_pool, fields=["student_no", "birthday"], user_name="Owner",
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["รายชื่อ"]
+    rows = list(ws.values)
+    assert rows[0] == ("เลขที่", "วันเกิด")
+    birthday_by_no = {r[0]: r[1] for r in rows[1:]}
+    assert birthday_by_no[2] == "25 กรกฎาคม 2553"
+
+
+async def test_export_students_excel_preserves_field_order(db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    member = await _insert_user(db_pool, first_name="Order", last_name="Matters")
+    await _insert_student(db_pool, room_id, member, 2)
+
+    excel_file = await StudentService.export_students_excel(
+        pool=db_pool, fields=["last_name", "student_no", "first_name"], user_name="Owner",
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["รายชื่อ"]
+    rows = list(ws.values)
+    assert rows[0] == ("นามสกุล", "เลขที่", "ชื่อจริง")
+    assert rows[1] == ("Owner", 0, "Admin")   # owner (เลข 0)
+    assert rows[2] == ("Matters", 2, "Order") # member (เลข 2)
+
+
+async def test_export_students_excel_translates_role_and_status(db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    member = await _insert_user(db_pool, first_name="Treas", last_name="Urer")
+    await _insert_student(db_pool, room_id, member, 3, class_role="treasurer", status="active")
+
+    excel_file = await StudentService.export_students_excel(
+        pool=db_pool, fields=["student_no", "class_role", "status"], user_name="Owner",
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["รายชื่อ"]
+    rows = list(ws.values)
+    assert rows[0] == ("เลขที่", "บทบาทในห้อง", "สถานะ")
+    by_no = {r[0]: r for r in rows[1:]}
+    assert by_no[3][1] == "เหรัญญิก"
+    assert by_no[3][2] == "กำลังเรียน"
+
+
+async def test_export_students_excel_summary_sheet_shows_room_and_count(db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner, room_name="ห้อง ม.6/1")
+    member = await _insert_user(db_pool, first_name="Sum", last_name="Many")
+    await _insert_student(db_pool, room_id, member, 2)
+
+    excel_file = await StudentService.export_students_excel(
+        pool=db_pool, fields=["student_no"], user_name="Owner",
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws_sum = wb["สรุป"]
+    assert ws_sum["A1"].value == "สรุปข้อมูลนักเรียน — ห้อง ม.6/1"
+    table = {r[0]: r[1] for r in ws_sum.values if r[0] and r[1] is not None}
+    assert table["ชื่อห้องเรียน"] == "ห้อง ม.6/1"
+    assert table["จำนวนนักเรียน"] == 2  # owner + member
+
+
+async def test_export_students_excel_empty_room_raises_studentnotfound(db_pool):
+    # owner เป็น student_no 0 เสมอ — soft-delete ทุกคน = owner หายด้วย → require_permission
+    # (เช็ค membership ก่อน query) จะ fail ก่อนเข้า body. Mock require_permission เพื่อเทส
+    # guard `if not rows` ของ service ตรง ๆ ตามที่ตั้งใจไว้
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE students SET deleted_at = NOW() WHERE room_id = $1", room_id)
+
+    with patch("services.student_service.require_permission", AsyncMock()):
+        with pytest.raises(StudentNotFoundError):
+            await StudentService.export_students_excel(
+                pool=db_pool, fields=["student_no"], user_name="Owner",
+                user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+            )
+
+
+async def test_export_students_excel_tolerates_unknown_fields(db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    member = await _insert_user(db_pool, first_name="Known", last_name="Field")
+    await _insert_student(db_pool, room_id, member, 2)
+
+    excel_file = await StudentService.export_students_excel(
+        pool=db_pool, fields=["student_no", "does_not_exist"], user_name="Owner",
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["รายชื่อ"]
+    rows = list(ws.values)
+    assert rows[0] == ("เลขที่", "does_not_exist")  # fallback = raw key
+    assert rows[1][0] == 0
+    assert rows[1][1] in (None, "")  # unknown field → ว่างเปล่า (openpyxl แปลง '' → None)
 
 
 async def test_export_students_excel_member_without_export_perm_forbidden(db_pool):

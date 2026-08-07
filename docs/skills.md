@@ -338,3 +338,16 @@
   5. สมาชิก: `add_student` → notify_new_student (ไม่ @everyone)
 - **Rule:** ตอน publish ต้อง fetch `server_id` ของห้องจาก DB (ห้องที่ยังไม่ผูก Discord → server_id None → ข้าม publish); publish หลัง commit transaction; bot ใช้ `_build_content` เป็นจุดเดียวที่ตัดสินใจ content prefix เพื่อให้ทุก event สอดคล้อง
 - **Date Added:** 2026-08-07
+
+### 🛠️ Student Excel Export — openpyxl 2 แผ่น (สรุป + รายชื่อ) + วันเกิดแบบไทย พ.ศ.
+- **Context/Problem:** `StudentService.export_students_excel` เดิมใช้ pandas `to_excel` — หัวตารางเป็นชื่อ field ภาษาอังกฤษ, ไม่มีรูปแบบ (สี/Freeze/ความกว้าง), `birthday` หลุดออกมาเป็น `datetime.date` ดิบ → ไฟล์ไม่เหมาะนำไปใช้งานจริง ผู้ใช้ต้องการไฟล์แบบ 2 แผ่นสวยงามพร้อมวันเกิดแบบ "25 กรกฎาคม 2553"
+- **Root Cause:** pandas write path คุม per-cell style ได้จำกัด และ backend ไม่มี Thai label/role/status/month mapping (labels อยู่ฝั่ง frontend เท่านั้น)
+- **Correct Pattern/Solution:**
+  1. สร้าง workbook ด้วย openpyxl ตรง ๆ (`Workbook`, `PatternFill`, `Font`, `Alignment`, `get_column_letter`) เลียนแบบ `finance_service._build_finance_workbook`
+  2. วันเกิดแบบไทย: `f"{d.day} {THAI_MONTH_NAMES[d.month - 1]} {d.year + 543}"` + tuple 12 ชื่อเดือนไทย; ถ้าเป็น `datetime` ต้อง `.date()` ก่อนเสมอ
+  3. รักษาลำดับคอลัมน์ตามที่ผู้ใช้ส่งมา: iter ตาม list `fields` ทั้งตอนเขียน header และทุก data row — อย่าพึ่ง dict ordering
+  4. แยกคีย์ภายใน (`_status`, `_completion_percent`) ไว้ใน processed row dict สำหรับ Sheet สรุป — ตอนเขียน Sheet "รายชื่อ" ให้ iter แค่ `fields` เท่านั้น คีย์ `_` จะไม่หลุดลงไฟล์
+  5. Style: `HEADER_FILL = PatternFill("solid", fgColor="1D4ED8")`, ฟอนต์หัวขาว bold, `freeze_panes = "A2"`, `sheet_view.showGridLines = False`, `column_dimensions[get_column_letter(i)].width`, สลับสีแถวคู่ `F8FAFC`
+  6. แปลงค่า: `birthday`→พ.ศ., `class_role`/`status`→ไทย ผ่าน dict map ที่ backend เป็นเจ้าของเอง (ห้าม import จาก frontend); กัน `fields` ซ้ำด้วย `seen` set รักษาลำดับ
+- **Rule:** การ export ที่ต้องการ styling ใช้ openpyxl ตรง ๆ แทน pandas; คอลัมน์ที่ user เลือกลำดับเองต้องเขียนตาม `fields` order; ค่าที่เป็น enum (role/status) ควรแปลเป็นไทยใน backend ไม่ใช่ส่ง raw key
+- **Date Added:** 2026-08-07
