@@ -43,14 +43,20 @@ export const useAuthStore = defineStore('auth', () => {
   const ROLE_LABELS: Record<string, string> = {
     student: 'นักเรียน',
     president: 'หัวหน้าห้อง',
+    vice_president: 'รองหัวหน้าห้อง',
+    secretary: 'เลขานุการ (เรขา)',
     vice_academic: 'รองวิชาการ',
     vice_activity: 'รองกิจกรรม',
     vice_discipline: 'รองระเบียบวินัย',
     vice_reception: 'รองปฏิคม',
+    vice_pr: 'รองประชาสัมพันธ์',
+    vice_sanitation: 'รองสุขาภิบาล',
     staff_academic: 'กรรมการวิชาการ',
     staff_activity: 'กรรมการกิจกรรม',
     staff_discipline: 'กรรมการระเบียบวินัย',
     staff_reception: 'กรรมการปฏิคม',
+    staff_pr: 'กรรมการประชาสัมพันธ์',
+    staff_sanitation: 'กรรมการสุขาภิบาล',
     treasurer: 'เหรัญญิก',
     admin: 'ผู้ดูแลระบบ'
   };

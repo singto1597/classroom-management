@@ -408,6 +408,33 @@ async def test_export_students_excel_translates_role_and_status(db_pool):
     assert by_no[3][2] == "กำลังเรียน"
 
 
+@pytest.mark.parametrize(
+    "role, expected_thai",
+    [
+        ("vice_president", "รองหัวหน้าห้อง"),
+        ("secretary", "เลขานุการ (เรขา)"),
+        ("staff_pr", "กรรมการประชาสัมพันธ์"),
+        ("staff_sanitation", "กรรมการสุขาภิบาล"),
+    ],
+)
+async def test_export_students_excel_translates_new_roles(db_pool, role, expected_thai):
+    """ป้ายตำแหน่งใหม่ (รองหัวหน้า/เรขา/ประชาสัมพันธ์/สุขาภิบาล) ต้องแปลเป็นไทยใน Excel export"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    member = await _insert_user(db_pool, first_name="New", last_name="Role")
+    await _insert_student(db_pool, room_id, member, 3, class_role=role, status="active")
+
+    excel_file = await StudentService.export_students_excel(
+        pool=db_pool, fields=["student_no", "class_role"], user_name="Owner",
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["รายชื่อ"]
+    rows = list(ws.values)
+    by_no = {r[0]: r for r in rows[1:]}
+    assert by_no[3][1] == expected_thai
+
+
 async def test_export_students_excel_summary_sheet_shows_room_and_count(db_pool):
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner, room_name="ห้อง ม.6/1")
