@@ -1,17 +1,21 @@
 import asyncpg
 import json
 import time
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Dict, Any, FrozenSet, Optional
+from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-import pandas as pd
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
 from core.rbac import require_permission, require_member
 from core.config import settings
+from services.action_service import ActionService
 from models.student_schemas import StudentUpdateRequest
 
 service_logger = AuditLogger(service_name="STUDENT")
@@ -31,6 +35,87 @@ LOCAL_FIELDS: FrozenSet[str] = frozenset([
     'student_id', 'class_role', 'cleaning_duty', 'olympic_camp',
     'portfolio', 'target_faculty', 'is_admin', 'permissions', 'status'
 ])
+
+THAI_TZ = ZoneInfo("Asia/Bangkok")
+
+THAI_MONTH_NAMES: List[str] = [
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+]
+
+# หัวคอลัมน์ภาษาไทยสำหรับ Export (คีย์ = field ใน BASE_STUDENT_SELECT)
+EXPORT_HEADER_LABELS: Dict[str, str] = {
+    "student_no": "เลขที่",
+    "student_id": "รหัสนักเรียน",
+    "prefix": "คำนำหน้า",
+    "first_name": "ชื่อจริง",
+    "last_name": "นามสกุล",
+    "nickname": "ชื่อเล่น",
+    "birthday": "วันเกิด",
+    "class_role": "บทบาทในห้อง",
+    "cleaning_duty": "เวรทำความสะอาด",
+    "olympic_camp": "สอวน. / ค่าย",
+    "target_faculty": "คณะเป้าหมาย",
+    "portfolio": "ผลงาน",
+    "blood_group": "กรุ๊ปเลือด",
+    "shirt_size": "ไซส์เสื้อ",
+    "food_allergy": "แพ้อาหาร",
+    "congenital_disease": "โรคประจำตัว",
+    "phone_number": "เบอร์โทรศัพท์",
+    "phone_number_parent": "เบอร์ผู้ปกครอง",
+    "phone_number_parent_relation": "ความสัมพันธ์",
+    "line_id": "LINE ID",
+    "ig_username": "IG Username",
+    "email": "อีเมล",
+    "address_house_no": "บ้านเลขที่/หมู่/ซอย",
+    "address_road": "ถนน",
+    "address_sub_district": "ตำบล/แขวง",
+    "address_district": "อำเภอ/เขต",
+    "address_province": "จังหวัด",
+    "address_post_code": "รหัสไปรษณีย์",
+    "status": "สถานะ",  # defensive: มีใน BASE_STUDENT_SELECT แม้ frontend ไม่ให้เลือก
+}
+
+ROLE_LABELS: Dict[str, str] = {
+    "student": "นักเรียน",
+    "president": "หัวหน้าห้อง",
+    "vice_academic": "รองวิชาการ",
+    "vice_activity": "รองกิจกรรม",
+    "vice_discipline": "รองระเบียบวินัย",
+    "vice_reception": "รองปฏิคม",
+    "staff_academic": "กรรมการวิชาการ",
+    "staff_activity": "กรรมการกิจกรรม",
+    "staff_discipline": "กรรมการระเบียบวินัย",
+    "staff_reception": "กรรมการปฏิคม",
+    "treasurer": "เหรัญญิก",
+    "admin": "ผู้ดูแลระบบ",
+}
+
+STATUS_LABELS: Dict[str, str] = {
+    "active": "กำลังเรียน",
+    "pending": "รออนุมัติ",
+    "inactive": "พ้นสภาพ",
+}
+
+DEFAULT_COL_WIDTH = 18
+EXPORT_COLUMN_WIDTHS: Dict[str, int] = {
+    "student_no": 8, "student_id": 14, "prefix": 10,
+    "first_name": 16, "last_name": 16, "nickname": 14,
+    "birthday": 22,
+    "class_role": 18, "cleaning_duty": 20, "olympic_camp": 24,
+    "target_faculty": 18, "portfolio": 30,
+    "blood_group": 10, "shirt_size": 10, "food_allergy": 20, "congenital_disease": 20,
+    "phone_number": 18, "phone_number_parent": 18, "phone_number_parent_relation": 14,
+    "line_id": 16, "ig_username": 16, "email": 26,
+    "address_house_no": 24, "address_road": 20, "address_sub_district": 20,
+    "address_district": 20, "address_province": 14, "address_post_code": 14,
+}
+
+CENTER_FIELDS: FrozenSet[str] = frozenset({"student_no", "blood_group", "shirt_size", "address_post_code"})
+WRAP_TEXT_FIELDS: FrozenSet[str] = frozenset({
+    "portfolio", "olympic_camp", "cleaning_duty", "food_allergy",
+    "congenital_disease", "address_house_no",
+})
 
 class StudentService:
 
@@ -118,6 +203,18 @@ class StudentService:
                             entity_type="STUDENT", entity_id=str(student_no), status="success",
                             new_values=new_values, endpoint_or_command="add_student", execution_time_ms=exec_time
                         )
+                        # 📢 แจ้งเตือน Discord: มีสมาชิกใหม่ (ไม่ @everyone)
+                        room_server_id = await conn.fetchval(
+                            "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id
+                        )
+                        if room_server_id:
+                            await ActionService.notify_new_student(
+                                server_id=room_server_id,
+                                student_no=student_no,
+                                first_name=first_name,
+                                last_name=last_name,
+                                user_name=user_name,
+                            )
                     else:
                         raise ValueError(f"เลขที่ {student_no} มีรายชื่ออยู่ในห้องนี้แล้ว")
         except Exception as e:
@@ -369,6 +466,123 @@ class StudentService:
                 )
             raise e
 
+    @staticmethod
+    def _format_buddhist_birthday(value: Any) -> str:
+        """วันเกิดแบบไทย: '25 กรกฎาคม 2553' (ปี พ.ศ. = ค.ศ. + 543)."""
+        if value is None:
+            return ""
+        if isinstance(value, datetime):
+            value = value.date()
+        if not isinstance(value, date):
+            return str(value)
+        return f"{value.day} {THAI_MONTH_NAMES[value.month - 1]} {value.year + 543}"
+
+    @staticmethod
+    def _translate_value(field: str, value: Any) -> Any:
+        """แปลงค่าตามชนิดคอลัมน์ (birthday → พ.ศ., class_role/status → ไทย, None → '')."""
+        if value is None:
+            return ""
+        if field == "birthday":
+            return StudentService._format_buddhist_birthday(value)
+        if field == "class_role":
+            return ROLE_LABELS.get(str(value), value)
+        if field == "status":
+            return STATUS_LABELS.get(str(value), value)
+        return value
+
+    @classmethod
+    def _build_student_workbook(
+        cls,
+        room_name: str,
+        room_code: Optional[str],
+        fields: List[str],
+        rows: List[dict],
+        generated_at: Optional[datetime] = None,
+    ) -> io.BytesIO:
+        """สร้าง Workbook 2 แผ่น: 'สรุป' (ภาพรวมห้อง) + 'รายชื่อ' (คอลัมน์ตามที่ผู้ใช้เลือก)."""
+        if generated_at is None:
+            generated_at = datetime.now(THAI_TZ)
+
+        active_count = sum(1 for r in rows if r.get("_status") == "active")
+        pending_count = sum(1 for r in rows if r.get("_status") == "pending")
+        inactive_count = max(0, len(rows) - active_count - pending_count)
+        avg_completion = int(sum(r["_completion_percent"] for r in rows) / len(rows))
+        full_count = sum(1 for r in rows if r["_completion_percent"] == 100)
+
+        HEADER_FILL = PatternFill("solid", fgColor="1D4ED8")   # น้ำเงินเข้ม (เหมือน finance)
+        TOTAL_FILL = PatternFill("solid", fgColor="D1D5DB")    # เทาอ่อน
+        SECTION_FILL = PatternFill("solid", fgColor="EFF6FF")  # ฟ้าอ่อน
+        white_bold = Font(bold=True, color="FFFFFF")
+        title_font = Font(bold=True, size=16, color="0F172A")
+
+        wb = Workbook()
+
+        # ---- Sheet 1: สรุป ----
+        ws_summary = wb.active
+        ws_summary.title = "สรุป"
+        ws_summary.sheet_view.showGridLines = False
+        ws_summary.column_dimensions["A"].width = 34
+        ws_summary.column_dimensions["B"].width = 26
+
+        ws_summary["A1"] = f"สรุปข้อมูลนักเรียน — {room_name}"
+        ws_summary["A1"].font = title_font
+        ws_summary["A2"] = f"สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)"
+        ws_summary["A2"].font = Font(color="64748B", size=10)
+
+        def _summary_section(row: int, label: str):
+            ws_summary.cell(row=row, column=1, value=label).font = Font(bold=True, size=12)
+            for col in (1, 2):
+                ws_summary.cell(row=row, column=col).fill = SECTION_FILL
+
+        def _summary_row(row: int, label: str, value: Any):
+            ws_summary.cell(row=row, column=1, value=label).font = Font(bold=True)
+            ws_summary.cell(row=row, column=2, value=value)
+
+        _summary_section(4, "ข้อมูลพื้นฐาน")
+        _summary_row(5, "ชื่อห้องเรียน", room_name)
+        _summary_row(6, "รหัสห้อง", room_code or "—")
+        ws_summary.cell(row=7, column=1, value="จำนวนนักเรียน").font = Font(bold=True)
+        count_cell = ws_summary.cell(row=7, column=2, value=len(rows))
+        count_cell.font = Font(bold=True, size=12)
+        count_cell.fill = TOTAL_FILL
+        _summary_row(8, "กำลังเรียน (Active)", active_count)
+        _summary_row(9, "รออนุมัติ (Pending)", pending_count)
+        _summary_row(10, "พ้นสภาพ (Inactive)", inactive_count)
+
+        _summary_section(12, "ความครบถ้วนของข้อมูล")
+        _summary_row(13, "ข้อมูลครบถ้วนเฉลี่ย", avg_completion)
+        ws_summary.cell(row=13, column=2).number_format = '0"%"'
+        _summary_row(14, "มีข้อมูลครบ 100%", full_count)
+
+        # ---- Sheet 2: รายชื่อ ----
+        ws_data = wb.create_sheet("รายชื่อ")
+        ws_data.sheet_view.showGridLines = False
+
+        ws_data.append([EXPORT_HEADER_LABELS.get(f, f) for f in fields])
+        for idx, field in enumerate(fields, start=1):
+            ws_data.column_dimensions[get_column_letter(idx)].width = EXPORT_COLUMN_WIDTHS.get(field, DEFAULT_COL_WIDTH)
+            cell = ws_data.cell(row=1, column=idx)
+            cell.fill = HEADER_FILL
+            cell.font = white_bold
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for i, row in enumerate(rows, start=2):
+            ws_data.append([row.get(f, "") for f in fields])
+            for col_idx, field in enumerate(fields, start=1):
+                cell = ws_data.cell(row=i, column=col_idx)
+                if field in CENTER_FIELDS:
+                    cell.alignment = Alignment(horizontal="center")
+                elif field in WRAP_TEXT_FIELDS:
+                    cell.alignment = Alignment(wrap_text=True, vertical="top")
+                if i % 2 == 0:
+                    cell.fill = PatternFill("solid", fgColor="F8FAFC")
+        ws_data.freeze_panes = "A2"
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
+
     @classmethod
     async def export_students_excel(cls, pool, fields: List[str], user_name: str, user_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None):
         start_time = time.time()
@@ -379,30 +593,45 @@ class StudentService:
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "EXPORT_STUDENTS")
 
+                    if not fields:
+                        raise ValidationError("กรุณาเลือกอย่างน้อย 1 คอลัมน์")
+
                     rows = await conn.fetch(f"{cls.BASE_STUDENT_SELECT} WHERE s.room_id = $1 AND s.deleted_at IS NULL ORDER BY s.student_no ASC", target_room_id)
                     if not rows: raise StudentNotFoundError("ไม่พบข้อมูลนักเรียนในห้องนี้")
+
+                    room = await conn.fetchrow("SELECT room_name, room_code FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id)
+                    room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"
+                    room_code = room["room_code"] if room else None
+
+                    # ป้องกันคอลัมน์ซ้ำ (ถ้า frontend ส่งซ้ำ) รักษาลำดับแรกที่เจอ
+                    seen = set()
+                    fields = [f for f in fields if not (f in seen or seen.add(f))]
 
                     data = []
                     for r in rows:
                         row_dict = dict(r)
-                        filtered_row = {f: row_dict.get(f) for f in fields}
-                        data.append(filtered_row)
+                        processed = {f: cls._translate_value(f, row_dict.get(f)) for f in fields}
+                        # คีย์ภายในสำหรับ Sheet สรุป (ไม่ถูกเขียนลง Sheet รายชื่อ)
+                        processed["_status"] = row_dict.get("status")
+                        processed["_completion_percent"] = cls._calculate_completion(row_dict)["percentage"]
+                        data.append(processed)
 
-                    df = pd.DataFrame(data)
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df.to_excel(writer, index=False, sheet_name='Students_List')
-                    
-                    output.seek(0)
-                    
+                    output = cls._build_student_workbook(
+                        room_name=room_name,
+                        room_code=room_code,
+                        fields=fields,
+                        rows=data,
+                        generated_at=datetime.now(THAI_TZ),
+                    )
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="EXPORT", actor_identifier=actor_identifier,
                         client_source=client_source, room_id=target_room_id, user_id=user_id,
-                        entity_type="STUDENT_LIST", status="success", new_values={"fields": fields}, 
+                        entity_type="STUDENT_LIST", status="success", new_values={"fields": fields},
                         endpoint_or_command="export_students_excel", execution_time_ms=exec_time
                     )
-                    
+
                     return output
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -410,7 +639,7 @@ class StudentService:
                 await service_logger.log(
                     conn=error_conn, action="EXPORT", actor_identifier=actor_identifier,
                     client_source=client_source, room_id=target_room_id, user_id=user_id,
-                    entity_type="STUDENT_LIST", status="failed", error_detail=str(e), 
+                    entity_type="STUDENT_LIST", status="failed", error_detail=str(e),
                     new_values={"fields": fields}, endpoint_or_command="export_students_excel", execution_time_ms=exec_time
                 )
             raise e

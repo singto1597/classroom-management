@@ -327,3 +327,27 @@
 - **Correct Pattern/Solution:** endpoint ที่บอทใช้เป็น **system RPC** (หา announcement_channel, ส่งประกาศ) ต้องไม่ต้องผ่าน `get_current_user` แบบเดียวกับมนุษย์ — ใช้ `verify_api_key` (เช็ค X-API-Key อย่างเดียว) แทน หรือให้ bot path ข้าม user lookup ไป resolve target ตรง ๆ
 - **Rule:** เมื่อบอทส่ง `X-Discord-Id = self.bot.user.id` (bot application) อย่าให้ endpoint ต้องหา `users.discord_id` — ไม่งั้น 404 ที่ auth ก่อนเสมอ; ถ้า endpoint ควรเป็น system RPC ให้ใช้ `verify_api_key` แทน `get_current_user` และเช็ค `docs/skills.md` เรื่อง "Read RPC → require_member Design: Where It Is NOT Safe to Add"
 - **Date Added:** 2026-08-06
+
+### 🛠️ Discord Notifications — `mention` + `category` ใน payload (แยก @everyone vs แจ้งเฉยๆ)
+- **Context/Problem:** ต้องการให้ทุกความเคลื่อนไหวแจ้งเตือน Discord โดยมี "หัวข้อหมวดหมู่" วางก่อน embed และแยกว่า event ไหนควร `@everyone` (เช่น มีงานใหม่, ประกาศ, แคมเปญเก็บเงิน) กับ event ไหนแค่แจ้งเฉยๆ (เช่น ส่งงาน, รายรับ-จ่าย, จ่ายเงิน, สมาชิกใหม่)
+- **Correct Pattern/Solution:**
+  1. `ActionService._publish` รับ `mention: bool = False` + `category: str` → ใส่ลง payload ทุก event; `notify_*` แต่ละตัวกำหนดค่าเอง (NEW_TASK → mention=True, TASK_DONE → mention=False, ...)
+  2. Bot `BotActionService._build_content(data, fallback)` → `"{category} @everyone"` ถ้า `mention` จริง, ไม่งั้น `"{category}"` → ส่งเป็น `content=` ก่อน embed
+  3. ระบบที่ควรแจ้ง (มี ActionService publish): งาน (NEW_TASK/TASK_DONE), โน้ต (NEW_NOTE), ประกาศ (CUSTOM_MESSAGE), การเงิน (FINANCE_TRANSACTION/FINANCE_PAYMENT/FINANCE_COLLECTION), สมาชิก (NEW_STUDENT)
+  4. การเงิน: `add_transaction` → notify_new_finance (income/expense, ไม่ @everyone แต่โชว์ความโปร่งใส), `confirm_payment` → notify_payment_confirmed, `create_fee_collection` → notify_new_collection (@everyone)
+  5. สมาชิก: `add_student` → notify_new_student (ไม่ @everyone)
+- **Rule:** ตอน publish ต้อง fetch `server_id` ของห้องจาก DB (ห้องที่ยังไม่ผูก Discord → server_id None → ข้าม publish); publish หลัง commit transaction; bot ใช้ `_build_content` เป็นจุดเดียวที่ตัดสินใจ content prefix เพื่อให้ทุก event สอดคล้อง
+- **Date Added:** 2026-08-07
+
+### 🛠️ Student Excel Export — openpyxl 2 แผ่น (สรุป + รายชื่อ) + วันเกิดแบบไทย พ.ศ.
+- **Context/Problem:** `StudentService.export_students_excel` เดิมใช้ pandas `to_excel` — หัวตารางเป็นชื่อ field ภาษาอังกฤษ, ไม่มีรูปแบบ (สี/Freeze/ความกว้าง), `birthday` หลุดออกมาเป็น `datetime.date` ดิบ → ไฟล์ไม่เหมาะนำไปใช้งานจริง ผู้ใช้ต้องการไฟล์แบบ 2 แผ่นสวยงามพร้อมวันเกิดแบบ "25 กรกฎาคม 2553"
+- **Root Cause:** pandas write path คุม per-cell style ได้จำกัด และ backend ไม่มี Thai label/role/status/month mapping (labels อยู่ฝั่ง frontend เท่านั้น)
+- **Correct Pattern/Solution:**
+  1. สร้าง workbook ด้วย openpyxl ตรง ๆ (`Workbook`, `PatternFill`, `Font`, `Alignment`, `get_column_letter`) เลียนแบบ `finance_service._build_finance_workbook`
+  2. วันเกิดแบบไทย: `f"{d.day} {THAI_MONTH_NAMES[d.month - 1]} {d.year + 543}"` + tuple 12 ชื่อเดือนไทย; ถ้าเป็น `datetime` ต้อง `.date()` ก่อนเสมอ
+  3. รักษาลำดับคอลัมน์ตามที่ผู้ใช้ส่งมา: iter ตาม list `fields` ทั้งตอนเขียน header และทุก data row — อย่าพึ่ง dict ordering
+  4. แยกคีย์ภายใน (`_status`, `_completion_percent`) ไว้ใน processed row dict สำหรับ Sheet สรุป — ตอนเขียน Sheet "รายชื่อ" ให้ iter แค่ `fields` เท่านั้น คีย์ `_` จะไม่หลุดลงไฟล์
+  5. Style: `HEADER_FILL = PatternFill("solid", fgColor="1D4ED8")`, ฟอนต์หัวขาว bold, `freeze_panes = "A2"`, `sheet_view.showGridLines = False`, `column_dimensions[get_column_letter(i)].width`, สลับสีแถวคู่ `F8FAFC`
+  6. แปลงค่า: `birthday`→พ.ศ., `class_role`/`status`→ไทย ผ่าน dict map ที่ backend เป็นเจ้าของเอง (ห้าม import จาก frontend); กัน `fields` ซ้ำด้วย `seen` set รักษาลำดับ
+- **Rule:** การ export ที่ต้องการ styling ใช้ openpyxl ตรง ๆ แทน pandas; คอลัมน์ที่ user เลือกลำดับเองต้องเขียนตาม `fields` order; ค่าที่เป็น enum (role/status) ควรแปลเป็นไทยใน backend ไม่ใช่ส่ง raw key
+- **Date Added:** 2026-08-07

@@ -83,5 +83,17 @@ class RedisListener(commands.Cog):
         elif event_type == "CUSTOM_MESSAGE":
             await self.action_service.notify_custom_message(server_id, data)
 
+        elif event_type == "FINANCE_TRANSACTION":
+            await self.action_service.notify_finance_transaction(server_id, data)
+
+        elif event_type == "FINANCE_PAYMENT":
+            await self.action_service.notify_finance_payment(server_id, data)
+
+        elif event_type == "FINANCE_COLLECTION":
+            await self.action_service.notify_finance_collection(server_id, data)
+
+        elif event_type == "NEW_STUDENT":
+            await self.action_service.notify_new_student(server_id, data)
+
 async def setup(bot):
     await bot.add_cog(RedisListener(bot))

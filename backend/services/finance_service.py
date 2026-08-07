@@ -15,6 +15,7 @@ from openpyxl.utils import get_column_letter
 from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError
 from core.rbac import require_permission, require_member
+from services.action_service import ActionService
 
 THAI_TZ = ZoneInfo("Asia/Bangkok")
 
@@ -139,6 +140,14 @@ class FinanceService:
         if n is not None and str(n).strip():
             return str(n).strip()[:200]
         return "—"
+
+    @staticmethod
+    async def _get_room_server_id(conn: asyncpg.Connection, room_id: int) -> Optional[int]:
+        """ดึง server_id ของห้อง (ใช้ publish ไป Discord) — คืน None ถ้าห้องยังไม่ผูก Discord"""
+        return await conn.fetchval(
+            "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL",
+            room_id,
+        )
 
     # =====================================================================
     # [ROUTER] ตัวช่วยตัดสินใจว่าจะอ่านจากระบบเก่า (legacy) หรือบัญชีคู่ (v2)
@@ -469,7 +478,17 @@ class FinanceService:
                         room_id=target_room_id, user_id=user_id, entity_type="FINANCE_TRANSACTION", status="success",
                         new_values=new_values, endpoint_or_command="FinanceService.add_transaction", execution_time_ms=exec_time
                     )
-                    return {"status": "success", "message": "บันทึกรายการสำเร็จ"}
+                    # 📢 แจ้งเตือน Discord: มีรายรับ/รายจ่ายใหม่ (ไม่ @everyone — แค่โชว์ความโปร่งใส)
+                    room_server_id = await cls._get_room_server_id(conn, target_room_id)
+            if room_server_id:
+                await ActionService.notify_new_finance(
+                    server_id=room_server_id,
+                    txn_type=req.transaction_type,
+                    amount=float(req.amount),
+                    description=req.description,
+                    user_name=req.user_name,
+                )
+            return {"status": "success", "message": "บันทึกรายการสำเร็จ"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
@@ -958,14 +977,24 @@ class FinanceService:
                     new_values = cls._extract_req_data(req)
                     new_values["resolved_target_students"] = target_students
                     msg = f"สร้างแคมเปญสำเร็จ เรียกเก็บเพื่อน {len(target_students)} คน"
-                    
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="CREATE", actor_identifier=actor_identifier, client_source=client_source,
                         room_id=target_room_id, user_id=user_id, entity_type="FEE_COLLECTION", entity_id=str(collection_id), status="success",
                         new_values=new_values, endpoint_or_command="FinanceService.create_fee_collection", execution_time_ms=exec_time
                     )
-                    return {"status": "success", "message": msg}
+                    # 📢 แจ้งเตือน Discord: สร้างแคมเปญเก็บเงินใหม่ → @everyone (ทุกคนต้องรู้)
+                    room_server_id = await cls._get_room_server_id(conn, target_room_id)
+            if room_server_id:
+                await ActionService.notify_new_collection(
+                    server_id=room_server_id,
+                    title=req.title,
+                    amount=float(req.amount),
+                    due_date=req.due_date,
+                    user_name=req.user_name,
+                )
+            return {"status": "success", "message": msg}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
@@ -1087,7 +1116,17 @@ class FinanceService:
                         room_id=target_room_id, user_id=None, entity_type="STUDENT_PAYMENT", entity_id=str(payment_id), status="success",
                         old_values=old_values, new_values=new_values, endpoint_or_command="FinanceService.confirm_payment", execution_time_ms=exec_time
                     )
-                    return {"status": "success", "message": f"รับเงินสำเร็จ! สถานะ: {status_msg}"}
+                    # 📢 แจ้งเตือน Discord: มีคนจ่ายเงินแล้ว (ไม่ @everyone — โชว์ความโปร่งใส)
+                    room_server_id = await cls._get_room_server_id(conn, target_room_id)
+            if room_server_id:
+                await ActionService.notify_payment_confirmed(
+                    server_id=room_server_id,
+                    payer_name=stu_name,
+                    title=payment_info['title'],
+                    amount=float(req.paid_amount),
+                    user_name=req.user_name,
+                )
+            return {"status": "success", "message": f"รับเงินสำเร็จ! สถานะ: {status_msg}"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
