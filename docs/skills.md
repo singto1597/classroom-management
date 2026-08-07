@@ -54,9 +54,11 @@
 - **Correct Pattern/Solution:**
   1. Created `frontend/src/views/roadmap/RoadmapView.vue` as a new view.
   2. Used `StudentService.getStudents(roomId)` from `frontend/src/services/student.ts` (the same API call used in `frontend/src/views/students/StudentList.vue`) to fetch all students in the current room.
-  3. Mapped `class_role` values (from the list available in `frontend/src/views/students/EditStudent.vue`) to Thai labels and icons: `president`, `vice_academic`, `vice_activity`, `vice_discipline`, `vice_reception`, `treasurer`, and `staff_*` roles.
+  3. Mapped `class_role` values (from the list available in `frontend/src/views/students/EditStudent.vue`) to Thai labels and icons: `president`, `vice_president`, `secretary`, `vice_academic`, `vice_activity`, `vice_discipline`, `vice_reception`, `vice_pr`, `vice_sanitation`, `treasurer`, and `staff_*` roles.
   4. Built an org-chart tree using pure CSS (no external library) with inline-block nodes and connecting lines via `::before`/`::after` pseudo-elements.
-  5. The top node displays the `president`; below it are the four vice roles as level-2 nodes; under each vice node its corresponding `staff_*` members appear as leaf nodes.
+  5. The top node displays the `president`; below it an executive row (รองหัวหน้าห้อง + เลขานุการ/เรขา); then the six vice roles (`vice_academic`…`vice_sanitation`) as level-3 nodes; under each vice node its corresponding `staff_*` members appear as leaf nodes; the `treasurer` is a separate bottom node.
+  5a. `noUncheckedIndexedAccess: true` is on: when a template indexes a `Record<string, T>` with a literal key (e.g. `rolesConfig[slot.role].theme`), TypeScript resolves to `T | undefined` → must resolve the config into the computed/map (with a fallback) instead of indexing directly in the template.
+  5b. When adding a new department, keep `viceToStaff` in sync (`vice_pr → staff_pr`, `vice_sanitation → staff_sanitation`) and add a matching theme to `getThemeClasses` (slate/cyan/fuchsia/teal) or the card falls back to `blue`.
   6. Added a `RouterLink` from the existing roadmap card in `src/views/Dashboard.vue` pointing to `/roadmap`.
   7. Registered a new `roadmap` route inside the root layout's children list in `frontend/src/router/index.ts`, lazy-loading `RoadmapView.vue`.
   8. Followed frontend rules: used `<script setup lang="ts">`, `ref`/`computed`, `Tailwind`, and `SweetAlert2` for errors; kept the design minimal and white (slate-50 background) with a dark gradient top node to match the existing dashboard.

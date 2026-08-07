@@ -261,14 +261,20 @@ onMounted(() => {
                 <select v-model="form.class_role" class="w-full bg-slate-950 border border-slate-700 text-white focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 rounded-xl px-4 py-3 outline-none transition-colors appearance-none">
                   <option value="student">🧑‍🎓 นักเรียนทั่วไป (Student)</option>
                   <option value="president">👑 หัวหน้าห้อง (President)</option>
+                  <option value="vice_president">👑 รองหัวหน้าห้อง (Vice President)</option>
+                  <option value="secretary">📋 เลขานุการ/เรขา (Secretary)</option>
                   <option value="vice_academic">📖 รองฯ วิชาการ</option>
                   <option value="vice_activity">🎭 รองฯ กิจกรรม</option>
                   <option value="vice_discipline">⚖️ รองฯ ระเบียบวินัย</option>
                   <option value="vice_reception">🤝 รองฯ ปฏิคม</option>
+                  <option value="vice_pr">📣 รองฯ ประชาสัมพันธ์</option>
+                  <option value="vice_sanitation">🧹 รองฯ สุขาภิบาล</option>
                   <option value="staff_academic">📝 กรรมการวิชาการ</option>
                   <option value="staff_activity">🎪 กรรมการกิจกรรม</option>
                   <option value="staff_discipline">🛡️ กรรมการระเบียบวินัย</option>
                   <option value="staff_reception">🎀 กรรมการปฏิคม</option>
+                  <option value="staff_pr">📣 กรรมการประชาสัมพันธ์</option>
+                  <option value="staff_sanitation">🧹 กรรมการสุขาภิบาล</option>
                   <option value="treasurer">💰 เหรัญญิก</option>
                 </select>
                 <p class="text-[11px] text-slate-500 mt-1"><i class="bi bi-info-circle"></i> แสดงผลบนหน้าเว็บเท่านั้น ไม่มีผลกับสิทธิ์</p>

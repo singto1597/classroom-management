@@ -1,9 +1,9 @@
 {
-  "VIEW_ALL_STUDENTS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "staff_academic", "staff_activity", "staff_discipline", "staff_reception", "treasurer"],
-  "MANAGE_STUDENTS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception"],
-  "EXPORT_STUDENTS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "treasurer"],
+  "VIEW_ALL_STUDENTS": ["president", "vice_president", "secretary", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "vice_pr", "vice_sanitation", "staff_academic", "staff_activity", "staff_discipline", "staff_reception", "staff_pr", "staff_sanitation", "treasurer"],
+  "MANAGE_STUDENTS": ["president", "vice_president", "secretary", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "vice_pr", "vice_sanitation"],
+  "EXPORT_STUDENTS": ["president", "vice_president", "secretary", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "vice_pr", "vice_sanitation", "treasurer"],
   "HARD_DELETE_STUDENTS": ["president"],
-  "MANAGE_FINANCE": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "treasurer"],
+  "MANAGE_FINANCE": ["president", "vice_president", "secretary", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "vice_pr", "vice_sanitation", "treasurer"],
   "MANAGE_CLASSROOM_SETTINGS": ["president", "vice_academic", "staff_academic"],
-  "MANAGE_CLASSROOM_TASKS": ["president", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "staff_academic", "staff_activity", "staff_discipline", "staff_reception", "treasurer"]
+  "MANAGE_CLASSROOM_TASKS": ["president", "vice_president", "secretary", "vice_academic", "vice_activity", "vice_discipline", "vice_reception", "vice_pr", "vice_sanitation", "staff_academic", "staff_activity", "staff_discipline", "staff_reception", "staff_pr", "staff_sanitation", "treasurer"]
 }
