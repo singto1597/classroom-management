@@ -59,14 +59,17 @@ const form = ref<Partial<Student> & { new_student_no?: number | null, is_admin?:
   first_name: '',
   last_name: '',
   nickname: '',
+  birthday: '',
   blood_group: '',
   shirt_size: '',
   food_allergy: '',
+  congenital_disease: '',
   phone_number: '',
   phone_number_parent: '',
   phone_number_parent_relation: '',
   line_id: '',
   ig_username: '',
+  email: '',
   target_faculty: '',
   cleaning_duty: '',
   olympic_camp: '',
@@ -77,7 +80,8 @@ const form = ref<Partial<Student> & { new_student_no?: number | null, is_admin?:
   address_district: '',
   address_province: '',
   address_post_code: '',
-  class_role: 'student'
+  class_role: 'student',
+  status: 'active'
 })
 
 const fetchStudent = async () => {
@@ -145,6 +149,8 @@ const handleSubmit = async () => {
         if (payload[key] === "") payload[key] = null;
       }
     })
+    // birthday เก็บเป็น '' ตอนยังไม่เลือก → แปลงเป็น null เพื่อไม่ลบของเดิมโดยไม่ตั้งใจ
+    if (payload.birthday === '') payload.birthday = null;
 
     payload.user_name = currentUserName || 'System';
 
@@ -257,6 +263,15 @@ onMounted(() => {
                 <p class="text-[11px] text-slate-500 mt-1"><i class="bi bi-info-circle"></i> เปลี่ยนแล้วระบบจะทำการย้ายข้อมูลทั้งหมดไปที่เลขที่ใหม่</p>
               </div>
               <div class="space-y-2">
+                <label class="text-xs font-black text-slate-400 uppercase tracking-widest">สถานะนักเรียน</label>
+                <select v-model="form.status" class="w-full bg-slate-950 border border-slate-700 text-white focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 rounded-xl px-4 py-3 outline-none transition-colors appearance-none">
+                  <option value="active">✅ กำลังเรียน (Active)</option>
+                  <option value="pending">⏳ รออนุมัติ (Pending)</option>
+                  <option value="inactive">🚫 พ้นสภาพ (Inactive)</option>
+                </select>
+                <p class="text-[11px] text-slate-500 mt-1"><i class="bi bi-info-circle"></i> pending = ยังไม่ได้อนุมัติเข้าเรียน, inactive = พ้นสภาพ/ย้ายออก</p>
+              </div>
+              <div class="space-y-2">
                 <label class="text-xs font-black text-slate-400 uppercase tracking-widest">ป้ายตำแหน่ง (Cosmetic)</label>
                 <select v-model="form.class_role" class="w-full bg-slate-950 border border-slate-700 text-white focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 rounded-xl px-4 py-3 outline-none transition-colors appearance-none">
                   <option value="student">🧑‍🎓 นักเรียนทั่วไป (Student)</option>
@@ -327,6 +342,10 @@ onMounted(() => {
                 <label class="text-xs font-black text-slate-400 uppercase tracking-widest">รหัสนักเรียน (ประจำตัว)</label>
                 <input :disabled="!isEditMode" v-model="form.student_id" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
               </div>
+              <div class="space-y-2">
+                <label class="text-xs font-black text-slate-400 uppercase tracking-widest">วันเกิด</label>
+                <input :disabled="!isEditMode" v-model="form.birthday" type="date" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
+              </div>
               <div class="grid grid-cols-2 gap-5">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">คำนำหน้า</label>
@@ -371,6 +390,10 @@ onMounted(() => {
                 <label class="text-xs font-black text-slate-400 uppercase tracking-widest">โรคประจำตัว / แพ้อาหาร</label>
                 <input :disabled="!isEditMode" v-model="form.food_allergy" type="text" placeholder="ถ้าไม่มีให้ระบุ 'ไม่มี'" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
               </div>
+              <div class="space-y-2">
+                <label class="text-xs font-black text-slate-400 uppercase tracking-widest">โรคประจำตัว</label>
+                <input :disabled="!isEditMode" v-model="form.congenital_disease" type="text" placeholder="เช่น โรคหัวใจ, หอบหืด, เบาหวาน" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
+              </div>
             </div>
           </div>
 
@@ -403,6 +426,10 @@ onMounted(() => {
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">IG Username</label>
                   <input :disabled="!isEditMode" v-model="form.ig_username" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
+                </div>
+                <div class="space-y-2">
+                  <label class="text-xs font-black text-slate-400 uppercase tracking-widest">อีเมล</label>
+                  <input :disabled="!isEditMode" v-model="form.email" type="email" placeholder="example@email.com" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
                 </div>
               </div>
             </div>
