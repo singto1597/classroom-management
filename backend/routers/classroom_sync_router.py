@@ -5,6 +5,7 @@ from typing import List, Literal
 
 from models.classroom_sync_schemas import (
     SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
+    BirthdayNotifyResponse,
     DefaultScheduleRequest, OverrideScheduleRequest,
     TaskCreateRequest, TaskEditRequest, TaskResponse, TaskActionResponse,
     DailyNoteRequest, DailyNoteDeletedResponse, DailySummaryResponse, TaskStatus, ActionWithUserRequest, RoomDataResponse,
@@ -55,7 +56,26 @@ async def get_rooms_to_notify(
 ):
     client_source, actor = get_audit_context(request)
     return await ClassroomService.get_rooms_to_notify(
-        pool, current_time, 
+        pool, current_time,
+        client_source=client_source, actor_identifier=actor
+    )
+
+@router.get("/birthdays/today", response_model=List[BirthdayNotifyResponse])
+async def get_birthday_celebrants(
+    request: Request,
+    target_date: date = Query(...),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    🎂 System RPC สำหรับบอท: คืนคนที่วันเกิดตรงกับ target_date (วันนี้) ทุกห้องที่ผูก Discord แล้ว
+    - บอทเรียกทุกเช้าเหมือน /notifications/targets → ถ้ามีคนเกิดวันนี้ ก็ไปอวยพรในช่อง birthday_channel_id
+      (ถ้ายังไม่ได้ตั้ง → ตกไปใช้ announcement_channel_id แทน)
+    - เป็น system-only (verify_api_key) เหมือน get_rooms_to_notify — ไม่ต้องเป็น member ของห้อง
+    """
+    client_source, actor = get_audit_context(request)
+    return await ClassroomService.get_birthday_celebrants(
+        pool, target_date,
         client_source=client_source, actor_identifier=actor
     )
 
@@ -96,11 +116,13 @@ async def set_channel(
         client_source, actor = get_audit_context(request, user_ctx)
         await ClassroomService.set_channel(
             pool, req.channel_id, req.user_name, user_ctx["user_id"], room_id=room_id,
-            client_source=client_source, actor_identifier=actor
+            client_source=client_source, actor_identifier=actor, channel_type=req.channel_type
         )
         return SuccessResponse()
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{target_id}/time", response_model=SuccessResponse)
 async def set_notify_time(

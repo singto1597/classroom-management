@@ -8,13 +8,28 @@ class BotActionService:
     def __init__(self, bot):
         self.bot = bot
 
-    async def _get_announcement_channel(self, server_id: int):
+    async def _get_announcement_channel(self, server_id: int, channel: str = "announcement"):
+        """
+        หาช่อง Discord ที่จะส่งข้อความ
+        - channel="announcement" → ห้องแจ้งเตือนหลัก (announcement_channel_id)
+        - channel="birthday" → ห้องแฮปปี้เบิร์ดเดย์ (birthday_channel_id) ถ้าไม่ตั้ง ตกไปใช้ announcement
+        - channel="minor" → ห้องแจ้งเตือนงานเล็กๆน้อยๆ (minor_notify_channel_id) ถ้าไม่ตั้ง ตกไปใช้ announcement
+        """
         try:
             headers = {"X-Discord-Id": str(self.bot.user.id)}
             # 🚨 แจ้ง Backend ว่าไอดีที่ส่งไปคือ server
             room_data = await api_client.request("GET", f"/{server_id}", params={"target_type": "server"}, headers=headers)
-            channel_id = room_data.get("announcement_channel_id")
-            if channel_id: return self.bot.get_channel(int(channel_id))
+
+            # เลือกคอลัมน์ช่องตามประเภท ตามลำดับความสำคัญ: ช่องเฉพาะ → ตกไปช่องหลัก
+            if channel == "birthday":
+                channel_id = room_data.get("birthday_channel_id") or room_data.get("announcement_channel_id")
+            elif channel == "minor":
+                channel_id = room_data.get("minor_notify_channel_id") or room_data.get("announcement_channel_id")
+            else:
+                channel_id = room_data.get("announcement_channel_id")
+
+            if channel_id:
+                return self.bot.get_channel(int(channel_id))
         except Exception as e:
             logger.error(f"Failed fetching channel: {e}")
         return None
@@ -48,7 +63,7 @@ class BotActionService:
         await channel.send(content=self._build_content(data, "📝 มีงานใหม่นะ"), embed=embed)
 
     async def notify_task_done(self, server_id: int, data: dict):
-        channel = await self._get_announcement_channel(server_id)
+        channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
 
         embed = discord.Embed(
@@ -86,7 +101,7 @@ class BotActionService:
         await channel.send(content=self._build_content(data, "📢 ประกาศนะทุกคน"), embed=embed)
 
     async def notify_finance_transaction(self, server_id: int, data: dict):
-        channel = await self._get_announcement_channel(server_id)
+        channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
 
         txn_type = data.get("txn_type")
@@ -108,7 +123,7 @@ class BotActionService:
         await channel.send(content=self._build_content(data, "💰 มีรายการเงินใหม่"), embed=embed)
 
     async def notify_finance_payment(self, server_id: int, data: dict):
-        channel = await self._get_announcement_channel(server_id)
+        channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
 
         embed = discord.Embed(
@@ -132,7 +147,7 @@ class BotActionService:
         await channel.send(content=self._build_content(data, "💳 แจ้งเก็บเงินนะทุกคน"), embed=embed)
 
     async def notify_new_student(self, server_id: int, data: dict):
-        channel = await self._get_announcement_channel(server_id)
+        channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
 
         embed = discord.Embed(
@@ -142,3 +157,21 @@ class BotActionService:
         )
         embed.set_footer(text=f"เพิ่มโดย: {data.get('user_name')}")
         await channel.send(content=self._build_content(data, "👤 มีสมาชิกใหม่"), embed=embed)
+
+    async def notify_birthday(self, server_id: int, data: dict):
+        """🎂 ส่งคำอวยพรวันเกิดไปที่ห้องแฮปปี้เบิร์ดเดย์ (ถ้าไม่ตั้ง → ห้องแจ้งเตือนหลัก)"""
+        channel = await self._get_announcement_channel(server_id, channel="birthday")
+        if not channel: return
+
+        celebrants = data.get("celebrants") or []
+        names = "\n".join(
+            f"🎉 **{c.get('first_name')} {c.get('last_name')}** (เลขที่ {c.get('student_no')})"
+            for c in celebrants
+        )
+
+        embed = discord.Embed(
+            title="🎂 Happy Birthday! 🎉",
+            description=f"สุขสันต์วันเกิดนะครับ/ค่ะ\n{names}\n\nขอให้มีความสุขมากๆ สมหวังในทุกสิ่งที่ปรารถนา 🥳🎈",
+            color=discord.Color.pink()
+        )
+        await channel.send(content="🎂 🎉", embed=embed)

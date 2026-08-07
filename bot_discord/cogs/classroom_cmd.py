@@ -11,6 +11,7 @@ from ui import add_note_ui
 from ui import set_override_ui
 
 from services.api_client import api_client, APIException
+from services.action_service import BotActionService
 
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -18,7 +19,10 @@ THAI_TZ = timezone(timedelta(hours=7))
 class BotCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.action_service = BotActionService(bot)
         self.daily_notification.start()
+        # 🎂 กันอวยพรวันเกิดซ้ำภายในวันเดียวกัน (loop วิ่งทุกนาที แต่ของวันนี้ส่งครั้งเดียว)
+        self._last_birthday_check = None
     
     def cog_unload(self):
         self.daily_notification.cancel()
@@ -78,24 +82,48 @@ class BotCommands(commands.Cog):
             headers = {"X-Discord-Id": str(self.bot.user.id)}
             # อันนี้ไม่มี target_id ไม่ต้องเติม target_type
             rooms_to_notify = await api_client.request("GET", "/notifications/targets", params={"current_time": current_time_str}, headers=headers)
-            if not rooms_to_notify: 
-                return
+            if rooms_to_notify:
+                target_date = now.date() + timedelta(days=1)
 
-            target_date = now.date() + timedelta(days=1)
+                for room in rooms_to_notify:
+                    server_id = room['server_id']
+                    channel_id = room['announcement_channel_id']
 
-            for room in rooms_to_notify:
-                server_id = room['server_id']
-                channel_id = room['announcement_channel_id']
-                
-                channel = self.bot.get_channel(channel_id)
-                if channel:
-                    # 🚨 แทรก target_type="server"
-                    data = await api_client.request("GET", f"/{server_id}/summary", params={"target_date": str(target_date), "target_type": "server"}, headers=headers)
-                    if data:
-                        embed = self.build_summary_embed("🌙 แจ้งเตือนอัตโนมัติ: เตรียมตัวสำหรับวันพรุ่งนี้!", data)
-                        await channel.send(content="📢 @everyone สรุปตารางเรียนและงานของวันพรุ่งนี้", embed=embed)
+                    channel = self.bot.get_channel(channel_id)
+                    if channel:
+                        # 🚨 แทรก target_type="server"
+                        data = await api_client.request("GET", f"/{server_id}/summary", params={"target_date": str(target_date), "target_type": "server"}, headers=headers)
+                        if data:
+                            embed = self.build_summary_embed("🌙 แจ้งเตือนอัตโนมัติ: เตรียมตัวสำหรับวันพรุ่งนี้!", data)
+                            await channel.send(content="📢 @everyone สรุปตารางเรียนและงานของวันพรุ่งนี้", embed=embed)
+
+            # 🎂 เช็คคนที่วันเกิดวันนี้ (ใช้คำสั่งเดียวกับเช็คแจ้งเตือนเลย — บอทถาม backend)
+            # กันซ้ำ: เช็ควันละครั้งต่อวัน (loop วิ่งทุกนาที)
+            if self._last_birthday_check != now.date():
+                await self.check_today_birthdays(now.date(), headers)
+                self._last_birthday_check = now.date()
+
         except Exception as e:
             print(f"⚠️ [Loop Warning] API Error: {e}")
+
+    async def check_today_birthdays(self, target_date, headers):
+        """🎂 ถาม backend ว่าวันนี้ถึงวันเกิดใครบ้าง แล้วสั่งให้บอทไปอวยพรในห้องแฮปปี้เบิร์ดเดย์"""
+        try:
+            birthday_rooms = await api_client.request(
+                "GET", "/birthdays/today",
+                params={"target_date": str(target_date)},
+                headers=headers,
+            )
+            if not birthday_rooms:
+                return
+
+            for room in birthday_rooms:
+                if not room.get("celebrants"):
+                    continue
+                # 📢 ปั่น embed อวยพรวันเกิดแล้วส่งเข้าห้อง birthday (หรือตกไปห้องหลัก)
+                await self.action_service.notify_birthday(room["server_id"], room)
+        except Exception as e:
+            print(f"⚠️ [Birthday Loop Warning] API Error: {e}")
     
     @daily_notification.before_loop
     async def before_daily_notification(self):
@@ -129,7 +157,9 @@ class BotCommands(commands.Cog):
 
         embed.add_field(name="⚙️ หมวดตั้งค่าระบบ (แอดมิน)", value=
             "`/setup_room` - ผูกห้อง Discord กับห้องที่สร้างไว้ในเว็บแล้ว\n"
-            "`/set_channel` - เลือกห้องแชทให้บอทส่งแจ้งเตือน\n"
+            "`/set_channel` - เลือกห้องแชทให้บอทส่งแจ้งเตือนหลัก\n"
+            "`/set_birthday_channel` - 🎂 เลือกห้องแฮปปี้เบิร์ดเดย์\n"
+            "`/set_minor_channel` - 🔔 เลือกห้องแจ้งเตือนงานเล็กๆน้อยๆ\n"
             "`/set_schedule` - ตั้งตารางเรียนยืนพื้นจันทร์-ศุกร์\n"
             "`/set_time` - ตั้งเวลาแจ้งเตือนรายวันอัตโนมัติ", inline=False)
 
@@ -167,13 +197,24 @@ class BotCommands(commands.Cog):
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
-    @app_commands.command(name="set_channel", description="กำหนดห้องแชทที่จะให้บอทแจ้งเตือน")
+    @app_commands.command(name="set_channel", description="กำหนดห้องแชทที่จะให้บอทแจ้งเตือนหลัก")
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await self._set_channel_impl(interaction, channel, "announcement", "บอทจะแจ้งเตือนหลัก")
+
+    @app_commands.command(name="set_birthday_channel", description="🎂 กำหนดห้องแฮปปี้เบิร์ดเดย์")
+    async def set_birthday_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await self._set_channel_impl(interaction, channel, "birthday", "บอทจะส่งคำอวยพรวันเกิด")
+
+    @app_commands.command(name="set_minor_channel", description="🔔 กำหนดห้องแจ้งเตือนงานเล็กๆน้อยๆ")
+    async def set_minor_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await self._set_channel_impl(interaction, channel, "minor", "บอทจะแจ้งงานเล็กๆน้อยๆ")
+
+    async def _set_channel_impl(self, interaction: discord.Interaction, channel: discord.TextChannel, channel_type: str, label: str):
         try:
-            payload = {"channel_id": channel.id, "user_name": interaction.user.name}
+            payload = {"channel_id": channel.id, "user_name": interaction.user.name, "channel_type": channel_type}
             # 🚨 แทรก target_type="server"
             await api_client.request("PUT", f"/{interaction.guild_id}/channel", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.response.send_message(f"📢 ตั้งค่าสำเร็จ! บอทจะแจ้งเตือนที่ห้อง {channel.mention}")
+            await interaction.response.send_message(f"📢 ตั้งค่าสำเร็จ! {label}ที่ห้อง {channel.mention}")
         except APIException as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 

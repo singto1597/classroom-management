@@ -37,7 +37,8 @@ class ClassroomService:
                     not_found_msg = f"ไม่พบห้องเรียน ID: {target_id}"
 
                 room = await conn.fetchrow(
-                    f"SELECT id, server_id, room_code, room_name, announcement_channel_id, notify_time "
+                    f"SELECT id, server_id, room_code, room_name, announcement_channel_id, birthday_channel_id, "
+                    f"minor_notify_channel_id, notify_time "
                     f"FROM rooms WHERE {where_column} = $1 AND deleted_at IS NULL",
                     target_id,
                 )
@@ -171,21 +172,35 @@ class ClassroomService:
                 )
             raise e
 
+    # 🎯 แผนที่ชื่อช่อง → คอลัมน์ในตาราง rooms (ใช้กับ set_channel + ดึง channel ตามประเภท)
+    CHANNEL_TYPE_COLUMNS = {
+        "announcement": "announcement_channel_id",
+        "birthday": "birthday_channel_id",
+        "minor": "minor_notify_channel_id",
+    }
+
     @classmethod
-    async def set_channel(cls, pool: asyncpg.Pool, channel_id: int, user_name: str, user_id: int, room_id: int, client_source: str, actor_identifier: str):
+    async def set_channel(cls, pool: asyncpg.Pool, channel_id: int, user_name: str, user_id: int, room_id: int, client_source: str, actor_identifier: str, channel_type: str = "announcement"):
         start_time = time.time()
         try:
+            column = cls.CHANNEL_TYPE_COLUMNS.get(channel_type)
+            if not column:
+                raise ValueError(f"channel_type ไม่ถูกต้อง: {channel_type} (ต้องเป็น announcement/birthday/minor)")
+
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
-                    old_record = await conn.fetchrow("SELECT announcement_channel_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", room_id)
+                    # 🚨 สร้าง SQL แบบ parameterized — ชื่อคอลัมน์มาจาก whitelist ข้างบนเท่านั้น (กัน SQL injection)
+                    old_record = await conn.fetchrow(
+                        f"SELECT {column} FROM rooms WHERE id = $1 AND deleted_at IS NULL", room_id
+                    )
                     if not old_record:
                         raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
                     old_values = dict(old_record)
 
-                    await conn.execute("UPDATE rooms SET announcement_channel_id = $1 WHERE id = $2", channel_id, room_id)
-                    new_values = {"announcement_channel_id": channel_id}
-                    
+                    await conn.execute(f"UPDATE rooms SET {column} = $1 WHERE id = $2", channel_id, room_id)
+                    new_values = {column: channel_id}
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
@@ -241,10 +256,10 @@ class ClassroomService:
         try:
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
-                    "SELECT server_id, announcement_channel_id FROM rooms WHERE notify_time = $1 AND announcement_channel_id IS NOT NULL AND deleted_at IS NULL", 
+                    "SELECT server_id, announcement_channel_id FROM rooms WHERE notify_time = $1 AND announcement_channel_id IS NOT NULL AND deleted_at IS NULL",
                     current_time
                 )
-                
+
                 exec_time = int((time.time() - start_time) * 1000)
                 # await service_logger.log(
                 #     conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
@@ -257,6 +272,64 @@ class ClassroomService:
                 await service_logger.log(
                     conn=fallback_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
                     entity_type="ROOM", status="failed", error_detail=str(e), endpoint_or_command="get_rooms_to_notify", execution_time_ms=exec_time
+                )
+            raise e
+
+    @classmethod
+    async def get_birthday_celebrants(cls, pool: asyncpg.Pool, target_date: date, client_source: str, actor_identifier: str) -> List[dict]:
+        """
+        🎂 หาคนที่มีวันเกิดตรงกับ target_date (วันนี้) ทุกห้องที่ผูก Discord แล้ว
+        - ใช้ date_part('month', ...) + date_part('day', ...) เปรียบเทียบ → กันปัญหา leap year (29 ก.พ.)
+        - คืนเฉพาะห้องที่มี birthday_channel_id หรือ announcement_channel_id (ไม่งั้นบอทส่งที่ไหนไม่ได้)
+        - คืน celebrants แบบ active (status='active' + deleted_at IS NULL) เท่านั้น
+        """
+        start_time = time.time()
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT r.server_id, r.birthday_channel_id, r.announcement_channel_id,
+                           u.id AS user_id, s.student_no, u.first_name, u.last_name, u.nickname
+                    FROM rooms r
+                    JOIN students s ON s.room_id = r.id AND s.status = 'active' AND s.deleted_at IS NULL
+                    JOIN users u ON u.id = s.user_id AND u.deleted_at IS NULL
+                    WHERE r.deleted_at IS NULL
+                      AND r.server_id IS NOT NULL
+                      AND (r.birthday_channel_id IS NOT NULL OR r.announcement_channel_id IS NOT NULL)
+                      AND u.birthday IS NOT NULL
+                      AND date_part('month', u.birthday) = date_part('month', $1::date)
+                      AND date_part('day', u.birthday) = date_part('day', $1::date)
+                    ORDER BY r.server_id, s.student_no
+                    """,
+                    target_date,
+                )
+
+                # รวมตามห้อง (server_id) → หนึ่งห้องหนึ่งรายการ มี celebrants เป็นลิสต์
+                rooms_map: Dict[int, dict] = {}
+                for row in rows:
+                    server_id = row["server_id"]
+                    if server_id not in rooms_map:
+                        rooms_map[server_id] = {
+                            "server_id": server_id,
+                            "birthday_channel_id": row["birthday_channel_id"],
+                            "announcement_channel_id": row["announcement_channel_id"],
+                            "celebrants": [],
+                        }
+                    rooms_map[server_id]["celebrants"].append({
+                        "student_no": row["student_no"],
+                        "first_name": row["first_name"],
+                        "last_name": row["last_name"],
+                        "nickname": row["nickname"],
+                    })
+
+                return list(rooms_map.values())
+        except Exception as e:
+            async with pool.acquire() as fallback_conn:
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=fallback_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                    entity_type="BIRTHDAY", status="failed", error_detail=str(e),
+                    endpoint_or_command="get_birthday_celebrants", execution_time_ms=exec_time
                 )
             raise e
 
@@ -507,7 +580,6 @@ class ClassroomService:
             raise e
 
         if discord_server_id and task_name:
-            # ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่กดส่งงาน → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)
             await ActionService.notify_task_done(discord_server_id, task_name, user_name)
 
         return task_name

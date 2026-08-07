@@ -36,11 +36,14 @@ class RoomDataResponse(BaseModel):
     server_id: Optional[int] = None
     room_name: str
     announcement_channel_id: Optional[int] = None
+    birthday_channel_id: Optional[int] = None
+    minor_notify_channel_id: Optional[int] = None
     notify_time: Optional[str] = None
 
 class ChannelSetRequest(BaseModel):
     channel_id: int
     user_name: str
+    channel_type: str = "announcement"  # announcement | birthday | minor
 
 class TimeSetRequest(BaseModel):
     notify_time: str = Field(..., pattern=r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
@@ -49,6 +52,18 @@ class TimeSetRequest(BaseModel):
 class RoomNotifyResponse(BaseModel):
     server_id: int
     announcement_channel_id: int
+
+class BirthdayCelebrant(BaseModel):
+    student_no: int
+    first_name: str
+    last_name: str
+    nickname: Optional[str] = None
+
+class BirthdayNotifyResponse(BaseModel):
+    server_id: int
+    birthday_channel_id: Optional[int] = None
+    announcement_channel_id: Optional[int] = None
+    celebrants: List[BirthdayCelebrant]
 
 # --- Schedule Schemas ---
 class DefaultScheduleRequest(BaseModel):

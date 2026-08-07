@@ -93,10 +93,12 @@ async def init_db(pool: asyncpg.Pool):
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS rooms (
                     id SERIAL PRIMARY KEY,
-                    server_id BIGINT UNIQUE,  
-                    room_code VARCHAR(10) UNIQUE, 
+                    server_id BIGINT UNIQUE,
+                    room_code VARCHAR(10) UNIQUE,
                     room_name TEXT NOT NULL,
                     announcement_channel_id BIGINT,
+                    birthday_channel_id BIGINT,
+                    minor_notify_channel_id BIGINT,
                     notify_time VARCHAR(5) DEFAULT '19:00',
                     owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                     deleted_at TIMESTAMP DEFAULT NULL
@@ -348,6 +350,11 @@ async def init_db(pool: asyncpg.Pool):
             
             # --- 5. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
+
+            # 🎂 ห้องแฮปปี้เบิร์ดเดย์ + 🔔 ห้องแจ้งเตือนงานเล็กๆน้อยๆ
+            # (เพิ่มคอลัมน์ให้ตาราง rooms ที่สร้างไว้แล้ว — บังคับใช้กับ DB ที่ deploy ไปแล้วด้วย)
+            await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS birthday_channel_id BIGINT;")
+            await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS minor_notify_channel_id BIGINT;")
             
             # การเพิ่ม Constraint อย่างปลอดภัย
             await conn.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;")
