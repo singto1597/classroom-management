@@ -17,12 +17,13 @@ action_logger = AuditLogger(service_name="ACTION")
 
 class ActionService:
     @staticmethod
-    async def _publish(event_type: str, server_id: int, payload_data: dict, mention: bool = False, category: str = "📢 แจ้งเตือน"):
+    async def _publish(event_type: str, server_id: int, payload_data: dict, mention: bool = False, category: str = "📢 แจ้งเตือน", channel: str = "announcement"):
         """
         ฟังก์ชันหลังบ้าน (Private) สำหรับส่งข้อมูลเข้า Redis จริงๆ
 
         - mention: True → บอทจะ @everyone ก่อน embed (เฉพาะเรื่องสำคัญที่ทุกคนต้องเห็น)
         - category: หัวข้อสั้น ๆ ที่บอทเอาไปวางเป็นข้อความก่อน embed (เช่น 'มีงานใหม่นะ')
+        - channel: ช่องที่บอทควรไปส่ง — 'announcement' (ห้องแจ้งเตือนหลัก) หรือ 'minor' (ห้องแจ้งเตือนงานเล็กๆน้อยๆ)
         """
         try:
             redis_client = aioredis.from_url(settings.REDIS_URL)
@@ -33,6 +34,7 @@ class ActionService:
                 "server_id": server_id,
                 "mention": mention,
                 "category": category,
+                "channel": channel,
             }
             # เอาข้อมูลเฉพาะของ Event นั้นๆ ยัดรวมเข้าไป
             payload.update(payload_data)
@@ -44,7 +46,7 @@ class ActionService:
             await redis_client.publish("classroom_events", json_data)
             await redis_client.aclose()
 
-            logger.info(f"📢 [ActionService] Published {event_type} to server {server_id} (mention={mention}, category={category})")
+            logger.info(f"📢 [ActionService] Published {event_type} to server {server_id} (mention={mention}, category={category}, channel={channel})")
 
         except Exception as e:
             # ถ้า Redis ล่ม API ต้องไม่พัง แค่เก็บ Log ไว้
@@ -62,16 +64,15 @@ class ActionService:
             "task_detail": task_detail,
             "due_date": due_date,
             "user_name": user_name
-        }, mention=True, category="📝 มีงานใหม่นะ")
+        }, mention=True, category="📝 มีงานใหม่นะ", channel="announcement")
 
     @classmethod
     async def notify_task_done(cls, server_id: int, task_name: str, user_name: str):
-        """เรียกใช้เมื่อมีคนกดส่งงาน — แจ้งเฉยๆ (ไม่ @everyone)
-        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่ใครกดส่งงาน → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
+        """เรียกใช้เมื่อมีคนกดส่งงาน — แจ้งเฉยๆ ที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone)"""
         await cls._publish("TASK_DONE", server_id, {
             "task_name": task_name,
             "user_name": user_name
-        }, mention=False, category="✅ ส่งงานแล้ว")
+        }, mention=False, category="✅ ส่งงานแล้ว", channel="minor")
 
     @classmethod
     async def notify_new_note(cls, server_id: int, target_date: date, topic: str, user_name: str):
@@ -80,7 +81,7 @@ class ActionService:
             "target_date": target_date,
             "topic": topic,
             "user_name": user_name
-        }, mention=True, category="📌 ประกาศรายวันนะ")
+        }, mention=True, category="📌 ประกาศรายวันนะ", channel="announcement")
 
     @classmethod
     async def notify_custom_message(cls, server_id: int, title: str, message: str, user_name: str):
@@ -89,12 +90,11 @@ class ActionService:
             "title": title,
             "message": message,
             "user_name": user_name
-        }, mention=True, category="📢 ประกาศนะทุกคน")
+        }, mention=True, category="📢 ประกาศนะทุกคน", channel="announcement")
 
     @classmethod
     async def notify_new_finance(cls, server_id: int, txn_type: str, amount: float, description: str, user_name: str):
-        """เรียกใช้เมื่อมีรายรับ/รายจ่ายใหม่ — แจ้งเฉยๆ (ไม่ต้อง @everyone แต่ทุกคนเห็นความโปร่งใส)
-        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่บันทึกเงิน (รายรับ/รายจ่าย/โอน) → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
+        """เรียกใช้เมื่อมีรายรับ/รายจ่ายใหม่ — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ต้อง @everyone แต่ทุกคนเห็นความโปร่งใส)"""
         if txn_type == "income":
             category = "💰 มีรายรับเข้ามา"
         else:
@@ -104,18 +104,17 @@ class ActionService:
             "amount": amount,
             "description": description,
             "user_name": user_name
-        }, mention=False, category=category)
+        }, mention=False, category=category, channel="minor")
 
     @classmethod
     async def notify_payment_confirmed(cls, server_id: int, payer_name: str, title: str, amount: float, user_name: str):
-        """เรียกใช้เมื่อมีคนจ่ายเงินแล้ว — แจ้งเฉยๆ (ไม่ @everyone แต่โชว์ความโปร่งใส)
-        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่มีคนจ่ายเงิน ("คนนี้จ่ายตังค์แล้ว") → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
+        """เรียกใช้เมื่อมีคนจ่ายเงินแล้ว — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone แต่โชว์ความโปร่งใส)"""
         await cls._publish("FINANCE_PAYMENT", server_id, {
             "payer_name": payer_name,
             "title": title,
             "amount": amount,
             "user_name": user_name
-        }, mention=False, category="✅ จ่ายเงินแล้ว")
+        }, mention=False, category="✅ จ่ายเงินแล้ว", channel="minor")
 
     @classmethod
     async def notify_new_collection(cls, server_id: int, title: str, amount: float, due_date: date, user_name: str):
@@ -125,18 +124,17 @@ class ActionService:
             "amount": amount,
             "due_date": due_date,
             "user_name": user_name
-        }, mention=True, category="💳 แจ้งเก็บเงินนะทุกคน")
+        }, mention=True, category="💳 แจ้งเก็บเงินนะทุกคน", channel="announcement")
 
     @classmethod
     async def notify_new_student(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str):
-        """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งเฉยๆ (ไม่ @everyone)
-        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่เพิ่มนักเรียน (ตอนเปิดเทอมอาจยิงทีละหลายสิบคน) → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
+        """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone)"""
         await cls._publish("NEW_STUDENT", server_id, {
             "student_no": student_no,
             "first_name": first_name,
             "last_name": last_name,
             "user_name": user_name
-        }, mention=False, category="👤 มีสมาชิกใหม่")
+        }, mention=False, category="👤 มีสมาชิกใหม่", channel="minor")
 
     @classmethod
     async def send_custom_message(

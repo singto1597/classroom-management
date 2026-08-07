@@ -214,7 +214,6 @@ class StudentService:
                             "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id
                         )
                         if room_server_id:
-                            # ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่เพิ่มนักเรียน → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)
                             await ActionService.notify_new_student(
                                 server_id=room_server_id,
                                 student_no=student_no,
