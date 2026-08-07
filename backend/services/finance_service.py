@@ -481,6 +481,7 @@ class FinanceService:
                     # 📢 แจ้งเตือน Discord: มีรายรับ/รายจ่ายใหม่ (ไม่ @everyone — แค่โชว์ความโปร่งใส)
                     room_server_id = await cls._get_room_server_id(conn, target_room_id)
             if room_server_id:
+                # ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่บันทึกเงิน (รายรับ/รายจ่าย/โอน) → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)
                 await ActionService.notify_new_finance(
                     server_id=room_server_id,
                     txn_type=req.transaction_type,
@@ -1119,6 +1120,7 @@ class FinanceService:
                     # 📢 แจ้งเตือน Discord: มีคนจ่ายเงินแล้ว (ไม่ @everyone — โชว์ความโปร่งใส)
                     room_server_id = await cls._get_room_server_id(conn, target_room_id)
             if room_server_id:
+                # ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่มีคนจ่ายเงิน ("คนนี้จ่ายตังค์แล้ว") → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)
                 await ActionService.notify_payment_confirmed(
                     server_id=room_server_id,
                     payer_name=stu_name,

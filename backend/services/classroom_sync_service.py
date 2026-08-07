@@ -507,6 +507,7 @@ class ClassroomService:
             raise e
 
         if discord_server_id and task_name:
+            # ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่กดส่งงาน → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)
             await ActionService.notify_task_done(discord_server_id, task_name, user_name)
 
         return task_name

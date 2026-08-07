@@ -66,7 +66,8 @@ class ActionService:
 
     @classmethod
     async def notify_task_done(cls, server_id: int, task_name: str, user_name: str):
-        """เรียกใช้เมื่อมีคนกดส่งงาน — แจ้งเฉยๆ (ไม่ @everyone)"""
+        """เรียกใช้เมื่อมีคนกดส่งงาน — แจ้งเฉยๆ (ไม่ @everyone)
+        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่ใครกดส่งงาน → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
         await cls._publish("TASK_DONE", server_id, {
             "task_name": task_name,
             "user_name": user_name
@@ -92,7 +93,8 @@ class ActionService:
 
     @classmethod
     async def notify_new_finance(cls, server_id: int, txn_type: str, amount: float, description: str, user_name: str):
-        """เรียกใช้เมื่อมีรายรับ/รายจ่ายใหม่ — แจ้งเฉยๆ (ไม่ต้อง @everyone แต่ทุกคนเห็นความโปร่งใส)"""
+        """เรียกใช้เมื่อมีรายรับ/รายจ่ายใหม่ — แจ้งเฉยๆ (ไม่ต้อง @everyone แต่ทุกคนเห็นความโปร่งใส)
+        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่บันทึกเงิน (รายรับ/รายจ่าย/โอน) → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
         if txn_type == "income":
             category = "💰 มีรายรับเข้ามา"
         else:
@@ -106,7 +108,8 @@ class ActionService:
 
     @classmethod
     async def notify_payment_confirmed(cls, server_id: int, payer_name: str, title: str, amount: float, user_name: str):
-        """เรียกใช้เมื่อมีคนจ่ายเงินแล้ว — แจ้งเฉยๆ (ไม่ @everyone แต่โชว์ความโปร่งใส)"""
+        """เรียกใช้เมื่อมีคนจ่ายเงินแล้ว — แจ้งเฉยๆ (ไม่ @everyone แต่โชว์ความโปร่งใส)
+        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่มีคนจ่ายเงิน ("คนนี้จ่ายตังค์แล้ว") → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
         await cls._publish("FINANCE_PAYMENT", server_id, {
             "payer_name": payer_name,
             "title": title,
@@ -126,7 +129,8 @@ class ActionService:
 
     @classmethod
     async def notify_new_student(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str):
-        """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งเฉยๆ (ไม่ @everyone)"""
+        """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งเฉยๆ (ไม่ @everyone)
+        ⚠️ [LOW-PRIORITY] สแปมทุกครั้งที่เพิ่มนักเรียน (ตอนเปิดเทอมอาจยิงทีละหลายสิบคน) → เดี๋ยวจะปิด/ลดการแจ้งเตือนนี้ทีหลัง (คอมเมนต์ไว้เพื่อเตือน)"""
         await cls._publish("NEW_STUDENT", server_id, {
             "student_no": student_no,
             "first_name": first_name,
