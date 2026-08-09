@@ -122,6 +122,37 @@ async def test_publish_no_mention_for_silent(db_pool):
     assert all(m is False for m in mention_events)
 
 
+async def test_notify_payments_confirmed_payload(db_pool):
+    """รับเงินรวบยอด (Batch) → publish ครั้งเดียว พร้อม items/รวมใน payload (channel=minor)"""
+    from services.action_service import ActionService
+    server_id = random.randint(1_000_000, 9_999_999)
+    items = [
+        {"title": "ค่าเทอม", "amount": 300.0},
+        {"title": "ค่าเสื้อ", "amount": 200.0},
+    ]
+
+    with patch.object(ActionService, "_publish", new_callable=AsyncMock) as mock_pub:
+        await ActionService.notify_payments_confirmed(
+            server_id=server_id,
+            payer_name="สิงโต",
+            items=items,
+            total_amount=500.0,
+            user_name="เหรัญญิก",
+        )
+
+    mock_pub.assert_awaited_once()
+    kwargs = mock_pub.await_args.kwargs
+    assert kwargs["mention"] is False
+    assert kwargs["channel"] == "minor"
+    assert kwargs["category"] == "✅ จ่ายเงินแล้ว"
+    # payload_data เป็น positional arg ตัวที่ 3 ของ _publish (ไม่อยู่ใน kwargs)
+    payload = mock_pub.await_args.args[2]
+    assert payload["payer_name"] == "สิงโต"
+    assert payload["items"] == items
+    assert payload["total_amount"] == 500.0
+    assert payload["count"] == 2
+
+
 async def test_publish_category_present(db_pool):
     """ทุก event มี category (หัวข้อก่อน embed)"""
     from services.action_service import ActionService

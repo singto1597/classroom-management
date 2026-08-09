@@ -155,6 +155,20 @@ export interface PaymentConfirm {
   user_name: string;
 }
 
+// ✨ รับเงินรวบยอด (Batch) — ปลดหนี้หลายรายการของนักเรียนคนเดียวกันในครั้งเดียว
+// (backend ประมวลผล atomic + แจ้งเตือน Discord รอบเดียว)
+export interface BatchPaymentItem {
+  payment_id: number;
+  paid_amount: number;
+}
+
+export interface BatchPaymentConfirm {
+  items: BatchPaymentItem[];
+  paid_to_account_id: number;
+  slip_image_url?: string | null;
+  user_name: string;
+}
+
 export interface FeeCollectionUpdate {
   title?: string;
   amount?: number;

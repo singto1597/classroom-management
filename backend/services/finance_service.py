@@ -1009,6 +1009,123 @@ class FinanceService:
             raise e
 
     @classmethod
+    async def _confirm_single_payment(
+        cls, conn: asyncpg.Connection, target_room_id: int,
+        payment_id: int, paid_amount: float, paid_to_account_id: int,
+        slip_image_url: Optional[str], user_name: str,
+    ) -> dict:
+        """[SHARED] รับเงิน 1 บิล (student_payment) — ใช้ร่วมโดย confirm_payment (บิลเดียว)
+        และ batch_confirm_payments (รวบยอด). ต้องถูกเรียกภายใน `async with conn.transaction():`
+        ของ caller เสมอ (batch จะได้ atomic ทั้งชุด). คืนข้อมูลสำหรับ audit log + publish."""
+        valid_account = await conn.fetchval("SELECT id FROM finance_accounts WHERE id = $1 AND room_id = $2", paid_to_account_id, target_room_id)
+        if not valid_account: raise ValueError("กระเป๋าเงินไม่มีอยู่ หรือไม่ใช่ของห้องนี้!")
+
+        old_sp_data = await conn.fetchrow("SELECT * FROM student_payments WHERE id = $1 FOR UPDATE", payment_id)
+        old_values = dict(old_sp_data) if old_sp_data else {}
+
+        payment_info = await conn.fetchrow(
+            """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title, U.first_name, U.nickname
+               FROM student_payments SP
+               JOIN fee_collections FC ON SP.collection_id = FC.id
+               JOIN students S ON SP.student_id = S.id
+               LEFT JOIN users U ON S.user_id = U.id
+               WHERE SP.id = $1 AND FC.room_id = $2 AND FC.status = 'active'""",
+            payment_id, target_room_id
+        )
+        if not payment_info: raise PaymentNotFoundError("ไม่พบรายการนี้ หรือแคมเปญถูกปิดไปแล้ว")
+
+        current_paid = float(payment_info['current_paid'])
+        total_amount = float(payment_info['total_amount'])
+
+        if current_paid >= total_amount: raise ValueError("บิลนี้จ่ายครบไปเรียบร้อยแล้วครับ!")
+
+        # 🛡️ กัน overpay: ห้ามรับเงินเกินยอดที่เหลือค้าง (current_paid + paid_amount > total)
+        if paid_amount > total_amount - current_paid:
+            raise ValueError(
+                f"จำนวนเงินที่รับเกินยอดที่เหลือค้าง! "
+                f"เหลือค้าง {total_amount - current_paid:.2f} บาท แต่ส่งมา {paid_amount:.2f} บาท"
+            )
+
+        new_total_paid = current_paid + paid_amount
+        new_status = 'paid' if new_total_paid >= total_amount else 'pending'
+        status_msg = "จ่ายครบแล้ว" if new_status == 'paid' else f"ทยอยจ่าย (ขาดอีก {total_amount - new_total_paid} ฿)"
+
+        stu_name = payment_info['first_name'] or "Unknown"
+        if payment_info['nickname']: stu_name += f" ({payment_info['nickname']})"
+        dynamic_desc = f"รับเงิน: {payment_info['title']} จาก {stu_name} [{status_msg}]"
+
+        trans_id = await conn.fetchval(
+            """INSERT INTO finance_transactions
+               (room_id, account_id, amount, description, transaction_type, slip_image_url, recorded_by, student_payment_id)
+               VALUES ($1, $2, $3, $4, 'income', $5, $6, $7) RETURNING id""",
+            target_room_id, paid_to_account_id, paid_amount, dynamic_desc, slip_image_url, user_name, payment_id
+        )
+
+        await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", paid_amount, paid_to_account_id)
+        await conn.execute(
+            """UPDATE student_payments
+               SET status = $1, paid_amount = $2, paid_to_account_id = $3, slip_image_url = $4, recorded_by = $5, paid_at = NOW(), transaction_id = $6
+               WHERE id = $7""",
+            new_status, new_total_paid, paid_to_account_id, slip_image_url, user_name, trans_id, payment_id
+        )
+
+        # [DUAL-WRITE] เขียนฝั่ง Double-Entry: รับชำระเงินจากนักเรียน (Dr สินทรัพย์ / Cr รายได้เก็บเงินห้อง)
+        asset_ledger_id = await cls._resolve_asset_ledger(conn, target_room_id, paid_to_account_id)
+        # Credit ขาเป็นรายได้ "เก็บเงินห้องปกติ" — ถ้าไม่มี mapping ให้หา ledger ตามชื่อ
+        # (seed ค่าเริ่มต้น DEFAULT_INCOME_CATEGORIES[0] = '📥 เก็บเงินห้องปกติ')
+        revenue_ledger_id = await cls._find_revenue_ledger_by_name(
+            conn, target_room_id, account_name=DEFAULT_INCOME_CATEGORIES[0]
+        )
+        if revenue_ledger_id is None:
+            # 💡 ห้องที่ยังไม่มี ledger รายได้เลย (เช่น ข้อมูลเก่าที่ยังไม่ผ่าน migration)
+            # → ลอง provision จาก legacy category ที่ชื่อ '📥 เก็บเงินห้องปกติ' (ถ้า seed ไว้)
+            #   เพื่อให้ journal ครบฝั่ง (กันบัญชีไม่สมดุล) — ถ้าไม่มี category นั้นด้วย → ข้าม dual-write
+            legacy_cat_id = await conn.fetchval(
+                """SELECT id FROM finance_categories
+                   WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+                   ORDER BY id LIMIT 1""",
+                target_room_id, DEFAULT_INCOME_CATEGORIES[0],
+            )
+            if legacy_cat_id:
+                revenue_ledger_id = await cls._resolve_category_ledger(conn, target_room_id, legacy_cat_id, 'income')
+        if revenue_ledger_id is None:
+            # ยังไม่มี ledger รายได้ของห้องจริง ๆ → สร้าง journal ฝั่ง Debit อย่างเดียวไม่ได้
+            # (บัญชีไม่สมดุล) → ข้าม Dual-Write ไป (legacy ยังทำงานปกติเหมือนเดิม)
+            pass
+        else:
+            await cls._insert_journal_entry(
+                conn, target_room_id,
+                reference_type="student_payment",
+                reference_id=str(payment_id),
+                description=dynamic_desc,
+                slip_image_url=slip_image_url,
+                recorded_by=user_name,
+                metadata={"student_payment_id": payment_id, "legacy_transaction_id": trans_id},
+                lines=[
+                    {"ledger_id": asset_ledger_id, "debit": paid_amount, "credit": 0, "line_description": f"รับเงินจากนักเรียน (student_payment #{payment_id})"},
+                    {"ledger_id": revenue_ledger_id, "debit": 0, "credit": paid_amount, "line_description": f"รายได้: {payment_info['title']}"},
+                ],
+            )
+
+        return {
+            "payment_id": payment_id,
+            "student_payment_id": payment_id,
+            "trans_id": trans_id,
+            "payer_name": stu_name,
+            "title": payment_info['title'],
+            "amount": paid_amount,
+            "status_msg": status_msg,
+            "old_values": old_values,
+            "new_values": {
+                "payment_id": payment_id,
+                "paid_amount": paid_amount,
+                "paid_to_account_id": paid_to_account_id,
+                "slip_image_url": slip_image_url,
+                "user_name": user_name,
+            },
+        }
+
+    @classmethod
     async def confirm_payment(cls, pool: asyncpg.Pool, payment_id: int, req, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None) -> dict:
         start_time = time.time()
         target_room_id = room_id
@@ -1019,114 +1136,33 @@ class FinanceService:
                     # 🛡️ RBAC: มีแค่ผู้ดูแลการเงิน (MANAGE_FINANCE) ถึงจะรับเงินได้
                     if user_id is not None:
                         await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
-                    valid_account = await conn.fetchval("SELECT id FROM finance_accounts WHERE id = $1 AND room_id = $2", req.paid_to_account_id, target_room_id)
-                    if not valid_account: raise ValueError("กระเป๋าเงินไม่มีอยู่ หรือไม่ใช่ของห้องนี้!")
 
-                    old_sp_data = await conn.fetchrow("SELECT * FROM student_payments WHERE id = $1 FOR UPDATE", payment_id)
-                    old_values = dict(old_sp_data) if old_sp_data else {}
-
-                    payment_info = await conn.fetchrow(
-                        """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title, U.first_name, U.nickname
-                           FROM student_payments SP
-                           JOIN fee_collections FC ON SP.collection_id = FC.id
-                           JOIN students S ON SP.student_id = S.id
-                           LEFT JOIN users U ON S.user_id = U.id
-                           WHERE SP.id = $1 AND FC.room_id = $2 AND FC.status = 'active'""",
-                        payment_id, target_room_id
-                    )
-                    if not payment_info: raise PaymentNotFoundError("ไม่พบรายการนี้ หรือแคมเปญถูกปิดไปแล้ว")
-                    
-                    current_paid = float(payment_info['current_paid'])
-                    total_amount = float(payment_info['total_amount'])
-
-                    if current_paid >= total_amount: raise ValueError("บิลนี้จ่ายครบไปเรียบร้อยแล้วครับ!")
-
-                    # 🛡️ กัน overpay: ห้ามรับเงินเกินยอดที่เหลือค้าง (current_paid + paid_amount > total)
-                    if req.paid_amount > total_amount - current_paid:
-                        raise ValueError(
-                            f"จำนวนเงินที่รับเกินยอดที่เหลือค้าง! "
-                            f"เหลือค้าง {total_amount - current_paid:.2f} บาท แต่ส่งมา {req.paid_amount:.2f} บาท"
-                        )
-
-                    new_total_paid = current_paid + req.paid_amount
-                    new_status = 'paid' if new_total_paid >= total_amount else 'pending'
-                    status_msg = "จ่ายครบแล้ว" if new_status == 'paid' else f"ทยอยจ่าย (ขาดอีก {total_amount - new_total_paid} ฿)"
-
-                    stu_name = payment_info['first_name'] or "Unknown"
-                    if payment_info['nickname']: stu_name += f" ({payment_info['nickname']})"
-                    dynamic_desc = f"รับเงิน: {payment_info['title']} จาก {stu_name} [{status_msg}]"
-                    
-                    trans_id = await conn.fetchval(
-                        """INSERT INTO finance_transactions 
-                           (room_id, account_id, amount, description, transaction_type, slip_image_url, recorded_by, student_payment_id) 
-                           VALUES ($1, $2, $3, $4, 'income', $5, $6, $7) RETURNING id""",
-                        target_room_id, req.paid_to_account_id, req.paid_amount, dynamic_desc, req.slip_image_url, req.user_name, payment_id
-                    )
-                    
-                    await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", req.paid_amount, req.paid_to_account_id)
-                    await conn.execute(
-                        """UPDATE student_payments
-                           SET status = $1, paid_amount = $2, paid_to_account_id = $3, slip_image_url = $4, recorded_by = $5, paid_at = NOW(), transaction_id = $6
-                           WHERE id = $7""",
-                        new_status, new_total_paid, req.paid_to_account_id, req.slip_image_url, req.user_name, trans_id, payment_id
+                    result = await cls._confirm_single_payment(
+                        conn=conn, target_room_id=target_room_id,
+                        payment_id=payment_id,
+                        paid_amount=req.paid_amount,
+                        paid_to_account_id=req.paid_to_account_id,
+                        slip_image_url=req.slip_image_url,
+                        user_name=req.user_name,
                     )
 
-                    # [DUAL-WRITE] เขียนฝั่ง Double-Entry: รับชำระเงินจากนักเรียน (Dr สินทรัพย์ / Cr รายได้เก็บเงินห้อง)
-                    asset_ledger_id = await cls._resolve_asset_ledger(conn, target_room_id, req.paid_to_account_id)
-                    # Credit ขาเป็นรายได้ "เก็บเงินห้องปกติ" — ถ้าไม่มี mapping ให้หา ledger ตามชื่อ
-                    # (seed ค่าเริ่มต้น DEFAULT_INCOME_CATEGORIES[0] = '📥 เก็บเงินห้องปกติ')
-                    revenue_ledger_id = await cls._find_revenue_ledger_by_name(
-                        conn, target_room_id, account_name=DEFAULT_INCOME_CATEGORIES[0]
-                    )
-                    if revenue_ledger_id is None:
-                        # 💡 ห้องที่ยังไม่มี ledger รายได้เลย (เช่น ข้อมูลเก่าที่ยังไม่ผ่าน migration)
-                        # → ลอง provision จาก legacy category ที่ชื่อ '📥 เก็บเงินห้องปกติ' (ถ้า seed ไว้)
-                        #   เพื่อให้ journal ครบฝั่ง (กันบัญชีไม่สมดุล) — ถ้าไม่มี category นั้นด้วย → ข้าม dual-write
-                        legacy_cat_id = await conn.fetchval(
-                            """SELECT id FROM finance_categories
-                               WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
-                               ORDER BY id LIMIT 1""",
-                            target_room_id, DEFAULT_INCOME_CATEGORIES[0],
-                        )
-                        if legacy_cat_id:
-                            revenue_ledger_id = await cls._resolve_category_ledger(conn, target_room_id, legacy_cat_id, 'income')
-                    if revenue_ledger_id is None:
-                        # ยังไม่มี ledger รายได้ของห้องจริง ๆ → สร้าง journal ฝั่ง Debit อย่างเดียวไม่ได้
-                        # (บัญชีไม่สมดุล) → ข้าม Dual-Write ไป (legacy ยังทำงานปกติเหมือนเดิม)
-                        pass
-                    else:
-                        await cls._insert_journal_entry(
-                            conn, target_room_id,
-                            reference_type="student_payment",
-                            reference_id=str(payment_id),
-                            description=dynamic_desc,
-                            slip_image_url=req.slip_image_url,
-                            recorded_by=req.user_name,
-                            metadata={"student_payment_id": payment_id, "legacy_transaction_id": trans_id},
-                            lines=[
-                                {"ledger_id": asset_ledger_id, "debit": req.paid_amount, "credit": 0, "line_description": f"รับเงินจากนักเรียน (student_payment #{payment_id})"},
-                                {"ledger_id": revenue_ledger_id, "debit": 0, "credit": req.paid_amount, "line_description": f"รายได้: {payment_info['title']}"},
-                            ],
-                        )
-
-                    new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
                         room_id=target_room_id, user_id=None, entity_type="STUDENT_PAYMENT", entity_id=str(payment_id), status="success",
-                        old_values=old_values, new_values=new_values, endpoint_or_command="FinanceService.confirm_payment", execution_time_ms=exec_time
+                        old_values=result["old_values"], new_values=result["new_values"], endpoint_or_command="FinanceService.confirm_payment", execution_time_ms=exec_time
                     )
                     # 📢 แจ้งเตือน Discord: มีคนจ่ายเงินแล้ว (ไม่ @everyone — โชว์ความโปร่งใส)
                     room_server_id = await cls._get_room_server_id(conn, target_room_id)
             if room_server_id:
                 await ActionService.notify_payment_confirmed(
                     server_id=room_server_id,
-                    payer_name=stu_name,
-                    title=payment_info['title'],
-                    amount=float(req.paid_amount),
+                    payer_name=result["payer_name"],
+                    title=result["title"],
+                    amount=float(result["amount"]),
                     user_name=req.user_name,
                 )
-            return {"status": "success", "message": f"รับเงินสำเร็จ! สถานะ: {status_msg}"}
+            return {"status": "success", "message": f"รับเงินสำเร็จ! สถานะ: {result['status_msg']}"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
@@ -1135,6 +1171,96 @@ class FinanceService:
                         conn=log_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
                         room_id=target_room_id, user_id=None, entity_type="STUDENT_PAYMENT", entity_id=str(payment_id), status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.confirm_payment", execution_time_ms=exec_time
+                    )
+            except Exception:
+                pass
+            raise e
+
+    @classmethod
+    async def batch_confirm_payments(cls, pool: asyncpg.Pool, req, user_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        """✨ รับเงินรวบยอด (Batch): ปลดหนี้หลายบิลของนักเรียนคนเดียวกันใน transaction เดียว
+        → publish แจ้งเตือน Discord แค่รอบเดียว (ไม่เด้งหลาย embed เหมือนยิงทีละบิล).
+        ถ้าบิลใดบิลหนึ่ง error → rollback ทั้งชุด (atomic)."""
+        start_time = time.time()
+        target_room_id = room_id
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                    # 🛡️ RBAC: มีแค่ผู้ดูแลการเงิน (MANAGE_FINANCE) ถึงจะรับเงินได้
+                    await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 กันรายการซ้ำใน request (จ่ายบิลเดียวกันเบิ้ล) — เอาแค่ตัวแรก
+                    seen_ids, items = set(), []
+                    for item in req.items:
+                        if item.payment_id in seen_ids:
+                            continue
+                        seen_ids.add(item.payment_id)
+                        items.append(item)
+
+                    payment_ids = [item.payment_id for item in items]
+                    rows = await conn.fetch(
+                        """SELECT SP.id, SP.student_id
+                           FROM student_payments SP
+                           JOIN fee_collections FC ON SP.collection_id = FC.id
+                           WHERE SP.id = ANY($1) AND FC.room_id = $2 AND FC.status = 'active'""",
+                        payment_ids, target_room_id
+                    )
+                    found_ids = {r['id'] for r in rows}
+                    for item in items:
+                        if item.payment_id not in found_ids:
+                            raise PaymentNotFoundError(f"ไม่พบรายการ #{item.payment_id} หรือแคมเปญถูกปิดไปแล้ว")
+
+                    # 🛡️ Batch ต้องเป็นบิลของนักเรียนคนเดียวกัน (มิฉะนั้นแจ้งเตือนรวมจะงง + จ่ายข้ามคน)
+                    student_ids = {r['student_id'] for r in rows}
+                    if len(student_ids) > 1:
+                        raise ValueError("รายการชำระเงินต้องเป็นของนักเรียนคนเดียวกัน!")
+
+                    results = []
+                    for item in items:
+                        result = await cls._confirm_single_payment(
+                            conn=conn, target_room_id=target_room_id,
+                            payment_id=item.payment_id,
+                            paid_amount=item.paid_amount,
+                            paid_to_account_id=req.paid_to_account_id,
+                            slip_image_url=req.slip_image_url,
+                            user_name=req.user_name,
+                        )
+                        results.append(result)
+
+                        exec_time = int((time.time() - start_time) * 1000)
+                        await service_logger.log(
+                            conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
+                            room_id=target_room_id, user_id=None, entity_type="STUDENT_PAYMENT", entity_id=str(item.payment_id), status="success",
+                            old_values=result["old_values"], new_values=result["new_values"], endpoint_or_command="FinanceService.batch_confirm_payments", execution_time_ms=exec_time
+                        )
+
+                    # audit log ระดับ batch (ยืนยันว่ารับกี่รายการ ผ่าน endpoint ไหน)
+                    await service_logger.log(
+                        conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
+                        room_id=target_room_id, user_id=None, entity_type="STUDENT_PAYMENT_BATCH", status="success",
+                        new_values=cls._extract_req_data(req), endpoint_or_command="FinanceService.batch_confirm_payments", execution_time_ms=exec_time
+                    )
+
+                    # 📢 publish ครั้งเดียว หลัง commit (รวบรวมบิลทั้งหมด)
+                    room_server_id = await cls._get_room_server_id(conn, target_room_id)
+            if room_server_id and results:
+                await ActionService.notify_payments_confirmed(
+                    server_id=room_server_id,
+                    payer_name=results[0]["payer_name"],
+                    items=[{"title": r["title"], "amount": float(r["amount"])} for r in results],
+                    total_amount=float(sum(r["amount"] for r in results)),
+                    user_name=req.user_name,
+                )
+            return {"status": "success", "message": f"รับเงินรวบยอด {len(results)} รายการสำเร็จ"}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            try:
+                async with pool.acquire() as log_conn:
+                    await service_logger.log(
+                        conn=log_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
+                        room_id=target_room_id, user_id=None, entity_type="STUDENT_PAYMENT_BATCH", status="failed", error_detail=str(e),
+                        endpoint_or_command="FinanceService.batch_confirm_payments", execution_time_ms=exec_time
                     )
             except Exception:
                 pass

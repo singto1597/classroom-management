@@ -121,17 +121,17 @@ const handleBatchPay = async () => {
       didOpen: () => Swal.showLoading()
     });
 
-    // ลูปยิงทีละรายการตาม Logic เดิม
-    const promises = selectedPaymentIds.value.map(pid => {
-      return FinanceService.confirmPayment(currentServerId, pid, {
-        paid_to_account_id: Number(paidToAccountId.value),
-        paid_amount: payAmounts.value[pid] || 0,
-        slip_image_url: slipImageUrl.value || undefined,
-        user_name: currentUserName
-      });
+    // ✨ ยิงครั้งเดียวแบบ Batch — backend ประมวลผลทั้งหมดใน transaction เดียว
+    // (atomic + Discord แจ้งเตือนรอบเดียว ไม่เด้งหลาย embed เหมือนลูปยิงทีละบิล)
+    await FinanceService.confirmBatchPayment(currentServerId, {
+      items: selectedPaymentIds.value.map(pid => ({
+        payment_id: pid,
+        paid_amount: payAmounts.value[pid] || 0
+      })),
+      paid_to_account_id: Number(paidToAccountId.value),
+      slip_image_url: slipImageUrl.value || undefined,
+      user_name: currentUserName
     });
-
-    await Promise.all(promises);
 
     Swal.fire({ icon: 'success', title: 'สำเร็จ!', text: 'บันทึกการรับเงินรวบยอดเรียบร้อย', timer: 1500, showConfirmButton: false });
     isModalOpen.value = false;

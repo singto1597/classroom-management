@@ -956,3 +956,170 @@ async def test_web_export_finance_excel_bad_period_400(client, db_pool):
         headers=_make_web_headers(owner),
     )
     assert resp.status_code == 400
+
+
+# =====================================================================
+# Section: รับเงินรวบยอด (Batch) — ปิดหนี้หลายบิลในครั้งเดียว
+# (yield Discord notification รอบเดียว ไม่เด้งหลาย embed)
+# =====================================================================
+
+
+async def _batch_payload(payment_ids, account_id, amounts=None, user_name="Owner"):
+    """สร้าง payload BatchPaymentConfirm สำหรับยิง /finance/payments/batch"""
+    if amounts is None:
+        amounts = [None] * len(payment_ids)
+    return {
+        "items": [
+            {"payment_id": pid, "paid_amount": amt or 500.0}
+            for pid, amt in zip(payment_ids, amounts)
+        ],
+        "paid_to_account_id": account_id,
+        "user_name": user_name,
+    }
+
+
+async def test_batch_confirm_payments_roundtrip(client, db_pool):
+    """รับเงินรวบยอด 2 บิลของนักเรียนคนเดียวกัน → 200, ทุกบิล paid, balance = ผลรวม"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    student_id = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
+    # ห้องจริงมีหมวดหมู่ '📥 เก็บเงินห้องปกติ' จาก seed (room_service) — เทสนี้ insert ตรง จึงต้อง seed เอง
+    # เพื่อให้ dual-write สร้าง journal revenue ได้ครบฝั่ง
+    await _insert_category(db_pool, room_id, "📥 เก็บเงินห้องปกติ", "income")
+    col1 = await _insert_collection(db_pool, room_id, "ค่าเทอม", 500.0)
+    col2 = await _insert_collection(db_pool, room_id, "ค่าเสื้อ", 500.0)
+    pay1 = await _insert_student_payment(db_pool, col1, student_id, "pending", 0.0)
+    pay2 = await _insert_student_payment(db_pool, col2, student_id, "pending", 0.0)
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"),
+        json=await _batch_payload([pay1, pay2], account_id),
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 200, resp.text
+    assert "2 รายการ" in resp.json()["message"]
+
+    # 🧠 Deep DB verify: ทั้ง 2 บิล paid + balance = ผลรวม + transaction ครบ
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT status, paid_amount FROM student_payments WHERE id = ANY($1) ORDER BY id", [pay1, pay2])
+        assert all(r["status"] == "paid" for r in rows)
+        assert all(float(r["paid_amount"]) == 500.0 for r in rows)
+        bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1", account_id)
+        assert float(bal) == 1000.0
+        tx_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_transactions WHERE room_id = $1 AND student_payment_id IS NOT NULL AND deleted_at IS NULL",
+            room_id,
+        )
+        assert tx_count == 2
+        # [DUAL-WRITE] journal ต้องมี 2 หัวบิล (ขา student_payment) ครบ
+        j_count = await conn.fetchval(
+            """SELECT COUNT(*) FROM journal_entries JE
+               WHERE JE.room_id = $1 AND JE.reference_type = 'student_payment' AND JE.status <> 'voided'""",
+            room_id,
+        )
+        assert j_count == 2
+
+
+async def test_batch_confirm_payments_overpay_rolls_back(client, db_pool):
+    """บิลหนึ่ง overpay → 400 และทั้งชุด rollback (atomic): ไม่มีบิลไหนโดน commit"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    student_id = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
+    col1 = await _insert_collection(db_pool, room_id, "ค่าเทอม", 1000.0)
+    col2 = await _insert_collection(db_pool, room_id, "ค่าเสื้อ", 500.0)
+    pay1 = await _insert_student_payment(db_pool, col1, student_id, "pending", 0.0)
+    pay2 = await _insert_student_payment(db_pool, col2, student_id, "pending", 0.0)
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"),
+        json=await _batch_payload([pay1, pay2], account_id, amounts=[2000.0, 500.0]),  # บิลแรกจ่ายเกิน
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400
+    assert "เกิน" in resp.json()["detail"]
+
+    # 🧠 Deep DB verify: บิลที่ถูกต้อง (pay2) ก็ต้องไม่โดน commit เช่นกัน → atomicity
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT status, paid_amount FROM student_payments WHERE id = ANY($1) ORDER BY id", [pay1, pay2])
+        assert all(r["status"] == "pending" for r in rows)
+        assert all(float(r["paid_amount"]) == 0.0 for r in rows)
+        bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1", account_id)
+        assert float(bal) == 0.0
+        tx_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_transactions WHERE room_id = $1 AND student_payment_id IS NOT NULL",
+            room_id,
+        )
+        assert tx_count == 0
+
+
+async def test_batch_confirm_payments_different_students_rejected(client, db_pool):
+    """บิลต่างคนกันใน batch เดียว → 400 (กันแจ้งเตือนรวมงง / จ่ายข้ามคน)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    stu1 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
+    stu2 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="Two"), 2)
+    col1 = await _insert_collection(db_pool, room_id, "ค่าเทอม", 500.0)
+    col2 = await _insert_collection(db_pool, room_id, "ค่าเสื้อ", 500.0)
+    pay1 = await _insert_student_payment(db_pool, col1, stu1, "pending", 0.0)
+    pay2 = await _insert_student_payment(db_pool, col2, stu2, "pending", 0.0)
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"),
+        json=await _batch_payload([pay1, pay2], account_id),
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400
+    assert "คนเดียวกัน" in resp.json()["detail"]
+
+
+async def test_batch_confirm_payments_non_admin_forbidden(client, db_pool):
+    """member ธรรมดา (ไม่ใช่ admin) → 403"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    member = await _insert_user(db_pool, first_name="Member", last_name="One")
+    await _insert_student(db_pool, room_id, member, 5, status="active")
+    student_id = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
+    col = await _insert_collection(db_pool, room_id, "ค่าเทอม", 500.0)
+    pay = await _insert_student_payment(db_pool, col, student_id, "pending", 0.0)
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"),
+        json=await _batch_payload([pay], account_id),
+        headers=_make_web_headers(member),
+    )
+    assert resp.status_code == 403
+
+
+async def test_batch_confirm_payments_publishes_once(client, db_pool):
+    """publish แจ้งเตือนครั้งเดียว (ไม่เด้งหลาย embed) พร้อม items ครบ + total ถูก"""
+    from services.action_service import ActionService
+    from unittest.mock import patch, AsyncMock
+
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    server_id = random.randint(1_000_000, 9_999_999)
+    room_id = await _insert_room(db_pool, owner, server_id=server_id)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    student_id = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
+    col1 = await _insert_collection(db_pool, room_id, "ค่าเทอม", 300.0)
+    col2 = await _insert_collection(db_pool, room_id, "ค่าเสื้อ", 200.0)
+    pay1 = await _insert_student_payment(db_pool, col1, student_id, "pending", 0.0)
+    pay2 = await _insert_student_payment(db_pool, col2, student_id, "pending", 0.0)
+
+    with patch.object(ActionService, "notify_payments_confirmed", new_callable=AsyncMock) as mock_notify:
+        resp = client.put(
+            _room_api(room_id, "/finance/payments/batch"),
+            json=await _batch_payload([pay1, pay2], account_id, amounts=[300.0, 200.0]),
+            headers=_make_web_headers(owner),
+        )
+        assert resp.status_code == 200, resp.text
+
+    mock_notify.assert_awaited_once()
+    kwargs = mock_notify.await_args.kwargs
+    assert kwargs["server_id"] == server_id
+    assert len(kwargs["items"]) == 2
+    assert kwargs["total_amount"] == 500.0
+    assert all("title" in item and "amount" in item for item in kwargs["items"])

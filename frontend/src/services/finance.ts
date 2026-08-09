@@ -1,11 +1,11 @@
 import api from './api'; 
 
-import type { 
-  Account, 
-  AccountCreate, 
-  Category, 
-  CategoryCreate, 
-  Transaction, 
+import type {
+  Account,
+  AccountCreate,
+  Category,
+  CategoryCreate,
+  Transaction,
   TransactionList,
   TransactionCreate,
   TransferCreate,
@@ -14,6 +14,7 @@ import type {
   CollectionStatus,
   FeeCollectionUpdate,
   PaymentConfirm,
+  BatchPaymentConfirm, // ✨ รับเงินรวบยอดหลายบิล
   FinanceSummary,
   Debtor,
   StudentDebtProfile,
@@ -116,6 +117,11 @@ export const FinanceService = {
 
   async confirmPayment(roomId: number, paymentId: number, payload: PaymentConfirm): Promise<any> {
     return await api.put(`/api/classroom/${roomId}/finance/payments/${paymentId}/pay?target_type=room`, payload);
+  },
+
+  // ✨ รับเงินรวบยอดหลายบิล (ปลดหนี้) — ยิงครั้งเดียว บอทแจ้งเตือน embed เดียว
+  async confirmBatchPayment(roomId: number, payload: BatchPaymentConfirm): Promise<any> {
+    return await api.put(`/api/classroom/${roomId}/finance/payments/batch?target_type=room`, payload);
   },
 
   // ✨ API สำหรับลบรายชื่อนักเรียนออกจากแคมเปญ

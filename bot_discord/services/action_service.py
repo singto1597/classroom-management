@@ -126,6 +126,24 @@ class BotActionService:
         channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
 
+        # ✨ Batch (ปลดหนี้หลายรายการครั้งเดียว) → embed สรุปทีเดียว ไม่เด้งหลายรอบ
+        items = data.get("items")
+        if items:
+            lines = "\n".join(
+                f"• **{item.get('title')}** — {float(item.get('amount', 0)):,.2f} บาท"
+                for item in items
+            )
+            count = data.get("count") or len(items)
+            embed = discord.Embed(
+                title="✅ รับเงินรวบยอด",
+                description=f"**{data.get('payer_name')}** ชำระเงินแล้ว **{count}** รายการ รวม **{float(data.get('total_amount', 0)):,.2f} บาท**",
+                color=discord.Color.teal()
+            )
+            embed.add_field(name="📄 รายการที่ชำระ", value=lines, inline=False)
+            embed.set_footer(text=f"รับเงินโดย: {data.get('user_name')}")
+            await channel.send(content=self._build_content(data, "✅ จ่ายเงินแล้ว"), embed=embed)
+            return
+
         embed = discord.Embed(
             title="✅ มีการชำระเงิน",
             description=f"**{data.get('payer_name')}** จ่ายค่า **{data.get('title')}** จำนวน **{float(data.get('amount', 0)):,.2f} บาท** แล้ว",
