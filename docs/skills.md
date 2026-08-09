@@ -377,3 +377,23 @@
   7. **Test note:** เทสที่ insert ห้องด้วย helper ตรง (ไม่ผ่าน `create_room`) ไม่มีหมวดหมู่ seed `📥 เก็บเงินห้องปกติ` → dual-write **ข้าม journal** (ตาม design) → ถ้าจะ assert journal ต้อง `_insert_category(pool, room_id, "📥 เก็บเงินห้องปกติ", "income")` ก่อน; assert atomicity ด้วย overpay บิลใดบิลหนึ่ง → 400 + บิลที่ถูกต้องก็ไม่โดน commit (balance/status คงเดิม)
 - **Rule:** (1) flow ฝั่ง client ที่ยิงหลาย mutation พร้อมกัน (Promise.all) ควรรวมเป็น batch endpoint ฝั่ง backend เมื่อต้องการ atomic + notification รอบเดียว (2) mutation ที่จะวนหลายรายการให้แยก single-item logic เป็น helper แล้วให้ batch วนเรียกใน transaction เดียว (3) notification payload ที่บอท render ต่างกันตาม single/batch ให้ใช้ optional `items` เป็นตัวแยก (backward compat) (4) ก่อน assert journal/dual-write ใน test ที่สร้างห้องเอง ให้เช็คว่ามี seed หมวดหมู่รายได้ครบ (ดู lesson "Room create_room — seed หมวดหมู่/บัญชีค่าเริ่มต้น")
 - **Date Added:** 2026-08-09
+
+### 🛠️ Frontend Mobile-Responsive Overhaul — design tokens + บัคที่พบ (h-dvh, dropdown teleport, mobile-card pattern)
+- **Context/Problem:** ทุกหน้าของ Vue SPA แสดงผลเหมือน "ย่อหน้าจอคอมมาลงมือถือ" — เมนู/การ์ด/header ใหญ่เกิน ต้องเลื่อนตลอด, MainLayout บัคบนมือถือหลายจุด, EditStudent form แทบใช้ไม่ได้บนโทรศัพท์ (input เหลือ ~129px), และ sidebar desktop ย่อไม่ได้ (user ต้องการซ่อนได้)
+- **Root Causes (ที่พบจากการ audit 7 agents):**
+  1. **`h-screen` = 100vh** บนมือถือสูงกว่าจอที่มองเห็น (dynamic toolbar) → เนื้อหาด้านล่าง ~60-100px ไปไม่ถึง ต้องใช้ `h-dvh` (มี `h-screen` เป็น fallback ก่อน สำหรับ iOS <16.4)
+  2. **`overflow-y-auto` ลำพัง** ทำให้ `overflow-x` คำนวณเป็น `auto` (CSS spec) → ตาราง `min-w-[700px]`/`min-w-[1400px]` เกิด horizontal scrollbar ซ้อนใน main → ต้อง `overflow-x-hidden` คู่กันทุก scroll container
+  3. **Dropdown ถูก trap ใน stacking context ของ header/sidebar** (z-50 ภายใน parent z-30) → คลิกนอกไม่ปิด/เปิด drawer ทับ → แก้ด้วย Teleport ไป body + backdrop `z-[70]` + panel `z-[80]`
+  4. **Grid `grid-cols-N` ที่ไม่ collapse** (EditStudent x6, Lobby join-modal x3, FinanceSettings x2, Roadmap x6, FinanceDashboard quick-menu x4) → input ถูกบีบแคบมาก → กฎ: ทุก grid ต้องเริ่ม `grid-cols-1` แล้วค่อย `sm:/md:/lg:`
+  5. **Tailwind JIT ไม่ compile runtime class** — ExportStudent ใช้ `cat.bg.replace('50','500')` → checkbox ไม่มีสี → ต้อง static class map (literal)
+  6. **`new Date('YYYY-MM-DD')` parses UTC midnight** → badge งานเพี้ยน 1 วันใน Asia/Bangkok → ต้อง `dateStr + 'T00:00:00'` (local)
+  7. **Touch target < 44px** — icon button `w-8 h-8` (32px), text 10px อ่านยาก → พื้นฐาน `h-9/w-9` (36px) หรือใหญ่กว่า + `text-xs` เป็นขั้นต่ำ
+- **Correct Pattern/Solution:**
+  1. **Layout shell:** root `h-screen h-dvh` + `overflow-hidden`; main = `overflow-y-auto overflow-x-hidden`; padding token `px-3 sm:px-5 md:px-6 py-4 md:py-6`
+  2. **Sidebar desktop ย่อได้:** state `isSidebarCollapsed` + persist `localStorage` + `w-64 ↔ w-[76px]` transition; mobile = drawer `w-[280px] max-w-[85vw]` + `slide-right` transition
+  3. **Dropdown anchor:** Teleport + `getBoundingClientRect()` ของ trigger (querySelector `[data-dropdown-trigger]`) + reposition on scroll/resize — ห้าม hardcode fixed left/top
+  4. **Mobile card + desktop table:** `block md:hidden` (cards) + `hidden md:block` (table ใน `overflow-x-auto`) — ใช้กับ StudentList, CollectionDetail, DebtorList, TransactionHistory
+  5. **Modal = bottom sheet บนมือถือ:** `items-end md:items-center rounded-t-3xl md:rounded-3xl max-h-[90dvh]`
+  6. **Drawer ต้องปิดเอง:** ใส่ `watch(route.path)` ปิด drawer + dropdown ทุกครั้งที่เปลี่ยนหน้า; ปุ่มใน drawer เรียก `closeMobileDrawer()` ด้วย
+- **Rule:** (1) ห้าม `h-screen` สำหรับ app shell ใช้ `h-dvh` + fallback (2) ทุก scroll container ใส่ `overflow-x-hidden` (3) dropdown/overlay → Teleport body + z-[70/80] (4) ทุก `grid-cols-N` ต้อง responsive prefix (5) ห้ามสร้าง Tailwind class แบบ runtime (`.replace()`/template literal) (6) วันที่ที่รับจาก API เป็น `YYYY-MM-DD` ต้อง parse local เสมอ (7) interactive control ต้อง ≥ 36-44px, text อ่านได้ ≥ 12px
+- **Date Added:** 2026-08-09

@@ -94,6 +94,15 @@ const exportSchema: Category[] = [
 // --- 🗂️ 3. State ควบคุมลอจิก ---
 const selectedColumns = ref<SelectedColumn[]>([]);
 
+// 🎨 Map สี checkbox แบบ literal (Tailwind JIT ต้องเห็นข้อความเต็ม ถึงจะ compile)
+const CHECK_COLORS: Record<string, { checked: string; partial: string }> = {
+  'text-blue-600': { checked: 'bg-blue-500 border-transparent', partial: 'bg-blue-300 border-transparent' },
+  'text-amber-600': { checked: 'bg-amber-500 border-transparent', partial: 'bg-amber-300 border-transparent' },
+  'text-rose-600': { checked: 'bg-rose-500 border-transparent', partial: 'bg-rose-300 border-transparent' },
+  'text-indigo-600': { checked: 'bg-indigo-500 border-transparent', partial: 'bg-indigo-300 border-transparent' },
+  'text-emerald-600': { checked: 'bg-emerald-500 border-transparent', partial: 'bg-emerald-300 border-transparent' },
+};
+
 const isFieldSelected = (fieldId: string) => !!selectedColumns.value.find(c => c.id === fieldId);
 
 const toggleField = (field: Field, category: Category | { color: string }) => {
@@ -194,27 +203,27 @@ const handleExport = async () => {
       </div>
 
       <!-- Header Section -->
-      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 bg-white p-6 md:p-8 rounded-[2rem] border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-        <div>
-          <h2 class="text-3xl md:text-4xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-            <span class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner">🪄</span>
+      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-5 md:p-7 rounded-3xl border border-slate-200 shadow-[0_4px_20px_rgb(0,0,0,0.04)]">
+        <div class="min-w-0">
+          <h2 class="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+            <span class="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center text-lg shadow-inner shrink-0">🪄</span>
             เครื่องมือสร้างไฟล์ Export
           </h2>
-          <p class="text-slate-500 mt-3 font-medium md:text-lg">เลือกหมวดหมู่ที่ต้องการ และลากวางคอลัมน์ฝั่งขวาเพื่อจัดลำดับไฟล์ Excel ได้อย่างอิสระ</p>
+          <p class="text-slate-500 mt-1.5 font-medium text-sm">เลือกหมวดหมู่ และลากวางคอลัมน์เพื่อจัดลำดับไฟล์ Excel</p>
         </div>
-        <button 
-          @click="handleExport" 
-          class="w-full lg:w-auto bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold px-8 py-4 rounded-2xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 group"
+        <button
+          @click="handleExport"
+          class="w-full lg:w-auto bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold px-6 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 group"
         >
-          <i class="bi bi-file-earmark-excel-fill text-xl group-hover:scale-110 transition-transform"></i> 
+          <i class="bi bi-file-earmark-excel-fill text-lg group-hover:scale-110 transition-transform"></i>
           สร้างไฟล์ Excel
         </button>
       </div>
 
-      <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 lg:gap-8 items-start">
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 lg:gap-6 items-start">
         
         <!-- ⬅️ ซ้าย: กล่องเลือกข้อมูล (Source) -->
-        <div class="xl:col-span-7 space-y-5">
+        <div class="xl:col-span-7 space-y-4">
           <div 
             v-for="cat in exportSchema" 
             :key="cat.id" 
@@ -234,13 +243,13 @@ const handleExport = async () => {
               </div>
               
               <!-- Checkbox -->
-              <div 
+              <div
                 class="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all shadow-sm"
-                :class="[
-                  isCategoryAllSelected(cat) ? `${cat.bg.replace('50', '500')} border-transparent text-white` : 
-                  isCategoryPartialSelected(cat) ? `${cat.bg.replace('50', '300')} border-transparent text-slate-700` : 
-                  'border-slate-300 bg-white'
-                ]"
+                :class="isCategoryAllSelected(cat)
+                  ? CHECK_COLORS[cat.color]?.checked || 'bg-blue-500 border-transparent'
+                  : isCategoryPartialSelected(cat)
+                    ? CHECK_COLORS[cat.color]?.partial || 'bg-blue-300 border-transparent'
+                    : 'border-slate-300 bg-white'"
               >
                 <i v-if="isCategoryAllSelected(cat)" class="bi bi-check-lg font-black text-sm"></i>
                 <i v-else-if="isCategoryPartialSelected(cat)" class="bi bi-dash-lg font-black text-sm"></i>
@@ -266,8 +275,8 @@ const handleExport = async () => {
           </div>
         </div>
 
-        <!-- ➡️ ขวา: จัดลำดับการส่งออก (Sortable Result) -->
-        <div class="xl:col-span-5 relative overflow-hidden bg-gradient-to-b from-slate-900 to-slate-800 rounded-[2rem] p-6 lg:p-8 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] xl:sticky xl:top-8 border border-slate-700">
+        <!-- ➡️ ขวา: จัดลำดับการส่งออก (Sortable Result) — แสดงก่อนบนมือถือ เพราะเป็น action หลัก -->
+        <div class="xl:col-span-5 order-first xl:order-none relative overflow-hidden bg-gradient-to-b from-slate-900 to-slate-800 rounded-[1.5rem] p-5 lg:p-7 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] xl:sticky xl:top-8 border border-slate-700">
           <!-- Background Texture -->
           <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 mix-blend-overlay pointer-events-none"></div>
 

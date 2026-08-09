@@ -193,20 +193,20 @@ onMounted(() => {
 
       <form v-else @submit.prevent="handleSubmit" class="space-y-6 md:space-y-8">
         
-        <!-- ✨ Header & Control Bar -->
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 sticky top-4 z-50">
-          <div>
-            <div class="flex items-center gap-3 mb-1">
-              <div class="p-2.5 bg-blue-50 rounded-xl text-blue-600 border border-blue-100 shadow-inner">
-                <i class="bi bi-person-lines-fill text-xl"></i>
-              </div>
-              <h2 class="text-2xl font-black text-slate-800 tracking-tight">จัดการข้อมูลโปรไฟล์</h2>
+        <!-- ✨ Header & Control Bar (กระชับ + ไม่ pin ครึ่งจอบนมือถือ) -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200 md:sticky md:top-4 z-30">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="p-2.5 bg-blue-50 rounded-xl text-blue-600 border border-blue-100 shadow-inner shrink-0">
+              <i class="bi bi-person-lines-fill text-xl"></i>
             </div>
-            <p class="text-slate-500 text-sm ml-[3.25rem]">รหัสนักเรียน: <span class="font-bold text-slate-700">#{{ studentNo }}</span></p>
+            <div class="min-w-0">
+              <h2 class="text-lg md:text-xl font-black text-slate-800 tracking-tight truncate">จัดการข้อมูลโปรไฟล์</h2>
+              <p class="text-slate-500 text-sm truncate">รหัสนักเรียน: <span class="font-bold text-slate-700">#{{ studentNo }}</span></p>
+            </div>
           </div>
-          
-          <div class="flex flex-wrap gap-3 w-full md:w-auto ml-[3.25rem] md:ml-0">
-            <button type="button" @click="router.back()" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 flex-1 md:flex-none font-bold rounded-xl transition-colors flex items-center justify-center gap-2" :disabled="saving">
+
+          <div class="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto">
+            <button type="button" @click="router.back()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 w-full sm:w-auto font-bold rounded-xl transition-colors flex items-center justify-center gap-2" :disabled="saving">
               <i class="bi bi-arrow-left"></i> กลับ
             </button>
 
@@ -215,7 +215,7 @@ onMounted(() => {
               <button
                 type="button"
                 @click="toggleEditMode"
-                class="flex-1 md:flex-none transition-all rounded-xl shadow-sm px-6 py-3 font-bold flex items-center justify-center gap-2"
+                class="w-full sm:w-auto transition-all rounded-xl shadow-sm px-5 py-2.5 font-bold flex items-center justify-center gap-2"
                 :class="isEditMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'"
                 :disabled="saving"
               >
@@ -227,7 +227,7 @@ onMounted(() => {
               <button
                 v-if="isEditMode"
                 type="submit"
-                class="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/30 rounded-xl flex-1 md:flex-none font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                class="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/30 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50"
                 :disabled="saving"
               >
                 <span v-if="saving" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
@@ -235,7 +235,7 @@ onMounted(() => {
                 บันทึกการเปลี่ยนแปลง
               </button>
             </template>
-            <div v-else class="flex items-center px-4 py-3 bg-slate-50 text-slate-400 rounded-xl text-sm font-bold border border-slate-200">
+            <div v-else class="flex items-center justify-center px-4 py-2.5 bg-slate-50 text-slate-400 rounded-xl text-sm font-bold border border-slate-200">
               <i class="bi bi-lock-fill me-2"></i> สิทธิ์จำกัด
             </div>
           </div>
@@ -337,7 +337,7 @@ onMounted(() => {
               <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center"><i class="bi bi-person-fill"></i></div>
               <h3 class="font-black text-slate-800 text-lg tracking-tight">ข้อมูลส่วนตัว</h3>
             </div>
-            <div class="p-6 md:p-8 space-y-6">
+            <div class="p-5 md:p-7 space-y-5">
               <div class="space-y-2">
                 <label class="text-xs font-black text-slate-400 uppercase tracking-widest">รหัสนักเรียน (ประจำตัว)</label>
                 <input :disabled="!isEditMode" v-model="form.student_id" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
@@ -346,7 +346,7 @@ onMounted(() => {
                 <label class="text-xs font-black text-slate-400 uppercase tracking-widest">วันเกิด</label>
                 <input :disabled="!isEditMode" v-model="form.birthday" type="date" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
               </div>
-              <div class="grid grid-cols-2 gap-5">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">คำนำหน้า</label>
                   <input :disabled="!isEditMode" v-model="form.prefix" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
@@ -356,7 +356,7 @@ onMounted(() => {
                   <input :disabled="!isEditMode" v-model="form.nickname" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
                 </div>
               </div>
-              <div class="grid grid-cols-2 gap-5">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest flex justify-between">ชื่อจริง <span class="text-rose-500 text-[10px]">*</span></label>
                   <input :disabled="!isEditMode" v-model="form.first_name" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" required />
@@ -375,8 +375,8 @@ onMounted(() => {
               <div class="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center"><i class="bi bi-heart-pulse-fill"></i></div>
               <h3 class="font-black text-slate-800 text-lg tracking-tight">ข้อมูลสุขภาพ</h3>
             </div>
-            <div class="p-6 md:p-8 space-y-6">
-              <div class="grid grid-cols-2 gap-5">
+            <div class="p-5 md:p-7 space-y-5">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">กรุ๊ปเลือด</label>
                   <input :disabled="!isEditMode" v-model="form.blood_group" type="text" placeholder="A, B, O, AB" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
@@ -403,12 +403,12 @@ onMounted(() => {
               <div class="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center"><i class="bi bi-telephone-fill"></i></div>
               <h3 class="font-black text-slate-800 text-lg tracking-tight">ข้อมูลการติดต่อ</h3>
             </div>
-            <div class="p-6 md:p-8 space-y-6">
+            <div class="p-5 md:p-7 space-y-5">
               <div class="space-y-2">
                 <label class="text-xs font-black text-slate-400 uppercase tracking-widest">เบอร์โทรศัพท์ (ตัวเอง)</label>
                 <input :disabled="!isEditMode" v-model="form.phone_number" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
               </div>
-              <div class="grid grid-cols-2 gap-5">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">เบอร์ผู้ปกครอง</label>
                   <input :disabled="!isEditMode" v-model="form.phone_number_parent" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
@@ -418,7 +418,7 @@ onMounted(() => {
                   <input :disabled="!isEditMode" v-model="form.phone_number_parent_relation" type="text" placeholder="เช่น บิดา, มารดา" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
                 </div>
               </div>
-              <div class="grid grid-cols-2 gap-5">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">Line ID</label>
                   <input :disabled="!isEditMode" v-model="form.line_id" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
@@ -441,8 +441,8 @@ onMounted(() => {
               <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center"><i class="bi bi-book-half"></i></div>
               <h3 class="font-black text-slate-800 text-lg tracking-tight">วิชาการและหน้าที่</h3>
             </div>
-            <div class="p-6 md:p-8 space-y-6 flex flex-col h-[calc(100%-4.5rem)]">
-              <div class="grid grid-cols-2 gap-5">
+            <div class="p-5 md:p-7 space-y-5 flex flex-col">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">คณะที่ใฝ่ฝัน</label>
                   <input :disabled="!isEditMode" v-model="form.target_faculty" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
@@ -465,8 +465,8 @@ onMounted(() => {
               <div class="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center"><i class="bi bi-trophy-fill"></i></div>
               <h3 class="font-black text-slate-800 text-lg tracking-tight">ผลงาน / รางวัลที่ประทับใจ</h3>
             </div>
-            <div class="p-6 md:p-8">
-              <textarea :disabled="!isEditMode" v-model="form.portfolio" class="w-full min-h-[200px] bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-6 py-5 focus:bg-white focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100 leading-relaxed resize-none" placeholder="เล่าผลงานเด่นๆ หรือรางวัลที่ประทับใจของคุณที่นี่..."></textarea>
+            <div class="p-5 md:p-7">
+              <textarea :disabled="!isEditMode" v-model="form.portfolio" class="w-full min-h-[160px] bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl px-5 py-4 focus:bg-white focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100 leading-relaxed resize-none" placeholder="เล่าผลงานเด่นๆ หรือรางวัลที่ประทับใจของคุณที่นี่..."></textarea>
             </div>
           </div>
 
@@ -476,8 +476,8 @@ onMounted(() => {
               <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center"><i class="bi bi-house-door-fill"></i></div>
               <h3 class="font-black text-slate-800 text-lg tracking-tight">ที่อยู่ตามทะเบียนบ้าน</h3>
             </div>
-            <div class="p-6 md:p-8">
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="p-5 md:p-7">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">บ้านเลขที่/หมู่/ซอย</label>
                   <input :disabled="!isEditMode" v-model="form.address_house_no" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />

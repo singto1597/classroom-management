@@ -114,30 +114,31 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-4 md:p-8 max-w-2xl mx-auto">
-    <div class="flex justify-between items-center mb-8">
-      <div class="flex items-center gap-4">
-        <RouterLink 
-          to="/finance/transactions"
-          class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-xl transition shadow-sm group"
-          title="กลับหน้าประวัติ"
-        >
-          <i class="bi bi-arrow-left text-xl"></i>
-        </RouterLink>
-        <h1 class="text-2xl md:text-3xl font-bold text-gray-800">บันทึกรายการเงิน</h1>
+  <div class="p-4 md:p-6 max-w-2xl mx-auto">
+    <div class="flex items-center gap-3 mb-5">
+      <RouterLink
+        to="/finance/transactions"
+        class="w-10 h-10 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition shadow-sm group flex items-center justify-center shrink-0"
+        title="กลับหน้าประวัติ"
+      >
+        <i class="bi bi-arrow-left text-lg"></i>
+      </RouterLink>
+      <div>
+        <h1 class="text-xl md:text-2xl font-bold text-gray-800">บันทึกรายการเงิน</h1>
+        <p class="text-sm text-slate-500 mt-0.5">บันทึกรายรับ รายจ่าย หรือโอนระหว่างกระเป๋า</p>
       </div>
     </div>
 
     <!-- Tabs -->
-    <div class="bg-gray-100 p-1 rounded-2xl flex mb-8">
+    <div class="bg-gray-100 p-1 rounded-2xl flex mb-5">
       <button
         v-for="tab in ['expense', 'income', 'transfer']"
         :key="tab"
         @click="switchTab(tab as any)"
         :class="[
-          'flex-1 py-2.5 rounded-xl font-bold transition-all',
-          activeTab === tab 
-            ? 'bg-white shadow-sm text-gray-800' 
+          'flex-1 py-2.5 rounded-xl font-bold transition-all text-sm sm:text-base',
+          activeTab === tab
+            ? 'bg-white shadow-sm text-gray-800'
             : 'text-gray-400 hover:text-gray-600'
         ]"
       >
@@ -152,7 +153,7 @@ onMounted(() => {
       <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
     </div>
 
-    <form v-else @submit.prevent="handleSubmit" class="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 md:p-8 space-y-6">
+    <form v-else @submit.prevent="handleSubmit" class="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 md:p-7 space-y-5">
       
       <!-- Amount Input -->
       <div>

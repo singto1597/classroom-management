@@ -130,15 +130,13 @@ const getThemeClasses = (theme: string, type: 'borderTop' | 'borderLeft' | 'text
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 space-y-8">
       
       <!-- HEADER -->
-      <header class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div class="flex items-center gap-4">
-          <div class="w-14 h-14 bg-slate-800 text-white rounded-xl flex items-center justify-center text-2xl shadow-sm">
-            <i class="bi bi-diagram-3-fill"></i>
-          </div>
-          <div>
-            <h1 class="text-2xl font-bold text-slate-800 tracking-tight">แผนผังองค์กรห้องเรียน</h1>
-            <p class="text-slate-500 font-medium text-sm mt-0.5">โครงสร้างการบริหารระดับชั้นเรียน</p>
-          </div>
+      <header class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5 flex items-center gap-3">
+        <div class="w-11 h-11 sm:w-12 sm:h-12 bg-slate-800 text-white rounded-xl flex items-center justify-center text-xl sm:text-2xl shadow-sm shrink-0">
+          <i class="bi bi-diagram-3-fill"></i>
+        </div>
+        <div class="min-w-0">
+          <h1 class="text-lg sm:text-xl font-bold text-slate-800 tracking-tight truncate">แผนผังองค์กรห้องเรียน</h1>
+          <p class="text-slate-500 font-medium text-sm mt-0.5 truncate">โครงสร้างการบริหารระดับชั้นเรียน</p>
         </div>
       </header>
 

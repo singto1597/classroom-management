@@ -155,19 +155,19 @@ onMounted(() => {
     <div class="max-w-7xl mx-auto">
       
       <!-- Header Section -->
-      <div class="flex flex-col md:flex-row items-start md:items-center mb-8 gap-4 md:gap-6">
-        <RouterLink 
+      <div class="flex flex-col md:flex-row items-start md:items-center mb-5 md:mb-7 gap-3 md:gap-4">
+        <RouterLink
           to="/finance"
-          class="bg-white hover:bg-slate-100 text-slate-600 p-3 rounded-2xl transition-all shadow-sm border border-slate-200 group flex-shrink-0"
+          class="bg-white hover:bg-slate-100 text-slate-600 p-2.5 rounded-xl transition-all shadow-sm border border-slate-200 group flex-shrink-0"
           title="กลับหน้าภาพรวม"
         >
-          <i class="bi bi-arrow-left text-xl group-hover:-translate-x-1 transition-transform"></i>
+          <i class="bi bi-arrow-left text-lg group-hover:-translate-x-1 transition-transform"></i>
         </RouterLink>
-        <div>
-          <h1 class="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-rose-600 to-orange-500 flex items-center gap-2">
+        <div class="min-w-0">
+          <h1 class="text-xl md:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-rose-600 to-orange-500 flex items-center gap-2 truncate">
             <i class="bi bi-exclamation-triangle-fill text-rose-500 drop-shadow-sm"></i> สรุปผู้ค้างชำระ
           </h1>
-          <p class="text-slate-500 mt-1 text-sm md:text-base font-medium">รายชื่อผู้ค้างจ่ายเงินจากทุกโปรเจกต์ (รวมโปรเจกต์ที่ปิดไปแล้ว)</p>
+          <p class="text-slate-500 mt-0.5 text-sm md:text-base font-medium truncate">รายชื่อผู้ค้างจ่ายเงินจากทุกโปรเจกต์ (รวมโปรเจกต์ที่ปิดไปแล้ว)</p>
         </div>
       </div>
 
@@ -188,7 +188,7 @@ onMounted(() => {
             <p class="text-slate-500 text-sm mt-1">ห้องนี้รวยมาก ทุกคนจ่ายเงินครบเป๊ะ</p>
           </div>
 
-          <div v-for="d in debtors" :key="d.student_id" class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden group">
+          <div v-for="d in debtors" :key="d.student_id" class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
             <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-rose-500"></div>
             
             <div class="flex justify-between items-start mb-4">

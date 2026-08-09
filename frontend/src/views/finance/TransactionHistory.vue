@@ -134,32 +134,32 @@ const resetFilters = () => {
   <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
     <div class="max-w-7xl mx-auto">
       
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 md:mb-8 gap-4 md:gap-6">
-        <div class="flex items-center gap-4 w-full md:w-auto">
-          <RouterLink 
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 md:mb-7 gap-3 md:gap-4">
+        <div class="flex items-center gap-3 w-full md:w-auto min-w-0">
+          <RouterLink
             to="/finance"
-            class="bg-white hover:bg-slate-100 text-slate-600 p-3 rounded-2xl transition-all shadow-sm border border-slate-200 group flex-shrink-0"
+            class="bg-white hover:bg-slate-100 text-slate-600 p-2.5 rounded-xl transition-all shadow-sm border border-slate-200 group flex-shrink-0"
             title="กลับหน้าภาพรวม"
           >
-            <i class="bi bi-arrow-left text-xl group-hover:-translate-x-1 transition-transform"></i>
+            <i class="bi bi-arrow-left text-lg group-hover:-translate-x-1 transition-transform"></i>
           </RouterLink>
-          <div>
-            <h1 class="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">ประวัติการทำรายการ</h1>
-            <p class="text-slate-500 mt-1 text-sm md:text-base font-medium">รายการรับ จ่าย และโอนเงินทั้งหมดของห้อง</p>
+          <div class="min-w-0">
+            <h1 class="text-xl md:text-2xl font-extrabold text-slate-800 tracking-tight">ประวัติการทำรายการ</h1>
+            <p class="text-slate-500 mt-0.5 text-sm md:text-base font-medium truncate">รายการรับ จ่าย และโอนเงินทั้งหมดของห้อง</p>
           </div>
         </div>
-        
-        <RouterLink 
+
+        <RouterLink
           v-if="isAdmin"
           to="/finance/transactions/add"
-          class="w-full md:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3 px-6 rounded-2xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2"
+          class="w-full md:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2"
         >
           <i class="bi bi-plus-lg text-lg"></i> บันทึกรายการใหม่
         </RouterLink>
       </div>
 
-      <div class="bg-white rounded-3xl border border-slate-200/60 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] p-5 md:p-6 mb-6 md:mb-8">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+      <div class="bg-white rounded-2xl border border-slate-200/60 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] p-4 md:p-5 mb-5 md:mb-7">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 items-end">
           <div>
             <label class="block text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">ประเภทรายการ</label>
             <select v-model="filters.type" class="w-full bg-slate-50 border border-slate-200 py-2.5 px-4 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all text-slate-700 font-medium">
@@ -215,7 +215,7 @@ const resetFilters = () => {
 
       <div v-else>
         <div class="block md:hidden space-y-4">
-          <div v-for="t in transactions" :key="t.id" class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
+          <div v-for="t in transactions" :key="t.id" class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
             <div class="absolute left-0 top-0 bottom-0 w-1.5" :class="t.transaction_type === 'income' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
             
             <div class="flex justify-between items-start mb-3">

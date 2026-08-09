@@ -182,59 +182,61 @@ watch([selectedMonth, selectedYear], () => {
     <div class="max-w-7xl mx-auto">
       
       <!-- Header Section -->
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 md:mb-8 gap-4">
-        <div class="flex items-center gap-4 w-full md:w-auto">
-          <RouterLink 
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 md:mb-7 gap-4">
+        <div class="flex items-center gap-3 w-full md:w-auto min-w-0">
+          <RouterLink
             to="/dashboard"
-            class="bg-white hover:bg-slate-100 text-slate-600 p-3 rounded-2xl transition-all shadow-sm border border-slate-200 shrink-0 group"
+            class="bg-white hover:bg-slate-100 text-slate-600 p-2.5 rounded-xl transition-all shadow-sm border border-slate-200 shrink-0 group"
             title="กลับหน้าหลัก"
           >
-            <i class="bi bi-house-door-fill text-xl group-hover:scale-110 transition-transform"></i>
+            <i class="bi bi-house-door-fill text-lg group-hover:scale-110 transition-transform"></i>
           </RouterLink>
-          <div>
-            <h1 class="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
+          <div class="min-w-0">
+            <h1 class="text-xl md:text-2xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
               ภาพรวมการเงิน
             </h1>
-            <p class="text-slate-500 mt-0.5 text-sm md:text-base font-medium">
+            <p class="text-slate-500 mt-0.5 text-sm md:text-base font-medium truncate">
               ประจำเดือน <span class="text-blue-600 font-bold">{{ thaiMonths[selectedMonth - 1] }} {{ selectedYear + 543 }}</span>
             </p>
           </div>
         </div>
 
-        <!-- Date Filters (Pill Style) -->
-        <div class="flex flex-row gap-2 w-full md:w-auto">
-          <div class="relative flex-1 md:flex-none">
-            <select 
-              v-model="selectedMonth" 
-              class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-4 pr-10 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer"
-            >
-              <option v-for="(month, index) in thaiMonths" :key="index" :value="index + 1">
-                {{ month }}
-              </option>
-            </select>
-            <i class="bi bi-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
-          </div>
-          <div class="relative flex-1 md:flex-none">
-            <select
-              v-model="selectedYear"
-              class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-4 pr-10 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer"
-            >
-              <option v-for="y in yearOptions" :key="y" :value="y">
-                พ.ศ. {{ y + 543 }}
-              </option>
-            </select>
-            <i class="bi bi-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
+        <!-- Date Filters (เรียง 2 แถวบนมือถือ, แถวเดียวบนเดสก์ท็อป) -->
+        <div class="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full md:w-auto">
+          <div class="flex gap-2 w-full sm:w-auto">
+            <div class="relative flex-1 sm:flex-none">
+              <select
+                v-model="selectedMonth"
+                class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-3 pr-9 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer min-w-0"
+              >
+                <option v-for="(month, index) in thaiMonths" :key="index" :value="index + 1">
+                  {{ month }}
+                </option>
+              </select>
+              <i class="bi bi-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
+            </div>
+            <div class="relative flex-1 sm:flex-none">
+              <select
+                v-model="selectedYear"
+                class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-3 pr-9 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer min-w-0"
+              >
+                <option v-for="y in yearOptions" :key="y" :value="y">
+                  พ.ศ. {{ y + 543 }}
+                </option>
+              </select>
+              <i class="bi bi-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
+            </div>
           </div>
 
           <!-- 📥 ปุ่มส่งออกประวัติการเงิน (ตามเดือน/ปีที่เลือก) -->
           <button
             @click="handleExport"
             :disabled="isExporting"
-            class="flex-1 md:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-2xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all"
+            class="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all"
             title="ส่งออกประวัติการทำรายการของเดือนนี้เป็น Excel"
           >
             <i class="bi bi-file-earmark-excel-fill text-lg"></i>
-            <span class="hidden lg:inline">ส่งออก Excel</span>
+            <span class="lg:inline">ส่งออก Excel</span>
           </button>
         </div>
       </div>
@@ -288,37 +290,37 @@ watch([selectedMonth, selectedYear], () => {
           </div>
         </div>
 
-        <!-- QUICK MENU (App Style - 4 Icons in a row on mobile) -->
+        <!-- QUICK MENU (App Style - 2x2 on mobile, 4 in a row on desktop) -->
         <div class="bg-white rounded-3xl p-4 md:p-6 shadow-sm border border-slate-100">
-          <div class="grid grid-cols-4 gap-2 md:gap-4">
-            <RouterLink 
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            <RouterLink
               to="/finance/transactions"
               class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
             >
               <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-blue-50 text-blue-600 rounded-[1rem] md:rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors shadow-sm">
                 <i class="bi bi-receipt text-xl md:text-2xl"></i>
               </div>
-              <span class="text-[10px] md:text-sm font-bold text-slate-600 text-center leading-tight">ประวัติ<br class="md:hidden">รายการ</span>
+              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">ประวัติรายการ</span>
             </RouterLink>
 
-            <RouterLink 
+            <RouterLink
               to="/finance/collections"
               class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
             >
               <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-[1rem] md:rounded-2xl group-hover:bg-emerald-600 group-hover:text-white transition-colors shadow-sm">
                 <i class="bi bi-box-seam-fill text-xl md:text-2xl"></i>
               </div>
-              <span class="text-[10px] md:text-sm font-bold text-slate-600 text-center leading-tight">โปรเจกต์<br class="md:hidden">เก็บเงิน</span>
+              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">โปรเจกต์เก็บเงิน</span>
             </RouterLink>
 
-            <RouterLink 
+            <RouterLink
               to="/finance/debtors"
               class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
             >
               <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-rose-50 text-rose-600 rounded-[1rem] md:rounded-2xl group-hover:bg-rose-600 group-hover:text-white transition-colors shadow-sm">
                 <i class="bi bi-exclamation-triangle-fill text-xl md:text-2xl"></i>
               </div>
-              <span class="text-[10px] md:text-sm font-bold text-slate-600 text-center leading-tight">สรุปยอด<br class="md:hidden">ค้างจ่าย</span>
+              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">สรุปยอดค้างจ่าย</span>
             </RouterLink>
 
             <!-- Admin Only: If not admin, this space can be empty or show a disabled icon -->
@@ -326,10 +328,10 @@ watch([selectedMonth, selectedYear], () => {
               <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-slate-100 text-slate-400 rounded-[1rem] md:rounded-2xl shadow-sm">
                 <i class="bi bi-gear-fill text-xl md:text-2xl"></i>
               </div>
-              <span class="text-[10px] md:text-sm font-bold text-slate-400 text-center leading-tight">ตั้งค่า<br class="md:hidden">(แอดมิน)</span>
+              <span class="text-xs md:text-sm font-bold text-slate-400 text-center leading-tight">ตั้งค่า (แอดมิน)</span>
             </div>
-            
-            <RouterLink 
+
+            <RouterLink
               v-else
               to="/finance/settings"
               class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
@@ -337,7 +339,7 @@ watch([selectedMonth, selectedYear], () => {
               <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-slate-100 text-slate-600 rounded-[1rem] md:rounded-2xl group-hover:bg-slate-800 group-hover:text-white transition-colors shadow-sm">
                 <i class="bi bi-gear-fill text-xl md:text-2xl"></i>
               </div>
-              <span class="text-[10px] md:text-sm font-bold text-slate-600 text-center leading-tight">ตั้งค่า<br class="md:hidden">การเงิน</span>
+              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">ตั้งค่าการเงิน</span>
             </RouterLink>
           </div>
         </div>

@@ -130,7 +130,7 @@ const handleAddNote = async () => {
           </button>
         </div>
 
-        <div class="p-8 md:p-10">
+        <div class="p-5 md:p-8">
           <form v-if="activeTab === 'task'" @submit.prevent="handleAddTask" class="space-y-6">
             
             <div class="space-y-2">

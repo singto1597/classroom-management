@@ -173,32 +173,32 @@ const submitCreateRoom = async () => {
 <template>
   <div class="max-w-6xl mx-auto pt-4 md:pt-10 pb-20 relative z-10">
     
-    <div class="text-center mb-12 md:mb-16">
-      <div class="inline-flex items-center justify-center w-20 h-20 bg-white rounded-3xl shadow-xl shadow-blue-500/10 border border-slate-100 mb-6">
-        <i class="bi bi-grid-fill text-4xl text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-indigo-600"></i>
+    <div class="text-center mb-8 md:mb-12">
+      <div class="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 bg-white rounded-3xl shadow-xl shadow-blue-500/10 border border-slate-100 mb-5">
+        <i class="bi bi-grid-fill text-3xl md:text-4xl text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-indigo-600"></i>
       </div>
-      <h1 class="text-3xl md:text-5xl font-black text-slate-800 tracking-tight mb-4">ยินดีต้อนรับ, <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{{ authStore.firstName || 'ผู้ใช้งาน' }}</span> 👋</h1>
-      <p class="text-slate-500 text-base md:text-lg font-medium max-w-2xl mx-auto">เลือกห้องเรียนของคุณเพื่อเริ่มต้นการจัดการ หรือเข้าร่วมห้องเรียนใหม่ผ่านรหัสห้อง</p>
+      <h1 class="text-2xl md:text-4xl font-black text-slate-800 tracking-tight mb-3 px-4">ยินดีต้อนรับ, <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{{ authStore.firstName || 'ผู้ใช้งาน' }}</span> 👋</h1>
+      <p class="text-slate-500 text-sm md:text-lg font-medium max-w-2xl mx-auto px-4">เลือกห้องเรียนของคุณเพื่อเริ่มต้นการจัดการ หรือเข้าร่วมห้องเรียนใหม่ผ่านรหัสห้อง</p>
     </div>
 
-    <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-10">
+    <div class="flex flex-col sm:flex-row justify-between items-center gap-3 mb-8">
       <div class="relative w-full sm:w-96 group">
         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
           <i class="bi bi-search text-slate-400 group-focus-within:text-blue-500 transition-colors"></i>
         </div>
-        <input 
-          v-model="searchQuery" 
-          type="text" 
-          placeholder="ค้นหาชื่อห้อง หรือ รหัส..." 
-          class="block w-full pl-11 pr-4 py-3.5 bg-white border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-700 shadow-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all"
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="ค้นหาชื่อห้อง หรือ รหัส..."
+          class="block w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 shadow-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all"
         >
       </div>
-      
-      <div class="flex gap-3 w-full sm:w-auto">
-        <button @click="openJoinModal" class="flex-1 sm:flex-none px-6 py-3.5 bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md hover:text-blue-600 text-slate-600 font-bold rounded-[1.25rem] transition-all active:scale-95 flex items-center justify-center gap-2">
+
+      <div class="flex gap-2.5 w-full sm:w-auto">
+        <button @click="openJoinModal" class="flex-1 sm:flex-none px-5 py-3 bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md hover:text-blue-600 text-slate-600 font-bold rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2">
           <i class="bi bi-door-open-fill"></i> เข้าห้องเรียน
         </button>
-        <button @click="showCreateModal = true" class="flex-1 sm:flex-none px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-[1.25rem] shadow-lg shadow-slate-900/20 transition-all active:scale-95 flex items-center justify-center gap-2">
+        <button @click="showCreateModal = true" class="flex-1 sm:flex-none px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-lg shadow-slate-900/20 transition-all active:scale-95 flex items-center justify-center gap-2">
           <i class="bi bi-plus-lg"></i> สร้างห้อง
         </button>
       </div>
@@ -275,25 +275,25 @@ const submitCreateRoom = async () => {
               <input v-model="joinForm.room_code" type="text" required placeholder="เช่น AB12CD" class="w-full bg-slate-50 border border-slate-200 text-slate-800 text-lg font-mono font-bold rounded-2xl px-5 py-4 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all uppercase placeholder:normal-case placeholder:font-sans placeholder:font-medium placeholder:text-slate-300">
             </div>
             
-            <div class="grid grid-cols-3 gap-4">
-              <div class="col-span-1">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div class="sm:col-span-1">
                 <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">เลขที่ <span class="text-rose-500">*</span></label>
-                <input v-model="joinForm.student_no" type="number" required class="w-full bg-slate-50 border border-slate-200 text-slate-800 text-lg font-bold rounded-2xl px-4 py-4 text-center focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+                <input v-model="joinForm.student_no" type="number" required class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 text-center focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
               </div>
-              <div class="col-span-2">
+              <div class="sm:col-span-2">
                 <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง <span class="text-rose-500">*</span></label>
-                <input v-model="joinForm.first_name" type="text" required class="w-full bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+                <input v-model="joinForm.first_name" type="text" required class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
               </div>
             </div>
 
             <div>
               <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล <span class="text-rose-500">*</span></label>
-              <input v-model="joinForm.last_name" type="text" required class="w-full bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-5 py-4 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+              <input v-model="joinForm.last_name" type="text" required class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
             </div>
 
-            <div class="flex gap-3 mt-8 pt-4">
-              <button type="button" @click="showJoinModal = false" class="flex-1 px-4 py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-2xl transition-all active:scale-95">ยกเลิก</button>
-              <button type="submit" class="flex-1 px-4 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-600/30 transition-all active:scale-95">ยืนยันเข้าร่วม</button>
+            <div class="flex flex-col sm:flex-row gap-2.5 mt-6 pt-4">
+              <button type="button" @click="showJoinModal = false" class="flex-1 px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-all active:scale-95">ยกเลิก</button>
+              <button type="submit" class="flex-1 px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95">ยืนยันเข้าร่วม</button>
             </div>
           </form>
         </div>

@@ -178,27 +178,27 @@ onMounted(() => {
   <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
     <div class="max-w-7xl mx-auto">
       
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-5">
-        <div class="flex flex-row items-center gap-4 w-full md:w-auto">
-          <RouterLink 
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 md:mb-7 gap-3 md:gap-5">
+        <div class="flex flex-row items-center gap-3 w-full md:w-auto min-w-0">
+          <RouterLink
             to="/finance"
-            class="bg-white hover:bg-slate-100 text-slate-600 p-3 rounded-2xl transition-all shadow-sm border border-slate-200 group flex-shrink-0"
+            class="bg-white hover:bg-slate-100 text-slate-600 p-2.5 rounded-xl transition-all shadow-sm border border-slate-200 group flex-shrink-0"
             title="กลับหน้าภาพรวม"
           >
-            <i class="bi bi-arrow-left text-xl group-hover:-translate-x-1 transition-transform"></i>
+            <i class="bi bi-arrow-left text-lg group-hover:-translate-x-1 transition-transform"></i>
           </RouterLink>
-          <div class="flex-1">
-            <h1 class="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
+          <div class="flex-1 min-w-0">
+            <h1 class="text-xl md:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 truncate">
               โปรเจกต์เก็บเงิน
             </h1>
-            <p class="text-slate-500 mt-1 text-sm md:text-base font-medium">จัดการแคมเปญระดมทุนและการเก็บเงินเพื่อนในห้อง</p>
+            <p class="text-slate-500 mt-0.5 text-sm md:text-base font-medium truncate">จัดการแคมเปญระดมทุนและการเก็บเงินเพื่อนในห้อง</p>
           </div>
         </div>
-        
-        <button 
+
+        <button
           v-if="authStore.isAdmin"
           @click="openCreateModal"
-          class="w-full md:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3 px-6 rounded-2xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 transform hover:scale-[1.02]"
+          class="w-full md:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 transform hover:scale-[1.02]"
         >
           <i class="bi bi-plus-circle text-lg"></i> สร้างโปรเจกต์ใหม่
         </button>
@@ -274,8 +274,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="isCreateModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0 bg-slate-900/40 backdrop-blur-sm transition-opacity">
-      <div class="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+    <div v-if="isCreateModalOpen" class="fixed inset-0 z-[70] flex items-end md:items-center justify-center p-0 md:p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity">
+      <div class="bg-white w-full max-w-lg rounded-t-3xl md:rounded-[2rem] shadow-2xl flex flex-col max-h-[90dvh] animate-in md:zoom-in-95 duration-200">
         
         <div class="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white rounded-t-[2rem]">
           <div>
@@ -295,7 +295,7 @@ onMounted(() => {
               <input v-model="formTitle" placeholder="เช่น ค่าชีทฟิสิกส์, ค่าปรับเวร" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-medium text-slate-700 shadow-sm">
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ms-1">ยอดเรียกเก็บ (฿)</label>
                 <div class="relative">
