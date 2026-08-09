@@ -134,8 +134,7 @@ const confirmDelete = async (student: any) => {
     confirmButtonColor: '#ef4444',
     cancelButtonColor: '#64748b',
     confirmButtonText: 'ลบข้อมูล',
-    cancelButtonText: 'ยกเลิก',
-    borderRadius: '1rem'
+    cancelButtonText: 'ยกเลิก'
   });
 
   if (result.isConfirmed) {
