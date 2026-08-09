@@ -291,7 +291,7 @@ const rejectJoin = async (studentNo: number) => {
                 
                 <!-- ชื่อเล่น -->
                 <div v-if="student.nickname" class="flex items-center">
-                  <span class="sm:hidden mr-1">,</span>เล่น {{ student.nickname }}
+                  <span class="sm:hidden mr-1">,</span>{{ student.nickname }}
                 </div>
                 
                 <span class="text-slate-300 hidden sm:inline" v-if="student.nickname">•</span>
