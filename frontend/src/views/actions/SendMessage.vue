@@ -90,16 +90,17 @@ const handleSend = async () => {
   <div class="min-h-screen bg-slate-50/50 py-10 px-4 sm:px-6">
     <div class="max-w-2xl mx-auto">
 
-      <div class="flex items-center gap-4 mb-8">
+      <div class="flex items-center gap-3 mb-6">
         <button
           @click="router.push('/dashboard')"
-          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all"
+          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all shrink-0"
+          title="กลับหน้าหลัก"
         >
           <i class="bi bi-arrow-left text-lg"></i>
         </button>
-        <div>
-          <h1 class="text-2xl font-extrabold text-slate-800">ประกาศเข้า Discord</h1>
-          <p class="text-slate-500 text-sm mt-0.5">ส่งข้อความประกาศจากเว็บไปยังห้อง Discord ถึงเพื่อนทุกคน</p>
+        <div class="min-w-0">
+          <h1 class="text-xl font-extrabold text-slate-800">ประกาศเข้า Discord</h1>
+          <p class="text-slate-500 text-sm mt-0.5 truncate">ส่งข้อความประกาศจากเว็บไปยังห้อง Discord ถึงเพื่อนทุกคน</p>
         </div>
       </div>
 
@@ -148,14 +149,14 @@ const handleSend = async () => {
       </div>
 
       <div class="bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden border border-slate-100">
-        <form @submit.prevent="handleSend" class="p-8 md:p-10 space-y-6">
+        <form @submit.prevent="handleSend" class="p-5 md:p-8 space-y-5">
 
-          <div class="flex items-center gap-4 pb-4 border-b border-slate-100">
-            <div class="w-14 h-14 bg-gradient-to-br from-rose-50 to-red-50 text-rose-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-rose-100">
+          <div class="flex items-center gap-3 pb-4 border-b border-slate-100">
+            <div class="w-12 h-12 bg-gradient-to-br from-rose-50 to-red-50 text-rose-600 rounded-2xl flex items-center justify-center text-xl shadow-inner border border-rose-100 shrink-0">
               <i class="bi bi-megaphone-fill"></i>
             </div>
             <div>
-              <h2 class="font-black text-slate-800 text-lg">แบบฟอร์มประกาศ</h2>
+              <h2 class="font-black text-slate-800 text-base md:text-lg">แบบฟอร์มประกาศ</h2>
               <p class="text-xs text-slate-400 font-semibold mt-0.5">บอทจะประกาศเป็น Embed ในช่องที่กำหนดไว้</p>
             </div>
           </div>

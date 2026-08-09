@@ -101,22 +101,22 @@ const handleSaveOverride = async () => {
     <div class="max-w-3xl mx-auto">
 
       <!-- Header -->
-      <div class="flex items-center gap-4 mb-8">
+      <div class="flex items-center gap-3 mb-6">
         <button
           @click="router.push('/dashboard')"
-          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all"
+          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all shrink-0"
           title="กลับหน้าหลัก"
         >
           <i class="bi bi-arrow-left text-lg"></i>
         </button>
-        <div>
-          <h1 class="text-2xl md:text-3xl font-extrabold text-slate-800 flex items-center gap-3">
-            <span class="p-2.5 bg-blue-100 rounded-2xl text-blue-600 shadow-sm">
+        <div class="min-w-0">
+          <h1 class="text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5">
+            <span class="p-2 bg-blue-100 rounded-xl text-blue-600 shadow-sm shrink-0">
               <i class="bi bi-calendar-check"></i>
             </span>
             จัดการตารางเรียน
           </h1>
-          <p class="text-slate-500 mt-1 text-sm md:text-base">ตั้งค่าตารางเรียนยืนพื้น และข้อยกเว้นการแต่งกายรายวัน</p>
+          <p class="text-slate-500 mt-0.5 text-sm truncate">ตั้งค่าตารางเรียนยืนพื้น และข้อยกเว้นการแต่งกายรายวัน</p>
         </div>
       </div>
 
@@ -140,7 +140,7 @@ const handleSaveOverride = async () => {
           </button>
         </div>
 
-        <div class="p-6 md:p-10">
+        <div class="p-5 md:p-8">
           <!-- ตารางปกติ -->
           <form v-if="activeTab === 'default'" @submit.prevent="handleSaveDefault" class="space-y-6">
             <h2 class="text-lg font-black text-slate-800 flex items-center gap-2">

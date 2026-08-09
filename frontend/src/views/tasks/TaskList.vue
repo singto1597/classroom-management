@@ -59,17 +59,21 @@ const fetchData = async () => {
 const pendingCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
 const doneCount = computed(() => tasks.value.filter(task => task.status === 'done').length)
 
+// 🗓️ คำนวณจำนวนวันห่างจากวันนี้ (Local Timezone — กันบัค UTC ทำให้เพี้ยน 1 วัน)
+const diffDaysFromToday = (dateStr: string): number => {
+  const due = new Date(dateStr + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+};
+
 // 🗓️ แปลงวันที่ YYYY-MM-DD → ไทย (เช่น 5 ส.ค. 2569) และโชว์ว่าวันนี้/พรุ่งนี้
 const formatDueDate = (dateStr: string) => {
   if (!dateStr) return '-';
   const date = new Date(dateStr + 'T00:00:00');
+  const diffDays = diffDaysFromToday(dateStr);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diffTime = date.getTime() - today.getTime();
-  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return 'วันนี้ (เลยกำหนด)';
+  if (diffDays === 0) return 'วันนี้';
   if (diffDays === 1) return 'พรุ่งนี้';
 
   return date.toLocaleDateString('th-TH', {
@@ -97,14 +101,8 @@ const filteredTasks = computed(() => {
 // ปรับสี Badge ให้ดูพรีเมียมขึ้น (Pastel & Border)
 const getStatusBadgeClass = (task: Task) => {
   if (task.status === 'done') return 'bg-slate-100 text-slate-500 border border-slate-200'
-  
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const dueDate = new Date(task.due_date)
-  dueDate.setHours(0, 0, 0, 0)
-  
-  const diffTime = dueDate.getTime() - today.getTime()
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+
+  const diffDays = diffDaysFromToday(task.due_date)
 
   if (diffDays < 0) return 'bg-rose-50 text-rose-600 border border-rose-200'
   if (diffDays === 0 || diffDays === 1) return 'bg-amber-50 text-amber-600 border border-amber-200'
@@ -113,18 +111,12 @@ const getStatusBadgeClass = (task: Task) => {
 
 const getStatusText = (task: Task) => {
   if (task.status === 'done') return 'ส่งแล้ว 🎉'
-  
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const dueDate = new Date(task.due_date)
-  dueDate.setHours(0, 0, 0, 0)
-  
-  const diffTime = dueDate.getTime() - today.getTime()
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
 
-  if (diffDays < 0) return `เลยกำหนดมา ${Math.abs(diffDays)} วัน!`
-  if (diffDays === 0) return 'ส่งวันนี้!'
-  if (diffDays === 1) return 'ส่งพรุ่งนี้!'
+  const diffDays = diffDaysFromToday(task.due_date)
+
+  if (diffDays < 0) return `เลยกำหนดมา ${Math.abs(diffDays)} วัน`
+  if (diffDays === 0) return 'ส่งวันนี้'
+  if (diffDays === 1) return 'ส่งพรุ่งนี้'
   return `เหลืออีก ${diffDays} วัน`
 }
 
@@ -175,25 +167,25 @@ onMounted(fetchData)
   <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
     <div class="max-w-6xl mx-auto">
       
-      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
+      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 md:mb-8 gap-4">
         <div class="w-full lg:w-auto">
-          <h3 class="text-xl sm:text-2xl md:text-3xl font-extrabold text-slate-800 flex items-center gap-3">
-            <div class="p-2.5 sm:p-3 bg-blue-100 rounded-2xl text-blue-600 shadow-sm flex-shrink-0">
+          <h3 class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5">
+            <div class="p-2 sm:p-2.5 bg-blue-100 rounded-xl text-blue-600 shadow-sm flex-shrink-0">
               <i class="bi bi-clipboard-check"></i>
             </div>
             รายการงาน & โน้ต
           </h3>
-          <p class="text-slate-500 mt-2 ml-1 text-sm md:text-base">จัดการการบ้านและอัปเดตประกาศรายวันของห้อง</p>
+          <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">จัดการการบ้านและอัปเดตประกาศรายวันของห้อง</p>
         </div>
-        
+
         <div class="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
-          <div class="bg-slate-200/60 p-1.5 rounded-2xl flex flex-wrap sm:flex-nowrap items-center gap-1 shadow-inner backdrop-blur-sm w-full sm:w-auto justify-center sm:justify-start">
-            <button @click="filter = 'pending'" :class="filter === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-2">กำลังทำ<span class="px-2 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'pending' ? 'bg-blue-100 text-blue-600' : 'bg-slate-300/50 text-slate-600'">{{ pendingCount }}</span></button>
-            <button @click="filter = 'done'" :class="filter === 'done' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-2">เสร็จแล้ว<span class="px-2 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'done' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-300/50 text-slate-600'">{{ doneCount }}</span></button>
-            <button @click="filter = 'all'" :class="filter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-2">ทั้งหมด<span class="px-2 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'all' ? 'bg-slate-200 text-slate-700' : 'bg-slate-300/50 text-slate-600'">{{ tasks.length }}</span></button>
+          <div class="bg-slate-200/60 p-1.5 rounded-2xl flex flex-nowrap items-center gap-1 shadow-inner backdrop-blur-sm w-full sm:w-auto overflow-x-auto">
+            <button @click="filter = 'pending'" :class="filter === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5">กำลังทำ<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'pending' ? 'bg-blue-100 text-blue-600' : 'bg-slate-300/50 text-slate-600'">{{ pendingCount }}</span></button>
+            <button @click="filter = 'done'" :class="filter === 'done' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5">เสร็จแล้ว<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'done' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-300/50 text-slate-600'">{{ doneCount }}</span></button>
+            <button @click="filter = 'all'" :class="filter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5">ทั้งหมด<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'all' ? 'bg-slate-200 text-slate-700' : 'bg-slate-300/50 text-slate-600'">{{ tasks.length }}</span></button>
           </div>
 
-          <router-link v-if="canManageTasks" to="/tasks/add" class="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 whitespace-nowrap">
+          <router-link v-if="canManageTasks" to="/tasks/add" class="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 whitespace-nowrap">
             <i class="bi bi-plus-lg"></i> สร้างใหม่
           </router-link>
         </div>
@@ -243,10 +235,10 @@ onMounted(fetchData)
       </div>
 
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
-        <div 
-          v-for="task in filteredTasks" 
+        <div
+          v-for="task in filteredTasks"
           :key="task.id"
-          class="group bg-white rounded-3xl p-5 md:p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
+          class="group bg-white rounded-3xl p-4 md:p-5 shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
           :class="{ 'opacity-60 bg-slate-50 grayscale-[0.2]': task.status === 'done' }"
         >
           <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-4 gap-2 sm:gap-4">
@@ -260,12 +252,12 @@ onMounted(fetchData)
             </div>
           </div>
           
-          <div class="flex items-center gap-2 text-slate-500 text-xs font-semibold mb-4 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
+          <div class="flex items-center gap-2 text-slate-500 text-xs font-semibold mb-3 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
             <i class="bi bi-calendar-event text-blue-500"></i>
             กำหนดส่ง: <span class="text-slate-700">{{ formatDueDate(task.due_date) }}</span>
           </div>
-          
-          <p class="text-slate-600 text-sm mb-6 whitespace-pre-wrap leading-relaxed flex-grow" :class="{ 'line-through text-slate-400': task.status === 'done' }">
+
+          <p class="text-slate-600 text-sm mb-4 whitespace-pre-wrap leading-relaxed flex-grow" :class="{ 'line-through text-slate-400': task.status === 'done' }">
             {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
           </p>
 

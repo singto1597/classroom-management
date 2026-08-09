@@ -85,19 +85,19 @@ onMounted(() => {
     <div v-else-if="student" class="max-w-6xl mx-auto animate-fade-in-up">
       
       <!-- Top Action Bar -->
-      <div class="flex justify-between items-center mb-6">
-        <button 
-          @click="router.push('/students')" 
-          class="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors font-semibold text-sm group px-2"
+      <div class="flex justify-between items-center mb-5">
+        <button
+          @click="router.push('/students')"
+          class="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors font-semibold text-sm group px-2 py-1.5 rounded-lg hover:bg-slate-100"
         >
           <i class="bi bi-arrow-left group-hover:-translate-x-1 transition-transform"></i>
           <span>กลับหน้ารายชื่อ</span>
         </button>
-        
-        <RouterLink 
+
+        <RouterLink
           v-if="canEdit"
-          :to="`/students/${student.student_no}/edit`" 
-          class="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl shadow-sm active:scale-95 transition-all text-sm font-bold"
+          :to="`/students/${student.student_no}/edit`"
+          class="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl shadow-sm active:scale-95 transition-all text-sm font-bold"
         >
           <i class="bi bi-pencil-square"></i>
           <span>แก้ไขข้อมูล</span>
@@ -115,17 +115,17 @@ onMounted(() => {
           <!-- Profile Hero Card -->
           <div class="bg-white rounded-3xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-100 overflow-hidden relative group hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] transition-all duration-300">
             <!-- Header BG -->
-            <div class="h-28 bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 relative overflow-hidden">
+            <div class="h-24 sm:h-28 bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 relative overflow-hidden">
               <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-              <div class="absolute right-4 top-4 bg-white/20 backdrop-blur-md border border-white/20 px-3 py-1 rounded-lg text-white font-black text-lg shadow-sm">
+              <div class="absolute right-3 top-3 sm:right-4 sm:top-4 bg-white/20 backdrop-blur-md border border-white/20 px-3 py-1 rounded-lg text-white font-black text-base sm:text-lg shadow-sm">
                 #{{ student.student_no }}
               </div>
             </div>
-            
+
             <!-- Content -->
-            <div class="p-6 pt-0 relative">
+            <div class="p-5 sm:p-6 pt-0 relative">
               <!-- Avatar Placeholder (Optional) -->
-              <div class="w-20 h-20 bg-white rounded-2xl shadow-md border border-slate-50 -mt-10 flex items-center justify-center text-3xl mb-4 text-blue-600 bg-gradient-to-br from-blue-50 to-indigo-50">
+              <div class="w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-2xl shadow-md border border-slate-50 -mt-8 sm:-mt-10 flex items-center justify-center text-2xl sm:text-3xl mb-4 text-blue-600 bg-gradient-to-br from-blue-50 to-indigo-50">
                 <i class="bi bi-person-fill"></i>
               </div>
 
@@ -145,10 +145,10 @@ onMounted(() => {
                 </span>
               </div>
 
-              <h1 class="text-2xl font-black text-slate-800 leading-tight mb-1">
+              <h1 class="text-xl sm:text-2xl font-black text-slate-800 leading-tight mb-1">
                 {{ student.prefix }}{{ student.first_name }} {{ student.last_name }}
               </h1>
-              <p class="text-slate-500 font-medium text-sm flex items-center gap-2 mb-4">
+              <p class="text-slate-500 font-medium text-sm flex items-center gap-2 mb-4 flex-wrap">
                 <i class="bi bi-person-vcard text-blue-400"></i> {{ student.student_id || 'ไม่ระบุรหัส' }}
                 <span v-if="student.nickname"> • ชื่อเล่น: {{ student.nickname }}</span>
               </p>
@@ -210,7 +210,7 @@ onMounted(() => {
               <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <i class="bi bi-info-circle-fill text-blue-500"></i> ข้อมูลพื้นฐาน
               </h3>
-              <div class="grid grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">กรุ๊ปเลือด</p>
                   <i v-if="student.blood_group === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="bi bi-lock-fill text-slate-300"></i>

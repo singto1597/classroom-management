@@ -102,36 +102,40 @@ const submitBulk = async () => {
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto">
-    <div class="flex items-center gap-4 mb-8">
-      <button 
-        @click="router.back()" 
-        class="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
+  <div class="p-4 sm:p-6 max-w-4xl mx-auto">
+    <div class="flex items-center gap-3 mb-6">
+      <button
+        @click="router.back()"
+        class="w-10 h-10 flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors text-gray-600"
+        aria-label="กลับ"
       >
         <i class="bi bi-arrow-left text-xl"></i>
       </button>
-      <h1 class="text-2xl font-bold text-gray-800">เพิ่มนักเรียนใหม่</h1>
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold text-gray-800">เพิ่มนักเรียนใหม่</h1>
+        <p class="text-sm text-slate-500 mt-0.5">เพิ่มรายชื่อเพื่อนในห้องคนเดียว หรือนำเข้าแบบรวดเดียว</p>
+      </div>
     </div>
 
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       <div class="flex border-b border-gray-100">
         <button
           @click="activeTab = 'single'"
-          class="flex-1 py-4 text-sm font-bold transition-all border-b-2"
+          class="flex-1 py-3.5 text-sm font-bold transition-all border-b-2"
           :class="activeTab === 'single' ? 'border-blue-600 text-blue-600 bg-blue-50/30' : 'border-transparent text-gray-400 hover:text-gray-600'"
         >
           <i class="bi bi-person-fill me-2"></i>เพิ่มทีละคน
         </button>
         <button
           @click="activeTab = 'bulk'"
-          class="flex-1 py-4 text-sm font-bold transition-all border-b-2"
+          class="flex-1 py-3.5 text-sm font-bold transition-all border-b-2"
           :class="activeTab === 'bulk' ? 'border-blue-600 text-blue-600 bg-blue-50/30' : 'border-transparent text-gray-400 hover:text-gray-600'"
         >
           <i class="bi bi-people-fill me-2"></i>เพิ่มรวดเดียว (Bulk)
         </button>
       </div>
 
-      <div class="p-8">
+      <div class="p-5 md:p-7">
         <div v-if="activeTab === 'single'" class="space-y-6">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="space-y-2">

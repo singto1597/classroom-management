@@ -223,19 +223,19 @@ const formatNumber = (num: number) => {
 
 <template>
   <div class="p-4 md:p-8 max-w-6xl mx-auto">
-    <div class="mb-8 flex items-center gap-4">
-      <RouterLink 
+    <div class="mb-6 flex items-center gap-3">
+      <RouterLink
         to="/finance"
-        class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-xl transition shadow-sm group"
+        class="w-10 h-10 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition shadow-sm group flex items-center justify-center shrink-0"
         title="กลับหน้าภาพรวม"
       >
-        <i class="bi bi-arrow-left text-xl"></i>
+        <i class="bi bi-arrow-left text-lg"></i>
       </RouterLink>
-      <div>
-        <h1 class="text-2xl md:text-3xl font-bold text-gray-800 flex items-center gap-2">
+      <div class="min-w-0">
+        <h1 class="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
           ⚙️ ตั้งค่าระบบการเงิน
         </h1>
-        <p class="text-gray-500 mt-1">จัดการกระเป๋าเงินห้องและหมวดหมู่สำหรับบันทึกรายรับ/รายจ่าย</p>
+        <p class="text-gray-500 mt-0.5 text-sm truncate">จัดการกระเป๋าเงินห้องและหมวดหมู่สำหรับบันทึกรายรับ/รายจ่าย</p>
       </div>
     </div>
 
@@ -299,30 +299,34 @@ const formatNumber = (num: number) => {
           </button>
         </div>
 
-        <div class="p-6">
-          <div class="grid grid-cols-2 gap-6">
+        <div class="p-5 md:p-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
-              <h5 class="font-bold text-emerald-600 mb-4 flex items-center gap-2 border-b border-emerald-50 pb-2">
+              <h5 class="font-bold text-emerald-600 mb-3 flex items-center gap-2 border-b border-emerald-50 pb-2">
                 🟢 รายรับ
               </h5>
               <div v-if="incomeCategories.length === 0" class="text-center py-4 text-gray-300 text-xs italic">ไม่มีข้อมูล</div>
               <div class="flex flex-wrap gap-2">
-                <div 
-                  v-for="cat in incomeCategories" 
+                <div
+                  v-for="cat in incomeCategories"
                   :key="cat.id"
-                  class="bg-emerald-50 text-emerald-700 border border-emerald-100 py-1.5 px-3 rounded-full text-sm font-semibold flex items-center gap-2 group hover:bg-emerald-600 hover:text-white transition-all"
+                  class="bg-emerald-50 text-emerald-700 border border-emerald-100 py-2 px-3 rounded-full text-sm font-semibold flex items-center gap-1.5 group hover:bg-emerald-600 hover:text-white transition-all max-w-full"
                 >
-                  {{ cat.category_name }}
-                  <div v-if="isAdmin" class="flex gap-1.5 w-10 md:w-0 md:overflow-hidden md:group-hover:w-10 transition-all duration-300">
-                    <i @click.stop="handleEditCategory(cat)" class="bi bi-pencil text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
-                    <i @click.stop="handleDeleteCategory(cat.id)" class="bi bi-x-lg text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
+                  <span class="truncate">{{ cat.category_name }}</span>
+                  <div v-if="isAdmin" class="flex gap-1 shrink-0">
+                    <button @click.stop="handleEditCategory(cat)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-emerald-100/70 hover:text-white transition-all" title="แก้ไข">
+                      <i class="bi bi-pencil text-xs"></i>
+                    </button>
+                    <button @click.stop="handleDeleteCategory(cat.id)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-rose-400/70 hover:text-white transition-all" title="ลบ">
+                      <i class="bi bi-x-lg text-xs"></i>
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
 
             <div>
-              <h5 class="font-bold text-rose-600 mb-4 flex items-center gap-2 border-b border-rose-50 pb-2">
+              <h5 class="font-bold text-rose-600 mb-3 flex items-center gap-2 border-b border-rose-50 pb-2">
                 🔴 รายจ่าย
               </h5>
               <div v-if="expenseCategories.length === 0" class="text-center py-4 text-gray-300 text-xs italic">ไม่มีข้อมูล</div>
@@ -330,12 +334,16 @@ const formatNumber = (num: number) => {
                 <div
                   v-for="cat in expenseCategories"
                   :key="cat.id"
-                  class="bg-rose-50 text-rose-700 border border-rose-100 py-1.5 px-3 rounded-full text-sm font-semibold flex items-center gap-2 group hover:bg-rose-600 hover:text-white transition-all"
+                  class="bg-rose-50 text-rose-700 border border-rose-100 py-2 px-3 rounded-full text-sm font-semibold flex items-center gap-1.5 group hover:bg-rose-600 hover:text-white transition-all max-w-full"
                 >
-                  {{ cat.category_name }}
-                  <div v-if="isAdmin" class="flex gap-1.5 w-10 md:w-0 md:overflow-hidden md:group-hover:w-10 transition-all duration-300">
-                    <i @click.stop="handleEditCategory(cat)" class="bi bi-pencil text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
-                    <i @click.stop="handleDeleteCategory(cat.id)" class="bi bi-x-lg text-[10px] cursor-pointer hover:scale-125 transition-transform"></i>
+                  <span class="truncate">{{ cat.category_name }}</span>
+                  <div v-if="isAdmin" class="flex gap-1 shrink-0">
+                    <button @click.stop="handleEditCategory(cat)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-rose-100/70 hover:text-white transition-all" title="แก้ไข">
+                      <i class="bi bi-pencil text-xs"></i>
+                    </button>
+                    <button @click.stop="handleDeleteCategory(cat.id)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-rose-400/70 hover:text-white transition-all" title="ลบ">
+                      <i class="bi bi-x-lg text-xs"></i>
+                    </button>
                   </div>
                 </div>
               </div>

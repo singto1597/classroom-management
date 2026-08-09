@@ -99,8 +99,8 @@ onMounted(fetchTask)
           <h4 class="text-xl font-bold">ฟอร์มแก้ไขงาน (รหัสงาน #{{ taskId }})</h4>
         </div>
 
-        <div class="p-8 md:p-10">
-          
+        <div class="p-5 md:p-8">
+
           <div v-if="isLoading" class="flex flex-col items-center justify-center py-10 gap-3">
             <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-200 border-t-blue-600"></div>
             <p class="text-slate-500 font-medium animate-pulse">กำลังโหลดข้อมูล...</p>

@@ -5,12 +5,75 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', 'Sarabun', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  background-color: #f8fafc;
+  color: #1e293b;
+  overflow-x: hidden;
+}
+
+/* ============================================================
+   📱 Mobile-First Helper
+   ============================================================ */
+
+#app {
+  min-height: 100dvh;
+}
+
+/* กันการ highlight สีฟ้าตอนแตะบนมือถือทั่วทั้งแอป */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ซ่อน scrollbar แบบ default แต่ยัง scroll ได้ (ดูมินิมอล) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* กัน input ยืดเกินจอบนมือถือ (iOS zoom) — ใช้ 16px บนมือถือเท่านั้น
+   เพื่อให้ desktop input ขนาด text-lg (18px) ยังคงเดิม */
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* ลดขนาด glow blob (decorative) บนมือถือเพื่อประหยัดการวาดจอ */
+@media (max-width: 768px) {
+  .blur-\[100px\],
+  .blur-\[80px\] {
+    opacity: 0.7;
+  }
 }
