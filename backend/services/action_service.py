@@ -108,11 +108,23 @@ class ActionService:
 
     @classmethod
     async def notify_payment_confirmed(cls, server_id: int, payer_name: str, title: str, amount: float, user_name: str):
-        """เรียกใช้เมื่อมีคนจ่ายเงินแล้ว — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone แต่โชว์ความโปร่งใส)"""
+        """เรียกใช้เมื่อมีคนจ่ายเงินแล้ว (ทีละบิล) — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone แต่โชว์ความโปร่งใส)"""
         await cls._publish("FINANCE_PAYMENT", server_id, {
             "payer_name": payer_name,
             "title": title,
             "amount": amount,
+            "user_name": user_name
+        }, mention=False, category="✅ จ่ายเงินแล้ว", channel="minor")
+
+    @classmethod
+    async def notify_payments_confirmed(cls, server_id: int, payer_name: str, items: list, total_amount: float, user_name: str):
+        """✨ เรียกใช้เมื่อรับเงินรวบยอด (Batch) หลายบิลของคนเดียวกัน — publish แค่รอบเดียว
+        พร้อม `items` (ทุกบิล) ให้บอท render embed สรุปทีเดียว ไม่เด้งหลายรอบ"""
+        await cls._publish("FINANCE_PAYMENT", server_id, {
+            "payer_name": payer_name,
+            "items": items,
+            "total_amount": total_amount,
+            "count": len(items),
             "user_name": user_name
         }, mention=False, category="✅ จ่ายเงินแล้ว", channel="minor")
 

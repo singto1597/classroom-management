@@ -413,8 +413,8 @@ async def create_fee_collection(
 
 @router.put("/{target_id}/finance/payments/{payment_id}/pay", response_model=SuccessResponse)
 async def confirm_payment(
-    payment_id: int, 
-    req: PaymentConfirm, 
+    payment_id: int,
+    req: PaymentConfirm,
     request: Request,
     target: TargetResolution = Depends(get_target),
     pool: asyncpg.Pool = Depends(get_db_pool),
@@ -431,6 +431,34 @@ async def confirm_payment(
             server_id=target.server_id,
             room_id=target.room_id,
             user_id=user_ctx["user_id"]
+        )
+    except (RoomNotFoundError, PaymentNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ✨ รับเงินรวบยอด (Batch) — ปลดหนี้หลายรายการของนักเรียนคนเดียวกันในครั้งเดียว
+# (yield notification เดียว ไม่เด้งหลาย embed) — เส้นทาง 4 segment ไม่ชน /payments/{id}/pay
+@router.put("/{target_id}/finance/payments/batch", response_model=SuccessResponse)
+async def batch_confirm_payments(
+    req: BatchPaymentConfirm,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.batch_confirm_payments(
+            pool=pool,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
         )
     except (RoomNotFoundError, PaymentNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))

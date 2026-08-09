@@ -76,6 +76,18 @@ class PaymentConfirm(BaseModel):
     slip_image_url: Optional[str] = None
     user_name: str
 
+# ✨ รับเงินรวบยอด (Batch) — ปลดหนี้หลายรายการของนักเรียน 1 คนในครั้งเดียว
+# เพื่อให้แจ้งเตือน Discord เป็นรอบเดียว ไม่เด้งหลาย embed
+class BatchPaymentItem(BaseModel):
+    payment_id: int
+    paid_amount: float = Field(..., gt=0.0)
+
+class BatchPaymentConfirm(BaseModel):
+    items: List[BatchPaymentItem] = Field(..., min_length=1)  # บิลพร้อมยอดที่รับต่อบิล
+    paid_to_account_id: int
+    slip_image_url: Optional[str] = None
+    user_name: str
+
 # --- Schemas สำหรับส่งออกข้อมูล (Responses) ---
 class AccountResponse(BaseModel):
     id: int
