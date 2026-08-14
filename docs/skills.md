@@ -429,3 +429,12 @@
 - **Bot notify_new_activity:** อ่าน `metadata.required_fields` → ฟิลด์ Type B → field "⚠️ สิ่งที่ต้องเตรียมตัว" (เช่น "การจัดสายรถบัส และ การจัดห้องพัก …กรุณาเข้าไปตรวจสอบที่หน้าเว็บ"), Type A → field "🔒 หมายเหตุ" (เช่น "ใช้ข้อมูลไซส์เสื้อจากโปรไฟล์ …อัปเดตในระบบ")
 - **Rule:** (1) ข้อมูลที่อยู่ใน users ห้ามเก็บซ้ำลง JSONB — JOIN กลับมาเสมอ (2) config ฟิลด์ (types/options/labels) ควรมีที่เดียวแล้วแชร์ logic ไปทุกเลเยอร์ (3) export ควรอ่าน `required_fields` จาก activity metadata ไม่ใช่รับจาก client เสมอ (4) batch mutation → transaction เดียว + dedupe id + audit ต่อรายการ (5) Pydantic response_model ต้องประกาศ Type A ฟิลด์ใหม่ ไม่โดน strip (6) asyncpg JSONB คืน str/dict ตามเวอร์ชัน → normalize ก่อนเปรียบเทียบ
 - **Date Added:** 2026-08-14
+
+### 🛠️ Git Push/PR ติด DNS — วน retry จนกว่าจะได้ (เป็นปกติช่วงนี้)
+- **Context/Problem:** `git push` และ `gh pr create` ขึ้น `dial tcp ... i/o timeout` หรือ `gh auth status` ติด "Timeout trying to log in" — เครือข่ายที่เครื่องนี้มีปัญหา DNS/egress เป็นพัก ๆ ไม่ใช่ทุกครั้ง (ครั้งแรก timeout 2 นาที, ครั้งที่สองสำเร็จ)
+- **Correct Pattern/Solution:** อย่าเครียดกับ timeout แรก — **ลูป retry** จนกว่าจะผ่าน:
+  1. `git push -u origin <branch>` → ถ้า timeout → รอ ~20s → ลองใหม่ (ครั้งนี้สำเร็จครั้งที่ 2)
+  2. `gh pr create ...` → ถ้า timeout → retry เช่นกัน (ครั้งนี้ครั้งแรกผ่าน)
+  3. ใช้ `timeout 90 <cmd>` กันคำสั่งค้าง ไม่มีกำหนด + รันเป็น background (`run_in_background`) + `Monitor` ดูผลเพื่อไม่ต้องรอเฉย ๆ
+- **Rule:** ช่วงที่เครือข่ายไม่เสถียร (DNS timeout) ให้ wrapper คำสั่ง network (push/pr/clone) ด้วย loop retry ~5-8 รอบ รอ ~20s ระหว่างรอบ แล้วหยุดทันทีที่สำเร็จ — อย่า report เป็น error ถ้ายังไม่ลองครบ และอย่าปล่อยให้ timeout ครั้งเดียวหยุดงาน
+- **Date Added:** 2026-08-14
