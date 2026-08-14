@@ -347,7 +347,49 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE INDEX IF NOT EXISTS idx_journal_entries_room_date ON journal_entries(room_id, transaction_date);
                 CREATE INDEX IF NOT EXISTS idx_journal_entries_metadata ON journal_entries USING GIN (metadata);
             """)
-            
+
+            # --- 6. Activity & Role Management Module ---
+            await conn.execute("""
+                -- 1. ตารางเก็บหัวข้อกิจกรรม (Activities)
+                -- 🌟 metadata (JSONB) เก็บพิกัด, กำหนดการ, ลิ้งก์รูป, อ้างอิงงบประมาณ ฯลฯ เพื่อต่อยอด Dynamic
+                CREATE TABLE IF NOT EXISTS activities (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                    title VARCHAR(255) NOT NULL, -- ชื่อกิจกรรม
+                    description TEXT, -- รายละเอียดทั่วไป
+                    activity_date DATE NOT NULL,
+                    base_hours NUMERIC(5,2) DEFAULT 0.00,
+                    status VARCHAR(50) DEFAULT 'upcoming', -- upcoming, ongoing, completed, cancelled
+                    metadata JSONB DEFAULT '{}'::jsonb, -- 🌟 เก็บพิกัด, กำหนดการ, ลิ้งก์รูป, อ้างอิงงบประมาณ
+                    created_by VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP WITH TIME ZONE NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_activities_room_id ON activities(room_id);
+                CREATE INDEX IF NOT EXISTS idx_activities_metadata ON activities USING GIN (metadata);
+
+                -- 2. ตารางเก็บรายชื่อผู้เข้าร่วมและหน้าที่ (Activity Participants)
+                -- 🌟 metadata (JSONB) เก็บเบอร์รถบัส, ห้องพัก, เวลาเช็คอิน, ไซส์เสื้อเฉพาะกิจ ฯลฯ
+                CREATE TABLE IF NOT EXISTS activity_participants (
+                    id SERIAL PRIMARY KEY,
+                    activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+                    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                    role_type VARCHAR(100) DEFAULT 'participant', -- participant, staff, leader
+                    role_detail VARCHAR(255), -- "ถือป้าย", "สวัสดิการ"
+                    earned_hours NUMERIC(5,2) DEFAULT 0.00,
+                    status VARCHAR(50) DEFAULT 'confirmed', -- confirmed, cancelled, attended
+                    metadata JSONB DEFAULT '{}'::jsonb, -- 🌟 เก็บเบอร์รถบัส, ห้องพัก, เวลาเช็คอิน, ไซส์เสื้อเฉพาะกิจ
+                    recorded_by VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP WITH TIME ZONE NULL,
+                    UNIQUE (activity_id, student_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_activity_participants_activity_id ON activity_participants(activity_id);
+                CREATE INDEX IF NOT EXISTS idx_activity_participants_metadata ON activity_participants USING GIN (metadata);
+            """)
+
             # --- 5. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
 
@@ -380,8 +422,16 @@ async def init_db(pool: asyncpg.Pool):
             """)
             
             await conn.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_student_payments_active 
-                ON student_payments(collection_id, student_id) 
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_student_payments_active
+                ON student_payments(collection_id, student_id)
+                WHERE deleted_at IS NULL;
+            """)
+
+            # 🎯 กันผู้เข้าร่วมซ้ำแบบ soft-delete aware — เดิม UNIQUE(activity_id, student_id) บังคับทั้งตาราง
+            # ถ้า soft-delete แล้ว re-add คนเดิมจะชน UNIQUE constraint → ใช้ partial index แทน (เฉพาะแถวที่ยัง active)
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_participants_active
+                ON activity_participants(activity_id, student_id)
                 WHERE deleted_at IS NULL;
             """)
 

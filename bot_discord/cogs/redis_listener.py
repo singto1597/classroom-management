@@ -95,5 +95,8 @@ class RedisListener(commands.Cog):
         elif event_type == "NEW_STUDENT":
             await self.action_service.notify_new_student(server_id, data)
 
+        elif event_type == "NEW_ACTIVITY":
+            await self.action_service.notify_new_activity(server_id, data)
+
 async def setup(bot):
     await bot.add_cog(RedisListener(bot))

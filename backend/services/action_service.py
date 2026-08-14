@@ -149,6 +149,31 @@ class ActionService:
         }, mention=False, category="👤 มีสมาชิกใหม่", channel="minor")
 
     @classmethod
+    async def notify_new_activity(
+        cls,
+        server_id: int,
+        title: str,
+        activity_date: date,
+        base_hours: float,
+        metadata: dict,
+        participant_count: int,
+        user_name: str,
+        activity_id: int,
+    ):
+        """เรียกใช้เมื่อสร้างกิจกรรมใหม่ — ทุกคนต้องเห็น → @everyone
+        ส่ง metadata ทั้งก้อนให้บอทนำไป render กำหนดการ/สถานที่/แท็กจาก JSONB ได้
+        """
+        await cls._publish("NEW_ACTIVITY", server_id, {
+            "title": title,
+            "activity_date": activity_date,
+            "base_hours": base_hours,
+            "metadata": metadata or {},
+            "participant_count": participant_count,
+            "user_name": user_name,
+            "activity_id": activity_id,
+        }, mention=True, category="🎪 มีกิจกรรมใหม่นะ", channel="announcement")
+
+    @classmethod
     async def send_custom_message(
         cls,
         pool: asyncpg.Pool,

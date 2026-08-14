@@ -148,7 +148,22 @@ const router = createRouter({
           path: 'messages',
           name: 'send-message',
           component: () => import('@/views/actions/SendMessage.vue'),
-        }
+        },
+        {
+          path: 'activities',
+          name: 'activities',
+          component: () => import('@/views/activities/ActivityList.vue'),
+        },
+        {
+          path: 'activities/create',
+          name: 'create-activity',
+          component: () => import('@/views/activities/CreateActivity.vue'),
+        },
+        {
+          path: 'activities/:id',
+          name: 'activity-detail',
+          component: () => import('@/views/activities/ActivityDetail.vue'),
+        },
       ]
     }
   ],
