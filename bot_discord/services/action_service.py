@@ -176,6 +176,72 @@ class BotActionService:
         embed.set_footer(text=f"เพิ่มโดย: {data.get('user_name')}")
         await channel.send(content=self._build_content(data, "👤 มีสมาชิกใหม่"), embed=embed)
 
+    async def notify_new_activity(self, server_id: int, data: dict):
+        """
+        🎪 กิจกรรมใหม่ (NEW_ACTIVITY) — render embed จาก metadata ได้อย่างเต็มที่
+        - location_url → ลิงก์ Google Maps
+        - agenda (list/str) → กำหนดการคร่าว ๆ วนลูป
+        - tags → badge หมวดหมู่
+        """
+        channel = await self._get_announcement_channel(server_id)
+        if not channel:
+            return
+
+        meta = data.get("metadata") or {}
+        title = data.get("title", "กิจกรรมใหม่")
+        embed = discord.Embed(
+            title=f"📢 กิจกรรมใหม่: {title}",
+            description=f"วันที่ {data.get('activity_date')} · ⏱️ ชั่วโมงจิตอาสา: {data.get('base_hours', 0)} ชม.",
+            color=discord.Color.purple(),
+        )
+
+        # 📍 สถานที่ (location_url / location_name จาก metadata)
+        location_url = meta.get("location_url")
+        location_name = meta.get("location_name")
+        if location_url or location_name:
+            location_text = ""
+            if location_name:
+                location_text += f"**{location_name}**"
+            if location_url:
+                maps_label = "คลิกเพื่อดู Google Maps"
+                if isinstance(location_url, str) and not location_url.startswith("http"):
+                    maps_label = f"ดู {location_url}"
+                    location_url = f"https://www.google.com/maps/search/?api=1&query={location_url}"
+                link_text = f"[{maps_label}]({location_url})"
+                location_text = f"{location_text} {link_text}".strip()
+            embed.add_field(name="📍 สถานที่", value=location_text, inline=False)
+
+        # 📋 กำหนดการคร่าว ๆ (agenda จาก metadata — list หรือ string คั่น |)
+        agenda = meta.get("agenda")
+        if agenda:
+            if isinstance(agenda, list):
+                agenda_lines = "\n".join(f"• {str(item).strip()}" for item in agenda if str(item).strip())
+            else:
+                agenda_lines = "\n".join(f"• {item.strip()}" for item in str(agenda).split("|") if item.strip())
+            if agenda_lines:
+                embed.add_field(name="📋 กำหนดการคร่าว ๆ", value=agenda_lines[:1024], inline=False)
+
+        # 🏷️ แท็กหมวดหมู่ (tags จาก metadata)
+        tags = meta.get("tags")
+        if tags:
+            if isinstance(tags, list):
+                tag_str = " · ".join(f"#{str(t)}" for t in tags if str(t).strip())
+            else:
+                tag_str = " · ".join(f"#{t.strip()}" for t in str(tags).split(",") if t.strip())
+            if tag_str:
+                embed.add_field(name="🏷️ หมวดหมู่", value=tag_str, inline=False)
+
+        # 👥 ผู้เข้าร่วม
+        participant_count = data.get("participant_count", 0)
+        embed.add_field(
+            name="👥 ผู้เข้าร่วม",
+            value=f"**{participant_count} คน** — เช็คหน้าที่และเบอร์สแตนด์เชียร์ของตัวเองได้ที่หน้าเว็บ!",
+            inline=False,
+        )
+
+        embed.set_footer(text=f"สร้างกิจกรรมโดย: {data.get('user_name')}")
+        await channel.send(content=self._build_content(data, "🎪 มีกิจกรรมใหม่นะ"), embed=embed)
+
     async def notify_birthday(self, server_id: int, data: dict):
         """🎂 ส่งคำอวยพรวันเกิดไปที่ห้องแฮปปี้เบิร์ดเดย์ (ถ้าไม่ตั้ง → ห้องแจ้งเตือนหลัก)"""
         channel = await self._get_announcement_channel(server_id, channel="birthday")

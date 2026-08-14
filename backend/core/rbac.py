@@ -12,7 +12,8 @@ AVAILABLE_PERMISSIONS = [
     "HARD_DELETE_STUDENTS",
     "MANAGE_FINANCE",
     "MANAGE_CLASSROOM_SETTINGS",
-    "MANAGE_CLASSROOM_TASKS"
+    "MANAGE_CLASSROOM_TASKS",
+    "MANAGE_ACTIVITIES"
 ]
 
 async def require_member(conn: asyncpg.Connection, room_id: int, user_id: int):

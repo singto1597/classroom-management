@@ -167,6 +167,10 @@ class BotCommands(commands.Cog):
             "`/sync_room` - ผูกดิสคอร์ดกับรหัสห้องและเลขที่ (ทำครั้งแรก)\n"
             "`/my_profile` - ดูบัตรนักเรียนของตัวเอง", inline=False)
 
+        embed.add_field(name="🎪 หมวดกิจกรรม", value=
+            "`/activities` - ดูรายการกิจกรรมที่กำลังจะมาถึง\n"
+            "`/my_roles` - เช็คหน้าที่/เบอร์รถบัสของตัวเองในกิจกรรม", inline=False)
+
         embed.add_field(name="📜 หมวดประวัติระบบ", value=
             "`/view_logs` - (ผู้ดูแล) ดูประวัติการแก้ไขข้อมูลย้อนหลัง 20 รายการ", inline=False)
         

@@ -18,6 +18,14 @@ class TaskNotFoundError(Exception):
     """Raised when a task is not found."""
     pass
 
+class ActivityNotFoundError(Exception):
+    """Raised when an activity is not found."""
+    pass
+
+class ParticipantNotFoundError(Exception):
+    """Raised when an activity participant is not found."""
+    pass
+
 class PaymentNotFoundError(Exception):
     """Raised when a payment record is not found."""
     pass

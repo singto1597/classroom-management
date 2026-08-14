@@ -121,6 +121,7 @@ const menuItems = [
   { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check-fill' },
   { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event-fill' },
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
+  { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart-fill' },
   { name: 'ประกาศ Discord', path: '/messages', icon: 'bi-megaphone-fill' },
 ];
 
