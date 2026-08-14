@@ -2,7 +2,7 @@ import json
 import time
 import io
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -32,7 +32,8 @@ THAI_MONTH_NAMES: List[str] = [
     "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ]
 
-# 🌟 คอลัมน์มาตรฐานใน Excel export — มี metadata ที่เจอบ่อยเตรียมไว้ให้
+# 🌟 คอลัมน์มาตรฐานใน Excel export — แผนที่ชื่อคอลัมน์ → ภาษาไทย
+# ครอบคลุมทั้ง base fields, Type A (profile), และ Type B (metadata เฉพาะกิจกรรม)
 EXPORT_HEADER_LABELS: Dict[str, str] = {
     "student_no": "เลขที่",
     "first_name": "ชื่อจริง",
@@ -42,11 +43,42 @@ EXPORT_HEADER_LABELS: Dict[str, str] = {
     "role_detail": "รายละเอียดหน้าที่",
     "earned_hours": "ชั่วโมงจิตอาสา",
     "status": "สถานะเข้าร่วม",
-    "bus_number": "เบอร์รถบัส",
-    "room_number": "ห้องพัก",
+    # Type A — จากโปรไฟล์ users
+    "blood_group": "กรุ๊ปเลือด",
     "shirt_size": "ไซส์เสื้อ",
-    "phone_number": "เบอร์โทร",
+    "food_allergy": "อาหารที่แพ้",
+    "congenital_disease": "โรคประจำตัว",
+    "phone_number": "เบอร์โทรศัพท์นักเรียน",
+    "phone_number_parent": "เบอร์โทรศัพท์ผู้ปกครอง",
+    # Type B — metadata เฉพาะกิจกรรม (หมวดการเดินทาง)
+    "bus_number": "หมายเลขรถบัส",
+    "van_number": "หมายเลขรถตู้",
+    "seat_number": "เลขที่นั่ง",
+    "travel_method": "วิธีการเดินทาง",
+    # Type B — ที่พักและการจัดกลุ่ม
+    "room_number": "หมายเลขห้องพัก",
+    "building_name": "ชื่ออาคาร/ตึกพัก",
+    "group_name": "ชื่อกลุ่ม/สี/ค่าย/บ้าน",
+    "team_role": "บทบาทในทีม",
+    # Type B — การจัดการหน้างาน
+    "consent_status": "ใบขออนุญาตผู้ปกครอง",
+    "is_paid": "สถานะจ่ายเงินค่าค่าย",
     "check_in_time": "เวลาเช็คอิน",
+}
+
+# 🌟 Type A — Profile Fields: ดึงจากตาราง users (READ ONLY ในบริบทกิจกรรม) — ห้ามเก็บซ้ำลง JSONB
+# ตอน GET participants จะ JOIN กลับมาพร้อมเสมอ และตอน Export จะอ่านจาก record ตรง ๆ
+PROFILE_FIELDS: FrozenSet[str] = frozenset({
+    "blood_group", "shirt_size", "food_allergy", "congenital_disease",
+    "phone_number", "phone_number_parent",
+})
+PROFILE_FIELD_LABELS: Dict[str, str] = {
+    "blood_group": "กรุ๊ปเลือด",
+    "shirt_size": "ไซส์เสื้อ",
+    "food_allergy": "อาหารที่แพ้",
+    "congenital_disease": "โรคประจำตัว",
+    "phone_number": "เบอร์โทรศัพท์นักเรียน",
+    "phone_number_parent": "เบอร์โทรศัพท์ผู้ปกครอง",
 }
 
 ROLE_TYPE_LABELS: Dict[str, str] = {
@@ -112,7 +144,10 @@ class ActivityService:
             ap.id, ap.activity_id, ap.student_id, ap.role_type, ap.role_detail,
             ap.earned_hours, ap.status, ap.metadata, ap.recorded_by,
             s.student_no,
-            u.first_name, u.last_name, u.nickname
+            u.first_name, u.last_name, u.nickname,
+            -- 🌟 Type A Profile Fields (READ ONLY จาก users) — JOIN มาพร้อมเสมอ ห้ามบันทึกซ้ำลง metadata
+            u.blood_group, u.shirt_size, u.food_allergy, u.congenital_disease,
+            u.phone_number, u.phone_number_parent
         FROM activity_participants ap
         JOIN students s ON ap.student_id = s.id
         LEFT JOIN users u ON s.user_id = u.id
@@ -860,6 +895,93 @@ class ActivityService:
             actor_user_id=actor_user_id,
         )
 
+    @classmethod
+    async def batch_update_participants(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        items: List[dict],
+        user_name: str,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        actor_user_id: Optional[int] = None,
+    ) -> dict:
+        """
+        🎯 Batch Apply (คลุมดำตั้งค่า) — อัปเดต metadata ของผู้เข้าร่วมหลายคนภายใน transaction เดียว
+        - รายการไหน error (participant ไม่ใช่ของกิจกรรม / soft-delete) → rollback ทั้งก้อน (atomic)
+        - metadata ถูก merge กับของเดิม (ไม่ทับคีย์ที่ไม่ได้ส่ง)
+        - เขียน audit log 1 รายการต่อ participant ที่ถูกอัปเดต
+        """
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_ACTIVITIES")
+
+                    if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                        raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                    # 🧹 Dedupe participant_id (กันอัปเดตซ้ำในชุดเดียว) — ตาม lesson batch finance
+                    seen = set()
+                    unique_items: List[dict] = []
+                    for item in items:
+                        pid = int(item["participant_id"])
+                        if pid in seen:
+                            raise ValidationError(f"participant_id {pid} ถูกส่งซ้ำใน batch")
+                        seen.add(pid)
+                        meta = item.get("metadata") or {}
+                        if not isinstance(meta, dict):
+                            raise ValidationError(f"metadata ของ participant {pid} ต้องเป็น object")
+                        unique_items.append({"participant_id": pid, "metadata": meta})
+
+                    updated = []
+                    for item in unique_items:
+                        pid = item["participant_id"]
+                        new_meta = item["metadata"]
+                        old = await conn.fetchrow(
+                            f"{cls.PARTICIPANT_SELECT} WHERE ap.id = $1 AND ap.activity_id = $2 AND ap.deleted_at IS NULL",
+                            pid, activity_id,
+                        )
+                        if not old:
+                            raise ParticipantNotFoundError(f"ไม่พบผู้เข้าร่วม ID: {pid}")
+                        old_meta = cls._parse_metadata(old["metadata"])
+                        merged = dict(old_meta)
+                        merged.update(new_meta)
+
+                        await conn.execute(
+                            "UPDATE activity_participants SET metadata = $1::jsonb, updated_at = CURRENT_TIMESTAMP "
+                            "WHERE id = $2 AND activity_id = $3 AND deleted_at IS NULL",
+                            json.dumps(merged), pid, activity_id,
+                        )
+                        updated.append({"participant_id": pid, "student_no": old["student_no"], "metadata": merged})
+
+                        exec_time = int((time.time() - start_time) * 1000)
+                        await service_logger.log(
+                            conn=conn, action="UPDATE", actor_identifier=actor_identifier,
+                            client_source=client_source, room_id=target_room_id,
+                            entity_type="ACTIVITY_PARTICIPANT", entity_id=str(pid), status="success",
+                            old_values={"metadata": old_meta}, new_values={"metadata": merged},
+                            endpoint_or_command="batch_update_participants", execution_time_ms=exec_time,
+                        )
+
+                    return {"status": "success", "updated_count": len(updated), "updated": updated}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="UPDATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_PARTICIPANT", status="failed", error_detail=str(e),
+                    endpoint_or_command="batch_update_participants", execution_time_ms=exec_time,
+                )
+            raise e
+
     # ================================================================
     # 👤 ดูสิทธิ์/กิจกรรมของนักเรียนคนเดียว (สำหรับบอท /my_roles และหน้าโปรไฟล์)
     # ================================================================
@@ -895,9 +1017,13 @@ class ActivityService:
                         a.id AS activity_id, a.title, a.activity_date, a.base_hours, a.status,
                         a.metadata AS activity_metadata,
                         ap.role_type, ap.role_detail, ap.earned_hours, ap.status AS participant_status,
-                        ap.metadata AS participant_metadata
+                        ap.metadata AS participant_metadata,
+                        u.blood_group, u.shirt_size, u.food_allergy, u.congenital_disease,
+                        u.phone_number, u.phone_number_parent
                     FROM activity_participants ap
                     JOIN activities a ON ap.activity_id = a.id
+                    JOIN students s ON ap.student_id = s.id
+                    LEFT JOIN users u ON s.user_id = u.id
                     WHERE ap.student_id = $1 AND ap.deleted_at IS NULL
                       AND a.deleted_at IS NULL AND a.room_id = $2
                     ORDER BY a.activity_date ASC
@@ -957,7 +1083,23 @@ class ActivityService:
             return PARTICIPANT_STATUS_LABELS.get(str(value), value)
         if field == "activity_date":
             return ActivityService._format_buddhist_date(value)
+        if field == "is_paid":
+            # Boolean Checkbox → ไทย
+            if isinstance(value, bool):
+                return "✅ จ่ายแล้ว" if value else "⏳ ยังไม่จ่าย"
+            if isinstance(value, str):
+                return "✅ จ่ายแล้ว" if value.lower() in ("true", "1", "yes", "y") else "⏳ ยังไม่จ่าย"
+            return str(value)
         return value
+
+    # ตัวอ่านค่าของแต่ละคอลัมน์ — Type A อ่านจาก profile record, Type B อ่านจาก participant metadata
+    # DRY: export + (อนาคต) GET ใช้ตัวนี้อ่านค่าเดียวกัน ไม่ต้องแก้สองที่
+    @staticmethod
+    def _field_reader(field: str) -> Any:
+        if field in PROFILE_FIELDS:
+            # Type A — จาก JOIN users (record), ไม่มี value → ""
+            return lambda p: p.get(field)
+        return lambda p: (p.get("metadata") or {}).get(field)  # Type B — จาก metadata
 
     @classmethod
     async def export_activity_excel(
@@ -972,9 +1114,18 @@ class ActivityService:
         server_id: Optional[int] = None,
         room_id: Optional[int] = None,
     ) -> io.BytesIO:
-        """Export ผู้เข้าร่วมกิจกรรมเป็น .xlsx — เอาคีย์สำคัญใน metadata (เช่น เบอร์รถบัส) เป็นคอลัมน์"""
+        """Export ผู้เข้าร่วมกิจกรรมเป็น .xlsx — Dynamic Smart Columns
+
+        คอลัมน์มาจาก activities.metadata.required_fields (Array คีย์ที่ผู้สร้างกิจกรรมเลือกไว้ใน Field Selector)
+        - คีย์ในกลุ่ม Type A (profile) → อ่านจาก record (JOIN users) โดยตรง
+        - คีย์ในกลุ่ม Type B (metadata) → อ่านจาก participant.metadata
+        ถ้า metadata_keys ส่งมา (backward compat) จะใช้ตัวนั้นแทน — ลดคอลัมน์ขยะว่างเปล่า
+        """
         start_time = time.time()
         target_room_id = None
+        # 🌟 export_keys = required_fields (จาก Field Selector) หรือ fallback metadata_keys — init ก่อน try
+        # กัน audit fallback เจอ unbound variable ตอน error เกิดก่อนกำหนดค่า (ตาม lesson "AuditLogger Fallback")
+        export_keys: List[str] = [str(k).strip() for k in metadata_keys if str(k).strip()]
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
@@ -988,13 +1139,22 @@ class ActivityService:
                     if not participants:
                         raise ValidationError("ยังไม่มีผู้เข้าร่วมในกิจกรรมนี้")
 
-                    # คอลัมน์พื้นฐาน (English keys) + คอลัมน์จาก metadata (ใช้คีย์ที่ผู้ใช้เลือกตรง ๆ)
+                    # 🌟 Dynamic: เอา required_fields จาก metadata กิจกรรม (Field Selector)
+                    # ถ้าไม่มี (กิจกรรมเก่า) → ใช้ metadata_keys ที่ frontend ส่งมา (backward compat)
+                    required_fields = activity.get("metadata", {}).get("required_fields") or []
+                    if not isinstance(required_fields, list):
+                        required_fields = []
+                    if required_fields:
+                        export_keys = [str(k).strip() for k in required_fields if str(k).strip()]
+                    else:
+                        export_keys = [str(k).strip() for k in metadata_keys if str(k).strip()]
+
+                    # คอลัมน์พื้นฐาน (English keys) + คอลัมน์ที่ผู้สร้างเลือก (ลำดับตามที่เลือก)
                     base_fields = ["student_no", "first_name", "last_name", "role_type", "role_detail", "earned_hours", "status"]
                     seen = set()
                     fields = [f for f in base_fields if not (f in seen or seen.add(f))]
-                    for key in metadata_keys:
-                        key = str(key).strip()
-                        if key and key not in fields:
+                    for key in export_keys:
+                        if key not in fields:
                             fields.append(key)
 
                     room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
@@ -1054,7 +1214,10 @@ class ActivityService:
                         cell.font = white_bold
                         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-                    # แหล่งข้อมูลของแต่ละคอลัมน์: base fields อ่านจาก record, metadata keys อ่านจาก pm
+                    # แหล่งข้อมูลของแต่ละคอลัมน์ (DRY ผ่าน _field_reader):
+                    # - base fields (student_no/ชื่อ/role) → อ่านจาก record + แปลง label
+                    # - Type A (profile) → อ่านจาก record ตรง ๆ (JOIN users)
+                    # - Type B (metadata) → อ่านจาก participant.metadata
                     BASE_READERS: Dict[str, Any] = {
                         "student_no": lambda p: p["student_no"],
                         "first_name": lambda p: p["first_name"],
@@ -1065,14 +1228,17 @@ class ActivityService:
                         "status": lambda p: cls._translate_label("status", p["status"]),
                     }
                     for i, p in enumerate(participants, start=2):
-                        pm = p["metadata"]
                         final = []
                         for field in fields:
                             if field in BASE_READERS:
                                 final.append(BASE_READERS[field](p))
                             else:
-                                val = pm.get(field)
-                                final.append(cls._translate_label(field, val) if val is not None else "")
+                                reader = cls._field_reader(field)
+                                val = reader(p)
+                                if val is None or (isinstance(val, str) and not val.strip()):
+                                    final.append("")
+                                else:
+                                    final.append(cls._translate_label(field, val))
                         ws_data.append(final)
                         if i % 2 == 0:
                             for col_idx in range(1, len(fields) + 1):
@@ -1088,7 +1254,7 @@ class ActivityService:
                         conn=conn, action="EXPORT", actor_identifier=actor_identifier,
                         client_source=client_source, room_id=target_room_id, user_id=user_id,
                         entity_type="ACTIVITY", entity_id=str(activity_id), status="success",
-                        new_values={"metadata_keys": metadata_keys},
+                        new_values={"required_fields": export_keys, "metadata_keys": metadata_keys, "columns": fields},
                         endpoint_or_command="export_activity_excel", execution_time_ms=exec_time,
                     )
                     return output
@@ -1100,7 +1266,7 @@ class ActivityService:
                     conn=error_conn, action="EXPORT", actor_identifier=actor_identifier,
                     client_source=client_source, room_id=safe_room_id, user_id=user_id,
                     entity_type="ACTIVITY", entity_id=str(activity_id), status="failed",
-                    error_detail=str(e), new_values={"metadata_keys": metadata_keys},
+                    error_detail=str(e), new_values={"required_fields": export_keys, "metadata_keys": metadata_keys},
                     endpoint_or_command="export_activity_excel", execution_time_ms=exec_time,
                 )
             raise e

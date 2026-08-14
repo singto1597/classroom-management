@@ -5,6 +5,7 @@ import type {
   ActivityUpdate,
   ParticipantAdd,
   ParticipantUpdate,
+  BatchParticipantUpdate,
   MyActivityRole,
 } from '@/types/activity'
 
@@ -65,6 +66,18 @@ export const ActivityService = {
     await api.patch(
       `/api/classroom/${roomId}/activities/${activityId}/participants/${participantId}/status?target_type=room`,
       { status, user_name: userName },
+    )
+  },
+
+  /** 🎯 Batch Apply — อัปเดต metadata หลายคนพร้อมกัน (atomic ฝั่ง backend) */
+  async batchUpdateParticipants(
+    roomId: number,
+    activityId: number,
+    data: BatchParticipantUpdate,
+  ): Promise<void> {
+    await api.patch(
+      `/api/classroom/${roomId}/activities/${activityId}/participants/batch?target_type=room`,
+      data,
     )
   },
 

@@ -6,6 +6,16 @@ import { StudentService } from '@/services/student'
 import { ActivityService } from '@/services/activity'
 import type { Student } from '@/types/student'
 import type { ActivityParticipantInput } from '@/types/activity'
+import {
+  ALL_ACTIVITY_FIELDS,
+  EVENT_FIELDS,
+  PROFILE_FIELD_KEYS,
+  EVENT_FIELD_KEYS,
+  ACTIVITY_FIELD_CATEGORY_LABELS,
+  ACTIVITY_FIELD_CATEGORY_ORDER,
+  type ActivityField,
+} from '@/constants/activityFields'
+import ActivityFieldControl from '@/components/activities/ActivityFieldControl.vue'
 import Swal from 'sweetalert2'
 
 const router = useRouter()
@@ -41,16 +51,42 @@ const metaPresets = [
   { key: 'location_name', placeholder: 'สนามกีฬาโรงเรียน' },
 ]
 
-// --- รายชื่อนักเรียน + การเลือก ---
+// ================================================================
+// 🌟 Field Selector (Required Data) — ข้อมูลที่ต้องการจัดเก็บสำหรับกิจกรรมนี้
+// เก็บ key ที่ติ๊กลง activities.metadata.required_fields
+// Type A (🔒) → ดึงจากโปรไฟล์อัตโนมัติ ไม่ให้กรอกใหม่
+// Type B → เป็นคอลัมน์ที่แก้ในตาราง / Batch Apply ได้
+// ================================================================
+const requiredFields = ref<Set<string>>(new Set())
+
+const selectedFields = computed<ActivityField[]>(() =>
+  ALL_ACTIVITY_FIELDS.filter((f) => requiredFields.value.has(f.key)),
+)
+const typeAColumns = computed<ActivityField[]>(() =>
+  selectedFields.value.filter((f) => PROFILE_FIELD_KEYS.has(f.key)),
+)
+const typeBColumns = computed<ActivityField[]>(() =>
+  selectedFields.value.filter((f) => EVENT_FIELD_KEYS.has(f.key)),
+)
+/** ฟิลด์ Type B ที่ถูกเลือก — ใช้ใน Batch Apply Modal */
+const batchFields = computed<ActivityField[]>(() =>
+  EVENT_FIELDS.filter((f) => requiredFields.value.has(f.key)),
+)
+/** ฟิลด์ Type B ที่ถูกเลือกและสามารถตั้งค่าแบบกลุ่มได้ (ไม่ใช่ boolean ที่ต้องการค่าเฉพาะราย) */
+const batchSettableFields = computed<ActivityField[]>(() => batchFields.value)
+
+const toggleRequiredField = (key: string) => {
+  const next = new Set(requiredFields.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  requiredFields.value = next
+}
+
+// --- รายชื่อนักเรียน + การเลือก (เป็นทั้งผู้เข้าร่วมและเป้าหมาย Batch Apply) ---
 const students = ref<Student[]>([])
 const selectedNos = ref<Set<number>>(new Set())
 const roleDetails = ref<Record<number, string>>({})
-const participantMeta = ref<Record<number, Record<string, string>>>({})
-
-// ⚙️ Modal metadata ผู้เข้าร่วม (Advanced Meta)
-const showMetaModal = ref(false)
-const metaModalStudent = ref<Student | null>(null)
-const metaModalEntries = ref<MetaEntry[]>([{ key: '', value: '' }])
+const participantMeta = ref<Record<number, Record<string, unknown>>>({})
 
 const canManage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
@@ -68,9 +104,10 @@ onMounted(async () => {
   isLoading.value = true
   try {
     const list = await StudentService.getStudents(currentRoomId)
-    students.value = (list as any[]).filter((s) => s.status === 'active')
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error?.message || 'โหลดรายชื่อนักเรียนไม่สำเร็จ', 'error')
+    students.value = (list as Student[]).filter((s) => s.status === 'active')
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'โหลดรายชื่อนักเรียนไม่สำเร็จ'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
   } finally {
     isLoading.value = false
   }
@@ -79,11 +116,10 @@ onMounted(async () => {
 const selectedCount = computed(() => selectedNos.value.size)
 
 const toggleSelect = (student: Student) => {
-  const no = Number(student.student_no)
+  const no = student.student_no
   if (selectedNos.value.has(no)) {
     selectedNos.value.delete(no)
     delete roleDetails.value[no]
-    delete participantMeta.value[no]
   } else {
     selectedNos.value.add(no)
   }
@@ -92,7 +128,7 @@ const toggleSelect = (student: Student) => {
 }
 
 const selectAll = () => {
-  students.value.forEach((s) => selectedNos.value.add(Number(s.student_no)))
+  students.value.forEach((s) => selectedNos.value.add(s.student_no))
   selectedNos.value = new Set(selectedNos.value)
 }
 
@@ -129,21 +165,70 @@ const removeMetaRow = (entries: MetaEntry[], index: number) => {
   entries.splice(index, 1)
 }
 
-// ⚙️ Modal: เติม metadata ของผู้เข้าร่วมคนนั้น
-const openMetaModal = (student: Student) => {
-  metaModalStudent.value = student
-  const existing = participantMeta.value[Number(student.student_no)] || {}
-  metaModalEntries.value = Object.entries(existing).map(([key, value]) => ({ key, value: String(value) }))
-  if (metaModalEntries.value.length === 0) metaModalEntries.value = [{ key: '', value: '' }]
-  showMetaModal.value = true
+// ================================================================
+// 📊 Smart Participant Table — แก้ค่า Type B ในตารางได้เลย (ไม่ต้องเปิด Modal)
+// ================================================================
+/** อ่านค่า Type A จากโปรไฟล์นักเรียน (JOIN users ฝั่ง backend ก็ได้ค่าเดียวกัน) */
+const profileValue = (student: Student, key: string): unknown => {
+  return (student as unknown as Record<string, unknown>)[key]
 }
 
-const saveMetaModal = () => {
-  if (!metaModalStudent.value) return
-  const no = Number(metaModalStudent.value.student_no)
-  participantMeta.value[no] = buildMetadata(metaModalEntries.value) as Record<string, string>
-  showMetaModal.value = false
-  Toast.fire({ icon: 'success', title: `บันทึก metadata ของ ${metaModalStudent.value.first_name} แล้ว` })
+/** อ่าน metadata Type B ของ participant (ลบ key ที่ไม่มีค่า) */
+const getParticipantMeta = (no: number): Record<string, unknown> => {
+  if (!participantMeta.value[no]) participantMeta.value[no] = {}
+  return participantMeta.value[no]
+}
+
+const setParticipantField = (no: number, field: string, value: unknown) => {
+  const meta = getParticipantMeta(no)
+  if (value === '' || value === null || value === undefined) {
+    delete meta[field]
+  } else {
+    meta[field] = value
+  }
+  // trigger reactivity (เผื่อ key ใหม่ที่ Vue ไม่ track ผ่าน proxy)
+  participantMeta.value = { ...participantMeta.value }
+}
+
+const getRoleDetail = (no: number): string => roleDetails.value[no] ?? ''
+
+// ================================================================
+// 🎯 Batch Action (คลุมดำตั้งค่า) — ตั้งค่า Type B ให้ทุกคนที่ถูกติ๊กพร้อมกัน
+// แก้ Local State ก่อน แล้วกด "บันทึกกิจกรรม" ค่อยยิง payload เดียว
+// ================================================================
+const showBatchModal = ref(false)
+const batchValues = ref<Record<string, unknown>>({})
+
+const openBatchModal = () => {
+  if (!canManage.value) return
+  batchValues.value = {}
+  showBatchModal.value = true
+}
+
+const applyBatch = () => {
+  const values = batchValues.value
+  const targets = Array.from(selectedNos.value)
+  if (targets.length === 0) {
+    Swal.fire('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม', 'warning')
+    return
+  }
+  const filled = Object.entries(values).filter(
+    ([, v]) => v !== '' && v !== null && v !== undefined,
+  )
+  if (filled.length === 0) {
+    Swal.fire('กรอกค่า', 'กรุณากรอกค่าที่ต้องการตั้งค่าแบบกลุ่ม', 'warning')
+    return
+  }
+  for (const no of targets) {
+    for (const [key, val] of filled) {
+      setParticipantField(no, key, val)
+    }
+  }
+  showBatchModal.value = false
+  Toast.fire({
+    icon: 'success',
+    title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนแล้ว (ยังไม่บันทึก)`,
+  })
 }
 
 // --- Submit ---
@@ -161,16 +246,26 @@ const submit = async () => {
   const error = validateForm()
   if (error) return Swal.fire('กรอกข้อมูลไม่ครบ', error, 'warning')
 
+  // 🌟 ใส่ required_fields ลง metadata กิจกรรม (Field Selector) — backend export ใช้ค่านี้
+  const activityMetadata = buildMetadata(activityMeta.value)
+  activityMetadata.required_fields = Array.from(requiredFields.value)
+
   const participants: ActivityParticipantInput[] = []
   for (const no of selectedNos.value) {
-    const student = students.value.find((s) => Number(s.student_no) === no)
+    const student = students.value.find((s) => s.student_no === no)
     if (!student) continue
+    // 🚨 Type A (โปรไฟล์) ห้ามส่งลง metadata — backend JOIN มาจาก users ให้เอง
+    const meta = getParticipantMeta(no)
+    const cleanMeta: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(meta)) {
+      if (EVENT_FIELD_KEYS.has(k)) cleanMeta[k] = v
+    }
     participants.push({
       student_no: no,
       role_type: 'participant',
-      role_detail: roleDetails.value[no]?.trim() || null,
+      role_detail: getRoleDetail(no).trim() || null,
       earned_hours: form.value.base_hours > 0 ? form.value.base_hours : 0,
-      metadata: participantMeta.value[no] || {},
+      metadata: cleanMeta,
     })
   }
 
@@ -182,7 +277,7 @@ const submit = async () => {
       activity_date: form.value.activity_date,
       base_hours: Number(form.value.base_hours) || 0,
       status: form.value.status,
-      metadata: buildMetadata(activityMeta.value),
+      metadata: activityMetadata,
       participants,
       user_name: currentUserName,
     })
@@ -194,8 +289,9 @@ const submit = async () => {
       customClass: { popup: 'rounded-[2rem] shadow-2xl' },
     })
     router.push('/activities')
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error?.message || 'สร้างกิจกรรมไม่สำเร็จ', 'error')
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'สร้างกิจกรรมไม่สำเร็จ'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
   } finally {
     isSaving.value = false
   }
@@ -204,7 +300,7 @@ const submit = async () => {
 
 <template>
   <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
-    <div class="max-w-6xl mx-auto">
+    <div class="max-w-7xl mx-auto">
 
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
         <div>
@@ -214,7 +310,7 @@ const submit = async () => {
             </div>
             สร้างกิจกรรมใหม่
           </h3>
-          <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">กรอกข้อมูลหัวกิจกรรม + เลือกผู้เข้าร่วมและหน้าที่</p>
+          <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">กรอกข้อมูลหัวกิจกรรม + เลือกฟิลด์ที่ต้องจัดเก็บ + เลือกผู้เข้าร่วม</p>
         </div>
         <router-link to="/activities" class="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-4 py-2 rounded-xl transition-all">
           <i class="bi bi-arrow-left"></i> กลับรายการ
@@ -337,21 +433,79 @@ const submit = async () => {
           </div>
         </div>
 
-        <!-- ========== รายชื่อผู้เข้าร่วม ========== -->
-        <div class="lg:col-span-3">
+        <!-- ========== Field Selector + Smart Participant Table ========== -->
+        <div class="lg:col-span-3 space-y-5">
+          <!-- 🌟 Field Selector (Required Data) -->
+          <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+              <div>
+                <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
+                  <i class="bi bi-list-check text-violet-500"></i> ข้อมูลที่ต้องการจัดเก็บสำหรับกิจกรรมนี้ (Required Data)
+                </h4>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  ติ๊กเลือกฟิลด์ → ตารางผู้เข้าร่วมจะแสดงเฉพาะคอลัมน์เหล่านี้ · 🔒 = ดึงจากโปรไฟล์อัตโนมัติ
+                </p>
+              </div>
+              <span class="text-xs font-bold text-violet-600 bg-violet-50 px-3 py-1.5 rounded-lg whitespace-nowrap">
+                เลือกแล้ว {{ requiredFields.size }}/{{ ALL_ACTIVITY_FIELDS.length }} ฟิลด์
+              </span>
+            </div>
+
+            <div v-for="cat in ACTIVITY_FIELD_CATEGORY_ORDER" :key="cat" class="mb-4 last:mb-0">
+              <h5 class="text-xs font-black text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <i class="bi" :class="cat === 'profile' ? 'bi-lock-fill' : 'bi-chevron-right'"></i>
+                {{ ACTIVITY_FIELD_CATEGORY_LABELS[cat] }}
+              </h5>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label
+                  v-for="field in ALL_ACTIVITY_FIELDS.filter((f) => f.category === cat)"
+                  :key="field.key"
+                  class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-all select-none"
+                  :class="requiredFields.has(field.key)
+                    ? 'bg-violet-50 border-violet-300 shadow-sm'
+                    : 'bg-slate-50 border-slate-200 hover:border-violet-200 hover:bg-white'"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="requiredFields.has(field.key)"
+                    @change="toggleRequiredField(field.key)"
+                    class="mt-0.5 w-4 h-4 rounded accent-violet-600 flex-shrink-0"
+                  />
+                  <span class="min-w-0">
+                    <span class="block text-xs font-bold text-slate-700">
+                      {{ field.label }}
+                      <span v-if="cat === 'profile'" class="text-[10px] text-violet-500" title="ระบบจะดึงจากโปรไฟล์ให้อัตโนมัติ ไม่ต้องให้คนกรอกใหม่">🔒</span>
+                    </span>
+                    <span class="block text-[10px] text-slate-400 mt-0.5">{{ field.hint || field.placeholder || '' }}</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========== Smart Participant Table ========== -->
           <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
               <div>
                 <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
                   <i class="bi bi-people-fill text-violet-500"></i> เลือกผู้เข้าร่วม
                 </h4>
-                <p class="text-xs text-slate-400 mt-0.5">ติ๊กชื่อ → พิมพ์หน้าที่ · กด ⚙️ เพื่อกรอก metadata ต่อคน</p>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  ติ๊กชื่อ → แก้ค่าฟิลด์ Type B ในตารางได้เลย · คอลัมน์ Type A เป็นค่าจากโปรไฟล์ (อ่านอย่างเดียว)
+                </p>
               </div>
-              <div class="flex gap-2">
-                <button @click="selectAll" class="text-xs font-bold text-slate-500 hover:text-violet-600 bg-slate-50 hover:bg-violet-50 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1">
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-if="selectedCount > 0"
+                  @click="openBatchModal"
+                  class="px-4 py-2 text-xs font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
+                >
+                  <i class="bi bi-lightning-charge-fill"></i> ตั้งค่าแบบกลุ่ม (Batch Apply)
+                </button>
+                <button @click="selectAll" class="text-xs font-bold text-slate-500 hover:text-violet-600 bg-slate-50 hover:bg-violet-50 px-3 py-2 rounded-lg transition-colors inline-flex items-center gap-1">
                   <i class="bi bi-check-all"></i> เลือกทั้งหมด
                 </button>
-                <button @click="clearAll" class="text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1">
+                <button @click="clearAll" class="text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 px-3 py-2 rounded-lg transition-colors inline-flex items-center gap-1">
                   <i class="bi bi-x-lg"></i> ล้าง
                 </button>
               </div>
@@ -361,50 +515,84 @@ const submit = async () => {
               <i class="bi bi-person-check-fill"></i> เลือกแล้ว {{ selectedCount }} คน
             </div>
 
-            <!-- ตารางรายชื่อ (mobile card + desktop table) -->
-            <div class="max-h-[480px] overflow-y-auto overflow-x-hidden rounded-xl border border-slate-100">
-              <div v-if="students.length === 0" class="text-center py-10 text-slate-400 text-sm">
-                ยังไม่มีนักเรียนในห้องนี้
-              </div>
-              <div v-for="student in students" :key="student.student_no" class="border-b border-slate-50 last:border-0">
-                <div class="flex items-center gap-3 px-3 py-3 hover:bg-slate-50/70 transition-colors">
-                  <input
-                    type="checkbox"
-                    :checked="selectedNos.has(Number(student.student_no))"
-                    @change="toggleSelect(student)"
-                    class="w-5 h-5 rounded accent-violet-600 flex-shrink-0"
-                  />
-                  <div class="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold">
-                    {{ student.student_no }}
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <p class="text-sm font-bold text-slate-800 truncate">
-                      {{ student.prefix || '' }}{{ student.first_name }} {{ student.last_name }}
-                    </p>
-                    <p class="text-[11px] text-slate-400">{{ student.nickname || '—' }}</p>
-                  </div>
-
-                  <!-- หน้าที่ (role_detail) — โผล่เมื่อติ๊ก -->
-                  <input
-                    v-if="selectedNos.has(Number(student.student_no))"
-                    v-model="roleDetails[Number(student.student_no)]"
-                    type="text"
-                    placeholder="หน้าที่ เช่น ถือป้าย / สวัสดิการ"
-                    class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 max-w-[180px]"
-                  />
-
-                  <!-- ⚙️ Advanced Meta ต่อคน -->
-                  <button
-                    v-if="selectedNos.has(Number(student.student_no))"
-                    @click="openMetaModal(student)"
-                    class="w-9 h-9 flex-shrink-0 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition-colors flex items-center justify-center"
-                    title="กรอก Metadata เพิ่มเติม (เบอร์รถบัส ฯลฯ)"
-                  >
-                    <i class="bi bi-gear-fill"></i>
-                  </button>
-                </div>
-              </div>
+            <!-- ตาราง Smart (dynamic columns) -->
+            <div v-if="students.length === 0" class="text-center py-10 text-slate-400 text-sm">
+              ยังไม่มีนักเรียนในห้องนี้
             </div>
+            <div v-else class="overflow-x-auto overflow-y-hidden rounded-xl border border-slate-100">
+              <table class="w-full min-w-[700px] text-left">
+                <thead>
+                  <tr class="border-b border-slate-100 bg-slate-50/60 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                    <th class="py-2.5 px-2 w-10 text-center">✓</th>
+                    <th class="py-2.5 px-2">เลขที่</th>
+                    <th class="py-2.5 px-2">ชื่อ</th>
+                    <th class="py-2.5 px-2 min-w-[140px]">หน้าที่</th>
+                    <th
+                      v-for="field in typeBColumns"
+                      :key="field.key"
+                      class="py-2.5 px-2 min-w-[130px]"
+                    >
+                      {{ field.label }}
+                    </th>
+                    <th
+                      v-for="field in typeAColumns"
+                      :key="field.key"
+                      class="py-2.5 px-2 min-w-[120px]"
+                    >
+                      {{ field.label }} <span class="text-violet-400">🔒</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="student in students"
+                    :key="student.student_no"
+                    class="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors align-middle"
+                    :class="{ 'bg-violet-50/50': selectedNos.has(student.student_no) }"
+                  >
+                    <td class="py-2.5 px-2 text-center">
+                      <input
+                        type="checkbox"
+                        :checked="selectedNos.has(student.student_no)"
+                        @change="toggleSelect(student)"
+                        class="w-4 h-4 rounded accent-violet-600"
+                      />
+                    </td>
+                    <td class="py-2.5 px-2 text-sm font-bold text-slate-500 whitespace-nowrap">{{ student.student_no }}</td>
+                    <td class="py-2.5 px-2 whitespace-nowrap">
+                      <p class="text-sm font-bold text-slate-700">{{ student.prefix || '' }}{{ student.first_name }} {{ student.last_name }}</p>
+                      <p class="text-[10px] text-slate-400">{{ student.nickname || '—' }}</p>
+                    </td>
+                    <td class="py-2.5 px-2">
+                      <input
+                        v-model="roleDetails[student.student_no]"
+                        type="text"
+                        placeholder="หน้าที่ เช่น ถือป้าย"
+                        :disabled="!selectedNos.has(student.student_no)"
+                        class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
+                      />
+                    </td>
+                    <!-- คอลัมน์ Type B — แก้ในตารางได้เลย -->
+                    <td v-for="field in typeBColumns" :key="field.key" class="py-2.5 px-2">
+                      <ActivityFieldControl
+                        :field="field"
+                        :model-value="getParticipantMeta(student.student_no)[field.key]"
+                        :disabled="!selectedNos.has(student.student_no)"
+                        @update:model-value="(v: unknown) => setParticipantField(student.student_no, field.key, v)"
+                      />
+                    </td>
+                    <!-- คอลัมน์ Type A — อ่านจากโปรไฟล์ (🔒) -->
+                    <td v-for="field in typeAColumns" :key="field.key" class="py-2.5 px-2">
+                      <span class="text-xs font-semibold text-slate-600">{{ String(profileValue(student, field.key) ?? '—') }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p v-if="typeBColumns.length === 0" class="text-[11px] text-slate-400 mt-3">
+              💡 ยังไม่ได้เลือกฟิลด์ Type B → ติ๊กในส่วน "Required Data" ด้านบน แล้วจะเห็นคอลัมน์ให้กรอก (เช่น หมายเลขรถบัส, ห้องพัก)
+            </p>
           </div>
 
           <!-- ปุ่มบันทึก -->
@@ -419,63 +607,62 @@ const submit = async () => {
             >
               <i v-if="isSaving" class="bi bi-arrow-repeat animate-spin"></i>
               <i v-else class="bi bi-check-lg"></i>
-              {{ isSaving ? 'กำลังบันทึก...' : 'สร้างกิจกรรม' }}
+              {{ isSaving ? 'กำลังบันทึก...' : 'บันทึกกิจกรรม' }}
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ⚙️ Modal: Metadata ผู้เข้าร่วม -->
+    <!-- 🎯 Modal: Batch Apply (ตั้งค่าแบบกลุ่ม) -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="showMetaModal" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4" @click.self="showMetaModal = false">
-          <div class="w-full md:max-w-md bg-white rounded-t-3xl md:rounded-3xl shadow-2xl p-5 md:p-6 max-h-[90dvh] overflow-y-auto overflow-x-hidden">
-            <div class="flex items-center justify-between mb-4">
+        <div v-if="showBatchModal" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4" @click.self="showBatchModal = false">
+          <div class="w-full md:max-w-lg bg-white rounded-t-3xl md:rounded-3xl shadow-2xl p-5 md:p-6 max-h-[90dvh] overflow-y-auto overflow-x-hidden">
+            <div class="flex items-center justify-between mb-1">
               <h4 class="text-base font-bold text-slate-800 flex items-center gap-2">
-                <i class="bi bi-gear-fill text-violet-500"></i>
-                Metadata: {{ metaModalStudent?.prefix || '' }}{{ metaModalStudent?.first_name }}
+                <i class="bi bi-lightning-charge-fill text-fuchsia-500"></i>
+                ตั้งค่าแบบกลุ่ม
               </h4>
-              <button @click="showMetaModal = false" class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center">
+              <button @click="showBatchModal = false" class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center">
                 <i class="bi bi-x-lg"></i>
               </button>
             </div>
-            <p class="text-xs text-slate-400 mb-4">
-              เก็บข้อมูลเฉพาะคน เช่น เบอร์รถบัส (bus_number), ห้องพัก (room_number), ไซส์เสื้อ (shirt_size)
+            <p class="text-xs text-slate-400 mb-5">
+              ตั้งค่าฟิลด์ Type B ที่เลือกไว้ใน Required Data ให้ผู้เข้าร่วม <b class="text-fuchsia-600">{{ selectedCount }} คน</b> พร้อมกัน · ยังไม่บันทึกจนกว่าจะกด "บันทึกกิจกรรม"
             </p>
-            <div class="space-y-3 mb-4">
-              <div v-for="(meta, index) in metaModalEntries" :key="index" class="flex gap-2">
-                <input
-                  v-model="meta.key"
-                  placeholder="คีย์ เช่น bus_number"
-                  class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+
+            <div v-if="batchSettableFields.length === 0" class="text-sm text-slate-500 bg-slate-50 rounded-xl p-4 text-center">
+              ยังไม่เลือกฟิลด์ Type B ในส่วน Required Data → ติ๊กก่อน แล้วกลับมาตั้งค่าแบบกลุ่ม
+            </div>
+
+            <div v-else class="space-y-4">
+              <div v-for="field in batchSettableFields" :key="field.key">
+                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5">
+                  <i class="bi" :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"></i>
+                  {{ field.label }}
+                </label>
+                <ActivityFieldControl
+                  :field="field"
+                  :model-value="batchValues[field.key]"
+                  @update:model-value="(v: unknown) => { batchValues[field.key] = v }"
                 />
-                <input
-                  v-model="meta.value"
-                  placeholder="ค่า เช่น A1"
-                  class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                />
-                <button
-                  v-if="metaModalEntries.length > 1"
-                  @click="removeMetaRow(metaModalEntries, index)"
-                  class="w-8 h-8 flex-shrink-0 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center"
-                >
-                  <i class="bi bi-x-lg"></i>
-                </button>
               </div>
             </div>
-            <div class="flex justify-between items-center gap-3">
+
+            <div class="flex justify-end gap-3 mt-6">
               <button
-                @click="addMetaRow(metaModalEntries)"
-                class="text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg transition-colors inline-flex items-center gap-1"
+                @click="showBatchModal = false"
+                class="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
               >
-                <i class="bi bi-plus-lg"></i> เพิ่มคีย์
+                ยกเลิก
               </button>
               <button
-                @click="saveMetaModal"
-                class="px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-lg shadow-violet-600/20 transition-all text-sm"
+                @click="applyBatch"
+                :disabled="batchSettableFields.length === 0"
+                class="px-6 py-2.5 text-sm font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
               >
-                บันทึก metadata
+                <i class="bi bi-lightning-charge-fill"></i> ใช้ค่ากับ {{ selectedCount }} คน
               </button>
             </div>
           </div>

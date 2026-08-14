@@ -24,6 +24,24 @@ export interface ActivityParticipant {
   status: ParticipantStatus | string
   metadata: Metadata
   recorded_by: string | null
+  /** 🌟 Type A Profile Fields — JOIN มาจากตาราง users (READ ONLY ในบริบทกิจกรรม) */
+  blood_group?: string | null
+  shirt_size?: string | null
+  food_allergy?: string | null
+  congenital_disease?: string | null
+  phone_number?: string | null
+  phone_number_parent?: string | null
+}
+
+/** รายการ Batch Apply — อัปเดต metadata ของ participant ที่ถูกติ๊ก (merge กับของเดิม) */
+export interface BatchParticipantItem {
+  participant_id: number
+  metadata: Metadata
+}
+
+export interface BatchParticipantUpdate {
+  items: BatchParticipantItem[]
+  user_name: string
 }
 
 export interface Activity {

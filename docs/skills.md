@@ -414,3 +414,27 @@
   11. **Discord bot:** `notify_new_activity` render embed จาก metadata (`location_url` → Google Maps link, `agenda` list/str → วนลูป, `tags` → badge, `participant_count`); slash commands `/activities` (upcoming) + `/my_roles` (role_detail + `participant_metadata.bus_number`) ผ่าน `GET /{guild}/activities` / `GET /{guild}/activities/me/roles?target_type=server`
 - **Rule:** (1) ตารางที่มี `UNIQUE(col1,col2)` + soft-delete ต้องใช้ partial unique index แทน และ "re-add" ต้อง revive ก่อน (2) JSONB metadata อ่านแล้ว normalize เป็น dict เสมอ (3) create หลาย entity พร้อมกัน → transaction เดียว + executemany (4) PATCH field ที่เป็น object → merge ไม่ใช่ replace (5) route ที่เป็น literal segment ประกาศก่อน path param เสมอ (6) publish หลัง commit + ห้องไม่มี server_id → ข้าม (7) คอลัมน์ metadata ใน Excel ต้องใช้ key ตรง ๆ ไม่ใช่ label
 - **Date Added:** 2026-08-14
+
+### 🛠️ Dynamic Smart Forms — Field Selector (required_fields) + Type A/B + Batch Apply
+- **Context/Problem:** Refactor ระบบกิจกรรมเป็น "Dynamic Smart Forms" — ฟิลด์ที่กิจกรรมจะเก็บต้องกำหนดได้ตั้งแต่สร้าง (Field Selector) เพื่อให้ตารางผู้เข้าร่วม/Excel export แสดงเฉพาะคอลัมน์ที่จำเป็น (DRY Principle) และต้องมี Batch Action (คลุมดำตั้งค่ารถบัส/ห้องพักทีเดียว)
+- **ข้อมูลส่วนตัว (Type A) ห้ามบันทึกซ้ำลง JSONB:** `blood_group, shirt_size, food_allergy, congenital_disease, phone_number, phone_number_parent` อยู่ในตาราง `users` → `PARTICIPANT_SELECT` JOIN `users` กลับมาให้เสมอ (ตอน GET detail) + `get_student_activity_roles` JOIN ด้วย → ฝั่ง Vue แสดงเป็นข้อความอ่านอย่างเดียว (🔒) และ export อ่านจาก `p.get(field)` แทน `metadata` — เปลี่ยน label "เบอร์รถบัส"→"หมายเลขรถบัส", "เบอร์โทร"→"เบอร์โทรศัพท์นักเรียน" ตาม spec (ต้องแก้เทสเดิมด้วย)
+- **Field Dictionary แชร์ข้ามเลเยอร์:** `frontend/src/constants/activityFields.ts` (PROFILE_FIELDS/EVENT_FIELDS, input/dropdown/boolean/datetime, หมวด transport/accommodation/operation) เป็น source of truth — backend `PROFILE_FIELDS`/`EXPORT_HEADER_LABELS` และ bot `PROFILE_FIELD_LABELS`/`EVENT_FIELD_LABELS` ต้องซิงก์ manual
+- **CreateActivity Field Selector:** ติ๊ก checkbox → เก็บ Array คีย์ลง `activities.metadata.required_fields` → backend export อ่านค่านี้ generate header (ถ้าไม่มี → fallback `metadata_keys` ที่ frontend ส่ง backward compat) → **ลดคอลัมน์ขยะว่างเปล่า**
+- **DRY field reader:** `_field_reader(field)` = Type A → อ่าน record (JOIN users), Type B → อ่าน `participant.metadata` — ใช้จุดเดียวทั้ง export (แทน BASE_READERS ที่แยก metadata อ่านทีละ key)
+- **Type A ต้อง strip จาก payload ตอน create:** frontend `CreateActivity.submit` กรอง metadata ที่ส่งไป backend ให้เหลือเฉพาะ `EVENT_FIELD_KEYS` — กันบันทึก shirt_size ซ้ำลง JSONB
+- **`is_paid` boolean → Excel:** `_translate_label` แปลง bool เป็น "✅ จ่ายแล้ว"/"⏳ ยังไม่จ่าย" (เหมือน label enum อื่น)
+- **Batch Apply endpoint:** `PATCH /{target_id}/activities/{activity_id}/participants/batch` — `BatchParticipantUpdateRequest{items:[{participant_id, metadata}]}` → `batch_update_participants` วน update metadata (merge กับของเดิม) **ภายใน transaction เดียว** (atomic) + dedupe participant_id + audit log ต่อคน — **route ต้องประกาศก่อน `/participants/{participant_id}`** (literal "batch" ชน path param ไม่งั้น 422 — ตาม lesson route ordering)
+- **Frontend Smart Table:** คอลัมน์ = `required_fields` ที่เลือก → Type A แสดง text (🔒), Type B render `ActivityFieldControl` (input/dropdown/checkbox/datetime) แก้ในตารางได้เลย + `@change` (blur/select/checkbox) ยิง PATCH ต่อ cell
+- **Batch UX (คลุมดำ):** checkbox หน้าแถว + "เลือกทั้งหมด" → ปุ่ม "ตั้งค่าแบบกลุ่ม" → Modal โชว์เฉพาะฟิลด์ Type B ที่เลือก → ค่าเดียวยิง Batch endpoint → merge ลงทุกคนที่ติ๊ก
+- **Bot notify_new_activity:** อ่าน `metadata.required_fields` → ฟิลด์ Type B → field "⚠️ สิ่งที่ต้องเตรียมตัว" (เช่น "การจัดสายรถบัส และ การจัดห้องพัก …กรุณาเข้าไปตรวจสอบที่หน้าเว็บ"), Type A → field "🔒 หมายเหตุ" (เช่น "ใช้ข้อมูลไซส์เสื้อจากโปรไฟล์ …อัปเดตในระบบ")
+- **Rule:** (1) ข้อมูลที่อยู่ใน users ห้ามเก็บซ้ำลง JSONB — JOIN กลับมาเสมอ (2) config ฟิลด์ (types/options/labels) ควรมีที่เดียวแล้วแชร์ logic ไปทุกเลเยอร์ (3) export ควรอ่าน `required_fields` จาก activity metadata ไม่ใช่รับจาก client เสมอ (4) batch mutation → transaction เดียว + dedupe id + audit ต่อรายการ (5) Pydantic response_model ต้องประกาศ Type A ฟิลด์ใหม่ ไม่โดน strip (6) asyncpg JSONB คืน str/dict ตามเวอร์ชัน → normalize ก่อนเปรียบเทียบ
+- **Date Added:** 2026-08-14
+
+### 🛠️ Git Push/PR ติด DNS — วน retry จนกว่าจะได้ (เป็นปกติช่วงนี้)
+- **Context/Problem:** `git push` และ `gh pr create` ขึ้น `dial tcp ... i/o timeout` หรือ `gh auth status` ติด "Timeout trying to log in" — เครือข่ายที่เครื่องนี้มีปัญหา DNS/egress เป็นพัก ๆ ไม่ใช่ทุกครั้ง (ครั้งแรก timeout 2 นาที, ครั้งที่สองสำเร็จ)
+- **Correct Pattern/Solution:** อย่าเครียดกับ timeout แรก — **ลูป retry** จนกว่าจะผ่าน:
+  1. `git push -u origin <branch>` → ถ้า timeout → รอ ~20s → ลองใหม่ (ครั้งนี้สำเร็จครั้งที่ 2)
+  2. `gh pr create ...` → ถ้า timeout → retry เช่นกัน (ครั้งนี้ครั้งแรกผ่าน)
+  3. ใช้ `timeout 90 <cmd>` กันคำสั่งค้าง ไม่มีกำหนด + รันเป็น background (`run_in_background`) + `Monitor` ดูผลเพื่อไม่ต้องรอเฉย ๆ
+- **Rule:** ช่วงที่เครือข่ายไม่เสถียร (DNS timeout) ให้ wrapper คำสั่ง network (push/pr/clone) ด้วย loop retry ~5-8 รอบ รอ ~20s ระหว่างรอบ แล้วหยุดทันทีที่สำเร็จ — อย่า report เป็น error ถ้ายังไม่ลองครบ และอย่าปล่อยให้ timeout ครั้งเดียวหยุดงาน
+- **Date Added:** 2026-08-14

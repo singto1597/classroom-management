@@ -5,7 +5,6 @@ import type {
   AccountCreate,
   Category,
   CategoryCreate,
-  Transaction,
   TransactionList,
   TransactionCreate,
   TransferCreate,

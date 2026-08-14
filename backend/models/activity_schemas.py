@@ -31,7 +31,7 @@ class ActivityParticipantIn(BaseModel):
 
 
 class ActivityParticipantResponse(BaseModel):
-    """ผู้เข้าร่วมที่คืนกลับ — มี student_no + ชื่อสำหรับแสดง"""
+    """ผู้เข้าร่วมที่คืนกลับ — มี student_no + ชื่อ + Type A Profile Fields (JOIN จาก users)"""
     id: int
     activity_id: int
     student_id: int
@@ -45,6 +45,13 @@ class ActivityParticipantResponse(BaseModel):
     status: str
     metadata: Dict[str, Any] = {}
     recorded_by: Optional[str] = None
+    # 🌟 Type A — อ่านจากโปรไฟล์ users โดยตรง (READ ONLY ในบริบทกิจกรรม — ห้ามบันทึกซ้ำลง metadata)
+    blood_group: Optional[str] = None
+    shirt_size: Optional[str] = None
+    food_allergy: Optional[str] = None
+    congenital_disease: Optional[str] = None
+    phone_number: Optional[str] = None
+    phone_number_parent: Optional[str] = None
 
 
 # --- Create / Update Activity ---
@@ -94,6 +101,19 @@ class ParticipantUpdateRequest(BaseModel):
 class ParticipantStatusUpdate(BaseModel):
     """เปลี่ยนสถานะ participant (เช่น เช็คอิน/ยกเลิก) — ส่งแค่ status + user_name"""
     status: ParticipantStatus
+    user_name: str = Field(..., min_length=1, max_length=100)
+
+
+class BatchParticipantItem(BaseModel):
+    """1 รายการใน Batch Update — อัปเดต metadata ของ participant (merge กับของเดิม)"""
+    participant_id: int
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # 🌟 Type B ค่าที่จะ merge
+
+
+class BatchParticipantUpdateRequest(BaseModel):
+    """Batch Apply (คลุมดำตั้งค่า) — อัปเดตหลาย participants ใน transaction เดียว
+    ใช้เมื่อ frontend ตั้งค่าเช่น bus_number กลุ่มใหญ่ แล้วยิง payload ก้อนเดียว"""
+    items: List[BatchParticipantItem] = Field(..., min_length=1)
     user_name: str = Field(..., min_length=1, max_length=100)
 
 
