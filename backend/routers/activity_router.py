@@ -183,6 +183,7 @@ async def update_activity(
         client_source, actor = get_audit_context(request, user_ctx)
         update_data = req.model_dump(exclude_unset=True)
         update_data.pop("user_name", None)
+        participants = update_data.pop("participants", None)
         return await ActivityService.update_activity(
             pool=pool,
             activity_id=activity_id,
@@ -192,6 +193,7 @@ async def update_activity(
             actor_identifier=actor,
             room_id=room_id,
             actor_user_id=user_ctx.get("user_id"),
+            participants=participants,
         )
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))

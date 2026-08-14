@@ -229,3 +229,42 @@ export function fieldDisplayValue(field: ActivityField | undefined, raw: unknown
   }
   return String(raw)
 }
+
+/** ================================================================
+ *  🎖️ ตำแหน่ง/หน้าที่ของกิจกรรม (Activity Duty Positions)
+ *  เก็บเป็น Array ของชื่อตำแหน่งใน activities.metadata.positions
+ *  แต่ละกิจกรรมกำหนดเองได้ (เช่น กีฬาสี: นักกีฬา/แสตน/สตาฟแสตน/สตาฟนักกีฬา)
+ *  ================================================================ */
+/** ค่าเริ่มต้นสำหรับกิจกรรมที่ยังไม่ได้ตั้งตำแหน่ง (backward compat) */
+export const DEFAULT_ACTIVITY_POSITIONS: string[] = [
+  'นักกีฬา',
+  'แสตน',
+  'สตาฟแสตน',
+  'สตาฟนักกีฬา',
+]
+
+/** อ่านรายการตำแหน่งจาก metadata (fallback ค่าเริ่มต้นถ้าไม่มี / ว่างเปล่า) */
+export function getActivityPositions(metadata?: Record<string, unknown> | null): string[] {
+  const raw = metadata?.positions
+  if (Array.isArray(raw)) {
+    const list = raw.map(String).map((s) => s.trim()).filter(Boolean)
+    if (list.length > 0) return list
+  }
+  return [...DEFAULT_ACTIVITY_POSITIONS]
+}
+
+/** "นักกีฬา: วิ่ง 100 เมตร" → { position: 'นักกีฬา', note: 'วิ่ง 100 เมตร' } */
+export function splitDutyRole(roleDetail: string | null | undefined): { position: string; note: string } {
+  const raw = (roleDetail ?? '').trim()
+  const idx = raw.indexOf(': ')
+  if (idx === -1) return { position: raw, note: '' }
+  return { position: raw.slice(0, idx).trim(), note: raw.slice(idx + 2).trim() }
+}
+
+/** { position, note } → "นักกีฬา: วิ่ง 100 เมตร" (note ว่าง → แค่ตำแหน่ง) */
+export function joinDutyRole(position: string, note: string): string {
+  const p = position.trim()
+  const n = note.trim()
+  if (!p) return n
+  return n ? `${p}: ${n}` : p
+}

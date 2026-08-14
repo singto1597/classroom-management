@@ -160,6 +160,11 @@ const router = createRouter({
           component: () => import('@/views/activities/CreateActivity.vue'),
         },
         {
+          path: 'activities/:id/edit',
+          name: 'edit-activity',
+          component: () => import('@/views/activities/EditActivity.vue'),
+        },
+        {
           path: 'activities/:id',
           name: 'activity-detail',
           component: () => import('@/views/activities/ActivityDetail.vue'),

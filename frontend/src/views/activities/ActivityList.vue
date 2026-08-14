@@ -214,6 +214,13 @@ onMounted(fetchData)
               <i class="bi bi-people-fill text-violet-500"></i> {{ activity.participant_count }} คน
             </span>
             <div v-if="canManageActivities" class="flex gap-2">
+              <router-link
+                :to="`/activities/${activity.id}/edit`"
+                class="w-10 h-10 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-400 bg-slate-50 hover:bg-violet-50 hover:text-violet-600 transition-colors"
+                title="แก้ไขกิจกรรม"
+              >
+                <i class="bi bi-pencil-square"></i>
+              </router-link>
               <button
                 @click.stop="deleteActivity(activity)"
                 class="w-10 h-10 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-400 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 transition-colors"
