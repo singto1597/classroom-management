@@ -88,6 +88,8 @@ export interface ActivityUpdate {
   base_hours?: number
   status?: ActivityStatus | string
   metadata?: Metadata
+  /** ถ้าส่งมา → แทนที่ผู้เข้าร่วมทั้งชุด (เพิ่ม/แก้/ลบ/กู้คืน) เหมือนตอนสร้าง */
+  participants?: ActivityParticipantInput[]
   user_name: string
 }
 

@@ -360,6 +360,189 @@ async def test_add_participant_revives_soft_deleted(db_pool):
         assert row["role_detail"] == "ใหม่"
 
 
+async def test_update_activity_reconciles_participants_add_update_remove(db_pool):
+    """PATCH กิจกรรมส่ง participants → reconcile: เพิ่มคนใหม่ / แก้ role_detail ของคนเดิม / ลบคนที่ไม่ได้ส่ง"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    s1 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="หนึ่ง"), 1)
+    s2 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="B", last_name="สอง"), 2)
+    s3 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="C", last_name="สาม"), 3)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="กีฬาสี", activity_date=date(2026, 10, 15),
+            base_hours=8.0, status="upcoming", metadata={"positions": ["นักกีฬา", "แสตน"]},
+            participants=[
+                {"student_no": 1, "role_detail": "นักกีฬา"},
+                {"student_no": 2, "role_detail": "แสตน"},
+            ],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    updated = await ActivityService.update_activity(
+        pool=db_pool, activity_id=activity_id,
+        update_data={"title": "กีฬาสี แก้แล้ว", "metadata": {"positions": ["นักกีฬา", "สตาฟแสตน"]}},
+        participants=[
+            {"student_no": 1, "role_detail": "สตาฟแสตน"},  # เปลี่ยนหน้าที่
+            {"student_no": 3, "role_detail": "นักกีฬา"},     # เพิ่มคนใหม่
+        ],
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+
+    assert updated["title"] == "กีฬาสี แก้แล้ว"
+    assert updated["metadata"]["positions"] == ["นักกีฬา", "สตาฟแสตน"]
+
+    async with db_pool.acquire() as conn:
+        active = await conn.fetch(
+            "SELECT student_id, role_detail FROM activity_participants WHERE activity_id = $1 AND deleted_at IS NULL",
+            activity_id,
+        )
+        assert len(active) == 2
+        by_student = {r["student_id"]: r["role_detail"] for r in active}
+        assert by_student[s1] == "สตาฟแสตน"   # อัปเดต role_detail
+        assert by_student[s3] == "นักกีฬา"     # เพิ่มคนใหม่
+
+        dropped = await conn.fetchval(
+            "SELECT deleted_at FROM activity_participants WHERE activity_id = $1 AND student_id = $2",
+            activity_id, s2,
+        )
+        assert dropped is not None  # คนที่ไม่ได้ส่ง → soft delete
+
+
+async def test_update_activity_reconcile_revives_soft_deleted(db_pool):
+    """ลบ participant แล้ว PATCH re-add คนเดิม → กู้คืนแถวเดิม (deleted_at = NULL) ไม่ชน partial unique index"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="B"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="งาน", activity_date=date(2026, 12, 1),
+            base_hours=1.0, status="upcoming", metadata={},
+            participants=[{"student_no": 1, "role_detail": "เก่า"}],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    async with db_pool.acquire() as conn:
+        part_id = await conn.fetchval("SELECT id FROM activity_participants WHERE activity_id = $1", activity_id)
+    await ActivityService.remove_participant(
+        pool=db_pool, activity_id=activity_id, participant_id=part_id,
+        user_name="ผู้ดูแล", user_id=owner, client_source="WEB_APP",
+        actor_identifier="user_id:1", room_id=room_id,
+    )
+
+    # PATCH re-add → revive แถวเดิม (ไม่ INSERT ซ้ำ)
+    await ActivityService.update_activity(
+        pool=db_pool, activity_id=activity_id, update_data={},
+        participants=[{"student_no": 1, "role_detail": "ใหม่"}],
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM activity_participants WHERE id = $1", part_id)
+        assert row["deleted_at"] is None
+        assert row["role_detail"] == "ใหม่"
+        count = await conn.fetchval(
+            "SELECT COUNT(*) FROM activity_participants WHERE activity_id = $1 AND student_id = $2 AND deleted_at IS NULL",
+            activity_id, row["student_id"],
+        )
+        assert count == 1
+
+
+async def test_update_activity_reconcile_atomic_rollback(db_pool):
+    """PATCH participants ที่มีคน invalid (pending) → rollback ทั้งก้อน: title + participants เดิมไม่เปลี่ยน"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="B"), 1)
+    # pending student (ยังไม่ active) — เอามาเป็นตัวชนะ rollback
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Pend", last_name="Guy"), 2, status="pending")
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="งาน", activity_date=date(2026, 12, 1),
+            base_hours=1.0, status="upcoming", metadata={},
+            participants=[{"student_no": 1}],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    with pytest.raises(Exception):
+        await ActivityService.update_activity(
+            pool=db_pool, activity_id=activity_id,
+            update_data={"title": "ควรจะ rollback"},
+            participants=[{"student_no": 2}],  # pending → StudentNotFoundError → rollback
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+
+    async with db_pool.acquire() as conn:
+        act = await conn.fetchrow("SELECT title FROM activities WHERE id = $1", activity_id)
+        assert act["title"] == "งาน"  # title ไม่เปลี่ยน (rollback)
+        active = await conn.fetch(
+            "SELECT student_id FROM activity_participants WHERE activity_id = $1 AND deleted_at IS NULL",
+            activity_id,
+        )
+        assert len(active) == 1  # participant เดิมยังอยู่
+
+
+async def test_update_activity_participants_only_patch(db_pool):
+    """PATCH ที่ส่งแค่ participants (ไม่มี title ฯลฯ) → ไม่ error 'ไม่มีฟิลด์ที่แก้ไขได้'"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="B"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="งาน", activity_date=date(2026, 12, 1),
+            base_hours=1.0, status="upcoming", metadata={}, participants=[],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    updated = await ActivityService.update_activity(
+        pool=db_pool, activity_id=activity_id, update_data={},
+        participants=[{"student_no": 1, "role_detail": "เพิ่มคนแรก"}],
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+    assert updated["participant_count"] == 1
+    assert updated["participants"][0]["role_detail"] == "เพิ่มคนแรก"
+
+
+async def test_update_activity_positions_merge_preserves_required_fields(db_pool):
+    """PATCH metadata.positions → merge ระดับ 1 → required_fields เดิมยังอยู่ครบ"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="กีฬาสี", activity_date=date(2026, 10, 15),
+            base_hours=8.0, status="upcoming",
+            metadata={"required_fields": ["bus_number", "seat_number"], "tags": ["กีฬา"]},
+            participants=[], user_name="ผู้ดูแล", client_source="WEB_APP",
+            actor_identifier="user_id:1", room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    updated = await ActivityService.update_activity(
+        pool=db_pool, activity_id=activity_id,
+        update_data={"metadata": {"positions": ["นักกีฬา", "แสตน", "สตาฟแสตน"]}},
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+    assert updated["metadata"]["required_fields"] == ["bus_number", "seat_number"]
+    assert updated["metadata"]["positions"] == ["นักกีฬา", "แสตน", "สตาฟแสตน"]
+    assert updated["metadata"]["tags"] == ["กีฬา"]
+
+
 async def test_get_student_activity_roles_returns_bus_number(db_pool):
     """get_student_activity_roles → คืน role_detail + bus_number จาก metadata (ใช้กับบอท /my_roles)"""
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
@@ -967,3 +1150,74 @@ async def test_http_batch_update_participants_route_not_shadowed(client, db_pool
             "WHERE ap.activity_id = $1 ORDER BY s.student_no", int(activity_id))
         for row in rows:
             assert _parse_metadata(row["metadata"])["bus_number"] == "2"
+
+
+# ================================================================
+# 🎯 HTTP-level: update_activity reconcile participants (edit page)
+# ================================================================
+
+async def test_http_update_activity_reconciles_participants(client, db_pool):
+    """HTTP: PATCH กิจกรรมพร้อม participants → reconcile สำเร็จ + deep DB ตรวจ"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    s1 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="หนึ่ง"), 1)
+    s2 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="B", last_name="สอง"), 2)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        create_resp = await _create_activity_http(
+            client, room_id, owner, title="กีฬาสี",
+            metadata={"positions": ["นักกีฬา", "แสตน"]},
+            participants=[{"student_no": 1, "role_detail": "นักกีฬา"}],
+        )
+        activity_id = int(create_resp.json()["message"].split("ID: ")[1].rstrip(")"))
+
+    resp = client.patch(
+        _activity_api(room_id, f"/{activity_id}"),
+        json={
+            "title": "กีฬาสี แก้",
+            "metadata": {"positions": ["นักกีฬา", "สตาฟแสตน"]},
+            "participants": [
+                {"student_no": 2, "role_detail": "สตาฟแสตน"},
+            ],
+            "user_name": "ผู้ดูแล",
+        },
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["title"] == "กีฬาสี แก้"
+    assert data["metadata"]["positions"] == ["นักกีฬา", "สตาฟแสตน"]
+    assert data["participant_count"] == 1
+
+    # 🚨 Deep DB verification
+    async with db_pool.acquire() as conn:
+        parts = await conn.fetch(
+            "SELECT ap.student_id, ap.role_detail, ap.deleted_at "
+            "FROM activity_participants ap JOIN students s ON ap.student_id = s.id "
+            "WHERE ap.activity_id = $1 AND s.student_no IN (1, 2) ORDER BY s.student_no",
+            activity_id,
+        )
+        by_student = {p["student_id"]: p for p in parts}
+        # student_no 1 → soft delete; student_no 2 → active
+        assert by_student[s1]["deleted_at"] is not None
+        assert by_student[s2]["deleted_at"] is None
+        assert by_student[s2]["role_detail"] == "สตาฟแสตน"
+
+
+async def test_http_update_activity_requires_manage_permission(client, db_pool):
+    """HTTP: PATCH กิจกรรม (พร้อม participants) — สมาชิกธรรมดา → 403"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    member = await _insert_user(db_pool, first_name="Plain", last_name="Member")
+    await _insert_student(db_pool, room_id, member, 5)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        create_resp = await _create_activity_http(client, room_id, owner)
+        activity_id = int(create_resp.json()["message"].split("ID: ")[1].rstrip(")"))
+
+    resp = client.patch(
+        _activity_api(room_id, f"/{activity_id}"),
+        json={"title": "x", "participants": [], "user_name": "Plain"},
+        headers=_make_web_headers(member),
+    )
+    assert resp.status_code == 403

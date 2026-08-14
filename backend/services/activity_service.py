@@ -227,6 +227,140 @@ class ActivityService:
             ))
         return validated
 
+    @classmethod
+    async def _reconcile_participants(
+        cls,
+        conn: asyncpg.Connection,
+        room_id: int,
+        activity_id: int,
+        participants: List[dict],
+        user_name: str,
+        actor_identifier: str,
+        client_source: str,
+        start_time: float,
+    ) -> None:
+        """
+        🎯 แทนที่ผู้เข้าร่วมทั้งชุด (ใช้ในหน้าแก้ไขกิจกรรม — "แก้ได้ทุกอย่างเหมือนตอนสร้าง")
+
+        รับ participant dicts ที่ถูกส่งมาจาก form (student_no + role_type + role_detail +
+        earned_hours + status + metadata) แล้ว reconcile กับชุดปัจจุบันภายใน transaction เดียว:
+        - มีอยู่แล้ว (student_id ตรง) → UPDATE (แทนที่ metadata เต็ม เพราะ form round-trip ทั้งชุด)
+        - เคยถูก soft-delete → กู้คืน (revive) ให้ `deleted_at = NULL` (กันชน partial unique index)
+        - เป็นสมาชิกใหม่ → INSERT
+        - คนที่ไม่ถูกส่งมาอีกต่อไป → soft delete (deleted_at = NOW())
+        เขียน audit log 1 รายการต่อ mutation (CREATE/UPDATE/DELETE) เหมือน batch_update_participants
+        """
+        validated = await cls._validate_participants(conn, room_id, participants)
+
+        # อ่านชุดปัจจุบัน (id + student_id) เพื่อหาเป้าหมายการ UPDATE / DELETE
+        current = await conn.fetch(
+            "SELECT id, student_id FROM activity_participants WHERE activity_id = $1 AND deleted_at IS NULL",
+            activity_id,
+        )
+        current_by_student: Dict[int, int] = {row["student_id"]: row["id"] for row in current}
+        incoming_students: set = set()
+
+        for (student_id, role_type, role_detail, earned_hours, p_status, p_meta) in validated:
+            incoming_students.add(student_id)
+            pid = current_by_student.get(student_id)
+
+            if pid is not None:
+                # 1) มีอยู่แล้ว → UPDATE (แทนที่ metadata เต็ม)
+                old = await conn.fetchrow(
+                    f"{cls.PARTICIPANT_SELECT} WHERE ap.id = $1 AND ap.activity_id = $2 AND ap.deleted_at IS NULL",
+                    pid, activity_id,
+                )
+                old_meta = cls._parse_metadata(old["metadata"]) if old else {}
+                await conn.execute(
+                    """
+                    UPDATE activity_participants
+                    SET role_type = $1, role_detail = $2, earned_hours = $3, status = $4,
+                        metadata = $5::jsonb, recorded_by = $6, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $7 AND activity_id = $8 AND deleted_at IS NULL
+                    """,
+                    role_type, role_detail, earned_hours, p_status, json.dumps(p_meta), user_name,
+                    pid, activity_id,
+                )
+                new_vals = {"student_no": None, "role_type": role_type, "role_detail": role_detail,
+                            "earned_hours": float(earned_hours), "status": p_status, "metadata": p_meta}
+                if old:
+                    new_vals["student_no"] = old["student_no"]
+                await service_logger.log(
+                    conn=conn, action="UPDATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=room_id,
+                    entity_type="ACTIVITY_PARTICIPANT", entity_id=str(pid), status="success",
+                    old_values={"metadata": old_meta, "role_detail": (old["role_detail"] if old else None)},
+                    new_values={k: cls._serializable(v) for k, v in new_vals.items()},
+                    endpoint_or_command="update_activity/reconcile", execution_time_ms=int((time.time() - start_time) * 1000),
+                )
+                continue
+
+            # 2) ไม่มีในชุด active → ลองกู้คืน soft-deleted (กันชน partial unique index)
+            revived = await conn.fetchrow(
+                """
+                UPDATE activity_participants
+                SET deleted_at = NULL, role_type = $1, role_detail = $2, earned_hours = $3,
+                    status = $4, metadata = $5::jsonb, recorded_by = $6, updated_at = CURRENT_TIMESTAMP
+                WHERE activity_id = $7 AND student_id = $8 AND deleted_at IS NOT NULL
+                RETURNING id
+                """,
+                role_type, role_detail, earned_hours, p_status, json.dumps(p_meta), user_name,
+                activity_id, student_id,
+            )
+            if revived:
+                pid = revived["id"]
+                await service_logger.log(
+                    conn=conn, action="CREATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=room_id,
+                    entity_type="ACTIVITY_PARTICIPANT", entity_id=str(pid), status="success",
+                    new_values={"action": "revived_soft_deleted", "role_type": role_type,
+                                "role_detail": role_detail, "metadata": p_meta},
+                    endpoint_or_command="update_activity/reconcile", execution_time_ms=int((time.time() - start_time) * 1000),
+                )
+                continue
+
+            # 3) เป็นสมาชิกใหม่ → INSERT
+            pid = await conn.fetchval(
+                """
+                INSERT INTO activity_participants
+                    (activity_id, student_id, role_type, role_detail, earned_hours, status, metadata, recorded_by)
+                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+                RETURNING id
+                """,
+                activity_id, student_id, role_type, role_detail, earned_hours, p_status,
+                json.dumps(p_meta), user_name,
+            )
+            await service_logger.log(
+                conn=conn, action="CREATE", actor_identifier=actor_identifier,
+                client_source=client_source, room_id=room_id,
+                entity_type="ACTIVITY_PARTICIPANT", entity_id=str(pid), status="success",
+                new_values={"role_type": role_type, "role_detail": role_detail,
+                            "earned_hours": float(earned_hours), "status": p_status, "metadata": p_meta},
+                endpoint_or_command="update_activity/reconcile", execution_time_ms=int((time.time() - start_time) * 1000),
+            )
+
+        # 4) ผู้เข้าร่วมที่ถูกถอดออกจากชุด → soft delete
+        for student_id, pid in current_by_student.items():
+            if student_id in incoming_students:
+                continue
+            old = await conn.fetchrow(
+                f"{cls.PARTICIPANT_SELECT} WHERE ap.id = $1 AND ap.activity_id = $2 AND ap.deleted_at IS NULL",
+                pid, activity_id,
+            )
+            await conn.execute(
+                "UPDATE activity_participants SET deleted_at = NOW() WHERE id = $1 AND activity_id = $2 AND deleted_at IS NULL",
+                pid, activity_id,
+            )
+            old_meta = cls._parse_metadata(old["metadata"]) if old else {}
+            await service_logger.log(
+                conn=conn, action="DELETE", actor_identifier=actor_identifier,
+                client_source=client_source, room_id=room_id,
+                entity_type="ACTIVITY_PARTICIPANT", entity_id=str(pid), status="success",
+                old_values={"metadata": old_meta, "role_detail": (old["role_detail"] if old else None)},
+                new_values={"deleted_at": "soft-deleted"},
+                endpoint_or_command="update_activity/reconcile", execution_time_ms=int((time.time() - start_time) * 1000),
+            )
+
     # ================================================================
     # ✏️ CRUD: Activities
     # ================================================================
@@ -469,10 +603,12 @@ class ActivityService:
         server_id: Optional[int] = None,
         room_id: Optional[int] = None,
         actor_user_id: Optional[int] = None,
+        participants: Optional[List[dict]] = None,
     ) -> dict:
         """
         PATCH กิจกรรม — อัปเดตเฉพาะฟิลด์ที่ส่งมา (exclude_unset=True จาก router)
         metadata ถ้าส่งมา จะ merge กับของเดิม (deep-merge 1 ระดับ) — กันทำหายคีย์เก่า
+        participants ถ้าส่งมา (ไม่ใช่ None) → reconcile ผู้เข้าร่วมทั้งชุดใน transaction เดียว
         """
         start_time = time.time()
         target_room_id = None
@@ -499,7 +635,7 @@ class ActivityService:
 
                     allowed = {"title", "description", "activity_date", "base_hours", "status", "metadata"}
                     fields = {k: v for k, v in clean.items() if k in allowed}
-                    if not fields:
+                    if not fields and participants is None:
                         raise ValidationError("ไม่มีฟิลด์ที่แก้ไขได้ถูกส่งมา")
 
                     keys = sorted(fields.keys())
@@ -535,6 +671,19 @@ class ActivityService:
                         old_values=old_values, new_values=new_values,
                         endpoint_or_command="update_activity", execution_time_ms=exec_time,
                     )
+
+                    # 👥 ถ้าส่ง participants มาด้วย → reconcile ทั้งชุด (เพิ่ม/แก้/ลบ/กู้คืน) ใน transaction เดียว
+                    if participants is not None:
+                        await cls._reconcile_participants(
+                            conn=conn,
+                            room_id=target_room_id,
+                            activity_id=activity_id,
+                            participants=participants,
+                            user_name=user_name,
+                            actor_identifier=actor_identifier,
+                            client_source=client_source,
+                            start_time=start_time,
+                        )
 
                     activity = await cls._fetch_activity_row(conn, target_room_id, activity_id)
                     participants = await cls._fetch_participants(conn, activity_id)

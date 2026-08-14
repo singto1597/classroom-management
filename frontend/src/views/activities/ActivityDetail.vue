@@ -231,7 +231,7 @@ const editActivityMeta = async () => {
   const vals = metaEntries.map(([, v]) => String(v))
 
   const { value: formValues } = await Swal.fire({
-    title: 'แก้ไข Metadata กิจกรรม',
+    title: 'แก้ไขข้อมูลเพิ่มเติม',
     html: `
       <div id="meta-fields" class="text-left mt-4 space-y-3"></div>
     `,
@@ -269,9 +269,9 @@ const editActivityMeta = async () => {
         user_name: currentUserName,
       })
       activity.value.metadata = formValues
-      Toast.fire({ icon: 'success', title: 'แก้ไข metadata แล้ว' })
+      Toast.fire({ icon: 'success', title: 'แก้ไขข้อมูลเพิ่มเติมแล้ว' })
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'บันทึก metadata ไม่สำเร็จ'
+      const msg = error instanceof Error ? error.message : 'บันทึกข้อมูลเพิ่มเติมไม่สำเร็จ'
       Swal.fire('ข้อผิดพลาด', msg, 'error')
     }
   }
@@ -372,11 +372,17 @@ const exportExcel = async () => {
           </div>
 
           <div v-if="canManage" class="flex flex-wrap gap-2">
+            <router-link
+              :to="`/activities/${activityId}/edit`"
+              class="px-4 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all inline-flex items-center gap-2"
+            >
+              <i class="bi bi-pencil-square"></i> แก้ไข
+            </router-link>
             <button
               @click="editActivityMeta"
               class="px-4 py-2.5 text-sm font-bold text-violet-600 bg-white border border-violet-200 hover:bg-violet-50 rounded-xl transition-all inline-flex items-center gap-2"
             >
-              <i class="bi bi-sliders"></i> แก้ Metadata
+              <i class="bi bi-sliders"></i> แก้ข้อมูลเพิ่มเติม
             </button>
             <button
               @click="exportExcel"
@@ -435,7 +441,7 @@ const exportExcel = async () => {
             <p class="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{{ activity.description || 'ไม่มีรายละเอียด' }}</p>
           </div>
           <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-            <h4 class="text-base font-bold text-slate-700 mb-3 flex items-center gap-2"><i class="bi bi-asterisk text-violet-500"></i> Metadata</h4>
+            <h4 class="text-base font-bold text-slate-700 mb-3 flex items-center gap-2"><i class="bi bi-asterisk text-violet-500"></i> ข้อมูลเพิ่มเติม</h4>
             <div class="space-y-2">
               <div v-for="(value, key) in activity.metadata" :key="key" class="flex items-start gap-2 text-sm">
                 <span class="font-bold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-lg text-xs whitespace-nowrap">{{ key }}</span>
@@ -449,7 +455,7 @@ const exportExcel = async () => {
                   <template v-else>{{ value }}</template>
                 </span>
               </div>
-              <div v-if="Object.keys(activity.metadata || {}).length === 0" class="text-sm text-slate-400">ไม่มี metadata</div>
+              <div v-if="Object.keys(activity.metadata || {}).length === 0" class="text-sm text-slate-400">ไม่มีข้อมูลเพิ่มเติม</div>
             </div>
           </div>
         </div>
@@ -570,7 +576,7 @@ const exportExcel = async () => {
           </div>
 
           <p v-if="typeBColumns.length === 0 && activity.participants.length > 0" class="text-[11px] text-slate-400 mt-3">
-            💡 กิจกรรมนี้ยังไม่มีฟิลด์ Type B ที่เลือกไว้ตอนสร้าง (Required Data) — แก้ metadata ได้ผ่านปุ่ม ⚙️ ต่อคน
+            💡 กิจกรรมนี้ยังไม่มีฟิลด์ Type B ที่เลือกไว้ตอนสร้าง (Required Data) — แก้ข้อมูลเพิ่มเติมได้ผ่านปุ่ม ⚙️ ต่อคน
           </p>
         </div>
       </div>

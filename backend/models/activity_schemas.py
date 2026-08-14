@@ -67,13 +67,18 @@ class ActivityCreateRequest(BaseModel):
 
 
 class ActivityUpdateRequest(BaseModel):
-    """PATCH — ทุกฟิลด์ optional; ใช้ model_dump(exclude_unset=True) ใน router"""
+    """PATCH — ทุกฟิลด์ optional; ใช้ model_dump(exclude_unset=True) ใน router
+    participants ถ้าส่งมา → reconcile ผู้เข้าร่วมทั้งชุด (เพิ่ม/แก้/ลบ/กู้คืน) แทนชุดเดิม"""
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=5000)
     activity_date: Optional[date] = None
     base_hours: Optional[float] = Field(None, ge=0.0)
     status: Optional[ActivityStatus] = None
     metadata: Optional[Dict[str, Any]] = None
+    participants: Optional[List[ActivityParticipantIn]] = Field(
+        default=None,
+        description="ถ้าส่งมา → แทนที่ผู้เข้าร่วมทั้งชุด (เพิ่ม/อัปเดต/ลบ soft-delete/กู้คืน soft-deleted)"
+    )
     user_name: str = Field(..., min_length=1, max_length=100)
 
 
