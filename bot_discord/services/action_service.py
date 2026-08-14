@@ -4,6 +4,30 @@ from services.api_client import api_client, APIException
 
 logger = logging.getLogger("DISCORD_BOT")
 
+# 🌟 Field Dictionary ฝั่งบอท (mirror จาก frontend/src/constants/activityFields.ts + backend PROFILE_FIELDS)
+# ใช้ตีความ activities.metadata.required_fields ตอน render embed — ว่า Type A (โปรไฟล์) / Type B (จัดเก็บ)
+PROFILE_FIELD_LABELS = {
+    "blood_group": "กรุ๊ปเลือด",
+    "shirt_size": "ไซส์เสื้อ",
+    "food_allergy": "อาหารที่แพ้",
+    "congenital_disease": "โรคประจำตัว",
+    "phone_number": "เบอร์โทรศัพท์",
+    "phone_number_parent": "เบอร์โทรศัพท์ผู้ปกครอง",
+}
+EVENT_FIELD_LABELS = {
+    "bus_number": "การจัดสายรถบัส",
+    "van_number": "การจัดรถตู้",
+    "seat_number": "เลขที่นั่ง",
+    "travel_method": "วิธีการเดินทาง",
+    "room_number": "การจัดห้องพัก",
+    "building_name": "อาคาร/ตึกพัก",
+    "group_name": "การจัดกลุ่ม/สี/ค่าย",
+    "team_role": "บทบาทในทีม",
+    "consent_status": "ใบขออนุญาตผู้ปกครอง",
+    "is_paid": "การชำระเงินค่าค่าย",
+    "check_in_time": "เวลาลงทะเบียน/เช็คอิน",
+}
+
 class BotActionService:
     def __init__(self, bot):
         self.bot = bot
@@ -182,12 +206,15 @@ class BotActionService:
         - location_url → ลิงก์ Google Maps
         - agenda (list/str) → กำหนดการคร่าว ๆ วนลูป
         - tags → badge หมวดหมู่
+        - required_fields (จาก Field Selector ฝั่งเว็บ) → ⚠️ สิ่งที่ต้องเตรียมตัว + 🔒 หมายเหตุโปรไฟล์
         """
         channel = await self._get_announcement_channel(server_id)
         if not channel:
             return
 
         meta = data.get("metadata") or {}
+        if not isinstance(meta, dict):
+            meta = {}
         title = data.get("title", "กิจกรรมใหม่")
         embed = discord.Embed(
             title=f"📢 กิจกรรมใหม่: {title}",
@@ -238,6 +265,45 @@ class BotActionService:
             value=f"**{participant_count} คน** — เช็คหน้าที่และเบอร์สแตนด์เชียร์ของตัวเองได้ที่หน้าเว็บ!",
             inline=False,
         )
+
+        # ================================================================
+        # 🌟 Dynamic Notifications — อ่าน activities.metadata.required_fields
+        # (Array คีย์ที่คนสร้างกิจกรรมเลือกไว้ใน Field Selector ฝั่งเว็บ)
+        # ================================================================
+        required = meta.get("required_fields")
+        if required and isinstance(required, list):
+            required_keys = [str(k).strip() for k in required if str(k).strip()]
+
+            event_keys = [k for k in required_keys if k in EVENT_FIELD_LABELS]
+            profile_keys = [k for k in required_keys if k in PROFILE_FIELD_LABELS]
+
+            # ⚠️ สิ่งที่ต้องเตรียมตัว — มีการจัดเก็บข้อมูลเฉพาะกิจกรรม (Type B)
+            if event_keys:
+                prep_labels = []
+                for k in ["bus_number", "van_number", "seat_number", "travel_method",
+                          "room_number", "building_name", "group_name", "team_role",
+                          "consent_status", "is_paid", "check_in_time"]:
+                    if k in event_keys:
+                        prep_labels.append(EVENT_FIELD_LABELS[k])
+                if not prep_labels:
+                    prep_labels = [EVENT_FIELD_LABELS[k] for k in event_keys if k in EVENT_FIELD_LABELS]
+                prep_text = (
+                    "กิจกรรมนี้มีการจัดเก็บข้อมูลเชิงลึก: "
+                    f"**{' และ '.join(prep_labels)}**\n"
+                    "กรุณาเข้าไปตรวจสอบ/กรอกข้อมูลการจัดสรรของตัวเองที่หน้าเว็บไซต์!"
+                )
+                embed.add_field(name="⚠️ สิ่งที่ต้องเตรียมตัว", value=prep_text[:1024], inline=False)
+
+            # 🔒 หมายเหตุ — กิจกรรมนี้ดึงข้อมูลจากโปรไฟล์ (Type A)
+            if profile_keys:
+                profile_labels = [PROFILE_FIELD_LABELS[k] for k in profile_keys if k in PROFILE_FIELD_LABELS]
+                if profile_labels:
+                    notice_text = (
+                        "กิจกรรมนี้ใช้ข้อมูล "
+                        f"**{' และ '.join(profile_labels)}** "
+                        "จากโปรไฟล์ของคุณ หากมีการเปลี่ยนแปลงกรุณาอัปเดตในระบบ"
+                    )
+                    embed.add_field(name="🔒 หมายเหตุ", value=notice_text[:1024], inline=False)
 
         embed.set_footer(text=f"สร้างกิจกรรมโดย: {data.get('user_name')}")
         await channel.send(content=self._build_content(data, "🎪 มีกิจกรรมใหม่นะ"), embed=embed)

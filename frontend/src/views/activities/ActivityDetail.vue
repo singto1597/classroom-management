@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import { StudentService } from '@/services/student'
-import type { Activity, ActivityParticipant, ParticipantAdd } from '@/types/activity'
+import type { Activity, ActivityParticipant } from '@/types/activity'
 import type { Student as StudentType } from '@/types/student'
 import {
   ACTIVITY_STATUS_LABELS,
@@ -12,6 +12,14 @@ import {
   ROLE_TYPE_LABELS,
   PARTICIPANT_STATUS_LABELS,
 } from '@/types/activity'
+import {
+  ALL_ACTIVITY_FIELDS,
+  ACTIVITY_FIELD_MAP,
+  PROFILE_FIELD_KEYS,
+  EVENT_FIELD_KEYS,
+  type ActivityField,
+} from '@/constants/activityFields'
+import ActivityFieldControl from '@/components/activities/ActivityFieldControl.vue'
 import Swal from 'sweetalert2'
 
 const route = useRoute()
@@ -31,16 +39,21 @@ const canManage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
 )
 
-// ฟอร์มเพิ่มผู้เข้าร่วม
-const addForm = ref({
-  student_no: 0 as number,
-  role_detail: '',
-  role_type: 'participant',
-  bus_number: '',
+// 🌟 คอลัมน์ Dynamic จาก activities.metadata.required_fields (Field Selector ตอนสร้าง)
+const requiredFields = computed<string[]>(() => {
+  const raw = activity.value?.metadata?.required_fields
+  if (Array.isArray(raw)) return raw.map(String)
+  return []
 })
-
-const showAddParticipant = ref(false)
-const metadataKeys = ref<string[]>(['bus_number', 'room_number', 'shirt_size', 'phone_number'])
+const selectedFields = computed<ActivityField[]>(() =>
+  ALL_ACTIVITY_FIELDS.filter((f) => requiredFields.value.includes(f.key)),
+)
+const typeAColumns = computed<ActivityField[]>(() =>
+  selectedFields.value.filter((f) => PROFILE_FIELD_KEYS.has(f.key)),
+)
+const typeBColumns = computed<ActivityField[]>(() =>
+  selectedFields.value.filter((f) => EVENT_FIELD_KEYS.has(f.key)),
+)
 
 const Toast = Swal.mixin({
   toast: true,
@@ -49,13 +62,6 @@ const Toast = Swal.mixin({
   timer: 3000,
   timerProgressBar: true,
 })
-
-const getTags = (metadata: Record<string, unknown> | undefined): string[] => {
-  const tags = metadata?.tags
-  if (Array.isArray(tags)) return tags.map(String).slice(0, 3)
-  if (typeof tags === 'string' && tags) return tags.split(',').map((t) => t.trim()).slice(0, 3)
-  return []
-}
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-'
@@ -67,8 +73,9 @@ const fetchData = async () => {
   isLoading.value = true
   try {
     activity.value = await ActivityService.getActivity(currentRoomId, activityId)
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error?.message || 'ไม่พบกิจกรรม', 'error')
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'ไม่พบกิจกรรม'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
     router.push('/activities')
   } finally {
     isLoading.value = false
@@ -78,7 +85,7 @@ const fetchData = async () => {
 const loadStudents = async () => {
   try {
     const list = await StudentService.getStudents(currentRoomId)
-    students.value = (list as any[]).filter((s) => s.status === 'active')
+    students.value = (list as StudentType[]).filter((s) => s.status === 'active')
   } catch {
     students.value = []
   }
@@ -87,6 +94,118 @@ const loadStudents = async () => {
 onMounted(async () => {
   await Promise.all([fetchData(), loadStudents()])
 })
+
+// ================================================================
+// 📊 Smart Participant Table — แก้ค่า Type B ในตารางได้เลย + Batch Apply
+// ================================================================
+/** metadata ของ participant (mutable local state) — เผื่อแก้ในตารางแล้ว save */
+const participantMetaDrafts = ref<Record<number, Record<string, unknown>>>({})
+
+const draftMeta = (p: ActivityParticipant): Record<string, unknown> => {
+  if (!participantMetaDrafts.value[p.id]) {
+    participantMetaDrafts.value[p.id] = { ...p.metadata }
+  }
+  return participantMetaDrafts.value[p.id] ?? {}
+}
+
+const setDraftField = (p: ActivityParticipant, field: string, value: unknown) => {
+  const meta = draftMeta(p)
+  if (value === '' || value === null || value === undefined) {
+    delete meta[field]
+  } else {
+    meta[field] = value
+  }
+  participantMetaDrafts.value = { ...participantMetaDrafts.value }
+}
+
+// 🎯 Batch Apply — ตั้งค่า Type B ให้ทุกคนที่ถูกติ๊ก (ปรับ metadata ในความจำ แล้ว Save ทีเดียว)
+const selectedParticipantIds = ref<Set<number>>(new Set())
+const showBatchModal = ref(false)
+const batchValues = ref<Record<string, unknown>>({})
+const batchFields = computed<ActivityField[]>(() =>
+  ALL_ACTIVITY_FIELDS.filter((f) => EVENT_FIELD_KEYS.has(f.key) && requiredFields.value.includes(f.key)),
+)
+
+const selectedParticipants = computed(() => {
+  const parts = activity.value?.participants ?? []
+  return parts.filter((p) => selectedParticipantIds.value.has(p.id))
+})
+
+const toggleSelectParticipant = (p: ActivityParticipant) => {
+  const next = new Set(selectedParticipantIds.value)
+  if (next.has(p.id)) next.delete(p.id)
+  else next.add(p.id)
+  selectedParticipantIds.value = next
+}
+
+const toggleSelectAllParticipants = () => {
+  const parts = activity.value?.participants ?? []
+  if (selectedParticipantIds.value.size === parts.length) {
+    selectedParticipantIds.value = new Set()
+  } else {
+    selectedParticipantIds.value = new Set(parts.map((p) => p.id))
+  }
+}
+
+const openBatchModal = () => {
+  batchValues.value = {}
+  showBatchModal.value = true
+}
+
+const applyBatch = async () => {
+  const targets = selectedParticipants.value
+  if (targets.length === 0) {
+    return Swal.fire('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คน', 'warning')
+  }
+  const filled = Object.entries(batchValues.value).filter(([, v]) => v !== '' && v !== null && v !== undefined)
+  if (filled.length === 0) {
+    return Swal.fire('กรอกค่า', 'กรุณากรอกค่าที่ต้องการตั้งค่าแบบกลุ่ม', 'warning')
+  }
+  try {
+    await ActivityService.batchUpdateParticipants(currentRoomId, activityId, {
+      items: targets.map((p) => ({
+        participant_id: p.id,
+        metadata: Object.fromEntries(filled),
+      })),
+      user_name: currentUserName,
+    })
+    // อัปเดต local participants (merge กับของเดิม) เพื่อให้ UI สะท้อนทันที
+    if (activity.value) {
+      for (const p of activity.value.participants) {
+        if (selectedParticipantIds.value.has(p.id)) {
+          p.metadata = { ...p.metadata, ...Object.fromEntries(filled) }
+        }
+      }
+      activity.value = { ...activity.value }
+    }
+    showBatchModal.value = false
+    selectedParticipantIds.value = new Set()
+    Toast.fire({ icon: 'success', title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนสำเร็จ` })
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'ตั้งค่าแบบกลุ่มไม่สำเร็จ'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
+  }
+}
+
+/** บันทึกค่า Type B ที่แก้ในตาราง (per-participant PATCH) */
+const saveDraftField = async (p: ActivityParticipant, field: string) => {
+  if (!canManage.value) return
+  const meta = draftMeta(p)
+  try {
+    await ActivityService.updateParticipant(currentRoomId, activityId, p.id, {
+      metadata: { [field]: meta[field] },
+      user_name: currentUserName,
+    })
+    p.metadata = ({
+	...p.metadata,
+	[field]: meta[field]
+})
+    Toast.fire({ icon: 'success', title: `บันทึก ${ACTIVITY_FIELD_MAP[field]?.label || field} แล้ว` })
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
+  }
+}
 
 // อัปเดตสถานะกิจกรรม
 const changeStatus = async (status: string) => {
@@ -98,8 +217,9 @@ const changeStatus = async (status: string) => {
     })
     activity.value!.status = status
     Toast.fire({ icon: 'success', title: 'อัปเดตสถานะกิจกรรมแล้ว' })
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error?.message || 'อัปเดตสถานะไม่สำเร็จ', 'error')
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'อัปเดตสถานะไม่สำเร็จ'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -150,8 +270,9 @@ const editActivityMeta = async () => {
       })
       activity.value.metadata = formValues
       Toast.fire({ icon: 'success', title: 'แก้ไข metadata แล้ว' })
-    } catch (error: any) {
-      Swal.fire('ข้อผิดพลาด', error?.message || 'บันทึก metadata ไม่สำเร็จ', 'error')
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'บันทึก metadata ไม่สำเร็จ'
+      Swal.fire('ข้อผิดพลาด', msg, 'error')
     }
   }
 }
@@ -166,8 +287,9 @@ const toggleParticipantStatus = async (participant: ActivityParticipant) => {
     )
     participant.status = next
     Toast.fire({ icon: 'success', title: next === 'attended' ? '✅ เช็คอินแล้ว' : '🔄 เปลี่ยนกลับ' })
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error?.message || 'อัปเดตสถานะไม่สำเร็จ', 'error')
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'อัปเดตสถานะไม่สำเร็จ'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -188,42 +310,20 @@ const removeParticipant = async (participant: ActivityParticipant) => {
       await ActivityService.removeParticipant(currentRoomId, activityId, participant.id, currentUserName)
       Toast.fire({ icon: 'success', title: 'นำออกแล้ว' })
       await fetchData()
-    } catch (error: any) {
-      Swal.fire('ข้อผิดพลาด', error?.message || 'นำออกไม่สำเร็จ', 'error')
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'นำออกไม่สำเร็จ'
+      Swal.fire('ข้อผิดพลาด', msg, 'error')
     }
   }
 }
 
-// เพิ่มผู้เข้าร่วม
-const submitAddParticipant = async () => {
-  if (!addForm.value.student_no) {
-    return Swal.fire('กรอกไม่ครบ', 'กรุณาเลือกเลขที่นักเรียน', 'warning')
-  }
-  const payload: ParticipantAdd = {
-    student_no: addForm.value.student_no,
-    role_type: addForm.value.role_type,
-    role_detail: addForm.value.role_detail.trim() || null,
-    metadata: addForm.value.bus_number ? { bus_number: addForm.value.bus_number } : {},
-    user_name: currentUserName,
-  }
-  try {
-    await ActivityService.addParticipant(currentRoomId, activityId, payload)
-    Toast.fire({ icon: 'success', title: 'เพิ่มผู้เข้าร่วมแล้ว' })
-    showAddParticipant.value = false
-    addForm.value = { student_no: 0, role_detail: '', role_type: 'participant', bus_number: '' }
-    await fetchData()
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error?.message || 'เพิ่มผู้เข้าร่วมไม่สำเร็จ', 'error')
-  }
-}
-
-// Export Excel
+// Export Excel (Dynamic — backend อ่าน required_fields เอง ถ้าไม่มีใช้ metadataKeys)
 const exportExcel = async () => {
   if (!canManage.value || !activity.value) return
   isExporting.value = true
   try {
     const blob = await ActivityService.exportActivityExcel(
-      currentRoomId, activityId, metadataKeys.value, currentUserName,
+      currentRoomId, activityId, requiredFields.value, currentUserName,
     )
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -232,8 +332,9 @@ const exportExcel = async () => {
     a.click()
     URL.revokeObjectURL(url)
     Toast.fire({ icon: 'success', title: 'Export Excel เรียบร้อย 📄' })
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error?.message || 'Export ไม่สำเร็จ', 'error')
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Export ไม่สำเร็จ'
+    Swal.fire('ข้อผิดพลาด', msg, 'error')
   } finally {
     isExporting.value = false
   }
@@ -242,7 +343,7 @@ const exportExcel = async () => {
 
 <template>
   <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
-    <div class="max-w-6xl mx-auto">
+    <div class="max-w-7xl mx-auto">
 
       <div v-if="isLoading" class="flex flex-col justify-center items-center py-20 gap-4">
         <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
@@ -353,94 +454,58 @@ const exportExcel = async () => {
           </div>
         </div>
 
-        <!-- Participants -->
+        <!-- Participants — Smart Table -->
         <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
           <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
             <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
               <i class="bi bi-people-fill text-violet-500"></i> ผู้เข้าร่วม ({{ activity.participants.length }})
             </h4>
-            <button
-              v-if="canManage"
-              @click="showAddParticipant = !showAddParticipant"
-              class="px-4 py-2 text-sm font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-all inline-flex items-center gap-2"
-            >
-              <i class="bi bi-person-plus"></i> เพิ่มผู้เข้าร่วม
-            </button>
-          </div>
-
-          <!-- ฟอร์มเพิ่ม -->
-          <div v-if="showAddParticipant" class="bg-slate-50 rounded-2xl p-4 mb-4 border border-slate-100 space-y-3">
-            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <div>
-                <label class="text-[11px] font-bold text-slate-400 uppercase mb-1 block">เลขที่</label>
-                <select
-                  v-model.number="addForm.student_no"
-                  class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                >
-                  <option :value="0" disabled>เลือกเลขที่</option>
-                  <option
-                    v-for="s in students"
-                    :key="s.student_no"
-                    :value="Number(s.student_no)"
-                  >
-                    {{ s.student_no }} — {{ s.prefix || '' }}{{ s.first_name }} {{ s.last_name }}
-                  </option>
-                </select>
-              </div>
-              <div>
-                <label class="text-[11px] font-bold text-slate-400 uppercase mb-1 block">ประเภท</label>
-                <select
-                  v-model="addForm.role_type"
-                  class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                >
-                  <option value="participant">ผู้เข้าร่วม</option>
-                  <option value="staff">ทีมงาน</option>
-                  <option value="leader">หัวหน้ากลุ่ม</option>
-                </select>
-              </div>
-              <div>
-                <label class="text-[11px] font-bold text-slate-400 uppercase mb-1 block">หน้าที่</label>
-                <input
-                  v-model="addForm.role_detail"
-                  type="text"
-                  placeholder="เช่น สวัสดิการ"
-                  class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                />
-              </div>
-              <div>
-                <label class="text-[11px] font-bold text-slate-400 uppercase mb-1 block">เบอร์รถบัส</label>
-                <input
-                  v-model="addForm.bus_number"
-                  type="text"
-                  placeholder="เช่น B2"
-                  class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                />
-              </div>
-            </div>
-            <div class="flex justify-end">
+            <div class="flex flex-wrap gap-2">
               <button
-                @click="submitAddParticipant"
-                class="px-5 py-2 text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-sm transition-all"
+                v-if="canManage && selectedParticipantIds.size > 0"
+                @click="openBatchModal"
+                class="px-4 py-2 text-sm font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-2"
               >
-                เพิ่ม
+                <i class="bi bi-lightning-charge-fill"></i> ตั้งค่าแบบกลุ่ม ({{ selectedParticipantIds.size }})
+              </button>
+              <button
+                v-if="canManage && activity.participants.length > 0"
+                @click="toggleSelectAllParticipants"
+                class="px-4 py-2 text-sm font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-all inline-flex items-center gap-2"
+              >
+                <i class="bi bi-check-all"></i> {{ selectedParticipantIds.size === activity.participants.length ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด' }}
               </button>
             </div>
           </div>
 
-          <!-- รายชื่อ -->
+          <!-- รายชื่อ — Smart Table (dynamic columns ตาม required_fields) -->
           <div v-if="activity.participants.length === 0" class="text-center py-10 text-slate-400 text-sm">
             ยังไม่มีผู้เข้าร่วม
           </div>
-          <div v-else class="overflow-x-auto overflow-y-hidden">
-            <table class="w-full min-w-[640px] text-left">
+          <div v-else class="overflow-x-auto overflow-y-hidden rounded-xl border border-slate-100">
+            <table class="w-full min-w-[700px] text-left">
               <thead>
-                <tr class="border-b border-slate-100 text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                <tr class="border-b border-slate-100 bg-slate-50/60 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <th v-if="canManage" class="py-2.5 px-2 w-10 text-center">✓</th>
                   <th class="py-2.5 px-2">เลขที่</th>
                   <th class="py-2.5 px-2">ชื่อ</th>
                   <th class="py-2.5 px-2">หน้าที่</th>
                   <th class="py-2.5 px-2">ชั่วโมง</th>
                   <th class="py-2.5 px-2">สถานะ</th>
-                  <th class="py-2.5 px-2">metadata</th>
+                  <th
+                    v-for="field in typeBColumns"
+                    :key="field.key"
+                    class="py-2.5 px-2 min-w-[130px]"
+                  >
+                    {{ field.label }}
+                  </th>
+                  <th
+                    v-for="field in typeAColumns"
+                    :key="field.key"
+                    class="py-2.5 px-2 min-w-[120px]"
+                  >
+                    {{ field.label }} <span class="text-violet-400">🔒</span>
+                  </th>
                   <th v-if="canManage" class="py-2.5 px-2 text-right">จัดการ</th>
                 </tr>
               </thead>
@@ -448,10 +513,19 @@ const exportExcel = async () => {
                 <tr
                   v-for="p in activity.participants"
                   :key="p.id"
-                  class="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors"
+                  class="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors align-middle"
+                  :class="{ 'bg-violet-50/50': selectedParticipantIds.has(p.id) }"
                 >
+                  <td v-if="canManage" class="py-3 px-2 text-center">
+                    <input
+                      type="checkbox"
+                      :checked="selectedParticipantIds.has(p.id)"
+                      @change="toggleSelectParticipant(p)"
+                      class="w-4 h-4 rounded accent-violet-600"
+                    />
+                  </td>
                   <td class="py-3 px-2 text-sm font-bold text-slate-500">{{ p.student_no }}</td>
-                  <td class="py-3 px-2">
+                  <td class="py-3 px-2 whitespace-nowrap">
                     <p class="text-sm font-bold text-slate-700">{{ p.first_name }} {{ p.last_name }}</p>
                     <p class="text-[11px] text-slate-400">{{ ROLE_TYPE_LABELS[p.role_type] || p.role_type }}</p>
                   </td>
@@ -467,17 +541,19 @@ const exportExcel = async () => {
                       {{ PARTICIPANT_STATUS_LABELS[p.status] || p.status }}
                     </button>
                   </td>
-                  <td class="py-3 px-2">
-                    <div class="flex flex-wrap gap-1">
-                      <span
-                        v-for="(v, k) in (p.metadata || {})"
-                        :key="k"
-                        class="px-1.5 py-0.5 rounded-md bg-slate-50 border border-slate-100 text-[10px] font-bold text-slate-500"
-                      >
-                        {{ k }}: {{ String(v) }}
-                      </span>
-                      <span v-if="Object.keys(p.metadata || {}).length === 0" class="text-[11px] text-slate-300">—</span>
-                    </div>
+                  <!-- คอลัมน์ Type B — แก้ในตารางได้เลย (บันทึกเมื่อ blur/change) -->
+                  <td v-for="field in typeBColumns" :key="field.key" class="py-3 px-2">
+                    <ActivityFieldControl
+                      :field="field"
+                      :model-value="draftMeta(p)[field.key]"
+                      :disabled="!canManage"
+                      @update:model-value="(v: unknown) => setDraftField(p, field.key, v)"
+                      @change="saveDraftField(p, field.key)"
+                    />
+                  </td>
+                  <!-- คอลัมน์ Type A — อ่านจากโปรไฟล์ (🔒) -->
+                  <td v-for="field in typeAColumns" :key="field.key" class="py-3 px-2">
+                    <span class="text-xs font-semibold text-slate-600">{{ String((p as Record<string, unknown>)[field.key] ?? '—') }}</span>
                   </td>
                   <td v-if="canManage" class="py-3 px-2 text-right">
                     <button
@@ -492,8 +568,73 @@ const exportExcel = async () => {
               </tbody>
             </table>
           </div>
+
+          <p v-if="typeBColumns.length === 0 && activity.participants.length > 0" class="text-[11px] text-slate-400 mt-3">
+            💡 กิจกรรมนี้ยังไม่มีฟิลด์ Type B ที่เลือกไว้ตอนสร้าง (Required Data) — แก้ metadata ได้ผ่านปุ่ม ⚙️ ต่อคน
+          </p>
         </div>
       </div>
     </div>
+
+    <!-- 🎯 Modal: Batch Apply (ตั้งค่าแบบกลุ่ม) -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showBatchModal" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4" @click.self="showBatchModal = false">
+          <div class="w-full md:max-w-lg bg-white rounded-t-3xl md:rounded-3xl shadow-2xl p-5 md:p-6 max-h-[90dvh] overflow-y-auto overflow-x-hidden">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                <i class="bi bi-lightning-charge-fill text-fuchsia-500"></i>
+                ตั้งค่าแบบกลุ่ม
+              </h4>
+              <button @click="showBatchModal = false" class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <p class="text-xs text-slate-400 mb-5">
+              ตั้งค่าฟิลด์ Type B ให้ผู้เข้าร่วม <b class="text-fuchsia-600">{{ selectedParticipantIds.size }} คน</b> พร้อมกัน
+            </p>
+
+            <div v-if="batchFields.length === 0" class="text-sm text-slate-500 bg-slate-50 rounded-xl p-4 text-center">
+              กิจกรรมนี้ไม่มีฟิลด์ Type B ที่เลือกไว้
+            </div>
+
+            <div v-else class="space-y-4">
+              <div v-for="field in batchFields" :key="field.key">
+                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5">
+                  <i class="bi" :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"></i>
+                  {{ field.label }}
+                </label>
+                <ActivityFieldControl
+                  :field="field"
+                  :model-value="batchValues[field.key]"
+                  @update:model-value="(v: unknown) => { batchValues[field.key] = v }"
+                />
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-6">
+              <button
+                @click="showBatchModal = false"
+                class="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                @click="applyBatch"
+                :disabled="batchFields.length === 0"
+                class="px-6 py-2.5 text-sm font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
+              >
+                <i class="bi bi-lightning-charge-fill"></i> ใช้ค่ากับ {{ selectedParticipantIds.size }} คน
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>

@@ -12,6 +12,7 @@ from models.activity_schemas import (
     ParticipantAddRequest,
     ParticipantUpdateRequest,
     ParticipantStatusUpdate,
+    BatchParticipantUpdateRequest,
     ActivityExportRequest,
 )
 from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id
@@ -262,6 +263,44 @@ async def add_participant(
     except (StudentNotFoundError, ValidationError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except (ActivityNotFoundError, RoomNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/{target_id}/activities/{activity_id}/participants/batch", response_model=SuccessResponse, summary="Batch Apply — ตั้งค่า metadata หลายคนพร้อมกัน (atomic)")
+async def batch_update_participants(
+    activity_id: int,
+    req: BatchParticipantUpdateRequest,
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """
+    PATCH /{target_id}/activities/{activity_id}/participants/batch
+    body: {"items": [{"participant_id": 1, "metadata": {"bus_number": "1"}}, ...], "user_name": "..."}
+    → อัปเดต metadata ของทุกคนในชุด (merge กับของเดิม) ภายใน transaction เดียว — atomic
+    ใช้กับ UI คลุมดำตั้งค่า (Batch Apply) แล้วยิง payload ก้อนเดียว
+    ⚠️ ต้องประกาศก่อน /participants/{participant_id} (literal segment ชน path param ได้)
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        items = [i.model_dump() for i in req.items]
+        result = await ActivityService.batch_update_participants(
+            pool=pool,
+            activity_id=activity_id,
+            items=items,
+            user_name=req.user_name,
+            client_source=client_source,
+            actor_identifier=actor,
+            room_id=room_id,
+            actor_user_id=user_ctx.get("user_id"),
+        )
+        return SuccessResponse(message=f"อัปเดต metadata ผู้เข้าร่วม {result['updated_count']} คนสำเร็จ (atomic)")
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except (ParticipantNotFoundError, ActivityNotFoundError, RoomNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
