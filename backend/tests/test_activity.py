@@ -1221,3 +1221,251 @@ async def test_http_update_activity_requires_manage_permission(client, db_pool):
         headers=_make_web_headers(member),
     )
     assert resp.status_code == 403
+
+
+# ================================================================
+# 🎖️ Batch Apply ตั้ง หน้าที่ (role_detail) + ข้อมูลเพิ่มเติมแบบ friendly
+# ================================================================
+
+async def test_batch_update_participants_sets_role_detail_and_merges_metadata(db_pool):
+    """Batch Apply ตั้ง role_detail + merge metadata พร้อมกัน (dynamic SET)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    u1 = await _insert_user(db_pool, first_name="หนึ่ง", last_name="แรก")
+    u2 = await _insert_user(db_pool, first_name="สอง", last_name="สอง")
+    await _insert_student(db_pool, room_id, u1, 1)
+    await _insert_student(db_pool, room_id, u2, 2)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="ค่าย", activity_date=date(2026, 11, 1),
+            base_hours=6.0, status="upcoming",
+            metadata={"positions": ["ทีมงาน", "หัวหน้ากลุ่ม"]},
+            participants=[
+                {"student_no": 1, "role_detail": "ทีมงาน", "metadata": {"room_number": "501"}},
+                {"student_no": 2, "role_detail": "ทีมงาน", "metadata": {"room_number": "502"}},
+            ],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    async with db_pool.acquire() as conn:
+        p1, p2 = await conn.fetch(
+            "SELECT id, student_id FROM activity_participants WHERE activity_id = $1 ORDER BY student_id", activity_id
+        )
+
+    # 🎯 ตั้ง หน้าที่ = "หัวหน้ากลุ่ม" + bus_number ให้ทั้ง 2 คน (merge → room_number เดิมยังอยู่)
+    res = await ActivityService.batch_update_participants(
+        pool=db_pool, activity_id=activity_id,
+        items=[
+            {"participant_id": p1["id"], "role_detail": "หัวหน้ากลุ่ม", "metadata": {"bus_number": "1"}},
+            {"participant_id": p2["id"], "role_detail": "หัวหน้ากลุ่ม", "metadata": {"bus_number": "1"}},
+        ],
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+    assert res["status"] == "success"
+    assert res["updated_count"] == 2
+
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT role_detail, metadata FROM activity_participants WHERE activity_id = $1 ORDER BY student_id", activity_id
+        )
+        for row in rows:
+            assert row["role_detail"] == "หัวหน้ากลุ่ม"
+            meta = _parse_metadata(row["metadata"])
+            assert meta["bus_number"] == "1"
+            assert "room_number" in meta  # 🌟 merge ไม่ทับ
+
+
+async def test_batch_update_participants_role_detail_none_preserves_existing(db_pool):
+    """ไม่ส่ง role_detail ใน batch → ไม่แตะ หน้าที่ เดิม (backward compat)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="B"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="งาน", activity_date=date(2026, 12, 1),
+            base_hours=1.0, status="upcoming", metadata={},
+            participants=[{"student_no": 1, "role_detail": "ทีมงาน"}],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    async with db_pool.acquire() as conn:
+        pid = await conn.fetchval("SELECT id FROM activity_participants WHERE activity_id = $1", activity_id)
+
+    res = await ActivityService.batch_update_participants(
+        pool=db_pool, activity_id=activity_id,
+        items=[{"participant_id": pid, "metadata": {"bus_number": "9"}}],  # ไม่ส่ง role_detail
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+    assert res["status"] == "success"
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT role_detail, metadata FROM activity_participants WHERE id = $1", pid)
+        assert row["role_detail"] == "ทีมงาน"  # หน้าที่เดิมยังอยู่
+        assert _parse_metadata(row["metadata"])["bus_number"] == "9"
+
+
+async def test_batch_update_participants_empty_role_detail_clears(db_pool):
+    """ส่ง role_detail = '' → เคลียร์หน้าที่ (ลบ role_detail ออก)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="B"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="งาน", activity_date=date(2026, 12, 1),
+            base_hours=1.0, status="upcoming", metadata={},
+            participants=[{"student_no": 1, "role_detail": "ทีมงาน"}],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    async with db_pool.acquire() as conn:
+        pid = await conn.fetchval("SELECT id FROM activity_participants WHERE activity_id = $1", activity_id)
+
+    await ActivityService.batch_update_participants(
+        pool=db_pool, activity_id=activity_id,
+        items=[{"participant_id": pid, "role_detail": "", "metadata": {}}],
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT role_detail FROM activity_participants WHERE id = $1", pid)
+        assert row["role_detail"] == ""
+
+
+async def test_update_activity_metadata_none_removes_key(db_pool):
+    """PATCH metadata ส่งค่า None → ลบ key นั้น (delete-on-null — กัน ghost key ค้าง)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="งาน", activity_date=date(2026, 12, 1),
+            base_hours=1.0, status="upcoming",
+            metadata={"tags": ["กีฬา"], "location_url": "https://old.example.com", "location_name": "สนามกีฬา"},
+            participants=[], user_name="ผู้ดูแล", client_source="WEB_APP",
+            actor_identifier="user_id:1", room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    updated = await ActivityService.update_activity(
+        pool=db_pool, activity_id=activity_id,
+        update_data={"metadata": {"location_url": None, "location_name": None}},
+        user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+        room_id=room_id, actor_user_id=owner,
+    )
+    assert "location_url" not in updated["metadata"]  # key ถูกลบ
+    assert "location_name" not in updated["metadata"]
+    assert updated["metadata"]["tags"] == ["กีฬา"]     # key ที่ไม่ส่งยังอยู่ (merge ปกติ)
+
+
+async def test_export_summary_metadata_uses_thai_labels_no_raw_keys(db_pool):
+    """Export สรุป → ใช้ label ไทย (ไม่มีคีย์ดิบ positions/required_fields/agenda แบบ raw)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="B"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="กีฬาสี", activity_date=date(2026, 10, 15),
+            base_hours=8.0, status="upcoming",
+            metadata={
+                "positions": ["หัวหน้ากลุ่ม", "ทีมงาน"],
+                "required_fields": ["bus_number", "shirt_size"],
+                "tags": ["กีฬา"],
+                "location_name": "สนามกีฬา",
+                "custom_fields": [{"label": "สถานที่", "value": "สนามกีฬา"}],
+            },
+            participants=[{"student_no": 1}],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    excel = await ActivityService.export_activity_excel(
+        pool=db_pool, activity_id=activity_id, metadata_keys=[],
+        user_name="ผู้ดูแล", user_id=owner, client_source="WEB_APP",
+        actor_identifier="user_id:1", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(io.BytesIO(excel.getvalue()))
+    ws = wb["สรุป"]
+    meta_text = str(ws.cell(row=15, column=1).value or "")
+    # มี label ไทย (ไม่ใช่คีย์ดิบทีละ key)
+    assert "หมวดหมู่" in meta_text          # tags → หมวดหมู่
+    assert "สถานที่" in meta_text            # location_name / custom_fields → สถานที่
+    assert "หน้าที่/ตำแหน่ง" in meta_text    # positions → หน้าที่/ตำแหน่ง
+    assert "ข้อมูลที่เก็บต่อคน" in meta_text  # required_fields → ข้อมูลที่เก็บต่อคน
+    assert "หมายเลขรถบัส" in meta_text       # required_fields แปลงเป็นชื่อฟิลด์ไทย
+    # 🚨 ต้องไม่มีคีย์ดิบแบบ raw (positions/required_fields/agenda เป็นคีย์ชื่อตัวแปร)
+    assert "['หัวหน้ากลุ่ม'" not in meta_text
+    assert "required_fields" not in meta_text
+
+
+async def test_export_participant_custom_fields_column(db_pool):
+    """Export → คอลัมน์ 'ข้อมูลเพิ่มเติม' (custom_fields ต่อคน) เฉพาะเมื่อมีคนกรอก + แสดง 'หัวข้อ: ค่า'"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="สมชาย", last_name="ใจดี"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="ทัศนศึกษา", activity_date=date(2026, 9, 20),
+            base_hours=6.0, status="upcoming", metadata={},
+            participants=[{
+                "student_no": 1,
+                "metadata": {"custom_fields": [{"label": "อาหารที่ชอบ", "value": "ผัดไทย"}, {"label": "ของที่ต้องเตรียม", "value": "ชุดกีฬา"}]},
+            }],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    excel = await ActivityService.export_activity_excel(
+        pool=db_pool, activity_id=activity_id, metadata_keys=[],
+        user_name="ผู้ดูแล", user_id=owner, client_source="WEB_APP",
+        actor_identifier="user_id:1", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(io.BytesIO(excel.getvalue()))
+    ws = wb["รายชื่อผู้เข้าร่วม"]
+    header = list(ws.values)[0]
+    assert "ข้อมูลเพิ่มเติม" in header
+    idx = header.index("ข้อมูลเพิ่มเติม")
+    data_row = list(ws.values)[1]
+    # 'หัวข้อ: ค่า' ต่อบรรทัด (ไม่ใช่ raw dict)
+    assert data_row[idx] == "อาหารที่ชอบ: ผัดไทย\nของที่ต้องเตรียม: ชุดกีฬา"
+
+
+async def test_export_custom_fields_column_absent_when_nobody_has_them(db_pool):
+    """ถ้าไม่มีใครกรอก custom_fields → ไม่มีคอลัมน์ 'ข้อมูลเพิ่มเติม' (header เดิมไม่เปลี่ยน)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="A", last_name="B"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="งาน", activity_date=date(2026, 12, 1),
+            base_hours=1.0, status="upcoming", metadata={},
+            participants=[{"student_no": 1, "metadata": {"bus_number": "B2"}}],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    excel = await ActivityService.export_activity_excel(
+        pool=db_pool, activity_id=activity_id, metadata_keys=["bus_number"],
+        user_name="ผู้ดูแล", user_id=owner, client_source="WEB_APP",
+        actor_identifier="user_id:1", room_id=room_id,
+    )
+    wb = openpyxl.load_workbook(io.BytesIO(excel.getvalue()))
+    header = list(wb["รายชื่อผู้เข้าร่วม"].values)[0]
+    assert "ข้อมูลเพิ่มเติม" not in header

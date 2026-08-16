@@ -110,8 +110,11 @@ class ParticipantStatusUpdate(BaseModel):
 
 
 class BatchParticipantItem(BaseModel):
-    """1 รายการใน Batch Update — อัปเดต metadata ของ participant (merge กับของเดิม)"""
+    """1 รายการใน Batch Update — อัปเดต metadata ของ participant (merge กับของเดิม) + ตั้ง หน้าที่ (role_detail) ได้"""
     participant_id: int
+    # 🎖️ หน้าที่/ตำแหน่ง (role_detail) — batch ตั้งหน้าที่ให้ทุกคนที่ติ๊กพร้อมกัน
+    # ไม่ส่ง (None) = ไม่แตะของเดิม; ส่ง "" = เคลียร์หน้าที่
+    role_detail: Optional[str] = Field(None, max_length=255)
     metadata: Dict[str, Any] = Field(default_factory=dict)  # 🌟 Type B ค่าที่จะ merge
 
 
