@@ -10,14 +10,11 @@ import {
   PROFILE_FIELD_KEYS,
   EVENT_FIELD_KEYS,
   renderActivityInfo,
-  joinDutyRole,
   type ActivityField,
   type ActivityInfoRow,
-  type CustomFieldEntry,
 } from '@/constants/activityFields'
 import ParticipantRosterList from '@/components/activities/ParticipantRosterList.vue'
 import ParticipantInfoModal from '@/components/activities/ParticipantInfoModal.vue'
-import BatchApplyModal from '@/components/activities/BatchApplyModal.vue'
 import Swal from 'sweetalert2'
 
 const route = useRoute()
@@ -95,7 +92,7 @@ const fetchData = async () => {
 onMounted(fetchData)
 
 // ================================================================
-// 👥 ผู้เข้าร่วม — การ์ดรายชื่อ (ตามแบบ StudentList)
+// 👥 ผู้เข้าร่วม — การ์ดรายชื่อ (ตามแบบ StudentList) — โหมดแสดงเฉย ๆ
 // ================================================================
 const rosterItems = computed<RosterItem[]>(() => {
   return (activity.value?.participants ?? []).map((p) => ({
@@ -120,92 +117,12 @@ const rosterItems = computed<RosterItem[]>(() => {
   }))
 })
 
-// --- Batch Apply selection ---
-const selectedParticipantIds = ref<Set<number>>(new Set())
-const showBatchModal = ref(false)
-
-const toggleSelectParticipant = (key: string | number) => {
-  const next = new Set(selectedParticipantIds.value)
-  if (next.has(Number(key))) next.delete(Number(key))
-  else next.add(Number(key))
-  selectedParticipantIds.value = next
-}
-
-const toggleSelectAllParticipants = () => {
-  const parts = activity.value?.participants ?? []
-  if (selectedParticipantIds.value.size === parts.length) {
-    selectedParticipantIds.value = new Set()
-  } else {
-    selectedParticipantIds.value = new Set(parts.map((p) => p.id))
-  }
-}
-
-const clearAllParticipants = () => {
-  selectedParticipantIds.value = new Set()
-}
-
-const openBatchModal = () => {
-  if (!canManage.value) return
-  showBatchModal.value = true
-}
-
 /** ค้น participant จาก key (participant.id) */
 function participantByKey(key: string | number): ActivityParticipant | undefined {
   return (activity.value?.participants ?? []).find((p) => p.id === Number(key))
 }
 
-const applyBatch = async (payload: { dutyPosition: string; typeB: Record<string, unknown> }) => {
-  const targets = selectedParticipants.value
-  if (targets.length === 0) {
-    return Swal.fire('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คน', 'warning')
-  }
-  try {
-    await ActivityService.batchUpdateParticipants(currentRoomId, activityId, {
-      items: targets.map((p) => {
-        const item: {
-          participant_id: number
-          role_detail?: string
-          metadata: Record<string, unknown>
-        } = {
-          participant_id: p.id,
-          metadata: payload.typeB,
-        }
-        // ส่ง role_detail เฉพาะเมื่อตั้งหน้าที่ (กันทับของเดิมตอนตั้งแค่ Type B)
-        if (payload.dutyPosition) {
-          item.role_detail = joinDutyRole(payload.dutyPosition, '')
-        }
-        return item
-      }),
-      user_name: currentUserName,
-    })
-    // อัปเดต local participants (merge กับของเดิม) เพื่อให้ UI สะท้อนทันที
-    if (activity.value) {
-      for (const p of activity.value.participants) {
-        if (selectedParticipantIds.value.has(p.id)) {
-          p.metadata = { ...p.metadata, ...payload.typeB }
-          // หน้าที่ — แทนที่หน้าที่เดิมทั้งหมด (รวมหมายเหตุ) ตามคำเตือนใน modal
-          if (payload.dutyPosition) {
-            p.role_detail = joinDutyRole(payload.dutyPosition, '')
-          }
-        }
-      }
-      activity.value = { ...activity.value }
-    }
-    showBatchModal.value = false
-    selectedParticipantIds.value = new Set()
-    Toast.fire({ icon: 'success', title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนสำเร็จ` })
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'ตั้งค่าแบบกลุ่มไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
-  }
-}
-
-const selectedParticipants = computed(() => {
-  const parts = activity.value?.participants ?? []
-  return parts.filter((p) => selectedParticipantIds.value.has(p.id))
-})
-
-// --- Per-student info modal ---
+// --- Per-student info modal (อ่านอย่างเดียว) ---
 const infoModalOpen = ref(false)
 const infoModalKey = ref<number | null>(null)
 
@@ -224,35 +141,6 @@ const openInfoModal = (key: string | number) => {
 const closeInfoModal = () => {
   infoModalOpen.value = false
   infoModalKey.value = null
-}
-
-/** บันทึกข้อมูลของนักเรียน 1 คน (ผ่าน API) */
-const saveInfoModal = async (payload: {
-  role_detail: string | null
-  metadata: Record<string, unknown>
-  customFields: CustomFieldEntry[]
-}) => {
-  const p = infoItem.value
-  if (!p) return
-  const participant = participantByKey(p.key)
-  if (!participant) return
-  try {
-    await ActivityService.updateParticipant(currentRoomId, activityId, participant.id, {
-      // 🚨 ส่ง '' เมื่อเคลียร์หน้าที่ (backend: null = ไม่แตะ, '' = เคลียร์)
-      role_detail: payload.role_detail ?? '',
-      metadata: payload.metadata,
-      user_name: currentUserName,
-    })
-    participant.role_detail = payload.role_detail
-    participant.metadata = payload.metadata
-    activity.value = { ...activity.value! }
-    infoModalOpen.value = false
-    infoModalKey.value = null
-    Toast.fire({ icon: 'success', title: 'บันทึกข้อมูลนักเรียนแล้ว' })
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
-  }
 }
 
 // --- Check-in / status toggle ---
@@ -280,7 +168,7 @@ const toggleParticipantStatus = async (key: string | number) => {
   }
 }
 
-// --- Remove participant ---
+// --- Remove participant (ซ่อนในเมนูจุด 3 จุด) ---
 const removeParticipant = async (key: string | number) => {
   const participant = participantByKey(key)
   if (!participant || !canManage.value) return
@@ -566,38 +454,21 @@ function infoValueDisplay(row: ActivityInfoRow): string {
           </div>
         </div>
 
-        <!-- ผู้เข้าร่วม — การ์ดรายชื่อ -->
+        <!-- ผู้เข้าร่วม — การ์ดรายชื่อ (อ่านอย่างเดียว) -->
         <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
-          <div
-            class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3"
-          >
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
               <i class="bi bi-people-fill text-violet-500"></i> ผู้เข้าร่วม ({{
                 activity.participants.length
               }})
             </h4>
-            <div v-if="canManage && activity.participants.length > 0" class="flex flex-wrap gap-2">
-              <button
-                v-if="selectedParticipantIds.size > 0"
-                @click="openBatchModal"
-                class="px-4 py-2 text-sm font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-2"
-              >
-                <i class="bi bi-lightning-charge-fill"></i> ตั้งค่าแบบกลุ่ม ({{
-                  selectedParticipantIds.size
-                }})
-              </button>
-              <button
-                @click="toggleSelectAllParticipants"
-                class="px-4 py-2 text-sm font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-all inline-flex items-center gap-2"
-              >
-                <i class="bi bi-check-all"></i>
-                {{
-                  selectedParticipantIds.size === activity.participants.length
-                    ? 'ยกเลิกทั้งหมด'
-                    : 'เลือกทั้งหมด'
-                }}
-              </button>
-            </div>
+            <span
+              v-if="canManage"
+              class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1"
+            >
+              <i class="bi bi-check2-circle text-emerald-500"></i>
+              กดปุ่ม "มาแล้ว" เพื่อเช็คอิน
+            </span>
           </div>
 
           <div
@@ -610,25 +481,20 @@ function infoValueDisplay(row: ActivityInfoRow): string {
             v-else
             :items="rosterItems"
             :positions="positions"
-            :selected-keys="selectedParticipantIds"
-            selectable
+            read-only
             :can-manage="canManage"
             :show-status-toggle="canManage"
             :show-remove="canManage"
             :empty-text="'ไม่มีรายชื่อในรายการนี้'"
-            @toggle-select="toggleSelectParticipant"
-            @select-all="toggleSelectAllParticipants"
-            @clear-all="clearAllParticipants"
             @open-info="openInfoModal"
             @toggle-status="toggleParticipantStatus"
             @remove="removeParticipant"
-            @batch="openBatchModal"
           />
         </div>
       </div>
     </div>
 
-    <!-- 📋 Modal: ข้อมูลเพิ่มเติมของนักเรียน (ต่อคน) -->
+    <!-- 📋 Modal: ข้อมูลเพิ่มเติมของนักเรียน (ต่อคน) — อ่านอย่างเดียว -->
     <ParticipantInfoModal
       :open="infoModalOpen && !!infoItem"
       :item="infoItem"
@@ -636,18 +502,8 @@ function infoValueDisplay(row: ActivityInfoRow): string {
       :type-b-fields="typeBColumns"
       :positions="positions"
       :can-manage="canManage"
+      read-only
       @close="closeInfoModal"
-      @save="saveInfoModal"
-    />
-
-    <!-- 🎯 Modal: ตั้งค่าแบบกลุ่ม -->
-    <BatchApplyModal
-      :open="showBatchModal"
-      :positions="positions"
-      :type-b-fields="typeBColumns"
-      :count="selectedParticipantIds.size"
-      @close="showBatchModal = false"
-      @apply="applyBatch"
     />
   </div>
 </template>
