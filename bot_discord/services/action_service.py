@@ -28,6 +28,36 @@ EVENT_FIELD_LABELS = {
     "check_in_time": "เวลาลงทะเบียน/เช็คอิน",
 }
 
+# 🌟 ป้ายภาษาไทยของคีย์ metadata กิจกรรม (mirror จาก frontend ACTIVITY_META_KEY_LABELS)
+# ใช้เป็น fallback อ่าน custom_fields (ข้อมูลเพิ่มเติมแบบ "หัวข้อ+ค่า") ของเว็บใหม่
+ACTIVITY_META_KEY_LABELS = {
+    "location_name": "สถานที่",
+    "location_url": "ลิงก์แผนที่",
+    "agenda": "กำหนดการ",
+    "tags": "หมวดหมู่",
+}
+
+
+def _meta_value(meta: dict, key: str):
+    """อ่านคีย์ metadata ปกติ แต่ถ้าไม่มี → ลองค้นใน meta.custom_fields (ข้อมูลเพิ่มเติมแบบ 'หัวข้อ+ค่า')
+    โดย match กับ label ไทยของคีย์นั้น (เช่น หัวข้อ 'สถานที่' → คืนค่าแทน location_name)
+    กันกิจกรรมที่สร้างผ่านเว็บใหม่ (เก็บเป็น custom_fields แล้ว dual-write คีย์เก่า) หายข้อมูล"""
+    if meta.get(key):
+        return meta.get(key)
+    custom = meta.get("custom_fields")
+    if not isinstance(custom, list):
+        return None
+    label = ACTIVITY_META_KEY_LABELS.get(key, "")
+    if not label:
+        return None
+    for entry in custom:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("label", "")).strip() == label:
+            val = entry.get("value")
+            return val if val is not None else None
+    return None
+
 class BotActionService:
     def __init__(self, bot):
         self.bot = bot
@@ -222,9 +252,9 @@ class BotActionService:
             color=discord.Color.purple(),
         )
 
-        # 📍 สถานที่ (location_url / location_name จาก metadata)
-        location_url = meta.get("location_url")
-        location_name = meta.get("location_name")
+        # 📍 สถานที่ (location_url / location_name จาก metadata — fallback อ่าน custom_fields)
+        location_url = _meta_value(meta, "location_url")
+        location_name = _meta_value(meta, "location_name")
         if location_url or location_name:
             location_text = ""
             if location_name:
@@ -239,7 +269,7 @@ class BotActionService:
             embed.add_field(name="📍 สถานที่", value=location_text, inline=False)
 
         # 📋 กำหนดการคร่าว ๆ (agenda จาก metadata — list หรือ string คั่น |)
-        agenda = meta.get("agenda")
+        agenda = _meta_value(meta, "agenda")
         if agenda:
             if isinstance(agenda, list):
                 agenda_lines = "\n".join(f"• {str(item).strip()}" for item in agenda if str(item).strip())
@@ -248,8 +278,8 @@ class BotActionService:
             if agenda_lines:
                 embed.add_field(name="📋 กำหนดการคร่าว ๆ", value=agenda_lines[:1024], inline=False)
 
-        # 🏷️ แท็กหมวดหมู่ (tags จาก metadata)
-        tags = meta.get("tags")
+        # 🏷️ แท็กหมวดหมู่ (tags จาก metadata — fallback อ่าน custom_fields)
+        tags = _meta_value(meta, "tags")
         if tags:
             if isinstance(tags, list):
                 tag_str = " · ".join(f"#{str(t)}" for t in tags if str(t).strip())
@@ -262,7 +292,7 @@ class BotActionService:
         participant_count = data.get("participant_count", 0)
         embed.add_field(
             name="👥 ผู้เข้าร่วม",
-            value=f"**{participant_count} คน** — เช็คหน้าที่และเบอร์สแตนด์เชียร์ของตัวเองได้ที่หน้าเว็บ!",
+            value=f"**{participant_count} คน** — เช็คหน้าที่/ข้อมูลการจัดสรรของตัวเองได้ที่หน้าเว็บ!",
             inline=False,
         )
 
