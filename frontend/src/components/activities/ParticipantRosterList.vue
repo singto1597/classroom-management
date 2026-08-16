@@ -83,6 +83,16 @@ const statusDot = (status: string) => {
   if (status === 'cancelled') return 'bg-rose-400'
   return 'bg-amber-400'
 }
+
+/** เปลี่ยนหน้าที่ (select) ของผู้เข้าร่วมคนนี้ */
+function onDutyChange(e: Event, item: RosterItem) {
+  emit('changeDuty', item.key, (e.target as HTMLSelectElement).value, dutyOf(item).note)
+}
+
+/** เปลี่ยนหมายเหตุหน้าที่ (input) ของผู้เข้าร่วมคนนี้ */
+function onDutyNoteChange(e: Event, item: RosterItem) {
+  emit('changeDuty', item.key, dutyOf(item).position, (e.target as HTMLInputElement).value)
+}
 </script>
 
 <template>
@@ -199,15 +209,7 @@ const statusDot = (status: string) => {
           <select
             :value="dutyOf(item).position"
             :disabled="isDisabled(item) || canManage === false"
-            @change="
-              (e: Event) =>
-                emit(
-                  'changeDuty',
-                  item.key,
-                  (e.target as HTMLSelectElement).value,
-                  dutyOf(item).note,
-                )
-            "
+            @change="(e: Event) => onDutyChange(e, item)"
             class="flex-1 min-w-0 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
           >
             <option value="">— ไม่มีหน้าที่ —</option>
@@ -224,15 +226,7 @@ const statusDot = (status: string) => {
             type="text"
             placeholder="หมายเหตุ (เพิ่มเติม)"
             :disabled="isDisabled(item) || canManage === false"
-            @change="
-              (e: Event) =>
-                emit(
-                  'changeDuty',
-                  item.key,
-                  dutyOf(item).position,
-                  (e.target as HTMLInputElement).value,
-                )
-            "
+            @change="(e: Event) => onDutyNoteChange(e, item)"
             class="flex-1 min-w-0 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
           />
         </div>

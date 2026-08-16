@@ -162,6 +162,18 @@ const infoItem = computed<RosterItem | null>(() => {
   return rosterItems.value.find((r) => r.key === infoModalKey.value) ?? null
 })
 
+/** เปิด modal ข้อมูลเพิ่มเติมของนักเรียนคนนี้ */
+const openInfoModal = (key: string | number) => {
+  infoModalKey.value = Number(key)
+  infoModalOpen.value = true
+}
+
+/** ปิด modal ข้อมูลเพิ่มเติม */
+const closeInfoModal = () => {
+  infoModalOpen.value = false
+  infoModalKey.value = null
+}
+
 const selectedCount = computed(() => selectedNos.value.size)
 
 const toggleSelect = (no: number) => {
@@ -765,12 +777,7 @@ const submit = async () => {
               @select-all="selectAll"
               @clear-all="clearAll"
               @change-duty="(key, position, note) => changeDuty(Number(key), position, note)"
-              @open-info="
-                (key) => {
-                  infoModalKey = Number(key)
-                  infoModalOpen = true
-                }
-              "
+              @open-info="openInfoModal"
               @batch="openBatchModal"
             />
 
@@ -821,10 +828,7 @@ const submit = async () => {
       :type-b-fields="typeBColumns"
       :positions="positions"
       :can-manage="canManage"
-      @close="
-        infoModalOpen = false
-        infoModalKey = null
-      "
+      @close="closeInfoModal"
       @save="saveInfoModal"
     />
 

@@ -214,6 +214,18 @@ const infoItem = computed<RosterItem | null>(() => {
   return rosterItems.value.find((r) => r.key === infoModalKey.value) ?? null
 })
 
+/** เปิด modal ข้อมูลเพิ่มเติมของนักเรียนคนนี้ */
+const openInfoModal = (key: string | number) => {
+  infoModalKey.value = Number(key)
+  infoModalOpen.value = true
+}
+
+/** ปิด modal ข้อมูลเพิ่มเติม */
+const closeInfoModal = () => {
+  infoModalOpen.value = false
+  infoModalKey.value = null
+}
+
 /** บันทึกข้อมูลของนักเรียน 1 คน (ผ่าน API) */
 const saveInfoModal = async (payload: {
   role_detail: string | null
@@ -607,12 +619,7 @@ function infoValueDisplay(row: ActivityInfoRow): string {
             @toggle-select="toggleSelectParticipant"
             @select-all="toggleSelectAllParticipants"
             @clear-all="clearAllParticipants"
-            @open-info="
-              (key) => {
-                infoModalKey = Number(key)
-                infoModalOpen = true
-              }
-            "
+            @open-info="openInfoModal"
             @toggle-status="toggleParticipantStatus"
             @remove="removeParticipant"
             @batch="openBatchModal"
@@ -629,10 +636,7 @@ function infoValueDisplay(row: ActivityInfoRow): string {
       :type-b-fields="typeBColumns"
       :positions="positions"
       :can-manage="canManage"
-      @close="
-        infoModalOpen = false
-        infoModalKey = null
-      "
+      @close="closeInfoModal"
       @save="saveInfoModal"
     />
 
