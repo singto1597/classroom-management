@@ -8,8 +8,13 @@
  *
  * 🌟 โหมด readOnly (ActivityDetail): แสดงเฉย ๆ ไม่ให้แก้ไข
  * - ไม่มี checkbox/เลือก / ไม่มี dropdown หน้าที่ / ไม่มี toolbar
- * - หน้าที่แสดงเป็น text chip · ปุ่ม "ข้อมูลเพิ่มเติม" เปิด modal แสดงข้อมูลเฉย ๆ
- * - ปุ่มติ๊ก "มาแล้ว/ยังไม่มา" ยังมี (compact) · "นำออก" ซ่อนในเมนูจุด 3 จุด (แบบ StudentList)
+ * - หน้าที่แสดงเป็น text chip · ปุ่ม "ข้อมูลเพิ่มเติม" เป็นไอคอนล้วนบนมือถือ
+ * - ปุ่มติ๊ก "มาแล้ว/ยังไม่มา" เป็นปุ่มกว้างกดง่าย (bottom action) · "นำออก" ซ่อนในเมนูจุด 3 จุด
+ *
+ * 📱 Mobile-friendly (StudentList-inspired):
+ * - ชื่อ block เป็น flex-1 min-w-0 เสมอ → ชื่อไม่ถูกเบียดหาย แม้จอแคบ
+ * - "ข้อมูลเพิ่มเติม" ย่อเป็นไอคอนล้วนบนมือถือ (w-9 h-9) คลี่เป็น icon+text บน sm+
+ * - ปุ่มเช็คอินเป็น action กลางแถวล่าง ความสูง ≥36px (touch target)
  * Presentational — parent เป็นคนเก็บ state และยิง API ผ่าน emits
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -75,23 +80,25 @@ function isOrphanedDuty(item: RosterItem): boolean {
   return !props.positions.includes(pos)
 }
 
-const statusLabel = (status: string) => {
-  if (status === 'attended') return 'มาแล้ว'
-  if (status === 'cancelled') return 'ยกเลิก'
-  return 'ยืนยันแล้ว'
-}
-
-const statusClass = (status: string) => {
-  if (status === 'attended') return 'bg-emerald-50 text-emerald-600 border-emerald-200'
-  if (status === 'cancelled') return 'bg-rose-50 text-rose-600 border-rose-200'
-  return 'bg-amber-50 text-amber-600 border-amber-200'
-}
-
 /** ค่าป้ายสถานะ (dot สี) แบบ StudentList */
 const statusDot = (status: string) => {
   if (status === 'attended') return 'bg-emerald-400'
   if (status === 'cancelled') return 'bg-rose-400'
   return 'bg-amber-400'
+}
+
+/** สไตล์ปุ่มเช็คอิน (bottom action) — ต่างจาก dot เล็ก ๆ ตรงที่ต้องการให้กดชัดเจน */
+const actionClass = (status: string) => {
+  if (status === 'attended') return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+  if (status === 'cancelled') return 'bg-rose-50 text-rose-600 border-rose-200'
+  return 'bg-white text-slate-500 border-slate-200 hover:border-emerald-300 hover:text-emerald-600'
+}
+
+/** ป้ายปุ่มเช็คอิน — "มาแล้ว" เมื่อ attend แล้ว, "ยังไม่มา" เมื่อยังไม่เช็คอิน */
+const actionLabel = (status: string) => {
+  if (status === 'attended') return 'มาแล้ว'
+  if (status === 'cancelled') return 'ยกเลิก'
+  return 'ยังไม่มา'
 }
 
 /** เปลี่ยนหน้าที่ (select) ของผู้เข้าร่วมคนนี้ */
@@ -183,13 +190,14 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
       <div
         v-for="item in filteredItems"
         :key="item.key"
-        class="group relative bg-white rounded-2xl p-3.5 sm:p-4 shadow-sm border border-slate-100 hover:shadow-md hover:border-slate-200 transition-all duration-300"
+        class="group relative bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-100 hover:shadow-md hover:border-slate-200 transition-all duration-300"
         :class="[
           isSelected(item) ? 'bg-violet-50/50 border-violet-200' : '',
           isDisabled(item) ? 'opacity-70' : '',
         ]"
       >
-        <div class="flex items-center gap-3 sm:gap-4">
+        <!-- แถวบน: เลขที่ + ชื่อ (flex-1 min-w-0 → ชื่อไม่ถูกเบียดหาย) + ปุ่ม info + จุด 3 จุด -->
+        <div class="flex items-center gap-2.5 sm:gap-3.5">
           <!-- Checkbox (selectable mode) — ซ่อนในโหมด readOnly -->
           <input
             v-if="selectable && !readOnly"
@@ -199,45 +207,50 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
             class="w-4 h-4 sm:w-5 sm:h-5 rounded accent-violet-600 flex-shrink-0"
           />
 
-          <!-- เลขที่ badge -->
+          <!-- เลขที่ badge (เล็กลงบนมือถือ ให้ชื่อมีที่) -->
           <div
-            class="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-slate-50 text-slate-600 flex items-center justify-center font-black text-base sm:text-lg group-hover:bg-violet-50 group-hover:text-violet-600 transition-colors shrink-0 border border-slate-100"
+            class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-slate-50 text-slate-600 flex items-center justify-center font-black text-sm sm:text-lg group-hover:bg-violet-50 group-hover:text-violet-600 transition-colors shrink-0 border border-slate-100"
           >
             {{ item.student_no }}
           </div>
 
-          <!-- ข้อมูลหลัก -->
+          <!-- ข้อมูลหลัก — flex-1 min-w-0 เสมอ -->
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-0.5">
+            <div class="flex items-center gap-1.5 mb-0.5">
               <span
                 class="w-2 h-2 rounded-full flex-shrink-0"
                 :class="statusDot(item.status)"
               ></span>
               <h4 class="font-bold text-slate-800 text-sm sm:text-[15px] truncate">
-                {{ item.prefix ? item.prefix + ' ' : '' }}{{ item.first_name }} {{ item.last_name }}
+                {{ item.prefix ? item.prefix + ' ' : '' }}{{ item.first_name }}
+                {{ item.last_name }}
               </h4>
             </div>
-            <div class="flex items-center gap-2 text-[11px] sm:text-xs text-slate-400">
+            <div class="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-400">
               <span v-if="item.nickname" class="truncate">{{ item.nickname }}</span>
               <template v-if="item.earned_hours > 0">
-                <span class="text-slate-300 hidden sm:inline">•</span>
-                <span class="text-emerald-600 font-semibold">⏱️ {{ item.earned_hours }} ชม.</span>
+                <span class="text-slate-300">•</span>
+                <span class="text-emerald-600 font-semibold whitespace-nowrap"
+                  >⏱️ {{ item.earned_hours }} ชม.</span
+                >
               </template>
             </div>
           </div>
 
-          <!-- ปุ่มข้อมูลเพิ่มเติม -->
+          <!-- ปุ่มข้อมูลเพิ่มเติม — ไอคอนล้วนบนมือถือ, คลี่เป็น icon+text บน sm+ (กันปุ่มใหญ่เบียดชื่อ) -->
           <button
             type="button"
             @click="emit('openInfo', item.key)"
             :disabled="isDisabled(item)"
-            class="px-3 py-2 rounded-xl text-[11px] font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-100 hover:border-violet-200 transition-colors inline-flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:pointer-events-none"
+            title="ข้อมูลเพิ่มเติม"
+            class="w-9 h-9 sm:w-auto sm:px-3 sm:py-2 shrink-0 rounded-xl text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-100 hover:border-violet-200 transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
           >
-            <i class="bi bi-info-circle"></i> ข้อมูลเพิ่มเติม
+            <i class="bi bi-info-circle text-base sm:text-sm"></i>
+            <span class="hidden sm:inline text-[11px] font-bold">ข้อมูลเพิ่มเติม</span>
           </button>
 
           <!-- เมนูจุด 3 จุด (readOnly: "นำออก" ซ่อนไว้ที่นี่ แบบ StudentList) -->
-          <div v-if="readOnly && showRemove && canManage" class="relative ml-0.5 shrink-0">
+          <div v-if="readOnly && showRemove && canManage" class="relative shrink-0">
             <button
               @click.stop="toggleMenu(item.key, $event)"
               class="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
@@ -265,7 +278,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
         <!-- readOnly: แสดงเป็น text chip (อ่านอย่างเดียว) -->
         <div
           v-if="readOnly"
-          class="mt-3 flex flex-wrap items-center gap-1.5"
+          class="mt-2.5 flex flex-wrap items-center gap-1.5"
         >
           <span
             v-if="dutyOf(item).position"
@@ -278,12 +291,6 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
             class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-50 text-slate-500 border border-slate-100"
           >
             {{ dutyOf(item).note }}
-          </span>
-          <span
-            v-if="!dutyOf(item).position && !dutyOf(item).note"
-            class="text-[11px] text-slate-300"
-          >
-            — ไม่มีหน้าที่ —
           </span>
         </div>
         <!-- mode แก้ไข (ActivityForm): select หน้าที่ + input หมายเหตุ -->
@@ -313,23 +320,35 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
           />
         </div>
 
-        <!-- Detail actions (readOnly: ปุ่มเช็คอิน compact เท่านั้น — นำออกอยู่ในจุด 3 จุด) -->
-        <div v-if="showStatusToggle || (!readOnly && showRemove)" class="mt-2.5 flex items-center gap-2">
+        <!-- ปุ่มเช็คอิน (readOnly) — bottom action กว้าง กดง่ายบนมือถือ, ไม่มี "นำออก" ตรง ๆ (อยู่ในจุด 3 จุด) -->
+        <div v-if="readOnly && showStatusToggle" class="mt-2.5 pt-2.5 border-t border-slate-100">
           <button
-            v-if="showStatusToggle"
             type="button"
             @click="emit('toggleStatus', item.key)"
-            class="px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all inline-flex items-center gap-1"
-            :class="statusClass(item.status)"
+            class="w-full sm:w-auto min-h-[36px] px-3.5 py-2 rounded-xl text-xs font-bold border transition-all inline-flex items-center justify-center gap-1.5"
+            :class="actionClass(item.status)"
           >
             <i
               class="bi"
               :class="item.status === 'attended' ? 'bi-check-circle-fill' : 'bi-circle'"
             ></i>
-            {{ statusLabel(item.status) }}
+            {{ actionLabel(item.status) }}
+          </button>
+        </div>
+
+        <!-- Detail actions (mode แก้ไข ActivityForm: ปุ่มสถานะ + นำออก) -->
+        <div v-if="!readOnly && (showStatusToggle || showRemove)" class="mt-2.5 flex items-center gap-2">
+          <button
+            v-if="showStatusToggle"
+            type="button"
+            @click="emit('toggleStatus', item.key)"
+            class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition-all"
+            :class="actionClass(item.status)"
+          >
+            {{ actionLabel(item.status) }}
           </button>
           <button
-            v-if="!readOnly && showRemove"
+            v-if="showRemove"
             type="button"
             @click="emit('remove', item.key)"
             class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors inline-flex items-center gap-1"
