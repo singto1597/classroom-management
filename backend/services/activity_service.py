@@ -64,6 +64,19 @@ EXPORT_HEADER_LABELS: Dict[str, str] = {
     "consent_status": "ใบขออนุญาตผู้ปกครอง",
     "is_paid": "สถานะจ่ายเงินค่าค่าย",
     "check_in_time": "เวลาเช็คอิน",
+    # 🌟 ข้อมูลเพิ่มเติมต่อคน (custom_fields) — คอลัมน์ที่ได้จาก participant.metadata.custom_fields
+    "custom_fields": "ข้อมูลเพิ่มเติม",
+}
+
+# 🌟 ป้ายภาษาไทยสำหรับคีย์ metadata ของกิจกรรม (ใช้ตอน export สรุป) — กันแสดงคีย์ดิบ
+# ครอบคลุมคีย์เก่า (dual-write) + คีย์ภายใน (positions/required_fields)
+ACTIVITY_META_LABELS: Dict[str, str] = {
+    "location_name": "สถานที่",
+    "location_url": "ลิงก์แผนที่",
+    "agenda": "กำหนดการ",
+    "tags": "หมวดหมู่",
+    "positions": "หน้าที่/ตำแหน่ง",
+    "required_fields": "ข้อมูลที่เก็บต่อคน",
 }
 
 # 🌟 Type A — Profile Fields: ดึงจากตาราง users (READ ONLY ในบริบทกิจกรรม) — ห้ามเก็บซ้ำลง JSONB
@@ -627,10 +640,15 @@ class ActivityService:
                     old_values = old
 
                     # 🌟 merge metadata (deep 1 ระดับ): คีย์ที่ผู้ใช้ไม่ส่งยังอยู่ครบ
+                    # 📌 delete-on-null: คีย์ที่ส่งค่า None มา → ลบออก (ใช้ตอน dual-write คีย์เก่า
+                    # location_name/url, agenda, tags ถูกถอดออกจากข้อมูลเพิ่มเติม) — กัน ghost key ค้าง
                     if "metadata" in clean and isinstance(clean["metadata"], dict):
                         merged = dict(old["metadata"])
                         for k, v in clean["metadata"].items():
-                            merged[k] = v
+                            if v is None:
+                                merged.pop(k, None)
+                            else:
+                                merged[k] = v
                         clean["metadata"] = merged
 
                     allowed = {"title", "description", "activity_date", "base_hours", "status", "metadata"}
@@ -1086,12 +1104,21 @@ class ActivityService:
                         meta = item.get("metadata") or {}
                         if not isinstance(meta, dict):
                             raise ValidationError(f"metadata ของ participant {pid} ต้องเป็น object")
-                        unique_items.append({"participant_id": pid, "metadata": meta})
+                        # 🎖️ พก role_detail ต่อ (batch ตั้งหน้าที่) — ไม่ส่ง = None = ไม่แตะของเดิม
+                        role_detail = item.get("role_detail")
+                        if role_detail is not None and not isinstance(role_detail, str):
+                            raise ValidationError(f"role_detail ของ participant {pid} ต้องเป็น string")
+                        unique_items.append({
+                            "participant_id": pid,
+                            "role_detail": role_detail,
+                            "metadata": meta,
+                        })
 
                     updated = []
                     for item in unique_items:
                         pid = item["participant_id"]
                         new_meta = item["metadata"]
+                        new_role_detail = item["role_detail"]
                         old = await conn.fetchrow(
                             f"{cls.PARTICIPANT_SELECT} WHERE ap.id = $1 AND ap.activity_id = $2 AND ap.deleted_at IS NULL",
                             pid, activity_id,
@@ -1102,19 +1129,38 @@ class ActivityService:
                         merged = dict(old_meta)
                         merged.update(new_meta)
 
-                        await conn.execute(
-                            "UPDATE activity_participants SET metadata = $1::jsonb, updated_at = CURRENT_TIMESTAMP "
-                            "WHERE id = $2 AND activity_id = $3 AND deleted_at IS NULL",
-                            json.dumps(merged), pid, activity_id,
+                        # Dynamic SET — ถ้าส่ง role_detail มา (ไม่ใช่ None) → ตั้ง/เคลียร์หน้าที่ด้วย
+                        # ("" = เคลียร์หน้าที่) — pattern เดียวกับ update_participant
+                        set_clauses = ["metadata = $1::jsonb"]
+                        values: List[Any] = [json.dumps(merged)]
+                        if new_role_detail is not None:
+                            set_clauses.append(f"role_detail = ${len(values) + 1}")
+                            values.append(new_role_detail)
+                        set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+                        values.extend([pid, activity_id])
+                        sql = (
+                            f"UPDATE activity_participants SET {', '.join(set_clauses)} "
+                            f"WHERE id = ${len(values)-1} AND activity_id = ${len(values)} AND deleted_at IS NULL"
                         )
-                        updated.append({"participant_id": pid, "student_no": old["student_no"], "metadata": merged})
+                        await conn.execute(sql, *values)
+
+                        new_vals: dict = {"metadata": merged}
+                        if new_role_detail is not None:
+                            new_vals["role_detail"] = new_role_detail
+                        updated.append({
+                            "participant_id": pid,
+                            "student_no": old["student_no"],
+                            "role_detail": new_role_detail if new_role_detail is not None else old["role_detail"],
+                            "metadata": merged,
+                        })
 
                         exec_time = int((time.time() - start_time) * 1000)
                         await service_logger.log(
                             conn=conn, action="UPDATE", actor_identifier=actor_identifier,
                             client_source=client_source, room_id=target_room_id,
                             entity_type="ACTIVITY_PARTICIPANT", entity_id=str(pid), status="success",
-                            old_values={"metadata": old_meta}, new_values={"metadata": merged},
+                            old_values={"metadata": old_meta, "role_detail": old["role_detail"]},
+                            new_values={k: cls._serializable(v) for k, v in new_vals.items()},
                             endpoint_or_command="batch_update_participants", execution_time_ms=exec_time,
                         )
 
@@ -1241,6 +1287,103 @@ class ActivityService:
             return str(value)
         return value
 
+    @staticmethod
+    def _format_custom_fields(custom_fields: Any) -> str:
+        """participant.metadata.custom_fields = [{label, value}] → 'หัวข้อ: ค่า' ต่อบรรทัด
+        (กัน value ที่เป็น dict/list หลุดเป็น raw)"""
+        if not isinstance(custom_fields, list):
+            return ""
+        lines = []
+        for entry in custom_fields:
+            if not isinstance(entry, dict):
+                continue
+            label = str(entry.get("label", "")).strip()
+            value = entry.get("value")
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False, default=str)
+            value_str = str(value).strip() if value is not None else ""
+            if label and value_str:
+                lines.append(f"{label}: {value_str}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_list_value(value: Any) -> str:
+        """list → คั่นด้วย ' / ' (ใช้กับ positions, tags, required_fields)"""
+        if isinstance(value, (list, tuple)):
+            items = [str(v).strip() for v in value if str(v).strip()]
+            return " / ".join(items) if items else ""
+        return str(value) if value is not None else ""
+
+    @classmethod
+    def _format_activity_meta_lines(cls, meta: dict) -> str:
+        """
+        สรุป 'ข้อมูลเพิ่มเติม' ของกิจกรรมแบบ readable (ไม่แสดงคีย์ดิบ)
+        - custom_fields → 'หัวข้อ: ค่า' ต่อบรรทัด
+        - คีย์เก่าที่รู้จัก (location_name/url, agenda, tags) + positions/required_fields → label ไทย
+        - คีย์อื่น ๆ → เก็บไว้ในกลุ่ม 'อื่นๆ' (กันข้อมูลเก่าหาย แต่ไม่ dump คีย์ดิบเดี่ยว ๆ)
+        """
+        if not meta:
+            return "—"
+
+        lines: List[str] = []
+
+        # 1) custom_fields (ข้อมูลเพิ่มเติมแบบ friendly) — มาก่อนเสมอ
+        custom_lines = cls._format_custom_fields(meta.get("custom_fields"))
+        if custom_lines:
+            lines.append(custom_lines)
+
+        # 2) คีย์เก่า/คีย์ภายในที่รู้จัก → label ไทย (กันซ้ำกับ custom_fields ที่ mapping แล้ว)
+        known_keys = ["location_name", "location_url", "agenda", "tags", "positions", "required_fields"]
+        seen_labels = set()
+        for key in known_keys:
+            if key not in meta:
+                continue
+            value = meta.get(key)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue
+            # ถ้า key นี้ถูก dual-write จาก custom_fields แล้ว ให้ข้าม (ป้องกันซ้ำ)
+            label = ACTIVITY_META_LABELS.get(key, key)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            if key in ("tags", "positions", "required_fields"):
+                formatted = cls._format_list_value(value)
+                if key == "required_fields":
+                    # แปลงเป็นชื่อไทยของฟิลด์ที่เก็บต่อคน
+                    labels = []
+                    for item in value if isinstance(value, (list, tuple)) else []:
+                        item_str = str(item).strip()
+                        if not item_str:
+                            continue
+                        labels.append(EXPORT_HEADER_LABELS.get(item_str, item_str))
+                    formatted = " / ".join(labels)
+                if formatted:
+                    lines.append(f"{label}: {formatted}")
+            elif key == "location_url":
+                lines.append(f"{label}: {value}")
+            else:
+                lines.append(f"{label}: {value}")
+
+        # 3) คีย์อื่น ๆ ที่เหลือ (กิจกรรมเก่า) → รวมเป็น 'อื่นๆ' ไม่ dump คีย์ดิบทีละตัว
+        remaining = {}
+        for k, v in meta.items():
+            if k == "custom_fields" or k in ACTIVITY_META_LABELS:
+                continue
+            if v is None or (isinstance(v, str) and not v.strip()):
+                continue
+            remaining[k] = v
+        if remaining:
+            parts = []
+            for k, v in remaining.items():
+                if isinstance(v, (dict, list)):
+                    v_str = json.dumps(v, ensure_ascii=False, default=str)
+                else:
+                    v_str = str(v)
+                parts.append(f"{k}: {v_str}")
+            lines.append(f"อื่นๆ: {' ; '.join(parts)}")
+
+        return "\n".join(lines) if lines else "—"
+
     # ตัวอ่านค่าของแต่ละคอลัมน์ — Type A อ่านจาก profile record, Type B อ่านจาก participant metadata
     # DRY: export + (อนาคต) GET ใช้ตัวนี้อ่านค่าเดียวกัน ไม่ต้องแก้สองที่
     @staticmethod
@@ -1305,6 +1448,14 @@ class ActivityService:
                     for key in export_keys:
                         if key not in fields:
                             fields.append(key)
+                    # 🌟 เพิ่มคอลัมน์ 'ข้อมูลเพิ่มเติม' (custom_fields ต่อคน) เฉพาะเมื่อมีใครสักคนกรอกแล้ว
+                    # (กันคอลัมน์ว่างเปล่าเข้าไปขยาย header — เทสเดิมไม่มี custom_fields → ไม่กระทบ)
+                    has_custom_fields = any(
+                        cls._format_custom_fields((p.get("metadata") or {}).get("custom_fields"))
+                        for p in participants
+                    )
+                    if has_custom_fields and "custom_fields" not in fields:
+                        fields.append("custom_fields")
 
                     room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
                     room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"
@@ -1347,8 +1498,9 @@ class ActivityService:
                     _section(11, "รายละเอียด")
                     _row(12, "คำอธิบาย", activity.get("description") or "—")
 
-                    _section(14, "Metadata กิจกรรม")
-                    meta_lines = "\n".join(f"{k}: {v}" for k, v in activity["metadata"].items()) or "—"
+                    _section(14, "ข้อมูลเพิ่มเติมของกิจกรรม")
+                    # 🌟 แสดงเป็น readable label ไทย (ไม่ dump คีย์ดิบ) — custom_fields / คีย์เก่า / positions / required_fields
+                    meta_lines = cls._format_activity_meta_lines(activity.get("metadata") or {})
                     ws_summary.cell(row=15, column=1, value=meta_lines)
                     ws_summary.merge_cells(start_row=15, start_column=1, end_row=15, end_column=2)
 
@@ -1381,6 +1533,9 @@ class ActivityService:
                         for field in fields:
                             if field in BASE_READERS:
                                 final.append(BASE_READERS[field](p))
+                            elif field == "custom_fields":
+                                # 🌟 ข้อมูลเพิ่มเติมต่อคน → 'หัวข้อ: ค่า' (ไม่ใช่ raw array)
+                                final.append(cls._format_custom_fields((p.get("metadata") or {}).get("custom_fields")))
                             else:
                                 reader = cls._field_reader(field)
                                 val = reader(p)

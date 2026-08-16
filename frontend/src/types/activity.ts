@@ -33,9 +33,11 @@ export interface ActivityParticipant {
   phone_number_parent?: string | null
 }
 
-/** รายการ Batch Apply — อัปเดต metadata ของ participant ที่ถูกติ๊ก (merge กับของเดิม) */
+/** รายการ Batch Apply — อัปเดต metadata ของ participant ที่ถูกติ๊ก (merge กับของเดิม) + ตั้งหน้าที่ได้ */
 export interface BatchParticipantItem {
   participant_id: number
+  /** 🎖️ หน้าที่/ตำแหน่ง (role_detail) — batch ตั้งหน้าที่ให้ทุกคนที่ติ๊กพร้อมกัน ไม่ส่ง = ไม่แตะ */
+  role_detail?: string | null
   metadata: Metadata
 }
 
@@ -110,6 +112,23 @@ export interface ParticipantUpdate {
   status?: ParticipantStatus | string
   metadata?: Metadata
   user_name: string
+}
+
+/** แถวที่ normalize แล้วของ ParticipantRosterList — parent map จาก ActivityParticipant | Student มาเป็นตัวนี้ */
+export interface RosterItem {
+  key: string | number
+  student_no: number
+  first_name: string
+  last_name: string
+  nickname: string | null
+  prefix?: string | null
+  role_type: string
+  role_detail: string | null
+  status: string
+  earned_hours: number
+  metadata: Record<string, unknown>
+  /** Type A profile values (JOIN users) — ใช้แสดงใน modal ข้อมูลเพิ่มเติม */
+  profile: Record<string, unknown>
 }
 
 /** กิจกรรม + หน้าที่ของฉัน (สำหรับบอท /my_roles และหน้าโปรไฟล์) */

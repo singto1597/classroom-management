@@ -33,8 +33,9 @@ const fetchData = async () => {
   isLoading.value = true
   try {
     activities.value = await ActivityService.getActivities(currentRoomId)
-  } catch (error: any) {
-    Toast.fire({ icon: 'error', title: error?.message || 'ดึงข้อมูลกิจกรรมไม่สำเร็จ' })
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'ดึงข้อมูลกิจกรรมไม่สำเร็จ'
+    Toast.fire({ icon: 'error', title: msg })
   } finally {
     isLoading.value = false
   }
@@ -47,14 +48,23 @@ const filteredActivities = computed(() => {
   }
   return [...list].sort((a, b) => {
     // เรียงตามวันกิจกรรม (ใกล้ก่อน) — ถ้าใกล้แล้วสถานะ upcoming ขึ้นก่อน
-    return new Date(a.activity_date + 'T00:00:00').getTime() - new Date(b.activity_date + 'T00:00:00').getTime()
+    return (
+      new Date(a.activity_date + 'T00:00:00').getTime() -
+      new Date(b.activity_date + 'T00:00:00').getTime()
+    )
   })
 })
 
 type StatusFilter = 'all' | 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
 
 const statusCount = computed(() => {
-  const counts: Record<StatusFilter, number> = { all: activities.value.length, upcoming: 0, ongoing: 0, completed: 0, cancelled: 0 }
+  const counts: Record<StatusFilter, number> = {
+    all: activities.value.length,
+    upcoming: 0,
+    ongoing: 0,
+    completed: 0,
+    cancelled: 0,
+  }
   activities.value.forEach((a) => {
     const key = typeof a.status === 'string' ? (a.status as StatusFilter) : 'upcoming'
     if (key in counts) counts[key] += 1
@@ -69,7 +79,10 @@ const getTags = (activity: Activity): string[] => {
     return tags.map(String).slice(0, 3)
   }
   if (typeof tags === 'string' && tags) {
-    return tags.split(',').map((t) => t.trim()).slice(0, 3)
+    return tags
+      .split(',')
+      .map((t) => t.trim())
+      .slice(0, 3)
   }
   return []
 }
@@ -91,7 +104,8 @@ const openActivity = (activity: Activity) => {
 }
 
 const deleteActivity = async (activity: Activity) => {
-  if (!canManageActivities.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น', 'error')
+  if (!canManageActivities.value)
+    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น', 'error')
   const result = await Swal.fire({
     title: 'ลบกิจกรรมนี้ไหม?',
     text: `"${activity.title}" จะถูกลบ (soft delete) พร้อมผู้เข้าร่วมทั้งหมด`,
@@ -107,8 +121,9 @@ const deleteActivity = async (activity: Activity) => {
       await ActivityService.deleteActivity(currentRoomId, activity.id, currentUserName)
       Toast.fire({ icon: 'success', title: '🗑️ ลบกิจกรรมเรียบร้อยแล้ว' })
       await fetchData()
-    } catch (error: any) {
-      Swal.fire('ข้อผิดพลาด', error?.message || 'ไม่สามารถลบกิจกรรมได้', 'error')
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'ไม่สามารถลบกิจกรรมได้'
+      Swal.fire('ข้อผิดพลาด', msg, 'error')
     }
   }
 }
@@ -119,28 +134,48 @@ onMounted(fetchData)
 <template>
   <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
     <div class="max-w-6xl mx-auto">
-      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 md:mb-8 gap-4">
+      <div
+        class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 md:mb-8 gap-4"
+      >
         <div class="w-full lg:w-auto">
-          <h3 class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5">
-            <div class="p-2 sm:p-2.5 bg-violet-100 rounded-xl text-violet-600 shadow-sm flex-shrink-0">
+          <h3
+            class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5"
+          >
+            <div
+              class="p-2 sm:p-2.5 bg-violet-100 rounded-xl text-violet-600 shadow-sm flex-shrink-0"
+            >
               <i class="bi bi-calendar-heart-fill"></i>
             </div>
             กิจกรรม & ผู้เข้าร่วม
           </h3>
-          <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">บันทึกกิจกรรม หน้าที่ และชั่วโมงจิตอาสาของห้อง</p>
+          <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">
+            บันทึกกิจกรรม หน้าที่ และชั่วโมงจิตอาสาของห้อง
+          </p>
         </div>
 
         <div class="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
-          <div class="bg-slate-200/60 p-1.5 rounded-2xl flex flex-nowrap items-center gap-1 shadow-inner backdrop-blur-sm w-full sm:w-auto overflow-x-auto">
+          <div
+            class="bg-slate-200/60 p-1.5 rounded-2xl flex flex-nowrap items-center gap-1 shadow-inner backdrop-blur-sm w-full sm:w-auto overflow-x-auto"
+          >
             <button
-              v-for="f in (['all', 'upcoming', 'ongoing', 'completed', 'cancelled'] as const)"
+              v-for="f in ['all', 'upcoming', 'ongoing', 'completed', 'cancelled'] as const"
               :key="f"
               @click="filter = f"
-              :class="filter === f ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'"
+              :class="
+                filter === f
+                  ? 'bg-white text-violet-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+              "
               class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5"
             >
               {{ f === 'all' ? 'ทั้งหมด' : ACTIVITY_STATUS_LABELS[f] }}
-              <span class="px-1.5 py-0.5 rounded-full text-[10px] font-black" :class="filter === f ? 'bg-violet-100 text-violet-600' : 'bg-slate-300/50 text-slate-600'">{{ statusCount[f] }}</span>
+              <span
+                class="px-1.5 py-0.5 rounded-full text-[10px] font-black"
+                :class="
+                  filter === f ? 'bg-violet-100 text-violet-600' : 'bg-slate-300/50 text-slate-600'
+                "
+                >{{ statusCount[f] }}</span
+              >
             </button>
           </div>
 
@@ -159,8 +194,13 @@ onMounted(fetchData)
         <p class="text-slate-400 font-medium animate-pulse">กำลังดึงข้อมูลกิจกรรม...</p>
       </div>
 
-      <div v-else-if="filteredActivities.length === 0" class="flex flex-col items-center justify-center py-20 md:py-24 bg-white rounded-[2rem] shadow-sm border border-slate-100 px-4 text-center">
-        <div class="w-20 h-20 md:w-24 md:h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+      <div
+        v-else-if="filteredActivities.length === 0"
+        class="flex flex-col items-center justify-center py-20 md:py-24 bg-white rounded-[2rem] shadow-sm border border-slate-100 px-4 text-center"
+      >
+        <div
+          class="w-20 h-20 md:w-24 md:h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6"
+        >
           <i class="bi bi-calendar-x text-3xl md:text-4xl text-slate-300"></i>
         </div>
         <h4 class="text-lg md:text-xl font-bold text-slate-700 mb-2">ยังไม่มีกิจกรรมในหมวดนี้</h4>
@@ -175,13 +215,25 @@ onMounted(fetchData)
           class="group cursor-pointer bg-white rounded-3xl p-4 md:p-5 shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
           :class="{ 'opacity-70 grayscale-[0.2]': activity.status === 'cancelled' }"
         >
-          <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-3 gap-2 sm:gap-4">
-            <h5 class="text-lg font-bold text-slate-800 leading-tight flex-grow">{{ activity.title }}</h5>
+          <div
+            class="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-3 gap-2 sm:gap-4"
+          >
+            <h5 class="text-lg font-bold text-slate-800 leading-tight flex-grow">
+              {{ activity.title }}
+            </h5>
             <span
               class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap inline-block border"
-              :class="ACTIVITY_STATUS_BADGE[typeof activity.status === 'string' ? activity.status : 'upcoming'] || ACTIVITY_STATUS_BADGE.upcoming"
+              :class="
+                ACTIVITY_STATUS_BADGE[
+                  typeof activity.status === 'string' ? activity.status : 'upcoming'
+                ] || ACTIVITY_STATUS_BADGE.upcoming
+              "
             >
-              {{ ACTIVITY_STATUS_LABELS[typeof activity.status === 'string' ? activity.status : 'upcoming'] || activity.status }}
+              {{
+                ACTIVITY_STATUS_LABELS[
+                  typeof activity.status === 'string' ? activity.status : 'upcoming'
+                ] || activity.status
+              }}
             </span>
           </div>
 
@@ -197,10 +249,16 @@ onMounted(fetchData)
           </div>
 
           <div class="flex flex-wrap items-center gap-2 text-slate-500 text-xs font-semibold mb-3">
-            <span class="bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100 inline-flex items-center gap-1.5">
-              <i class="bi bi-calendar-event text-violet-500"></i> {{ formatDate(activity.activity_date) }}
+            <span
+              class="bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100 inline-flex items-center gap-1.5"
+            >
+              <i class="bi bi-calendar-event text-violet-500"></i>
+              {{ formatDate(activity.activity_date) }}
             </span>
-            <span v-if="activity.base_hours > 0" class="bg-emerald-50 w-fit px-3 py-1.5 rounded-lg border border-emerald-100 inline-flex items-center gap-1.5 text-emerald-600">
+            <span
+              v-if="activity.base_hours > 0"
+              class="bg-emerald-50 w-fit px-3 py-1.5 rounded-lg border border-emerald-100 inline-flex items-center gap-1.5 text-emerald-600"
+            >
               <i class="bi bi-clock-history"></i> {{ activity.base_hours }} ชม.
             </span>
           </div>
@@ -234,7 +292,10 @@ onMounted(fetchData)
       </div>
 
       <div class="mt-10 md:mt-12 flex flex-col sm:flex-row justify-center items-center gap-4">
-        <router-link to="/dashboard" class="w-full sm:w-auto px-8 py-3 md:py-3.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold rounded-2xl transition-all flex items-center justify-center gap-2">
+        <router-link
+          to="/dashboard"
+          class="w-full sm:w-auto px-8 py-3 md:py-3.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold rounded-2xl transition-all flex items-center justify-center gap-2"
+        >
           <i class="bi bi-house"></i> กลับหน้าหลัก
         </router-link>
       </div>

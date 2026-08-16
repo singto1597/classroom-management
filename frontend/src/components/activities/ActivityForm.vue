@@ -3,21 +3,27 @@ import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { StudentService } from '@/services/student'
 import { ActivityService } from '@/services/activity'
-import type { Activity, ActivityParticipantInput } from '@/types/activity'
+import type { Activity, ActivityParticipantInput, RosterItem } from '@/types/activity'
 import type { Student } from '@/types/student'
 import {
   ALL_ACTIVITY_FIELDS,
-  EVENT_FIELDS,
   PROFILE_FIELD_KEYS,
   EVENT_FIELD_KEYS,
   ACTIVITY_FIELD_CATEGORY_LABELS,
   ACTIVITY_FIELD_CATEGORY_ORDER,
+  ACTIVITY_META_QUICK_ADD,
   getActivityPositions,
+  customFieldsFromMeta,
+  buildActivityMeta,
   splitDutyRole,
   joinDutyRole,
   type ActivityField,
+  type CustomFieldEntry,
 } from '@/constants/activityFields'
-import ActivityFieldControl from '@/components/activities/ActivityFieldControl.vue'
+import ExtraInfoRows from '@/components/activities/ExtraInfoRows.vue'
+import ParticipantRosterList from '@/components/activities/ParticipantRosterList.vue'
+import ParticipantInfoModal from '@/components/activities/ParticipantInfoModal.vue'
+import BatchApplyModal from '@/components/activities/BatchApplyModal.vue'
 import Swal from 'sweetalert2'
 
 const props = defineProps<{
@@ -31,12 +37,28 @@ const authStore = useAuthStore()
 
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
-const editActivityId = computed(() => (props.mode === 'edit' && props.initialActivity ? props.initialActivity.id : null))
+const editActivityId = computed(() =>
+  props.mode === 'edit' && props.initialActivity ? props.initialActivity.id : null,
+)
 
 const isLoading = ref(true)
 const isSaving = ref(false)
 
-// --- ฟอร์มหลัก ---
+const canManage = computed(
+  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
+)
+
+const Toast = Swal.mixin({
+  toast: true,
+  position: 'top-end',
+  showConfirmButton: false,
+  timer: 3000,
+  timerProgressBar: true,
+})
+
+// ================================================================
+// 🏷️ โซน A — ข้อมูลกิจกรรม
+// ================================================================
 const form = ref({
   title: '',
   description: '',
@@ -45,22 +67,10 @@ const form = ref({
   status: 'upcoming' as string,
 })
 
-// --- 🌟 ข้อมูลเพิ่มเติม (เดิม metadata) กิจกรรม key-value ---
-interface MetaEntry {
-  key: string
-  value: string
-}
-const activityMeta = ref<MetaEntry[]>([{ key: '', value: '' }])
+// --- ข้อมูลเพิ่มเติมของกิจกรรม (หัวข้อ + ค่า แบบ user-friendly) ---
+const activityMetaRows = ref<CustomFieldEntry[]>([])
 
-// ฟิลด์ช่วย (preset) สำหรับข้อมูลเพิ่มเติม
-const metaPresets = [
-  { key: 'tags', placeholder: 'เช่น กีฬา, ค่าย, ทัศนศึกษา (คั่นด้วย ,)' },
-  { key: 'location_url', placeholder: 'https://maps.google.com/...' },
-  { key: 'agenda', placeholder: '08:00 เปิดงาน | 10:00 แข่ง | 12:00 พัก' },
-  { key: 'location_name', placeholder: 'สนามกีฬาโรงเรียน' },
-]
-
-// --- 🎖️ ตำแหน่ง/หน้าที่ของกิจกรรม (กำหนดเองได้ต่อกิจกรรม) ---
+// --- 🎖️ หน้าที่/ตำแหน่งของกิจกรรม (กำหนดเองได้ต่อกิจกรรม) ---
 const positions = ref<string[]>([])
 const newPosition = ref('')
 
@@ -91,28 +101,18 @@ const movePosition = (index: number, dir: -1 | 1) => {
 }
 
 // ================================================================
-// 🌟 Field Selector (Required Data) — ข้อมูลที่ต้องการจัดเก็บสำหรับกิจกรรมนี้
-// เก็บ key ที่ติ๊กลง activities.metadata.required_fields
-// Type A (🔒) → ดึงจากโปรไฟล์อัตโนมัติ ไม่ให้กรอกใหม่
-// Type B → เป็นคอลัมน์ที่แก้ในตาราง / Batch Apply ได้
+// 🔘 โซน B — ข้อมูลที่เก็บของนักเรียน (Field Selector) + ผู้เข้าร่วม
 // ================================================================
 const requiredFields = ref<Set<string>>(new Set())
 
-const selectedFields = computed<ActivityField[]>(() =>
-  ALL_ACTIVITY_FIELDS.filter((f) => requiredFields.value.has(f.key)),
-)
 const typeAColumns = computed<ActivityField[]>(() =>
-  selectedFields.value.filter((f) => PROFILE_FIELD_KEYS.has(f.key)),
+  ALL_ACTIVITY_FIELDS.filter(
+    (f) => PROFILE_FIELD_KEYS.has(f.key) && requiredFields.value.has(f.key),
+  ),
 )
 const typeBColumns = computed<ActivityField[]>(() =>
-  selectedFields.value.filter((f) => EVENT_FIELD_KEYS.has(f.key)),
+  ALL_ACTIVITY_FIELDS.filter((f) => EVENT_FIELD_KEYS.has(f.key) && requiredFields.value.has(f.key)),
 )
-/** ฟิลด์ Type B ที่ถูกเลือก — ใช้ใน Batch Apply Modal */
-const batchFields = computed<ActivityField[]>(() =>
-  EVENT_FIELDS.filter((f) => requiredFields.value.has(f.key)),
-)
-/** ฟิลด์ Type B ที่ถูกเลือกและสามารถตั้งค่าแบบกลุ่มได้ (ไม่ใช่ boolean ที่ต้องการค่าเฉพาะราย) */
-const batchSettableFields = computed<ActivityField[]>(() => batchFields.value)
 
 const toggleRequiredField = (key: string) => {
   const next = new Set(requiredFields.value)
@@ -121,30 +121,145 @@ const toggleRequiredField = (key: string) => {
   requiredFields.value = next
 }
 
-// --- รายชื่อนักเรียน + การเลือก (เป็นทั้งผู้เข้าร่วมและเป้าหมาย Batch Apply) ---
+// --- ผู้เข้าร่วม (local draft state — map ตาม student_no) ---
 const students = ref<Student[]>([])
 const selectedNos = ref<Set<number>>(new Set())
 const dutyPosition = ref<Record<number, string>>({})
 const dutyNote = ref<Record<number, string>>({})
 const participantMeta = ref<Record<number, Record<string, unknown>>>({})
-// 🎯 บันทึกค่าเดิมของผู้เข้าร่วม (edit) เพื่อไม่ให้ทับข้อมูลเช็คอิน/ชั่วโมง
 const participantHours = ref<Record<number, number>>({})
 const participantRoleType = ref<Record<number, string>>({})
 const participantStatus = ref<Record<number, string>>({})
 
-const canManage = computed(
-  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
-)
-
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
+/** รายการที่ normalize สำหรับ ParticipantRosterList — โชว์นักเรียน active ทั้งหมด
+ * (checkbox บอกว่าเลือกหรือยัง — ตามแบบ StudentList) */
+const rosterItems = computed<RosterItem[]>(() => {
+  return students.value.map((s) => ({
+    key: s.student_no,
+    student_no: s.student_no,
+    first_name: s.first_name,
+    last_name: s.last_name,
+    nickname: s.nickname,
+    prefix: s.prefix,
+    role_type: participantRoleType.value[s.student_no] || 'participant',
+    role_detail:
+      joinDutyRole(dutyPosition.value[s.student_no] ?? '', dutyNote.value[s.student_no] ?? '') ||
+      null,
+    status: participantStatus.value[s.student_no] || 'confirmed',
+    earned_hours: participantHours.value[s.student_no] ?? 0,
+    metadata: participantMeta.value[s.student_no] || {},
+    profile: s as unknown as Record<string, unknown>,
+  }))
 })
 
-// --- Edit prefill: โหลดข้อมูลกิจกรรมเดิมลงฟอร์ม (รันครั้งเดียวเมื่อ initialActivity พร้อม) ---
+// --- Modal state ---
+const infoModalOpen = ref(false)
+const infoModalKey = ref<number | null>(null)
+const batchModalOpen = ref(false)
+
+const infoItem = computed<RosterItem | null>(() => {
+  if (infoModalKey.value === null) return null
+  return rosterItems.value.find((r) => r.key === infoModalKey.value) ?? null
+})
+
+const selectedCount = computed(() => selectedNos.value.size)
+
+const toggleSelect = (no: number) => {
+  const next = new Set(selectedNos.value)
+  if (next.has(no)) {
+    next.delete(no)
+  } else {
+    next.add(no)
+  }
+  selectedNos.value = next
+}
+
+const selectAll = () => {
+  selectedNos.value = new Set(students.value.map((s) => s.student_no))
+}
+
+const clearAll = () => {
+  selectedNos.value = new Set()
+  dutyPosition.value = {}
+  dutyNote.value = {}
+  participantMeta.value = {}
+  participantHours.value = {}
+  participantRoleType.value = {}
+  participantStatus.value = {}
+}
+
+const changeDuty = (no: number, position: string, note: string) => {
+  dutyPosition.value[no] = position
+  dutyNote.value[no] = note
+  // trigger reactivity
+  dutyPosition.value = { ...dutyPosition.value }
+  dutyNote.value = { ...dutyNote.value }
+}
+
+// ================================================================
+// 📋 Modal: ข้อมูลเพิ่มเติมของนักเรียน (ต่อคน)
+// ================================================================
+const saveInfoModal = (payload: {
+  role_detail: string | null
+  metadata: Record<string, unknown>
+  customFields: CustomFieldEntry[]
+}) => {
+  const no = infoModalKey.value
+  if (no === null) return
+  const { position, note } = splitDutyRole(payload.role_detail)
+  dutyPosition.value = { ...dutyPosition.value, [no]: position }
+  dutyNote.value = { ...dutyNote.value, [no]: note }
+  participantMeta.value = { ...participantMeta.value, [no]: payload.metadata }
+  infoModalOpen.value = false
+  infoModalKey.value = null
+  Toast.fire({ icon: 'success', title: 'บันทึกข้อมูลของนักเรียนคนนี้แล้ว (ยังไม่บันทึกกิจกรรม)' })
+}
+
+// ================================================================
+// 🎯 Modal: ตั้งค่าแบบกลุ่ม (Batch Apply) — หน้าที่ + Type B
+// ================================================================
+const openBatchModal = () => {
+  if (!canManage.value) return
+  batchModalOpen.value = true
+}
+
+const applyBatch = (payload: { dutyPosition: string; typeB: Record<string, unknown> }) => {
+  const targets = Array.from(selectedNos.value)
+  if (targets.length === 0) {
+    Swal.fire('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม', 'warning')
+    return
+  }
+  for (const no of targets) {
+    // หน้าที่/ตำแหน่ง — ตั้งชุดให้ทุกคน (แทนที่ของเดิม + เคลียร์หมายเหตุเดิม ตามคำเตือนใน modal)
+    if (payload.dutyPosition) {
+      dutyPosition.value[no] = payload.dutyPosition
+      dutyNote.value[no] = ''
+    }
+    // Type B — merge กับของเดิม (ตาม batch semantic)
+    const meta = { ...participantMeta.value[no] }
+    for (const [k, v] of Object.entries(payload.typeB)) {
+      if (v === '' || v === null || v === undefined) {
+        delete meta[k]
+      } else {
+        meta[k] = v
+      }
+    }
+    participantMeta.value[no] = meta
+  }
+  // trigger reactivity
+  dutyPosition.value = { ...dutyPosition.value }
+  dutyNote.value = { ...dutyNote.value }
+  participantMeta.value = { ...participantMeta.value }
+  batchModalOpen.value = false
+  Toast.fire({
+    icon: 'success',
+    title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนแล้ว (ยังไม่บันทึก)`,
+  })
+}
+
+// ================================================================
+// 📥 Edit prefill
+// ================================================================
 const applyInitial = () => {
   const act = props.initialActivity
   if (props.mode !== 'edit' || !act) return
@@ -157,17 +272,8 @@ const applyInitial = () => {
     status: typeof act.status === 'string' ? act.status : 'upcoming',
   }
 
-  // ข้อมูลเพิ่มเติม (ยกเว้น positions / required_fields ที่จัดการแยก)
   const meta = act.metadata || {}
-  const entries: MetaEntry[] = []
-  for (const [k, v] of Object.entries(meta)) {
-    if (k === 'positions' || k === 'required_fields') continue
-    if (v === null || v === undefined) continue
-    entries.push({ key: k, value: Array.isArray(v) ? (v as unknown[]).join(', ') : String(v) })
-  }
-  if (entries.length === 0) entries.push({ key: '', value: '' })
-  activityMeta.value = entries
-
+  activityMetaRows.value = customFieldsFromMeta(meta)
   positions.value = getActivityPositions(meta)
 
   const reqFields = meta.required_fields
@@ -207,7 +313,6 @@ onMounted(async () => {
   try {
     const list = await StudentService.getStudents(currentRoomId)
     students.value = (list as Student[]).filter((s) => s.status === 'active')
-    // 🎯 กรณีสร้างใหม่ → ตั้งค่า default positions
     if (props.mode === 'create') {
       positions.value = getActivityPositions(undefined)
     }
@@ -220,135 +325,9 @@ onMounted(async () => {
   }
 })
 
-const selectedCount = computed(() => selectedNos.value.size)
-
-const toggleSelect = (student: Student) => {
-  const no = student.student_no
-  if (selectedNos.value.has(no)) {
-    selectedNos.value.delete(no)
-    delete dutyPosition.value[no]
-    delete dutyNote.value[no]
-  } else {
-    selectedNos.value.add(no)
-  }
-  // trigger reactivity
-  selectedNos.value = new Set(selectedNos.value)
-}
-
-const selectAll = () => {
-  students.value.forEach((s) => selectedNos.value.add(s.student_no))
-  selectedNos.value = new Set(selectedNos.value)
-}
-
-const clearAll = () => {
-  selectedNos.value = new Set()
-  dutyPosition.value = {}
-  dutyNote.value = {}
-  participantMeta.value = {}
-  participantHours.value = {}
-  participantRoleType.value = {}
-  participantStatus.value = {}
-}
-
-// --- ข้อมูลเพิ่มเติม helper ---
-const buildMetadata = (entries: MetaEntry[]): Record<string, unknown> => {
-  const result: Record<string, unknown> = {}
-  for (const e of entries) {
-    const key = e.key.trim()
-    const value = e.value.trim()
-    if (!key) continue
-    // แปลงค่าแบบง่าย: ถ้าเป็น array (คั่น ,) ให้แยกเป็น list
-    if (key === 'tags' && value.includes(',')) {
-      result[key] = value.split(',').map((t) => t.trim()).filter(Boolean)
-    } else if (key === 'agenda' && value.includes('|')) {
-      result[key] = value.split('|').map((t) => t.trim()).filter(Boolean)
-    } else {
-      result[key] = value
-    }
-  }
-  return result
-}
-
-// ⚠️ ใน template refs ถูก auto-unwrap → ฟังก์ชันรับ array ตรง ๆ (ไม่ใช่ Ref)
-const addMetaRow = (entries: MetaEntry[]) => {
-  entries.push({ key: '', value: '' })
-}
-const removeMetaRow = (entries: MetaEntry[], index: number) => {
-  entries.splice(index, 1)
-}
-
 // ================================================================
-// 📊 Smart Participant Table — แก้ค่า Type B ในตารางได้เลย (ไม่ต้องเปิด Modal)
+// 🚀 Submit
 // ================================================================
-/** อ่านค่า Type A จากโปรไฟล์นักเรียน (JOIN users ฝั่ง backend ก็ได้ค่าเดียวกัน) */
-const profileValue = (student: Student, key: string): unknown => {
-  return (student as unknown as Record<string, unknown>)[key]
-}
-
-/** อ่านข้อมูลเพิ่มเติม Type B ของ participant (ลบ key ที่ไม่มีค่า) */
-const getParticipantMeta = (no: number): Record<string, unknown> => {
-  if (!participantMeta.value[no]) participantMeta.value[no] = {}
-  return participantMeta.value[no]
-}
-
-const setParticipantField = (no: number, field: string, value: unknown) => {
-  const meta = getParticipantMeta(no)
-  if (value === '' || value === null || value === undefined) {
-    delete meta[field]
-  } else {
-    meta[field] = value
-  }
-  // trigger reactivity (เผื่อ key ใหม่ที่ Vue ไม่ track ผ่าน proxy)
-  participantMeta.value = { ...participantMeta.value }
-}
-
-/** คืนว่าตำแหน่งที่เลือกของผู้เข้าร่วมนี้ ยังมีอยู่ในรายการหรือไม่ (กันข้อมูลหายตอนลบตำแหน่ง) */
-const isOrphanedDuty = (no: number): boolean => {
-  const pos = dutyPosition.value[no]
-  if (!pos) return false
-  return !positions.value.includes(pos)
-}
-
-// ================================================================
-// 🎯 Batch Action (คลุมดำตั้งค่า) — ตั้งค่า Type B ให้ทุกคนที่ถูกติ๊กพร้อมกัน
-// แก้ Local State ก่อน แล้วกด "บันทึกกิจกรรม" ค่อยยิง payload เดียว
-// ================================================================
-const showBatchModal = ref(false)
-const batchValues = ref<Record<string, unknown>>({})
-
-const openBatchModal = () => {
-  if (!canManage.value) return
-  batchValues.value = {}
-  showBatchModal.value = true
-}
-
-const applyBatch = () => {
-  const values = batchValues.value
-  const targets = Array.from(selectedNos.value)
-  if (targets.length === 0) {
-    Swal.fire('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม', 'warning')
-    return
-  }
-  const filled = Object.entries(values).filter(
-    ([, v]) => v !== '' && v !== null && v !== undefined,
-  )
-  if (filled.length === 0) {
-    Swal.fire('กรอกค่า', 'กรุณากรอกค่าที่ต้องการตั้งค่าแบบกลุ่ม', 'warning')
-    return
-  }
-  for (const no of targets) {
-    for (const [key, val] of filled) {
-      setParticipantField(no, key, val)
-    }
-  }
-  showBatchModal.value = false
-  Toast.fire({
-    icon: 'success',
-    title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนแล้ว (ยังไม่บันทึก)`,
-  })
-}
-
-// --- Submit ---
 const validateForm = (): string | null => {
   if (!form.value.title.trim()) return 'กรุณากรอกชื่อกิจกรรม'
   if (!form.value.activity_date) return 'กรุณาเลือกวันที่'
@@ -363,8 +342,12 @@ const submit = async () => {
   const error = validateForm()
   if (error) return Swal.fire('กรอกข้อมูลไม่ครบ', error, 'warning')
 
-  // ⚠️ เตือนถ้าผู้เข้าร่วมที่เลือกมีตำแหน่งไม่อยู่ในรายการแล้ว (ข้อมูลจะถูกเก็บเป็นข้อความลอย)
-  const orphaned = Array.from(selectedNos.value).filter(isOrphanedDuty)
+  // ⚠️ เตือนถ้าผู้เข้าร่วมที่เลือกมีตำแหน่งไม่อยู่ในรายการแล้ว
+  const orphaned = Array.from(selectedNos.value).filter((no) => {
+    const pos = dutyPosition.value[no]
+    if (!pos) return false
+    return !positions.value.includes(pos)
+  })
   if (orphaned.length > 0) {
     const names = orphaned
       .map((no) => students.value.find((s) => s.student_no === no))
@@ -381,32 +364,42 @@ const submit = async () => {
     if (!result.isConfirmed) return
   }
 
-  // 🌟 ใส่ positions + required_fields ลงข้อมูลเพิ่มเติม (metadata) กิจกรรม
-  const activityMetadata = buildMetadata(activityMeta.value)
-  activityMetadata.positions = [...positions.value]
-  activityMetadata.required_fields = Array.from(requiredFields.value)
+  // 🌟 สร้าง metadata กิจกรรม: custom_fields + dual-write คีย์เก่า + positions + required_fields
+  const activityMetadata = buildActivityMeta(
+    activityMetaRows.value,
+    positions.value,
+    Array.from(requiredFields.value),
+    props.mode === 'edit' ? (props.initialActivity?.metadata ?? null) : null,
+  )
 
   const participants: ActivityParticipantInput[] = []
   for (const no of selectedNos.value) {
     const student = students.value.find((s) => s.student_no === no)
     if (!student) continue
     // 🚨 Type A (โปรไฟล์) ห้ามส่งลง metadata — backend JOIN มาจาก users ให้เอง
-    const meta = getParticipantMeta(no)
+    // custom_fields ต้องพกไปด้วย (ไม่งั้นข้อมูลเพิ่มเติมต่อคนหายตอนสร้าง — lesson R1)
+    const meta = participantMeta.value[no] || {}
     const cleanMeta: Record<string, unknown> = {}
     if (props.mode === 'edit') {
-      // แก้ไข → ส่ง metadata เต็มที่แก้ในตาราง (round-trip) กันข้อมูลหาย
+      // แก้ไข → ส่ง metadata เต็มที่แก้ใน modal (round-trip) กันข้อมูลหาย
       Object.assign(cleanMeta, meta)
     } else {
       for (const [k, v] of Object.entries(meta)) {
-        if (EVENT_FIELD_KEYS.has(k)) cleanMeta[k] = v
+        if (EVENT_FIELD_KEYS.has(k) || k === 'custom_fields') cleanMeta[k] = v
       }
     }
     participants.push({
       student_no: no,
-      role_type: props.mode === 'edit' ? (participantRoleType.value[no] || 'participant') : 'participant',
+      role_type:
+        props.mode === 'edit' ? participantRoleType.value[no] || 'participant' : 'participant',
       role_detail: joinDutyRole(dutyPosition.value[no] ?? '', dutyNote.value[no] ?? '') || null,
-      earned_hours: props.mode === 'edit' ? (participantHours.value[no] ?? 0) : (form.value.base_hours > 0 ? form.value.base_hours : 0),
-      status: props.mode === 'edit' ? (participantStatus.value[no] || 'confirmed') : 'confirmed',
+      earned_hours:
+        props.mode === 'edit'
+          ? (participantHours.value[no] ?? 0)
+          : form.value.base_hours > 0
+            ? form.value.base_hours
+            : 0,
+      status: props.mode === 'edit' ? participantStatus.value[no] || 'confirmed' : 'confirmed',
       metadata: cleanMeta,
     })
   }
@@ -466,21 +459,32 @@ const submit = async () => {
 <template>
   <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
     <div class="max-w-7xl mx-auto">
-
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
         <div>
-          <h3 class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5">
-            <div class="p-2 sm:p-2.5 bg-violet-100 rounded-xl text-violet-600 shadow-sm flex-shrink-0">
+          <h3
+            class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5"
+          >
+            <div
+              class="p-2 sm:p-2.5 bg-violet-100 rounded-xl text-violet-600 shadow-sm flex-shrink-0"
+            >
               <i :class="mode === 'edit' ? 'bi bi-pencil-square' : 'bi bi-calendar-plus-fill'"></i>
             </div>
             {{ mode === 'edit' ? 'แก้ไขกิจกรรม' : 'สร้างกิจกรรมใหม่' }}
           </h3>
           <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">
-            {{ mode === 'edit' ? 'แก้ไขข้อมูลกิจกรรม ตำแหน่ง และผู้เข้าร่วมได้ทุกอย่าง' : 'กรอกข้อมูลหัวกิจกรรม + เลือกฟิลด์ที่ต้องจัดเก็บ + เลือกผู้เข้าร่วม' }}
+            {{
+              mode === 'edit'
+                ? 'แก้ไขข้อมูลกิจกรรม ตำแหน่ง และผู้เข้าร่วมได้ทุกอย่าง'
+                : 'กรอกข้อมูลหัวกิจกรรม + เลือกฟิลด์ที่ต้องจัดเก็บ + เลือกผู้เข้าร่วม'
+            }}
           </p>
         </div>
-        <router-link :to="mode === 'edit' && editActivityId ? `/activities/${editActivityId}` : '/activities'" class="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-4 py-2 rounded-xl transition-all">
-          <i class="bi bi-arrow-left"></i> {{ mode === 'edit' ? 'กลับหน้ารายละเอียด' : 'กลับรายการ' }}
+        <router-link
+          :to="mode === 'edit' && editActivityId ? `/activities/${editActivityId}` : '/activities'"
+          class="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-4 py-2 rounded-xl transition-all"
+        >
+          <i class="bi bi-arrow-left"></i>
+          {{ mode === 'edit' ? 'กลับหน้ารายละเอียด' : 'กลับรายการ' }}
         </router-link>
       </div>
 
@@ -490,25 +494,32 @@ const submit = async () => {
       </div>
 
       <div v-else class="grid grid-cols-1 lg:grid-cols-5 gap-5 md:gap-6">
-        <!-- ========== ส่วนหัวกิจกรรม ========== -->
+        <!-- ========== โซน A: ตั้งค่ากิจกรรม ========== -->
         <div class="lg:col-span-2 space-y-5">
+          <!-- ข้อมูลกิจกรรม -->
           <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
             <h4 class="text-base font-bold text-slate-700 mb-4 flex items-center gap-2">
               <i class="bi bi-card-heading text-violet-500"></i> ข้อมูลกิจกรรม
             </h4>
             <div class="space-y-4">
               <div>
-                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">ชื่อกิจกรรม *</label>
+                <label
+                  class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                  >ชื่อกิจกรรม *</label
+                >
                 <input
                   v-model="form.title"
                   type="text"
-                  placeholder="เช่น กีฬาสีประจำปี 2026"
+                  placeholder="เช่น ค่ายอาสา, งานกีฬาสี, ทัศนศึกษา"
                   class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
                 />
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">วันที่ *</label>
+                  <label
+                    class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                    >วันที่ *</label
+                  >
                   <input
                     v-model="form.activity_date"
                     type="date"
@@ -516,7 +527,10 @@ const submit = async () => {
                   />
                 </div>
                 <div>
-                  <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">ชั่วโมงจิตอาสา</label>
+                  <label
+                    class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                    >ชั่วโมงจิตอาสา</label
+                  >
                   <input
                     v-model.number="form.base_hours"
                     type="number"
@@ -528,7 +542,10 @@ const submit = async () => {
                 </div>
               </div>
               <div>
-                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">สถานะ</label>
+                <label
+                  class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                  >สถานะ</label
+                >
                 <select
                   v-model="form.status"
                   class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
@@ -540,7 +557,10 @@ const submit = async () => {
                 </select>
               </div>
               <div>
-                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">รายละเอียด</label>
+                <label
+                  class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                  >รายละเอียด</label
+                >
                 <textarea
                   v-model="form.description"
                   rows="3"
@@ -551,20 +571,23 @@ const submit = async () => {
             </div>
           </div>
 
-          <!-- 🎖️ ตำแหน่ง/หน้าที่ของกิจกรรม -->
+          <!-- 🎖️ หน้าที่/ตำแหน่งของกิจกรรม -->
           <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
             <div class="flex items-center justify-between mb-1">
               <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-diagram-3 text-violet-500"></i> ตำแหน่ง/หน้าที่ของกิจกรรม
+                <i class="bi bi-diagram-3 text-violet-500"></i> หน้าที่/ตำแหน่ง
               </h4>
             </div>
-            <p class="text-xs text-slate-400 mb-4">กำหนดรายการตำแหน่งที่ใช้ในกิจกรรมนี้ (เช่น นักกีฬา, แสตน, สตาฟแสตน) — ผู้เข้าร่วมเลือกจากรายการนี้</p>
+            <p class="text-xs text-slate-400 mb-4">
+              กำหนดรายการตำแหน่งที่ใช้ในกิจกรรมนี้ — ผู้เข้าร่วมเลือกจากรายการนี้
+              และตั้งค่าแบบกลุ่มได้ (เช่น หัวหน้ากลุ่ม, ทีมงาน, ฝ่ายทะเบียน)
+            </p>
 
             <div class="flex gap-2 mb-3">
               <input
                 v-model="newPosition"
                 type="text"
-                placeholder="เช่น สตาฟแสตน"
+                placeholder="เช่น ฝ่ายทะเบียน"
                 @keyup.enter="addPosition"
                 class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
               />
@@ -576,7 +599,10 @@ const submit = async () => {
               </button>
             </div>
 
-            <div v-if="positions.length === 0" class="text-center py-4 text-xs text-slate-400 bg-slate-50 rounded-xl">
+            <div
+              v-if="positions.length === 0"
+              class="text-center py-4 text-xs text-slate-400 bg-slate-50 rounded-xl"
+            >
               ยังไม่มีตำแหน่ง — เพิ่มด้านบน หรือใช้ค่าเริ่มต้น
             </div>
             <div v-else class="flex flex-wrap gap-2">
@@ -618,75 +644,54 @@ const submit = async () => {
             </div>
           </div>
 
-          <!-- 🌟 ข้อมูลเพิ่มเติม (เดิม Metadata) -->
+          <!-- 📝 ข้อมูลเพิ่มเติมของกิจกรรม (หัวข้อ + ค่า) -->
           <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
-            <div class="flex items-center justify-between mb-4">
-              <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-asterisk text-violet-500"></i> ข้อมูลเพิ่มเติม
-              </h4>
-              <button
-                @click="addMetaRow(activityMeta)"
-                class="text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1"
-              >
-                <i class="bi bi-plus-lg"></i> เพิ่มข้อมูล
-              </button>
-            </div>
-            <div class="space-y-3">
-              <div
-                v-for="(meta, index) in activityMeta"
-                :key="index"
-                class="flex gap-2 items-center"
-              >
-                <input
-                  v-model="meta.key"
-                  list="meta-preset-keys"
-                  placeholder="ชื่อข้อมูล (เช่น location_url, tags)"
-                  class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                />
-                <datalist id="meta-preset-keys">
-                  <option v-for="p in metaPresets" :key="p.key" :value="p.key">{{ p.placeholder }}</option>
-                </datalist>
-                <input
-                  v-model="meta.value"
-                  :placeholder="metaPresets.find((p) => p.key === meta.key)?.placeholder || 'ค่า'"
-                  class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                />
-                <button
-                  v-if="activityMeta.length > 1"
-                  @click="removeMetaRow(activityMeta, index)"
-                  class="w-8 h-8 flex-shrink-0 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors flex items-center justify-center"
-                  title="ลบข้อมูล"
-                >
-                  <i class="bi bi-x-lg"></i>
-                </button>
-              </div>
-              <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                💡 ใช้ <code class="bg-slate-100 px-1 rounded">tags</code> คั่นด้วย , เพื่อทำ Badge หมวดหมู่ · <code class="bg-slate-100 px-1 rounded">location_url</code> สำหรับลิ้งก์ Google Maps
-              </p>
-            </div>
+            <h4 class="text-base font-bold text-slate-700 mb-1 flex items-center gap-2">
+              <i class="bi bi-asterisk text-violet-500"></i> ข้อมูลเพิ่มเติมของกิจกรรม
+            </h4>
+            <p class="text-xs text-slate-400 mb-4">
+              เพิ่มข้อมูลที่อยากให้คนเห็น เช่น สถานที่, ลิงก์แผนที่, กำหนดการ — แค่บอกหัวข้อกับค่า
+            </p>
+            <ExtraInfoRows
+              :rows="activityMetaRows"
+              :quick-add="ACTIVITY_META_QUICK_ADD"
+              placeholder="ค่า (เช่น สนามกีฬาโรงเรียน)"
+              @update:rows="
+                (rows: CustomFieldEntry[]) => {
+                  activityMetaRows = rows
+                }
+              "
+            />
           </div>
         </div>
 
-        <!-- ========== Field Selector + Smart Participant Table ========== -->
+        <!-- ========== โซน B: ผู้เข้าร่วม ========== -->
         <div class="lg:col-span-3 space-y-5">
-          <!-- 🌟 Field Selector (Required Data) -->
+          <!-- Field Selector -->
           <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+            <div
+              class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2"
+            >
               <div>
                 <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
-                  <i class="bi bi-list-check text-violet-500"></i> ข้อมูลที่ต้องการจัดเก็บสำหรับกิจกรรมนี้ (Required Data)
+                  <i class="bi bi-list-check text-violet-500"></i>
+                  ข้อมูลที่ต้องการจัดเก็บของนักเรียน (Required Data)
                 </h4>
                 <p class="text-xs text-slate-400 mt-0.5">
-                  ติ๊กเลือกฟิลด์ → ตารางผู้เข้าร่วมจะแสดงเฉพาะคอลัมน์เหล่านี้ · 🔒 = ดึงจากโปรไฟล์อัตโนมัติ
+                  ติ๊กเลือกฟิลด์ → ผู้เข้าร่วมต้องกรอกข้อมูลเหล่านี้ · 🔒 = ดึงจากโปรไฟล์อัตโนมัติ
                 </p>
               </div>
-              <span class="text-xs font-bold text-violet-600 bg-violet-50 px-3 py-1.5 rounded-lg whitespace-nowrap">
+              <span
+                class="text-xs font-bold text-violet-600 bg-violet-50 px-3 py-1.5 rounded-lg whitespace-nowrap"
+              >
                 เลือกแล้ว {{ requiredFields.size }}/{{ ALL_ACTIVITY_FIELDS.length }} ฟิลด์
               </span>
             </div>
 
             <div v-for="cat in ACTIVITY_FIELD_CATEGORY_ORDER" :key="cat" class="mb-4 last:mb-0">
-              <h5 class="text-xs font-black text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+              <h5
+                class="text-xs font-black text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5"
+              >
                 <i class="bi" :class="cat === 'profile' ? 'bi-lock-fill' : 'bi-chevron-right'"></i>
                 {{ ACTIVITY_FIELD_CATEGORY_LABELS[cat] }}
               </h5>
@@ -695,9 +700,11 @@ const submit = async () => {
                   v-for="field in ALL_ACTIVITY_FIELDS.filter((f) => f.category === cat)"
                   :key="field.key"
                   class="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border cursor-pointer transition-all select-none"
-                  :class="requiredFields.has(field.key)
-                    ? 'bg-violet-50 border-violet-300 shadow-sm'
-                    : 'bg-slate-50 border-slate-200 hover:border-violet-200 hover:bg-white'"
+                  :class="
+                    requiredFields.has(field.key)
+                      ? 'bg-violet-50 border-violet-300 shadow-sm'
+                      : 'bg-slate-50 border-slate-200 hover:border-violet-200 hover:bg-white'
+                  "
                 >
                   <input
                     type="checkbox"
@@ -708,144 +715,84 @@ const submit = async () => {
                   <span class="min-w-0">
                     <span class="block text-xs font-bold text-slate-700">
                       {{ field.label }}
-                      <span v-if="cat === 'profile'" class="text-[10px] text-violet-500" title="ระบบจะดึงจากโปรไฟล์ให้อัตโนมัติ ไม่ต้องให้คนกรอกใหม่">🔒</span>
+                      <span
+                        v-if="cat === 'profile'"
+                        class="text-[10px] text-violet-500"
+                        title="ระบบจะดึงจากโปรไฟล์ให้อัตโนมัติ ไม่ต้องให้คนกรอกใหม่"
+                        >🔒</span
+                      >
                     </span>
-                    <span class="block text-[10px] text-slate-400 mt-0.5">{{ field.hint || field.placeholder || '' }}</span>
+                    <span class="block text-[10px] text-slate-400 mt-0.5">{{
+                      field.hint || field.placeholder || ''
+                    }}</span>
                   </span>
                 </label>
               </div>
             </div>
           </div>
 
-          <!-- ========== Smart Participant Table ========== -->
+          <!-- เลือกผู้เข้าร่วม -->
           <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+            <div
+              class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3"
+            >
               <div>
                 <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
                   <i class="bi bi-people-fill text-violet-500"></i> เลือกผู้เข้าร่วม
                 </h4>
                 <p class="text-xs text-slate-400 mt-0.5">
-                  ติ๊กชื่อ → เลือกตำแหน่ง/หน้าที่ + แก้ค่าฟิลด์ Type B ในตารางได้เลย · คอลัมน์ Type A เป็นค่าจากโปรไฟล์ (อ่านอย่างเดียว)
+                  ติ๊กชื่อ → ตั้งหน้าที่/ข้อมูลเพิ่มเติมของแต่ละคน หรือใช้ "ตั้งค่าแบบกลุ่ม"
+                  สำหรับหลายคนพร้อมกัน
                 </p>
-              </div>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-if="selectedCount > 0"
-                  @click="openBatchModal"
-                  class="px-4 py-2 text-xs font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
-                >
-                  <i class="bi bi-lightning-charge-fill"></i> ตั้งค่าแบบกลุ่ม (Batch Apply)
-                </button>
-                <button @click="selectAll" class="text-xs font-bold text-slate-500 hover:text-violet-600 bg-slate-50 hover:bg-violet-50 px-3 py-2 rounded-lg transition-colors inline-flex items-center gap-1">
-                  <i class="bi bi-check-all"></i> เลือกทั้งหมด
-                </button>
-                <button @click="clearAll" class="text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 px-3 py-2 rounded-lg transition-colors inline-flex items-center gap-1">
-                  <i class="bi bi-x-lg"></i> ล้าง
-                </button>
               </div>
             </div>
 
-            <div class="flex items-center gap-2 text-xs font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
+            <div
+              class="flex items-center gap-2 text-xs font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4"
+            >
               <i class="bi bi-person-check-fill"></i> เลือกแล้ว {{ selectedCount }} คน
             </div>
 
-            <!-- ตาราง Smart (dynamic columns) -->
-            <div v-if="students.length === 0" class="text-center py-10 text-slate-400 text-sm">
+            <ParticipantRosterList
+              v-if="students.length > 0"
+              :items="rosterItems"
+              :positions="positions"
+              :selected-keys="selectedNos"
+              selectable
+              :can-manage="canManage"
+              :empty-text="'ยังไม่มีนักเรียนในห้องนี้'"
+              @toggle-select="(key) => toggleSelect(Number(key))"
+              @select-all="selectAll"
+              @clear-all="clearAll"
+              @change-duty="(key, position, note) => changeDuty(Number(key), position, note)"
+              @open-info="
+                (key) => {
+                  infoModalKey = Number(key)
+                  infoModalOpen = true
+                }
+              "
+              @batch="openBatchModal"
+            />
+
+            <div v-else class="text-center py-10 text-slate-400 text-sm">
               ยังไม่มีนักเรียนในห้องนี้
             </div>
-            <div v-else class="overflow-x-auto overflow-y-hidden rounded-xl border border-slate-100">
-              <table class="w-full min-w-[700px] text-left">
-                <thead>
-                  <tr class="border-b border-slate-100 bg-slate-50/60 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    <th class="py-2.5 px-2 w-10 text-center">✓</th>
-                    <th class="py-2.5 px-2">เลขที่</th>
-                    <th class="py-2.5 px-2">ชื่อ</th>
-                    <th class="py-2.5 px-2 min-w-[140px]">ตำแหน่ง/หน้าที่</th>
-                    <th
-                      v-for="field in typeBColumns"
-                      :key="field.key"
-                      class="py-2.5 px-2 min-w-[130px]"
-                    >
-                      {{ field.label }}
-                    </th>
-                    <th
-                      v-for="field in typeAColumns"
-                      :key="field.key"
-                      class="py-2.5 px-2 min-w-[120px]"
-                    >
-                      {{ field.label }} <span class="text-violet-400">🔒</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="student in students"
-                    :key="student.student_no"
-                    class="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors align-middle"
-                    :class="{ 'bg-violet-50/50': selectedNos.has(student.student_no) }"
-                  >
-                    <td class="py-2.5 px-2 text-center">
-                      <input
-                        type="checkbox"
-                        :checked="selectedNos.has(student.student_no)"
-                        @change="toggleSelect(student)"
-                        class="w-4 h-4 rounded accent-violet-600"
-                      />
-                    </td>
-                    <td class="py-2.5 px-2 text-sm font-bold text-slate-500 whitespace-nowrap">{{ student.student_no }}</td>
-                    <td class="py-2.5 px-2 whitespace-nowrap">
-                      <p class="text-sm font-bold text-slate-700">{{ student.prefix || '' }}{{ student.first_name }} {{ student.last_name }}</p>
-                      <p class="text-[10px] text-slate-400">{{ student.nickname || '—' }}</p>
-                    </td>
-                    <td class="py-2.5 px-2">
-                      <div class="space-y-1.5">
-                        <select
-                          v-model="dutyPosition[student.student_no]"
-                          :disabled="!selectedNos.has(student.student_no)"
-                          class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
-                        >
-                          <option value="">— เลือกตำแหน่ง —</option>
-                          <option v-if="isOrphanedDuty(student.student_no) && dutyPosition[student.student_no]" :value="dutyPosition[student.student_no]">
-                            {{ dutyPosition[student.student_no] }} (ถูกลบแล้ว)
-                          </option>
-                          <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
-                        </select>
-                        <input
-                          v-model="dutyNote[student.student_no]"
-                          type="text"
-                          placeholder="หมายเหตุ (เพิ่มเติม)"
-                          :disabled="!selectedNos.has(student.student_no)"
-                          class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
-                        />
-                      </div>
-                    </td>
-                    <!-- คอลัมน์ Type B — แก้ในตารางได้เลย -->
-                    <td v-for="field in typeBColumns" :key="field.key" class="py-2.5 px-2">
-                      <ActivityFieldControl
-                        :field="field"
-                        :model-value="getParticipantMeta(student.student_no)[field.key]"
-                        :disabled="!selectedNos.has(student.student_no)"
-                        @update:model-value="(v: unknown) => setParticipantField(student.student_no, field.key, v)"
-                      />
-                    </td>
-                    <!-- คอลัมน์ Type A — อ่านจากโปรไฟล์ (🔒) -->
-                    <td v-for="field in typeAColumns" :key="field.key" class="py-2.5 px-2">
-                      <span class="text-xs font-semibold text-slate-600">{{ String(profileValue(student, field.key) ?? '—') }}</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
 
-            <p v-if="typeBColumns.length === 0" class="text-[11px] text-slate-400 mt-3">
-              💡 ยังไม่ได้เลือกฟิลด์ Type B → ติ๊กในส่วน "Required Data" ด้านบน แล้วจะเห็นคอลัมน์ให้กรอก (เช่น หมายเลขรถบัส, ห้องพัก)
+            <p
+              v-if="typeBColumns.length === 0 && students.length > 0"
+              class="text-[11px] text-slate-400 mt-3"
+            >
+              💡 ยังไม่ได้เลือกฟิลด์ Type B → ติ๊กในส่วน "Required Data" ด้านบน
+              แล้วผู้เข้าร่วมจะกรอกได้ในปุ่ม "ข้อมูลเพิ่มเติม"
             </p>
           </div>
 
           <!-- ปุ่มบันทึก -->
           <div class="mt-5 flex flex-col sm:flex-row justify-end gap-3">
             <router-link
-              :to="mode === 'edit' && editActivityId ? `/activities/${editActivityId}` : '/activities'"
+              :to="
+                mode === 'edit' && editActivityId ? `/activities/${editActivityId}` : '/activities'
+              "
               class="w-full sm:w-auto px-6 py-3 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold rounded-xl transition-all text-center"
             >
               ยกเลิก
@@ -857,72 +804,38 @@ const submit = async () => {
             >
               <i v-if="isSaving" class="bi bi-arrow-repeat animate-spin"></i>
               <i v-else class="bi bi-check-lg"></i>
-              {{ isSaving ? 'กำลังบันทึก...' : (mode === 'edit' ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม') }}
+              {{
+                isSaving ? 'กำลังบันทึก...' : mode === 'edit' ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม'
+              }}
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 🎯 Modal: Batch Apply (ตั้งค่าแบบกลุ่ม) -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="showBatchModal" class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4" @click.self="showBatchModal = false">
-          <div class="w-full md:max-w-lg bg-white rounded-t-3xl md:rounded-3xl shadow-2xl p-5 md:p-6 max-h-[90dvh] overflow-y-auto overflow-x-hidden">
-            <div class="flex items-center justify-between mb-1">
-              <h4 class="text-base font-bold text-slate-800 flex items-center gap-2">
-                <i class="bi bi-lightning-charge-fill text-fuchsia-500"></i>
-                ตั้งค่าแบบกลุ่ม
-              </h4>
-              <button @click="showBatchModal = false" class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center">
-                <i class="bi bi-x-lg"></i>
-              </button>
-            </div>
-            <p class="text-xs text-slate-400 mb-5">
-              ตั้งค่าฟิลด์ Type B ที่เลือกไว้ใน Required Data ให้ผู้เข้าร่วม <b class="text-fuchsia-600">{{ selectedCount }} คน</b> พร้อมกัน · ยังไม่บันทึกจนกว่าจะกด "บันทึกกิจกรรม"
-            </p>
+    <!-- 📋 Modal: ข้อมูลเพิ่มเติมของนักเรียน (ต่อคน) -->
+    <ParticipantInfoModal
+      :open="infoModalOpen && !!infoItem"
+      :item="infoItem"
+      :type-a-fields="typeAColumns"
+      :type-b-fields="typeBColumns"
+      :positions="positions"
+      :can-manage="canManage"
+      @close="
+        infoModalOpen = false
+        infoModalKey = null
+      "
+      @save="saveInfoModal"
+    />
 
-            <div v-if="batchSettableFields.length === 0" class="text-sm text-slate-500 bg-slate-50 rounded-xl p-4 text-center">
-              ยังไม่เลือกฟิลด์ Type B ในส่วน Required Data → ติ๊กก่อน แล้วกลับมาตั้งค่าแบบกลุ่ม
-            </div>
-
-            <div v-else class="space-y-4">
-              <div v-for="field in batchSettableFields" :key="field.key">
-                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5">
-                  <i class="bi" :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"></i>
-                  {{ field.label }}
-                </label>
-                <ActivityFieldControl
-                  :field="field"
-                  :model-value="batchValues[field.key]"
-                  @update:model-value="(v: unknown) => { batchValues[field.key] = v }"
-                />
-              </div>
-            </div>
-
-            <div class="flex justify-end gap-3 mt-6">
-              <button
-                @click="showBatchModal = false"
-                class="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                ยกเลิก
-              </button>
-              <button
-                @click="applyBatch"
-                :disabled="batchSettableFields.length === 0"
-                class="px-6 py-2.5 text-sm font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
-              >
-                <i class="bi bi-lightning-charge-fill"></i> ใช้ค่ากับ {{ selectedCount }} คน
-              </button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- 🎯 Modal: ตั้งค่าแบบกลุ่ม -->
+    <BatchApplyModal
+      :open="batchModalOpen"
+      :positions="positions"
+      :type-b-fields="typeBColumns"
+      :count="selectedCount"
+      @close="batchModalOpen = false"
+      @apply="applyBatch"
+    />
   </div>
 </template>
-
-<style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-</style>
