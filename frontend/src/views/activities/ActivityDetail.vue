@@ -122,6 +122,11 @@ function participantByKey(key: string | number): ActivityParticipant | undefined
   return (activity.value?.participants ?? []).find((p) => p.id === Number(key))
 }
 
+/** จำนวนผู้เข้าร่วมที่เช็คอินแล้ว (มาแล้ว) — แสดง summary ที่หัวรายชื่อ */
+const attendedCount = computed(
+  () => (activity.value?.participants ?? []).filter((p) => p.status === 'attended').length,
+)
+
 // --- Per-student info modal (อ่านอย่างเดียว) ---
 const infoModalOpen = ref(false)
 const infoModalKey = ref<number | null>(null)
@@ -298,17 +303,17 @@ function infoValueDisplay(row: ActivityInfoRow): string {
             </h3>
           </div>
 
-          <div v-if="canManage" class="flex flex-wrap gap-2">
+          <div v-if="canManage" class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <router-link
               :to="`/activities/${activityId}/edit`"
-              class="px-4 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all inline-flex items-center gap-2"
+              class="px-4 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all inline-flex items-center justify-center gap-2"
             >
               <i class="bi bi-pencil-square"></i> แก้ไขกิจกรรม
             </router-link>
             <button
               @click="exportExcel"
               :disabled="isExporting"
-              class="px-4 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl shadow-lg shadow-emerald-600/20 transition-all inline-flex items-center gap-2"
+              class="px-4 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl shadow-lg shadow-emerald-600/20 transition-all inline-flex items-center justify-center gap-2"
             >
               <i v-if="isExporting" class="bi bi-arrow-repeat animate-spin"></i>
               <i v-else class="bi bi-file-earmark-excel"></i>
@@ -462,13 +467,21 @@ function infoValueDisplay(row: ActivityInfoRow): string {
                 activity.participants.length
               }})
             </h4>
-            <span
-              v-if="canManage"
-              class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1"
-            >
-              <i class="bi bi-check2-circle text-emerald-500"></i>
-              กดปุ่ม "มาแล้ว" เพื่อเช็คอิน
-            </span>
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                class="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-1"
+              >
+                <i class="bi bi-check2-circle"></i>
+                มาแล้ว {{ attendedCount }}/{{ activity.participants.length }}
+              </span>
+              <span
+                v-if="canManage"
+                class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-400 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1"
+              >
+                <i class="bi bi-info-circle"></i>
+                กด "ยังไม่มา" เพื่อเช็คอิน
+              </span>
+            </div>
           </div>
 
           <div
