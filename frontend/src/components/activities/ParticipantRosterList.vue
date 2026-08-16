@@ -2,12 +2,17 @@
 /**
  * 👥 ParticipantRosterList — รายชื่อผู้เข้าร่วม/นักเรียนแบบการ์ด (ตามแบบ StudentList.vue)
  * ใช้ร่วมทั้งหน้าแก้ไขกิจกรรม (ActivityForm) และหน้ารายละเอียด (ActivityDetail)
- * - การ์ด rounded-2xl: badge เลขที่ + ชื่อ/status dot/ชื่อเล่น + เลือกหน้าที่ + หมายเหตุ
+ * - การ์ด rounded-2xl: badge เลขที่ + ชื่อ/status dot/ชื่อเล่น + หน้าที่/ตำแหน่ง + หมายเหตุ
  * - Search ชื่อ/เลขที่/ชื่อเล่น
  * - Toolbar: ตั้งค่าแบบกลุ่ม (เมื่อมีการติ๊ก) / เลือกทั้งหมด / ล้าง
+ *
+ * 🌟 โหมด readOnly (ActivityDetail): แสดงเฉย ๆ ไม่ให้แก้ไข
+ * - ไม่มี checkbox/เลือก / ไม่มี dropdown หน้าที่ / ไม่มี toolbar
+ * - หน้าที่แสดงเป็น text chip · ปุ่ม "ข้อมูลเพิ่มเติม" เปิด modal แสดงข้อมูลเฉย ๆ
+ * - ปุ่มติ๊ก "มาแล้ว/ยังไม่มา" ยังมี (compact) · "นำออก" ซ่อนในเมนูจุด 3 จุด (แบบ StudentList)
  * Presentational — parent เป็นคนเก็บ state และยิง API ผ่าน emits
  */
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { splitDutyRole } from '@/constants/activityFields'
 import type { RosterItem } from '@/types/activity'
 
@@ -15,14 +20,16 @@ const props = defineProps<{
   items: RosterItem[]
   positions: string[]
   /** ชุด key ที่ถูกติ๊ก — ส่ง Set ใหม่ทุกครั้งเพื่อ trigger reactivity */
-  selectedKeys: Set<string | number>
+  selectedKeys?: Set<string | number>
   /** ActivityForm: ต้องติ๊กก่อนถึงจะแก้หน้าที่/ข้อมูลได้ */
   selectable?: boolean
   canManage?: boolean
   /** ActivityDetail: แสดงปุ่มเช็คอิน/ยกเลิก */
   showStatusToggle?: boolean
-  /** ActivityDetail: แสดงปุ่มนำออก */
+  /** ActivityDetail: แสดง "นำออก" (ในเมนูจุด 3 จุด เมื่อ readOnly) */
   showRemove?: boolean
+  /** 🌟 โหมดแสดงผลอย่างเดียว (ActivityDetail) — ซ่อนทุกการแก้ไข คงเหลือแค่ดู + เช็คอิน */
+  readOnly?: boolean
   emptyText?: string
 }>()
 
@@ -50,8 +57,11 @@ const filteredItems = computed(() => {
   })
 })
 
-const isSelected = (item: RosterItem) => props.selectedKeys.has(item.key)
-const isDisabled = (item: RosterItem) => (props.selectable ?? false) && !isSelected(item)
+const isSelected = (item: RosterItem) => props.selectedKeys?.has(item.key) ?? false
+const isDisabled = (item: RosterItem) => {
+  if (props.readOnly) return false
+  return (props.selectable ?? false) && !isSelected(item)
+}
 
 /** ตำแหน่ง/หมายเหตุ ของ item นี้ (แยกจาก role_detail ด้วย ": ") */
 function dutyOf(item: RosterItem): { position: string; note: string } {
@@ -93,6 +103,27 @@ function onDutyChange(e: Event, item: RosterItem) {
 function onDutyNoteChange(e: Event, item: RosterItem) {
   emit('changeDuty', item.key, dutyOf(item).position, (e.target as HTMLInputElement).value)
 }
+
+// --- เมนูจุด 3 จุด (โหมด readOnly — "นำออก" แบบ StudentList) ---
+const openMenu = ref<string | number | null>(null)
+
+function toggleMenu(key: string | number, event: Event) {
+  event.stopPropagation() // ป้องกันไม่ให้คลิกทะลุไปโดน Card
+  openMenu.value = openMenu.value === key ? null : key
+}
+
+function closeMenu() {
+  openMenu.value = null
+}
+
+/** ปุ่มในเมนู — ปิดเมนูก่อน แล้วค่อย emit ไปให้ parent จัดการ */
+function handleMenuAction(action: 'remove', key: string | number) {
+  closeMenu()
+  emit(action, key)
+}
+
+onMounted(() => document.addEventListener('click', closeMenu))
+onUnmounted(() => document.removeEventListener('click', closeMenu))
 </script>
 
 <template>
@@ -113,13 +144,15 @@ function onDutyNoteChange(e: Event, item: RosterItem) {
         />
       </div>
 
-      <div v-if="canManage !== false" class="flex flex-wrap items-center gap-2">
+      <div v-if="!readOnly && canManage !== false" class="flex flex-wrap items-center gap-2">
         <button
-          v-if="selectedKeys.size > 0"
+          v-if="(selectedKeys?.size ?? 0) > 0"
           @click="emit('batch')"
           class="px-3.5 py-2 text-xs font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
         >
-          <i class="bi bi-lightning-charge-fill"></i> ตั้งค่าแบบกลุ่ม ({{ selectedKeys.size }})
+          <i class="bi bi-lightning-charge-fill"></i> ตั้งค่าแบบกลุ่ม ({{
+            selectedKeys?.size ?? 0
+          }})
         </button>
         <button
           @click="emit('selectAll')"
@@ -128,7 +161,7 @@ function onDutyNoteChange(e: Event, item: RosterItem) {
           <i class="bi bi-check-all"></i> เลือกทั้งหมด
         </button>
         <button
-          v-if="selectedKeys.size > 0"
+          v-if="(selectedKeys?.size ?? 0) > 0"
           @click="emit('clearAll')"
           class="px-3 py-2 text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-lg transition-colors inline-flex items-center gap-1"
         >
@@ -157,9 +190,9 @@ function onDutyNoteChange(e: Event, item: RosterItem) {
         ]"
       >
         <div class="flex items-center gap-3 sm:gap-4">
-          <!-- Checkbox (selectable mode) -->
+          <!-- Checkbox (selectable mode) — ซ่อนในโหมด readOnly -->
           <input
-            v-if="selectable"
+            v-if="selectable && !readOnly"
             type="checkbox"
             :checked="isSelected(item)"
             @change="emit('toggleSelect', item.key)"
@@ -202,10 +235,59 @@ function onDutyNoteChange(e: Event, item: RosterItem) {
           >
             <i class="bi bi-info-circle"></i> ข้อมูลเพิ่มเติม
           </button>
+
+          <!-- เมนูจุด 3 จุด (readOnly: "นำออก" ซ่อนไว้ที่นี่ แบบ StudentList) -->
+          <div v-if="readOnly && showRemove && canManage" class="relative ml-0.5 shrink-0">
+            <button
+              @click.stop="toggleMenu(item.key, $event)"
+              class="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            >
+              <i class="bi bi-three-dots-vertical text-lg"></i>
+            </button>
+
+            <transition name="fade">
+              <div
+                v-if="openMenu === item.key"
+                class="absolute right-0 top-11 w-36 bg-white rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border border-slate-100 overflow-hidden z-20 py-1 origin-top-right"
+              >
+                <button
+                  @click.stop="handleMenuAction('remove', item.key)"
+                  class="w-full text-left px-4 py-2.5 text-sm text-rose-600 font-medium hover:bg-rose-50 flex items-center gap-2.5 transition-colors"
+                >
+                  <i class="bi bi-trash text-rose-400"></i> นำออก
+                </button>
+              </div>
+            </transition>
+          </div>
         </div>
 
-        <!-- Duty + note (แก้ได้เมื่อจัดการ) -->
-        <div class="mt-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+        <!-- Duty + note -->
+        <!-- readOnly: แสดงเป็น text chip (อ่านอย่างเดียว) -->
+        <div
+          v-if="readOnly"
+          class="mt-3 flex flex-wrap items-center gap-1.5"
+        >
+          <span
+            v-if="dutyOf(item).position"
+            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-violet-50 text-violet-700 border border-violet-100"
+          >
+            <i class="bi bi-diagram-3 text-[10px]"></i> {{ dutyOf(item).position }}
+          </span>
+          <span
+            v-if="dutyOf(item).note"
+            class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-50 text-slate-500 border border-slate-100"
+          >
+            {{ dutyOf(item).note }}
+          </span>
+          <span
+            v-if="!dutyOf(item).position && !dutyOf(item).note"
+            class="text-[11px] text-slate-300"
+          >
+            — ไม่มีหน้าที่ —
+          </span>
+        </div>
+        <!-- mode แก้ไข (ActivityForm): select หน้าที่ + input หมายเหตุ -->
+        <div v-else class="mt-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
           <select
             :value="dutyOf(item).position"
             :disabled="isDisabled(item) || canManage === false"
@@ -231,19 +313,23 @@ function onDutyNoteChange(e: Event, item: RosterItem) {
           />
         </div>
 
-        <!-- Detail actions -->
-        <div v-if="showStatusToggle || showRemove" class="mt-2.5 flex items-center gap-2">
+        <!-- Detail actions (readOnly: ปุ่มเช็คอิน compact เท่านั้น — นำออกอยู่ในจุด 3 จุด) -->
+        <div v-if="showStatusToggle || (!readOnly && showRemove)" class="mt-2.5 flex items-center gap-2">
           <button
             v-if="showStatusToggle"
             type="button"
             @click="emit('toggleStatus', item.key)"
-            class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition-all"
+            class="px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all inline-flex items-center gap-1"
             :class="statusClass(item.status)"
           >
+            <i
+              class="bi"
+              :class="item.status === 'attended' ? 'bi-check-circle-fill' : 'bi-circle'"
+            ></i>
             {{ statusLabel(item.status) }}
           </button>
           <button
-            v-if="showRemove"
+            v-if="!readOnly && showRemove"
             type="button"
             @click="emit('remove', item.key)"
             class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors inline-flex items-center gap-1"
@@ -255,3 +341,16 @@ function onDutyNoteChange(e: Event, item: RosterItem) {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Animation สำหรับ Dropdown ตอนเด้งขึ้นมา */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+</style>

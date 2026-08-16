@@ -22,6 +22,8 @@ const props = defineProps<{
   typeBFields: ActivityField[]
   positions: string[]
   canManage: boolean
+  /** 🌟 โหมดแสดงผลอย่างเดียว — ไม่มีปุ่มบันทึก/แก้ไข (ActivityDetail) */
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -111,7 +113,8 @@ function handleSave() {
             </button>
           </div>
           <p class="text-xs text-slate-400 mb-5">
-            เลขที่ {{ item.student_no }} · ตั้งค่าหน้าที่และข้อมูลเฉพาะคนนี้
+            เลขที่ {{ item.student_no }} ·
+            {{ readOnly ? 'ดูหน้าที่และข้อมูลของคนนี้' : 'ตั้งค่าหน้าที่และข้อมูลเฉพาะคนนี้' }}
           </p>
 
           <!-- หน้าที่ -->
@@ -121,7 +124,31 @@ function handleSave() {
             >
               <i class="bi bi-diagram-3 text-violet-500"></i> หน้าที่/ตำแหน่ง
             </label>
-            <div class="flex flex-col sm:flex-row gap-2">
+            <!-- readOnly: แสดงเป็น text -->
+            <template v-if="readOnly">
+              <div
+                v-if="!dutyPosition && !dutyNote"
+                class="text-sm text-slate-400 bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-100"
+              >
+                — ไม่มีหน้าที่ —
+              </div>
+              <div v-else class="flex flex-wrap gap-1.5">
+                <span
+                  v-if="dutyPosition"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-violet-50 text-violet-700 border border-violet-100"
+                >
+                  <i class="bi bi-diagram-3 text-[10px]"></i> {{ dutyPosition }}
+                </span>
+                <span
+                  v-if="dutyNote"
+                  class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-50 text-slate-500 border border-slate-100"
+                >
+                  {{ dutyNote }}
+                </span>
+              </div>
+            </template>
+            <!-- mode แก้ไข: select + input -->
+            <div v-else class="flex flex-col sm:flex-row gap-2">
               <select
                 v-model="dutyPosition"
                 :disabled="!canManage"
@@ -155,7 +182,7 @@ function handleSave() {
                 <ActivityFieldControl
                   :field="field"
                   :model-value="typeBValues[field.key]"
-                  :disabled="!canManage"
+                  :disabled="!canManage || readOnly"
                   @update:model-value="
                     (v: unknown) => {
                       typeBValues[field.key] = v
@@ -178,6 +205,7 @@ function handleSave() {
               compact
               :placeholder="'เช่น เบอร์ที่นั่ง, ขนาดเสื้อ, อาหารที่ชอบ'"
               :quick-add="[]"
+              :read-only="readOnly"
               @update:rows="
                 (rows: CustomFieldEntry[]) => {
                   customFields = rows
@@ -219,7 +247,7 @@ function handleSave() {
               ปิด
             </button>
             <button
-              v-if="canManage"
+              v-if="canManage && !readOnly"
               @click="handleSave"
               class="px-6 py-2.5 text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-lg shadow-violet-600/20 transition-all inline-flex items-center gap-1.5"
             >
