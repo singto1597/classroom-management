@@ -303,7 +303,8 @@ class FinanceService:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch("""
-                    SELECT S.id, S.student_no, U.first_name, U.last_name, U.nickname
+                    SELECT S.id, S.student_no, U.first_name, U.last_name, U.nickname,
+                           U.first_name_en, U.last_name_en, U.nickname_en
                     FROM students S
                     LEFT JOIN users U ON S.user_id = U.id
                     WHERE S.room_id = $1 AND S.status = 'active' AND S.deleted_at IS NULL
@@ -1024,7 +1025,8 @@ class FinanceService:
         old_values = dict(old_sp_data) if old_sp_data else {}
 
         payment_info = await conn.fetchrow(
-            """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title, U.first_name, U.nickname
+            """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title,
+                      U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en
                FROM student_payments SP
                JOIN fee_collections FC ON SP.collection_id = FC.id
                JOIN students S ON SP.student_id = S.id
@@ -1050,7 +1052,7 @@ class FinanceService:
         new_status = 'paid' if new_total_paid >= total_amount else 'pending'
         status_msg = "จ่ายครบแล้ว" if new_status == 'paid' else f"ทยอยจ่าย (ขาดอีก {total_amount - new_total_paid} ฿)"
 
-        stu_name = payment_info['first_name'] or "Unknown"
+        stu_name = payment_info['first_name'] or payment_info.get('first_name_en') or "Unknown"
         if payment_info['nickname']: stu_name += f" ({payment_info['nickname']})"
         dynamic_desc = f"รับเงิน: {payment_info['title']} จาก {stu_name} [{status_msg}]"
 
@@ -1278,7 +1280,8 @@ class FinanceService:
                 sql = """
                     SELECT 
                         SP.id as payment_id, SP.student_id, SP.status, SP.paid_amount, SP.paid_at, SP.slip_image_url,
-                        S.student_no, U.first_name, U.last_name, U.nickname, FC.amount as total_amount
+                        S.student_no, U.first_name, U.last_name, U.nickname,
+                        U.first_name_en, U.last_name_en, U.nickname_en, FC.amount as total_amount
                     FROM student_payments SP
                     JOIN students S ON SP.student_id = S.id
                     LEFT JOIN users U ON S.user_id = U.id
@@ -1956,7 +1959,7 @@ class FinanceService:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
-                student = await conn.fetchrow("SELECT S.id, U.first_name, U.nickname FROM students S LEFT JOIN users U ON S.user_id = U.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
+                student = await conn.fetchrow("SELECT S.id, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en FROM students S LEFT JOIN users U ON S.user_id = U.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
                 if not student: raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
 
                 rows = await conn.fetch("""
@@ -1973,7 +1976,7 @@ class FinanceService:
                     formatted_debts.append(row_dict)
                     total_pending += row_dict['amount']
 
-                formatted_name = student['first_name'] or "Unknown"
+                formatted_name = student['first_name'] or student.get('first_name_en') or "Unknown"
                 if student['nickname']: formatted_name += f" ({student['nickname']})"
 
                 result = {"student_id": student_id, "student_name": formatted_name, "total_pending_amount": total_pending, "debts": formatted_debts}
@@ -2223,15 +2226,16 @@ class FinanceService:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch("""
-                    SELECT S.id as student_id, S.student_no, U.first_name, U.nickname, COUNT(SP.id) as overdue_count, SUM(FC.amount - SP.paid_amount) as total_pending_amount
+                    SELECT S.id as student_id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en,
+                           COUNT(SP.id) as overdue_count, SUM(FC.amount - SP.paid_amount) as total_pending_amount
                     FROM students S LEFT JOIN users U ON S.user_id = U.id
                     JOIN student_payments SP ON S.id = SP.student_id JOIN fee_collections FC ON SP.collection_id = FC.id
                     WHERE S.room_id = $1 AND SP.status = 'pending'
-                    GROUP BY S.id, S.student_no, U.first_name, U.nickname ORDER BY S.student_no ASC
+                    GROUP BY S.id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en ORDER BY S.student_no ASC
                 """, target_room_id)
                 debtors = []
                 for r in rows:
-                    name = r['first_name'] or "Unknown"
+                    name = r['first_name'] or r.get('first_name_en') or "Unknown"
                     if r['nickname']: name += f" ({r['nickname']})"
                     debtors.append({"student_id": r['student_id'], "student_no": r['student_no'], "student_name": name, "overdue_count": r['overdue_count'], "total_pending_amount": float(r['total_pending_amount'])})
                 

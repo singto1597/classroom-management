@@ -3,6 +3,7 @@ import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router'; 
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
+import { displayName } from '@/utils/name';
 import Swal from 'sweetalert2';
 
 const router = useRouter();
@@ -113,10 +114,10 @@ const filteredStudents = computed(() => {
     const query = searchQuery.value.toLowerCase().trim();
     if (!query) return true;
     
-    const fullName = `${student.first_name || ''} ${student.last_name || ''}`.toLowerCase();
+    const fullName = `${student.first_name || ''} ${student.last_name || ''} ${student.first_name_en || ''} ${student.last_name_en || ''}`.toLowerCase();
     const studentNo = student.student_no?.toString() || '';
     const studentId = student.student_id?.toString().toLowerCase() || '';
-    const nickname = student.nickname?.toLowerCase() || '';
+    const nickname = `${student.nickname || ''} ${student.nickname_en || ''}`.toLowerCase();
 
     return fullName.includes(query) || studentNo.includes(query) || studentId.includes(query) || nickname.includes(query);
   });
@@ -128,7 +129,7 @@ const confirmDelete = async (student: any) => {
 
   const result = await Swal.fire({
     title: 'ยืนยันการลบ?',
-    text: `ลบ ${student.first_name} (เลขที่ ${student.student_no}) ใช่หรือไม่?`,
+    text: `ลบ ${displayName(student)} (เลขที่ ${student.student_no}) ใช่หรือไม่?`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#ef4444',
@@ -271,7 +272,7 @@ const rejectJoin = async (studentNo: number) => {
             <div class="flex-1 min-w-0 flex flex-col justify-center">
               <div class="flex items-center gap-2 mb-1">
                 <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] truncate group-hover:text-blue-600 transition-colors">
-                  {{ student.prefix ? student.prefix + ' ' : '' }}{{ student.first_name }} {{ student.last_name }}
+                  {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
                 </h3>
                 <i v-if="student.is_admin" class="bi bi-shield-lock-fill text-amber-500 text-sm shrink-0" title="System Admin"></i>
               </div>
@@ -290,8 +291,8 @@ const rejectJoin = async (studentNo: number) => {
                 <span class="text-slate-300 hidden sm:inline">•</span>
                 
                 <!-- ชื่อเล่น -->
-                <div v-if="student.nickname" class="flex items-center">
-                  <span class="sm:hidden mr-1">,</span>{{ student.nickname }}
+                <div v-if="student.nickname || student.nickname_en" class="flex items-center">
+                  <span class="sm:hidden mr-1">,</span>{{ student.nickname || student.nickname_en }}
                 </div>
                 
                 <span class="text-slate-300 hidden sm:inline" v-if="student.nickname">•</span>
@@ -349,7 +350,7 @@ const rejectJoin = async (studentNo: number) => {
             
             <div class="flex-1 min-w-0">
               <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
-                {{ req.first_name }} {{ req.last_name }}
+                {{ displayName(req) }}
               </h3>
               <p class="text-xs sm:text-sm text-slate-500 mt-0.5 flex items-center gap-1.5">
                 <i class="bi bi-clock text-slate-400"></i> ขอเข้าร่วมเมื่อ {{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) }}

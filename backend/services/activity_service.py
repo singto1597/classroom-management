@@ -39,6 +39,9 @@ EXPORT_HEADER_LABELS: Dict[str, str] = {
     "first_name": "ชื่อจริง",
     "last_name": "นามสกุล",
     "nickname": "ชื่อเล่น",
+    "first_name_en": "ชื่อจริง (EN)",
+    "last_name_en": "นามสกุล (EN)",
+    "nickname_en": "ชื่อเล่น (EN)",
     "role_type": "หน้าที่ (ประเภท)",
     "role_detail": "รายละเอียดหน้าที่",
     "earned_hours": "ชั่วโมงจิตอาสา",
@@ -158,6 +161,7 @@ class ActivityService:
             ap.earned_hours, ap.status, ap.metadata, ap.recorded_by,
             s.student_no,
             u.first_name, u.last_name, u.nickname,
+            u.first_name_en, u.last_name_en, u.nickname_en,
             -- 🌟 Type A Profile Fields (READ ONLY จาก users) — JOIN มาพร้อมเสมอ ห้ามบันทึกซ้ำลง metadata
             u.blood_group, u.shirt_size, u.food_allergy, u.congenital_disease,
             u.phone_number, u.phone_number_parent
@@ -1523,6 +1527,9 @@ class ActivityService:
                         "student_no": lambda p: p["student_no"],
                         "first_name": lambda p: p["first_name"],
                         "last_name": lambda p: p["last_name"],
+                        "first_name_en": lambda p: p.get("first_name_en"),
+                        "last_name_en": lambda p: p.get("last_name_en"),
+                        "nickname_en": lambda p: p.get("nickname_en"),
                         "role_type": lambda p: cls._translate_label("role_type", p["role_type"]),
                         "role_detail": lambda p: p["role_detail"],
                         "earned_hours": lambda p: float(p["earned_hours"] or 0),

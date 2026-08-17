@@ -6,6 +6,7 @@ import time
 from fastapi import HTTPException
 from core.logger import AuditLogger
 from core.rbac import require_permission
+from core.name_utils import normalize_nfc, identity_pair, display_name
 from services.finance_service import (
     DEFAULT_INCOME_CATEGORIES,
     DEFAULT_EXPENSE_CATEGORIES,
@@ -22,29 +23,40 @@ class RoomManagementService:
         return ''.join(random.choice(chars) for _ in range(length))
         
     @classmethod
-    async def create_room(cls, pool: asyncpg.Pool, room_name: str, user_id: int, client_source: str, actor_identifier: str, first_name: str = "", last_name: str = "") -> dict:
+    async def create_room(cls, pool: asyncpg.Pool, room_name: str, user_id: int, client_source: str, actor_identifier: str, first_name: str = "", last_name: str = "", first_name_en: str = "", last_name_en: str = "") -> dict:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     old_values = {}
                     new_values = {"room_name": room_name, "first_name": first_name, "last_name": last_name}
-                    
+
+                    # 🌟 NFC-normalize ชื่อไทยก่อนเขียน (แก้ อำ/อํา)
+                    th_first = normalize_nfc(first_name)
+                    th_last = normalize_nfc(last_name)
+                    en_first = normalize_nfc(first_name_en)
+                    en_last = normalize_nfc(last_name_en)
+
                     # อัปเดตข้อมูลผู้สร้างห้อง
-                    if first_name or last_name:
-                        old_user = await conn.fetchrow("SELECT first_name, last_name FROM users WHERE id = $1", user_id)
+                    if th_first or th_last or en_first or en_last:
+                        old_user = await conn.fetchrow("SELECT first_name, last_name, first_name_en, last_name_en FROM users WHERE id = $1", user_id)
                         if old_user:
                             old_values["user_before_update"] = dict(old_user)
-                        
+
                         await conn.execute("""
-                            UPDATE users SET first_name = COALESCE(NULLIF($1, ''), first_name), last_name = COALESCE(NULLIF($2, ''), last_name) WHERE id = $3
-                        """, first_name, last_name, user_id)
+                            UPDATE users SET first_name = COALESCE(NULLIF($1, ''), first_name),
+                                             last_name = COALESCE(NULLIF($2, ''), last_name),
+                                             first_name_en = COALESCE(NULLIF($3, ''), first_name_en),
+                                             last_name_en = COALESCE(NULLIF($4, ''), last_name_en)
+                            WHERE id = $5
+                        """, th_first, th_last, en_first, en_last, user_id)
                     else:
                         user_record = await conn.fetchrow("SELECT first_name FROM users WHERE id = $1", user_id)
                         if not user_record or not user_record['first_name']:
                             old_values["user_before_update"] = dict(user_record) if user_record else {}
-                            await conn.execute("UPDATE users SET first_name = 'Teacher' WHERE id = $1", user_id)
+                            await conn.execute("UPDATE users SET first_name = 'Teacher', first_name_en = 'Teacher' WHERE id = $1", user_id)
                             new_values["first_name"] = "Teacher"
+                            new_values["first_name_en"] = "Teacher"
 
                     while True:
                         code = cls._generate_room_code()
@@ -146,9 +158,11 @@ class RoomManagementService:
                         "room_code": payload.room_code,
                         "student_no": payload.student_no,
                         "first_name": payload.first_name,
-                        "last_name": payload.last_name
+                        "last_name": payload.last_name,
+                        "first_name_en": payload.first_name_en or None,
+                        "last_name_en": payload.last_name_en or None,
                     }
-                    
+
                     room = await conn.fetchrow("SELECT id, room_name FROM rooms WHERE room_code = $1 AND deleted_at IS NULL", payload.room_code)
                     if not room: raise HTTPException(status_code=404, detail="ไม่พบรหัสห้องนี้")
                     room_id = room["id"]
@@ -156,13 +170,18 @@ class RoomManagementService:
                     if await conn.fetchval("SELECT id FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL", room_id, user_id):
                         raise HTTPException(status_code=400, detail="คุณอยู่ในห้องเรียนนี้อยู่แล้ว หรือกำลังรอการอนุมัติ")
 
-                    old_user = await conn.fetchrow("SELECT first_name, last_name FROM users WHERE id = $1", user_id)
+                    old_user = await conn.fetchrow("SELECT first_name, last_name, first_name_en, last_name_en FROM users WHERE id = $1", user_id)
                     if old_user:
                         old_values["user_before_update"] = dict(old_user)
 
                     await conn.execute("""
-                        UPDATE users SET first_name = COALESCE(NULLIF($1, ''), first_name), last_name = COALESCE(NULLIF($2, ''), last_name) WHERE id = $3
-                    """, payload.first_name, payload.last_name, user_id)
+                        UPDATE users SET first_name = COALESCE(NULLIF($1, ''), first_name),
+                                         last_name = COALESCE(NULLIF($2, ''), last_name),
+                                         first_name_en = COALESCE(NULLIF($3, ''), first_name_en),
+                                         last_name_en = COALESCE(NULLIF($4, ''), last_name_en)
+                        WHERE id = $5
+                    """, normalize_nfc(payload.first_name), normalize_nfc(payload.last_name),
+                        payload.first_name_en or None, payload.last_name_en or None, user_id)
 
                     existing_student = await conn.fetchrow(
                         "SELECT id, user_id, status FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", room_id, payload.student_no
@@ -170,16 +189,24 @@ class RoomManagementService:
 
                     if existing_student:
                         ghost_user_id = existing_student['user_id']
-                        ghost_user = await conn.fetchrow("SELECT first_name, last_name, email, google_id, discord_id, phone_number, birthday FROM users WHERE id = $1", ghost_user_id)
+                        ghost_user = await conn.fetchrow("SELECT first_name, last_name, first_name_en, last_name_en, email, google_id, discord_id, phone_number, birthday FROM users WHERE id = $1", ghost_user_id)
 
                         is_ghost = not ghost_user['google_id'] and not ghost_user['discord_id'] and not ghost_user['email']
 
                         if is_ghost:
                             old_values["ghost_user_deleted"] = dict(ghost_user)
-                            real_full_name = f"{payload.first_name}{payload.last_name}".replace(" ", "").lower()
-                            ghost_full_name = f"{ghost_user['first_name']}{ghost_user['last_name']}".replace(" ", "").lower()
+                            # 🌟 identity: ชื่ออังกฤษเป็นกุญแจหลัก ถ้าไม่มีอังกฤษ fallback เป็นไทย NFC
+                            # (เดิมใช้ concat + ลบช่องว่าง + lower เปราะ — ตอนนี้ normalize NFC แล้ว)
+                            real_key = identity_pair(
+                                payload.first_name_en, payload.last_name_en,
+                                payload.first_name, payload.last_name,
+                            )
+                            ghost_key = identity_pair(
+                                ghost_user.get('first_name_en'), ghost_user.get('last_name_en'),
+                                ghost_user.get('first_name'), ghost_user.get('last_name'),
+                            )
 
-                            if real_full_name == ghost_full_name:
+                            if real_key == ghost_key:
                                 # 🚀 MERGE UPGRADE: ย้ายกรรมสิทธิ์ "ทุกห้อง" ที่บัญชีผีเคยมี มาให้บัญชีจริง!
                                 ghost_rooms = await conn.fetch("SELECT id FROM students WHERE user_id = $1", ghost_user_id)
                                 old_values["ghost_rooms_affected"] = [dict(gr) for gr in ghost_rooms]
@@ -214,7 +241,7 @@ class RoomManagementService:
                                 )
                                 return {"room_id": room_id, "student_id": existing_student['id'], "room_name": room["room_name"], "message": "ยืนยันตัวตน และรวบรวมข้อมูลทุกห้องสำเร็จ!"}
                             else:
-                                raise HTTPException(status_code=400, detail=f"❌ ไม่สามารถสวมรอยได้! เลขที่ {payload.student_no} มีชื่อในระบบคือ '{ghost_user['first_name']} {ghost_user['last_name']}' โปรดแจ้งหัวหน้าห้องให้แก้ไขชื่อให้ตรงกันครับ")
+                                raise HTTPException(status_code=400, detail=f"❌ ไม่สามารถสวมรอยได้! เลขที่ {payload.student_no} มีชื่อในระบบคือ '{display_name(ghost_user.get('first_name'), ghost_user.get('last_name'), ghost_user.get('first_name_en'), ghost_user.get('last_name_en'))}' โปรดแจ้งหัวหน้าห้องให้แก้ไขชื่อให้ตรงกันครับ")
                         else:
                             raise HTTPException(status_code=400, detail=f"❌ เลขที่ {payload.student_no} มีผู้ใช้งานตัวจริงผูกบัญชีไว้แล้ว")
 
@@ -264,7 +291,7 @@ class RoomManagementService:
             async with pool.acquire() as conn:
                 await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
                 rows = await conn.fetch(
-                    "SELECT s.student_no, u.first_name, u.last_name, s.created_at FROM students s LEFT JOIN users u ON s.user_id = u.id WHERE s.room_id = $1 AND s.status = 'pending' AND s.deleted_at IS NULL ORDER BY s.student_no ASC",
+                    "SELECT s.student_no, u.first_name, u.last_name, u.first_name_en, u.last_name_en, s.created_at FROM students s LEFT JOIN users u ON s.user_id = u.id WHERE s.room_id = $1 AND s.status = 'pending' AND s.deleted_at IS NULL ORDER BY s.student_no ASC",
                     room_id
                 )
                 exec_time = int((time.time() - start_time) * 1000)

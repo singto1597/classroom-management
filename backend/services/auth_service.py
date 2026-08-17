@@ -10,6 +10,7 @@ from typing import Optional, Literal
 from models.auth_schemas import OAuthProfilePayload, UserLoginResult, UserProfileUpdate
 from core.exceptions import ForbiddenError
 from core.logger import AuditLogger
+from core.name_utils import normalize_nfc
 
 service_logger = AuditLogger(service_name="AUTH")
 
@@ -125,10 +126,12 @@ async def process_user_login(
                             WHERE id = $4
                         """, payload.email, payload.google_id, payload.discord_id, master_id)
                     else:
+                        # 🌟 NFC-normalize ชื่อไทยก่อนเก็บ (แก้ อำ/อํา ฯลฯ); ชื่อจาก OAuth เก็บไว้แสดงผล (first/last)
                         master_id = await conn.fetchval("""
                             INSERT INTO users (email, google_id, discord_id, first_name, last_name, username)
                             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-                        """, payload.email, payload.google_id, payload.discord_id, payload.first_name, payload.last_name, payload.username)
+                        """, payload.email, payload.google_id, payload.discord_id,
+                        normalize_nfc(payload.first_name) or None, normalize_nfc(payload.last_name) or None, payload.username)
 
                 final_user = await conn.fetchrow("SELECT id, discord_id FROM users WHERE id = $1", master_id)
                 result = UserLoginResult(user_id=final_user["id"], discord_id=final_user["discord_id"])
@@ -309,12 +312,19 @@ async def update_user_profile(
     start_time = time.time()
     async with pool.acquire() as conn:
         # Fetch old record strictly before applying changes
-        old_record = await conn.fetchrow("SELECT prefix, first_name, last_name FROM users WHERE id = $1", user_id)
+        old_record = await conn.fetchrow("SELECT prefix, first_name, last_name, nickname, first_name_en, last_name_en, nickname_en FROM users WHERE id = $1", user_id)
         if old_record is None:
             raise HTTPException(status_code=404, detail="User not found")
         old_values = dict(old_record)
 
         try:
+            # 🌟 NFC-normalize ชื่อไทย (prefix/first_name/last_name/nickname) ก่อนเขียน — กัน อำ/อํา ต่างกัน
+            th_prefix = normalize_nfc(profile_data.prefix)
+            th_first = normalize_nfc(profile_data.first_name)
+            th_last = normalize_nfc(profile_data.last_name)
+            th_nickname = normalize_nfc(profile_data.nickname)
+            en_nickname = (profile_data.nickname_en or "").strip() or None
+
             # ใช้ execute เพื่อรันคำสั่ง UPDATE (คืนค่าเป็น string เช่น 'UPDATE 1')
             result = await conn.execute("""
                 UPDATE users
@@ -323,13 +333,14 @@ async def update_user_profile(
                     line_id = $7, address_house_no = $8, address_road = $9,
                     address_sub_district = $10, address_district = $11,
                     address_province = $12, address_post_code = $13,
+                    first_name_en = $14, last_name_en = $15, nickname_en = $16,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE id = $14
+                WHERE id = $17
             """,
-                profile_data.prefix,
-                profile_data.first_name,
-                profile_data.last_name,
-                profile_data.nickname,
+                th_prefix,
+                th_first,
+                th_last,
+                th_nickname,
                 profile_data.birthday,
                 profile_data.phone_number,
                 profile_data.line_id,
@@ -339,6 +350,9 @@ async def update_user_profile(
                 profile_data.address_district,
                 profile_data.address_province,
                 profile_data.address_post_code,
+                profile_data.first_name_en or None,
+                profile_data.last_name_en or None,
+                en_nickname,
                 user_id
             )
 

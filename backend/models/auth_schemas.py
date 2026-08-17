@@ -31,9 +31,13 @@ class UserLoginResult(BaseModel):
 
 class UserProfileUpdate(BaseModel):
     prefix: str = Field(..., max_length=10, description="คำนำหน้า")
-    first_name: str = Field(..., max_length=100, description="ชื่อจริง")
-    last_name: str = Field(..., max_length=100, description="นามสกุล")
+    first_name: str = Field(..., max_length=100, description="ชื่อจริง (ไทย)")
+    last_name: str = Field(..., max_length=100, description="นามสกุล (ไทย)")
     nickname: str = Field(..., max_length=50, description="ชื่อเล่น")
+    # 🌟 ชื่อภาษาอังกฤษ — กุญแจตัวตนหลัก (identity/dedupe/search); optional จนกว่าจะกรอก
+    first_name_en: Optional[str] = Field(None, max_length=100, description="ชื่อจริง (ภาษาอังกฤษ)")
+    last_name_en: Optional[str] = Field(None, max_length=100, description="นามสกุล (ภาษาอังกฤษ)")
+    nickname_en: Optional[str] = Field(None, max_length=50, description="ชื่อเล่น (ภาษาอังกฤษ)")
     birthday: date = Field(..., description="วันเกิด (YYYY-MM-DD)")
     phone_number: str = Field(..., max_length=20, description="เบอร์โทรศัพท์")
     line_id: str = Field(..., max_length=50, description="LINE ID")

@@ -39,6 +39,9 @@ class ActivityParticipantResponse(BaseModel):
     first_name: str
     last_name: str
     nickname: Optional[str] = None
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    nickname_en: Optional[str] = None
     role_type: str
     role_detail: Optional[str] = None
     earned_hours: float

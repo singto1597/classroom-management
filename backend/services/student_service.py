@@ -15,6 +15,7 @@ from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
 from core.rbac import require_permission, require_member
 from core.config import settings
+from core.name_utils import normalize_nfc, normalize_en, identity_pair
 from services.action_service import ActionService
 from models.student_schemas import StudentUpdateRequest
 
@@ -23,13 +24,17 @@ service_logger = AuditLogger(service_name="STUDENT")
 STUDENT_PATCHABLE_COLUMNS: FrozenSet[str] = frozenset(StudentUpdateRequest.model_fields.keys())
 
 GLOBAL_FIELDS: FrozenSet[str] = frozenset([
-    'prefix', 'first_name', 'last_name', 'nickname', 'birthday',
+    'prefix', 'first_name', 'last_name', 'nickname',
+    'first_name_en', 'last_name_en', 'nickname_en', 'birthday',
     'blood_group', 'shirt_size', 'food_allergy', 'congenital_disease',
     'phone_number', 'phone_number_parent', 'phone_number_parent_relation',
     'line_id', 'ig_username', 'email',
     'address_house_no', 'address_road', 'address_sub_district',
     'address_district', 'address_province', 'address_post_code'
 ])
+
+# ฟิลด์ชื่อที่ต้อง NFC-normalize ก่อนเขียนลง users (แก้ อำ/อํา ฯลฯ; normalize_nfc = NFC + strip)
+NAME_NFC_FIELDS: FrozenSet[str] = frozenset(['prefix', 'first_name', 'last_name', 'nickname', 'nickname_en'])
 
 LOCAL_FIELDS: FrozenSet[str] = frozenset([
     'student_id', 'class_role', 'cleaning_duty', 'olympic_camp',
@@ -51,6 +56,9 @@ EXPORT_HEADER_LABELS: Dict[str, str] = {
     "first_name": "ชื่อจริง",
     "last_name": "นามสกุล",
     "nickname": "ชื่อเล่น",
+    "first_name_en": "ชื่อจริง (EN)",
+    "last_name_en": "นามสกุล (EN)",
+    "nickname_en": "ชื่อเล่น (EN)",
     "birthday": "วันเกิด",
     "class_role": "บทบาทในห้อง",
     "cleaning_duty": "เวรทำความสะอาด",
@@ -107,6 +115,7 @@ DEFAULT_COL_WIDTH = 18
 EXPORT_COLUMN_WIDTHS: Dict[str, int] = {
     "student_no": 8, "student_id": 14, "prefix": 10,
     "first_name": 16, "last_name": 16, "nickname": 14,
+    "first_name_en": 16, "last_name_en": 16, "nickname_en": 14,
     "birthday": 22,
     "class_role": 18, "cleaning_duty": 20, "olympic_camp": 24,
     "target_faculty": 18, "portfolio": 30,
@@ -141,7 +150,8 @@ class StudentService:
     BASE_STUDENT_SELECT = """
         SELECT 
             s.id, s.room_id, u.id as user_id, u.discord_id, s.student_no, s.student_id,
-            u.prefix, u.first_name, u.last_name, u.nickname, u.birthday,
+            u.prefix, u.first_name, u.last_name, u.nickname,
+            u.first_name_en, u.last_name_en, u.nickname_en, u.birthday,
             s.class_role, s.cleaning_duty, s.olympic_camp, s.portfolio, s.target_faculty,
             u.blood_group, u.shirt_size, u.food_allergy, u.congenital_disease,
             u.phone_number, u.phone_number_parent, u.phone_number_parent_relation,
@@ -178,11 +188,64 @@ class StudentService:
         percent = int((filled / total) * 100)
         return {"percentage": percent, "missing_fields": missing}
 
+    @staticmethod
+    async def _find_or_create_user(
+        conn: asyncpg.Connection,
+        first_name: str,
+        last_name: str,
+        first_name_en: str = "",
+        last_name_en: str = "",
+        nickname: str = "",
+        nickname_en: str = "",
+    ) -> int:
+        """หา user ตาม "กุญแจตัวตน" — ชื่ออังกฤษก่อน (English-primary) ถ้าไม่มีอังกฤษ
+        หรือหาไม่เจอ → fallback เป็นชื่อไทยแบบ NFC-normalized (แก้ อำ/อํา match กันไม่เจอ).
+
+        ทั้งชื่อไทยและอังกฤษถูก normalize ก่อนเก็บ (ดู core/name_utils) เพื่อให้
+        exact-match ตรงกันเสมอ. คืน user_id เดิมถ้ามีอยู่แล้ว ไม่งั้นสร้าง ghost user."""
+        th_first = normalize_nfc(first_name)
+        th_last = normalize_nfc(last_name)
+        en_first = normalize_nfc(first_name_en)
+        en_last = normalize_nfc(last_name_en)
+        th_nickname = normalize_nfc(nickname)
+        en_nickname = normalize_nfc(nickname_en)
+
+        if en_first or en_last:
+            # 1) ชื่ออังกฤษเป็นกุญแจหลัก — ค้นแบบไม่ไวตัวพิมพ์ (LOWER) สอดคล้องกับ identity_pair
+            #    ที่ใช้ normalize_en (casefold) ใน bulk_add / join_room
+            user_id = await conn.fetchval(
+                "SELECT id FROM users WHERE LOWER(first_name_en) = $1 AND LOWER(last_name_en) = $2 AND deleted_at IS NULL",
+                normalize_en(first_name_en), normalize_en(last_name_en),
+            )
+            if user_id:
+                return user_id
+            # 2) fallback: user เก่าที่มีแต่ชื่อไทย (อังกฤษยังว่าง) — กันสร้าง user ซ้ำตอนกรอกชื่ออังกฤษทีหลัง
+            if th_first or th_last:
+                user_id = await conn.fetchval(
+                    "SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL",
+                    th_first, th_last,
+                )
+                if user_id:
+                    return user_id
+        else:
+            user_id = await conn.fetchval(
+                "SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL",
+                th_first, th_last,
+            )
+            if user_id:
+                return user_id
+
+        return await conn.fetchval(
+            "INSERT INTO users (first_name, last_name, nickname, first_name_en, last_name_en, nickname_en) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+            th_first or None, th_last or None, th_nickname or None,
+            en_first or None, en_last or None, en_nickname or None,
+        )
+
     @classmethod
-    async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, actor_user_id: Optional[int] = None):
+    async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, actor_user_id: Optional[int] = None, first_name_en: str = "", last_name_en: str = "", nickname: str = "", nickname_en: str = ""):
         start_time = time.time()
         target_room_id = None
-        new_values = {"student_no": student_no, "first_name": first_name, "last_name": last_name, "user_name": user_name}
+        new_values = {"student_no": student_no, "first_name": first_name, "last_name": last_name, "first_name_en": first_name_en or None, "last_name_en": last_name_en or None, "nickname": nickname or None, "nickname_en": nickname_en or None, "user_name": user_name}
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
@@ -190,9 +253,7 @@ class StudentService:
                     # 🛡️ RBAC: ต้องมี MANAGE_STUDENTS ถึงจะเพิ่มนักเรียนได้ (กันนักเรียนธรรมดาเพิ่มเพื่อนเอง)
                     if actor_user_id is not None:
                         await require_permission(conn, target_room_id, actor_user_id, "MANAGE_STUDENTS")
-                    user_id = await conn.fetchval("SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL", first_name, last_name)
-                    if not user_id:
-                        user_id = await conn.fetchval("INSERT INTO users (first_name, last_name) VALUES ($1, $2) RETURNING id", first_name, last_name)
+                    user_id = await cls._find_or_create_user(conn, first_name, last_name, first_name_en, last_name_en, nickname, nickname_en)
 
                     res = await conn.execute("""
                         INSERT INTO students (room_id, student_no, user_id, status) 
@@ -219,6 +280,8 @@ class StudentService:
                                 student_no=student_no,
                                 first_name=first_name,
                                 last_name=last_name,
+                                first_name_en=first_name_en,
+                                last_name_en=last_name_en,
                                 user_name=user_name,
                             )
                     else:
@@ -246,28 +309,24 @@ class StudentService:
                     # 🛡️ RBAC: ต้องมี MANAGE_STUDENTS ถึงจะเพิ่มนักเรียน bulk ได้
                     if actor_user_id is not None:
                         await require_permission(conn, target_room_id, actor_user_id, "MANAGE_STUDENTS")
-                    first_names = [s['first_name'] for s in students]
-                    last_names = [s['last_name'] for s in students]
-                    
-                    existing_users = await conn.fetch(
-                        "SELECT id, first_name, last_name FROM users WHERE (first_name, last_name) IN (SELECT * FROM UNNEST($1::text[], $2::text[])) AND deleted_at IS NULL",
-                        first_names, last_names
-                    )
-                    
-                    user_map = {(row['first_name'], row['last_name']): row['id'] for row in existing_users}
-                    new_users = [s for s in students if (s['first_name'], s['last_name']) not in user_map]
-                    
-                    if new_users:
-                        new_firsts = [s['first_name'] for s in new_users]
-                        new_lasts = [s['last_name'] for s in new_users]
-                        inserted_users = await conn.fetch(
-                            "INSERT INTO users (first_name, last_name) SELECT * FROM UNNEST($1::text[], $2::text[]) RETURNING id, first_name, last_name",
-                            new_firsts, new_lasts
+                    # 🌟 identity: ชื่ออังกฤษเป็นกุญแจหลัก (English-primary), fallback ไทย NFC
+                    # — ใช้ _find_or_create_user จุดเดียวกับ add_student กัน dedupe พัง
+                    user_map = {}
+                    user_by_index = {}
+                    for idx, s in enumerate(students):
+                        key = identity_pair(
+                            s.get('first_name_en'), s.get('last_name_en'),
+                            s['first_name'], s['last_name'],
                         )
-                        for row in inserted_users:
-                            user_map[(row['first_name'], row['last_name'])] = row['id']
-                    
-                    student_tuples = [(target_room_id, s['student_no'], user_map[(s['first_name'], s['last_name'])]) for s in students]
+                        if key not in user_map:
+                            user_map[key] = await cls._find_or_create_user(
+                                conn, s['first_name'], s['last_name'],
+                                s.get('first_name_en') or '', s.get('last_name_en') or '',
+                                s.get('nickname') or '', s.get('nickname_en') or '',
+                            )
+                        user_by_index[idx] = user_map[key]
+
+                    student_tuples = [(target_room_id, s['student_no'], user_by_index[i]) for i, s in enumerate(students)]
                     await conn.executemany("""
                         INSERT INTO students (room_id, student_no, user_id, status) 
                         SELECT $1, $2, $3, 'active' WHERE NOT EXISTS (
@@ -306,6 +365,11 @@ class StudentService:
 
         clean_data = {k: v for k, v in update_data.items() if v is not None and k in STUDENT_PATCHABLE_COLUMNS}
         if not clean_data and new_student_no is None: return
+
+        # 🌟 NFC-normalize ชื่อไทยก่อนเขียนลง users (แก้ อำ/อํา ฯลฯ ให้ exact-match ตรงกัน)
+        for k in list(clean_data):
+            if k in NAME_NFC_FIELDS:
+                clean_data[k] = normalize_nfc(clean_data[k])
 
         global_updates = {k: v for k, v in clean_data.items() if k in GLOBAL_FIELDS}
         local_updates = {k: v for k, v in clean_data.items() if k in LOCAL_FIELDS}
@@ -447,6 +511,9 @@ class StudentService:
                         "first_name": full_data["first_name"],
                         "last_name": full_data["last_name"],
                         "nickname": full_data.get("nickname"),
+                        "first_name_en": full_data.get("first_name_en"),
+                        "last_name_en": full_data.get("last_name_en"),
+                        "nickname_en": full_data.get("nickname_en"),
                         "class_role": full_data["class_role"],
                         "status": full_data["status"],
                         "is_admin": full_data.get("is_admin", False),
@@ -666,7 +733,10 @@ class StudentService:
                     AND (
                         u.first_name ILIKE $2 OR
                         u.last_name ILIKE $2 OR
+                        u.first_name_en ILIKE $2 OR
+                        u.last_name_en ILIKE $2 OR
                         u.nickname ILIKE $2 OR
+                        u.nickname_en ILIKE $2 OR
                         CAST(s.student_no AS TEXT) = $3
                     )
                     AND s.status = 'active'

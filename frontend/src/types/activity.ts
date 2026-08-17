@@ -18,6 +18,9 @@ export interface ActivityParticipant {
   first_name: string
   last_name: string
   nickname: string | null
+  first_name_en: string | null
+  last_name_en: string | null
+  nickname_en: string | null
   role_type: RoleType | string
   role_detail: string | null
   earned_hours: number
@@ -121,6 +124,9 @@ export interface RosterItem {
   first_name: string
   last_name: string
   nickname: string | null
+  first_name_en: string | null
+  last_name_en: string | null
+  nickname_en: string | null
   prefix?: string | null
   role_type: string
   role_detail: string | null

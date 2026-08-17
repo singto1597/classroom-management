@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import StudentService from '@/services/student'
 // import type { Student } from '@/types/student' // ไม่ได้ใช้ใน template ตอนนี้คอมเม้นไว้ก่อน
+import { displayName } from '@/utils/name'
 import Swal from 'sweetalert2'
 
 const route = useRoute()
@@ -146,11 +147,11 @@ onMounted(() => {
               </div>
 
               <h1 class="text-xl sm:text-2xl font-black text-slate-800 leading-tight mb-1">
-                {{ student.prefix }}{{ student.first_name }} {{ student.last_name }}
+                {{ student.prefix }}{{ displayName(student) }}
               </h1>
               <p class="text-slate-500 font-medium text-sm flex items-center gap-2 mb-4 flex-wrap">
                 <i class="bi bi-person-vcard text-blue-400"></i> {{ student.student_id || 'ไม่ระบุรหัส' }}
-                <span v-if="student.nickname"> • ชื่อเล่น: {{ student.nickname }}</span>
+                <span v-if="student.nickname || student.nickname_en"> • ชื่อเล่น: {{ student.nickname || student.nickname_en }}</span>
               </p>
             </div>
           </div>

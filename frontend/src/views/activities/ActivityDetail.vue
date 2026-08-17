@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
+import { displayName } from '@/utils/name'
 import type { Activity, ActivityParticipant, RosterItem } from '@/types/activity'
 import { ACTIVITY_STATUS_LABELS, ACTIVITY_STATUS_BADGE } from '@/types/activity'
 import {
@@ -101,6 +102,9 @@ const rosterItems = computed<RosterItem[]>(() => {
     first_name: p.first_name,
     last_name: p.last_name,
     nickname: p.nickname,
+    first_name_en: p.first_name_en,
+    last_name_en: p.last_name_en,
+    nickname_en: p.nickname_en,
     role_type: typeof p.role_type === 'string' ? p.role_type : 'participant',
     role_detail: p.role_detail,
     status: typeof p.status === 'string' ? p.status : 'confirmed',
@@ -179,7 +183,7 @@ const removeParticipant = async (key: string | number) => {
   if (!participant || !canManage.value) return
   const result = await Swal.fire({
     title: 'นำออกจากกิจกรรม?',
-    text: `${participant.first_name} ${participant.last_name} จะถูกนำออก`,
+    text: `${displayName(participant)} จะถูกนำออก`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#e11d48',

@@ -10,6 +10,9 @@ export interface Student {
   first_name: string
   last_name: string
   nickname: string | null
+  first_name_en: string | null
+  last_name_en: string | null
+  nickname_en: string | null
   birthday: string | null // ISO Date string (YYYY-MM-DD)
   class_role: string
   cleaning_duty: string | null

@@ -18,6 +18,10 @@ export const useAuthStore = defineStore('auth', () => {
   const prefix = ref<string | null>(safeGetItem('user_prefix'));
   const firstName = ref<string | null>(safeGetItem('user_first_name'));
   const lastName = ref<string | null>(safeGetItem('user_last_name'));
+  // 🌟 ชื่อภาษาอังกฤษ — กุญแจตัวตนหลัก (identity/dedupe/search); แสดงเมื่อไม่มีชื่อไทย
+  const firstNameEn = ref<string | null>(safeGetItem('user_first_name_en'));
+  const lastNameEn = ref<string | null>(safeGetItem('user_last_name_en'));
+  const nicknameEn = ref<string | null>(safeGetItem('user_nickname_en'));
   const email = ref<string | null>(safeGetItem('user_email'));
   const discordId = ref<string | null>(safeGetItem('user_discord_id'));
   const googleId = ref<string | null>(safeGetItem('user_google_id'));
@@ -70,13 +74,16 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '' && !!phoneNumber.value && phoneNumber.value.trim() !== '');
 
-  // ประกอบชื่อให้สมบูรณ์
+  // ประกอบชื่อให้สมบูรณ์ — ชื่อไทยก่อน (ถ้ามี) แล้วค่อยชื่ออังกฤษ
   const currentUserName = computed(() => {
     const p = prefix.value || '';
     const f = firstName.value || '';
     const l = lastName.value || '';
     const full = `${p}${f} ${l}`.trim();
-    return full || 'ผู้ใช้งานระบบ'; 
+    if (full) return full;
+    const enF = firstNameEn.value || '';
+    const enL = lastNameEn.value || '';
+    return `${enF} ${enL}`.trim() || 'ผู้ใช้งานระบบ';
   });
 
   const isFetchingProfile = ref(false); 
@@ -93,6 +100,9 @@ export const useAuthStore = defineStore('auth', () => {
       prefix.value = data.prefix && data.prefix !== 'null' ? data.prefix : '';
       firstName.value = data.first_name && data.first_name !== 'null' && data.first_name !== 'ไม่ระบุชื่อ' ? data.first_name : '';
       lastName.value = data.last_name && data.last_name !== 'null' ? data.last_name : '';
+      firstNameEn.value = data.first_name_en && data.first_name_en !== 'null' ? data.first_name_en : '';
+      lastNameEn.value = data.last_name_en && data.last_name_en !== 'null' ? data.last_name_en : '';
+      nicknameEn.value = data.nickname_en && data.nickname_en !== 'null' ? data.nickname_en : '';
       email.value = data.email && data.email !== 'null' ? data.email : '';
       discordId.value = data.discord_id ? String(data.discord_id) : null;
       googleId.value = data.google_id ? String(data.google_id) : null;
@@ -107,6 +117,13 @@ export const useAuthStore = defineStore('auth', () => {
 
       if (lastName.value) localStorage.setItem('user_last_name', lastName.value);
       else localStorage.removeItem('user_last_name');
+
+      if (firstNameEn.value) localStorage.setItem('user_first_name_en', firstNameEn.value);
+      else localStorage.removeItem('user_first_name_en');
+      if (lastNameEn.value) localStorage.setItem('user_last_name_en', lastNameEn.value);
+      else localStorage.removeItem('user_last_name_en');
+      if (nicknameEn.value) localStorage.setItem('user_nickname_en', nicknameEn.value);
+      else localStorage.removeItem('user_nickname_en');
 
       if (email.value) localStorage.setItem('user_email', email.value);
       if (discordId.value) localStorage.setItem('user_discord_id', discordId.value);
@@ -187,6 +204,9 @@ export const useAuthStore = defineStore('auth', () => {
     'user_prefix',
     'user_first_name',
     'user_last_name',
+    'user_first_name_en',
+    'user_last_name_en',
+    'user_nickname_en',
     'user_email',
     'user_discord_id',
     'user_google_id',
@@ -206,6 +226,9 @@ export const useAuthStore = defineStore('auth', () => {
     prefix.value = null;
     firstName.value = null;
     lastName.value = null;
+    firstNameEn.value = null;
+    lastNameEn.value = null;
+    nicknameEn.value = null;
     email.value = null;
     discordId.value = null;
     googleId.value = null;
@@ -217,7 +240,7 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   return {
-    token, userId, prefix, firstName, lastName, currentUserName,
+    token, userId, prefix, firstName, lastName, firstNameEn, lastNameEn, nicknameEn, currentUserName,
     email, discordId, googleId, nickname, phoneNumber, isOnboarded,
     currentRoomId, currentRoomName, currentRoomCode, currentRole,
     currentIsAdmin, currentPermissions, // 🎯 Expose ไปให้ Component อื่นดึงไปใช้ได้

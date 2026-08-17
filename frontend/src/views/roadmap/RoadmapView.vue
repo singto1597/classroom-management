@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
+import { displayName as personDisplayName } from '@/utils/name';
 import type { Student } from '@/types/student';
 import Swal from 'sweetalert2';
 
@@ -54,7 +55,7 @@ const findStudentByRole = (role: string): Student | null =>
   students.value.find((s) => s.class_role === role) ?? null;
 
 const getStudentLink = (student: Student) => `/students/${student.student_no}`;
-const displayName = (student: Student) => student.nickname || `${student.first_name} ${student.last_name}`;
+const displayName = (student: Student) => student.nickname || student.nickname_en || personDisplayName(student);
 
 // Computed Data
 const president = computed(() => findStudentByRole('president'));
@@ -269,7 +270,7 @@ const getThemeClasses = (theme: string, type: 'borderTop' | 'borderLeft' | 'text
                         </div>
                         <div class="flex-col overflow-hidden text-left">
                           <p class="text-xs font-bold text-slate-800 truncate leading-tight">{{ displayName(staff) }}</p>
-                          <p class="text-[10px] text-slate-500 truncate mt-0.5">{{ staff.first_name }} {{ staff.last_name }}</p>
+                          <p class="text-[10px] text-slate-500 truncate mt-0.5">{{ personDisplayName(staff) }}</p>
                         </div>
                       </RouterLink>
 

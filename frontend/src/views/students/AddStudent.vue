@@ -25,7 +25,11 @@ const isSubmitting = ref(false)
 const singleForm = ref({
   student_no: '',
   first_name: '',
-  last_name: ''
+  last_name: '',
+  nickname: '',
+  first_name_en: '',
+  last_name_en: '',
+  nickname_en: ''
 })
 
 // Form Bulk
@@ -48,6 +52,10 @@ const submitSingle = async () => {
       student_no: parseInt(singleForm.value.student_no),
       first_name: singleForm.value.first_name,
       last_name: singleForm.value.last_name,
+      nickname: singleForm.value.nickname,
+      first_name_en: singleForm.value.first_name_en,
+      last_name_en: singleForm.value.last_name_en,
+      nickname_en: singleForm.value.nickname_en,
       user_name: currentUserName
     })
     await Swal.fire('สำเร็จ!', 'เพิ่มนักเรียนเรียบร้อยแล้ว', 'success')
@@ -162,6 +170,42 @@ const submitBulk = async () => {
                 v-model="singleForm.last_name"
                 type="text"
                 placeholder="รักเรียน"
+                class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              />
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm font-bold text-gray-700">ชื่อเล่น <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
+              <input
+                v-model="singleForm.nickname"
+                type="text"
+                placeholder="โอม"
+                class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              />
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm font-bold text-gray-700">ชื่อจริง (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
+              <input
+                v-model="singleForm.first_name_en"
+                type="text"
+                placeholder="Somchai"
+                class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              />
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm font-bold text-gray-700">นามสกุล (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
+              <input
+                v-model="singleForm.last_name_en"
+                type="text"
+                placeholder="Jaidee"
+                class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              />
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm font-bold text-gray-700">ชื่อเล่น (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
+              <input
+                v-model="singleForm.nickname_en"
+                type="text"
+                placeholder="Om"
                 class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
               />
             </div>

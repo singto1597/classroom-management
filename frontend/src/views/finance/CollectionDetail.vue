@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth'; 
 import { FinanceService } from '@/services/finance';
 import type { CollectionStatus, Account, StudentPaymentDetail } from '@/types/finance';
+import { displayName } from '@/utils/name';
 import Swal from 'sweetalert2';
 
 const route = useRoute();
@@ -52,7 +53,7 @@ const handlePay = async (student: StudentPaymentDetail) => {
   const remaining = student.total_amount - student.paid_amount;
   
   const { value: formValues } = await Swal.fire({
-    title: `รับเงิน: ${student.first_name}`,
+    title: `รับเงิน: ${displayName(student)}`,
     html:
       '<div class="mb-3 text-left">' +
       '<label class="block text-xs font-bold text-gray-400 mb-1 uppercase">รับเงินเข้าบัญชีห้อง</label>' +
@@ -103,7 +104,7 @@ const handleRemoveStudent = async (student: StudentPaymentDetail) => {
 
   const result = await Swal.fire({
     title: 'ยืนยันการลบ?',
-    html: `คุณต้องการลบรายชื่อ <b>${student.first_name}</b> ออกจากการเก็บเงินนี้ใช่หรือไม่?`,
+    html: `คุณต้องการลบรายชื่อ <b>${displayName(student)}</b> ออกจากการเก็บเงินนี้ใช่หรือไม่?`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#ef4444',
@@ -208,8 +209,8 @@ onMounted(() => {
               <div class="flex items-center gap-3 min-w-0">
                 <div class="w-9 h-9 rounded-xl bg-gray-50 text-gray-500 border border-gray-100 flex items-center justify-center font-black text-xs shrink-0">#{{ s.student_no }}</div>
                 <div class="min-w-0">
-                  <p class="font-bold text-gray-800 text-sm truncate">{{ s.first_name }} {{ s.last_name }}</p>
-                  <p v-if="s.nickname" class="text-xs text-gray-400 italic truncate">({{ s.nickname }})</p>
+                  <p class="font-bold text-gray-800 text-sm truncate">{{ displayName(s) }}</p>
+                  <p v-if="s.nickname || s.nickname_en" class="text-xs text-gray-400 italic truncate">({{ s.nickname || s.nickname_en }})</p>
                 </div>
               </div>
 
@@ -277,8 +278,8 @@ onMounted(() => {
               <tr v-for="s in data.students" :key="s.payment_id" class="hover:bg-gray-50/50 transition-colors group">
                 <td class="px-6 py-4 font-bold text-gray-400">#{{ s.student_no }}</td>
                 <td class="px-6 py-4">
-                  <div class="font-bold text-gray-800">{{ s.first_name }} {{ s.last_name }}</div>
-                  <div v-if="s.nickname" class="text-xs text-gray-400 italic">({{ s.nickname }})</div>
+                  <div class="font-bold text-gray-800">{{ displayName(s) }}</div>
+                  <div v-if="s.nickname || s.nickname_en" class="text-xs text-gray-400 italic">({{ s.nickname || s.nickname_en }})</div>
                 </td>
                 <td class="px-6 py-4">
                   <div v-if="s.status === 'paid'" class="flex flex-col">

@@ -47,7 +47,11 @@ async def add_student(req: StudentAddRequest, request: Request, target: TargetRe
             pool, req.student_no, req.first_name, req.last_name, req.user_name,
             client_source=client_source, actor_identifier=actor,
             server_id=target.server_id, room_id=target.room_id,
-            actor_user_id=user_ctx["user_id"]
+            actor_user_id=user_ctx["user_id"],
+            first_name_en=req.first_name_en or "",
+            last_name_en=req.last_name_en or "",
+            nickname=req.nickname or "",
+            nickname_en=req.nickname_en or "",
         )
         return SuccessResponse(message=f"Added student No. {req.student_no}")
     except RoomNotFoundError as e:

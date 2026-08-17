@@ -8,7 +8,7 @@ export const ClassroomService = {
   async createRoom(payload: { room_name: string }): Promise<any> {
     return await api.post('/api/classroom/create', payload);
   },
-  async joinRoom(payload: { room_code: string; student_no: number; first_name: string; last_name: string }): Promise<any> {
+  async joinRoom(payload: { room_code: string; student_no: number; first_name: string; last_name: string; first_name_en?: string; last_name_en?: string }): Promise<any> {
     // 🚨 ยิง API เข้าห้อง (Backend จะจัดการรวมร่างให้ที่จุดนี้)
     return await api.post('/api/classroom/join', payload);
   },

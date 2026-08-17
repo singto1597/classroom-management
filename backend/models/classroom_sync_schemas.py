@@ -58,6 +58,8 @@ class BirthdayCelebrant(BaseModel):
     first_name: str
     last_name: str
     nickname: Optional[str] = None
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
 
 class BirthdayNotifyResponse(BaseModel):
     server_id: int
