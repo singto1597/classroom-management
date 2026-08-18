@@ -61,7 +61,14 @@ async def init_db(pool: asyncpg.Pool):
                     first_name TEXT,
                     last_name TEXT,
                     nickname TEXT,
-                    birthday DATE,                
+                    birthday DATE,
+
+                    -- 🌟 ชื่อภาษาอังกฤษ — "กุญแจตัวตน" หลัก (identity/dedupe/search)
+                    -- ชื่อไทย (first_name/last_name) เป็นของแสดงผล; อังกฤษ nullable จนกว่าจะกรอก
+                    first_name_en TEXT,
+                    last_name_en TEXT,
+                    nickname_en TEXT,
+
 
                     blood_group VARCHAR(3),
                     shirt_size TEXT,
@@ -397,6 +404,12 @@ async def init_db(pool: asyncpg.Pool):
             # (เพิ่มคอลัมน์ให้ตาราง rooms ที่สร้างไว้แล้ว — บังคับใช้กับ DB ที่ deploy ไปแล้วด้วย)
             await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS birthday_channel_id BIGINT;")
             await conn.execute("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS minor_notify_channel_id BIGINT;")
+
+            # 🌟 ชื่อภาษาอังกฤษ (identity/dedupe/search) — เพิ่มให้ users ที่ deploy ไปแล้ว
+            # (ต้องมีทั้งใน CREATE TABLE ด้านบน และ ALTER ตรงนี้ ตามกฎ skills.md)
+            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name_en TEXT;")
+            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name_en TEXT;")
+            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname_en TEXT;")
             
             # การเพิ่ม Constraint อย่างปลอดภัย
             await conn.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key;")

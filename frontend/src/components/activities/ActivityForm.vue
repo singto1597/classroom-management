@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { StudentService } from '@/services/student'
 import { ActivityService } from '@/services/activity'
+import { displayName } from '@/utils/name'
 import type { Activity, ActivityParticipantInput, RosterItem } from '@/types/activity'
 import type { Student } from '@/types/student'
 import {
@@ -140,6 +141,9 @@ const rosterItems = computed<RosterItem[]>(() => {
     first_name: s.first_name,
     last_name: s.last_name,
     nickname: s.nickname,
+    first_name_en: s.first_name_en,
+    last_name_en: s.last_name_en,
+    nickname_en: s.nickname_en,
     prefix: s.prefix,
     role_type: participantRoleType.value[s.student_no] || 'participant',
     role_detail:
@@ -364,7 +368,7 @@ const submit = async () => {
     const names = orphaned
       .map((no) => students.value.find((s) => s.student_no === no))
       .filter(Boolean)
-      .map((s) => s!.first_name)
+      .map((s) => displayName(s!))
     const result = await Swal.fire({
       icon: 'warning',
       title: 'ตำแหน่งที่เลือกไม่อยู่ในรายการ',

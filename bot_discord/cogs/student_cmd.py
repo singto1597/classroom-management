@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from services.api_client import api_client, APIException
+from services.action_service import person_display_name
 
 class StudentCommands(commands.Cog):
     def __init__(self, bot):
@@ -38,7 +39,7 @@ class StudentCommands(commands.Cog):
             missing = completion.get('missing_fields', [])
 
             embed = discord.Embed(
-                title=f"💳 บัตรนักเรียน: {data.get('prefix') or ''}{data['first_name']} {data['last_name']} ({data.get('nickname') or '-'})",
+                title=f"💳 บัตรนักเรียน: {data.get('prefix') or ''}{person_display_name(data)} ({data.get('nickname') or data.get('nickname_en') or '-'})",
                 color=discord.Color.gold() if percent == 100 else discord.Color.red()
             )
 

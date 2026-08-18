@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { FinanceService } from '@/services/finance';
 import type { Collection, BasicStudent } from '@/types/finance';
+import { displayName } from '@/utils/name';
 import Swal from 'sweetalert2';
 
 const authStore = useAuthStore();
@@ -356,7 +357,7 @@ onMounted(() => {
                   <div class="flex items-center gap-3">
                     <div class="text-slate-400 font-black text-xs w-6 text-right">#{{ s.student_no }}</div>
                     <div class="font-bold text-slate-700 text-sm">
-                      {{ s.first_name }} {{ s.last_name }} <span v-if="s.nickname" class="text-slate-400 font-normal">({{ s.nickname }})</span>
+                      {{ displayName(s) }} <span v-if="s.nickname || s.nickname_en" class="text-slate-400 font-normal">({{ s.nickname || s.nickname_en }})</span>
                     </div>
                   </div>
                   

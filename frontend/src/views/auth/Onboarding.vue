@@ -22,7 +22,10 @@ const form = ref({
   prefix: '',
   first_name: '',
   last_name: '',
+  first_name_en: '',
+  last_name_en: '',
   nickname: '',
+  nickname_en: '',
   birthday: '',
   phone_number: '',
   line_id: '',
@@ -138,14 +141,19 @@ onMounted(async () => {
   form.value.prefix = authStore.prefix ?? '';
   form.value.first_name = authStore.firstName ?? '';
   form.value.last_name = authStore.lastName ?? '';
+  form.value.first_name_en = authStore.firstNameEn ?? '';
+  form.value.last_name_en = authStore.lastNameEn ?? '';
   form.value.nickname = authStore.nickname ?? '';
+  form.value.nickname_en = authStore.nicknameEn ?? '';
   form.value.phone_number = authStore.phoneNumber ?? '';
 });
 
 const submitProfile = async () => {
-  // ใช้ array เก็บ key ทั้งหมดของ form ยกเว้น address_road (ฟิลด์ optional)
+  // ใช้ array เก็บ key ทั้งหมดของ form ยกเว้นฟิลด์ optional:
+  // address_road (ถนน/ซอย) + *_en (ชื่อ/ชื่อเล่นอังกฤษ — identity แต่ไม่บังคับ)
+  const OPTIONAL_FIELDS = new Set(['address_road', 'first_name_en', 'last_name_en', 'nickname_en']);
   const requiredFields = (Object.keys(form.value) as Array<keyof typeof form.value>).filter(
-    (field) => field !== 'address_road'
+    (field) => !OPTIONAL_FIELDS.has(field as string)
   );
 
   const isAllFilled = requiredFields.every((field) => {
@@ -223,8 +231,20 @@ const submitProfile = async () => {
               <input v-model="form.last_name" type="text" required placeholder="ใจดี" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
             </div>
             <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
+              <input v-model="form.first_name_en" type="text" placeholder="Somchai" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
+              <input v-model="form.last_name_en" type="text" placeholder="Jaidee" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
               <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อเล่น <span class="text-rose-500">*</span></label>
               <input v-model="form.nickname" type="text" required placeholder="เช่น โอม" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อเล่น (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
+              <input v-model="form.nickname_en" type="text" placeholder="เช่น Om" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
             </div>
             <div>
               <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">วันเกิด <span class="text-rose-500">*</span></label>

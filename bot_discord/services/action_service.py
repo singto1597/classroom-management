@@ -14,6 +14,18 @@ PROFILE_FIELD_LABELS = {
     "phone_number": "เบอร์โทรศัพท์",
     "phone_number_parent": "เบอร์โทรศัพท์ผู้ปกครอง",
 }
+def person_display_name(data: dict) -> str:
+    """ชื่อสำหรับแสดงผลใน embed: ชื่อไทยก่อน (ถ้ามี) แล้วค่อยชื่ออังกฤษ
+    — ตามนโยบาย English-primary identity, Thai display (ดู backend/core/name_utils.py)."""
+    th_first = (data.get('first_name') or '').strip()
+    th_last = (data.get('last_name') or '').strip()
+    if th_first or th_last:
+        return f"{th_first} {th_last}".strip()
+    en_first = (data.get('first_name_en') or '').strip()
+    en_last = (data.get('last_name_en') or '').strip()
+    return f"{en_first} {en_last}".strip()
+
+
 EVENT_FIELD_LABELS = {
     "bus_number": "การจัดสายรถบัส",
     "van_number": "การจัดรถตู้",
@@ -224,7 +236,7 @@ class BotActionService:
 
         embed = discord.Embed(
             title="👤 มีสมาชิกใหม่",
-            description=f"**{data.get('first_name')} {data.get('last_name')}** (เลขที่ {data.get('student_no')}) เข้าสู่ระบบแล้ว",
+            description=f"**{person_display_name(data)}** (เลขที่ {data.get('student_no')}) เข้าสู่ระบบแล้ว",
             color=discord.Color.blurple()
         )
         embed.set_footer(text=f"เพิ่มโดย: {data.get('user_name')}")
@@ -345,7 +357,7 @@ class BotActionService:
 
         celebrants = data.get("celebrants") or []
         names = "\n".join(
-            f"🎉 **{c.get('first_name')} {c.get('last_name')}** (เลขที่ {c.get('student_no')})"
+            f"🎉 **{person_display_name(c)}** (เลขที่ {c.get('student_no')})"
             for c in celebrants
         )
 

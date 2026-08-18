@@ -54,6 +54,9 @@ export interface StudentPaymentDetail {
   first_name: string;
   last_name: string;
   nickname: string | null;
+  first_name_en: string | null;
+  last_name_en: string | null;
+  nickname_en: string | null;
 }
 
 export interface CollectionStatus {
@@ -106,6 +109,9 @@ export interface BasicStudent {
   first_name: string;
   last_name: string;
   nickname: string;
+  first_name_en: string | null;
+  last_name_en: string | null;
+  nickname_en: string | null;
 }
 
 // --- Request Payloads ---

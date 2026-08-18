@@ -21,6 +21,11 @@ class StudentQuickAdd(BaseModel):
     student_no: int
     first_name: str = Field(..., max_length=100)
     last_name: str = Field(..., max_length=100)
+    nickname: Optional[str] = Field(None, max_length=50)
+    # 🌟 ชื่ออังกฤษ (identity/dedupe) — optional จนกว่าจะกรอก
+    first_name_en: Optional[str] = Field(None, max_length=100)
+    last_name_en: Optional[str] = Field(None, max_length=100)
+    nickname_en: Optional[str] = Field(None, max_length=50)
 
 class StudentBulkAddRequest(BaseModel):
     students: List[StudentQuickAdd]
@@ -40,6 +45,9 @@ class StudentUpdateRequest(BaseModel):
     first_name: Optional[str] = Field(None, max_length=100)
     last_name: Optional[str] = Field(None, max_length=100)
     nickname: Optional[str] = Field(None, max_length=50)
+    first_name_en: Optional[str] = Field(None, max_length=100)
+    last_name_en: Optional[str] = Field(None, max_length=100)
+    nickname_en: Optional[str] = Field(None, max_length=50)
     birthday: Optional[date] = None
     
     class_role: Optional[str] = Field(None, max_length=50)
@@ -105,9 +113,12 @@ class StudentResponse(BaseModel):
     first_name: str
     last_name: str
     nickname: Optional[str]
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    nickname_en: Optional[str] = None
     birthday: Optional[date]
     class_role: str
-    
+
     # 🎯 เพิ่มข้อมูลสิทธิ์ใน Profile
     is_admin: bool = False
     permissions: List[str] = []
@@ -144,6 +155,9 @@ class StudentSummaryResponse(BaseModel):
     first_name: str
     last_name: str
     nickname: Optional[str] = None
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    nickname_en: Optional[str] = None
     class_role: str
     status: str
     is_admin: bool = False # 🎯 เพิ่ม

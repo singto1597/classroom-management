@@ -18,7 +18,7 @@ const showCreateModal = ref(false);
 const showJoinModal = ref(false);
 
 const createForm = ref({ room_name: '' });
-const joinForm = ref({ room_code: '', student_no: null as number | null, first_name: '', last_name: '' });
+const joinForm = ref({ room_code: '', student_no: null as number | null, first_name: '', last_name: '', first_name_en: '', last_name_en: '' });
 
 onMounted(async () => {
   if (!authStore.userId) {
@@ -72,7 +72,9 @@ const openJoinModal = () => {
     room_code: '',
     student_no: null,
     first_name: authStore.firstName !== 'ไม่ระบุชื่อ' ? (authStore.firstName || '') : '',
-    last_name: authStore.lastName || ''
+    last_name: authStore.lastName || '',
+    first_name_en: authStore.firstNameEn || '',
+    last_name_en: authStore.lastNameEn || ''
   };
   showJoinModal.value = true;
 };
@@ -99,7 +101,9 @@ const submitJoinRoom = async () => {
       room_code: code,
       student_no: no,
       first_name: joinForm.value.first_name.trim(),
-      last_name: joinForm.value.last_name.trim()
+      last_name: joinForm.value.last_name.trim(),
+      first_name_en: joinForm.value.first_name_en.trim(),
+      last_name_en: joinForm.value.last_name_en.trim()
     };
 
     const result = await ClassroomService.joinRoom(payload);
@@ -177,7 +181,7 @@ const submitCreateRoom = async () => {
       <div class="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 bg-white rounded-3xl shadow-xl shadow-blue-500/10 border border-slate-100 mb-5">
         <i class="bi bi-grid-fill text-3xl md:text-4xl text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-indigo-600"></i>
       </div>
-      <h1 class="text-2xl md:text-4xl font-black text-slate-800 tracking-tight mb-3 px-4">ยินดีต้อนรับ, <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{{ authStore.firstName || 'ผู้ใช้งาน' }}</span> 👋</h1>
+      <h1 class="text-2xl md:text-4xl font-black text-slate-800 tracking-tight mb-3 px-4">ยินดีต้อนรับ, <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{{ authStore.firstName || authStore.firstNameEn || 'ผู้ใช้งาน' }}</span> 👋</h1>
       <p class="text-slate-500 text-sm md:text-lg font-medium max-w-2xl mx-auto px-4">เลือกห้องเรียนของคุณเพื่อเริ่มต้นการจัดการ หรือเข้าร่วมห้องเรียนใหม่ผ่านรหัสห้อง</p>
     </div>
 
@@ -289,6 +293,17 @@ const submitCreateRoom = async () => {
             <div>
               <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล <span class="text-rose-500">*</span></label>
               <input v-model="joinForm.last_name" type="text" required class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง (อังกฤษ) <span class="text-slate-400 font-normal normal-case">ไม่บังคับ</span></label>
+                <input v-model="joinForm.first_name_en" type="text" class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+              </div>
+              <div>
+                <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล (อังกฤษ) <span class="text-slate-400 font-normal normal-case">ไม่บังคับ</span></label>
+                <input v-model="joinForm.last_name_en" type="text" class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+              </div>
             </div>
 
             <div class="flex flex-col sm:flex-row gap-2.5 mt-6 pt-4">

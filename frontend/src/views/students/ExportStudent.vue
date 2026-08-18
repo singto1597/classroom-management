@@ -44,7 +44,10 @@ const exportSchema: Category[] = [
       { id: 'prefix', label: 'คำนำหน้า' },
       { id: 'first_name', label: 'ชื่อจริง' },
       { id: 'last_name', label: 'นามสกุล' },
+      { id: 'first_name_en', label: 'ชื่อจริง (EN)' },
+      { id: 'last_name_en', label: 'นามสกุล (EN)' },
       { id: 'nickname', label: 'ชื่อเล่น' },
+      { id: 'nickname_en', label: 'ชื่อเล่น (EN)' },
       { id: 'birthday', label: 'วันเกิด' }
     ]
   },

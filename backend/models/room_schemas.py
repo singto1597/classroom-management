@@ -9,6 +9,9 @@ class RoomJoinRequest(BaseModel):
     student_no: int = Field(..., gt=0, description="เลขที่นักเรียน")
     first_name: str = Field(..., max_length=100)
     last_name: str = Field(..., max_length=100)
+    # 🌟 ชื่ออังกฤษ — กุญแจตัวตนหลักสำหรับ ghost-merge; optional
+    first_name_en: Optional[str] = Field(None, max_length=100)
+    last_name_en: Optional[str] = Field(None, max_length=100)
 
 class RoomResponse(BaseModel):
     room_id: int

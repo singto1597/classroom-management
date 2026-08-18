@@ -19,6 +19,7 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { splitDutyRole } from '@/constants/activityFields'
+import { displayName } from '@/utils/name'
 import type { RosterItem } from '@/types/activity'
 
 const props = defineProps<{
@@ -55,9 +56,9 @@ const filteredItems = computed(() => {
   const query = searchQuery.value.toLowerCase().trim()
   if (!query) return props.items
   return props.items.filter((item) => {
-    const fullName = `${item.first_name} ${item.last_name}`.toLowerCase()
+    const fullName = `${item.first_name} ${item.last_name} ${item.first_name_en || ''} ${item.last_name_en || ''}`.toLowerCase()
     const no = String(item.student_no)
-    const nickname = (item.nickname || '').toLowerCase()
+    const nickname = `${item.nickname || ''} ${item.nickname_en || ''}`.toLowerCase()
     return fullName.includes(query) || no.includes(query) || nickname.includes(query)
   })
 })
@@ -222,12 +223,11 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                 :class="statusDot(item.status)"
               ></span>
               <h4 class="font-bold text-slate-800 text-sm sm:text-[15px] truncate">
-                {{ item.prefix ? item.prefix + ' ' : '' }}{{ item.first_name }}
-                {{ item.last_name }}
+                {{ item.prefix ? item.prefix + ' ' : '' }}{{ displayName(item) }}
               </h4>
             </div>
             <div class="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-400">
-              <span v-if="item.nickname" class="truncate">{{ item.nickname }}</span>
+              <span v-if="item.nickname || item.nickname_en" class="truncate">{{ item.nickname || item.nickname_en }}</span>
               <template v-if="item.earned_hours > 0">
                 <span class="text-slate-300">•</span>
                 <span class="text-emerald-600 font-semibold whitespace-nowrap"

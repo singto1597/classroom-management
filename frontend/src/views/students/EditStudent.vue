@@ -58,7 +58,10 @@ const form = ref<Partial<Student> & { new_student_no?: number | null, is_admin?:
   prefix: '',
   first_name: '',
   last_name: '',
+  first_name_en: '',
+  last_name_en: '',
   nickname: '',
+  nickname_en: '',
   birthday: '',
   blood_group: '',
   shirt_size: '',
@@ -355,6 +358,10 @@ onMounted(() => {
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest">ชื่อเล่น</label>
                   <input :disabled="!isEditMode" v-model="form.nickname" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
                 </div>
+                <div class="space-y-2">
+                  <label class="text-xs font-black text-slate-400 uppercase tracking-widest">ชื่อเล่น (อังกฤษ)</label>
+                  <input :disabled="!isEditMode" v-model="form.nickname_en" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
+                </div>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="space-y-2">
@@ -364,6 +371,14 @@ onMounted(() => {
                 <div class="space-y-2">
                   <label class="text-xs font-black text-slate-400 uppercase tracking-widest flex justify-between">นามสกุล <span class="text-rose-500 text-[10px]">*</span></label>
                   <input :disabled="!isEditMode" v-model="form.last_name" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" required />
+                </div>
+                <div class="space-y-2">
+                  <label class="text-xs font-black text-slate-400 uppercase tracking-widest">ชื่อจริง (อังกฤษ) <span class="text-slate-400 font-normal normal-case">ไม่บังคับ</span></label>
+                  <input :disabled="!isEditMode" v-model="form.first_name_en" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
+                </div>
+                <div class="space-y-2">
+                  <label class="text-xs font-black text-slate-400 uppercase tracking-widest">นามสกุล (อังกฤษ) <span class="text-slate-400 font-normal normal-case">ไม่บังคับ</span></label>
+                  <input :disabled="!isEditMode" v-model="form.last_name_en" type="text" class="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-4 py-3 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-100" />
                 </div>
               </div>
             </div>

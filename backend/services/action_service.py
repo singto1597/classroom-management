@@ -139,12 +139,15 @@ class ActionService:
         }, mention=True, category="💳 แจ้งเก็บเงินนะทุกคน", channel="announcement")
 
     @classmethod
-    async def notify_new_student(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str):
-        """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone)"""
+    async def notify_new_student(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str, first_name_en: str = "", last_name_en: str = ""):
+        """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone)
+        ส่ง first_name_en/last_name_en ด้วย เพื่อให้บอท fallback แสดงชื่ออังกฤษเมื่อไม่มีชื่อไทย"""
         await cls._publish("NEW_STUDENT", server_id, {
             "student_no": student_no,
             "first_name": first_name,
             "last_name": last_name,
+            "first_name_en": first_name_en or None,
+            "last_name_en": last_name_en or None,
             "user_name": user_name
         }, mention=False, category="👤 มีสมาชิกใหม่", channel="minor")
 

@@ -13,6 +13,7 @@ import {
 } from '@/constants/activityFields'
 import ActivityFieldControl from '@/components/activities/ActivityFieldControl.vue'
 import ExtraInfoRows from '@/components/activities/ExtraInfoRows.vue'
+import { displayName } from '@/utils/name'
 import type { RosterItem } from '@/types/activity'
 
 const props = defineProps<{
@@ -103,7 +104,7 @@ function handleSave() {
           <div class="flex items-center justify-between mb-1">
             <h4 class="text-base font-bold text-slate-800 flex items-center gap-2">
               <i class="bi bi-person-badge text-violet-500"></i>
-              ข้อมูลเพิ่มเติม — {{ item.first_name }} {{ item.last_name }}
+              ข้อมูลเพิ่มเติม — {{ displayName(item) }}
             </h4>
             <button
               @click="emit('close')"

@@ -39,6 +39,9 @@ class StudentBasicInfo(BaseModel):
     first_name: str
     last_name: Optional[str]
     nickname: Optional[str]
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    nickname_en: Optional[str] = None
 
 # --- Schemas สำหรับรับข้อมูล (Requests) ---
 class AccountCreate(BaseModel):
@@ -127,6 +130,9 @@ class StudentPaymentDetail(BaseModel):
     first_name: str
     last_name: str
     nickname: Optional[str]
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    nickname_en: Optional[str] = None
 
 class CollectionStatusResponse(BaseModel):
     collection_id: int

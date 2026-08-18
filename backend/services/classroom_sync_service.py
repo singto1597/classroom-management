@@ -289,7 +289,8 @@ class ClassroomService:
                 rows = await conn.fetch(
                     """
                     SELECT r.server_id, r.birthday_channel_id, r.announcement_channel_id,
-                           u.id AS user_id, s.student_no, u.first_name, u.last_name, u.nickname
+                           u.id AS user_id, s.student_no, u.first_name, u.last_name, u.nickname,
+                           u.first_name_en, u.last_name_en
                     FROM rooms r
                     JOIN students s ON s.room_id = r.id AND s.status = 'active' AND s.deleted_at IS NULL
                     JOIN users u ON u.id = s.user_id AND u.deleted_at IS NULL
@@ -320,6 +321,8 @@ class ClassroomService:
                         "first_name": row["first_name"],
                         "last_name": row["last_name"],
                         "nickname": row["nickname"],
+                        "first_name_en": row["first_name_en"],
+                        "last_name_en": row["last_name_en"],
                     })
 
                 return list(rooms_map.values())
