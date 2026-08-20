@@ -11,6 +11,7 @@
  *   - PROFILE_FIELDS / PROFILE_FIELD_LABELS (Type A)
  *   - EXPORT_HEADER_LABELS (Thai label ตอน Export)
  */
+import type { DynamicFieldDef } from '@/types/activity'
 
 /** ชนิดของฟิลด์ — ควบคุมว่า UI จะ render เป็นอะไร */
 export type ActivityFieldType = 'input' | 'dropdown' | 'boolean' | 'datetime'
@@ -471,4 +472,59 @@ export function buildActivityMeta(
   meta.required_fields = [...requiredFields]
 
   return meta
+}
+
+/** ================================================================
+ *  🧩 Dynamic Fields — ฟิลด์ที่ผู้จัดการกิจกรรมสร้างเอง
+ *  def อยู่ที่ activities.metadata.dynamic_fields = [{key, label, type, options?}]
+ *  ค่าแต่ละคนเก็บที่ activity_participants.metadata['df_<n>']
+ *  ================================================================ */
+
+/** อ่านรายการ dynamic field defs จาก activity metadata (fallback []) */
+export function getDynamicFields(metadata?: Record<string, unknown> | null): DynamicFieldDef[] {
+  const raw = metadata?.dynamic_fields
+  if (!Array.isArray(raw)) return []
+  const defs: DynamicFieldDef[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const d = item as Record<string, unknown>
+    const key = String(d.key ?? '').trim()
+    const label = String(d.label ?? '').trim()
+    const type = String(d.type ?? 'input') as DynamicFieldDef['type']
+    if (!key || !label) continue
+    defs.push({
+      key,
+      label,
+      type: ['input', 'dropdown', 'boolean', 'datetime'].includes(type) ? type : 'input',
+      options: Array.isArray(d.options)
+        ? (d.options as { value?: unknown; label?: unknown }[])
+            .map((o) => ({
+              value: String(o?.value ?? ''),
+              label: String(o?.label ?? ''),
+            }))
+            .filter((o) => o.value && o.label)
+        : undefined,
+    })
+  }
+  return defs
+}
+
+/** dynamic field defs → ActivityField[] (สำหรับ reuse ActivityFieldControl / Batch / modal) */
+export function dynamicDefsToFields(defs: DynamicFieldDef[]): ActivityField[] {
+  return defs.map((d) => ({
+    key: d.key,
+    label: d.label,
+    type: d.type,
+    category: 'operation' as const,
+    options: d.options,
+  }))
+}
+
+/** อ่านค่าของ participant สำหรับ dynamic field key (จาก metadata['df_<n>']) */
+export function readDynamicValue(
+  metadata: Record<string, unknown> | undefined | null,
+  key: string,
+): unknown {
+  if (!metadata) return undefined
+  return metadata[key]
 }

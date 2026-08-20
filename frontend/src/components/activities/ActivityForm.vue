@@ -401,7 +401,8 @@ const submit = async () => {
       Object.assign(cleanMeta, meta)
     } else {
       for (const [k, v] of Object.entries(meta)) {
-        if (EVENT_FIELD_KEYS.has(k) || k === 'custom_fields') cleanMeta[k] = v
+        // 🧩 อนุญาต dynamic field (df_<n>) ด้วย — กันค่าหายตอนสร้าง/edit
+        if (EVENT_FIELD_KEYS.has(k) || k === 'custom_fields' || k.startsWith('df_')) cleanMeta[k] = v
       }
     }
     participants.push({

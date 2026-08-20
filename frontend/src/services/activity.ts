@@ -3,10 +3,13 @@ import type {
   Activity,
   ActivityCreate,
   ActivityUpdate,
-  ParticipantAdd,
   ParticipantUpdate,
   BatchParticipantUpdate,
   MyActivityRole,
+  CheckinSheet,
+  CheckinSheetDetail,
+  CheckinRecordInput,
+  AvailableStudent,
 } from '@/types/activity'
 
 /**
@@ -40,8 +43,24 @@ export const ActivityService = {
   },
 
   // --- Participants ---
-  async addParticipant(roomId: number, activityId: number, data: ParticipantAdd): Promise<void> {
-    await api.post(`/api/classroom/${roomId}/activities/${activityId}/participants?target_type=room`, data)
+  /** 🎯 Batch เพิ่มผู้เข้าร่วมหลายคนพร้อมกัน (atomic) — ใช้จากปุ่ม "เพิ่มนักเรียน" */
+  async batchAddParticipants(
+    roomId: number,
+    activityId: number,
+    items: { student_no: number }[],
+    userName: string,
+  ): Promise<void> {
+    await api.post(`/api/classroom/${roomId}/activities/${activityId}/participants/batch?target_type=room`, {
+      items,
+      user_name: userName,
+    })
+  },
+
+  /** 👥 รายชื่อนักเรียน active ในห้องที่ยังไม่ได้เข้าร่วมกิจกรรมนี้ (ปุ่ม "เพิ่มนักเรียน") */
+  async getAvailableStudents(roomId: number, activityId: number): Promise<AvailableStudent[]> {
+    return (await api.get(
+      `/api/classroom/${roomId}/activities/${activityId}/participants/available?target_type=room`,
+    )) as AvailableStudent[]
   },
 
   async updateParticipant(
@@ -78,6 +97,81 @@ export const ActivityService = {
     await api.patch(
       `/api/classroom/${roomId}/activities/${activityId}/participants/batch?target_type=room`,
       data,
+    )
+  },
+
+  // --- ✅ ระบบเช็คชื่อแยกแผ่น (Multiple Attendance Sheets) ---
+  async getCheckinSheets(roomId: number, activityId: number): Promise<CheckinSheet[]> {
+    return (await api.get(
+      `/api/classroom/${roomId}/activities/${activityId}/checkins?target_type=room`,
+    )) as CheckinSheet[]
+  },
+
+  async createCheckinSheet(
+    roomId: number,
+    activityId: number,
+    data: { title: string; event_date?: string | null; user_name: string },
+  ): Promise<void> {
+    await api.post(
+      `/api/classroom/${roomId}/activities/${activityId}/checkins?target_type=room`,
+      data,
+    )
+  },
+
+  async updateCheckinSheet(
+    roomId: number,
+    activityId: number,
+    sheetId: number,
+    data: { title?: string; event_date?: string | null; user_name: string },
+  ): Promise<void> {
+    await api.patch(
+      `/api/classroom/${roomId}/activities/${activityId}/checkins/${sheetId}?target_type=room`,
+      data,
+    )
+  },
+
+  async deleteCheckinSheet(
+    roomId: number,
+    activityId: number,
+    sheetId: number,
+    userName: string,
+  ): Promise<void> {
+    await api.delete(
+      `/api/classroom/${roomId}/activities/${activityId}/checkins/${sheetId}?target_type=room`,
+      { data: { user_name: userName } },
+    )
+  },
+
+  async getCheckinSheet(roomId: number, activityId: number, sheetId: number): Promise<CheckinSheetDetail> {
+    return (await api.get(
+      `/api/classroom/${roomId}/activities/${activityId}/checkins/${sheetId}?target_type=room`,
+    )) as CheckinSheetDetail
+  },
+
+  async upsertCheckinRecord(
+    roomId: number,
+    activityId: number,
+    sheetId: number,
+    participantId: number,
+    isPresent: boolean,
+    userName: string,
+  ): Promise<void> {
+    await api.put(
+      `/api/classroom/${roomId}/activities/${activityId}/checkins/${sheetId}/records/${participantId}?target_type=room`,
+      { is_present: isPresent, user_name: userName },
+    )
+  },
+
+  async batchUpdateCheckinRecords(
+    roomId: number,
+    activityId: number,
+    sheetId: number,
+    records: CheckinRecordInput[],
+    userName: string,
+  ): Promise<void> {
+    await api.post(
+      `/api/classroom/${roomId}/activities/${activityId}/checkins/${sheetId}/records?target_type=room`,
+      { records, user_name: userName },
     )
   },
 

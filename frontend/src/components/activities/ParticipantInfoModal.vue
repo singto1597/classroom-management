@@ -25,6 +25,8 @@ const props = defineProps<{
   canManage: boolean
   /** 🌟 โหมดแสดงผลอย่างเดียว — ไม่มีปุ่มบันทึก/แก้ไข (ActivityDetail) */
   readOnly?: boolean
+  /** 🌟 Dynamic Fields (df_<n>) — ฟิลด์ที่ผู้จัดการกิจกรรมสร้างเอง ค่าเก็บใน metadata เหมือน Type B */
+  dynamicFields?: ActivityField[]
 }>()
 
 const emit = defineEmits<{
@@ -177,6 +179,32 @@ function handleSave() {
             </label>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div v-for="field in typeBFields" :key="field.key">
+                <label class="text-[11px] font-bold text-slate-400 mb-1 block">{{
+                  field.label
+                }}</label>
+                <ActivityFieldControl
+                  :field="field"
+                  :model-value="typeBValues[field.key]"
+                  :disabled="!canManage || readOnly"
+                  @update:model-value="
+                    (v: unknown) => {
+                      typeBValues[field.key] = v
+                    }
+                  "
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- 🌟 Dynamic Fields (ฟิลด์เพิ่มเติมของกิจกรรมนี้) -->
+          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-5">
+            <label
+              class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block flex items-center gap-1.5"
+            >
+              <i class="bi bi-puzzle text-violet-500"></i> ฟิลด์เพิ่มเติมของกิจกรรมนี้
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div v-for="field in dynamicFields" :key="field.key">
                 <label class="text-[11px] font-bold text-slate-400 mb-1 block">{{
                   field.label
                 }}</label>

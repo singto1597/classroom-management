@@ -36,6 +36,8 @@ const props = defineProps<{
   showRemove?: boolean
   /** 🌟 โหมดแสดงผลอย่างเดียว (ActivityDetail) — ซ่อนทุกการแก้ไข คงเหลือแค่ดู + เช็คอิน */
   readOnly?: boolean
+  /** 🧩 ซ่อนตัวแก้ไขหน้าที่/หมายเหตุ inline (ใช้หน้า ManageActivity — แก้ผ่าน modal ข้อมูลเพิ่มเติมแทน) */
+  hideDutyEditor?: boolean
   emptyText?: string
 }>()
 
@@ -294,7 +296,10 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
           </span>
         </div>
         <!-- mode แก้ไข (ActivityForm): select หน้าที่ + input หมายเหตุ -->
-        <div v-else class="mt-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+        <div
+          v-else-if="!hideDutyEditor"
+          class="mt-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center"
+        >
           <select
             :value="dutyOf(item).position"
             :disabled="isDisabled(item) || canManage === false"

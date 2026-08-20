@@ -36,12 +36,88 @@ export interface ActivityParticipant {
   phone_number_parent?: string | null
 }
 
-/** รายการ Batch Apply — อัปเดต metadata ของ participant ที่ถูกติ๊ก (merge กับของเดิม) + ตั้งหน้าที่ได้ */
+/** รายการ Batch Apply — อัปเดต metadata ของ participant ที่ถูกติ๊ก (merge กับของเดิม) + ตั้งหน้าที่ได้
+ * ทุกฟิลด์นอกจาก participant_id เป็น optional — ไม่ส่ง = ไม่แตะของเดิม */
 export interface BatchParticipantItem {
   participant_id: number
   /** 🎖️ หน้าที่/ตำแหน่ง (role_detail) — batch ตั้งหน้าที่ให้ทุกคนที่ติ๊กพร้อมกัน ไม่ส่ง = ไม่แตะ */
   role_detail?: string | null
+  /** 🌟 role_type (participant/staff/leader) — batch ตั้งแบบกลุ่มได้ */
+  role_type?: string | null
+  /** 🌟 status (confirmed/cancelled/attended) — batch ตั้งแบบกลุ่มได้ */
+  status?: string | null
+  /** 🌟 ชั่วโมงจิตอาสา — batch ตั้งแบบกลุ่มได้ */
+  earned_hours?: number | null
   metadata: Metadata
+}
+
+/** ================================================================
+ *  🌟 Dynamic Fields — ฟิลด์ที่ผู้จัดการกิจกรรมสร้างเอง (activities.metadata.dynamic_fields)
+ *  def อยู่ระดับกิจกรรม; ค่าแต่ละคนเก็บที่ activity_participants.metadata['df_<n>']
+ *  ================================================================ */
+export type DynamicFieldType = 'input' | 'dropdown' | 'boolean' | 'datetime'
+
+export interface DynamicFieldOption {
+  value: string
+  label: string
+}
+
+export interface DynamicFieldDef {
+  key: string
+  label: string
+  type: DynamicFieldType
+  options?: DynamicFieldOption[]
+}
+
+/** ================================================================
+ *  ✅ ระบบเช็คชื่อแยกแผ่น (Multiple Attendance Sheets)
+ *  ================================================================ */
+export interface CheckinSheet {
+  id: number
+  activity_id: number
+  title: string
+  event_date: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  checked_count: number
+  total_count: number
+}
+
+/** เครื่องหมายเช็คของ participant 1 คนในแผ่น */
+export interface CheckinMark {
+  is_present: boolean
+  checked_at: string | null
+  recorded_by: string | null
+}
+
+export interface CheckinSheetDetail {
+  sheet: CheckinSheet
+  participants: (ActivityParticipant & CheckinMark)[]
+}
+
+/** นักเรียนในห้องที่ยังไม่ได้เข้ากิจกรรมนี้ (สำหรับปุ่มเพิ่มนักเรียน) */
+export interface AvailableStudent {
+  student_id: number
+  student_no: number
+  first_name: string | null
+  last_name: string | null
+  nickname: string | null
+  first_name_en: string | null
+  last_name_en: string | null
+  nickname_en: string | null
+  blood_group?: string | null
+  shirt_size?: string | null
+  food_allergy?: string | null
+  congenital_disease?: string | null
+  phone_number?: string | null
+  phone_number_parent?: string | null
+}
+
+/** 1 รายการเช็คชื่อใน batch */
+export interface CheckinRecordInput {
+  participant_id: number
+  is_present: boolean
 }
 
 export interface BatchParticipantUpdate {

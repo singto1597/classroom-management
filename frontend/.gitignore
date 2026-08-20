@@ -42,3 +42,5 @@ test-results/
 playwright-report/
 
 .env
+# leftover root-owned build dir from a docker build (cannot be removed without root) — safe to delete manually
+/dist_old_rootowned/

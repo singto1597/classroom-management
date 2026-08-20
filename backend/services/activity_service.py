@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 from core.config import settings
 from core.exceptions import (
     ActivityNotFoundError,
+    CheckinSheetNotFoundError,
     ForbiddenError,
     ParticipantNotFoundError,
     RoomNotFoundError,
@@ -80,6 +81,7 @@ ACTIVITY_META_LABELS: Dict[str, str] = {
     "tags": "หมวดหมู่",
     "positions": "หน้าที่/ตำแหน่ง",
     "required_fields": "ข้อมูลที่เก็บต่อคน",
+    "dynamic_fields": "ฟิลด์เพิ่มเติมต่อคน",
 }
 
 # 🌟 Type A — Profile Fields: ดึงจากตาราง users (READ ONLY ในบริบทกิจกรรม) — ห้ามเก็บซ้ำลง JSONB
@@ -151,6 +153,41 @@ class ActivityService:
         if hasattr(obj, "item"):  # numpy-ish fallback (Decimal → float ได้ผ่าน float())
             return float(obj)
         return obj
+
+    # 🌟 Dynamic Fields — ฟิลด์ที่ผู้จัดการกิจกรรมสร้างเอง (activities.metadata.dynamic_fields)
+    # โครงสร้าง: [{ key: 'df_<n>', label: str, type: input|dropdown|boolean|datetime, options?: [{value,label}] }]
+    # ต่อมา participant เก็บค่าเป็น activity_participants.metadata['df_<n>']
+    @staticmethod
+    def _validate_dynamic_fields(dynamic_fields: Any) -> None:
+        """ตรวจโครงสร้างของ dynamic_fields (ต้องเป็น list ของ def ที่ key ต่างกัน ไม่มี label ว่าง)"""
+        if dynamic_fields is None:
+            return
+        if not isinstance(dynamic_fields, list):
+            raise ValidationError("dynamic_fields ต้องเป็น array")
+        allowed_types = {"input", "dropdown", "boolean", "datetime"}
+        seen = set()
+        for item in dynamic_fields:
+            if not isinstance(item, dict):
+                raise ValidationError("dynamic_fields แต่ละรายการต้องเป็น object")
+            key = item.get("key")
+            label = item.get("label")
+            ftype = item.get("type")
+            if not isinstance(key, str) or not key.startswith("df_") or not key[3:].isdigit():
+                raise ValidationError("dynamic_fields key ต้องอยู่ในรูปแบบ df_<number> (เช่น df_1)")
+            if key in seen:
+                raise ValidationError(f"dynamic_fields key '{key}' ซ้ำกันในรายการ")
+            seen.add(key)
+            if not isinstance(label, str) or not label.strip():
+                raise ValidationError(f"dynamic_fields '{key}' ต้องมี label (หัวข้อ) ไม่เว้นว่าง")
+            if ftype not in allowed_types:
+                raise ValidationError(f"dynamic_fields '{key}' type ต้องเป็นหนึ่งใน {sorted(allowed_types)}")
+            if ftype == "dropdown":
+                options = item.get("options")
+                if not isinstance(options, list) or not options:
+                    raise ValidationError(f"dynamic_fields '{key}' type=dropdown ต้องมี options")
+                for opt in options:
+                    if not isinstance(opt, dict) or not str(opt.get("value", "")).strip() or not str(opt.get("label", "")).strip():
+                        raise ValidationError(f"dynamic_fields '{key}' option ต้องมี value และ label")
 
     # ================================================================
     # 📖 Read helpers
@@ -418,6 +455,9 @@ class ActivityService:
                     meta = metadata or {}
                     if not isinstance(meta, dict):
                         raise ValidationError("metadata ต้องเป็น object")
+                    # 🌟 validate dynamic_fields (ถ้ามีใน metadata) — กัน def ผิดโครงสร้างตอนสร้าง
+                    if "dynamic_fields" in meta:
+                        cls._validate_dynamic_fields(meta.get("dynamic_fields"))
 
                     activity_id = await conn.fetchval(
                         """
@@ -654,6 +694,9 @@ class ActivityService:
                             else:
                                 merged[k] = v
                         clean["metadata"] = merged
+                        # 🌟 validate dynamic_fields หลัง merge (เฉพาะเมื่อมีและไม่ใช่ None) — ลบ (null) ไม่ต้อง validate
+                        if merged.get("dynamic_fields") is not None:
+                            cls._validate_dynamic_fields(merged.get("dynamic_fields"))
 
                     allowed = {"title", "description", "activity_date", "base_hours", "status", "metadata"}
                     fields = {k: v for k, v in clean.items() if k in allowed}
@@ -1112,9 +1155,27 @@ class ActivityService:
                         role_detail = item.get("role_detail")
                         if role_detail is not None and not isinstance(role_detail, str):
                             raise ValidationError(f"role_detail ของ participant {pid} ต้องเป็น string")
+                        # 🌟 role_type / status / earned_hours — optional; ไม่ส่ง = None = ไม่แตะของเดิม
+                        role_type = item.get("role_type")
+                        if role_type is not None and role_type not in ("participant", "staff", "leader"):
+                            raise ValidationError(f"role_type ของ participant {pid} ต้องเป็น participant/staff/leader")
+                        p_status = item.get("status")
+                        if p_status is not None and p_status not in ("confirmed", "cancelled", "attended"):
+                            raise ValidationError(f"status ของ participant {pid} ต้องเป็น confirmed/cancelled/attended")
+                        earned_hours = item.get("earned_hours")
+                        if earned_hours is not None:
+                            try:
+                                earned_hours = float(earned_hours)
+                            except (TypeError, ValueError):
+                                raise ValidationError(f"earned_hours ของ participant {pid} ต้องเป็นตัวเลข")
+                            if earned_hours < 0:
+                                raise ValidationError(f"earned_hours ของ participant {pid} ต้องไม่ติดลบ")
                         unique_items.append({
                             "participant_id": pid,
                             "role_detail": role_detail,
+                            "role_type": role_type,
+                            "status": p_status,
+                            "earned_hours": earned_hours,
                             "metadata": meta,
                         })
 
@@ -1123,6 +1184,9 @@ class ActivityService:
                         pid = item["participant_id"]
                         new_meta = item["metadata"]
                         new_role_detail = item["role_detail"]
+                        new_role_type = item["role_type"]
+                        new_status = item["status"]
+                        new_earned_hours = item["earned_hours"]
                         old = await conn.fetchrow(
                             f"{cls.PARTICIPANT_SELECT} WHERE ap.id = $1 AND ap.activity_id = $2 AND ap.deleted_at IS NULL",
                             pid, activity_id,
@@ -1133,13 +1197,22 @@ class ActivityService:
                         merged = dict(old_meta)
                         merged.update(new_meta)
 
-                        # Dynamic SET — ถ้าส่ง role_detail มา (ไม่ใช่ None) → ตั้ง/เคลียร์หน้าที่ด้วย
-                        # ("" = เคลียร์หน้าที่) — pattern เดียวกับ update_participant
+                        # Dynamic SET — ถ้าส่ง field ไหนมา (ไม่ใช่ None) → ตั้งค่าให้
+                        # role_detail: ("" = เคลียร์หน้าที่) — pattern เดียวกับ update_participant
                         set_clauses = ["metadata = $1::jsonb"]
                         values: List[Any] = [json.dumps(merged)]
                         if new_role_detail is not None:
                             set_clauses.append(f"role_detail = ${len(values) + 1}")
                             values.append(new_role_detail)
+                        if new_role_type is not None:
+                            set_clauses.append(f"role_type = ${len(values) + 1}")
+                            values.append(new_role_type)
+                        if new_status is not None:
+                            set_clauses.append(f"status = ${len(values) + 1}")
+                            values.append(new_status)
+                        if new_earned_hours is not None:
+                            set_clauses.append(f"earned_hours = ${len(values) + 1}")
+                            values.append(new_earned_hours)
                         set_clauses.append("updated_at = CURRENT_TIMESTAMP")
                         values.extend([pid, activity_id])
                         sql = (
@@ -1151,10 +1224,19 @@ class ActivityService:
                         new_vals: dict = {"metadata": merged}
                         if new_role_detail is not None:
                             new_vals["role_detail"] = new_role_detail
+                        if new_role_type is not None:
+                            new_vals["role_type"] = new_role_type
+                        if new_status is not None:
+                            new_vals["status"] = new_status
+                        if new_earned_hours is not None:
+                            new_vals["earned_hours"] = float(new_earned_hours)
                         updated.append({
                             "participant_id": pid,
                             "student_no": old["student_no"],
                             "role_detail": new_role_detail if new_role_detail is not None else old["role_detail"],
+                            "role_type": new_role_type if new_role_type is not None else old["role_type"],
+                            "status": new_status if new_status is not None else old["status"],
+                            "earned_hours": float(new_earned_hours) if new_earned_hours is not None else float(old["earned_hours"] or 0),
                             "metadata": merged,
                         })
 
@@ -1178,6 +1260,699 @@ class ActivityService:
                     client_source=client_source, room_id=safe_room_id,
                     entity_type="ACTIVITY_PARTICIPANT", status="failed", error_detail=str(e),
                     endpoint_or_command="batch_update_participants", execution_time_ms=exec_time,
+                )
+            raise e
+
+    # ================================================================
+    # ✅ ระบบเช็คชื่อแยกแผ่น (Multiple Attendance Sheets)
+    # หนึ่งแผ่น = จุดเช็คหนึ่งจุด เช่น 'เช็คขึ้นรถ' 'เช็คเข้าฐาน'
+    # แยกจากสถานะ overall (activity_participants.status) — additive
+    # ================================================================
+    @classmethod
+    async def list_checkin_sheets(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> List[dict]:
+        """รายการแผ่นเช็คชื่อของกิจกรรม + สรุป checked/total"""
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                if user_id is not None:
+                    await require_member(conn, target_room_id, user_id)
+                if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                    raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                total_count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM activity_participants WHERE activity_id = $1 AND deleted_at IS NULL",
+                    activity_id,
+                ) or 0
+
+                rows = await conn.fetch(
+                    """
+                    SELECT s.id, s.activity_id, s.title, s.event_date, s.created_by, s.created_at, s.updated_at,
+                           COUNT(r.id) FILTER (WHERE r.is_present = TRUE AND r.deleted_at IS NULL) AS checked_count
+                    FROM activity_checkin_sheets s
+                    LEFT JOIN activity_checkin_records r ON r.sheet_id = s.id
+                    WHERE s.activity_id = $1 AND s.deleted_at IS NULL
+                    GROUP BY s.id
+                    ORDER BY s.created_at ASC, s.id ASC
+                    """,
+                    activity_id,
+                )
+                sheets = []
+                for row in rows:
+                    d = dict(row)
+                    d["checked_count"] = int(d["checked_count"] or 0)
+                    d["total_count"] = int(total_count)
+                    sheets.append(d)
+
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=target_room_id,
+                    entity_type="ACTIVITY_CHECKIN_SHEET_LIST", entity_id=str(activity_id), status="success",
+                    endpoint_or_command="list_checkin_sheets", execution_time_ms=exec_time,
+                )
+                return sheets
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_CHECKIN_SHEET_LIST", entity_id=str(activity_id), status="failed",
+                    error_detail=str(e), endpoint_or_command="list_checkin_sheets", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def create_checkin_sheet(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        title: str,
+        event_date: Optional[date],
+        user_name: str,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        actor_user_id: Optional[int] = None,
+    ) -> dict:
+        """สร้างแผ่นเช็คชื่อใหม่ เช่น 'เช็คขึ้นรถ'"""
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_ACTIVITIES")
+                    if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                        raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                    sheet_id = await conn.fetchval(
+                        """
+                        INSERT INTO activity_checkin_sheets (activity_id, title, event_date, created_by)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id
+                        """,
+                        activity_id, title, event_date, user_name,
+                    )
+
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action="CREATE", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=target_room_id,
+                        entity_type="ACTIVITY_CHECKIN_SHEET", entity_id=str(sheet_id), status="success",
+                        new_values={"activity_id": activity_id, "title": title,
+                                    "event_date": str(event_date) if event_date else None},
+                        endpoint_or_command="create_checkin_sheet", execution_time_ms=exec_time,
+                    )
+                    return {"sheet_id": sheet_id, "status": "success"}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="CREATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_CHECKIN_SHEET", status="failed", error_detail=str(e),
+                    new_values={"activity_id": activity_id, "title": title},
+                    endpoint_or_command="create_checkin_sheet", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def update_checkin_sheet(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        sheet_id: int,
+        update_data: dict,
+        user_name: str,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        actor_user_id: Optional[int] = None,
+    ) -> dict:
+        """PATCH แผ่นเช็คชื่อ — event_date: null = เคลียร์วันที่"""
+        start_time = time.time()
+        target_room_id = None
+        old_values: dict = {}
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_ACTIVITIES")
+                    if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                        raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                    old = await conn.fetchrow(
+                        "SELECT id, activity_id, title, event_date, created_by FROM activity_checkin_sheets "
+                        "WHERE id = $1 AND activity_id = $2 AND deleted_at IS NULL",
+                        sheet_id, activity_id,
+                    )
+                    if not old:
+                        raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
+                    old_values = dict(old)
+
+                    # title: None ข้าม; event_date: key มีอยู่ (แม้ None) → เซ็ต (null = เคลียร์)
+                    fields: dict = {}
+                    if "title" in update_data and update_data["title"] is not None:
+                        fields["title"] = update_data["title"]
+                    if "event_date" in update_data:
+                        fields["event_date"] = update_data["event_date"]
+                    if not fields:
+                        raise ValidationError("ไม่มีฟิลด์ที่แก้ไขได้ถูกส่งมา")
+
+                    keys = sorted(fields.keys())
+                    set_clauses = []
+                    values: List[Any] = []
+                    for i, key in enumerate(keys, start=1):
+                        set_clauses.append(f"{key} = ${i}")
+                        values.append(fields[key])
+                    set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+                    values.extend([sheet_id, activity_id])
+                    sql = (
+                        f"UPDATE activity_checkin_sheets SET {', '.join(set_clauses)} "
+                        f"WHERE id = ${len(values)-1} AND activity_id = ${len(values)} AND deleted_at IS NULL"
+                    )
+                    res = await conn.execute(sql, *values)
+                    if res == "UPDATE 0":
+                        raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
+
+                    new_values = {k: cls._serializable(v) for k, v in fields.items()}
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action="UPDATE", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=target_room_id,
+                        entity_type="ACTIVITY_CHECKIN_SHEET", entity_id=str(sheet_id), status="success",
+                        old_values=old_values, new_values=new_values,
+                        endpoint_or_command="update_checkin_sheet", execution_time_ms=exec_time,
+                    )
+                    return {"sheet_id": sheet_id, "status": "success"}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="UPDATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_CHECKIN_SHEET", entity_id=str(sheet_id), status="failed",
+                    error_detail=str(e), old_values=old_values,
+                    endpoint_or_command="update_checkin_sheet", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def delete_checkin_sheet(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        sheet_id: int,
+        user_name: str,
+        user_id: int,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+    ) -> dict:
+        """Soft delete แผ่นเช็คชื่อ + บันทึกเช็คทั้งหมดในแผ่น"""
+        start_time = time.time()
+        target_room_id = None
+        old_values: dict = {}
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                    await require_permission(conn, target_room_id, user_id, "MANAGE_ACTIVITIES")
+                    if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                        raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                    old = await conn.fetchrow(
+                        "SELECT id, activity_id, title, event_date, created_by FROM activity_checkin_sheets "
+                        "WHERE id = $1 AND activity_id = $2 AND deleted_at IS NULL",
+                        sheet_id, activity_id,
+                    )
+                    if not old:
+                        raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
+                    old_values = dict(old)
+
+                    await conn.execute(
+                        "UPDATE activity_checkin_sheets SET deleted_at = NOW() WHERE id = $1 AND activity_id = $2 AND deleted_at IS NULL",
+                        sheet_id, activity_id,
+                    )
+                    await conn.execute(
+                        "UPDATE activity_checkin_records SET deleted_at = NOW() WHERE sheet_id = $1 AND deleted_at IS NULL",
+                        sheet_id,
+                    )
+
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action="DELETE", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=target_room_id, user_id=user_id,
+                        entity_type="ACTIVITY_CHECKIN_SHEET", entity_id=str(sheet_id), status="success",
+                        old_values=old_values, new_values={"deleted_at": "soft-deleted"},
+                        endpoint_or_command="delete_checkin_sheet", execution_time_ms=exec_time,
+                    )
+                    return {"sheet_id": sheet_id, "status": "success"}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="DELETE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id, user_id=user_id,
+                    entity_type="ACTIVITY_CHECKIN_SHEET", entity_id=str(sheet_id), status="failed",
+                    error_detail=str(e), old_values=old_values,
+                    endpoint_or_command="delete_checkin_sheet", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def get_checkin_sheet(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        sheet_id: int,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> dict:
+        """ดูแผ่นเช็คชื่อ + ผู้เข้าร่วมทุกคนพร้อมเครื่องหมาย (is_present/checked_at/recorded_by)"""
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                if user_id is not None:
+                    await require_member(conn, target_room_id, user_id)
+                if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                    raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                sheet = await conn.fetchrow(
+                    "SELECT id, activity_id, title, event_date, created_by, created_at, updated_at "
+                    "FROM activity_checkin_sheets WHERE id = $1 AND activity_id = $2 AND deleted_at IS NULL",
+                    sheet_id, activity_id,
+                )
+                if not sheet:
+                    raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
+
+                participants = await cls._fetch_participants(conn, activity_id)
+                records = await conn.fetch(
+                    "SELECT participant_id, is_present, checked_at, recorded_by "
+                    "FROM activity_checkin_records WHERE sheet_id = $1 AND deleted_at IS NULL",
+                    sheet_id,
+                )
+                marks = {r["participant_id"]: r for r in records}
+                for p in participants:
+                    mark = marks.get(p["id"])
+                    p["is_present"] = bool(mark["is_present"]) if mark else False
+                    p["checked_at"] = mark["checked_at"] if mark else None
+                    p["recorded_by"] = mark["recorded_by"] if mark else None
+
+                sheet_dict = dict(sheet)
+                sheet_dict["checked_count"] = sum(1 for p in participants if p["is_present"])
+                sheet_dict["total_count"] = len(participants)
+
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=target_room_id,
+                    entity_type="ACTIVITY_CHECKIN_SHEET", entity_id=str(sheet_id), status="success",
+                    endpoint_or_command="get_checkin_sheet", execution_time_ms=exec_time,
+                )
+                return {"sheet": sheet_dict, "participants": participants}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_CHECKIN_SHEET", entity_id=str(sheet_id), status="failed",
+                    error_detail=str(e), endpoint_or_command="get_checkin_sheet", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def _checkin_sheet_exists(cls, conn: asyncpg.Connection, activity_id: int, sheet_id: int) -> bool:
+        return await conn.fetchval(
+            "SELECT 1 FROM activity_checkin_sheets WHERE id = $1 AND activity_id = $2 AND deleted_at IS NULL",
+            sheet_id, activity_id,
+        )
+
+    @classmethod
+    async def upsert_checkin_record(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        sheet_id: int,
+        participant_id: int,
+        is_present: bool,
+        user_name: str,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        actor_user_id: Optional[int] = None,
+    ) -> dict:
+        """เช็คชื่อ/แก้การเช็คของ participant 1 คนในแผ่น (upsert — 1 active row ต่อ (sheet, participant))"""
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_ACTIVITIES")
+                    if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                        raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+                    if not await cls._checkin_sheet_exists(conn, activity_id, sheet_id):
+                        raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
+
+                    participant = await conn.fetchrow(
+                        f"{cls.PARTICIPANT_SELECT} WHERE ap.id = $1 AND ap.activity_id = $2 AND ap.deleted_at IS NULL",
+                        participant_id, activity_id,
+                    )
+                    if not participant:
+                        raise ParticipantNotFoundError(f"ไม่พบผู้เข้าร่วม ID: {participant_id}")
+
+                    existing = await conn.fetchval(
+                        "SELECT id FROM activity_checkin_records WHERE sheet_id = $1 AND participant_id = $2 AND deleted_at IS NULL",
+                        sheet_id, participant_id,
+                    )
+                    action = "UPDATE" if existing else "CREATE"
+
+                    record_id = await conn.fetchval(
+                        """
+                        INSERT INTO activity_checkin_records (sheet_id, participant_id, is_present, checked_at, recorded_by)
+                        VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
+                        ON CONFLICT (sheet_id, participant_id) WHERE deleted_at IS NULL
+                        DO UPDATE SET is_present = EXCLUDED.is_present, checked_at = CURRENT_TIMESTAMP,
+                                      recorded_by = EXCLUDED.recorded_by, updated_at = CURRENT_TIMESTAMP
+                        RETURNING id
+                        """,
+                        sheet_id, participant_id, is_present, user_name,
+                    )
+
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action=action, actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=target_room_id,
+                        entity_type="ACTIVITY_CHECKIN_RECORD", entity_id=str(record_id), status="success",
+                        new_values={"sheet_id": sheet_id, "participant_id": participant_id,
+                                    "student_no": participant["student_no"], "is_present": is_present},
+                        endpoint_or_command="upsert_checkin_record", execution_time_ms=exec_time,
+                    )
+                    return {"record_id": record_id, "status": "success"}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="UPSERT", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_CHECKIN_RECORD", status="failed", error_detail=str(e),
+                    new_values={"sheet_id": sheet_id, "participant_id": participant_id, "is_present": is_present},
+                    endpoint_or_command="upsert_checkin_record", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def batch_update_checkin_records(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        sheet_id: int,
+        records: List[dict],
+        user_name: str,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        actor_user_id: Optional[int] = None,
+    ) -> dict:
+        """เช็คชื่อหลายคนในแผ่นเดียวพร้อมกัน (atomic — ตัวไหน error rollback ทั้งก้อน)"""
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_ACTIVITIES")
+                    if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                        raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+                    if not await cls._checkin_sheet_exists(conn, activity_id, sheet_id):
+                        raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
+
+                    seen = set()
+                    unique_records: List[dict] = []
+                    for r in records:
+                        pid = int(r["participant_id"])
+                        if pid in seen:
+                            raise ValidationError(f"participant_id {pid} ถูกส่งซ้ำในชุดเช็คชื่อ")
+                        seen.add(pid)
+                        unique_records.append({"participant_id": pid, "is_present": bool(r["is_present"])})
+
+                    active_ids = {
+                        row["id"] for row in await conn.fetch(
+                            "SELECT id FROM activity_participants WHERE activity_id = $1 AND deleted_at IS NULL",
+                            activity_id,
+                        )
+                    }
+                    for r in unique_records:
+                        if r["participant_id"] not in active_ids:
+                            raise ParticipantNotFoundError(f"ไม่พบผู้เข้าร่วม ID: {r['participant_id']} ในกิจกรรมนี้")
+
+                    updated = 0
+                    for r in unique_records:
+                        await conn.fetchval(
+                            """
+                            INSERT INTO activity_checkin_records (sheet_id, participant_id, is_present, checked_at, recorded_by)
+                            VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
+                            ON CONFLICT (sheet_id, participant_id) WHERE deleted_at IS NULL
+                            DO UPDATE SET is_present = EXCLUDED.is_present, checked_at = CURRENT_TIMESTAMP,
+                                          recorded_by = EXCLUDED.recorded_by, updated_at = CURRENT_TIMESTAMP
+                            RETURNING id
+                            """,
+                            sheet_id, r["participant_id"], r["is_present"], user_name,
+                        )
+                        updated += 1
+                        exec_time = int((time.time() - start_time) * 1000)
+                        await service_logger.log(
+                            conn=conn, action="UPDATE", actor_identifier=actor_identifier,
+                            client_source=client_source, room_id=target_room_id,
+                            entity_type="ACTIVITY_CHECKIN_RECORD", entity_id=str(r["participant_id"]), status="success",
+                            new_values={"sheet_id": sheet_id, "participant_id": r["participant_id"],
+                                        "is_present": r["is_present"]},
+                            endpoint_or_command="batch_update_checkin_records", execution_time_ms=exec_time,
+                        )
+
+                    return {"status": "success", "updated_count": updated}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="UPDATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_CHECKIN_RECORD", status="failed", error_detail=str(e),
+                    new_values={"sheet_id": sheet_id},
+                    endpoint_or_command="batch_update_checkin_records", execution_time_ms=exec_time,
+                )
+            raise e
+
+    # ================================================================
+    # ➕ เพิ่มนักเรียน — รายชื่อที่ยังไม่เข้าร่วม + batch add (atomic, revive-or-insert)
+    # ================================================================
+    @classmethod
+    async def list_available_students(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> List[dict]:
+        """นักเรียน active ในห้องที่ยังไม่ได้เป็นผู้เข้าร่วม active ของกิจกรรมนี้
+        (soft-deleted participant = re-addable → รวมด้วย เพราะ batch-add จะ revive คืน)"""
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                if user_id is not None:
+                    await require_member(conn, target_room_id, user_id)
+                if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                    raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                rows = await conn.fetch(
+                    """
+                    SELECT s.id AS student_id, s.student_no,
+                           u.first_name, u.last_name, u.nickname,
+                           u.first_name_en, u.last_name_en, u.nickname_en,
+                           u.blood_group, u.shirt_size, u.food_allergy, u.congenital_disease,
+                           u.phone_number, u.phone_number_parent
+                    FROM students s
+                    LEFT JOIN users u ON s.user_id = u.id
+                    WHERE s.room_id = $1 AND s.status = 'active' AND s.deleted_at IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM activity_participants ap
+                          WHERE ap.activity_id = $2 AND ap.student_id = s.id AND ap.deleted_at IS NULL
+                      )
+                    ORDER BY s.student_no ASC
+                    """,
+                    target_room_id, activity_id,
+                )
+                result = [dict(r) for r in rows]
+
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=target_room_id,
+                    entity_type="ACTIVITY_AVAILABLE_STUDENTS", entity_id=str(activity_id), status="success",
+                    new_values={"available_count": len(result)},
+                    endpoint_or_command="list_available_students", execution_time_ms=exec_time,
+                )
+                return result
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_AVAILABLE_STUDENTS", entity_id=str(activity_id), status="failed",
+                    error_detail=str(e), endpoint_or_command="list_available_students", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def batch_add_participants(
+        cls,
+        pool: asyncpg.Pool,
+        activity_id: int,
+        items: List[dict],
+        user_name: str,
+        client_source: str,
+        actor_identifier: str,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+        actor_user_id: Optional[int] = None,
+    ) -> dict:
+        """เพิ่มผู้เข้าร่วมหลายคนพร้อมกัน (atomic) — revive-or-insert ต่อคน (กันชน full UNIQUE)
+        เขียน audit log 1 รายการต่อคนที่เพิ่ม"""
+        start_time = time.time()
+        target_room_id = None
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
+                    if actor_user_id is not None:
+                        await require_permission(conn, target_room_id, actor_user_id, "MANAGE_ACTIVITIES")
+                    if await cls._get_activity_room(conn, activity_id) != target_room_id:
+                        raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
+
+                    seen = set()
+                    unique_items: List[dict] = []
+                    for item in items:
+                        no = int(item["student_no"])
+                        if no in seen:
+                            raise ValidationError(f"เลขที่ {no} ถูกส่งซ้ำในชุดเพิ่มผู้เข้าร่วม")
+                        seen.add(no)
+                        meta = item.get("metadata") or {}
+                        if not isinstance(meta, dict):
+                            raise ValidationError(f"metadata ของเลขที่ {no} ต้องเป็น object")
+                        unique_items.append(item)
+
+                    added: List[dict] = []
+                    for item in unique_items:
+                        no = int(item["student_no"])
+                        role_type = item.get("role_type", "participant")
+                        role_detail = item.get("role_detail")
+                        earned_hours = float(item.get("earned_hours", 0.0) or 0.0)
+                        status = item.get("status", "confirmed")
+                        meta = item.get("metadata") or {}
+
+                        student_id = await conn.fetchval(
+                            "SELECT id FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'active' AND deleted_at IS NULL",
+                            target_room_id, no,
+                        )
+                        if not student_id:
+                            raise StudentNotFoundError(f"ไม่พบเลขที่ {no} ในห้องนี้ (หรือยังไม่ active)")
+
+                        # revive-or-insert (pattern เดียวกับ add_participant) — กันชน UNIQUE(activity_id, student_id)
+                        revived = await conn.fetchrow(
+                            """
+                            UPDATE activity_participants
+                            SET deleted_at = NULL, role_type = $1, role_detail = $2, earned_hours = $3,
+                                status = $4, metadata = $5::jsonb, recorded_by = $6, updated_at = CURRENT_TIMESTAMP
+                            WHERE activity_id = $7 AND student_id = $8 AND deleted_at IS NOT NULL
+                            RETURNING id
+                            """,
+                            role_type, role_detail, earned_hours, status, json.dumps(meta), user_name,
+                            activity_id, student_id,
+                        )
+                        if revived:
+                            participant_id = revived["id"]
+                            log_action = "CREATE"
+                            audit_extra = {"action": "revived_soft_deleted"}
+                        else:
+                            participant_id = await conn.fetchval(
+                                """
+                                INSERT INTO activity_participants
+                                    (activity_id, student_id, role_type, role_detail, earned_hours, status, metadata, recorded_by)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+                                RETURNING id
+                                """,
+                                activity_id, student_id, role_type, role_detail, earned_hours, status,
+                                json.dumps(meta), user_name,
+                            )
+                            log_action = "CREATE"
+                            audit_extra = {}
+
+                        exec_time = int((time.time() - start_time) * 1000)
+                        await service_logger.log(
+                            conn=conn, action=log_action, actor_identifier=actor_identifier,
+                            client_source=client_source, room_id=target_room_id,
+                            entity_type="ACTIVITY_PARTICIPANT", entity_id=str(participant_id), status="success",
+                            new_values={"activity_id": activity_id, "student_no": no,
+                                        "role_type": role_type, "role_detail": role_detail,
+                                        "earned_hours": earned_hours, "status": status, "metadata": meta,
+                                        **audit_extra},
+                            endpoint_or_command="batch_add_participants", execution_time_ms=exec_time,
+                        )
+                        added.append({"participant_id": participant_id, "student_no": no})
+
+                    return {"status": "success", "added": added, "updated_count": len(added)}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
+            async with pool.acquire() as error_conn:
+                await service_logger.log(
+                    conn=error_conn, action="CREATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id,
+                    entity_type="ACTIVITY_PARTICIPANT", status="failed", error_detail=str(e),
+                    new_values={"activity_id": activity_id, "items": items},
+                    endpoint_or_command="batch_add_participants", execution_time_ms=exec_time,
                 )
             raise e
 
@@ -1337,7 +2112,7 @@ class ActivityService:
             lines.append(custom_lines)
 
         # 2) คีย์เก่า/คีย์ภายในที่รู้จัก → label ไทย (กันซ้ำกับ custom_fields ที่ mapping แล้ว)
-        known_keys = ["location_name", "location_url", "agenda", "tags", "positions", "required_fields"]
+        known_keys = ["location_name", "location_url", "agenda", "tags", "positions", "required_fields", "dynamic_fields"]
         seen_labels = set()
         for key in known_keys:
             if key not in meta:
@@ -1361,6 +2136,18 @@ class ActivityService:
                             continue
                         labels.append(EXPORT_HEADER_LABELS.get(item_str, item_str))
                     formatted = " / ".join(labels)
+                if formatted:
+                    lines.append(f"{label}: {formatted}")
+            elif key == "dynamic_fields":
+                # 🌟 Dynamic Fields (ฟิลด์ที่ผู้จัดการกิจกรรมสร้างเอง) → แสดง label ไทย ไม่ใช่คีย์ df_<n>
+                labels = []
+                for d in value if isinstance(value, list) else []:
+                    if not isinstance(d, dict):
+                        continue
+                    lbl = str(d.get("label", "")).strip()
+                    if lbl:
+                        labels.append(lbl)
+                formatted = " / ".join(labels)
                 if formatted:
                     lines.append(f"{label}: {formatted}")
             elif key == "location_url":
@@ -1461,6 +2248,23 @@ class ActivityService:
                     if has_custom_fields and "custom_fields" not in fields:
                         fields.append("custom_fields")
 
+                    # 🌟 คอลัมน์ Dynamic Fields — ฟิลด์ที่ผู้จัดการกิจกรรมสร้างเอง (activities.metadata.dynamic_fields)
+                    # header = label ที่ผู้ใช้ตั้ง (ไม่ใช่คีย์ df_<n>); ค่าอ่านจาก participant.metadata[df_<n>]
+                    # เฉพาะเมื่อ activity มี defs — activity เก่าไม่มี → ไม่เพิ่มคอลัมน์ ไม่แตกเทสเดิม
+                    dynamic_labels: Dict[str, str] = {}
+                    dynamic_fields_defs = activity.get("metadata", {}).get("dynamic_fields") or []
+                    if isinstance(dynamic_fields_defs, list):
+                        for d in dynamic_fields_defs:
+                            if not isinstance(d, dict):
+                                continue
+                            k = str(d.get("key", "")).strip()
+                            lbl = str(d.get("label", "")).strip()
+                            if k and lbl:
+                                dynamic_labels[k] = lbl
+                        for k in dynamic_labels:
+                            if k not in fields:
+                                fields.append(k)
+
                     room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
                     room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"
 
@@ -1511,7 +2315,8 @@ class ActivityService:
                     # ---- Sheet 2: รายชื่อผู้เข้าร่วม ----
                     ws_data = wb.create_sheet("รายชื่อผู้เข้าร่วม")
                     ws_data.sheet_view.showGridLines = False
-                    ws_data.append([EXPORT_HEADER_LABELS.get(f, f) for f in fields])
+                    # header: dynamic field ใช้ label ที่ผู้ใช้ตั้ง (dynamic_labels) — ไม่ใช่คีย์ df_<n>
+                    ws_data.append([EXPORT_HEADER_LABELS.get(f, dynamic_labels.get(f, f)) for f in fields])
                     for idx, field in enumerate(fields, start=1):
                         ws_data.column_dimensions[get_column_letter(idx)].width = 20
                         cell = ws_data.cell(row=1, column=idx)
