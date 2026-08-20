@@ -8,8 +8,8 @@
  *
  * 🌟 โหมด readOnly (ActivityDetail): แสดงเฉย ๆ ไม่ให้แก้ไข
  * - ไม่มี checkbox/เลือก / ไม่มี dropdown หน้าที่ / ไม่มี toolbar
- * - หน้าที่แสดงเป็น text chip · ปุ่ม "ข้อมูลเพิ่มเติม" เป็นไอคอนล้วนบนมือถือ
- * - ปุ่มติ๊ก "มาแล้ว/ยังไม่มา" เป็นปุ่มกว้างกดง่าย (bottom action) · "นำออก" ซ่อนในเมนูจุด 3 จุด
+ * - คลิกที่แถวของนักเรียน = เปิดข้อมูลเพิ่มเติม (แทนปุ่ม "i" ที่เอาออก)
+ * - ปุ่มติ๊ก "มาแล้ว/ยังไม่มา" เป็นปุ่มเล็กกระชับอยู่ในแถว · "นำออก" ซ่อนในเมนูจุด 3 จุด
  *
  * 📱 Mobile-friendly (StudentList-inspired):
  * - ชื่อ block เป็น flex-1 min-w-0 เสมอ → ชื่อไม่ถูกเบียดหาย แม้จอแคบ
@@ -132,6 +132,24 @@ function handleMenuAction(action: 'remove', key: string | number) {
   emit(action, key)
 }
 
+/**
+ * 🌟 โหมด readOnly: คลิกที่แถวของนักเรียน = เปิดข้อมูลเพิ่มเติม (แทนปุ่ม "i" ที่เอาออก)
+ * โหมด selectable ไม่ทำ — กันชนกับ checkbox / select หน้าที่
+ */
+function onCardClick(item: RosterItem) {
+  if (props.readOnly) emit('openInfo', item.key)
+}
+
+/** คีย์บอร์ด: Enter/Space บนแถวที่ focus = เปิดข้อมูลเพิ่มเติม (accessibility)
+ * ปล่อยให้ Enter บนปุ่ม/input ข้างใน (เช็คอิน, เมนูจุด 3 จุด) ทำงานของมันเอง */
+function onCardKeydown(e: KeyboardEvent, item: RosterItem) {
+  if (!props.readOnly || (e.key !== 'Enter' && e.key !== ' ')) return
+  const target = e.target as HTMLElement | null
+  if (target && target.closest('button, input, select, a, textarea')) return
+  e.preventDefault()
+  emit('openInfo', item.key)
+}
+
 onMounted(() => document.addEventListener('click', closeMenu))
 onUnmounted(() => document.removeEventListener('click', closeMenu))
 </script>
@@ -193,11 +211,16 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
       <div
         v-for="item in filteredItems"
         :key="item.key"
-        class="group relative bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-100 hover:shadow-md hover:border-slate-200 transition-all duration-300"
+        class="group relative bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-100 hover:shadow-md hover:border-slate-200 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40 focus-visible:border-violet-300"
         :class="[
           isSelected(item) ? 'bg-violet-50/50 border-violet-200' : '',
           isDisabled(item) ? 'opacity-70' : '',
+          readOnly ? 'cursor-pointer hover:border-violet-200' : '',
         ]"
+        :role="readOnly ? 'button' : undefined"
+        :tabindex="readOnly ? 0 : undefined"
+        @click="onCardClick(item)"
+        @keydown.enter="onCardKeydown($event, item)"
       >
         <!-- แถวบน: เลขที่ + ชื่อ (flex-1 min-w-0 → ชื่อไม่ถูกเบียดหาย) + ปุ่ม info + จุด 3 จุด -->
         <div class="flex items-center gap-2.5 sm:gap-3.5">
@@ -239,8 +262,24 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
             </div>
           </div>
 
-          <!-- ปุ่มข้อมูลเพิ่มเติม — ไอคอนล้วนบนมือถือ, คลี่เป็น icon+text บน sm+ (กันปุ่มใหญ่เบียดชื่อ) -->
+          <!-- ปุ่มเช็คอิน (readOnly) — กระชับ เล็ก ไม่กินพื้นที่ (คลิกที่แถว = ดูข้อมูล) -->
           <button
+            v-if="readOnly && showStatusToggle"
+            type="button"
+            @click.stop="emit('toggleStatus', item.key)"
+            class="shrink-0 px-2.5 py-2 rounded-lg text-[11px] font-bold border transition-all inline-flex items-center justify-center gap-1"
+            :class="actionClass(item.status)"
+          >
+            <i
+              class="bi"
+              :class="item.status === 'attended' ? 'bi-check-circle-fill' : 'bi-circle'"
+            ></i>
+            {{ actionLabel(item.status) }}
+          </button>
+
+          <!-- ปุ่มข้อมูลเพิ่มเติม — เฉพาะโหมด selectable (แก้ไข); readOnly ใช้คลิกที่แถวแทน -->
+          <button
+            v-if="!readOnly"
             type="button"
             @click="emit('openInfo', item.key)"
             :disabled="isDisabled(item)"
@@ -323,22 +362,6 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
             @change="(e: Event) => onDutyNoteChange(e, item)"
             class="flex-1 min-w-0 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
           />
-        </div>
-
-        <!-- ปุ่มเช็คอิน (readOnly) — bottom action กว้าง กดง่ายบนมือถือ, ไม่มี "นำออก" ตรง ๆ (อยู่ในจุด 3 จุด) -->
-        <div v-if="readOnly && showStatusToggle" class="mt-2.5 pt-2.5 border-t border-slate-100">
-          <button
-            type="button"
-            @click="emit('toggleStatus', item.key)"
-            class="w-full sm:w-auto min-h-[36px] px-3.5 py-2 rounded-xl text-xs font-bold border transition-all inline-flex items-center justify-center gap-1.5"
-            :class="actionClass(item.status)"
-          >
-            <i
-              class="bi"
-              :class="item.status === 'attended' ? 'bi-check-circle-fill' : 'bi-circle'"
-            ></i>
-            {{ actionLabel(item.status) }}
-          </button>
         </div>
 
         <!-- Detail actions (mode แก้ไข ActivityForm: ปุ่มสถานะ + นำออก) -->
