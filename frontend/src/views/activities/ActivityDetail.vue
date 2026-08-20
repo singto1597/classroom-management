@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
@@ -89,8 +89,6 @@ const fetchData = async () => {
     isLoading.value = false
   }
 }
-
-onMounted(fetchData)
 
 // ================================================================
 // 👥 ผู้เข้าร่วม — การ์ดรายชื่อ (ตามแบบ StudentList) — โหมดแสดงเฉย ๆ
@@ -210,6 +208,7 @@ const removeParticipant = async (key: string | number) => {
 // --- Activity status ---
 const changeStatus = async (status: string) => {
   if (!canManage.value) return
+  closeActionMenu()
   try {
     await ActivityService.updateActivity(currentRoomId, activityId, {
       status,
@@ -226,6 +225,7 @@ const changeStatus = async (status: string) => {
 // --- Export ---
 const exportExcel = async () => {
   if (!canManage.value || !activity.value) return
+  closeActionMenu()
   isExporting.value = true
   try {
     const blob = await ActivityService.exportActivityExcel(
@@ -261,6 +261,40 @@ function infoValueDisplay(row: ActivityInfoRow): string {
   }
   return row.value
 }
+
+// --- เมนูจุด 3 จุด (รวมแอคชั่น: เปลี่ยนสถานะ / แก้ไข / Export) ---
+const actionMenuOpen = ref(false)
+
+function toggleActionMenu(event: Event) {
+  event.stopPropagation() // ป้องกันไม่ให้คลิกทะลุไปปิดเมนูทันที (document listener)
+  actionMenuOpen.value = !actionMenuOpen.value
+}
+
+function closeActionMenu() {
+  actionMenuOpen.value = false
+}
+
+/** ไอคอนสำหรับแต่ละสถานะกิจกรรม (ในเมนูเปลี่ยนสถานะ) */
+function statusIcon(status: string): string {
+  switch (status) {
+    case 'upcoming':
+      return 'bi-calendar-event'
+    case 'ongoing':
+      return 'bi-play-circle'
+    case 'completed':
+      return 'bi-check2-circle'
+    case 'cancelled':
+      return 'bi-x-circle'
+    default:
+      return 'bi-circle'
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', closeActionMenu)
+  fetchData()
+})
+onUnmounted(() => document.removeEventListener('click', closeActionMenu))
 </script>
 
 <template>
@@ -307,91 +341,101 @@ function infoValueDisplay(row: ActivityInfoRow): string {
             </h3>
           </div>
 
-          <div v-if="canManage" class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <div v-if="canManage" class="flex items-center gap-2 w-full sm:w-auto">
+            <!-- ปุ่มหลัก: จัดการผู้เข้าร่วม -->
             <router-link
               :to="`/activities/${activityId}/manage`"
-              class="px-4 py-2.5 text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-lg shadow-violet-600/20 transition-all inline-flex items-center justify-center gap-2"
+              class="flex-1 sm:flex-none px-4 py-2.5 text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-lg shadow-violet-600/20 transition-all inline-flex items-center justify-center gap-2"
             >
               <i class="bi bi-sliders"></i> จัดการผู้เข้าร่วม
             </router-link>
-            <router-link
-              :to="`/activities/${activityId}/edit`"
-              class="px-4 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all inline-flex items-center justify-center gap-2"
-            >
-              <i class="bi bi-pencil-square"></i> แก้ไขกิจกรรม
-            </router-link>
-            <button
-              @click="exportExcel"
-              :disabled="isExporting"
-              class="px-4 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl shadow-lg shadow-emerald-600/20 transition-all inline-flex items-center justify-center gap-2"
-            >
-              <i v-if="isExporting" class="bi bi-arrow-repeat animate-spin"></i>
-              <i v-else class="bi bi-file-earmark-excel"></i>
-              Export Excel
-            </button>
+
+            <!-- เมนูจุด 3 จุด: เปลี่ยนสถานะ / แก้ไข / Export -->
+            <div class="relative">
+              <button
+                @click="toggleActionMenu"
+                class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+                title="การจัดการกิจกรรม"
+              >
+                <i class="bi bi-three-dots-vertical text-lg"></i>
+              </button>
+
+              <transition name="fade">
+                <div
+                  v-if="actionMenuOpen"
+                  class="absolute right-0 top-12 w-56 bg-white rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden z-30 py-1 origin-top-right"
+                >
+                  <!-- เปลี่ยนสถานะ -->
+                  <p
+                    class="px-4 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400"
+                  >
+                    เปลี่ยนสถานะ
+                  </p>
+                  <button
+                    v-for="(label, key) in ACTIVITY_STATUS_LABELS"
+                    :key="key"
+                    @click="changeStatus(key)"
+                    class="w-full text-left px-4 py-2 text-sm flex items-center justify-between gap-2 transition-colors"
+                    :class="
+                      activity.status === key
+                        ? 'text-violet-600 font-bold bg-violet-50/60'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    "
+                  >
+                    <span class="inline-flex items-center gap-2">
+                      <i class="bi text-xs w-4 text-center" :class="statusIcon(key)"></i>
+                      {{ label }}
+                    </span>
+                    <i v-if="activity.status === key" class="bi bi-check-lg text-violet-600"></i>
+                  </button>
+
+                  <div class="my-1 border-t border-slate-100"></div>
+
+                  <!-- แก้ไข / Export -->
+                  <router-link
+                    :to="`/activities/${activityId}/edit`"
+                    class="w-full text-left px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2.5 transition-colors"
+                  >
+                    <i class="bi bi-pencil-square text-slate-400"></i> แก้ไขกิจกรรม
+                  </router-link>
+                  <button
+                    @click="exportExcel"
+                    :disabled="isExporting"
+                    class="w-full text-left px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2.5 transition-colors"
+                  >
+                    <i
+                      v-if="isExporting"
+                      class="bi bi-arrow-repeat animate-spin text-emerald-500"
+                    ></i>
+                    <i v-else class="bi bi-file-earmark-excel text-emerald-500"></i>
+                    Export Excel
+                  </button>
+                </div>
+              </transition>
+            </div>
           </div>
         </div>
 
-        <!-- สถานะ badges -->
-        <div v-if="canManage" class="flex flex-wrap gap-2">
-          <button
-            v-for="(label, key) in ACTIVITY_STATUS_LABELS"
-            :key="key"
-            @click="changeStatus(key)"
-            class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all"
-            :class="
-              activity.status === key
-                ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-violet-300 hover:text-violet-600'
-            "
+        <!-- ข้อมูลประกอบย่อ (badge เล็ก กระชับ) -->
+        <div class="flex flex-wrap items-center gap-2">
+          <span
+            class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-100 rounded-lg px-2.5 py-1 shadow-sm"
           >
-            {{ label }}
-          </button>
-        </div>
-
-        <!-- Info cards -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div
-            class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3"
+            <i class="bi bi-calendar-event text-violet-500"></i>
+            {{ formatDate(activity.activity_date) }}
+          </span>
+          <span
+            class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-100 rounded-lg px-2.5 py-1 shadow-sm"
           >
-            <div
-              class="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center flex-shrink-0"
-            >
-              <i class="bi bi-calendar-event"></i>
-            </div>
-            <div>
-              <p class="text-[11px] font-bold text-slate-400 uppercase">วันที่</p>
-              <p class="text-sm font-bold text-slate-700">
-                {{ formatDate(activity.activity_date) }}
-              </p>
-            </div>
-          </div>
-          <div
-            class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3"
+            <i class="bi bi-clock-history text-emerald-500"></i>
+            {{ activity.base_hours }} ชม.
+          </span>
+          <span
+            class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-100 rounded-lg px-2.5 py-1 shadow-sm"
           >
-            <div
-              class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0"
-            >
-              <i class="bi bi-clock-history"></i>
-            </div>
-            <div>
-              <p class="text-[11px] font-bold text-slate-400 uppercase">ชั่วโมงฐาน</p>
-              <p class="text-sm font-bold text-slate-700">{{ activity.base_hours }} ชม.</p>
-            </div>
-          </div>
-          <div
-            class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3"
-          >
-            <div
-              class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0"
-            >
-              <i class="bi bi-people-fill"></i>
-            </div>
-            <div>
-              <p class="text-[11px] font-bold text-slate-400 uppercase">ผู้เข้าร่วม</p>
-              <p class="text-sm font-bold text-slate-700">{{ activity.participant_count }} คน</p>
-            </div>
-          </div>
+            <i class="bi bi-people-fill text-blue-500"></i>
+            {{ activity.participant_count }} คน
+          </span>
         </div>
 
         <!-- Description + ข้อมูลเพิ่มเติม (friendly) -->
@@ -411,17 +455,17 @@ function infoValueDisplay(row: ActivityInfoRow): string {
             <div v-if="activityInfoRows.length === 0" class="text-sm text-slate-400">
               ไม่มีข้อมูลเพิ่มเติม
             </div>
-            <div v-else class="space-y-2.5">
+            <!-- Grid แบบ Minimal: แต่ละรายการเป็นกล่องเล็ก (label ด้านบน, ค่าด้านล่าง) -->
+            <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div
                 v-for="(row, i) in activityInfoRows"
                 :key="i"
-                class="flex items-start gap-2 text-sm"
+                class="bg-slate-50/70 border border-slate-100 rounded-xl px-3.5 py-2.5"
               >
-                <span
-                  class="font-bold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-lg text-xs whitespace-nowrap"
-                  >{{ row.label }}</span
-                >
-                <span class="text-slate-600 break-all">
+                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  {{ row.label }}
+                </p>
+                <div class="text-sm text-slate-700 break-all">
                   <!-- ลิงก์แผนที่ -->
                   <a
                     v-if="row.kind === 'link'"
@@ -463,7 +507,7 @@ function infoValueDisplay(row: ActivityInfoRow): string {
                   </span>
                   <!-- ข้อความปกติ -->
                   <span v-else>{{ infoValueDisplay(row) }}</span>
-                </span>
+                </div>
               </div>
             </div>
           </div>
@@ -530,3 +574,16 @@ function infoValueDisplay(row: ActivityInfoRow): string {
     />
   </div>
 </template>
+
+<style scoped>
+/* Animation สำหรับ Dropdown จุด 3 จุด */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+</style>
