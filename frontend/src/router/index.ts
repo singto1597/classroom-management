@@ -165,6 +165,11 @@ const router = createRouter({
           component: () => import('@/views/activities/EditActivity.vue'),
         },
         {
+          path: 'activities/:id/manage',
+          name: 'manage-activity',
+          component: () => import('@/views/activities/ManageActivity.vue'),
+        },
+        {
           path: 'activities/:id',
           name: 'activity-detail',
           component: () => import('@/views/activities/ActivityDetail.vue'),

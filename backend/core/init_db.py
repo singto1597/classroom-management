@@ -395,6 +395,40 @@ async def init_db(pool: asyncpg.Pool):
                 );
                 CREATE INDEX IF NOT EXISTS idx_activity_participants_activity_id ON activity_participants(activity_id);
                 CREATE INDEX IF NOT EXISTS idx_activity_participants_metadata ON activity_participants USING GIN (metadata);
+
+                -- 7. ระบบเช็คชื่อแยกแผ่น (Multiple Attendance Sheets)
+                -- แผ่นเช็คชื่อหนึ่งแผ่นต่อจุดเช็ค เช่น 'เช็คขึ้นรถ' 'เช็คเข้าฐาน' — แยกจากสถานะ participants.status เดิม
+                -- (additive: สถานะ overall ของผู้เข้าร่วมยังอยู่ที่ activity_participants.status)
+                CREATE TABLE IF NOT EXISTS activity_checkin_sheets (
+                    id SERIAL PRIMARY KEY,
+                    activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+                    title VARCHAR(255) NOT NULL,                     -- ชื่อแผ่น เช่น 'เช็คขึ้นรถ'
+                    event_date DATE,                                 -- วันที่ทำเหตุการณ์เช็ค (nullable)
+                    created_by VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP WITH TIME ZONE NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_checkin_sheets_activity_id ON activity_checkin_sheets(activity_id);
+
+                -- บันทึกการเช็คของแต่ละคนในแต่ละแผ่น (1 แถวต่อ (sheet, participant) ที่ยัง active)
+                CREATE TABLE IF NOT EXISTS activity_checkin_records (
+                    id SERIAL PRIMARY KEY,
+                    sheet_id INTEGER NOT NULL REFERENCES activity_checkin_sheets(id) ON DELETE CASCADE,
+                    participant_id INTEGER NOT NULL REFERENCES activity_participants(id) ON DELETE CASCADE,
+                    is_present BOOLEAN NOT NULL DEFAULT FALSE,
+                    checked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,  -- เวลาที่เช็คล่าสุด
+                    recorded_by VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP WITH TIME ZONE NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_checkin_records_sheet_id ON activity_checkin_records(sheet_id);
+                -- กันเช็คซ้ำในแผ่นเดียวกัน (เฉพาะแถวที่ยัง active) — upsert ผ่าน ON CONFLICT ตัวนี้
+                -- ห้ามมี full-table UNIQUE (sheet_id, participant_id) — ต้องการเก็บ history ของ soft-deleted rows
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_checkin_records_active
+                    ON activity_checkin_records(sheet_id, participant_id)
+                    WHERE deleted_at IS NULL;
             """)
 
             # --- 5. Extra Alterations & Smart Constraints ---

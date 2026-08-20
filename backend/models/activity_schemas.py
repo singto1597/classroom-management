@@ -113,11 +113,16 @@ class ParticipantStatusUpdate(BaseModel):
 
 
 class BatchParticipantItem(BaseModel):
-    """1 รายการใน Batch Update — อัปเดต metadata ของ participant (merge กับของเดิม) + ตั้ง หน้าที่ (role_detail) ได้"""
+    """1 รายการใน Batch Update — อัปเดต metadata ของ participant (merge กับของเดิม) + ตั้ง หน้าที่ (role_detail) ได้
+    ทุกฟิลด์นอกจาก participant_id เป็น optional — ส่ง None = ไม่แตะของเดิม (ยกเว้น metadata ที่ merge)"""
     participant_id: int
     # 🎖️ หน้าที่/ตำแหน่ง (role_detail) — batch ตั้งหน้าที่ให้ทุกคนที่ติ๊กพร้อมกัน
     # ไม่ส่ง (None) = ไม่แตะของเดิม; ส่ง "" = เคลียร์หน้าที่
     role_detail: Optional[str] = Field(None, max_length=255)
+    # 🌟 ขยาย: ตั้ง role_type / status / earned_hours แบบกลุ่มได้ (ทุกค่าที่ไม่ใช่ข้อมูลส่วนตัว)
+    role_type: Optional[RoleType] = None          # ไม่ส่ง = ไม่แตะ
+    status: Optional[ParticipantStatus] = None    # ไม่ส่ง = ไม่แตะ
+    earned_hours: Optional[float] = Field(None, ge=0.0)  # ไม่ส่ง = ไม่แตะ
     metadata: Dict[str, Any] = Field(default_factory=dict)  # 🌟 Type B ค่าที่จะ merge
 
 
@@ -126,6 +131,93 @@ class BatchParticipantUpdateRequest(BaseModel):
     ใช้เมื่อ frontend ตั้งค่าเช่น bus_number กลุ่มใหญ่ แล้วยิง payload ก้อนเดียว"""
     items: List[BatchParticipantItem] = Field(..., min_length=1)
     user_name: str = Field(..., min_length=1, max_length=100)
+
+
+# --- Multiple Attendance Sheets (ระบบเช็คชื่อแยกแผ่น) ---
+class CheckinSheetCreateRequest(BaseModel):
+    """สร้างแผ่นเช็คชื่อใหม่ เช่น 'เช็คขึ้นรถ', 'เช็คเข้าฐาน'"""
+    title: str = Field(..., min_length=1, max_length=255)
+    event_date: Optional[date] = None  # วันที่ทำเหตุการณ์เช็ค (optional)
+    user_name: str = Field(..., min_length=1, max_length=100)
+
+
+class CheckinSheetUpdateRequest(BaseModel):
+    """PATCH แผ่นเช็คชื่อ — ทุกฟิลด์ optional; event_date: null = เคลียร์วันที่"""
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    event_date: Optional[date] = None
+    user_name: str = Field(..., min_length=1, max_length=100)
+
+
+class CheckinRecordUpsertRequest(BaseModel):
+    """เช็คชื่อ/แก้การเช็คของ participant 1 คนในแผ่น (upsert)"""
+    is_present: bool
+    user_name: str = Field(..., min_length=1, max_length=100)
+
+
+class CheckinRecordItemIn(BaseModel):
+    """1 รายการใน Batch เช็คชื่อ"""
+    participant_id: int
+    is_present: bool
+
+
+class CheckinRecordsBatchRequest(BaseModel):
+    """เช็คชื่อหลายคนในแผ่นเดียวพร้อมกัน (atomic)"""
+    records: List[CheckinRecordItemIn] = Field(..., min_length=1)
+    user_name: str = Field(..., min_length=1, max_length=100)
+
+
+class CheckinSheetResponse(BaseModel):
+    """แผ่นเช็คชื่อ + สรุปการเช็ค (checked/total)"""
+    id: int
+    activity_id: int
+    title: str
+    event_date: Optional[date] = None
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    checked_count: int = 0
+    total_count: int = 0
+
+
+class CheckinSheetDetailResponse(BaseModel):
+    """แผ่น + ผู้เข้าร่วมทุกคนพร้อมเครื่องหมายเช็ค (is_present/checked_at/recorded_by)"""
+    sheet: CheckinSheetResponse
+    participants: List[dict] = []
+
+
+# --- Add students (available + batch add) ---
+class ParticipantBatchAddItem(BaseModel):
+    """1 คนใน Batch เพิ่มผู้เข้าร่วม — student_no คือตัวระบุ (เหมือน ActivityParticipantIn)"""
+    student_no: int = Field(..., description="เลขที่นักเรียนในห้องนี้")
+    role_type: RoleType = "participant"
+    role_detail: Optional[str] = Field(None, max_length=255)
+    earned_hours: float = Field(0.0, ge=0.0)
+    status: ParticipantStatus = "confirmed"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ParticipantBatchAddRequest(BaseModel):
+    """เพิ่มผู้เข้าร่วมหลายคนพร้อมกัน (atomic, revive-or-insert)"""
+    items: List[ParticipantBatchAddItem] = Field(..., min_length=1)
+    user_name: str = Field(..., min_length=1, max_length=100)
+
+
+class AvailableStudentResponse(BaseModel):
+    """นักเรียนในห้องที่ยังไม่ได้เป็นผู้เข้าร่วม active ของกิจกรรมนี้ (พร้อม Type A จากโปรไฟล์)"""
+    student_id: int
+    student_no: int
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    nickname: Optional[str] = None
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    nickname_en: Optional[str] = None
+    blood_group: Optional[str] = None
+    shirt_size: Optional[str] = None
+    food_allergy: Optional[str] = None
+    congenital_disease: Optional[str] = None
+    phone_number: Optional[str] = None
+    phone_number_parent: Optional[str] = None
 
 
 # --- Response ---

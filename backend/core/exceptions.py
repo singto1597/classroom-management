@@ -26,6 +26,10 @@ class ParticipantNotFoundError(Exception):
     """Raised when an activity participant is not found."""
     pass
 
+class CheckinSheetNotFoundError(Exception):
+    """Raised when an activity check-in sheet is not found."""
+    pass
+
 class PaymentNotFoundError(Exception):
     """Raised when a payment record is not found."""
     pass

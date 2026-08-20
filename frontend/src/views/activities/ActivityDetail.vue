@@ -309,6 +309,12 @@ function infoValueDisplay(row: ActivityInfoRow): string {
 
           <div v-if="canManage" class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <router-link
+              :to="`/activities/${activityId}/manage`"
+              class="px-4 py-2.5 text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-lg shadow-violet-600/20 transition-all inline-flex items-center justify-center gap-2"
+            >
+              <i class="bi bi-sliders"></i> จัดการผู้เข้าร่วม
+            </router-link>
+            <router-link
               :to="`/activities/${activityId}/edit`"
               class="px-4 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all inline-flex items-center justify-center gap-2"
             >

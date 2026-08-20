@@ -3,6 +3,7 @@
  * 🎯 BatchApplyModal — ตั้งค่าแบบกลุ่ม (คลุมดำ) ให้ผู้เข้าร่วมที่ถูกติ๊กพร้อมกัน
  * - หน้าที่/ตำแหน่ง (role_detail) ตั้งเป็นชุดได้ + เตือนว่าจะแทนที่หน้าที่เดิมทั้งหมด
  * - ฟิลด์ Type B (รถบัส/ห้องพัก ฯลฯ) ตามที่เลือกใน Required Data
+ * - 🌟 ขยาย (ManageActivity): role_type / status / earned_hours / dynamic fields (df_<n>)
  * Presentational — parent เป็นคนยิง API / จัดการ local draft
  */
 import { ref, watch } from 'vue'
@@ -14,15 +15,32 @@ const props = defineProps<{
   positions: string[]
   typeBFields: ActivityField[]
   count: number
+  /** 🌟 แสดงส่วน role_type (participant/staff/leader) — ใช้หน้า ManageActivity */
+  showRoleType?: boolean
+  /** 🌟 แสดงส่วน status (confirmed/cancelled/attended) — ใช้หน้า ManageActivity */
+  showStatus?: boolean
+  /** 🌟 แสดงส่วน earned_hours — ใช้หน้า ManageActivity */
+  showEarnedHours?: boolean
+  /** 🌟 Dynamic Fields (df_<n>) — render เป็น ActivityFieldControl ในส่วน "ฟิลด์เพิ่มเติม" */
+  dynamicFields?: ActivityField[]
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'apply', payload: { dutyPosition: string; typeB: Record<string, unknown> }): void
+  (e: 'apply', payload: {
+    dutyPosition: string
+    typeB: Record<string, unknown>
+    roleType: string
+    status: string
+    earnedHours: string
+  }): void
 }>()
 
 const dutyPosition = ref('')
 const typeBValues = ref<Record<string, unknown>>({})
+const roleType = ref('')
+const status = ref('')
+const earnedHours = ref('')
 
 watch(
   () => props.open,
@@ -30,13 +48,31 @@ watch(
     if (open) {
       dutyPosition.value = ''
       typeBValues.value = {}
+      roleType.value = ''
+      status.value = ''
+      earnedHours.value = ''
     }
   },
 )
 
+const ROLE_TYPE_OPTIONS = [
+  { value: 'participant', label: 'ผู้เข้าร่วม' },
+  { value: 'staff', label: 'ทีมงาน' },
+  { value: 'leader', label: 'หัวหน้ากลุ่ม' },
+]
+
+const STATUS_OPTIONS = [
+  { value: 'confirmed', label: 'ยืนยันแล้ว' },
+  { value: 'cancelled', label: 'ยกเลิก' },
+  { value: 'attended', label: 'มาแล้ว' },
+]
+
 const hasSomethingToSet = () => {
   return (
     dutyPosition.value !== '' ||
+    roleType.value !== '' ||
+    status.value !== '' ||
+    earnedHours.value !== '' ||
     Object.values(typeBValues.value).some((v) => v !== '' && v !== null && v !== undefined)
   )
 }
@@ -47,7 +83,13 @@ function handleApply() {
   for (const [k, v] of Object.entries(typeBValues.value)) {
     if (v !== '' && v !== null && v !== undefined) filled[k] = v
   }
-  emit('apply', { dutyPosition: dutyPosition.value, typeB: filled })
+  emit('apply', {
+    dutyPosition: dutyPosition.value,
+    typeB: filled,
+    roleType: roleType.value,
+    status: status.value,
+    earnedHours: earnedHours.value,
+  })
 }
 </script>
 
@@ -77,6 +119,7 @@ function handleApply() {
           </div>
           <p class="text-xs text-slate-400 mb-4">
             ตั้งค่าให้ผู้เข้าร่วม <b class="text-fuchsia-600">{{ count }} คน</b> พร้อมกัน
+            — เฉพาะคนที่ติ๊กเท่านั้น (คนที่ไม่ได้ติ๊กไม่ถูกแตะ)
           </p>
 
           <!-- หน้าที่/ตำแหน่ง -->
@@ -100,6 +143,84 @@ function handleApply() {
               <i class="bi bi-exclamation-triangle-fill"></i> จะแทนที่หน้าที่เดิมทั้งหมดของ
               {{ count }} คนนี้
             </p>
+          </div>
+
+          <!-- 🌟 role_type / status / earned_hours (หน้า ManageActivity) -->
+          <div
+            v-if="showRoleType || showStatus || showEarnedHours"
+            class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5"
+          >
+            <div v-if="showRoleType">
+              <label
+                class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                >บทบาท</label
+              >
+              <select
+                v-model="roleType"
+                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-400"
+              >
+                <option value="">— ไม่เปลี่ยน —</option>
+                <option v-for="opt in ROLE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div v-if="showStatus">
+              <label
+                class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                >สถานะ</label
+              >
+              <select
+                v-model="status"
+                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-400"
+              >
+                <option value="">— ไม่เปลี่ยน —</option>
+                <option v-for="opt in STATUS_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div v-if="showEarnedHours">
+              <label
+                class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                >ชั่วโมงจิตอาสา</label
+              >
+              <input
+                v-model.number="earnedHours"
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder="ไม่เปลี่ยน"
+                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-400"
+              />
+            </div>
+          </div>
+
+          <!-- 🌟 Dynamic Fields (ฟิลด์เพิ่มเติมที่ผู้จัดการสร้างเอง) -->
+          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-5">
+            <label
+              class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5"
+            >
+              <i class="bi bi-puzzle text-fuchsia-500"></i> ฟิลด์เพิ่มเติม
+            </label>
+            <div class="space-y-4">
+              <div v-for="field in dynamicFields" :key="field.key">
+                <label
+                  class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
+                >
+                  {{ field.label }}
+                </label>
+                <ActivityFieldControl
+                  :field="field"
+                  :model-value="typeBValues[field.key]"
+                  @update:model-value="
+                    (v: unknown) => {
+                      typeBValues[field.key] = v
+                    }
+                  "
+                />
+              </div>
+            </div>
           </div>
 
           <!-- Type B fields -->
@@ -134,10 +255,17 @@ function handleApply() {
           </div>
 
           <div
-            v-if="positions.length === 0 && typeBFields.length === 0"
+            v-if="
+              positions.length === 0 &&
+              typeBFields.length === 0 &&
+              !showRoleType &&
+              !showStatus &&
+              !showEarnedHours &&
+              !(dynamicFields && dynamicFields.length > 0)
+            "
             class="text-sm text-slate-500 bg-slate-50 rounded-xl p-4 text-center"
           >
-            ยังไม่มีฟิลด์ที่ตั้งค่าแบบกลุ่มได้ — เพิ่มตำแหน่ง/หน้าที่ หรือเลือกฟิลด์ในส่วน Required
+            ยังไม่มีค่าที่ตั้งค่าแบบกลุ่มได้ — เพิ่มตำแหน่ง/หน้าที่ หรือเลือกฟิลด์ในส่วน Required
             Data ก่อน
           </div>
 
