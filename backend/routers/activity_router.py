@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import asyncpg
 from typing import List, Literal, Optional
+from urllib.parse import quote
 
 from models.activity_schemas import (
     SuccessResponse,
@@ -718,10 +719,17 @@ async def export_activity_excel(
             actor_identifier=actor,
             room_id=room_id,
         )
+        # 🌟 ชื่อไฟล์มาจาก service (ใช้ชื่อกิจกรรม เช่น "ไปทัศนศึกษา_รายชื่อผู้เข้าร่วม.xlsx")
+        # ไม่ใช่ activity_<id>_participants.xlsx; RFC 5987 filename*= กันชื่อไฟล์ไทยเพี้ยน
+        filename = getattr(excel_file, "filename", f"activity_{req.activity_id}_participants.xlsx")
+        ascii_fallback = f"activity_{req.activity_id}.xlsx"
+        headers = {
+            "Content-Disposition": f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+        }
         return StreamingResponse(
             excel_file,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename=activity_{req.activity_id}_participants.xlsx"},
+            headers=headers,
         )
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
