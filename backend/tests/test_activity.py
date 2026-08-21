@@ -601,7 +601,8 @@ async def test_export_activity_excel_extracts_metadata_columns(db_pool):
     assert "ไซส์เสื้อ" in header
     # data row: ชื่อ + bus_number (metadata) + shirt_size (Type A จากโปรไฟล์)
     rows = list(ws.values)
-    assert len(rows) == 2  # header + 1 participant
+    # 🌟 header + participant + แถวรวมท้ายตาราง (มี total row ใหม่)
+    assert len(rows) == 3
     data_row = rows[1]
     idx = header.index("หมายเลขรถบัส")
     assert data_row[idx] == "B2"
@@ -717,6 +718,10 @@ async def test_http_export_activity_excel(client, db_pool):
     )
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/vnd.openxmlformats")
+    # 🌟 Content-Disposition ใช้ชื่อกิจกรรม (RFC 5987 filename*= รองรับชื่อไทย) ไม่ใช่ activity_<id>_participants.xlsx
+    cd = resp.headers.get("content-disposition", "")
+    assert "filename*=UTF-8''" in cd
+    assert f"activity_{int(activity_id)}_participants.xlsx" not in cd
     wb = openpyxl.load_workbook(io.BytesIO(resp.content))
     ws = wb["รายชื่อผู้เข้าร่วม"]
     header = list(ws.values)[0]
@@ -956,6 +961,44 @@ async def test_export_is_paid_boolean_translated(db_pool):
     header = list(ws.values)[0]
     assert "สถานะจ่ายเงินค่าค่าย" in header
     assert list(ws.values)[1][header.index("สถานะจ่ายเงินค่าค่าย")] == "✅ จ่ายแล้ว"
+
+
+async def test_export_activity_status_thai_filename_and_column_width(db_pool):
+    """Export → สถานะกิจกรรมเป็นภาษาไทย (ไม่ใช่ 'ongoing' ดิบ), ชื่อไฟล์ใช้ชื่อกิจกรรม,
+    คอลัมน์ 'เลขที่' แคบ, และมีแถวรวมท้ายตาราง"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="สมชาย", last_name="ใจดี"), 1)
+
+    with patch.object(ActionService, "notify_new_activity", new_callable=AsyncMock):
+        result = await ActivityService.create_activity(
+            pool=db_pool, title="ไปทัศนศึกษา", activity_date=date(2026, 9, 20),
+            base_hours=6.0, status="ongoing", metadata={},
+            participants=[{"student_no": 1}],
+            user_name="ผู้ดูแล", client_source="WEB_APP", actor_identifier="user_id:1",
+            room_id=room_id, actor_user_id=owner,
+        )
+        activity_id = result["activity_id"]
+
+    excel = await ActivityService.export_activity_excel(
+        pool=db_pool, activity_id=activity_id, metadata_keys=[],
+        user_name="ผู้ดูแล", user_id=owner, client_source="WEB_APP",
+        actor_identifier="user_id:1", room_id=room_id,
+    )
+    # 🌟 ชื่อไฟล์ใช้ชื่อกิจกรรม (ไม่ใช่ activity_<id>_participants.xlsx)
+    assert excel.filename == "ไปทัศนศึกษา_รายชื่อผู้เข้าร่วม.xlsx"
+
+    wb = openpyxl.load_workbook(io.BytesIO(excel.getvalue()))
+    # สถานะกิจกรรม → ภาษาไทย (เดิมใช้ PARTICIPANT_STATUS_LABELS → ได้ 'ongoing' ดิบ)
+    assert wb["สรุป"]["B8"].value == "กำลังดำเนินการ"
+
+    ws = wb["รายชื่อผู้เข้าร่วม"]
+    header = list(ws.values)[0]
+    assert header[0] == "เลขที่"
+    # 'เลขที่' คอลัมน์แรกต้องแคบ (กำหนด width=7) — ไม่ใช่กว้างเท่ากันหมดแบบ 20
+    assert ws.column_dimensions["A"].width == 7
+    # มีแถวรวมท้ายตาราง
+    assert list(ws.values)[-1][0] == "รวมผู้เข้าร่วม: 1 คน"
 
 
 async def test_http_get_activity_returns_profile_fields(client, db_pool):

@@ -224,6 +224,12 @@ const changeStatus = async (status: string) => {
 }
 
 // --- Export ---
+/** ชื่อไฟล์ปลอดภัย: ตัดอักขระต้องห้าม + กันยาวเกิน (ใช้ชื่อกิจกรรมตั้งชื่อไฟล์) */
+function safeFileName(title: string): string {
+  const cleaned = title.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').trim()
+  return cleaned.slice(0, 80) || 'กิจกรรม'
+}
+
 const exportExcel = async () => {
   if (!canManage.value || !activity.value) return
   isExporting.value = true
@@ -237,7 +243,8 @@ const exportExcel = async () => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `activity_${activityId}_participants.xlsx`
+    // 🌟 ชื่อไฟล์ใช้ชื่อกิจกรรม (สอดคล้องกับชื่อที่ backend สร้าง) ไม่ใช่ activity_<id>
+    a.download = `${safeFileName(activity.value.title)}_รายชื่อผู้เข้าร่วม.xlsx`
     a.click()
     URL.revokeObjectURL(url)
     Toast.fire({ icon: 'success', title: 'Export Excel เรียบร้อย 📄' })
