@@ -13,7 +13,7 @@ const handleGoogleLogin = () => {
 <template>
   <div class="relative min-h-screen selection:bg-blue-500/30 selection:text-blue-900 bg-[#FAFAFC] text-slate-900 font-sans overflow-x-hidden">
     
-    <!-- 🎨 พื้นหลังตกแต่ง: Premium Subtle Glow (ลดความฉูดฉาด เน้นความหรูหรา) -->
+    <!-- 🎨 พื้นหลังตกแต่ง: Premium Subtle Glow -->
     <div class="absolute inset-0 pointer-events-none overflow-hidden">
       <div class="absolute -top-[10%] -right-[5%] w-[800px] h-[800px] rounded-full bg-gradient-to-b from-blue-100/50 to-transparent blur-3xl opacity-60"></div>
       <div class="absolute top-[40%] -left-[10%] w-[600px] h-[600px] rounded-full bg-gradient-to-t from-indigo-100/40 to-transparent blur-3xl opacity-50"></div>
@@ -36,11 +36,11 @@ const handleGoogleLogin = () => {
     </header>
 
     <main class="relative z-10">
-      <!-- 🌟 Section 1: Hero & Login (บนมือถือจะเห็นปุ่ม Login ทันที) -->
+      <!-- 🌟 Section 1: Hero & Login -->
       <section class="px-6 pt-10 pb-20 mx-auto max-w-7xl lg:px-8 lg:pt-20 lg:pb-32">
         <div class="grid items-center grid-cols-1 gap-16 lg:grid-cols-2 lg:gap-24">
           
-          <!-- ฝั่งซ้าย: Typography เน้นๆ แบบ Apple/Stripe -->
+          <!-- ฝั่งซ้าย: Typography -->
           <div class="order-2 text-center lg:order-1 lg:text-left animate-slide-up-fade">
             <div class="inline-flex items-center gap-2 px-3 py-1.5 mb-6 text-sm font-medium text-blue-700 bg-blue-50/80 border border-blue-100 rounded-full shadow-sm">
               <span class="relative flex w-2 h-2">
@@ -58,19 +58,6 @@ const handleGoogleLogin = () => {
             <p class="mt-6 text-lg leading-relaxed text-slate-500 sm:text-xl lg:max-w-xl font-medium">
               แพลตฟอร์มที่เชื่อมต่อครูและนักเรียนเข้าด้วยกัน จัดการรายชื่อ เช็คชื่อ ตารางเรียน และงานที่มอบหมาย จบครบในที่เดียว พร้อมระบบแจ้งเตือนผ่าน Discord
             </p>
-
-            <div class="flex items-center justify-center gap-6 mt-10 lg:justify-start">
-              <div class="flex flex-col items-center gap-2 sm:flex-row sm:gap-4">
-                <div class="flex -space-x-2">
-                  <img class="w-10 h-10 border-2 border-white rounded-full" src="https://ui-avatars.com/api/?name=Teacher&background=0D8ABC&color=fff" alt="User" />
-                  <img class="w-10 h-10 border-2 border-white rounded-full" src="https://ui-avatars.com/api/?name=Student+1&background=F59E0B&color=fff" alt="User" />
-                  <img class="w-10 h-10 border-2 border-white rounded-full" src="https://ui-avatars.com/api/?name=Student+2&background=10B981&color=fff" alt="User" />
-                </div>
-                <div class="text-sm font-medium text-slate-500">
-                  <span class="font-bold text-slate-800">10,000+</span> ผู้ใช้งานในระบบ
-                </div>
-              </div>
-            </div>
           </div>
 
           <!-- ฝั่งขวา: Login Card (Clean & Focused) -->
@@ -119,7 +106,7 @@ const handleGoogleLogin = () => {
         </div>
       </section>
 
-      <!-- 🌟 Section 2: Features (ย้ายลงมาด้านล่าง ให้ดูเป็นเว็บ App มากขึ้น) -->
+      <!-- 🌟 Section 2: Features -->
       <section class="border-t bg-white/50 border-slate-200/50 backdrop-blur-md">
         <div class="px-6 py-16 mx-auto max-w-7xl lg:px-8 lg:py-24">
           <div class="max-w-2xl mx-auto text-center animate-slide-up-fade" style="animation-delay: 200ms;">
@@ -187,10 +174,18 @@ const handleGoogleLogin = () => {
     </main>
 
     <!-- Footer -->
-    <footer class="py-8 text-center bg-white border-t border-slate-200/50">
-      <p class="text-sm font-medium text-slate-400">
-        &copy; 2026 SYNCROOM. All rights reserved.
-      </p>
+    <footer class="py-10 text-center bg-white border-t border-slate-200/50">
+      <div class="flex flex-col items-center justify-center gap-2">
+        <p class="text-sm font-medium text-slate-500">
+          &copy; 2026 SYNCROOM. All rights reserved.
+        </p>
+        <div class="flex items-center gap-2 text-xs font-medium text-slate-400">
+          <span>พัฒนาโดย</span>
+          <span class="px-2 py-1 text-slate-600 bg-slate-100 rounded-md border border-slate-200/60">
+            นายพัฒนพล สุธรรม
+          </span>
+        </div>
+      </div>
     </footer>
   </div>
 </template>
