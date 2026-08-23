@@ -47,7 +47,7 @@ const handleGoogleLogin = () => {
                 <span class="absolute inline-flex w-full h-full bg-blue-400 rounded-full opacity-75 animate-ping"></span>
                 <span class="relative inline-flex w-2 h-2 bg-blue-500 rounded-full"></span>
               </span>
-              SYNCROOM 2.0 พร้อมใช้งานแล้ว
+              SYNCROOM พร้อมใช้งานแล้ว
             </div>
             
             <h1 class="text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl lg:text-6xl leading-[1.1]">
@@ -175,15 +175,20 @@ const handleGoogleLogin = () => {
 
     <!-- Footer -->
     <footer class="py-10 text-center bg-white border-t border-slate-200/50">
-      <div class="flex flex-col items-center justify-center gap-2">
+      <div class="flex flex-col items-center justify-center gap-3">
         <p class="text-sm font-medium text-slate-500">
           &copy; 2026 SYNCROOM. All rights reserved.
         </p>
         <div class="flex items-center gap-2 text-xs font-medium text-slate-400">
           <span>พัฒนาโดย</span>
-          <span class="px-2 py-1 text-slate-600 bg-slate-100 rounded-md border border-slate-200/60">
+          <a 
+            href="https://www.singto1597.xyz/" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            class="px-2.5 py-1 text-slate-600 bg-slate-100 rounded-md border border-slate-200/60 transition-all duration-200 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200 hover:shadow-sm"
+          >
             นายพัฒนพล สุธรรม
-          </span>
+          </a>
         </div>
       </div>
     </footer>
