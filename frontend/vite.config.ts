@@ -19,7 +19,8 @@ export default defineConfig({
   },
   server: {
     allowedHosts: [
-      'classtestts.singto1597.xyz'
+      'classtestts.singto1597.xyz',
+      'class.singto1597.xyz'
     ]
   }
 })
