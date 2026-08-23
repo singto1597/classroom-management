@@ -86,7 +86,7 @@ const chartOptions = {
         padding: 20,
         boxWidth: 8,
         font: {
-          family: "'Sarabun', sans-serif",
+          family: "'Noto Sans Thai', sans-serif",
           size: 11,
           weight: 'bold'
         },
@@ -96,8 +96,8 @@ const chartOptions = {
     tooltip: {
       enabled: summary.value?.expense_breakdown.length !== 0,
       backgroundColor: 'rgba(15, 23, 42, 0.9)',
-      titleFont: { family: "'Sarabun', sans-serif", size: 13 },
-      bodyFont: { family: "'Sarabun', sans-serif", size: 13, weight: 'bold' },
+      titleFont: { family: "'Noto Sans Thai', sans-serif", size: 13 },
+      bodyFont: { family: "'Noto Sans Thai', sans-serif", size: 13, weight: 'bold' },
       padding: 12,
       cornerRadius: 12,
       displayColors: true,
@@ -411,11 +411,9 @@ watch([selectedMonth, selectedYear], () => {
 </template>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap');
-
-/* ให้แน่ใจว่า Font Sarabun ทำงานทั้งหน้า */
+/* ให้แน่ใจว่า Font Noto Sans Thai ทำงานทั้งหน้า (โหลดผ่าน index.html แล้ว ไม่ต้อง @import ซ้ำ) */
 * {
-  font-family: 'Sarabun', sans-serif;
+  font-family: 'Noto Sans Thai', sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
 </style>

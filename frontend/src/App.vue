@@ -9,8 +9,7 @@ import { RouterView } from 'vue-router';
 <style>
 /* Global Styles can go here */
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-gray-50 text-gray-900 font-sans;
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 </style>

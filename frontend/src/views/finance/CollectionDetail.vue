@@ -341,6 +341,6 @@ onMounted(() => {
 <style scoped>
 .swal2-input {
   border-radius: 1rem !important;
-  font-family: 'Sarabun', sans-serif !important;
+  font-family: 'Noto Sans Thai', sans-serif !important;
 }
 </style>

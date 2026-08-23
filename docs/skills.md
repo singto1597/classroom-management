@@ -506,3 +506,14 @@
   4. **ชีตสรุป:** merge title/วันที่/หัวข้อ section กว้าง A:B, section = purple header + white bold; status value แต้มสี; คำอธิบาย wrap + คำนวณความสูง; **merged cell หลายบรรทัด (meta) ต้องตั้ง `row_dimensions[h].height` เอง** (Excel ไม่ auto-fit merged) = `(จำนวนบรรทัด) * 15`
 - **Rule:** (1) ชุด label/สีของ enum ต่างชนิดกัน (activity status vs participant status) ต้องแยก constant กัน อย่าใช้ cross-translate (2) การคืนค่า type เดิมแต่เพิ่ม metadata → ตั้ง attribute บน object แทนการเปลี่ยน return type/break เทส (3) ชื่อไฟล์ไทย → ต้อง `filename*=UTF-8''` (RFC 5987) ถ้าใช้ `filename=` อย่างเดียว browser จะเพี้ยน/ตัด (4) merged cell หลายบรรทัดต้องตั้ง row height เอง (5) คอลัมน์ที่ความกว้าง/ตำแหน่งต่างกัน (เลขที่/ชั่วโมง/ข้อความยาว) ควรมี width map + alignment ต่อฟิลด์ (6) เปลี่ยนฟอร์แมตที่กระทบจำนวนแถว (เช่น เพิ่มแถวรวม) → อัปเดตเทสที่ assert `len(rows)`
 - **Date Added:** 2026-08-21
+
+### 🛠️ Global Font: Noto Sans Thai — ฟอนต์หลักของแอป (กัน fallback เป็น serif)
+- **Context/Problem:** แอปไม่มีฟอนต์หลักที่ชัดเจน — main.css ใช้ `'Inter', 'Sarabun'` แต่ `App.vue` มี `<style>` ฮาร์ดโค้ด `font-family: 'Inter', system-ui, ...` ใน body (ถูก inject หลัง main.css → rule ทับกัน → **หลุดฟอนต์ไทย**) และ view การเงินฮาร์ดโค้ด 'Sarabun' + `@import` ฟอนต์จาก Google ซ้ำใน scoped style → ถ้าฟอนต์โหลดช้า/ถูกบล็อก (SEO bot, มือถือ) browser fallback เป็น serif แตก UI
+- **Correct Pattern/Solution:**
+  1. **index.html:** `preconnect` ไป `fonts.googleapis.com` + `fonts.gstatic.com` (ตัวหลังมี `crossorigin`) + `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap">` — `display=swap` ให้ render ด้วย fallback ทันที ไม่รอฟอนต์โหลด
+  2. **tailwind.config.js:** `fontFamily.sans: ['"Noto Sans Thai"', 'sans-serif']` — ต้องลงท้าย generic `'sans-serif'` เสมอ → `@apply font-sans` จะไม่มีทาง fallback เป็น serif
+  3. **main.css:** `:root` ตั้ง `font-family: 'Noto Sans Thai', system-ui, -apple-system, Avenir, Helvetica, Arial, sans-serif` + `body { @apply font-sans antialiased; }`
+  4. **App.vue:** ห้ามฮาร์ดโค้ด font-family ใน `<style>` — ใช้ `@apply ... font-sans;` แทน (App.vue style inject หลัง main.css → ทับ global ได้)
+  5. **.vue ที่เหลือ:** ไม่ `@import` ฟอนต์จาก Google ซ้ำใน scoped style (double-load) และเปลี่ยนทุกฮาร์ดโค้ดฟอนต์เดิมเป็นฟอนต์หลักใหม่ เช่น `FinanceDashboard.vue` (Chart.js `family:` + `*` rule), `FinanceSettings.vue`/`CollectionDetail.vue` (`.swal2-*`)
+- **Rule:** (1) ฟอนต์ไทยหลักของโปรเจกต์ = **Noto Sans Thai** โหลดผ่าน index.html global เท่านั้น (2) ทุก `font-family` stack ต้องลงท้าย `sans-serif` ไม่งั้น bot/มือถือ/โหลดช้า fallback ไป serif แตก UI (3) ห้ามฮาร์ดโค้ด font-family ใน `<style>` ของ .vue ที่ทับ global (4) เวลาเปลี่ยนฟอนต์หลัก ต้อง `grep` หา 'Sarabun'/'Inter'/`@import ...fonts.googleapis` ที่เหลือให้หมด (5) `dist/` เกิดจาก build — ใช้ `grep -r` ใน `src/` เป็นหลัก
+- **Date Added:** 2026-08-23
