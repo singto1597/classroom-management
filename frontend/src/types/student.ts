@@ -42,4 +42,20 @@ export interface Student {
 
   is_admin?: boolean;
   permissions?: string[];
+  // 🛡️ Consent Model: identity_claimed = เจ้าตัวยืนยันตัวตนการเป็นสมาชิกแล้ว (PII ถึงจะเปิดให้ห้องดู)
+  identity_claimed?: boolean;
+  added_by?: number | null;
+}
+
+/** คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อเราให้ ต้องกดรับเองก่อนถึงเป็นสมาชิก */
+export interface Invite {
+  invite_id: number
+  student_no: number
+  room_id: number
+  room_name: string
+  room_code: string | null
+  server_id: number | null
+  added_by_first: string | null
+  added_by_last: string | null
+  created_at: string | null
 }

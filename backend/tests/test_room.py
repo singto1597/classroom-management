@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 import asyncpg
+import json
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -22,6 +23,20 @@ pytestmark = pytest.mark.asyncio
 
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _parse_claim_meta(raw) -> dict:
+    """asyncpg คืน JSONB เป็น str/dict ตามเวอร์ชัน → normalize (ตาม lesson skills.md)"""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 async def _insert_user(
@@ -75,11 +90,11 @@ async def _insert_room(pool, owner_id: int, room_name="Test Room") -> int:
             code,
             owner_id,
         )
-        # รองรับผู้สร้างห้องให้เป็น Admin ในตาราง students ทันที
+        # รองรับผู้สร้างห้องให้เป็น Admin ในตาราง students ทันที (identity_claimed=TRUE — เจ้าของยินยอมเอง)
         await conn.execute(
             """
-            INSERT INTO students (room_id, user_id, student_no, class_role, status, is_admin, permissions)
-            VALUES ($1, $2, 0, 'president', 'active', TRUE, $3::jsonb)
+            INSERT INTO students (room_id, user_id, student_no, class_role, status, is_admin, permissions, identity_claimed)
+            VALUES ($1, $2, 0, 'president', 'active', TRUE, $3::jsonb, TRUE)
             """,
             room_id,
             owner_id,
@@ -97,14 +112,16 @@ async def _insert_student(
     status="pending",
     is_admin=False,
     permissions="[]",
+    identity_claimed=True,
 ) -> int:
     async with pool.acquire() as conn:
         final_status = "active" if is_admin else status
+        final_claimed = True if is_admin else identity_claimed
         return await conn.fetchval(
             """
             INSERT INTO students
-                (room_id, user_id, student_no, class_role, status, is_admin, permissions)
-            VALUES ($1, $2, $3, 'student', $4, $5, $6::jsonb)
+                (room_id, user_id, student_no, class_role, status, is_admin, permissions, identity_claimed)
+            VALUES ($1, $2, $3, 'student', $4, $5, $6::jsonb, $7)
             RETURNING id
             """,
             room_id,
@@ -113,6 +130,7 @@ async def _insert_student(
             final_status,
             is_admin,
             permissions,
+            final_claimed,
         )
 
 
@@ -353,11 +371,12 @@ async def test_join_room_ghost_account_claim(db_pool):
         actor_identifier="test",
     )
     assert result["room_id"] == room_id
-    assert result["student_id"] is not None
+    assert "รอการอนุมัติ" in result["message"]
 
     async with db_pool.acquire() as conn:
+        # 🔒 Consent Model: ไม่สวมรอยทันที — ghost ไม่ถูกลบ, แถวเป็น pending claim รอแอดมินอนุมัติ
         ghost_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE id = $1", ghost_id)
-        assert ghost_count == 0
+        assert ghost_count == 1
 
         student = await conn.fetchrow(
             """
@@ -368,11 +387,27 @@ async def test_join_room_ghost_account_claim(db_pool):
         )
         assert student is not None
         assert student["user_id"] == real_id
-        assert student["status"] == "active"
+        assert student["status"] == "pending"
+        assert student["identity_claimed"] is False
+        assert _parse_claim_meta(student["claim_meta"])["name_match"] is True
 
+        # PII ของ ghost (เบอร์/วันเกิดที่แอดมินกรอก) ไม่ถูก copy เข้าบัญชีจริงอีกต่อไป
         real_user = await conn.fetchrow("SELECT * FROM users WHERE id = $1", real_id)
-        assert real_user["phone_number"] == "0811111111"
-        assert real_user["birthday"] is not None
+        assert real_user["phone_number"] is None
+        assert real_user["birthday"] is None
+
+    # แอดมินอนุมัติ → active + claimed
+    await RoomManagementService.approve_join_request(
+        pool=db_pool, room_id=room_id, student_no=9, user_id=owner_id,
+        client_source="test", actor_identifier="test",
+    )
+    async with db_pool.acquire() as conn:
+        student = await conn.fetchrow(
+            "SELECT status, identity_claimed FROM students WHERE room_id = $1 AND student_no = 9 AND deleted_at IS NULL",
+            room_id,
+        )
+        assert student["status"] == "active"
+        assert student["identity_claimed"] is True
 
 
 # === Section 4: approve_join_request & reject_join_request ===
@@ -559,7 +594,8 @@ async def test_join_room_existing_real_user_same_number_raises_400(db_pool):
     async with db_pool.acquire() as conn:
         room_code = await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
 
-    existing_user = await _insert_user(db_pool, first_name="Real", last_name="Person")
+    # บัญชีจริง (มี discord_id) ผูกเลขที่ 22 อยู่แล้ว — คนอื่นจะมาขอเป็นเลขที่นี้ไม่ได้
+    existing_user = await _insert_user(db_pool, first_name="Real", last_name="Person", discord_id=555666777)
     async with db_pool.acquire() as conn:
         await _insert_student(db_pool, room_id, existing_user, 22, status="active", is_admin=False)
 
@@ -607,20 +643,31 @@ async def test_join_room_ghost_name_mismatch_raises_400(db_pool):
         username="real",
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await RoomManagementService.join_room(
-            pool=db_pool,
-            payload=RoomJoinRequest(
-                room_code=room_code,
-                student_no=5,
-                first_name="Other",
-                last_name="Person",
-            ),
-            user_id=real_id,
-            client_source="test",
-            actor_identifier="test",
+    # 🔒 Consent Model: ชื่อไม่ตรงไม่ error 400 แล้ว — ไปเป็นคำขออ้างสิทธิ์ (claim request)
+    # ให้แอดมินดูชื่อเดิม vs ชื่อผู้ขอ แล้วตัดสินอนุมัติ (กัน hard-block ที่เปิดเผยชื่อ ghost)
+    result = await RoomManagementService.join_room(
+        pool=db_pool,
+        payload=RoomJoinRequest(
+            room_code=room_code,
+            student_no=5,
+            first_name="Other",
+            last_name="Person",
+        ),
+        user_id=real_id,
+        client_source="test",
+        actor_identifier="test",
+    )
+    assert "รอการอนุมัติ" in result["message"]
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT user_id, status, claim_meta FROM students WHERE room_id=$1 AND student_no=5 AND deleted_at IS NULL",
+            room_id,
         )
-    assert exc_info.value.status_code == 400
+        assert row["user_id"] == real_id
+        assert row["status"] == "pending"
+        assert _parse_claim_meta(row["claim_meta"])["name_match"] is False
+        assert _parse_claim_meta(row["claim_meta"])["ghost_last_name"] == "Doe"
 
 
 async def test_approve_join_request_with_no_pending_row_returns_404(db_pool):
@@ -1086,6 +1133,8 @@ async def test_ghost_claim_transfers_all_rooms(db_pool):
         username="realniran",
     )
 
+    # 🔒 Consent Model: ขออ้างสิทธิ์เฉพาะ room1 แล้วให้แอดมิน room1 อนุมัติ
+    # — ไม่ merge ข้ามห้องอีกต่อไป (กัน "join ห้อง B → โดน link เข้าห้องแฮ็กเกอร์ A")
     await RoomManagementService.join_room(
         pool=db_pool,
         payload=RoomJoinRequest(room_code=code1, student_no=1, first_name="Niran", last_name="Pong"),
@@ -1093,19 +1142,32 @@ async def test_ghost_claim_transfers_all_rooms(db_pool):
         client_source="test",
         actor_identifier="test",
     )
+    await RoomManagementService.approve_join_request(
+        pool=db_pool, room_id=room1, student_no=1, user_id=owner1,
+        client_source="test", actor_identifier="test",
+    )
 
     async with db_pool.acquire() as conn:
+        # ghost ยังอยู่ (ไม่โดนลบ) — มีแถวใน room2 ที่ยังอ้างถึง
         ghost_count = await conn.fetchval("SELECT COUNT(*) FROM users WHERE id = $1", ghost_id)
-        assert ghost_count == 0
+        assert ghost_count == 1
 
-        for r_id in (room1, room2):
-            row = await conn.fetchrow(
-                "SELECT user_id, status FROM students WHERE room_id=$1 AND student_no=1 AND deleted_at IS NULL",
-                r_id,
-            )
-            assert row is not None
-            assert row["user_id"] == real_id
-            assert row["status"] == "active"
+        row1 = await conn.fetchrow(
+            "SELECT user_id, status FROM students WHERE room_id=$1 AND student_no=1 AND deleted_at IS NULL",
+            room1,
+        )
+        assert row1 is not None
+        assert row1["user_id"] == real_id
+        assert row1["status"] == "active"
+
+        # room2 ยังเป็น ghost → PII ของคนนี้ยังถูกปิดบังใน room2
+        row2 = await conn.fetchrow(
+            "SELECT user_id, status FROM students WHERE room_id=$1 AND student_no=1 AND deleted_at IS NULL",
+            room2,
+        )
+        assert row2 is not None
+        assert row2["user_id"] == ghost_id
+        assert row2["status"] == "pending"
 
 
 async def test_approve_join_request_on_active_member_raises_404(db_pool):

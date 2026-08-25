@@ -242,6 +242,34 @@ class BotActionService:
         embed.set_footer(text=f"เพิ่มโดย: {data.get('user_name')}")
         await channel.send(content=self._build_content(data, "👤 มีสมาชิกใหม่"), embed=embed)
 
+    async def notify_student_invite(self, server_id: int, data: dict):
+        """📨 คำเชิญเข้าร่วมห้อง (STUDENT_INVITE) — แอดมินแอดชื่อที่ตรงกับบัญชีจริง
+        เจ้าตัวต้องกดรับคำเชิญในเว็บก่อนถึงเป็นสมาชิก (Consent Model) — ไม่ @everyone"""
+        channel = await self._get_announcement_channel(server_id, channel="minor")
+        if not channel: return
+
+        embed = discord.Embed(
+            title="📨 มีคำเชิญเข้าร่วมห้อง",
+            description=f"**{person_display_name(data)}** (เลขที่ {data.get('student_no')}) "
+                        f"ถูกเพิ่มเข้ามา แต่ยังต้องยืนยันตัวตนในเว็บก่อน\n(แอดมินอนุมัติแทนไม่ได้ ให้นักเรียนกดรับคำเชิญเอง)",
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text=f"เพิ่มโดย: {data.get('user_name')}")
+        await channel.send(content=self._build_content(data, "📨 มีคำเชิญเข้าร่วมห้อง"), embed=embed)
+
+    async def notify_invite_accepted(self, server_id: int, data: dict):
+        """✅ ยืนยันตัวตนแล้ว (INVITE_ACCEPTED) — เจ้าตัวรับคำเชิญแล้ว ข้อมูลส่วนตัวเปิดให้ห้องดูได้"""
+        channel = await self._get_announcement_channel(server_id, channel="minor")
+        if not channel: return
+
+        embed = discord.Embed(
+            title="✅ ยืนยันตัวตนแล้ว",
+            description=f"**{person_display_name(data)}** (เลขที่ {data.get('student_no')}) "
+                        f"ยืนยันตัวตนการเป็นสมาชิกเรียบร้อยแล้ว",
+            color=discord.Color.green()
+        )
+        await channel.send(content=self._build_content(data, "✅ ยืนยันตัวตนแล้ว"), embed=embed)
+
     async def notify_new_activity(self, server_id: int, data: dict):
         """
         🎪 กิจกรรมใหม่ (NEW_ACTIVITY) — render embed จาก metadata ได้อย่างเต็มที่

@@ -6,12 +6,13 @@ import time
 from fastapi import HTTPException
 from core.logger import AuditLogger
 from core.rbac import require_permission
-from core.name_utils import normalize_nfc, identity_pair, display_name
+from core.name_utils import normalize_nfc, identity_pair
 from services.finance_service import (
     DEFAULT_INCOME_CATEGORIES,
     DEFAULT_EXPENSE_CATEGORIES,
     DEFAULT_FINANCE_ACCOUNTS,
 )
+from services.action_service import ActionService
 
 service_logger = AuditLogger(service_name="ROOM_MANAGEMENT")
 
@@ -74,9 +75,9 @@ class RoomManagementService:
                     # พร้อมเสก is_admin = TRUE และให้ permissions เป็น ["all"] หรือเผื่อเอาไว้
                     await conn.execute("""
                         INSERT INTO students (
-                            room_id, user_id, student_no, class_role, status, is_admin, permissions
+                            room_id, user_id, student_no, class_role, status, is_admin, permissions, identity_claimed
                         ) VALUES (
-                            $1, $2, 0, 'president', 'active', TRUE, $3::jsonb
+                            $1, $2, 0, 'president', 'active', TRUE, $3::jsonb, TRUE
                         )
                     """, room_id, user_id, json.dumps(["all"]))
 
@@ -184,69 +185,74 @@ class RoomManagementService:
                         payload.first_name_en or None, payload.last_name_en or None, user_id)
 
                     existing_student = await conn.fetchrow(
-                        "SELECT id, user_id, status FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", room_id, payload.student_no
+                        "SELECT id, user_id, status, added_by FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL", room_id, payload.student_no
                     )
 
                     if existing_student:
-                        ghost_user_id = existing_student['user_id']
-                        ghost_user = await conn.fetchrow("SELECT first_name, last_name, first_name_en, last_name_en, email, google_id, discord_id, phone_number, birthday FROM users WHERE id = $1", ghost_user_id)
-
-                        is_ghost = not ghost_user['google_id'] and not ghost_user['discord_id'] and not ghost_user['email']
+                        existing_user_id = existing_student['user_id']
+                        if existing_user_id is None:
+                            # แถวที่ user_id กลายเป็น NULL (user โดนลบ) → ถือเป็น ghost ให้อ้างสิทธิ์ผ่านแอดมินได้
+                            ghost_user = None
+                            is_ghost = True
+                        else:
+                            ghost_user = await conn.fetchrow(
+                                "SELECT first_name, last_name, first_name_en, last_name_en, email, google_id, discord_id FROM users WHERE id = $1",
+                                existing_user_id,
+                            )
+                            is_ghost = ghost_user and not ghost_user['google_id'] and not ghost_user['discord_id'] and not ghost_user['email']
 
                         if is_ghost:
-                            old_values["ghost_user_deleted"] = dict(ghost_user)
-                            # 🌟 identity: ชื่ออังกฤษเป็นกุญแจหลัก ถ้าไม่มีอังกฤษ fallback เป็นไทย NFC
-                            # (เดิมใช้ concat + ลบช่องว่าง + lower เปราะ — ตอนนี้ normalize NFC แล้ว)
+                            # 🔒 Consent Model: ไม่สวมรอยทันทีอีกต่อไป — กลายเป็น "คำขออ้างสิทธิ์ (claim request)"
+                            # ให้แอดมินอนุมัติ (เก็บชื่อเดิม vs ชื่อผู้ขอไว้ใน claim_meta ให้แอดมินตัดสิน
+                            # — กรณีชื่อเพี้ยนเล็กน้อยก็ผ่านได้ ไม่ต้อง error 400 แบบเดิม)
                             real_key = identity_pair(
                                 payload.first_name_en, payload.last_name_en,
                                 payload.first_name, payload.last_name,
                             )
                             ghost_key = identity_pair(
-                                ghost_user.get('first_name_en'), ghost_user.get('last_name_en'),
-                                ghost_user.get('first_name'), ghost_user.get('last_name'),
+                                (ghost_user or {}).get('first_name_en'), (ghost_user or {}).get('last_name_en'),
+                                (ghost_user or {}).get('first_name'), (ghost_user or {}).get('last_name'),
                             )
+                            claim_meta = {
+                                "ghost_user_id": existing_user_id,
+                                "ghost_first_name": (ghost_user or {}).get('first_name'),
+                                "ghost_last_name": (ghost_user or {}).get('last_name'),
+                                "ghost_first_name_en": (ghost_user or {}).get('first_name_en'),
+                                "ghost_last_name_en": (ghost_user or {}).get('last_name_en'),
+                                "ghost_status": existing_student['status'],
+                                "name_match": bool(real_key) and bool(ghost_key) and real_key == ghost_key,
+                            }
+                            old_values["claim_request"] = dict(existing_student)
+                            await conn.execute("""
+                                UPDATE students
+                                SET user_id = $1, status = 'pending', identity_claimed = FALSE,
+                                    added_by = NULL, claim_meta = $2::jsonb, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = $3
+                            """, user_id, json.dumps(claim_meta), existing_student['id'])
 
-                            if real_key == ghost_key:
-                                # 🚀 MERGE UPGRADE: ย้ายกรรมสิทธิ์ "ทุกห้อง" ที่บัญชีผีเคยมี มาให้บัญชีจริง!
-                                ghost_rooms = await conn.fetch("SELECT id FROM students WHERE user_id = $1", ghost_user_id)
-                                old_values["ghost_rooms_affected"] = [dict(gr) for gr in ghost_rooms]
-                                
-                                for gr in ghost_rooms:
-                                    try:
-                                        await conn.execute("UPDATE students SET user_id = $1, status = 'active' WHERE id = $2", user_id, gr['id'])
-                                    except asyncpg.exceptions.UniqueViolationError:
-                                        await conn.execute("DELETE FROM students WHERE id = $1", gr['id'])
-
-                                await conn.execute("""
-                                    UPDATE users SET phone_number = COALESCE(phone_number, $2), birthday = COALESCE(birthday, $3) WHERE id = $1
-                                """, user_id, ghost_user.get('phone_number'), ghost_user.get('birthday'))
-
-                                await conn.execute("DELETE FROM users WHERE id = $1", ghost_user_id)
-                                
-                                exec_time = int((time.time() - start_time) * 1000)
-                                await service_logger.log(
-                                    conn=conn,
-                                    action="UPDATE",
-                                    actor_identifier=actor_identifier,
-                                    client_source=client_source,
-                                    room_id=room_id,
-                                    user_id=user_id,
-                                    entity_type="ACCOUNT_CLAIM",
-                                    entity_id=str(existing_student['id']),
-                                    status="success",
-                                    old_values=old_values,
-                                    new_values=new_values,
-                                    endpoint_or_command="join_room_claim",
-                                    execution_time_ms=exec_time
-                                )
-                                return {"room_id": room_id, "student_id": existing_student['id'], "room_name": room["room_name"], "message": "ยืนยันตัวตน และรวบรวมข้อมูลทุกห้องสำเร็จ!"}
-                            else:
-                                raise HTTPException(status_code=400, detail=f"❌ ไม่สามารถสวมรอยได้! เลขที่ {payload.student_no} มีชื่อในระบบคือ '{display_name(ghost_user.get('first_name'), ghost_user.get('last_name'), ghost_user.get('first_name_en'), ghost_user.get('last_name_en'))}' โปรดแจ้งหัวหน้าห้องให้แก้ไขชื่อให้ตรงกันครับ")
+                            exec_time = int((time.time() - start_time) * 1000)
+                            await service_logger.log(
+                                conn=conn,
+                                action="UPDATE",
+                                actor_identifier=actor_identifier,
+                                client_source=client_source,
+                                room_id=room_id,
+                                user_id=user_id,
+                                entity_type="CLAIM_REQUEST",
+                                entity_id=str(existing_student['id']),
+                                status="success",
+                                old_values=old_values,
+                                new_values=new_values,
+                                endpoint_or_command="join_room_claim_request",
+                                execution_time_ms=exec_time
+                            )
+                            # ⚠️ Lobby.vue เช็ค substring "รอการอนุมัติ" ต้องมีใน message นี้
+                            return {"room_id": room_id, "student_id": existing_student['id'], "room_name": room["room_name"], "message": "ส่งคำขอยืนยันตัวตนแล้ว รอการอนุมัติจากหัวหน้าห้อง"}
                         else:
                             raise HTTPException(status_code=400, detail=f"❌ เลขที่ {payload.student_no} มีผู้ใช้งานตัวจริงผูกบัญชีไว้แล้ว")
 
                     student_id = await conn.fetchval(
-                        "INSERT INTO students (room_id, user_id, student_no, class_role, status) VALUES ($1, $2, $3, 'student', 'pending') RETURNING id",
+                        "INSERT INTO students (room_id, user_id, student_no, class_role, status, identity_claimed, added_by) VALUES ($1, $2, $3, 'student', 'pending', FALSE, NULL) RETURNING id",
                         room_id, user_id, payload.student_no
                     )
                     
@@ -291,9 +297,37 @@ class RoomManagementService:
             async with pool.acquire() as conn:
                 await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
                 rows = await conn.fetch(
-                    "SELECT s.student_no, u.first_name, u.last_name, u.first_name_en, u.last_name_en, s.created_at FROM students s LEFT JOIN users u ON s.user_id = u.id WHERE s.room_id = $1 AND s.status = 'pending' AND s.deleted_at IS NULL ORDER BY s.student_no ASC",
+                    "SELECT s.id, s.student_no, s.identity_claimed, s.added_by, s.claim_meta, "
+                    "u.first_name, u.last_name, u.first_name_en, u.last_name_en, s.created_at "
+                    "FROM students s LEFT JOIN users u ON s.user_id = u.id "
+                    "WHERE s.room_id = $1 AND s.status = 'pending' AND s.deleted_at IS NULL ORDER BY s.student_no ASC",
                     room_id
                 )
+                results = []
+                for row in rows:
+                    d = dict(row)
+                    claim_meta = d.get("claim_meta")
+                    if isinstance(claim_meta, str):
+                        try:
+                            claim_meta = json.loads(claim_meta)
+                        except json.JSONDecodeError:
+                            claim_meta = {}
+                    if d.get("added_by") is not None:
+                        # แอดมินแอดให้ → รอเจ้าตัวกดรับ (invite) — แอดมินอนุมัติแทนไม่ได้
+                        d["request_type"] = "invite_pending"
+                    elif claim_meta and claim_meta.get("ghost_user_id"):
+                        # ขออ้างสิทธิ์ ghost → แอดมินเห็นชื่อเดิม vs ชื่อผู้ขอ แล้วตัดสินอนุมัติ
+                        d["request_type"] = "claim_request"
+                        d["ghost_first_name"] = claim_meta.get("ghost_first_name")
+                        d["ghost_last_name"] = claim_meta.get("ghost_last_name")
+                        d["ghost_first_name_en"] = claim_meta.get("ghost_first_name_en")
+                        d["ghost_last_name_en"] = claim_meta.get("ghost_last_name_en")
+                        d["name_match"] = claim_meta.get("name_match")
+                    else:
+                        # ขอเข้าห้องเอง → รอแอดมินอนุมัติ
+                        d["request_type"] = "join_request"
+                    d.pop("claim_meta", None)
+                    results.append(d)
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
                     conn=conn,
@@ -307,7 +341,7 @@ class RoomManagementService:
                     endpoint_or_command="get_pending_requests",
                     execution_time_ms=exec_time
                 )
-                return [dict(row) for row in rows]
+                return results
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             async with pool.acquire() as err_conn:
@@ -333,12 +367,26 @@ class RoomManagementService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
-                    
-                    old_student = await conn.fetchrow("SELECT id, status FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL", room_id, student_no)
-                    old_values = dict(old_student) if old_student else {}
-                    new_values = {"status": "active"}
 
-                    res = await conn.execute("UPDATE students SET status = 'active' WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL", room_id, student_no)
+                    old_student = await conn.fetchrow(
+                        "SELECT id, status, added_by FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL",
+                        room_id, student_no,
+                    )
+                    if not old_student:
+                        raise HTTPException(status_code=404, detail="ไม่พบคำขอ หรืออนุมัติไปแล้ว")
+                    old_values = dict(old_student)
+                    new_values = {"status": "active", "identity_claimed": True}
+
+                    # 🛡️ Consent Model: คำเชิญที่แอดมินแอดให้ (added_by IS NOT NULL) ต้องให้เจ้าตัวกดรับเอง
+                    # — แอดมินอนุมัติแทนไม่ได้ ไม่งั้นแฮ็กเกอร์ก็แค่สร้างห้อง + แอดชื่อ + อนุมัติเอง
+                    if old_student["added_by"] is not None:
+                        raise HTTPException(status_code=400, detail="คำเชิญนี้รอการยืนยันจากนักเรียน (ให้นักเรียนกดรับคำเชิญก่อน)")
+
+                    res = await conn.execute("""
+                        UPDATE students SET status = 'active', identity_claimed = TRUE,
+                               claim_meta = '{}'::jsonb, updated_at = CURRENT_TIMESTAMP
+                        WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL
+                    """, room_id, student_no)
                     if res == "UPDATE 0": raise HTTPException(status_code=404, detail="ไม่พบคำขอ หรืออนุมัติไปแล้ว")
                     
                     exec_time = int((time.time() - start_time) * 1000)
@@ -382,13 +430,39 @@ class RoomManagementService:
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
-                    
-                    old_student = await conn.fetchrow("SELECT id, status FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL", room_id, student_no)
-                    old_values = dict(old_student) if old_student else {}
 
-                    res = await conn.execute("DELETE FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL", room_id, student_no)
-                    if res == "DELETE 0": raise HTTPException(status_code=404, detail="ไม่พบคำขอ หรือถูกลบไปแล้ว")
-                    
+                    old_student = await conn.fetchrow(
+                        "SELECT id, status, added_by, claim_meta, user_id FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL",
+                        room_id, student_no,
+                    )
+                    if not old_student:
+                        raise HTTPException(status_code=404, detail="ไม่พบคำขอ หรือถูกลบไปแล้ว")
+                    old_values = dict(old_student)
+
+                    claim_meta = old_student.get("claim_meta")
+                    if isinstance(claim_meta, str):
+                        try:
+                            claim_meta = json.loads(claim_meta)
+                        except json.JSONDecodeError:
+                            claim_meta = {}
+
+                    if old_student["added_by"] is not None:
+                        # แอดมินถอนคำเชิญ (invite_pending) → ลบทิ้ง
+                        await conn.execute("DELETE FROM students WHERE id = $1", old_student["id"])
+                        audit_type = "REJECT_INVITE"
+                    elif claim_meta and claim_meta.get("ghost_user_id"):
+                        # ปฏิเสธคำขออ้างสิทธิ์ ghost → กู้คืนแถว ghost กลับ (ชื่อ/สถานะเดิม)
+                        await conn.execute("""
+                            UPDATE students SET user_id = $1, status = $2, identity_claimed = FALSE,
+                                   added_by = NULL, claim_meta = '{}'::jsonb, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = $3
+                        """, claim_meta.get("ghost_user_id"), claim_meta.get("ghost_status") or "active", old_student["id"])
+                        audit_type = "REJECT_CLAIM"
+                    else:
+                        # ปฏิเสธคำขอเข้าห้องธรรมดา (join_request) → ลบทิ้ง
+                        await conn.execute("DELETE FROM students WHERE id = $1", old_student["id"])
+                        audit_type = "JOIN_REQUEST"
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn,
@@ -397,7 +471,7 @@ class RoomManagementService:
                         client_source=client_source,
                         room_id=room_id,
                         user_id=user_id,
-                        entity_type="JOIN_REQUEST",
+                        entity_type=audit_type,
                         entity_id=str(old_student['id']) if old_student else None,
                         status="success",
                         old_values=old_values,
@@ -419,5 +493,103 @@ class RoomManagementService:
                     error_detail=str(e),
                     endpoint_or_command="reject_join_request",
                     execution_time_ms=exec_time
+                )
+            raise e
+
+    @classmethod
+    async def list_my_invites(cls, pool: asyncpg.Pool, user_id: int, client_source: str, actor_identifier: str) -> list:
+        """รายการคำเชิญเข้าร่วมห้องของฉัน — แอดมินแอดชื่อฉันด้วยชื่อ (added_by IS NOT NULL) ที่ยัง pending.
+        เจ้าตัวต้องกดรับ (accept_invite) ถึงจะกลายเป็นสมาชิก + เปิดข้อมูลส่วนตัวให้ห้องดู (Consent Model)."""
+        start_time = time.time()
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT s.id AS invite_id, s.student_no, s.room_id, r.room_name, r.room_code, r.server_id,
+                           au.first_name AS added_by_first, au.last_name AS added_by_last, s.created_at
+                    FROM students s
+                    JOIN rooms r ON s.room_id = r.id AND r.deleted_at IS NULL
+                    LEFT JOIN users au ON s.added_by = au.id
+                    WHERE s.user_id = $1 AND s.status = 'pending' AND s.identity_claimed = FALSE
+                      AND s.added_by IS NOT NULL AND s.deleted_at IS NULL
+                    ORDER BY s.created_at DESC
+                """, user_id)
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=None, user_id=user_id,
+                    entity_type="INVITES", status="success",
+                    endpoint_or_command="list_my_invites", execution_time_ms=exec_time
+                )
+                return [dict(r) for r in rows]
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            async with pool.acquire() as err_conn:
+                await service_logger.log(
+                    conn=err_conn, action="VIEW", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=None, user_id=user_id,
+                    entity_type="INVITES", status="failed", error_detail=str(e),
+                    endpoint_or_command="list_my_invites", execution_time_ms=exec_time
+                )
+            raise e
+
+    @classmethod
+    async def accept_invite(cls, pool: asyncpg.Pool, invite_id: int, user_id: int, client_source: str, actor_identifier: str) -> dict:
+        """เจ้าตัวกดรับคำเชิญ → เป็นสมาชิก active + identity_claimed=TRUE (ข้อมูลส่วนตัวเปิดให้ห้องดูได้)."""
+        start_time = time.time()
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    row = await conn.fetchrow("""
+                        SELECT s.id, s.room_id, s.user_id, s.student_no, s.added_by, s.status, s.identity_claimed,
+                               u.first_name, u.last_name, u.first_name_en, u.last_name_en
+                        FROM students s LEFT JOIN users u ON s.user_id = u.id
+                        WHERE s.id = $1 AND s.deleted_at IS NULL
+                    """, invite_id)
+                    if not row:
+                        raise HTTPException(status_code=404, detail="ไม่พบคำเชิญนี้")
+                    if row["user_id"] != user_id:
+                        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์รับคำเชิญนี้")
+                    if row["added_by"] is None:
+                        raise HTTPException(status_code=400, detail="รายการนี้ไม่ใช่คำเชิญที่รอคุณยืนยัน")
+                    if row["status"] != "pending" or row["identity_claimed"]:
+                        raise HTTPException(status_code=400, detail="คำเชิญนี้ถูกใช้ไปแล้วหรือถูกยกเลิก")
+
+                    await conn.execute("""
+                        UPDATE students SET status = 'active', identity_claimed = TRUE, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = $1
+                    """, invite_id)
+
+                    old_values = {"status": row["status"], "identity_claimed": row["identity_claimed"]}
+                    new_values = {"status": "active", "identity_claimed": True}
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action="UPDATE", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=row["room_id"], user_id=user_id,
+                        entity_type="INVITE_ACCEPTED", entity_id=str(invite_id), status="success",
+                        old_values=old_values, new_values=new_values,
+                        endpoint_or_command="accept_invite", execution_time_ms=exec_time
+                    )
+
+                    room_server_id = await conn.fetchval(
+                        "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", row["room_id"]
+                    )
+                    if room_server_id:
+                        await ActionService.notify_invite_accepted(
+                            server_id=room_server_id,
+                            student_no=row["student_no"],
+                            first_name=row["first_name"],
+                            last_name=row["last_name"],
+                            first_name_en=row["first_name_en"] or "",
+                            last_name_en=row["last_name_en"] or "",
+                        )
+                    return {"invite_id": invite_id, "room_id": row["room_id"], "message": "รับคำเชิญแล้ว ยินดีต้อนรับเข้าห้อง"}
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            async with pool.acquire() as err_conn:
+                await service_logger.log(
+                    conn=err_conn, action="UPDATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=None, user_id=user_id,
+                    entity_type="INVITE_ACCEPTED", status="failed", error_detail=str(e),
+                    endpoint_or_command="accept_invite", execution_time_ms=exec_time
                 )
             raise e

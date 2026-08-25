@@ -16,6 +16,7 @@ from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenEr
 from core.rbac import require_permission, require_member
 from core.config import settings
 from core.name_utils import normalize_nfc, normalize_en, identity_pair
+from core.privacy import can_view_pii, mask_private_fields, is_real_claimed_account, PRIVATE_STUDENT_FIELDS
 from services.action_service import ActionService
 from models.student_schemas import StudentUpdateRequest
 
@@ -157,7 +158,7 @@ class StudentService:
             u.phone_number, u.phone_number_parent, u.phone_number_parent_relation,
             u.line_id, u.ig_username, u.email,
             u.address_house_no, u.address_road, u.address_sub_district, u.address_district, u.address_province, u.address_post_code,
-            s.status, s.is_admin, s.permissions, s.created_at, s.updated_at
+            s.status, s.is_admin, s.permissions, s.identity_claimed, s.added_by, s.created_at, s.updated_at
         FROM students s
         LEFT JOIN users u ON s.user_id = u.id
     """
@@ -197,12 +198,18 @@ class StudentService:
         last_name_en: str = "",
         nickname: str = "",
         nickname_en: str = "",
-    ) -> int:
+    ) -> tuple[int, bool]:
         """หา user ตาม "กุญแจตัวตน" — ชื่ออังกฤษก่อน (English-primary) ถ้าไม่มีอังกฤษ
         หรือหาไม่เจอ → fallback เป็นชื่อไทยแบบ NFC-normalized (แก้ อำ/อํา match กันไม่เจอ).
 
         ทั้งชื่อไทยและอังกฤษถูก normalize ก่อนเก็บ (ดู core/name_utils) เพื่อให้
-        exact-match ตรงกันเสมอ. คืน user_id เดิมถ้ามีอยู่แล้ว ไม่งั้นสร้าง ghost user."""
+        exact-match ตรงกันเสมอ.
+
+        คืน (user_id, is_real_claimed_account):
+        - is_real=True → เจอบัญชีจริงที่เจ้าตัวยืนยันแล้ว (มี google/discord/email/phone)
+          caller ต้องสร้าง "คำเชิญ pending" แทนการ link ตรง ๆ (Consent Model — core/privacy.py)
+        - is_real=False → เจอ ghost ชื่อเท่านั้น หรือสร้าง ghost ใหม่ → สมาชิก active ได้ทันที (ไม่มี PII)
+        """
         th_first = normalize_nfc(first_name)
         th_last = normalize_nfc(last_name)
         en_first = normalize_nfc(first_name_en)
@@ -210,36 +217,43 @@ class StudentService:
         th_nickname = normalize_nfc(nickname)
         en_nickname = normalize_nfc(nickname_en)
 
+        async def _match(sql: str, *params) -> tuple[int, bool] | None:
+            row = await conn.fetchrow(sql, *params)
+            if not row:
+                return None
+            return (row["id"], is_real_claimed_account(dict(row)))
+
         if en_first or en_last:
             # 1) ชื่ออังกฤษเป็นกุญแจหลัก — ค้นแบบไม่ไวตัวพิมพ์ (LOWER) สอดคล้องกับ identity_pair
             #    ที่ใช้ normalize_en (casefold) ใน bulk_add / join_room
-            user_id = await conn.fetchval(
-                "SELECT id FROM users WHERE LOWER(first_name_en) = $1 AND LOWER(last_name_en) = $2 AND deleted_at IS NULL",
+            hit = await _match(
+                "SELECT id, google_id, discord_id, email, phone_number FROM users WHERE LOWER(first_name_en) = $1 AND LOWER(last_name_en) = $2 AND deleted_at IS NULL",
                 normalize_en(first_name_en), normalize_en(last_name_en),
             )
-            if user_id:
-                return user_id
+            if hit:
+                return hit
             # 2) fallback: user เก่าที่มีแต่ชื่อไทย (อังกฤษยังว่าง) — กันสร้าง user ซ้ำตอนกรอกชื่ออังกฤษทีหลัง
             if th_first or th_last:
-                user_id = await conn.fetchval(
-                    "SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL",
+                hit = await _match(
+                    "SELECT id, google_id, discord_id, email, phone_number FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL",
                     th_first, th_last,
                 )
-                if user_id:
-                    return user_id
+                if hit:
+                    return hit
         else:
-            user_id = await conn.fetchval(
-                "SELECT id FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL",
+            hit = await _match(
+                "SELECT id, google_id, discord_id, email, phone_number FROM users WHERE first_name = $1 AND last_name = $2 AND deleted_at IS NULL",
                 th_first, th_last,
             )
-            if user_id:
-                return user_id
+            if hit:
+                return hit
 
-        return await conn.fetchval(
+        new_id = await conn.fetchval(
             "INSERT INTO users (first_name, last_name, nickname, first_name_en, last_name_en, nickname_en) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
             th_first or None, th_last or None, th_nickname or None,
             en_first or None, en_last or None, en_nickname or None,
         )
+        return (new_id, False)
 
     @classmethod
     async def add_student(cls, pool: asyncpg.Pool, student_no: int, first_name: str, last_name: str, user_name: str, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None, actor_user_id: Optional[int] = None, first_name_en: str = "", last_name_en: str = "", nickname: str = "", nickname_en: str = ""):
@@ -253,39 +267,83 @@ class StudentService:
                     # 🛡️ RBAC: ต้องมี MANAGE_STUDENTS ถึงจะเพิ่มนักเรียนได้ (กันนักเรียนธรรมดาเพิ่มเพื่อนเอง)
                     if actor_user_id is not None:
                         await require_permission(conn, target_room_id, actor_user_id, "MANAGE_STUDENTS")
-                    user_id = await cls._find_or_create_user(conn, first_name, last_name, first_name_en, last_name_en, nickname, nickname_en)
+                    user_id, is_real = await cls._find_or_create_user(conn, first_name, last_name, first_name_en, last_name_en, nickname, nickname_en)
 
-                    res = await conn.execute("""
-                        INSERT INTO students (room_id, student_no, user_id, status) 
-                        SELECT $1, $2, $3, 'active' WHERE NOT EXISTS (
-                            SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
+                    if is_real:
+                        # 🛡️ กันซ้ำ: บัญชีจริงที่เป็นสมาชิกห้องนี้อยู่แล้ว → ไม่สร้างคำเชิญซ้ำ
+                        # (กรณี ghost ที่อยู่ในห้องแล้ว ยังให้ add ที่เลขที่ใหม่ได้ — reuse ชื่อเดิมตาม behavior เดิม)
+                        already_member = await conn.fetchval(
+                            "SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL",
+                            target_room_id, user_id,
                         )
-                    """, target_room_id, student_no, user_id)
-                    
-                    if res == "INSERT 0 1":
-                        exec_time = int((time.time() - start_time) * 1000)
-                        await service_logger.log(
-                            conn=conn, action="CREATE", actor_identifier=actor_identifier,
-                            client_source=client_source, room_id=target_room_id, user_id=user_id,
-                            entity_type="STUDENT", entity_id=str(student_no), status="success",
-                            new_values=new_values, endpoint_or_command="add_student", execution_time_ms=exec_time
-                        )
-                        # 📢 แจ้งเตือน Discord: มีสมาชิกใหม่ (ไม่ @everyone)
-                        room_server_id = await conn.fetchval(
-                            "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id
-                        )
-                        if room_server_id:
-                            await ActionService.notify_new_student(
-                                server_id=room_server_id,
-                                student_no=student_no,
-                                first_name=first_name,
-                                last_name=last_name,
-                                first_name_en=first_name_en,
-                                last_name_en=last_name_en,
-                                user_name=user_name,
+                        if already_member:
+                            raise ValueError(f"เลขที่ {student_no} มีรายชื่ออยู่ในห้องนี้แล้ว")
+                        # 🔒 Consent Model: เจอบัญชีจริงที่เจ้าตัวยืนยันแล้ว (ไม่ใช่ ghost) → สร้าง "คำเชิญ" pending
+                        # เจ้าตัวต้อง login แล้วกดรับ (accept_invite) ก่อนถึงจะกลายเป็นสมาชิก + เปิดข้อมูลส่วนตัว
+                        res = await conn.execute("""
+                            INSERT INTO students (room_id, student_no, user_id, status, identity_claimed, added_by)
+                            SELECT $1, $2, $3, 'pending', FALSE, $4 WHERE NOT EXISTS (
+                                SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
                             )
+                        """, target_room_id, student_no, user_id, actor_user_id)
+
+                        if res == "INSERT 0 1":
+                            exec_time = int((time.time() - start_time) * 1000)
+                            await service_logger.log(
+                                conn=conn, action="CREATE", actor_identifier=actor_identifier,
+                                client_source=client_source, room_id=target_room_id, user_id=user_id,
+                                entity_type="STUDENT_INVITE", entity_id=str(student_no), status="success",
+                                new_values=new_values, endpoint_or_command="add_student_invite", execution_time_ms=exec_time
+                            )
+                            # 📢 แจ้งเตือน Discord: มีคำเชิญเข้าร่วมห้อง (เจ้าตัวต้องกดรับเอง — ไม่ใช่ NEW_STUDENT)
+                            room_server_id = await conn.fetchval(
+                                "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id
+                            )
+                            if room_server_id:
+                                await ActionService.notify_student_invite(
+                                    server_id=room_server_id,
+                                    student_no=student_no,
+                                    first_name=first_name,
+                                    last_name=last_name,
+                                    first_name_en=first_name_en,
+                                    last_name_en=last_name_en,
+                                    user_name=user_name,
+                                )
+                        else:
+                            raise ValueError(f"เลขที่ {student_no} มีรายชื่ออยู่ในห้องนี้แล้ว")
                     else:
-                        raise ValueError(f"เลขที่ {student_no} มีรายชื่ออยู่ในห้องนี้แล้ว")
+                        # ghost / ผู้ใช้ใหม่ → เป็นสมาชิก active ได้ทันที (มีแค่ชื่อ ไม่มี PII ให้รั่ว)
+                        res = await conn.execute("""
+                            INSERT INTO students (room_id, student_no, user_id, status, identity_claimed, added_by)
+                            SELECT $1, $2, $3, 'active', FALSE, $4 WHERE NOT EXISTS (
+                                SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
+                            )
+                        """, target_room_id, student_no, user_id, actor_user_id)
+
+                        if res == "INSERT 0 1":
+                            exec_time = int((time.time() - start_time) * 1000)
+                            await service_logger.log(
+                                conn=conn, action="CREATE", actor_identifier=actor_identifier,
+                                client_source=client_source, room_id=target_room_id, user_id=user_id,
+                                entity_type="STUDENT", entity_id=str(student_no), status="success",
+                                new_values=new_values, endpoint_or_command="add_student", execution_time_ms=exec_time
+                            )
+                            # 📢 แจ้งเตือน Discord: มีสมาชิกใหม่ (ไม่ @everyone)
+                            room_server_id = await conn.fetchval(
+                                "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id
+                            )
+                            if room_server_id:
+                                await ActionService.notify_new_student(
+                                    server_id=room_server_id,
+                                    student_no=student_no,
+                                    first_name=first_name,
+                                    last_name=last_name,
+                                    first_name_en=first_name_en,
+                                    last_name_en=last_name_en,
+                                    user_name=user_name,
+                                )
+                        else:
+                            raise ValueError(f"เลขที่ {student_no} มีรายชื่ออยู่ในห้องนี้แล้ว")
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             async with pool.acquire() as error_conn:
@@ -311,6 +369,7 @@ class StudentService:
                         await require_permission(conn, target_room_id, actor_user_id, "MANAGE_STUDENTS")
                     # 🌟 identity: ชื่ออังกฤษเป็นกุญแจหลัก (English-primary), fallback ไทย NFC
                     # — ใช้ _find_or_create_user จุดเดียวกับ add_student กัน dedupe พัง
+                    # Consent Model: (user_id, is_real) — is_real → pending invite, ghost → active
                     user_map = {}
                     user_by_index = {}
                     for idx, s in enumerate(students):
@@ -326,20 +385,61 @@ class StudentService:
                             )
                         user_by_index[idx] = user_map[key]
 
-                    student_tuples = [(target_room_id, s['student_no'], user_by_index[i]) for i, s in enumerate(students)]
-                    await conn.executemany("""
-                        INSERT INTO students (room_id, student_no, user_id, status) 
-                        SELECT $1, $2, $3, 'active' WHERE NOT EXISTS (
-                            SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
-                        )
-                    """, student_tuples)
-                    
+                    active_tuples = []
+                    pending_tuples = []
+                    pending_infos = []  # (student_no, first, last, first_en, last_en) สำหรับแจ้งคำเชิญ
+                    for i, s in enumerate(students):
+                        uid, is_real = user_by_index[i]
+                        # 🛡️ กันซ้ำ: คนที่อยู่ในห้องนี้อยู่แล้ว (active หรือ pending) → ข้าม ไม่สร้างซ้ำ
+                        if await conn.fetchval(
+                            "SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL",
+                            target_room_id, uid,
+                        ):
+                            continue
+                        row = (target_room_id, s['student_no'], uid, actor_user_id)
+                        if is_real:
+                            pending_tuples.append(row)
+                            pending_infos.append((
+                                s['student_no'], s['first_name'], s['last_name'],
+                                s.get('first_name_en') or '', s.get('last_name_en') or '',
+                            ))
+                        else:
+                            active_tuples.append(row)
+
+                    if active_tuples:
+                        await conn.executemany("""
+                            INSERT INTO students (room_id, student_no, user_id, status, identity_claimed, added_by)
+                            SELECT $1, $2, $3, 'active', FALSE, $4 WHERE NOT EXISTS (
+                                SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
+                            )
+                        """, active_tuples)
+                    if pending_tuples:
+                        await conn.executemany("""
+                            INSERT INTO students (room_id, student_no, user_id, status, identity_claimed, added_by)
+                            SELECT $1, $2, $3, 'pending', FALSE, $4 WHERE NOT EXISTS (
+                                SELECT 1 FROM students WHERE room_id = $1 AND student_no = $2 AND deleted_at IS NULL
+                            )
+                        """, pending_tuples)
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="CREATE", actor_identifier=actor_identifier,
                         client_source=client_source, room_id=target_room_id, entity_type="STUDENT_BULK",
                         status="success", new_values=new_values, endpoint_or_command="bulk_add_students", execution_time_ms=exec_time
                     )
+
+                    # 📢 ถ้ามีคำเชิญ pending → แจ้งเตือน Discord ต่อคน (มี server_id เท่านั้น)
+                    room_server_id = await conn.fetchval(
+                        "SELECT server_id FROM rooms WHERE id = $1 AND deleted_at IS NULL", target_room_id
+                    )
+                    if room_server_id and pending_infos:
+                        for info in pending_infos:
+                            await ActionService.notify_student_invite(
+                                server_id=room_server_id,
+                                student_no=info[0], first_name=info[1], last_name=info[2],
+                                first_name_en=info[3], last_name_en=info[4],
+                                user_name=user_name,
+                            )
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             async with pool.acquire() as error_conn:
@@ -517,6 +617,8 @@ class StudentService:
                         "class_role": full_data["class_role"],
                         "status": full_data["status"],
                         "is_admin": full_data.get("is_admin", False),
+                        "identity_claimed": bool(full_data.get("identity_claimed", False)),
+                        "added_by": full_data.get("added_by"),
                         "discord_id_str": str(full_data['discord_id']) if full_data.get('discord_id') else None,
                         "data_completion": cls._calculate_completion(full_data)
                     })
@@ -680,6 +782,7 @@ class StudentService:
                     seen = set()
                     fields = [f for f in fields if not (f in seen or seen.add(f))]
 
+                    is_super_admin = settings.SUPER_ADMIN_ID and user_id and int(user_id) == int(settings.SUPER_ADMIN_ID)
                     data = []
                     for r in rows:
                         row_dict = dict(r)
@@ -687,6 +790,12 @@ class StudentService:
                         # คีย์ภายในสำหรับ Sheet สรุป (ไม่ถูกเขียนลง Sheet รายชื่อ)
                         processed["_status"] = row_dict.get("status")
                         processed["_completion_percent"] = cls._calculate_completion(row_dict)["percentage"]
+                        # 🛡️ Consent Model: สมาชิกที่ยังไม่ยืนยันตัวตน → PII เป็น blank ในไฟล์ export
+                        # (คำนวณ completion จาก row_dict ดิบก่อนแล้ว — ไม่ให้ % เปลี่ยนเพราะ mask)
+                        if not (is_super_admin or row_dict.get("identity_claimed")):
+                            for f in PRIVATE_STUDENT_FIELDS:
+                                if f in processed:
+                                    processed[f] = ""
                         data.append(processed)
 
                     output = cls._build_student_workbook(
@@ -746,14 +855,39 @@ class StudentService:
                 """
                 search_pattern = f"%{query}%"
                 rows = await conn.fetch(sql_query, target_room_id, search_pattern, query)
-                
+
+                # 🛡️ Consent Model: mask PII ต่อแถว — สมาชิกห้องค้นชื่อได้ (transparency) แต่ PII ของคนที่
+                # ยังไม่ยืนยันตัวตนถูก 🔒 ซ่อน (กัน search รั่วเบอร์/ที่อยู่/ข้อมูลสุขภาพเต็ม ๆ)
+                is_super_admin = settings.SUPER_ADMIN_ID and user_id and int(user_id) == int(settings.SUPER_ADMIN_ID)
+                viewer_has_view_all = False
+                if not is_super_admin and user_id is not None:
+                    try:
+                        await require_permission(conn, target_room_id, user_id, "VIEW_ALL_STUDENTS")
+                        viewer_has_view_all = True
+                    except ForbiddenError:
+                        viewer_has_view_all = False
+
+                results = []
+                for r in rows:
+                    d = dict(r)
+                    # asyncpg คืน JSONB เป็น str/dict ตามเวอร์ชัน → normalize ก่อน (StudentResponse expects List[str])
+                    d['permissions'] = cls._parse_permissions(d.get('permissions'))
+                    can_view = can_view_pii(
+                        requester_user_id=user_id,
+                        target_user_id=d.get("user_id"),
+                        identity_claimed=d.get("identity_claimed"),
+                        is_super_admin=is_super_admin,
+                        viewer_has_view_all=viewer_has_view_all,
+                    )
+                    results.append(mask_private_fields(d, can_view))
+
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
                     conn=conn, action="VIEW", actor_identifier=actor_identifier,
                     client_source=client_source, room_id=target_room_id, entity_type="STUDENT_SEARCH",
                     status="success", new_values={"query": query}, endpoint_or_command="search_students", execution_time_ms=exec_time
                 )
-                return [dict(r) for r in rows]
+                return results
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             async with pool.acquire() as error_conn:
@@ -781,9 +915,7 @@ class StudentService:
 
                 is_super_admin = settings.SUPER_ADMIN_ID and int(requester_user_id) == int(settings.SUPER_ADMIN_ID)
 
-                is_self = (target_user_id == requester_user_id)
                 has_permission = False
-
                 if not is_super_admin:
                     # 🛡️ ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันการอ่านโปรไฟล์ข้ามห้อง)
                     await require_member(conn, target_room_id, requester_user_id)
@@ -793,16 +925,17 @@ class StudentService:
                     except ForbiddenError:
                         has_permission = False
 
-                if not (is_super_admin or is_self or has_permission):
-                    private_fields = [
-                        'phone_number', 'phone_number_parent', 'phone_number_parent_relation',
-                        'email', 'line_id', 'ig_username', 'birthday',
-                        'address_house_no', 'address_road', 'address_sub_district',
-                        'address_district', 'address_province', 'address_post_code',
-                        'blood_group', 'shirt_size', 'food_allergy', 'congenital_disease',
-                    ]
-                    for field in private_fields:
-                        if field in target_data: target_data[field] = "🔒 ไม่มีสิทธิ์เข้าถึง"
+                # 🛡️ Consent Model (ดู core/privacy.py): PII เห็นได้เฉพาะ super admin / ดูตัวเอง /
+                # (สมาชิกยืนยันตัวตนแล้ว AND มี VIEW_ALL_STUDENTS) — แอดมินก็เห็น PII ของสมาชิกที่ยังไม่
+                # ยืนยันตัวตนไม่ได้ (กันแฮ็กเกอร์สร้างห้องแล้วแอดชื่อคนอื่นเพื่อเก็บข้อมูล)
+                can_view = can_view_pii(
+                    requester_user_id=requester_user_id,
+                    target_user_id=target_user_id,
+                    identity_claimed=target_data.get("identity_claimed"),
+                    is_super_admin=is_super_admin,
+                    viewer_has_view_all=has_permission,
+                )
+                mask_private_fields(target_data, can_view)
 
                 target_data['data_completion'] = cls._calculate_completion(dict(target_row))
 

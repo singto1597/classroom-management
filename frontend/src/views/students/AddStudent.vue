@@ -58,7 +58,7 @@ const submitSingle = async () => {
       nickname_en: singleForm.value.nickname_en,
       user_name: currentUserName
     })
-    await Swal.fire('สำเร็จ!', 'เพิ่มนักเรียนเรียบร้อยแล้ว', 'success')
+    await Swal.fire('สำเร็จ!', 'เพิ่มนักเรียนเรียบร้อยแล้ว (ถ้าเป็นผู้ใช้จริง ระบบจะส่งคำเชิญให้เขายืนยันตัวตนก่อนถึงเปิดข้อมูลส่วนตัว)', 'success')
     router.push('/students')
   } catch (error: any) {
     Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถเพิ่มข้อมูลได้', 'error')
@@ -99,7 +99,7 @@ const submitBulk = async () => {
     }
 
     await StudentService.bulkAddStudents(currentRoomId, students, currentUserName)
-    await Swal.fire('สำเร็จ!', `เพิ่มนักเรียนรวดเดียว ${students.length} คน เรียบร้อยแล้ว`, 'success')
+    await Swal.fire('สำเร็จ!', `เพิ่มนักเรียนรวดเดียว ${students.length} คน เรียบร้อยแล้ว (ผู้ใช้จริงจะได้รับคำเชิญให้ยืนยันตัวตนก่อนเปิดข้อมูลส่วนตัว)`, 'success')
     router.push('/students')
   } catch (error: any) {
     Swal.fire('เกิดข้อผิดพลาด', error.message || error.response?.data?.detail || 'ไม่สามารถเพิ่มข้อมูลได้', 'error')

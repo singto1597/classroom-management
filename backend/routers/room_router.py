@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 import asyncpg
 from typing import List
 
-from models.room_schemas import RoomCreateRequest, RoomJoinRequest, RoomResponse, JoinRoomResponse
+from models.room_schemas import RoomCreateRequest, RoomJoinRequest, RoomResponse, JoinRoomResponse, PendingRequestResponse
+from models.student_schemas import SuccessResponse, InviteResponse
 from services.room_service import RoomManagementService
 from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import ForbiddenError
@@ -73,7 +74,43 @@ async def join_room(
     except HTTPException as e:
         raise e
 
-@router.get("/{room_id}/requests", summary="ดึงรายชื่อนักเรียนที่รออนุมัติ")
+# 🛡️ Consent Model: คำเชิญเข้าร่วมห้องของฉัน (แอดมินแอดชื่อฉันให้) — ฉันต้องกดรับเอง
+# ⚠️ ต้องอยู่ใน room_router (mount อันแรกใน main.py) กันชนกับ `GET /{target_id}` ของ classroom_sync_router
+@router.get("/invites", response_model=List[InviteResponse], summary="ดึงคำเชิญเข้าร่วมห้องของฉัน (ต้องกดรับก่อน)")
+async def get_my_invites(
+    request: Request,
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    client_source, actor = get_audit_context(request, user_ctx)
+    return await RoomManagementService.list_my_invites(
+        pool,
+        user_ctx["user_id"],
+        client_source=client_source,
+        actor_identifier=actor
+    )
+
+@router.post("/invites/{invite_id}/accept", response_model=SuccessResponse, summary="รับคำเชิญเข้าร่วมห้อง")
+async def accept_invite(
+    invite_id: int,
+    request: Request,
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        result = await RoomManagementService.accept_invite(
+            pool,
+            invite_id,
+            user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor
+        )
+        return SuccessResponse(message=result.get("message", "รับคำเชิญแล้ว"))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+@router.get("/{room_id}/requests", response_model=List[PendingRequestResponse], summary="ดึงรายชื่อนักเรียนที่รออนุมัติ")
 async def get_pending_requests(
     room_id: int,
     request: Request,
@@ -83,14 +120,14 @@ async def get_pending_requests(
     try:
         client_source, actor = get_audit_context(request, user_ctx)
         return await RoomManagementService.get_pending_requests(
-            pool, 
-            room_id, 
+            pool,
+            room_id,
             user_ctx["user_id"],
             client_source=client_source,
             actor_identifier=actor
         )
     except ForbiddenError as e:
-        raise HTTPException(status_code=403, detail=str(e)) 
+        raise HTTPException(status_code=403, detail=str(e))
 
 @router.put("/{room_id}/requests/{student_no}/approve", summary="อนุมัตินักเรียนเข้าห้อง")
 async def approve_student(

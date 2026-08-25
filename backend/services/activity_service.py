@@ -24,6 +24,7 @@ from core.exceptions import (
 )
 from core.logger import AuditLogger
 from core.rbac import require_member, require_permission
+from core.privacy import can_view_activity_pii, mask_private_fields, PROFILE_TYPE_A_FIELDS
 from services.action_service import ActionService
 
 THAI_TZ = ZoneInfo("Asia/Bangkok")
@@ -238,7 +239,7 @@ class ActivityService:
         SELECT
             ap.id, ap.activity_id, ap.student_id, ap.role_type, ap.role_detail,
             ap.earned_hours, ap.status, ap.metadata, ap.recorded_by,
-            s.student_no,
+            s.student_no, s.identity_claimed, u.id AS user_id,
             u.first_name, u.last_name, u.nickname,
             u.first_name_en, u.last_name_en, u.nickname_en,
             -- 🌟 Type A Profile Fields (READ ONLY จาก users) — JOIN มาพร้อมเสมอ ห้ามบันทึกซ้ำลง metadata
@@ -276,6 +277,22 @@ class ActivityService:
             d["earned_hours"] = float(d["earned_hours"] or 0)
             result.append(d)
         return result
+
+    @classmethod
+    def _mask_participants_pii(cls, participants: List[dict], requester_user_id: Optional[int]) -> List[dict]:
+        """🛡️ Consent Model: participant ที่ยังไม่ยืนยันตัวตน (identity_claimed=False) → Type A (PII)
+        ถูก 🔒 mask — สมาชิกห้องเห็น PII ได้เฉพาะคนที่ยืนยันตัวตนแล้ว (หรือดูตัวเอง / super admin).
+        ดู core/privacy.py"""
+        is_super_admin = settings.SUPER_ADMIN_ID and requester_user_id and int(requester_user_id) == int(settings.SUPER_ADMIN_ID)
+        for p in participants:
+            can_view = can_view_activity_pii(
+                requester_user_id=requester_user_id,
+                target_user_id=p.get("user_id"),
+                identity_claimed=p.get("identity_claimed"),
+                is_super_admin=is_super_admin,
+            )
+            mask_private_fields(p, can_view, fields=PROFILE_TYPE_A_FIELDS)
+        return participants
 
     @classmethod
     def _build_activity_response(cls, activity: dict, participants: Optional[List[dict]] = None) -> dict:
@@ -624,6 +641,7 @@ class ActivityService:
                     data["_participants"] = []
                     if include_participants:
                         data["_participants"] = await cls._fetch_participants(conn, data["id"])
+                        cls._mask_participants_pii(data["_participants"], user_id)
                     activities.append(cls._build_activity_response(data))
 
                 exec_time = int((time.time() - start_time) * 1000)
@@ -669,6 +687,7 @@ class ActivityService:
                 if not activity:
                     raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
                 participants = await cls._fetch_participants(conn, activity_id)
+                cls._mask_participants_pii(participants, user_id)
 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
@@ -794,6 +813,7 @@ class ActivityService:
 
                     activity = await cls._fetch_activity_row(conn, target_room_id, activity_id)
                     participants = await cls._fetch_participants(conn, activity_id)
+                    cls._mask_participants_pii(participants, actor_user_id)
                     return cls._build_activity_response(activity, participants)
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -1615,6 +1635,7 @@ class ActivityService:
                     raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
 
                 participants = await cls._fetch_participants(conn, activity_id)
+                cls._mask_participants_pii(participants, user_id)
                 records = await conn.fetch(
                     "SELECT participant_id, is_present, checked_at, recorded_by "
                     "FROM activity_checkin_records WHERE sheet_id = $1 AND deleted_at IS NULL",
@@ -2446,8 +2467,16 @@ class ActivityService:
                     }
                     ZEBRA_FILL = PatternFill("solid", fgColor="F5F3FF")
                     WRAP_FIELDS = {"custom_fields", "role_detail"}  # ฟิลด์ที่เนื้อหายาว → ตัดบรรทัด
+                    is_super_admin = settings.SUPER_ADMIN_ID and user_id and int(user_id) == int(settings.SUPER_ADMIN_ID)
                     for i, p in enumerate(participants, start=2):
                         final = []
+                        # 🛡️ Consent Model: participant ที่ยังไม่ยืนยันตัวตน → Type A (profile PII) เป็น ""
+                        p_can_view_type_a = can_view_activity_pii(
+                            requester_user_id=user_id,
+                            target_user_id=p.get("user_id"),
+                            identity_claimed=p.get("identity_claimed"),
+                            is_super_admin=is_super_admin,
+                        )
                         for field in fields:
                             if field in BASE_READERS:
                                 final.append(BASE_READERS[field](p))
@@ -2457,7 +2486,9 @@ class ActivityService:
                             else:
                                 reader = cls._field_reader(field)
                                 val = reader(p)
-                                if val is None or (isinstance(val, str) and not val.strip()):
+                                if field in PROFILE_FIELDS and not p_can_view_type_a:
+                                    final.append("")   # 🔒 PII ของคนที่ยังไม่ยืนยันตัวตน — ไม่ dump ลงไฟล์
+                                elif val is None or (isinstance(val, str) and not val.strip()):
                                     final.append("")
                                 else:
                                     final.append(cls._translate_label(field, val))
