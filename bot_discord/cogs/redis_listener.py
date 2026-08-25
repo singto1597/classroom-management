@@ -95,6 +95,12 @@ class RedisListener(commands.Cog):
         elif event_type == "NEW_STUDENT":
             await self.action_service.notify_new_student(server_id, data)
 
+        elif event_type == "STUDENT_INVITE":
+            await self.action_service.notify_student_invite(server_id, data)
+
+        elif event_type == "INVITE_ACCEPTED":
+            await self.action_service.notify_invite_accepted(server_id, data)
+
         elif event_type == "NEW_ACTIVITY":
             await self.action_service.notify_new_activity(server_id, data)
 

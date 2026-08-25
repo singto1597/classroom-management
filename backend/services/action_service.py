@@ -152,6 +152,30 @@ class ActionService:
         }, mention=False, category="👤 มีสมาชิกใหม่", channel="minor")
 
     @classmethod
+    async def notify_student_invite(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str, first_name_en: str = "", last_name_en: str = ""):
+        """แจ้งว่ามีคำเชิญเข้าร่วมห้อง — เกิดเมื่อแอดมินแอดชื่อที่ตรงกับบัญชีจริง (Consent Model)
+        เจ้าตัวต้องกดรับคำเชิญ (accept_invite) ก่อนถึงเป็นสมาชิก + เปิดข้อมูลส่วนตัว"""
+        await cls._publish("STUDENT_INVITE", server_id, {
+            "student_no": student_no,
+            "first_name": first_name,
+            "last_name": last_name,
+            "first_name_en": first_name_en or None,
+            "last_name_en": last_name_en or None,
+            "user_name": user_name
+        }, mention=False, category="📨 มีคำเชิญเข้าร่วมห้อง", channel="minor")
+
+    @classmethod
+    async def notify_invite_accepted(cls, server_id: int, student_no: int, first_name: str, last_name: str, first_name_en: str = "", last_name_en: str = ""):
+        """แจ้งว่าเจ้าตัวยืนยันตัวตนแล้ว (accept_invite สำเร็จ) — ข้อมูลส่วนตัวเปิดให้ห้องดูได้แล้ว"""
+        await cls._publish("INVITE_ACCEPTED", server_id, {
+            "student_no": student_no,
+            "first_name": first_name,
+            "last_name": last_name,
+            "first_name_en": first_name_en or None,
+            "last_name_en": last_name_en or None,
+        }, mention=False, category="✅ ยืนยันตัวตนแล้ว", channel="minor")
+
+    @classmethod
     async def notify_new_activity(
         cls,
         server_id: int,

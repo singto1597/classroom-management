@@ -80,11 +80,11 @@ async def _insert_room(pool, owner_id: int, room_name="Test Room") -> int:
             code,
             owner_id,
         )
-        # ผู้สร้างห้องเป็น admin ทันที
+        # ผู้สร้างห้องเป็น admin ทันที (identity_claimed=TRUE — เจ้าของยินยอมเอง)
         await conn.execute(
             """
-            INSERT INTO students (room_id, user_id, student_no, class_role, status, is_admin, permissions)
-            VALUES ($1, $2, 0, 'president', 'active', TRUE, $3::jsonb)
+            INSERT INTO students (room_id, user_id, student_no, class_role, status, is_admin, permissions, identity_claimed)
+            VALUES ($1, $2, 0, 'president', 'active', TRUE, $3::jsonb, TRUE)
             """,
             room_id,
             owner_id,
@@ -114,14 +114,17 @@ async def _insert_student(
     is_admin=False,
     permissions="[]",
     class_role="student",
+    identity_claimed=True,
 ) -> int:
     async with pool.acquire() as conn:
         final_status = "active" if is_admin else status
+        # Admin/เจ้าของห้องถือว่ายืนยันตัวตนแล้วเสมอ
+        final_claimed = True if is_admin else identity_claimed
         return await conn.fetchval(
             """
             INSERT INTO students
-                (room_id, user_id, student_no, class_role, status, is_admin, permissions)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+                (room_id, user_id, student_no, class_role, status, is_admin, permissions, identity_claimed)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
             RETURNING id
             """,
             room_id,
@@ -131,6 +134,7 @@ async def _insert_student(
             final_status,
             is_admin,
             permissions,
+            final_claimed,
         )
 
 

@@ -144,6 +144,9 @@ class StudentResponse(BaseModel):
     address_province: Optional[str]
     address_post_code: Optional[str]
     status: str
+    # 🛡️ Consent Model: identity_claimed = เจ้าตัวยืนยันตัวตนการเป็นสมาชิกแล้ว (PII ถึงจะเปิดให้ห้องดู)
+    identity_claimed: bool = False
+    added_by: Optional[int] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
     data_completion: Optional[StudentCompletionStatus] = None
@@ -161,8 +164,21 @@ class StudentSummaryResponse(BaseModel):
     class_role: str
     status: str
     is_admin: bool = False # 🎯 เพิ่ม
+    identity_claimed: bool = False
     discord_id_str: Optional[str] = None
     data_completion: Optional[StudentCompletionStatus] = None
+
+class InviteResponse(BaseModel):
+    """คำเชิญเข้าร่วมห้องที่แอดมินแอดชื่อเราให้ (Consent Model) — เจ้าตัวต้องกดรับก่อน"""
+    invite_id: int
+    student_no: int
+    room_id: int
+    room_name: str
+    room_code: Optional[str] = None
+    server_id: Optional[int] = None
+    added_by_first: Optional[str] = None
+    added_by_last: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 class DiscordSyncRequest(BaseModel):
     room_code: str

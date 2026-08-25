@@ -1,5 +1,5 @@
 import api from '@/services/api'
-import type { Student } from '@/types/student'
+import type { Student, Invite } from '@/types/student'
 
 export const StudentService = {
   /**
@@ -78,6 +78,14 @@ export const StudentService = {
 
   async getPendingRequests(roomId: number): Promise<any[]> {
     return await api.get(`/api/classroom/${roomId}/requests`);
+  },
+
+  /** 🛡️ คำเชิญเข้าร่วมห้องของฉัน (แอดมินแอดชื่อให้) — ต้องกดรับเองก่อนถึงเป็นสมาชิก */
+  async getInvites(): Promise<Invite[]> {
+    return await api.get('/api/classroom/invites');
+  },
+  async acceptInvite(inviteId: number): Promise<void> {
+    await api.post(`/api/classroom/invites/${inviteId}/accept`);
   },
   async approveStudent(roomId: number, studentNo: number): Promise<any> {
     return await api.put(`/api/classroom/${roomId}/requests/${studentNo}/approve`);

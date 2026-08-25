@@ -183,7 +183,7 @@ async def export_students(req: StudentExportRequest, request: Request, target: T
     except (StudentNotFoundError, RoomNotFoundError) as e: raise HTTPException(status_code=404, detail=str(e))
     except Exception as e: raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
-@router.get("/{target_id}/search")
+@router.get("/{target_id}/search", response_model=List[StudentResponse])
 async def search_students(request: Request, target: TargetResolution = Depends(get_target), q: str = Query(...), pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):
     client_source, actor = get_audit_context(request, user_ctx)
     try:

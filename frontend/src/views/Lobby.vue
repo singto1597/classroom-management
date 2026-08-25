@@ -3,7 +3,9 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ClassroomService } from '@/services/classroom';
+import { StudentService } from '@/services/student';
 import type { UserRoom } from '@/types/classroom';
+import type { Invite } from '@/types/student';
 import Swal from 'sweetalert2';
 
 const authStore = useAuthStore();
@@ -12,6 +14,35 @@ const router = useRouter();
 const isLoadingRooms = ref(true);
 const rooms = ref<UserRoom[]>([]);
 const searchQuery = ref('');
+
+// 🛡️ คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อให้ ต้องกดรับเองก่อนถึงเป็นสมาชิก
+const invites = ref<Invite[]>([]);
+
+const fetchInvites = async () => {
+  try {
+    invites.value = await StudentService.getInvites();
+  } catch (error: unknown) {
+    console.error("Failed to load invites:", error);
+  }
+};
+
+const acceptInvite = async (invite: Invite) => {
+  try {
+    await StudentService.acceptInvite(invite.invite_id);
+    invites.value = invites.value.filter(i => i.invite_id !== invite.invite_id);
+    await fetchRooms();
+    return Swal.fire({
+      icon: 'success',
+      title: 'รับคำเชิญแล้ว!',
+      text: `เข้าร่วมห้อง "${invite.room_name}" แล้ว`,
+      confirmButtonText: 'รับทราบ',
+      confirmButtonColor: '#10b981',
+      customClass: { popup: 'rounded-[2rem]', confirmButton: 'rounded-xl px-8 font-bold' }
+    });
+  } catch (error: unknown) {
+    Swal.fire('ข้อผิดพลาด', error instanceof Error ? error.message : 'ไม่สามารถรับคำเชิญได้', 'error');
+  }
+};
 
 // --- Modal States ---
 const showCreateModal = ref(false);
@@ -31,6 +62,7 @@ onMounted(async () => {
   }
   
   await fetchRooms();
+  await fetchInvites();
 });
 
 const fetchRooms = async () => {
@@ -208,10 +240,40 @@ const submitCreateRoom = async () => {
       </div>
     </div>
 
+    <!-- 🛡️ คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อให้ ต้องกดรับเองก่อน -->
+    <div v-if="invites.length > 0" class="mb-8">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="w-9 h-9 bg-amber-50 text-amber-500 rounded-xl flex items-center justify-center"><i class="bi bi-envelope-fill"></i></span>
+        <h2 class="text-lg font-black text-slate-800">คำเชิญเข้าร่วมห้อง</h2>
+        <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-black rounded-full">{{ invites.length }} ฉบับ</span>
+      </div>
+      <div class="space-y-3">
+        <div v-for="invite in invites" :key="invite.invite_id"
+             class="bg-white rounded-2xl border border-amber-200/70 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-11 h-11 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100 flex items-center justify-center text-amber-500 text-lg shrink-0">
+              <i class="bi bi-building-add"></i>
+            </div>
+            <div class="min-w-0">
+              <p class="font-black text-slate-800 truncate">{{ invite.room_name }}</p>
+              <p class="text-xs text-slate-500 font-medium truncate">
+                เลขที่ {{ invite.student_no }} · เชิญโดย {{ invite.added_by_first || '' }} {{ invite.added_by_last || '' }}
+              </p>
+              <p class="text-[11px] text-amber-600 font-medium mt-0.5">รับคำเชิญแล้วระบบจะเปิดข้อมูลส่วนตัวของคุณให้ห้องนี้ดู</p>
+            </div>
+          </div>
+          <button @click="acceptInvite(invite)"
+                  class="shrink-0 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2">
+            <i class="bi bi-check-lg"></i> รับคำเชิญ
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="isLoadingRooms" class="flex justify-center items-center py-20">
       <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-blue-600"></div>
     </div>
-    
+
     <div v-else-if="filteredRooms.length === 0" class="text-center py-20 bg-white rounded-[2rem] border border-slate-100 border-dashed">
       <div class="text-slate-300 mb-4"><i class="bi bi-inbox-fill text-6xl"></i></div>
       <h3 class="text-xl font-bold text-slate-600 mb-2">ยังไม่มีห้องเรียน</h3>

@@ -275,6 +275,10 @@ const rejectJoin = async (studentNo: number) => {
                   {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
                 </h3>
                 <i v-if="student.is_admin" class="bi bi-shield-lock-fill text-amber-500 text-sm shrink-0" title="System Admin"></i>
+                <!-- 🛡️ Consent Model: สมาชิกที่ยังไม่ได้ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->
+                <span v-if="student.identity_claimed === false" class="px-1.5 py-0.5 bg-slate-100 text-slate-400 border border-slate-200 text-[9px] font-black rounded-md tracking-wide shrink-0" title="ยังไม่ได้ยืนยันตัวตน — ข้อมูลส่วนตัวถูกปิดบัง">
+                  🔒 ยังไม่ยืนยันตัวตน
+                </span>
               </div>
               
               <div class="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs sm:text-sm text-slate-500">
@@ -341,31 +345,61 @@ const rejectJoin = async (studentNo: number) => {
 
       <div class="flex flex-col gap-3 sm:gap-4">
         <div v-for="req in pendingStudents" :key="req.student_no" class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-l-4 border-amber-100 border-l-amber-400 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          
+
           <!-- ซ้าย: ข้อมูล -->
           <div class="flex items-center gap-4 min-w-0">
             <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-black text-lg border border-amber-100 shrink-0">
               {{ req.student_no }}
             </div>
-            
+
             <div class="flex-1 min-w-0">
-              <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
-                {{ displayName(req) }}
-              </h3>
-              <p class="text-xs sm:text-sm text-slate-500 mt-0.5 flex items-center gap-1.5">
-                <i class="bi bi-clock text-slate-400"></i> ขอเข้าร่วมเมื่อ {{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) }}
-              </p>
+              <!-- 🛡️ claim_request: มีคนขออ้างสิทธิ์ ghost → แอดมินเห็นชื่อเดิม vs ชื่อผู้ขอ แล้วตัดสิน -->
+              <template v-if="req.request_type === 'claim_request'">
+                <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
+                  {{ displayName(req) }} <span class="text-amber-600 font-bold">อ้างสิทธิ์เลขที่นี้</span>
+                </h3>
+                <p class="text-xs sm:text-sm text-slate-500 mt-0.5">
+                  ชื่อในระบบเดิม: <span class="font-bold text-slate-700">{{ req.ghost_first_name || '-' }} {{ req.ghost_last_name || '-' }}</span>
+                  <span v-if="req.name_match !== undefined" class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-black" :class="req.name_match ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'">
+                    {{ req.name_match ? 'ชื่อตรงกัน' : 'ชื่อไม่ตรง' }}
+                  </span>
+                </p>
+                <p class="text-xs text-slate-400 mt-0.5"><i class="bi bi-person-check me-1"></i>ผู้ขอ: {{ displayName(req) }} — ตรวจสอบว่าเป็นคนเดียวกันก่อนอนุมัติ</p>
+              </template>
+
+              <!-- 🛡️ invite_pending: แอดมินแอดชื่อให้ (บัญชีจริง) → รอเจ้าตัวกดรับ แอดมินอนุมัติแทนไม่ได้ -->
+              <template v-else-if="req.request_type === 'invite_pending'">
+                <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
+                  {{ displayName(req) }}
+                </h3>
+                <p class="text-xs sm:text-sm text-slate-500 mt-0.5 flex items-center gap-1.5">
+                  <i class="bi bi-envelope text-amber-500"></i> คำเชิญที่เพิ่มให้ — รอเจ้าตัวกดรับ ข้อมูลส่วนตัวจะเปิดให้ห้องดูเมื่อยืนยันแล้ว
+                </p>
+              </template>
+
+              <!-- join_request: ขอเข้าห้องเอง ปกติ -->
+              <template v-else>
+                <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
+                  {{ displayName(req) }}
+                </h3>
+                <p class="text-xs sm:text-sm text-slate-500 mt-0.5 flex items-center gap-1.5">
+                  <i class="bi bi-clock text-slate-400"></i> ขอเข้าร่วมเมื่อ {{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) }}
+                </p>
+              </template>
             </div>
           </div>
 
-          <!-- ขวา: ปุ่มจัดการ -->
-          <div class="flex gap-2 sm:shrink-0 mt-2 sm:mt-0">
+          <!-- ขวา: ปุ่มจัดการ (invite_pending แอดมินทำอะไรไม่ได้ ต้องรอเจ้าตัว) -->
+          <div v-if="req.request_type !== 'invite_pending'" class="flex gap-2 sm:shrink-0 mt-2 sm:mt-0">
             <button @click="rejectJoin(req.student_no)" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors text-sm font-bold flex items-center justify-center gap-1.5">
                ปฏิเสธ
             </button>
             <button @click="approveJoin(req.student_no)" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-white bg-amber-500 hover:bg-amber-600 transition-colors text-sm font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-amber-500/20">
                ยอมรับ
             </button>
+          </div>
+          <div v-else class="px-4 py-2.5 text-xs font-bold text-slate-400 bg-slate-50 rounded-xl flex items-center gap-1.5 sm:shrink-0">
+            <i class="bi bi-hourglass-split"></i> รอการยืนยันจากนักเรียน
           </div>
         </div>
       </div>
