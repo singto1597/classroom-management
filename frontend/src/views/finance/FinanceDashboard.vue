@@ -19,6 +19,10 @@ const accounts = ref<Account[]>([]);
 const isLoading = ref(true);
 
 const isExporting = ref(false);
+const isExportMenuOpen = ref(false);
+
+// 📥 Export แต่ละแบบ: 'summary' = สรุปรายการเดิม, 'journal' = สมุดรายวัน (นักบัญชี)
+type ExportKind = 'summary' | 'journal';
 
 const selectedMonth = ref(new Date().getMonth() + 1);
 const selectedYear = ref(new Date().getFullYear());
@@ -115,39 +119,55 @@ const formatNumber = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num);
 };
 
-// 📥 ส่งออกประวัติการทำรายการของเดือนที่เลือกเป็นไฟล์ Excel
-const handleExport = async () => {
+// 📥 สร้างลิงก์ดาวน์โหลดจาก Blob แล้วคลิกให้เบราว์เซอร์โหลดไฟล์
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+// 📥 ส่งออกของเดือนที่เลือกเป็นไฟล์ Excel ตามชนิดที่เลือก
+//   'summary' = สรุปรายการแบบเดิม (POST /finance/export)
+//   'journal' = สมุดรายวันทั่วไปสำหรับนักบัญชี (GET /finance/export/journal)
+const runExport = async (kind: ExportKind) => {
   if (isExporting.value) return;
 
   isExporting.value = true;
+  isExportMenuOpen.value = false;
+
+  const isJournal = kind === 'journal';
   Swal.fire({
-    title: 'กำลังคราฟต์ไฟล์ Excel...',
-    text: 'ระบบกำลังรวบรวมประวัติการทำรายการให้คุณ',
+    title: isJournal ? 'กำลังคราฟต์สมุดรายวัน...' : 'กำลังคราฟต์ไฟล์ Excel...',
+    text: isJournal
+      ? 'ระบบกำลังรวบรวมรายการเดบิต/เครดิตของเดือนที่เลือกให้คุณ'
+      : 'ระบบกำลังรวบรวมประวัติการทำรายการให้คุณ',
     allowOutsideClick: false,
     didOpen: () => Swal.showLoading()
   });
 
   try {
-    const blob = await FinanceService.exportTransactionsExcel(
-      currentServerId,
-      selectedMonth.value,
-      selectedYear.value,
-      currentUserName
-    );
-
-    // เปลี่ยน Blob ให้เป็นลิงก์ดาวน์โหลด
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
+    const blob = isJournal
+      ? await FinanceService.exportJournalExcel(currentServerId, selectedMonth.value, selectedYear.value)
+      : await FinanceService.exportTransactionsExcel(
+        currentServerId,
+        selectedMonth.value,
+        selectedYear.value,
+        currentUserName
+      );
 
     // ตั้งชื่อไฟล์สวยๆ (ใช้เดือน/ปีที่เลือกบนหน้า)
-    const filename = `ประวัติการเงิน_${String(selectedMonth.value).padStart(2, '0')}-${selectedYear.value + 543}.xlsx`;
-    link.setAttribute('download', filename);
+    const mm = String(selectedMonth.value).padStart(2, '0');
+    const beYear = selectedYear.value + 543;
+    const filename = isJournal
+      ? `สมุดรายวัน_${mm}-${beYear}.xlsx`
+      : `ประวัติการเงิน_${mm}-${beYear}.xlsx`;
 
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
 
     Swal.fire({
       icon: 'success',
@@ -228,16 +248,66 @@ watch([selectedMonth, selectedYear], () => {
             </div>
           </div>
 
-          <!-- 📥 ปุ่มส่งออกประวัติการเงิน (ตามเดือน/ปีที่เลือก) -->
-          <button
-            @click="handleExport"
-            :disabled="isExporting"
-            class="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all"
-            title="ส่งออกประวัติการทำรายการของเดือนนี้เป็น Excel"
-          >
-            <i class="bi bi-file-earmark-excel-fill text-lg"></i>
-            <span class="lg:inline">ส่งออก Excel</span>
-          </button>
+          <!-- 📥 ปุ่มส่งออก Excel (ตามเดือน/ปีที่เลือก) — Dropdown เลือกแบบสรุปรายการ หรือสมุดรายวัน -->
+          <div class="relative w-full sm:w-auto">
+            <button
+              @click="isExportMenuOpen = !isExportMenuOpen"
+              :disabled="isExporting"
+              class="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all"
+              title="ส่งออกข้อมูลการเงินของเดือนนี้เป็น Excel"
+            >
+              <i class="bi bi-file-earmark-excel-fill text-lg"></i>
+              <span class="lg:inline">ส่งออก Excel</span>
+              <i class="bi bi-chevron-down text-xs"></i>
+            </button>
+
+            <!-- Overlay ไว้ปิดเมนูเมื่อคลิกข้างนอก -->
+            <div
+              v-if="isExportMenuOpen"
+              class="fixed inset-0 z-20"
+              @click="isExportMenuOpen = false"
+            ></div>
+
+            <!-- Dropdown Menu: 2 ตัวเลือก -->
+            <div
+              v-if="isExportMenuOpen"
+              class="absolute right-0 top-full mt-2 z-30 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl shadow-slate-900/10 border border-slate-100 overflow-hidden"
+            >
+              <!-- แบบที่ 1: สรุปรายการ (แบบปกติ) — สีเขียว Primary -->
+              <button
+                @click="runExport('summary')"
+                class="w-full flex items-center gap-3 p-3.5 text-left hover:bg-emerald-50 transition-colors group active:scale-[0.99]"
+                title="ดาวน์โหลดสรุป รายรับ/รายจ่าย + ยอดคงเหลือรายบัญชี"
+              >
+                <div class="w-10 h-10 flex items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0">
+                  <i class="bi bi-file-earmark-excel-fill text-xl"></i>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-bold text-emerald-700">ดาวน์โหลดสรุปรายการ (แบบปกติ)</p>
+                  <p class="text-xs text-slate-400 mt-0.5">รายรับ/รายจ่าย แยกหมวดหมู่ + ยอดคงเหลือบัญชี</p>
+                </div>
+                <i class="bi bi-chevron-right text-slate-300 group-hover:text-emerald-500 self-center"></i>
+              </button>
+
+              <div class="mx-4 border-t border-slate-100"></div>
+
+              <!-- แบบที่ 2: สมุดรายวัน (แบบนักบัญชี) — สีม่วง/Indigo Secondary -->
+              <button
+                @click="runExport('journal')"
+                class="w-full flex items-center gap-3 p-3.5 text-left hover:bg-indigo-50 transition-colors group active:scale-[0.99]"
+                title="ดาวน์โหลดสมุดรายวันทั่วไป (เดบิต/เครดิต) สำหรับนักบัญชี"
+              >
+                <div class="w-10 h-10 flex items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
+                  <i class="bi bi-journal-text text-xl"></i>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-bold text-indigo-700">ดาวน์โหลดสมุดรายวัน (แบบนักบัญชี)</p>
+                  <p class="text-xs text-slate-400 mt-0.5">รายการ เดบิต/เครดิต รายบัญชี (สมุดรายวันทั่วไป)</p>
+                </div>
+                <i class="bi bi-chevron-right text-slate-300 group-hover:text-indigo-500 self-center"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

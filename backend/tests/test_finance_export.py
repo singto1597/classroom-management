@@ -413,3 +413,106 @@ async def test_export_start_after_end_raises(db_pool):
             pool=db_pool, req=FinanceExportRequest(start_date=date(2026, 2, 1), end_date=date(2026, 1, 1)),
             client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
         )
+
+
+# === 🐛 Regression: โอนเงินระหว่างบัญชีต้องไม่พองยอดรวมในหน้า 'สรุปยอด' ===
+# (เงินแค่ย้ายบัญชีในห้อง ไม่ได้เข้าหรือออกนอกห้อง → Net Balance ต่ำเกินจริง)
+
+
+async def test_export_summary_excludes_transfer_from_totals_legacy(db_pool):
+    """เส้นทาง legacy ('ทั้งหมด') — รายการโอนถูกรวมเป็น 1 แถว 'โอนเงินระหว่างบัญชี'
+    แล้วต้องข้ามออกจากรายรับรวม/รายจ่ายรวม"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc_main = await _insert_finance_account(db_pool, room_id, "บัญชีหลัก", 1000.0)
+    acc_sub = await _insert_finance_account(db_pool, room_id, "บัญชีย่อย", 0.0)
+    inc_cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    exp_cat = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
+
+    async def _add(acc, cat, amount, ttype, desc):
+        await FinanceService.add_transaction(
+            pool=db_pool,
+            req=TransactionCreate(account_id=acc, category_id=cat, amount=amount,
+                                  description=desc, transaction_type=ttype, user_name="Owner"),
+            user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+        )
+
+    await _add(acc_main, inc_cat, 500.0, "income", "บริจาค")
+    await _add(acc_main, exp_cat, 200.0, "expense", "ซื้อของ")
+    # โอน 400 ระหว่างบัญชีของห้องเอง (สร้าง 2 ขาใน finance_transactions)
+    await FinanceService.transfer_money(
+        pool=db_pool,
+        req=TransferCreate(from_account_id=acc_main, to_account_id=acc_sub, amount=400.0,
+                           description="ฝากสำรอง", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+
+    excel_file = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(), client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=owner,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["สรุปยอด"]
+    by_label = {row[0]: row[1] for row in ws.values if row[0] and isinstance(row[1], (int, float))}
+    # 🐛 ก่อนแก้ไข รายจ่ายรวมจะได้ 200 + 400 = 600 → Net เกินจริง
+    assert by_label["รายรับรวม"] == 500.0
+    assert by_label["รายจ่ายรวม"] == 200.0
+    assert by_label["คงเหลือ (รายรับ − รายจ่าย)"] == 300.0
+
+    # แถวรายละเอียดยังแสดงขาโอน (เงินยังออกจากบัญชีจริง — แค่ไม่นับเป็นรายจ่ายรวม)
+    rows = _load_data_sheet(excel_file)
+    transfer_row = next(r for r in rows if r["ประเภท"] == "โอนเงินระหว่างบัญชี")
+    assert transfer_row["รายจ่าย (บาท)"] == 400.0
+
+
+async def test_export_summary_excludes_transfer_from_totals_v2(db_pool):
+    """เส้นทาง Double-Entry (หลัง CUTOFF_DATE → month/year) — บิลโอนใน journal
+    ถูกจัดเป็น 'expense' ต้องถูกกันออกจากรายจ่ายรวมด้วย (เช็คผ่าน is_transfer)"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc_main = await _insert_finance_account(db_pool, room_id, "บัญชีหลัก", 1000.0)
+    acc_sub = await _insert_finance_account(db_pool, room_id, "บัญชีย่อย", 0.0)
+    inc_cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    exp_cat = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
+
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc_main, category_id=inc_cat, amount=500.0,
+                              description="บริจาค", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc_main, category_id=exp_cat, amount=200.0,
+                              description="ซื้อของ", transaction_type="expense", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    await FinanceService.transfer_money(
+        pool=db_pool,
+        req=TransferCreate(from_account_id=acc_main, to_account_id=acc_sub, amount=400.0,
+                           description="ฝากสำรอง", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    # ย้ายทุกบิลไปงวด ต.ค. 2026 (หลัง CUTOFF_DATE) → export ต้องอ่านผ่าน v2
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-10-10' WHERE room_id = $1", room_id
+        )
+
+    excel_file = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(month=10, year=2026),
+        client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["สรุปยอด"]
+    by_label = {row[0]: row[1] for row in ws.values if row[0] and isinstance(row[1], (int, float))}
+    assert by_label["รายรับรวม"] == 500.0
+    assert by_label["รายจ่ายรวม"] == 200.0
+    assert by_label["คงเหลือ (รายรับ − รายจ่าย)"] == 300.0
+
+    # แถวละเอียด v2 ยังแสดงขาโอนแบบ 'โอนเงินระหว่างบัญชี' (เหมือน legacy)
+    ws_data = wb["ประวัติรายการ"]
+    data = list(ws_data.values)[1:]
+    transfer_rows = [r for r in data if r[3] == "โอนเงินระหว่างบัญชี"]
+    assert len(transfer_rows) == 1
+    assert transfer_rows[0][5] == 400.0  # คอลัมน์ รายจ่าย (บาท)

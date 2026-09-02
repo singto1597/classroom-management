@@ -29,6 +29,15 @@ CUTOFF_DATE = date(2026, 9, 1)
 
 service_logger = AuditLogger(service_name="FINANCE")
 
+# 📚 ฉลากไทยของ reference_type สำหรับคอลัมน์ Reference ใน export สมุดรายวัน
+# (reference_id ที่เก็บไว้ = id ของเอกสารต้นทาง เช่น legacy_transaction_id / transfer_group_id)
+REFERENCE_TYPE_LABELS = {
+    "manual_transaction": "รายการ",
+    "transfer": "โอนเงิน",
+    "student_payment": "ชำระเงิน",
+    "opening_balance": "ยอดยกมา",
+}
+
 
 # [ROUTER] view ขนาดเล็ก ใช้ส่ง month/year/start_date/end_date แบบสลับกันไปมา
 # ระหว่าง router กับ _resolve_export_period (เดิมรับ req object เดียว)
@@ -71,6 +80,40 @@ class _ExportPeriodView:
         self.year = year
         self.start_date = start_date
         self.end_date = end_date
+
+
+def _resolve_inclusive_period(month, year, start_date, end_date) -> tuple:
+    """แปลง month/year/start_date/end_date → ขอบเขตวันที่แบบ "ครอบถึง" (inclusive).
+
+    คืน (start_dt, end_dt, period_label) โดย start_dt/end_dt อาจเป็น None (ไม่จำกัด)
+    - month+year → ทั้งเดือน (ต้องให้ครบคู่) — ห้ามคู่กับ start/end_date
+    - start_date+end_date → ช่วงวันที่ (ครอบทั้งวัน; กัน start > end)
+    - ให้ตัวเดียว (start_date หรือ end_date) → บังคับจากจุดนั้น
+    - ไม่ระบุเลย → ทั้งหมด
+
+    ใช้กับ query ที่กรองด้วย `DATE(คอลัมน์) >= start AND <= end` (เช่น journal export).
+    """
+    if (month is None) != (year is None):
+        raise ValueError("ต้องระบุทั้ง month และ year พร้อมกัน หรือไม่ระบุทั้งคู่")
+    if month is not None and year is not None:
+        if start_date is not None or end_date is not None:
+            raise ValueError("ไม่สามารถใช้ทั้ง month/year และ start_date/end_date พร้อมกันได้")
+        start_dt = date(year, month, 1)
+        if month == 12:
+            end_dt = date(year, 12, 31)
+        else:
+            end_dt = date(year, month + 1, 1) - timedelta(days=1)
+        return start_dt, end_dt, f"{year}-{month:02d}"
+
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise ValueError("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด")
+    if start_date is not None and end_date is not None:
+        return start_date, end_date, f"{start_date.isoformat()} ถึง {end_date.isoformat()}"
+    if start_date is not None:
+        return start_date, None, f"ตั้งแต่วันที่ {start_date.isoformat()}"
+    if end_date is not None:
+        return None, end_date, f"จนถึงวันที่ {end_date.isoformat()}"
+    return None, None, "ทั้งหมด"
 
 # 🎯 หมวดหมู่รายรับ/รายจ่ายค่าเริ่มต้น — seed ให้ทุกห้องทันทีที่สร้างห้อง
 # (RoomManagementService.create_room นำไป INSERT ลง finance_categories)
@@ -2554,11 +2597,30 @@ class FinanceService:
     @classmethod
     def _format_v2_rows(cls, items: List[dict]) -> List[dict]:
         """[DOUBLE-ENTRY] แปลงแถว TransactionResponse (จาก _get_transactions_v2)
-        → แถวที่ _build_finance_workbook ใช้ (income/expense/category/account/type)."""
+        → แถวที่ _build_finance_workbook ใช้ (income/expense/category/account/type).
+
+        การโอนเงินระหว่างบัญชี (มี transfer_group_id) จะแท็กเป็น "โอนเงินระหว่างบัญชี"
+        + is_transfer=True → ข้ามออกจากยอดรวมในสรุป (เงินแค่ย้ายในห้อง) แต่ยังแสดง
+        จำนวนเงินขาออกในแถวรายละเอียด (ตรงกับรูปแบบของ export แบบ legacy)"""
         formatted: List[dict] = []
         for t in items:
             amount = float(t["amount"] or 0.0)
-            if t["transaction_type"] == "income":
+            # [DOUBLE-ENTRY] _classify_journal_entry ใส่ transfer_group_id ให้บิลโอนเงิน
+            # ระหว่างบัญชีสินทรัพย์เท่านั้น → ใช้เป็นตัวบ่งชี้โอนได้เลย
+            if t.get("transfer_group_id") is not None:
+                formatted.append({
+                    "id": t.get("id"),
+                    "created_at": t.get("created_at"),
+                    "type": "โอนเงินระหว่างบัญชี",
+                    "income": 0.0,
+                    "expense": amount,
+                    "description": t.get("description") or "",
+                    "category": "โอนเงิน",
+                    "account": t.get("account_name") or "—",
+                    "recorded_by": t.get("recorded_by") or "—",
+                    "is_transfer": True,
+                })
+            elif t["transaction_type"] == "income":
                 formatted.append({
                     "id": t.get("id"),
                     "created_at": t.get("created_at"),
@@ -2569,8 +2631,9 @@ class FinanceService:
                     "category": t.get("category_name") or "—",
                     "account": t.get("account_name") or "—",
                     "recorded_by": t.get("recorded_by") or "—",
+                    "is_transfer": False,
                 })
-            else:  # expense (รวม transfer ที่แสดงเป็นรายจ่ายขาออก)
+            else:  # expense (รายจ่ายจริง เงินออกนอกห้อง)
                 formatted.append({
                     "id": t.get("id"),
                     "created_at": t.get("created_at"),
@@ -2581,6 +2644,7 @@ class FinanceService:
                     "category": t.get("category_name") or "—",
                     "account": t.get("account_name") or "—",
                     "recorded_by": t.get("recorded_by") or "—",
+                    "is_transfer": False,
                 })
         return formatted
 
@@ -2683,6 +2747,9 @@ class FinanceService:
                 "category": "โอนเงิน",
                 "account": account_name,
                 "recorded_by": r.get("recorded_by") or "—",
+                # 💡 flag ไว้ให้ _build_finance_workbook ข้ามรายการโอนออกจากยอดรวม
+                # (เงินแค่ย้ายบัญชีในห้อง ไม่ใช่รายรับ/รายจ่ายจริง)
+                "is_transfer": True,
             }
 
         if txn_type == "income":
@@ -2696,6 +2763,7 @@ class FinanceService:
                 "category": category_name,
                 "account": account_name,
                 "recorded_by": r.get("recorded_by") or "—",
+                "is_transfer": False,
             }
         return {
             "id": r.get("id"),
@@ -2707,6 +2775,7 @@ class FinanceService:
             "category": category_name,
             "account": account_name,
             "recorded_by": r.get("recorded_by") or "—",
+            "is_transfer": False,
         }
 
     @classmethod
@@ -2721,8 +2790,16 @@ class FinanceService:
         """
         if generated_at is None:
             generated_at = datetime.now(THAI_TZ)
-        income_total = round(sum(r["income"] for r in rows), 2)
-        expense_total = round(sum(r["expense"] for r in rows), 2)
+
+        # 🐛 FIX: ข้ามรายการ "โอนเงินระหว่างบัญชี" ออกจากการรวมรายรับ/รายจ่าย
+        # (เงินแค่ย้ายบัญชีในห้อง ไม่ได้เข้าหรือออกนอกห้อง) — ก่อนหน้านี้ expense
+        # ของขาโอนถูกรวมเข้า expense_total ทำให้ Net Balance (รายรับ−รายจ่าย) ต่ำเกินจริง
+        non_transfer_rows = [
+            r for r in rows
+            if not (r.get("is_transfer") or r.get("type") == "โอนเงินระหว่างบัญชี")
+        ]
+        income_total = round(sum(r["income"] for r in non_transfer_rows), 2)
+        expense_total = round(sum(r["expense"] for r in non_transfer_rows), 2)
 
         wb = Workbook()
         # ---- Sheet 1: สรุปยอด ----
@@ -2830,6 +2907,9 @@ class FinanceService:
             cell.font = white_bold
         cat_totals: Dict[str, dict] = {}
         for r in rows:
+            # โอนเงินระหว่างบัญชีไม่ใช่หมวดรายรับ/รายจ่ายจริง → ข้าม (ไม่สร้างแถว 0.00)
+            if r.get("is_transfer") or r.get("type") == "โอนเงินระหว่างบัญชี":
+                continue
             key = r["category"]
             entry = cat_totals.setdefault(key, {"type": r["type"], "total": 0.0})
             if r["type"] == "รายรับ":
@@ -2841,6 +2921,232 @@ class FinanceService:
             ws_cat.cell(row=idx, column=2, value=info["type"])
             cell = ws_cat.cell(row=idx, column=3, value=round(info["total"], 2))
             cell.number_format = "#,##0.00 \"฿\""
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
+
+    # =====================================================================
+    # [DOUBLE-ENTRY] export_journal_excel — สมุดรายวันทั่วไปสำหรับนักบัญชี
+    # =====================================================================
+    @staticmethod
+    def _journal_reference(reference_type: Optional[str], reference_id: Optional[str]) -> str:
+        """สร้างข้อความ Reference จาก reference_type + reference_id (เช่น 'โอนเงิน #42')."""
+        if not reference_type:
+            return f"#{reference_id}" if reference_id not in (None, "") else "—"
+        label = REFERENCE_TYPE_LABELS.get(reference_type, reference_type)
+        if reference_id not in (None, ""):
+            return f"{label} #{reference_id}"
+        return label
+
+    @classmethod
+    async def export_journal_excel(
+        cls, pool: asyncpg.Pool, *, client_source: str, actor_identifier: str,
+        month: Optional[int] = None, year: Optional[int] = None,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None
+    ) -> io.BytesIO:
+        """ส่งออก 'สมุดรายวันทั่วไป' (General Journal) ของห้องเป็น .xlsx สำหรับนักบัญชี.
+
+        อ่านตรง ๆ จาก journal_entries JOIN journal_lines JOIN accounting_ledgers
+        (ไม่ต้องผ่านการแปลเป็น TransactionResponse) — แต่ละบรรทัดของสมุดรายวัน = 1 แถว
+        แสดง เดบิต/เครดิต รายบัญชี โดยรายละเอียดหัวบิล (วันที่/เวลา/Reference/คำอธิบาย/ผู้บันทึก)
+        จะแสดงเฉพาะบรรทัดแรกของแต่ละบิล (เหมือนสมุดรายวันจริงที่อธิบายไว้บรรทัดแรก).
+
+        ช่วงเวลาที่รองรับ (เหมือน export รายการเดิม):
+        - month + year → ทั้งเดือน
+        - start_date + end_date (หรือตัวเดียว) → ช่วงวันที่ที่กำหนด
+        - ไม่ระบุเลย → ทั้งหมด (ตั้งแต่เริ่มใช้ระบบบัญชีคู่)
+        """
+        start_time = time.time()
+        target_room_id = room_id
+        try:
+            async with pool.acquire() as conn:
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
+                await require_member(conn, target_room_id, user_id)
+
+                start_dt, end_dt, period_label = _resolve_inclusive_period(
+                    month, year, start_date, end_date
+                )
+
+                room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
+                room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"
+
+                # ดึงบรรทัดสมุดรายวัน (หลายบรรทัดต่อ 1 บิล) เรียงตามเวลาจริง
+                conditions = ["JE.room_id = $1", "JE.deleted_at IS NULL", "JE.status <> 'voided'"]
+                params: List[Any] = [target_room_id]
+                idx = 2
+                if start_dt is not None:
+                    conditions.append(f"DATE(JE.transaction_date) >= ${idx}")
+                    params.append(start_dt)
+                    idx += 1
+                if end_dt is not None:
+                    conditions.append(f"DATE(JE.transaction_date) <= ${idx}")
+                    params.append(end_dt)
+                    idx += 1
+
+                lines = await conn.fetch(
+                    f"""
+                    SELECT JE.id AS entry_id,
+                           JE.reference_type, JE.reference_id,
+                           JE.description, JE.transaction_date, JE.recorded_by,
+                           L.id AS line_id, L.debit, L.credit, L.line_description,
+                           AL.account_code, AL.account_name, AL.account_type
+                    FROM journal_entries JE
+                    JOIN journal_lines L ON L.journal_entry_id = JE.id
+                    JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+                    WHERE {' AND '.join(conditions)}
+                    ORDER BY JE.transaction_date ASC, JE.id ASC, L.id ASC
+                    """,
+                    *params,
+                )
+
+                # กลุ่มหัวบิล: วันที่/Reference/คำอธิบาย/ผู้บันทึก แสดงเฉพาะบรรทัดแรก
+                row_dicts: List[dict] = []
+                prev_entry_id: Optional[str] = None
+                for ln in lines:
+                    entry_id = str(ln["entry_id"])
+                    is_first_line = entry_id != prev_entry_id
+                    base = {
+                        "account_code": ln["account_code"] or "",
+                        "account_name": ln["account_name"] or "—",
+                        "debit": float(ln["debit"] or 0.0),
+                        "credit": float(ln["credit"] or 0.0),
+                    }
+                    if is_first_line:
+                        row_dicts.append({
+                            **base,
+                            "date_time": ln["transaction_date"],
+                            "reference": cls._journal_reference(ln["reference_type"], ln["reference_id"]),
+                            "description": ln["description"] or "",
+                            "recorded_by": ln["recorded_by"] or "—",
+                        })
+                        prev_entry_id = entry_id
+                    else:
+                        row_dicts.append({
+                            **base,
+                            "date_time": None, "reference": None,
+                            "description": None, "recorded_by": None,
+                        })
+
+                excel_file = cls._build_journal_workbook(
+                    room_name=room_name, period_label=period_label,
+                    rows=row_dicts, generated_at=datetime.now(THAI_TZ),
+                )
+
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="EXPORT", actor_identifier=actor_identifier, client_source=client_source,
+                    room_id=target_room_id, user_id=None, entity_type="ACCOUNTING_JOURNAL", status="success",
+                    new_values={"period": period_label, "journal_lines": len(row_dicts)},
+                    endpoint_or_command="FinanceService.export_journal_excel", execution_time_ms=exec_time
+                )
+                return excel_file
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            try:
+                async with pool.acquire() as log_conn:
+                    await service_logger.log(
+                        conn=log_conn, action="EXPORT", actor_identifier=actor_identifier, client_source=client_source,
+                        room_id=target_room_id, user_id=None, entity_type="ACCOUNTING_JOURNAL", status="failed",
+                        error_detail=str(e), endpoint_or_command="FinanceService.export_journal_excel",
+                        execution_time_ms=exec_time
+                    )
+            except Exception:
+                pass
+            raise e
+
+    @classmethod
+    def _build_journal_workbook(
+        cls, room_name: str, period_label: str, rows: List[dict], generated_at: datetime = None
+    ) -> io.BytesIO:
+        """สร้าง Workbook แผ่นเดียว 'สมุดรายวัน' สำหรับนักบัญชี.
+
+        คอลัมน์: วันที่, เวลา, Reference, คำอธิบาย, รหัสบัญชี, ชื่อบัญชี,
+        เดบิต (บาท), เครดิต (บาท), ผู้บันทึก — พร้อมแถวรวมท้ายตาราง (Dr = Cr)
+        """
+        if generated_at is None:
+            generated_at = datetime.now(THAI_TZ)
+
+        HEADER_FILL = PatternFill("solid", fgColor="1D4ED8")   # น้ำเงินเข้ม (เหมือน export เดิม)
+        TOTAL_FILL = PatternFill("solid", fgColor="D1D5DB")    # เทาอ่อน
+        white_bold = Font(bold=True, color="FFFFFF")
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "สมุดรายวัน"
+        ws.sheet_view.showGridLines = False
+
+        headers = [
+            ("วันที่", 12), ("เวลา", 8), ("Reference", 16), ("คำอธิบาย", 42),
+            ("รหัสบัญชี", 11), ("ชื่อบัญชี", 26), ("เดบิต (บาท)", 15), ("เครดิต (บาท)", 15), ("ผู้บันทึก", 18),
+        ]
+        ncols = len(headers)
+
+        # Title + subtitle (merge ข้ามทุกคอลัมน์)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+        ws.cell(row=1, column=1, value=f"สมุดรายวันทั่วไป — {room_name}").font = Font(bold=True, size=16, color="0F172A")
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncols)
+        ws.cell(
+            row=2, column=1,
+            value=f"รอบระยะเวลา: {period_label} · สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
+        ).font = Font(color="64748B", size=10)
+
+        for col_idx, (_, width) in enumerate(headers, start=1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        # Header row (แถว 4)
+        for col_idx, (label, _) in enumerate(headers, start=1):
+            cell = ws.cell(row=4, column=col_idx, value=label)
+            cell.fill = HEADER_FILL
+            cell.font = white_bold
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        row_idx = 5
+        for r in rows:
+            date_str, time_str = "", ""
+            if r.get("date_time") is not None:
+                dt_local = r["date_time"].astimezone(THAI_TZ)
+                date_str = dt_local.strftime("%d/%m/%Y")
+                time_str = dt_local.strftime("%H:%M")
+            ws.cell(row=row_idx, column=1, value=date_str or None)
+            ws.cell(row=row_idx, column=2, value=time_str or None)
+            ws.cell(row=row_idx, column=3, value=r.get("reference"))
+            ws.cell(row=row_idx, column=4, value=r.get("description"))
+            ws.cell(row=row_idx, column=5, value=r.get("account_code"))
+            ws.cell(row=row_idx, column=6, value=r.get("account_name"))
+            debit_cell = ws.cell(row=row_idx, column=7, value=r["debit"] if r["debit"] else None)
+            credit_cell = ws.cell(row=row_idx, column=8, value=r["credit"] if r["credit"] else None)
+            debit_cell.number_format = "#,##0.00"
+            credit_cell.number_format = "#,##0.00"
+            ws.cell(row=row_idx, column=9, value=r.get("recorded_by"))
+            # บรรทัดแรกของแต่ละบิล: ทำหัวข้อ (Reference/คำอธิบาย/ผู้บันทึก) ให้เป็นตัวหนา
+            if r.get("description") is not None:
+                for col_idx in (3, 4, 9):
+                    ws.cell(row=row_idx, column=col_idx).font = Font(bold=True)
+            row_idx += 1
+
+        # ไม่มีรายการในช่วงนี้ → ใส่ placeholder กันตารางว่างลอย (ยังมีแถวรวม 0)
+        if not rows:
+            ws.cell(row=row_idx, column=4, value="(ไม่มีรายการในช่วงนี้)")
+            row_idx += 1
+
+        # แถวรวม (ยอดเดบิตต้องเท่ากับยอดเครดิตเสมอ)
+        debit_total = round(sum(float(r.get("debit") or 0.0) for r in rows), 2)
+        credit_total = round(sum(float(r.get("credit") or 0.0) for r in rows), 2)
+        ws.cell(row=row_idx, column=1, value="รวมทั้งสิ้น").font = Font(bold=True)
+        dcell = ws.cell(row=row_idx, column=7, value=debit_total)
+        dcell.number_format = "#,##0.00"
+        dcell.font = Font(bold=True)
+        ccell = ws.cell(row=row_idx, column=8, value=credit_total)
+        ccell.number_format = "#,##0.00"
+        ccell.font = Font(bold=True)
+        for col_idx in range(1, ncols + 1):
+            ws.cell(row=row_idx, column=col_idx).fill = TOTAL_FILL
+
+        ws.freeze_panes = "A5"
 
         output = io.BytesIO()
         wb.save(output)
