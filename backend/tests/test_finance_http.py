@@ -958,6 +958,74 @@ async def test_web_export_finance_excel_bad_period_400(client, db_pool):
     assert resp.status_code == 400
 
 
+# === GET /{target_id}/finance/export/journal (สมุดรายวันสำหรับนักบัญชี) ===
+
+
+async def test_web_export_journal_excel_200(client, db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat_id = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    from models.finance_schemas import TransactionCreate
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(
+            account_id=account_id, category_id=cat_id, amount=300.0,
+            description="รับบริจาค", transaction_type="income", user_name="Owner",
+        ),
+        user_id=owner, client_source="test", actor_identifier="test",
+        room_id=room_id,
+    )
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-10-10' WHERE room_id = $1", room_id
+        )
+
+    resp = client.get(
+        _room_api(room_id, "/finance/export/journal") + "&month=10&year=2026",
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "attachment" in resp.headers["content-disposition"]
+    assert "finance_journal_" in resp.headers["content-disposition"]
+
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == ["สมุดรายวัน"]
+    rows = list(wb["สมุดรายวัน"].values)
+    # header (แถวที่ 4) มีคอลัมน์ตามสเปค
+    header = rows[3]
+    assert header[0] == "วันที่" and header[6] == "เดบิต (บาท)" and header[7] == "เครดิต (บาท)"
+
+
+async def test_web_export_journal_excel_cross_room_forbidden(client, db_pool):
+    owner_a = await _insert_user(db_pool, first_name="Admin", last_name="A")
+    room_a = await _insert_room(db_pool, owner_a, room_name="ห้อง A")
+    owner_b = await _insert_user(db_pool, first_name="Admin", last_name="B")
+    room_b = await _insert_room(db_pool, owner_b, room_name="ห้อง B")
+    member_a = await _insert_user(db_pool, first_name="Member", last_name="A")
+    await _insert_student(db_pool, room_a, member_a, 1, status="active")
+
+    resp = client.get(
+        _room_api(room_b, "/finance/export/journal"),
+        headers=_make_web_headers(member_a),
+    )
+    assert resp.status_code == 403
+
+
+async def test_web_export_journal_excel_month_without_year_400(client, db_pool):
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+
+    resp = client.get(
+        _room_api(room_id, "/finance/export/journal") + "&month=10",
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400
+
+
 # =====================================================================
 # Section: รับเงินรวบยอด (Batch) — ปิดหนี้หลายบิลในครั้งเดียว
 # (yield Discord notification รอบเดียว ไม่เด้งหลาย embed)

@@ -162,5 +162,27 @@ export const FinanceService = {
 
     // 👇 เติม as unknown as Blob เพื่อตบตา TypeScript ให้ยอม Build ผ่าน
     return response as unknown as Blob;
+  },
+
+  // 📒 ส่งออกสมุดรายวันทั่วไป (General Journal) สำหรับนักบัญชี — แบบ GET (month/year/ช่วงวันที่)
+  async exportJournalExcel(
+    roomId: number,
+    month?: number,
+    year?: number,
+    startDate?: string,
+    endDate?: string
+  ): Promise<Blob> {
+    const params: Record<string, unknown> = { target_type: 'room' };
+    if (month) params.month = month;
+    if (year) params.year = year;
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+
+    const response = await api.get(`/api/classroom/${roomId}/finance/export/journal`, {
+      params,
+      responseType: 'blob'
+    });
+
+    return response as unknown as Blob;
   }
 };
