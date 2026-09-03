@@ -36,7 +36,16 @@ REFERENCE_TYPE_LABELS = {
     "transfer": "โอนเงิน",
     "student_payment": "ชำระเงิน",
     "opening_balance": "ยอดยกมา",
+    "adjustment": "ปรับปรุงยอด",
 }
+
+# [RECONCILE] ค่าคงที่สำหรับรายการกระทบยอด (Reconciliation) ระหว่างระบบ Legacy กับบัญชีคู่
+# - reference_type 'adjustment' = รายการปรับปรุงยอด (สร้างโดย script reconcile_finance เท่านั้น)
+# - equity ledger '3001' = ขาสะท้อน (mirror) ของส่วนต่าง → ไม่กระทบ Net Worth (คิดเฉพาะ asset)
+#   และไม่ปน income statement (ต่างจาก '3000' ทุน-ยอดยกมา ของ opening_balance)
+RECONCILE_REFERENCE_TYPE = "adjustment"
+RECONCILE_EQUITY_CODE = "3001"
+RECONCILE_EQUITY_NAME = "ปรับปรุงยอด (Reconciliation)"
 
 
 # [ROUTER] view ขนาดเล็ก ใช้ส่ง month/year/start_date/end_date แบบสลับกันไปมา
@@ -322,6 +331,192 @@ class FinanceService:
                 entry_id, line["ledger_id"], float(debit), float(credit), line.get("line_description"),
             )
         return entry_id
+
+    # =====================================================================
+    # [RECONCILE] กระทบยอดระหว่างระบบ Legacy (finance_accounts.balance) กับบัญชีคู่
+    # =====================================================================
+    @classmethod
+    async def _scan_account_diffs(
+        cls, conn: asyncpg.Connection, *, room_id: int, threshold: float = 0.01
+    ) -> List[dict]:
+        """[RECONCILE] อ่านล้วน ๆ: เปรียบเทียบ finance_accounts.balance (ระบบเดิม)
+        กับยอดสุทธิ asset-ledger ของบัญชีนั้นในบัญชีคู่ (SUM(debit−credit) เฉพาะ journal
+        ที่ไม่ void / ไม่ลบ — เงื่อนไขเดียวกับ _get_summary_v2).
+
+        คืน list: {account_id, account_name, legacy_balance, ledger_net, ledger_id,
+                   diff, amount, action} โดย action ∈ 'dr_asset'|'cr_asset'|'skip'
+        (ledger_id เป็น None ถ้ายังไม่มี asset ledger ของบัญชี → ถือ net = 0)"""
+        rows = await conn.fetch(
+            """SELECT
+                    FA.id AS account_id,
+                    FA.account_name AS account_name,
+                    FA.balance AS legacy_balance,
+                    AL.id AS ledger_id,
+                    COALESCE(NET.net, 0) AS ledger_net
+                FROM finance_accounts FA
+                LEFT JOIN LATERAL (
+                    SELECT id FROM accounting_ledgers
+                    WHERE legacy_account_id = FA.id
+                      AND room_id = FA.room_id
+                      AND account_type = 'asset'
+                    ORDER BY id
+                    LIMIT 1
+                ) AL ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT SUM(L.debit - L.credit) AS net
+                    FROM journal_lines L
+                    JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                    WHERE L.ledger_id = AL.id
+                      AND JE.room_id = FA.room_id
+                      AND JE.deleted_at IS NULL
+                      AND JE.status <> 'voided'
+                ) NET ON TRUE
+                WHERE FA.room_id = $1
+                  AND FA.deleted_at IS NULL
+                ORDER BY FA.id""",
+            room_id,
+        )
+        result = []
+        for r in rows:
+            legacy = float(r["legacy_balance"])
+            net = float(r["ledger_net"])
+            diff = round(legacy - net, 4)
+            if abs(diff) < threshold:
+                action = "skip"
+                amount = 0.0
+            else:
+                action = "dr_asset" if diff > 0 else "cr_asset"
+                amount = abs(diff)
+            result.append({
+                "account_id": r["account_id"],
+                "account_name": r["account_name"],
+                "legacy_balance": legacy,
+                "ledger_net": net,
+                "ledger_id": r["ledger_id"],
+                "diff": diff,
+                "amount": amount,
+                "action": action,
+            })
+        return result
+
+    @classmethod
+    async def _resolve_reconcile_equity_ledger(cls, conn: asyncpg.Connection, *, room_id: int) -> int:
+        """[RECONCILE] หา/สร้าง ledger equity '3001' (ปรับปรุงยอด) ให้ห้อง — ใช้เป็นขา
+        สะท้อน (mirror) ของรายการปรับปรุง เพื่อให้ Dr = Cr โดยไม่แตะ Net Worth (asset-only)
+        และไม่ปนรายได้/รายจ่ายของงวด"""
+        ledger_id = await conn.fetchval(
+            """SELECT id FROM accounting_ledgers
+               WHERE room_id = $1 AND account_code = $2 AND account_type = 'equity'
+               ORDER BY id LIMIT 1""",
+            room_id, RECONCILE_EQUITY_CODE,
+        )
+        if ledger_id:
+            return ledger_id
+        return await conn.fetchval(
+            """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, description)
+               VALUES ($1, $2, $3, 'equity', $4)
+               RETURNING id""",
+            room_id, RECONCILE_EQUITY_CODE, RECONCILE_EQUITY_NAME,
+            "บัญชีพักปรับปรุงผลต่างระหว่างยอด Legacy กับบัญชีคู่ (สร้างอัตโนมัติโดย reconcile_finance)",
+        )
+
+    @classmethod
+    async def reconcile_balances(
+        cls,
+        pool: asyncpg.Pool,
+        *,
+        room_id: Optional[int] = None,
+        server_id: Optional[int] = None,
+        apply: bool = False,
+        threshold: float = 0.01,
+    ) -> dict:
+        """[RECONCILE] กระทบยอดเงินของห้องเดียว: เทียบ finance_accounts.balance (ระบบเดิม
+        = แหล่งความจริง) กับยอดสุทธิ asset-ledger ในบัญชีคู่ของแต่ละบัญชี.
+
+        - dry-run (default): แค่รายงานผลต่าง ไม่เขียนอะไร
+        - apply=True: ใน transaction เดียว สร้าง asset ledger ที่ขาด + equity '3001' (ถ้ายังไม่มี)
+          แล้ว insert journal_entries reference_type='adjustment' 1 ใบต่อบัญชีที่ต่างกัน
+          (asset Dr / equity Cr เมื่อ legacy มากกว่า, asset Cr / equity Dr เมื่อ ledger เกิน)
+          ให้ยอดบัญชีคู่กลับมาเท่ากับ Legacy เป๊ะ ๆ
+
+        ⚠️ Ops tool: ไม่ล็อกแถวระหว่าง apply → ควรวิ่งช่วงที่ไม่มีรายการสด
+        คืน dict รายงาน (ตัวเลขเป็น float, journal_entry_id เป็น str)
+        """
+        async with pool.acquire() as conn:
+            resolved_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+            async with conn.transaction():
+                rows = await cls._scan_account_diffs(conn, room_id=resolved_room_id, threshold=threshold)
+                mismatches = [r for r in rows if r["action"] != "skip"]
+                room_name = await conn.fetchval(
+                    "SELECT room_name FROM rooms WHERE id = $1", resolved_room_id
+                )
+                report = {
+                    "room_id": resolved_room_id,
+                    "room_name": room_name,
+                    "apply": apply,
+                    "threshold": threshold,
+                    "checked_accounts": len(rows),
+                    "adjustments_created": 0,
+                    "total_adjustment_amount": 0.0,
+                    "mismatches": mismatches,
+                }
+                if apply and mismatches:
+                    equity_ledger_id = None
+                    for m in mismatches:
+                        asset_ledger_id = m["ledger_id"]
+                        if asset_ledger_id is None:
+                            asset_ledger_id = await cls._resolve_asset_ledger(
+                                conn, resolved_room_id, m["account_id"]
+                            )
+                        if equity_ledger_id is None:
+                            equity_ledger_id = await cls._resolve_reconcile_equity_ledger(
+                                conn, room_id=resolved_room_id
+                            )
+                        amount = float(m["amount"])
+                        if m["action"] == "dr_asset":
+                            lines = [
+                                {"ledger_id": asset_ledger_id, "debit": amount, "credit": 0,
+                                 "line_description": f"ปรับปรุงยอดบัญชีให้ตรงกับระบบเดิม (เดิมขาด {amount:.2f} บาท)"},
+                                {"ledger_id": equity_ledger_id, "debit": 0, "credit": amount,
+                                 "line_description": "ปรับปรุงยอด (Reconciliation) ฝั่งทุน"},
+                            ]
+                        else:  # cr_asset
+                            lines = [
+                                {"ledger_id": asset_ledger_id, "debit": 0, "credit": amount,
+                                 "line_description": f"ปรับปรุงยอดบัญชีให้ตรงกับระบบเดิม (เดิมเกิน {amount:.2f} บาท)"},
+                                {"ledger_id": equity_ledger_id, "debit": amount, "credit": 0,
+                                 "line_description": "ปรับปรุงยอด (Reconciliation) ฝั่งทุน"},
+                            ]
+                        entry_id = await cls._insert_journal_entry(
+                            conn, resolved_room_id,
+                            reference_type=RECONCILE_REFERENCE_TYPE,
+                            description=f"ปรับปรุงยอดคงเหลือให้ตรงกับระบบเดิม: {m['account_name']} (Reconciliation)",
+                            recorded_by="SYSTEM",
+                            metadata={
+                                "adjustment_type": "reconcile",
+                                "finance_account_id": m["account_id"],
+                                "legacy_balance": float(m["legacy_balance"]),
+                                "ledger_net_before": float(m["ledger_net"]),
+                                "direction": "debit_asset" if m["action"] == "dr_asset" else "credit_asset",
+                            },
+                            lines=lines,
+                        )
+                        m["journal_entry_id"] = str(entry_id)
+                        report["adjustments_created"] += 1
+                        report["total_adjustment_amount"] = round(report["total_adjustment_amount"] + amount, 4)
+                    if report["adjustments_created"]:
+                        await service_logger.log(
+                            conn=conn, action="RECONCILE", actor_identifier="SYSTEM",
+                            client_source="script", room_id=resolved_room_id,
+                            entity_type="FINANCE_RECONCILE", entity_id=str(resolved_room_id),
+                            status="success",
+                            new_values={
+                                "adjustments_created": report["adjustments_created"],
+                                "total_amount": report["total_adjustment_amount"],
+                            },
+                            endpoint_or_command="FinanceService.reconcile_balances",
+                        )
+            return report
 
     @staticmethod
     async def resolve_room_id(conn: asyncpg.Connection, server_id: Optional[int] = None, room_id: Optional[int] = None) -> int:
