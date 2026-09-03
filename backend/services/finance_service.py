@@ -47,6 +47,33 @@ RECONCILE_REFERENCE_TYPE = "adjustment"
 RECONCILE_EQUITY_CODE = "3001"
 RECONCILE_EQUITY_NAME = "ปรับปรุงยอด (Reconciliation)"
 
+# =====================================================================
+# [EXPORT-ERP] ค่าคงที่กลางสำหรับ Excel Export ระดับ Enterprise
+# =====================================================================
+# รูปแบบตัวเลข: เงินใช้ #,##0.00 (ตามสเปค), % ใช้ 0.00"%" (เลข 50 → แสดง "50.00%")
+MONEY_NUM_FMT = "#,##0.00"
+PCT_NUM_FMT = '0.00"%"'
+
+# ฉลากไทยของ account_type สำหรับงบการเงิน (GL / Trial Balance / Balance Sheet)
+ACCOUNT_TYPE_LABELS = {
+    "asset": "สินทรัพย์",
+    "liability": "หนี้สิน",
+    "equity": "ส่วนของเจ้าของ",
+    "revenue": "รายได้",
+    "expense": "ค่าใช้จ่าย",
+}
+
+# ฉลากไทยของ fee_collections.status
+COLLECTION_STATUS_LABELS = {
+    "active": "กำลังเก็บ",
+    "closed": "ปิดแล้ว",
+    "draft": "ร่าง",
+}
+
+# สี Tab Sheet — แยกหมวดรายงาน: Management (โทนน้ำเงิน) vs Accounting (โทนเขียวเข้ม/ม่วง)
+MANAGEMENT_TAB_COLORS = ["1D4ED8", "2563EB", "0E9F6E", "DB2777"]
+ACCOUNTING_TAB_COLORS = ["0F766E", "047857", "115E59", "4C1D95", "6D28D9", "4338CA"]
+
 
 # [ROUTER] view ขนาดเล็ก ใช้ส่ง month/year/start_date/end_date แบบสลับกันไปมา
 # ระหว่าง router กับ _resolve_export_period (เดิมรับ req object เดียว)
@@ -2787,6 +2814,138 @@ class FinanceService:
             raise e
 
     # =====================================================================
+    # [EXPORT-ERP] Real-time data fetchers (ใช้ร่วมทั้ง export ธรรมดา & export นักบัญชี)
+    # — ข้อมูล fee_collections / student_payments / students/users เป็นข้อมูล "ปัจจุบัน"
+    #   ไม่ขึ้นกับยุค CUTOFF_DATE → อ่าน "ณ วันที่ส่งออก" เสมอ (มี as_of ให้ทราบ)
+    # =====================================================================
+    @classmethod
+    async def _fetch_collection_register(cls, conn: asyncpg.Connection, room_id: int) -> dict:
+        """โปรเจคเก็บเงิน (fee_collections) แบบ Real-time + ยอดรวมอัตราการเก็บ.
+
+        fee_collections.amount = ยอดเรียกเก็บ/คน และมี student_payments 1 แถว/นักเรียนที่ถูก
+        เรียกเก็บ → expected รวม = amount × จำนวนสมาชิก, paid = Σ paid_amount,
+        pending = expected − paid (ไม่ต่ำกว่า 0). completion = paid/expected.
+
+        คืน dict: {as_of, projects:[...], total_expected, total_paid, total_pending,
+                   collection_rate_pct, project_count, active_count}
+        """
+        as_of = datetime.now(THAI_TZ).date()
+        rows = await conn.fetch(
+            """SELECT FC.id, FC.title, FC.amount, FC.due_date, FC.status,
+                      COUNT(SP.id)                    AS member_count,
+                      COALESCE(SUM(SP.paid_amount), 0) AS paid_total
+               FROM fee_collections FC
+               LEFT JOIN student_payments SP
+                      ON SP.collection_id = FC.id AND SP.deleted_at IS NULL
+               WHERE FC.room_id = $1 AND FC.deleted_at IS NULL
+               GROUP BY FC.id, FC.title, FC.amount, FC.due_date, FC.status
+               ORDER BY FC.due_date NULLS LAST, FC.id ASC""",
+            room_id,
+        )
+
+        projects: List[dict] = []
+        total_expected = total_paid = total_pending = 0.0
+        active_count = 0
+        for r in rows:
+            member_count = int(r["member_count"] or 0)
+            fee_amount = float(r["amount"] or 0.0)
+            paid = float(r["paid_total"] or 0.0)
+            expected = round(fee_amount * member_count, 2)
+            pending = round(max(expected - paid, 0.0), 2)
+            completion_pct = round(paid / expected * 100.0, 2) if expected > 0 else 0.0
+            is_active = (r["status"] or "active") == "active"
+            if is_active:
+                active_count += 1
+            if expected > 0:
+                # ยอดรวมคิดจากโปรเจคที่ "มีเป้าหมายจริง" (มีสมาชิก) เท่านั้น
+                total_expected += expected
+                total_paid += paid
+                total_pending += pending
+            projects.append({
+                "id": r["id"],
+                "title": r["title"],
+                "status": r["status"] or "active",
+                "due_date": r["due_date"],
+                "fee_amount": fee_amount,
+                "member_count": member_count,
+                "expected": expected,
+                "paid": paid,
+                "pending": pending,
+                "completion_pct": completion_pct,
+                "is_active": is_active,
+            })
+
+        return {
+            "as_of": as_of,
+            "projects": projects,
+            "project_count": len(projects),
+            "active_count": active_count,
+            "total_expected": round(total_expected, 2),
+            "total_paid": round(total_paid, 2),
+            "total_pending": round(total_pending, 2),
+            "collection_rate_pct": round(total_paid / total_expected * 100.0, 2) if total_expected > 0 else None,
+        }
+
+    @classmethod
+    async def _fetch_accounts_receivable(cls, conn: asyncpg.Connection, room_id: int) -> dict:
+        """ทะเบียนลูกหนี้แบบ Real-time: student_payments.status='pending' (ยังไม่จ่ายครบ).
+
+        Join students + users + student_payments + fee_collections — 1 แถว = หนี้ค้าง 1 รายการ
+        ของนักเรียน 1 คน. คืน {as_of, rows:[...], debtor_count, total_outstanding}.
+        """
+        as_of = datetime.now(THAI_TZ).date()
+        rows = await conn.fetch(
+            """SELECT S.id                                 AS student_id,
+                      S.student_no, S.student_id            AS student_id_no,
+                      U.first_name, U.nickname, U.first_name_en, U.last_name_en,
+                      FC.id          AS collection_id,
+                      FC.title, FC.amount, FC.due_date, FC.status,
+                      SP.id AS payment_id, SP.paid_amount,
+                      (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
+               FROM student_payments SP
+               JOIN fee_collections FC ON SP.collection_id = FC.id
+               JOIN students S         ON SP.student_id = S.id
+               LEFT JOIN users U       ON S.user_id = U.id
+               WHERE SP.deleted_at IS NULL
+                 AND SP.status = 'pending'
+                 AND FC.deleted_at IS NULL
+                 AND FC.room_id = $1
+               ORDER BY S.student_no ASC, FC.due_date ASC NULLS LAST, FC.id ASC""",
+            room_id,
+        )
+
+        entries: List[dict] = []
+        seen_students: set = set()
+        total_outstanding = 0.0
+        for r in rows:
+            name = r["first_name"] or r.get("first_name_en") or "Unknown"
+            if r["nickname"]:
+                name += f" ({r['nickname']})"
+            outstanding = round(float(r["outstanding"] or 0.0), 2)
+            seen_students.add(r["student_id"])
+            total_outstanding += outstanding
+            entries.append({
+                "student_id": r["student_id"],
+                "student_no": r["student_no"],
+                "student_id_no": r["student_id_no"],
+                "name": name,
+                "collection_id": r["collection_id"],
+                "title": r["title"],
+                "fee_amount": round(float(r["amount"] or 0.0), 2),
+                "paid_amount": round(float(r["paid_amount"] or 0.0), 2),
+                "outstanding": outstanding,
+                "due_date": r["due_date"],
+                "collection_status": r["status"] or "active",
+            })
+
+        return {
+            "as_of": as_of,
+            "rows": entries,
+            "debtor_count": len(seen_students),
+            "total_outstanding": round(total_outstanding, 2),
+        }
+
+    # =====================================================================
     # 📤 Export ประวัติการเงินเป็นไฟล์ Excel (.xlsx)
     # =====================================================================
 
@@ -2817,6 +2976,11 @@ class FinanceService:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
 
+                # [EXPORT-ERP] ข้อมูลโปรเจคเก็บเงิน/ลูกหนี้แบบ Real-time (ณ วันที่ส่งออก) — ดึงครั้งเดียว
+                # แล้วส่งต่อให้ path (legacy/v2/merged) ที่ถูกเลือกใช้สร้าง Sheet 4/5 (ไม่ขึ้นกับยุค)
+                collection_register = await cls._fetch_collection_register(conn, target_room_id)
+                accounts_receivable = await cls._fetch_accounts_receivable(conn, target_room_id)
+
                 # [ROUTER] แบ่งอ่านตามยุค (หลัง CUTOFF_DATE = 2026-09-01 อ่าน journal 100%):
                 #   - ทั้งช่วงก่อนเส้นตัด       → legacy (finance_transactions)
                 #   - เริ่มที่/หลังเส้นตัด       → บัญชีคู่ (journal)
@@ -2840,6 +3004,7 @@ class FinanceService:
                         month=month, year=year, start_date=start_date, end_date=end_date,
                         client_source=client_source, actor_identifier=actor_identifier,
                         start_time=start_time,
+                        reg=collection_register, ar=accounts_receivable,
                     )
 
                 if end_date is not None and end_date < CUTOFF_DATE:
@@ -2849,6 +3014,7 @@ class FinanceService:
                         month=month, year=year, start_date=start_date, end_date=end_date,
                         client_source=client_source, actor_identifier=actor_identifier,
                         start_time=start_time,
+                        reg=collection_register, ar=accounts_receivable,
                     )
                 if start_date is not None and start_date >= CUTOFF_DATE:
                     # [ROUTER] ขอข้อมูลหลังวันที่ตัด → อ่านจาก journal_entries/journal_lines
@@ -2857,6 +3023,7 @@ class FinanceService:
                         month=month, year=year, start_date=start_date, end_date=end_date,
                         client_source=client_source, actor_identifier=actor_identifier,
                         start_time=start_time,
+                        reg=collection_register, ar=accounts_receivable,
                     )
                 # [ROUTER] คร่อมเส้นตัด / เปิดปลาย / ไม่ระบุช่วง (ทั้งหมด) → MERGE 2 ยุค
                 return await cls._export_transactions_excel_merged(
@@ -2864,6 +3031,7 @@ class FinanceService:
                     month=month, year=year, start_date=start_date, end_date=end_date,
                     client_source=client_source, actor_identifier=actor_identifier,
                     start_time=start_time,
+                    reg=collection_register, ar=accounts_receivable,
                 )
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -2884,6 +3052,7 @@ class FinanceService:
         month: Optional[int] = None, year: Optional[int] = None,
         start_date: Optional[date] = None, end_date: Optional[date] = None,
         client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+        reg: Optional[dict] = None, ar: Optional[dict] = None,
     ) -> io.BytesIO:
         """[ROUTER-LEGACY] Logic เดิมของ export — อ่านจาก finance_transactions (Single-Entry)."""
         where_clause, period_params, period_label = cls._resolve_export_period(
@@ -2920,6 +3089,7 @@ class FinanceService:
             room_name=room_name, period_label=period_label,
             rows=final_rows, account_balances=[(r["account_name"], r["balance"]) for r in account_balances],
             generated_at=datetime.now(THAI_TZ),
+            reg=reg, ar=ar,
         )
 
         if start_time is not None:
@@ -2943,6 +3113,7 @@ class FinanceService:
         month: Optional[int] = None, year: Optional[int] = None,
         start_date: Optional[date] = None, end_date: Optional[date] = None,
         client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+        reg: Optional[dict] = None, ar: Optional[dict] = None,
     ) -> io.BytesIO:
         # [DOUBLE-ENTRY] แปลงช่วงเวลา → ฉลากเหมือน legacy (ปี-เดือน / ช่วงวันที่ / ทั้งหมด)
         # ⚠️ end_dt ต้องเป็นแบบ "ครอบถึง" (inclusive) เพราะ _get_transactions_v2 กรองด้วย `<= $3`
@@ -3005,6 +3176,7 @@ class FinanceService:
             rows=final_rows,
             account_balances=[(r["account_name"], r["net_balance"]) for r in balances],
             generated_at=datetime.now(THAI_TZ),
+            reg=reg, ar=ar,
         )
 
         if start_time is not None:
@@ -3023,6 +3195,7 @@ class FinanceService:
         month: Optional[int] = None, year: Optional[int] = None,
         start_date: Optional[date] = None, end_date: Optional[date] = None,
         client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+        reg: Optional[dict] = None, ar: Optional[dict] = None,
     ) -> io.BytesIO:
         """[ROUTER-MERGE] Export ที่ครอบ 2 ยุค (ขอ "ทั้งหมด" หรือช่วงคร่อมเส้นตัด):
         นำแถว legacy (เฉพาะ DATE(created_at) <= วันก่อน 1 ก.ย.) มา consolidate ขาโอน
@@ -3094,6 +3267,7 @@ class FinanceService:
             rows=final_rows,
             account_balances=[(r["account_name"], r["net_balance"]) for r in balances],
             generated_at=datetime.now(THAI_TZ),
+            reg=reg, ar=ar,
         )
 
         if start_time is not None:
@@ -3293,19 +3467,26 @@ class FinanceService:
     @classmethod
     def _build_finance_workbook(
         cls, room_name: str, period_label: str, rows: List[dict],
-        account_balances: Optional[List[tuple]] = None, generated_at: datetime = None
+        account_balances: Optional[List[tuple]] = None, generated_at: datetime = None,
+        reg: Optional[dict] = None, ar: Optional[dict] = None,
     ) -> io.BytesIO:
-        """สร้าง Workbook 3 แผ่นที่จัดรูปแบบสวยงาม:
-          Sheet 1 'สรุปยอด' — ภาพรวมรายรับ/รายจ่าย/ยอดคงเหลือของบัญชี
-          Sheet 2 'ประวัติรายการ' — ทุกรายการที่ดึงออกมา (หัวข้อหลัก)
-          Sheet 3 'สรุปรายหมวดหมู่' — รวมยอดรายรับ/รายจ่ายรายหมวด
+        """สร้าง Workbook 5 แผ่นระดับ "ภาพรวมการเงินทั้งห้อง" สำหรับ User ทั่วไป / ประธาน / ครู:
+
+          1. สรุปยอด                     — รายรับ/รายจ่าย/คงเหลือ + การเก็บเงิน-ลูกหนี้ (Real-time)
+                                             + ยอดคงเหลือรายบัญชี
+          2. ประวัติรายการ                — ทุกรายการ (zebra + autofilter + freeze)
+          3. สรุปรายหมวดหมู่              — รวมยอดรายรับ/รายจ่ายรายหมวด
+          4. สรุปโปรเจคเก็บเงิน (Fee Collections)  — เป้าหมาย/เก็บได้/ค้าง/%สำเร็จ รายโปรเจค
+          5. ทะเบียนลูกหนี้ (Accounts Receivable)  — หนี้ค้างรายคน (จัดกลุ่ม block ต่อนักเรียน)
+
+        reg/ar = ผลจาก _fetch_collection_register / _fetch_accounts_receivable (ข้อมูล Real-time
+        ณ วันที่ export — ไม่ผูกงวดของ transaction). ถ้าไม่ส่ง → ใช้ค่าว่าง (sheet ว่างปลอดภัย).
         """
         if generated_at is None:
             generated_at = datetime.now(THAI_TZ)
 
         # 🐛 FIX: ข้ามรายการ "โอนเงินระหว่างบัญชี" ออกจากการรวมรายรับ/รายจ่าย
-        # (เงินแค่ย้ายบัญชีในห้อง ไม่ได้เข้าหรือออกนอกห้อง) — ก่อนหน้านี้ expense
-        # ของขาโอนถูกรวมเข้า expense_total ทำให้ Net Balance (รายรับ−รายจ่าย) ต่ำเกินจริง
+        # (เงินแค่ย้ายบัญชีในห้อง ไม่ได้เข้าหรือออกนอกห้อง) — เหมือน export เดิม
         non_transfer_rows = [
             r for r in rows
             if not (r.get("is_transfer") or r.get("type") == "โอนเงินระหว่างบัญชี")
@@ -3313,27 +3494,56 @@ class FinanceService:
         income_total = round(sum(r["income"] for r in non_transfer_rows), 2)
         expense_total = round(sum(r["expense"] for r in non_transfer_rows), 2)
 
+        reg = reg or {}
+        ar = ar or {}
+        fee_projects: List[dict] = reg.get("projects") or []
+        ar_rows: List[dict] = ar.get("rows") or []
+        live_as_of = reg.get("as_of") or ar.get("as_of")
+        live_label = live_as_of.strftime("%d/%m/%Y") if live_as_of else "—"
+
+        # ---- ธีมสี (โทน Management: น้ำเงิน) ----
+        HEADER_FILL = PatternFill("solid", fgColor="1D4ED8")
+        TOTAL_FILL = PatternFill("solid", fgColor="CBD5E1")
+        SUBTOTAL_FILL = PatternFill("solid", fgColor="DBEAFE")
+        INCOME_FILL = PatternFill("solid", fgColor="D1FAE5")
+        EXPENSE_FILL = PatternFill("solid", fgColor="FEE2E2")
+        ZEBRA_FILL = PatternFill("solid", fgColor="F8FAFC")
+        white_bold = Font(bold=True, color="FFFFFF")
+        title_font = Font(bold=True, size=16, color="0F172A")
+        money = MONEY_NUM_FMT
+
+        def money_cell(ws, row, col, val):
+            cell = ws.cell(row=row, column=col)
+            if val is None:
+                return cell
+            cell.value = float(val)
+            cell.number_format = money
+            return cell
+
+        def fill_row(ws, row, cols, fill):
+            for c in cols:
+                ws.cell(row=row, column=c).fill = fill
+
         wb = Workbook()
-        # ---- Sheet 1: สรุปยอด ----
+        # =====================================================================
+        # Sheet 1: สรุปยอด
+        # =====================================================================
         ws_summary = wb.active
         ws_summary.title = "สรุปยอด"
         ws_summary.sheet_view.showGridLines = False
-        ws_summary.column_dimensions["A"].width = 34
+        ws_summary.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[0]
+        ws_summary.column_dimensions["A"].width = 40
         ws_summary.column_dimensions["B"].width = 26
-
-        HEADER_FILL = PatternFill("solid", fgColor="1D4ED8")   # น้ำเงินเข้ม
-        TOTAL_FILL = PatternFill("solid", fgColor="D1D5DB")    # เทาอ่อน
-        INCOME_FILL = PatternFill("solid", fgColor="D1FAE5")   # เขียวอ่อน
-        EXPENSE_FILL = PatternFill("solid", fgColor="FEE2E2")  # แดงอ่อน
-        white_bold = Font(bold=True, color="FFFFFF")
-        title_font = Font(bold=True, size=16, color="0F172A")
 
         ws_summary["A1"] = f"สรุปการเงิน — {room_name}"
         ws_summary["A1"].font = title_font
-        ws_summary["A2"] = f"รอบระยะเวลา: {period_label} · สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)"
+        ws_summary["A2"] = (
+            f"รอบระยะเวลา: {period_label} · สร้างเมื่อ "
+            f"{generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)"
+        )
         ws_summary["A2"].font = Font(color="64748B", size=10)
 
-        # กลุ่มรายรับ/รายจ่าย
+        # กลุ่มรายรับ/รายจ่าย (เฉพาะงวดที่ export)
         ws_summary["A4"] = "รายรับรวม"
         ws_summary["B4"] = income_total
         ws_summary["A5"] = "รายจ่ายรวม"
@@ -3349,30 +3559,59 @@ class FinanceService:
         for cell in ("A6", "B6"):
             ws_summary[cell].fill = TOTAL_FILL
             ws_summary[cell].font = Font(bold=True, size=12)
-        ws_summary["B4"].number_format = "#,##0.00 \"฿\""
-        ws_summary["B5"].number_format = "#,##0.00 \"฿\""
-        ws_summary["B6"].number_format = "#,##0.00 \"฿\""
+        for cell in ("B4", "B5", "B6"):
+            ws_summary[cell].number_format = money
 
-        # ยอดคงเหลือรายบัญชี
-        ws_summary["A8"] = "ยอดคงเหลือรายบัญชี"
-        ws_summary["A8"].font = Font(bold=True, size=12)
-        ws_summary["A9"] = "บัญชี"
-        ws_summary["B9"] = "ยอดคงเหลือ (บาท)"
-        for cell in ("A9", "B9"):
-            ws_summary[cell].fill = HEADER_FILL
-            ws_summary[cell].font = white_bold
-        row_idx = 10
+        # กลุ่มการเก็บเงิน / ลูกหนี้ (Real-time — ณ วันที่ส่งออก)
+        row = 8
+        sec_cell = ws_summary.cell(
+            row=row, column=1,
+            value=f"การเก็บเงิน / ลูกหนี้ — ข้อมูล ณ วันที่ {live_label} (Real-time)",
+        )
+        sec_cell.font = Font(bold=True, size=12, color="1E3A8A")
+        row += 1
+
+        rate = reg.get("collection_rate_pct")
+
+        def summary_row(label, val, fmt=None, bold=False):
+            nonlocal row
+            lab = ws_summary.cell(row=row, column=1, value=label)
+            lab.font = Font(bold=bold)
+            vcell = money_cell(ws_summary, row, 2, val)
+            if fmt:
+                vcell.number_format = fmt
+            row += 1
+
+        summary_row("อัตราการเก็บเงินสำเร็จ (%)", rate, PCT_NUM_FMT if rate is not None else None, bold=True)
+        summary_row("ยอดเรียกเก็บรวม (บาท)", reg.get("total_expected"), money)
+        summary_row("เก็บเงินได้แล้ว (บาท)", reg.get("total_paid"), money)
+        summary_row("หนี้ค้างชำระรวม — AR (บาท)", reg.get("total_pending"), money)
+        summary_row("จำนวนลูกหนี้ที่ยังค้าง (คน)", ar.get("debtor_count"))
+        summary_row("โปรเจคที่กำลังเก็บ (รายการ)", reg.get("active_count"))
+        row += 1
+
+        # ยอดคงเหลือรายบัญชี (จากข้อมูลงวด/ยุคที่ส่งมา)
+        section = ws_summary.cell(row=row, column=1, value="ยอดคงเหลือรายบัญชี")
+        section.font = Font(bold=True, size=12)
+        row += 1
+        for col, val in ((1, "บัญชี"), (2, "ยอดคงเหลือ (บาท)")):
+            cell = ws_summary.cell(row=row, column=col, value=val)
+            cell.fill = HEADER_FILL
+            cell.font = white_bold
+        row += 1
         for account, bal in (account_balances or []):
-            ws_summary.cell(row=row_idx, column=1, value=account)
-            ws_summary.cell(row=row_idx, column=2, value=float(bal)).number_format = "#,##0.00 \"฿\""
-            row_idx += 1
-        # ไม่มีบัญชีในห้องนี้เลย (เช่น ยังไม่เคยเปิดบัญชี) → ใส่ placeholder
+            ws_summary.cell(row=row, column=1, value=account)
+            money_cell(ws_summary, row, 2, float(bal))
+            row += 1
         if not account_balances:
-            ws_summary.cell(row=row_idx, column=1, value="(ไม่มีรายการในช่วงนี้)")
-            ws_summary.cell(row=row_idx, column=2, value=0.0).number_format = "#,##0.00 \"฿\""
+            ws_summary.cell(row=row, column=1, value="(ไม่มีรายการในช่วงนี้)")
+            money_cell(ws_summary, row, 2, 0.0)
 
-        # ---- Sheet 2: ประวัติรายการ (หัวข้อหลัก) ----
+        # =====================================================================
+        # Sheet 2: ประวัติรายการ (หัวข้อหลัก)
+        # =====================================================================
         ws_data = wb.create_sheet("ประวัติรายการ")
+        ws_data.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[1]
         headers = [
             ("ลำดับ", 6), ("วันที่", 14), ("เวลา", 10), ("ประเภท", 14), ("รายรับ (บาท)", 14),
             ("รายจ่าย (บาท)", 14), ("รายการ", 42), ("หมวดหมู่", 20), ("บัญชี", 18), ("ผู้บันทึก", 16),
@@ -3400,23 +3639,30 @@ class FinanceService:
                 i, date_str, time_str, r["type"], r["income"], r["expense"],
                 r["description"], r["category"], r["account"], r["recorded_by"],
             ])
-            ws_data.cell(row=i + 1, column=5).number_format = "#,##0.00"
-            ws_data.cell(row=i + 1, column=6).number_format = "#,##0.00"
+            ws_data.cell(row=i + 1, column=5).number_format = money
+            ws_data.cell(row=i + 1, column=6).number_format = money
             if i % 2 == 0:
                 for col_idx in range(1, len(headers) + 1):
-                    ws_data.cell(row=i + 1, column=col_idx).fill = PatternFill("solid", fgColor="F8FAFC")
-        ws_data.freeze_panes = "A2"
+                    ws_data.cell(row=i + 1, column=col_idx).fill = ZEBRA_FILL
 
-        # ---- Sheet 3: สรุปรายหมวดหมู่ ----
+        ws_data.freeze_panes = "A2"
+        ws_data.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws_data.max_row}"
+
+        # =====================================================================
+        # Sheet 3: สรุปรายหมวดหมู่
+        # =====================================================================
         ws_cat = wb.create_sheet("สรุปรายหมวดหมู่")
-        ws_cat.append(["หมวดหมู่", "ประเภทรายการ", "ยอดรวม (บาท)"])
-        ws_cat.column_dimensions["A"].width = 30
+        ws_cat.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[0]
+        cat_headers = ["หมวดหมู่", "ประเภทรายการ", "ยอดรวม (บาท)"]
+        ws_cat.append(cat_headers)
+        ws_cat.column_dimensions["A"].width = 32
         ws_cat.column_dimensions["B"].width = 14
         ws_cat.column_dimensions["C"].width = 18
-        for idx in range(1, 4):
+        for idx in range(1, len(cat_headers) + 1):
             cell = ws_cat.cell(row=1, column=idx)
             cell.fill = HEADER_FILL
             cell.font = white_bold
+
         cat_totals: Dict[str, dict] = {}
         for r in rows:
             # โอนเงินระหว่างบัญชีไม่ใช่หมวดรายรับ/รายจ่ายจริง → ข้าม (ไม่สร้างแถว 0.00)
@@ -3428,19 +3674,179 @@ class FinanceService:
                 entry["total"] += r["income"]
             elif r["type"] == "รายจ่าย":
                 entry["total"] += r["expense"]
+
         for idx, (name, info) in enumerate(sorted(cat_totals.items()), start=2):
             ws_cat.cell(row=idx, column=1, value=name)
             ws_cat.cell(row=idx, column=2, value=info["type"])
-            cell = ws_cat.cell(row=idx, column=3, value=round(info["total"], 2))
-            cell.number_format = "#,##0.00 \"฿\""
+            cell = money_cell(ws_cat, idx, 3, round(info["total"], 2))
+            cell.number_format = money
+            if idx % 2 == 0:
+                fill_row(ws_cat, idx, (1, 2, 3), ZEBRA_FILL)
+        if not cat_totals:
+            ws_cat.cell(row=2, column=1, value="(ไม่มีรายการในช่วงนี้)")
+
+        ws_cat.freeze_panes = "A2"
+        ws_cat.auto_filter.ref = f"A1:C{ws_cat.max_row}"
+
+        # =====================================================================
+        # Sheet 4: สรุปโปรเจคเก็บเงิน (Fee Collections)
+        # =====================================================================
+        ws_fee = wb.create_sheet("สรุปโปรเจคเก็บเงิน (Fee)")
+        ws_fee.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[2]
+        fee_headers = [
+            ("ลำดับ", 6), ("ชื่อโปรเจค", 32), ("สถานะ", 12), ("กำหนดชำระ", 12),
+            ("สมาชิก (คน)", 11), ("เรียกเก็บ/คน (บาท)", 16), ("เป้าหมายรวม (บาท)", 16),
+            ("เก็บได้แล้ว (บาท)", 16), ("คงค้าง (บาท)", 14), ("ความสำเร็จ (%)", 13),
+        ]
+        ncols_fee = len(fee_headers)
+
+        def _table_title(ws, title, subtitle, ncols):
+            """Title (แถว 1) + subtitle (แถว 2) merge ข้ามทุกคอลัมน์ → คืนแถว header (3)."""
+            ws.sheet_view.showGridLines = False
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+            ws.cell(row=1, column=1, value=title).font = Font(bold=True, size=16, color="0F172A")
+            ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncols)
+            ws.cell(row=2, column=1, value=subtitle).font = Font(color="64748B", size=10)
+            return 3
+
+        def _write_header(ws, header_row, col_specs):
+            for idx, (label, width) in enumerate(col_specs, start=1):
+                ws.column_dimensions[get_column_letter(idx)].width = width
+                cell = ws.cell(row=header_row, column=idx, value=label)
+                cell.fill = HEADER_FILL
+                cell.font = white_bold
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            return len(col_specs)
+
+        hr = _table_title(
+            ws_fee, f"สรุปโปรเจคเก็บเงิน (Fee Collections) — {room_name}",
+            f"ข้อมูล ณ วันที่ {live_label} (Real-time) · สร้างเมื่อ "
+            f"{generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
+            ncols_fee,
+        )
+        _write_header(ws_fee, hr, fee_headers)
+
+        r = hr + 1
+        sum_member = sum_expected = sum_paid = sum_pending = 0
+        for i, p in enumerate(fee_projects, start=1):
+            if p["member_count"]:
+                sum_member += p["member_count"]
+                sum_expected += p["expected"]
+                sum_paid += p["paid"]
+                sum_pending += p["pending"]
+            status_label = COLLECTION_STATUS_LABELS.get(p["status"], p["status"])
+            due_str = cls._fmt_date(p["due_date"])
+            ws_fee.cell(row=r, column=1, value=i)
+            ws_fee.cell(row=r, column=2, value=p["title"])
+            ws_fee.cell(row=r, column=3, value=status_label)
+            ws_fee.cell(row=r, column=4, value=due_str)
+            ws_fee.cell(row=r, column=5, value=p["member_count"])
+            money_cell(ws_fee, r, 6, p["fee_amount"])
+            money_cell(ws_fee, r, 7, p["expected"])
+            money_cell(ws_fee, r, 8, p["paid"])
+            money_cell(ws_fee, r, 9, p["pending"])
+            pct_cell = ws_fee.cell(row=r, column=10, value=p["completion_pct"])
+            pct_cell.number_format = PCT_NUM_FMT
+            if i % 2 == 0:
+                fill_row(ws_fee, r, tuple(range(1, ncols_fee + 1)), ZEBRA_FILL)
+            r += 1
+
+        if not fee_projects:
+            ws_fee.cell(row=r, column=2, value="(ยังไม่มีโปรเจคเก็บเงินในห้องนี้)")
+            r += 1
+        else:
+            # แถวรวม
+            ws_fee.cell(row=r, column=1, value="รวมทั้งสิ้น").font = Font(bold=True)
+            ws_fee.cell(row=r, column=2, value=f"{len(fee_projects)} โปรเจค").font = Font(bold=True)
+            ws_fee.cell(row=r, column=5, value=sum_member).font = Font(bold=True)
+            money_cell(ws_fee, r, 7, round(sum_expected, 2)).font = Font(bold=True)
+            money_cell(ws_fee, r, 8, round(sum_paid, 2)).font = Font(bold=True)
+            money_cell(ws_fee, r, 9, round(sum_pending, 2)).font = Font(bold=True)
+            if sum_expected > 0:
+                rate_cell = ws_fee.cell(row=r, column=10, value=round(sum_paid / sum_expected * 100.0, 2))
+                rate_cell.number_format = PCT_NUM_FMT
+            fill_row(ws_fee, r, tuple(range(1, ncols_fee + 1)), TOTAL_FILL)
+        ws_fee.freeze_panes = f"A{hr + 1}"
+        ws_fee.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_fee)}{ws_fee.max_row}"
+
+        # =====================================================================
+        # Sheet 5: ทะเบียนลูกหนี้ (Accounts Receivable)
+        # =====================================================================
+        ws_ar = wb.create_sheet("ทะเบียนลูกหนี้ (AR)")
+        ws_ar.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[3]
+        ar_headers = [
+            ("เลขที่", 7), ("ชื่อ-นามสกุล", 26), ("รายการที่ค้างชำระ", 30),
+            ("กำหนดชำระ", 12), ("ยอดเรียกเก็บ (บาท)", 15), ("ชำระแล้ว (บาท)", 14),
+            ("ยอดค้าง (บาท)", 14), ("สถานะโปรเจค", 12),
+        ]
+        ncols_ar = len(ar_headers)
+        hr = _table_title(
+            ws_ar, f"ทะเบียนลูกหนี้ (Accounts Receivable) — {room_name}",
+            f"หนี้ค้างชำระรายคน ณ วันที่ {live_label} (Real-time) · กรองเฉพาะรายการที่ยังไม่จ่ายครบ",
+            ncols_ar,
+        )
+        _write_header(ws_ar, hr, ar_headers)
+
+        def _ar_name_display(no: int) -> str:
+            return str(no)
+
+        r = hr + 1
+        i = 0
+        while i < len(ar_rows):
+            block = []
+            cur_student = ar_rows[i]["student_id"]
+            while i < len(ar_rows) and ar_rows[i]["student_id"] == cur_student:
+                block.append(ar_rows[i])
+                i += 1
+            first = True
+            for b in block:
+                due_str = cls._fmt_date(b["due_date"])
+                ws_ar.cell(row=r, column=1, value=_ar_name_display(b["student_no"]) if first else "")
+                ws_ar.cell(row=r, column=2, value=b["name"] if first else "")
+                ws_ar.cell(row=r, column=3, value=b["title"])
+                ws_ar.cell(row=r, column=4, value=due_str)
+                money_cell(ws_ar, r, 5, b["fee_amount"])
+                money_cell(ws_ar, r, 6, b["paid_amount"])
+                money_cell(ws_ar, r, 7, b["outstanding"])
+                ws_ar.cell(row=r, column=8, value=COLLECTION_STATUS_LABELS.get(b["collection_status"], b["collection_status"]))
+                if r % 2 == 0:
+                    fill_row(ws_ar, r, tuple(range(1, ncols_ar + 1)), ZEBRA_FILL)
+                first = False
+                r += 1
+            # แถวย่อยรวมหนี้รายคน
+            subtotal = round(sum(b["outstanding"] for b in block), 2)
+            sub_cell = ws_ar.cell(row=r, column=3, value=f"รวมหนี้ของ {block[0]['name']} ({len(block)} รายการ)")
+            sub_cell.font = Font(bold=True)
+            money_cell(ws_ar, r, 7, subtotal).font = Font(bold=True)
+            fill_row(ws_ar, r, tuple(range(1, ncols_ar + 1)), SUBTOTAL_FILL)
+            r += 1
+
+        if not ar_rows:
+            ws_ar.cell(row=r, column=3, value="(ไม่มีลูกหนี้ค้างชำระ — เก็บเงินครบทุกคนแล้ว 🎉)")
+            r += 1
+        else:
+            ws_ar.cell(row=r, column=3, value=f"รวมลูกหนี้ทั้งสิ้น ({ar.get('debtor_count')} คน)").font = Font(bold=True)
+            money_cell(ws_ar, r, 7, float(ar.get("total_outstanding") or 0.0)).font = Font(bold=True)
+            fill_row(ws_ar, r, tuple(range(1, ncols_ar + 1)), TOTAL_FILL)
+        ws_ar.freeze_panes = f"A{hr + 1}"
+        ws_ar.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_ar)}{ws_ar.max_row}"
 
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
         return output
 
+    @staticmethod
+    def _fmt_date(value) -> str:
+        """วันที่ → 'dd/mm/yyyy' (เวลาไทย) หรือ '' ถ้าไม่มีค่า."""
+        if value is None:
+            return ""
+        if isinstance(value, datetime):
+            return value.astimezone(THAI_TZ).strftime("%d/%m/%Y")
+        return value.strftime("%d/%m/%Y")
+
     # =====================================================================
-    # [DOUBLE-ENTRY] export_journal_excel — สมุดรายวันทั่วไปสำหรับนักบัญชี
+    # [DOUBLE-ENTRY] export_journal_excel — Full Financial Audit Report (GAAP/IFRS)
     # =====================================================================
     @staticmethod
     def _journal_reference(reference_type: Optional[str], reference_id: Optional[str]) -> str:
@@ -3453,23 +3859,237 @@ class FinanceService:
         return label
 
     @classmethod
+    async def _fetch_general_ledger(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        start_dt: Optional[datetime] = None, end_dt: Optional[datetime] = None,
+    ) -> List[dict]:
+        """สมุดบัญชีแยกประเภท (GL): ต่อ ledger → ยอดยกมา / เดบิต-เครดิตในงวด / ยอดยกไป.
+
+        - opening (ก่อน start_dt) = เคลื่อนไหวสะสมก่อนงวด (ถ้าไม่ระบุ start = ว่าง)
+        - period  (ใน [start_dt, end_dt]) = เคลื่อนไหวของงวด
+        - closing (ยอดยกไป) = opening + period (คำนวณฝั่ง Python, ตาม normal side)
+        ไม่นับ journal ที่ void / soft-delete (เงื่อนไขเดียวกับ reconcile/balance)
+        """
+        rows = await conn.fetch(
+            """SELECT AL.id AS ledger_id, AL.account_code, AL.account_name, AL.account_type,
+                      COALESCE(OP.op_dr, 0)  AS op_dr,
+                      COALESCE(OP.op_cr, 0)  AS op_cr,
+                      COALESCE(PER.per_dr, 0) AS per_dr,
+                      COALESCE(PER.per_cr, 0) AS per_cr
+               FROM accounting_ledgers AL
+               LEFT JOIN (
+                   SELECT L.ledger_id,
+                          SUM(L.debit)  AS op_dr,
+                          SUM(L.credit) AS op_cr
+                   FROM journal_lines L
+                   JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                   WHERE JE.deleted_at IS NULL AND JE.status <> 'voided'
+                     AND ($2::timestamptz IS NOT NULL AND JE.transaction_date < $2)
+                   GROUP BY L.ledger_id
+               ) OP ON OP.ledger_id = AL.id
+               LEFT JOIN (
+                   SELECT L.ledger_id,
+                          SUM(L.debit)  AS per_dr,
+                          SUM(L.credit) AS per_cr
+                   FROM journal_lines L
+                   JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                   WHERE JE.deleted_at IS NULL AND JE.status <> 'voided'
+                     AND ($2::timestamptz IS NULL OR JE.transaction_date >= $2)
+                     AND ($3::timestamptz IS NULL OR JE.transaction_date <= $3)
+                   GROUP BY L.ledger_id
+               ) PER ON PER.ledger_id = AL.id
+               WHERE AL.room_id = $1 AND AL.is_active = TRUE
+               ORDER BY AL.account_code NULLS LAST, AL.id""",
+            room_id, start_dt, end_dt,
+        )
+
+        result: List[dict] = []
+        for r in rows:
+            op_dr = float(r["op_dr"])
+            op_cr = float(r["op_cr"])
+            per_dr = float(r["per_dr"])
+            per_cr = float(r["per_cr"])
+            typ = r["account_type"]
+            signed = lambda dr, cr: (dr - cr) if typ in ("asset", "expense") else (cr - dr)  # noqa: E731
+            result.append({
+                "account_code": r["account_code"],
+                "account_name": r["account_name"],
+                "account_type": typ,
+                "opening_balance": round(signed(op_dr, op_cr), 2),
+                "period_debit": round(per_dr, 2),
+                "period_credit": round(per_cr, 2),
+                "closing_balance": round(signed(op_dr + per_dr, op_cr + per_cr), 2),
+            })
+        return result
+
+    @classmethod
+    async def _fetch_trial_balance_ledgers(
+        cls, conn: asyncpg.Connection, *, room_id: int, as_of_dt: Optional[datetime] = None,
+    ) -> dict:
+        """งบทดลอง: ยอด YTD (≤ as_of_dt) ของทุก ledger active. เลียนแบบ get_trial_balance.
+
+        คืน {"ledgers": [...], "total_debit", "total_credit", "is_balanced"}
+        ใช้สร้าง Sheet งบทดลอง + ต่อยอด Balance Sheet (สินทรัพย์/ทุน/กำไรสะสม)
+        """
+        if as_of_dt is not None:
+            date_filter = "AND JE.transaction_date <= $2"
+            params: List[Any] = [room_id, as_of_dt]
+        else:
+            date_filter = ""
+            params = [room_id]
+
+        rows = await conn.fetch(
+            f"""SELECT AL.id AS ledger_id, AL.account_code, AL.account_name, AL.account_type,
+                       COALESCE(NET.total_debit, 0)  AS total_debit,
+                       COALESCE(NET.total_credit, 0) AS total_credit
+                FROM accounting_ledgers AL
+                LEFT JOIN (
+                    SELECT L.ledger_id,
+                           SUM(L.debit)  AS total_debit,
+                           SUM(L.credit) AS total_credit
+                    FROM journal_lines L
+                    JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                    WHERE JE.deleted_at IS NULL
+                      AND JE.status <> 'voided'
+                      {date_filter}
+                    GROUP BY L.ledger_id
+                ) NET ON NET.ledger_id = AL.id
+                WHERE AL.room_id = $1 AND AL.is_active = TRUE
+                ORDER BY AL.account_code NULLS LAST, AL.id""",
+            *params,
+        )
+
+        ledgers: List[dict] = []
+        grand_debit = grand_credit = 0.0
+        for r in rows:
+            dr = float(r["total_debit"])
+            cr = float(r["total_credit"])
+            balance = (dr - cr) if r["account_type"] in ("asset", "expense") else (cr - dr)
+            grand_debit += dr
+            grand_credit += cr
+            ledgers.append({
+                "ledger_id": r["ledger_id"],
+                "account_code": r["account_code"],
+                "account_name": r["account_name"],
+                "account_type": r["account_type"],
+                "total_debit": round(dr, 2),
+                "total_credit": round(cr, 2),
+                "balance": round(balance, 2),
+            })
+        return {
+            "ledgers": ledgers,
+            "total_debit": round(grand_debit, 2),
+            "total_credit": round(grand_credit, 2),
+            "is_balanced": abs(grand_debit - grand_credit) < 0.01,
+        }
+
+    @classmethod
+    async def _fetch_income_statement_rows(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        start_dt: Optional[datetime] = None, end_dt: Optional[datetime] = None,
+    ) -> dict:
+        """งบกำไรขาดทุนของงวด [start_dt, end_dt] — เลียนแบบ get_income_statement.
+
+        ไม่นับ opening_balance (คือทุน ไม่ใช่รายได้ของงวด). คืน revenues/expenses/totals/net.
+        """
+        def _fetch_rows(account_type: str):
+            # revenue: กำไรฝั่ง Cr−Dr / expense: ค่าใช้จ่ายฝั่ง Dr−Cr
+            diff_expr = "(L.credit - L.debit)" if account_type == "revenue" else "(L.debit - L.credit)"
+            return conn.fetch(
+                f"""SELECT AL.account_name,
+                          COALESCE(SUM({diff_expr}), 0) AS total
+                   FROM journal_lines L
+                   JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                   JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+                   WHERE JE.room_id = $1 AND JE.deleted_at IS NULL
+                     AND JE.status <> 'voided'
+                     AND JE.reference_type <> 'opening_balance'
+                     AND AL.account_type = $4
+                     AND ($2::timestamptz IS NULL OR JE.transaction_date >= $2)
+                     AND ($3::timestamptz IS NULL OR JE.transaction_date <= $3)
+                   GROUP BY AL.account_name
+                   ORDER BY total DESC""",
+                room_id, start_dt, end_dt, account_type,
+            )
+
+        rev_rows = await _fetch_rows("revenue")
+        exp_rows = await _fetch_rows("expense")
+
+        revenues = [{"account_name": r["account_name"], "amount": float(r["total"])} for r in rev_rows]
+        expenses = [{"account_name": r["account_name"], "amount": float(r["total"])} for r in exp_rows]
+        total_revenue = sum(x["amount"] for x in revenues)
+        total_expense = sum(x["amount"] for x in expenses)
+        net_income = total_revenue - total_expense
+        return {
+            "revenues": revenues,
+            "expenses": expenses,
+            "total_revenue": round(total_revenue, 2),
+            "total_expense": round(total_expense, 2),
+            "net_income": round(net_income, 2),
+            "margin_pct": round(net_income / total_revenue * 100.0, 2) if total_revenue else None,
+        }
+
+    @classmethod
+    def _compose_balance_sheet(cls, tb: dict, period_net_income: float, as_of_str: str) -> dict:
+        """สร้างโครงงบแสดงฐานะการเงินจากงบทดลอง (YTD ≤ as_of).
+
+        สมการที่พิสูจน์: สินทรัพย์ = หนี้สิน(0) + ส่วนของเจ้าของ + กำไรสะสมถึงวันที่
+        โดยกำไรสะสม = Σ(revenue) − Σ(expense) สะสมนับจากเริ่มบัญชีคู่ (2026-09-01).
+        period_net_income = กำไร/ขาดทุนสุทธิของ *งวดที่ขอ* (จากงบกำไรขาดทุน) — เก็บไว้เป็น memo
+        เพื่อให้ผู้ตรวจเทียบ งบกำไรขาดทุน ↔ งบดุล ได้ชัดเจน
+        """
+        assets: List[dict] = []
+        equities: List[dict] = []
+        retained = 0.0
+        assets_total = equity_total = 0.0
+
+        for lg in tb["ledgers"]:
+            typ = lg["account_type"]
+            if typ == "asset":
+                assets.append(lg)
+                assets_total += lg["balance"]
+            elif typ == "equity":
+                equities.append(lg)
+                equity_total += lg["balance"]
+            elif typ == "revenue":
+                retained += lg["balance"]      # revenue balance = Cr−Dr (กำไร)
+            elif typ == "expense":
+                retained -= lg["balance"]      # expense balance = Dr−Cr → ลบออกจากกำไร
+
+        retained = round(retained, 2)
+        assets_total = round(assets_total, 2)
+        equity_total = round(equity_total, 2)
+        total_equity_side = round(equity_total + retained, 2)
+
+        return {
+            "as_of": as_of_str,
+            "assets": assets,
+            "assets_total": assets_total,
+            "liability_total": 0.0,
+            "equities": equities,
+            "equity_total": equity_total,
+            "retained_earnings": retained,
+            "total_equity_side": total_equity_side,
+            "is_balanced": abs(assets_total - total_equity_side) < 0.01,
+            "period_net_income": round(period_net_income, 2),
+        }
+
+    @classmethod
     async def export_journal_excel(
         cls, pool: asyncpg.Pool, *, client_source: str, actor_identifier: str,
         month: Optional[int] = None, year: Optional[int] = None,
         start_date: Optional[date] = None, end_date: Optional[date] = None,
         server_id: Optional[int] = None, room_id: Optional[int] = None, user_id: Optional[int] = None
     ) -> io.BytesIO:
-        """ส่งออก 'สมุดรายวันทั่วไป' (General Journal) ของห้องเป็น .xlsx สำหรับนักบัญชี.
+        """ส่งออก "Full Financial Audit Report" (GAAP/IFRS) ของห้องเป็น .xlsx สำหรับนักบัญชี.
 
-        อ่านตรง ๆ จาก journal_entries JOIN journal_lines JOIN accounting_ledgers
-        (ไม่ต้องผ่านการแปลเป็น TransactionResponse) — แต่ละบรรทัดของสมุดรายวัน = 1 แถว
-        แสดง เดบิต/เครดิต รายบัญชี โดยรายละเอียดหัวบิล (วันที่/เวลา/Reference/คำอธิบาย/ผู้บันทึก)
-        จะแสดงเฉพาะบรรทัดแรกของแต่ละบิล (เหมือนสมุดรายวันจริงที่อธิบายไว้บรรทัดแรก).
+        Workbook 6 แผ่น:
+          Financial Dashboard → สมุดรายวันทั่วไป (พร้อม Audit Trail) → สมุดบัญชีแยกประเภท (GL)
+          → งบทดลอง (Trial Balance) → งบกำไรขาดทุน → งบแสดงฐานะการเงิน
+        ข้อมูลระดับนี้ (GL/TB/PL) อ่านจาก journal_entries/journal_lines/accounting_ledgers
+        → มีผลเฉพาะตั้งแต่ 2026-09-01 (ข้อมูลก่อนหน้าเป็นยุค Single-Entry) — ใส่ note ในไฟล์.
 
-        ช่วงเวลาที่รองรับ (เหมือน export รายการเดิม):
-        - month + year → ทั้งเดือน
-        - start_date + end_date (หรือตัวเดียว) → ช่วงวันที่ที่กำหนด
-        - ไม่ระบุเลย → ทั้งหมด (ตั้งแต่เริ่มใช้ระบบบัญชีคู่)
+        ช่วงเวลาที่รองรับ (เหมือน export เดิม): month+year / start_date+end_date / ทั้งหมด.
         """
         start_time = time.time()
         target_room_id = room_id
@@ -3483,17 +4103,25 @@ class FinanceService:
                     month, year, start_date, end_date
                 )
 
-                # [CLAMP] สมุดรายวันอ่านจาก journal ล้วน (ข้อมูลก่อนวันที่ตัดไม่อยู่ในนี้)
-                # → ดัน start ขึ้นเป็น 1 ก.ย. ถ้าขอช่วงก่อนหน้า; window ที่ก่อนเส้นล้วนจะได้ 0 บรรทัด
-                #   (workbook แสดง "(ไม่มีรายการในช่วงนี้)" อยู่แล้ว)
+                # [CLAMP] งบชุดนี้อ่านจาก journal ล้วน → ดัน start ขึ้นเป็น 1 ก.ย. ถ้าขอช่วงก่อนหน้า
                 start_dt, end_dt, clamped, _empty = _clamp_to_cutoff(start_dt, end_dt)
+                note = ""
                 if clamped:
                     period_label = f"{period_label} (ข้อมูลเริ่ม 2026-09-01)"
+                    note = "ช่วงก่อน 2026-09-01 ไม่มีข้อมูลในบัญชีคู่ ถูกตัดออกจากรายงานนี้"
+                elif start_dt is None and end_dt is None:
+                    period_label = "ทั้งหมด (ตั้งแต่ขึ้นระบบบัญชีคู่ 2026-09-01)"
 
                 room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
                 room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"
 
-                # ดึงบรรทัดสมุดรายวัน (หลายบรรทัดต่อ 1 บิล) เรียงตามเวลาจริง
+                # ขอบเขต datetime (ครอบถึงทั้งวัน) สำหรับ query GL/TB/PL
+                lower_dt = datetime.combine(start_dt, dtime.min) if start_dt else None
+                upper_dt = datetime.combine(end_dt, dtime(23, 59, 59)) if end_dt else None
+                # PL เปิดต้นที่เส้นตัดเสมอ (ไม่มีข้อมูลก่อนหน้า) และไม่นับ opening_balance
+                pl_start = lower_dt or datetime.combine(CUTOFF_DATE, dtime.min)
+
+                # ---------- 1) สมุดรายวันทั่วไป (พร้อม Audit Trail จาก metadata) ----------
                 conditions = ["JE.room_id = $1", "JE.deleted_at IS NULL", "JE.status <> 'voided'"]
                 params: List[Any] = [target_room_id]
                 idx = 2
@@ -3511,6 +4139,7 @@ class FinanceService:
                     SELECT JE.id AS entry_id,
                            JE.reference_type, JE.reference_id,
                            JE.description, JE.transaction_date, JE.recorded_by,
+                           JE.metadata,
                            L.id AS line_id, L.debit, L.credit, L.line_description,
                            AL.account_code, AL.account_name, AL.account_type
                     FROM journal_entries JE
@@ -3523,19 +4152,36 @@ class FinanceService:
                 )
 
                 # กลุ่มหัวบิล: วันที่/Reference/คำอธิบาย/ผู้บันทึก แสดงเฉพาะบรรทัดแรก
-                row_dicts: List[dict] = []
+                journal_rows: List[dict] = []
                 prev_entry_id: Optional[str] = None
                 for ln in lines:
                     entry_id = str(ln["entry_id"])
                     is_first_line = entry_id != prev_entry_id
+                    # asyncpg อาจคืน jsonb เป็น dict หรือ JSON string ตาม codec → normalize ให้เป็น dict
+                    raw_meta = ln["metadata"]
+                    if isinstance(raw_meta, str):
+                        try:
+                            meta = json.loads(raw_meta)
+                        except (ValueError, TypeError):
+                            meta = {}
+                    else:
+                        meta = raw_meta or {}
                     base = {
                         "account_code": ln["account_code"] or "",
                         "account_name": ln["account_name"] or "—",
                         "debit": float(ln["debit"] or 0.0),
                         "credit": float(ln["credit"] or 0.0),
+                        # [AUDIT-TRAIL] ทุกบรรทัดมี trace ของหัวบิล (metadata จากโมดูลต้นทาง)
+                        "module": ln["reference_type"] or "",
+                        "doc_id": ln["reference_id"],
+                        "legacy_tx_id": meta.get("legacy_transaction_id"),
+                        "transfer_group_id": meta.get("transfer_group_id"),
+                        "student_payment_id": meta.get("student_payment_id"),
+                        "journal_entry_id": entry_id,
+                        "journal_line_id": int(ln["line_id"]),
                     }
                     if is_first_line:
-                        row_dicts.append({
+                        journal_rows.append({
                             **base,
                             "date_time": ln["transaction_date"],
                             "reference": cls._journal_reference(ln["reference_type"], ln["reference_id"]),
@@ -3544,22 +4190,60 @@ class FinanceService:
                         })
                         prev_entry_id = entry_id
                     else:
-                        row_dicts.append({
+                        journal_rows.append({
                             **base,
                             "date_time": None, "reference": None,
                             "description": None, "recorded_by": None,
                         })
 
-                excel_file = cls._build_journal_workbook(
+                # ---------- 2) GL / TB / PL / Balance Sheet / Dashboard ----------
+                gl_rows = await cls._fetch_general_ledger(
+                    conn, room_id=target_room_id, start_dt=lower_dt, end_dt=upper_dt,
+                )
+                tb = await cls._fetch_trial_balance_ledgers(
+                    conn, room_id=target_room_id, as_of_dt=upper_dt,
+                )
+                pl = await cls._fetch_income_statement_rows(
+                    conn, room_id=target_room_id, start_dt=pl_start, end_dt=upper_dt,
+                )
+                # ข้อมูลลูกหนี้/โปรเจคแบบ Real-time (สำหรับ Dashboard)
+                reg = await cls._fetch_collection_register(conn, target_room_id)
+                ar = await cls._fetch_accounts_receivable(conn, target_room_id)
+
+                if end_dt is not None:
+                    as_of_str = cls._fmt_date(end_dt)
+                else:
+                    today_label = datetime.now(THAI_TZ).strftime("%d/%m/%Y")
+                    as_of_str = f"ถึงข้อมูลล่าสุด ({today_label})"
+                balance_sheet = cls._compose_balance_sheet(tb, pl["net_income"], as_of_str)
+
+                assets_total = balance_sheet["assets_total"]
+                dashboard = {
+                    "as_of": as_of_str,
+                    "net_worth": assets_total,
+                    "total_revenue": pl["total_revenue"],
+                    "total_expense": pl["total_expense"],
+                    "net_income": pl["net_income"],
+                    "margin_pct": pl["margin_pct"],
+                    "ar_total": ar.get("total_outstanding"),
+                    "ar_debtors": ar.get("debtor_count"),
+                    "collection_rate_pct": reg.get("collection_rate_pct"),
+                    "ledger_count": len(tb["ledgers"]),
+                    "journal_entry_count": len(journal_rows),
+                }
+
+                excel_file = cls._build_accounting_workbook(
                     room_name=room_name, period_label=period_label,
-                    rows=row_dicts, generated_at=datetime.now(THAI_TZ),
+                    generated_at=datetime.now(THAI_TZ),
+                    journal_rows=journal_rows, gl_rows=gl_rows, tb=tb, pl=pl,
+                    balance_sheet=balance_sheet, dashboard=dashboard, note=note,
                 )
 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
                     conn=conn, action="EXPORT", actor_identifier=actor_identifier, client_source=client_source,
                     room_id=target_room_id, user_id=None, entity_type="ACCOUNTING_JOURNAL", status="success",
-                    new_values={"period": period_label, "journal_lines": len(row_dicts)},
+                    new_values={"period": period_label, "journal_lines": len(journal_rows)},
                     endpoint_or_command="FinanceService.export_journal_excel", execution_time_ms=exec_time
                 )
                 return excel_file
@@ -3578,94 +4262,398 @@ class FinanceService:
             raise e
 
     @classmethod
-    def _build_journal_workbook(
-        cls, room_name: str, period_label: str, rows: List[dict], generated_at: datetime = None
+    def _build_accounting_workbook(
+        cls, *, room_name: str, period_label: str, generated_at: datetime,
+        journal_rows: List[dict], gl_rows: List[dict], tb: dict, pl: dict,
+        balance_sheet: dict, dashboard: dict, note: str = "",
     ) -> io.BytesIO:
-        """สร้าง Workbook แผ่นเดียว 'สมุดรายวัน' สำหรับนักบัญชี.
+        """สร้าง Workbook 6 แผ่น "Full Financial Audit Report" สำหรับนักบัญชี/สรรพากร.
 
-        คอลัมน์: วันที่, เวลา, Reference, คำอธิบาย, รหัสบัญชี, ชื่อบัญชี,
-        เดบิต (บาท), เครดิต (บาท), ผู้บันทึก — พร้อมแถวรวมท้ายตาราง (Dr = Cr)
+        สี Tab เป็นโทน Accounting (เขียวเข้ม/ม่วง) ต่างจาก Management export (น้ำเงิน)
+        เพื่อให้แยกหมวดรายงานชัดเจน.
         """
-        if generated_at is None:
-            generated_at = datetime.now(THAI_TZ)
-
-        HEADER_FILL = PatternFill("solid", fgColor="1D4ED8")   # น้ำเงินเข้ม (เหมือน export เดิม)
-        TOTAL_FILL = PatternFill("solid", fgColor="D1D5DB")    # เทาอ่อน
+        HEADER_FILL = PatternFill("solid", fgColor="047857")     # เขียวเข้ม (accounting)
+        TOTAL_FILL = PatternFill("solid", fgColor="D1D5DB")
+        SECTION_FILL = PatternFill("solid", fgColor="D1FAE5")
+        SUBTOTAL_FILL = PatternFill("solid", fgColor="E0E7FF")
+        ZEBRA_FILL = PatternFill("solid", fgColor="F8FAFC")
         white_bold = Font(bold=True, color="FFFFFF")
+        money = MONEY_NUM_FMT
+
+        def money_cell(ws, row, col, val, bold=False):
+            cell = ws.cell(row=row, column=col)
+            if val is not None:
+                cell.value = float(val)
+                cell.number_format = money
+            if bold:
+                cell.font = Font(bold=True)
+            return cell
+
+        def fill_row(ws, row, cols, fill):
+            for c in cols:
+                ws.cell(row=row, column=c).fill = fill
+
+        def title_rows(ws, title, subtitle, ncols):
+            ws.sheet_view.showGridLines = False
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+            ws.cell(row=1, column=1, value=title).font = Font(bold=True, size=16, color="0F172A")
+            ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncols)
+            ws.cell(row=2, column=1, value=subtitle).font = Font(color="64748B", size=10)
+            return 3
+
+        def write_header(ws, header_row, col_specs):
+            for col_idx, (label, width) in enumerate(col_specs, start=1):
+                ws.column_dimensions[get_column_letter(col_idx)].width = width
+                cell = ws.cell(row=header_row, column=col_idx, value=label)
+                cell.fill = HEADER_FILL
+                cell.font = white_bold
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            return len(col_specs)
+
+        subtype_label = {"asset": "สินทรัพย์", "liability": "หนี้สิน", "equity": "ทุน",
+                         "revenue": "รายได้", "expense": "ค่าใช้จ่าย"}
+
+        def fmt(val):
+            if val is None:
+                return "—"
+            if isinstance(val, float):
+                return f"{val:,.2f}"
+            return val
 
         wb = Workbook()
-        ws = wb.active
-        ws.title = "สมุดรายวัน"
-        ws.sheet_view.showGridLines = False
 
-        headers = [
-            ("วันที่", 12), ("เวลา", 8), ("Reference", 16), ("คำอธิบาย", 42),
-            ("รหัสบัญชี", 11), ("ชื่อบัญชี", 26), ("เดบิต (บาท)", 15), ("เครดิต (บาท)", 15), ("ผู้บันทึก", 18),
+        # =====================================================================
+        # Sheet 1: Financial Dashboard
+        # =====================================================================
+        ws_dash = wb.active
+        ws_dash.title = "Financial Dashboard"
+        ws_dash.sheet_properties.tabColor = ACCOUNTING_TAB_COLORS[0]
+        ws_dash.column_dimensions["A"].width = 42
+        ws_dash.column_dimensions["B"].width = 26
+        _generated = generated_at.strftime("%d/%m/%Y %H:%M")
+        ws_dash["A1"] = f"Financial Dashboard — {room_name}"
+        ws_dash["A1"].font = Font(bold=True, size=16, color="0F172A")
+        ws_dash["A2"] = (
+            f"รอบ: {period_label} · ณ {dashboard['as_of']} · "
+            f"สร้างเมื่อ {_generated} น. (เวลาไทย)"
+        )
+        ws_dash["A2"].font = Font(color="64748B", size=10)
+
+        ws_dash["A4"] = "ภาพรวมความมั่งคั่ง (Net Worth)"
+        ws_dash["A4"].font = Font(bold=True, size=12, color="065F46")
+        ws_dash["A5"] = "สินทรัพย์รวม (Total Assets)"
+        money_cell(ws_dash, 5, 2, dashboard["net_worth"], bold=True)
+        ws_dash["A6"] = "รายได้รวม (งวด)"
+        money_cell(ws_dash, 6, 2, dashboard["total_revenue"])
+        ws_dash["A7"] = "ค่าใช้จ่ายรวม (งวด)"
+        money_cell(ws_dash, 7, 2, dashboard["total_expense"])
+        ws_dash["A8"] = "กำไร/ขาดทุนสุทธิของงวด (Net Income)"
+        money_cell(ws_dash, 8, 2, dashboard["net_income"], bold=True)
+        ws_dash["A9"] = "อัตรากำไร (Net Margin)"
+        if dashboard["margin_pct"] is not None:
+            ws_dash["B9"] = dashboard["margin_pct"]
+            ws_dash["B9"].number_format = PCT_NUM_FMT
+        else:
+            ws_dash["B9"] = "—"
+
+        ws_dash["A11"] = "การเรียกเก็บเงิน / ลูกหนี้ (Real-time)"
+        ws_dash["A11"].font = Font(bold=True, size=12, color="065F46")
+        ws_dash["A12"] = "อัตราการเก็บเงินสำเร็จ (%)"
+        if dashboard["collection_rate_pct"] is not None:
+            ws_dash["B12"] = dashboard["collection_rate_pct"]
+            ws_dash["B12"].number_format = PCT_NUM_FMT
+        else:
+            ws_dash["B12"] = "—"
+        ws_dash["A13"] = "ยอดหนี้ค้างชำระรวม — AR (บาท)"
+        money_cell(ws_dash, 13, 2, dashboard["ar_total"])
+        ws_dash["A14"] = "จำนวนลูกหนี้ (คน)"
+        ws_dash["B14"] = dashboard["ar_debtors"]
+
+        ws_dash["A16"] = "ข้อมูลบัญชีคู่ (Double-Entry)"
+        ws_dash["A16"].font = Font(bold=True, size=12, color="065F46")
+        ws_dash["A17"] = "จำนวนบัญชี (Ledgers)"
+        ws_dash["B17"] = dashboard["ledger_count"]
+        ws_dash["A18"] = "จำนวนบรรทัดสมุดรายวัน (Journal Lines)"
+        ws_dash["B18"] = dashboard["journal_entry_count"]
+
+        note_row = 20
+        if note:
+            ncell = ws_dash.cell(row=note_row, column=1, value=f"หมายเหตุ: {note}")
+            ncell.font = Font(color="B45309", size=10, italic=True)
+            note_row += 1
+        if balance_sheet["as_of"].startswith("ถึงข้อมูลล่าสุด"):
+            ncell = ws_dash.cell(row=note_row, column=1, value="หมายเหตุ: งบการเงินบัญชีคู่เริ่มนับตั้งแต่ 2026-09-01")
+            ncell.font = Font(color="64748B", size=10, italic=True)
+        # ความสมดุล (Dr=Cr ของระบบ)
+        ws_dash["B5"].fill = SECTION_FILL
+
+        # =====================================================================
+        # Sheet 2: สมุดรายวันทั่วไป (General Journal) พร้อม Audit Trail
+        # =====================================================================
+        ws_j = wb.create_sheet("สมุดรายวัน (General Journal)")
+        ws_j.sheet_properties.tabColor = ACCOUNTING_TAB_COLORS[1]
+        j_headers = [
+            ("วันที่", 12), ("เวลา", 8), ("Reference", 16), ("คำอธิบาย", 38),
+            ("รหัสบัญชี", 10), ("ชื่อบัญชี", 24), ("เดบิต (บาท)", 14), ("เครดิต (บาท)", 14),
+            ("ผู้บันทึก", 16),
+            # ---- Audit Trail (Metadata / Trace) ----
+            ("โมดูล (reference_type)", 18), ("Doc ID (reference_id)", 12),
+            ("Legacy TX ID", 12), ("Transfer Group", 12), ("Student Payment", 12),
+            ("Journal Entry ID", 38), ("Journal Line ID", 10),
         ]
-        ncols = len(headers)
+        ncols_j = len(j_headers)
+        hr = title_rows(
+            ws_j, f"สมุดรายวันทั่วไป (General Journal) — {room_name}",
+            f"รอบ: {period_label} · สร้างเมื่อ {_generated} น. (เวลาไทย)"
+            + (" · " + note if note else ""),
+            ncols_j,
+        )
+        write_header(ws_j, hr, j_headers)
 
-        # Title + subtitle (merge ข้ามทุกคอลัมน์)
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
-        ws.cell(row=1, column=1, value=f"สมุดรายวันทั่วไป — {room_name}").font = Font(bold=True, size=16, color="0F172A")
-        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncols)
-        ws.cell(
-            row=2, column=1,
-            value=f"รอบระยะเวลา: {period_label} · สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
-        ).font = Font(color="64748B", size=10)
+        def _fmt_j_datetime(v):
+            if v is None:
+                return "", ""
+            dt_local = v.astimezone(THAI_TZ)
+            return dt_local.strftime("%d/%m/%Y"), dt_local.strftime("%H:%M")
 
-        for col_idx, (_, width) in enumerate(headers, start=1):
-            ws.column_dimensions[get_column_letter(col_idx)].width = width
+        r = hr + 1
+        for jr in journal_rows:
+            date_str, time_str = _fmt_j_datetime(jr.get("date_time"))
+            ws_j.cell(row=r, column=1, value=date_str or None)
+            ws_j.cell(row=r, column=2, value=time_str or None)
+            ws_j.cell(row=r, column=3, value=jr.get("reference"))
+            ws_j.cell(row=r, column=4, value=jr.get("description"))
+            ws_j.cell(row=r, column=5, value=jr.get("account_code"))
+            ws_j.cell(row=r, column=6, value=jr.get("account_name"))
+            dcell = money_cell(ws_j, r, 7, jr["debit"] if jr["debit"] else None)
+            ccell = money_cell(ws_j, r, 8, jr["credit"] if jr["credit"] else None)
+            ws_j.cell(row=r, column=9, value=jr.get("recorded_by"))
+            # Audit trail (ทุกบรรทัด)
+            ws_j.cell(row=r, column=10, value=jr.get("module") or None)
+            ws_j.cell(row=r, column=11, value=jr.get("doc_id") or None)
+            ws_j.cell(row=r, column=12, value=jr.get("legacy_tx_id"))
+            ws_j.cell(row=r, column=13, value=jr.get("transfer_group_id"))
+            ws_j.cell(row=r, column=14, value=jr.get("student_payment_id"))
+            ws_j.cell(row=r, column=15, value=jr.get("journal_entry_id"))
+            ws_j.cell(row=r, column=16, value=jr.get("journal_line_id"))
+            # บรรทัดแรกของแต่ละบิล → ตัวหนาหัวข้อ
+            if jr.get("description") is not None:
+                for col in (3, 4, 9):
+                    ws_j.cell(row=r, column=col).font = Font(bold=True)
+            if (r - hr) % 2 == 0:
+                fill_row(ws_j, r, tuple(range(1, ncols_j + 1)), ZEBRA_FILL)
+            r += 1
 
-        # Header row (แถว 4)
-        for col_idx, (label, _) in enumerate(headers, start=1):
-            cell = ws.cell(row=4, column=col_idx, value=label)
-            cell.fill = HEADER_FILL
-            cell.font = white_bold
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        if not journal_rows:
+            ws_j.cell(row=r, column=4, value="(ไม่มีรายการในช่วงนี้)")
+            r += 1
 
-        row_idx = 5
-        for r in rows:
-            date_str, time_str = "", ""
-            if r.get("date_time") is not None:
-                dt_local = r["date_time"].astimezone(THAI_TZ)
-                date_str = dt_local.strftime("%d/%m/%Y")
-                time_str = dt_local.strftime("%H:%M")
-            ws.cell(row=row_idx, column=1, value=date_str or None)
-            ws.cell(row=row_idx, column=2, value=time_str or None)
-            ws.cell(row=row_idx, column=3, value=r.get("reference"))
-            ws.cell(row=row_idx, column=4, value=r.get("description"))
-            ws.cell(row=row_idx, column=5, value=r.get("account_code"))
-            ws.cell(row=row_idx, column=6, value=r.get("account_name"))
-            debit_cell = ws.cell(row=row_idx, column=7, value=r["debit"] if r["debit"] else None)
-            credit_cell = ws.cell(row=row_idx, column=8, value=r["credit"] if r["credit"] else None)
-            debit_cell.number_format = "#,##0.00"
-            credit_cell.number_format = "#,##0.00"
-            ws.cell(row=row_idx, column=9, value=r.get("recorded_by"))
-            # บรรทัดแรกของแต่ละบิล: ทำหัวข้อ (Reference/คำอธิบาย/ผู้บันทึก) ให้เป็นตัวหนา
-            if r.get("description") is not None:
-                for col_idx in (3, 4, 9):
-                    ws.cell(row=row_idx, column=col_idx).font = Font(bold=True)
+        # แถวรวม (Dr = Cr เสมอ)
+        debit_total = round(sum(float(x.get("debit") or 0.0) for x in journal_rows), 2)
+        credit_total = round(sum(float(x.get("credit") or 0.0) for x in journal_rows), 2)
+        ws_j.cell(row=r, column=1, value="รวมทั้งสิ้น").font = Font(bold=True)
+        d_t = money_cell(ws_j, r, 7, debit_total, bold=True)
+        c_t = money_cell(ws_j, r, 8, credit_total, bold=True)
+        fill_row(ws_j, r, tuple(range(1, ncols_j + 1)), TOTAL_FILL)
+        ws_j.freeze_panes = f"A{hr + 1}"
+        ws_j.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_j)}{ws_j.max_row}"
+
+        # =====================================================================
+        # Sheet 3: สมุดบัญชีแยกประเภท (General Ledger)
+        # =====================================================================
+        ws_gl = wb.create_sheet("สมุดบัญชีแยกประเภท (GL)")
+        ws_gl.sheet_properties.tabColor = ACCOUNTING_TAB_COLORS[2]
+        gl_headers = [
+            ("รหัสบัญชี", 10), ("ชื่อบัญชี", 26), ("ประเภท", 13),
+            ("ยอดยกมา (บาท)", 16), ("เดบิต (บาท)", 14), ("เครดิต (บาท)", 14), ("ยอดยกไป (บาท)", 16),
+        ]
+        ncols_gl = len(gl_headers)
+        hr = title_rows(
+            ws_gl, f"สมุดบัญชีแยกประเภท (General Ledger) — {room_name}",
+            f"รอบ: {period_label} · ยอดยกมา = สะสมก่อนงวด, ยอดยกไป = ยอดคงเหลือบัญชี · "
+            f"สร้างเมื่อ {_generated} น.",
+            ncols_gl,
+        )
+        write_header(ws_gl, hr, gl_headers)
+        r = hr + 1
+        for row_no, gl in enumerate(gl_rows, start=1):
+            ws_gl.cell(row=r, column=1, value=gl["account_code"])
+            ws_gl.cell(row=r, column=2, value=gl["account_name"])
+            ws_gl.cell(row=r, column=3, value=ACCOUNT_TYPE_LABELS.get(gl["account_type"], gl["account_type"]))
+            money_cell(ws_gl, r, 4, gl["opening_balance"])
+            money_cell(ws_gl, r, 5, gl["period_debit"])
+            money_cell(ws_gl, r, 6, gl["period_credit"])
+            money_cell(ws_gl, r, 7, gl["closing_balance"], bold=True)
+            if row_no % 2 == 0:
+                fill_row(ws_gl, r, tuple(range(1, ncols_gl + 1)), ZEBRA_FILL)
+            r += 1
+        if not gl_rows:
+            ws_gl.cell(row=r, column=2, value="(ยังไม่มีบัญชี/รายการในระบบบัญชีคู่ของห้องนี้)")
+            r += 1
+        else:
+            sum_op = round(sum(x["opening_balance"] for x in gl_rows), 2)
+            sum_dr = round(sum(x["period_debit"] for x in gl_rows), 2)
+            sum_cr = round(sum(x["period_credit"] for x in gl_rows), 2)
+            sum_cl = round(sum(x["closing_balance"] for x in gl_rows), 2)
+            ws_gl.cell(row=r, column=2, value="รวมทั้งสิ้น").font = Font(bold=True)
+            money_cell(ws_gl, r, 4, sum_op, bold=True)
+            money_cell(ws_gl, r, 5, sum_dr, bold=True)
+            money_cell(ws_gl, r, 6, sum_cr, bold=True)
+            money_cell(ws_gl, r, 7, sum_cl, bold=True)
+            fill_row(ws_gl, r, tuple(range(1, ncols_gl + 1)), TOTAL_FILL)
+        ws_gl.freeze_panes = f"A{hr + 1}"
+        ws_gl.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_gl)}{ws_gl.max_row}"
+
+        # =====================================================================
+        # Sheet 4: งบทดลอง (Trial Balance)
+        # =====================================================================
+        ws_tb = wb.create_sheet("งบทดลอง (Trial Balance)")
+        ws_tb.sheet_properties.tabColor = ACCOUNTING_TAB_COLORS[3]
+        tb_headers = [
+            ("รหัสบัญชี", 10), ("ชื่อบัญชี", 26), ("ประเภท", 13),
+            ("ยอดรวมเดบิต (บาท)", 16), ("ยอดรวมเครดิต (บาท)", 16), ("คงเหลือ (บาท)", 16),
+        ]
+        ncols_tb = len(tb_headers)
+        hr = title_rows(
+            ws_tb, f"งบทดลอง (Trial Balance) — {room_name}",
+            f"ณ {dashboard['as_of']} · YTD ตั้งแต่เริ่มบัญชีคู่ 2026-09-01 · สร้างเมื่อ {_generated} น.",
+            ncols_tb,
+        )
+        write_header(ws_tb, hr, tb_headers)
+        r = hr + 1
+        for row_no, lg in enumerate(tb["ledgers"], start=1):
+            ws_tb.cell(row=r, column=1, value=lg["account_code"])
+            ws_tb.cell(row=r, column=2, value=lg["account_name"])
+            ws_tb.cell(row=r, column=3, value=ACCOUNT_TYPE_LABELS.get(lg["account_type"], lg["account_type"]))
+            money_cell(ws_tb, r, 4, lg["total_debit"])
+            money_cell(ws_tb, r, 5, lg["total_credit"])
+            money_cell(ws_tb, r, 6, lg["balance"])
+            if row_no % 2 == 0:
+                fill_row(ws_tb, r, tuple(range(1, ncols_tb + 1)), ZEBRA_FILL)
+            r += 1
+        if not tb["ledgers"]:
+            ws_tb.cell(row=r, column=2, value="(ไม่มีรายการ — ข้อมูลเริ่มหลัง 2026-09-01)")
+            r += 1
+        # แถว "รวมทั้งสิ้น" — พิสูจน์ Dr = Cr สมดุล
+        ws_tb.cell(row=r, column=1, value="รวมทั้งสิ้น").font = Font(bold=True)
+        money_cell(ws_tb, r, 4, tb["total_debit"], bold=True)
+        money_cell(ws_tb, r, 5, tb["total_credit"], bold=True)
+        ws_tb.cell(row=r, column=6, value="✅ สมดุล (Dr = Cr)" if tb["is_balanced"] else "❌ ไม่สมดุล")
+        ws_tb.cell(row=r, column=6).font = Font(bold=True, color="047857" if tb["is_balanced"] else "B91C1C")
+        fill_row(ws_tb, r, tuple(range(1, ncols_tb + 1)), TOTAL_FILL)
+        ws_tb.freeze_panes = f"A{hr + 1}"
+        ws_tb.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_tb)}{ws_tb.max_row}"
+
+        # =====================================================================
+        # Sheet 5: งบกำไรขาดทุน (Income Statement)
+        # =====================================================================
+        ws_pl = wb.create_sheet("งบกำไรขาดทุน (Income Statement)")
+        ws_pl.sheet_properties.tabColor = ACCOUNTING_TAB_COLORS[4]
+        ws_pl.column_dimensions["A"].width = 6
+        ws_pl.column_dimensions["B"].width = 40
+        ws_pl.column_dimensions["C"].width = 22
+        ws_pl["A1"] = f"งบกำไรขาดทุน (Income Statement) — {room_name}"
+        ws_pl["A1"].font = Font(bold=True, size=16, color="0F172A")
+        ws_pl["A2"] = f"รอบ: {period_label} · สร้างเมื่อ {_generated} น. (เวลาไทย) · (ไม่นับยอดยกมา)"
+        ws_pl["A2"].font = Font(color="64748B", size=10)
+
+        ws_pl["A4"] = "รายได้ (Revenue)"
+        ws_pl["A4"].font = Font(bold=True, size=12, color="047857")
+        hr = 5
+        for rev in pl["revenues"]:
+            ws_pl.cell(row=hr, column=2, value=rev["account_name"])
+            money_cell(ws_pl, hr, 3, rev["amount"])
+            hr += 1
+        ws_pl.cell(row=hr, column=2, value="รวมรายได้").font = Font(bold=True)
+        money_cell(ws_pl, hr, 3, pl["total_revenue"], bold=True)
+        fill_row(ws_pl, hr, (1, 2, 3), SECTION_FILL)
+        hr += 2
+
+        ws_pl.cell(row=hr, column=1, value="ค่าใช้จ่าย (Expense)")
+        ws_pl.cell(row=hr, column=1).font = Font(bold=True, size=12, color="B91C1C")
+        hr += 1
+        for exp in pl["expenses"]:
+            ws_pl.cell(row=hr, column=2, value=exp["account_name"])
+            money_cell(ws_pl, hr, 3, exp["amount"])
+            hr += 1
+        ws_pl.cell(row=hr, column=2, value="รวมค่าใช้จ่าย").font = Font(bold=True)
+        money_cell(ws_pl, hr, 3, pl["total_expense"], bold=True)
+        fill_row(ws_pl, hr, (1, 2, 3), SUBTOTAL_FILL)
+        hr += 2
+
+        ws_pl.cell(row=hr, column=2, value="กำไร/ขาดทุนสุทธิ (Net Income)")
+        ws_pl.cell(row=hr, column=2).font = Font(bold=True, size=12)
+        money_cell(ws_pl, hr, 3, pl["net_income"], bold=True)
+        fill_row(ws_pl, hr, (1, 2, 3), TOTAL_FILL)
+        hr += 1
+        if pl["margin_pct"] is not None:
+            m = ws_pl.cell(row=hr, column=3, value=pl["margin_pct"])
+            m.number_format = PCT_NUM_FMT
+
+        # =====================================================================
+        # Sheet 6: งบแสดงฐานะการเงิน (Balance Sheet)
+        # =====================================================================
+        ws_bs = wb.create_sheet("งบแสดงฐานะการเงิน (BS)")
+        ws_bs.sheet_properties.tabColor = ACCOUNTING_TAB_COLORS[5]
+        ws_bs.column_dimensions["A"].width = 6
+        ws_bs.column_dimensions["B"].width = 42
+        ws_bs.column_dimensions["C"].width = 22
+        ws_bs["A1"] = f"งบแสดงฐานะการเงิน (Balance Sheet) — {room_name}"
+        ws_bs["A1"].font = Font(bold=True, size=16, color="0F172A")
+        ws_bs["A2"] = (
+            f"ณ {balance_sheet['as_of']} · สมการ: สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ + กำไรสะสม · "
+            f"สร้างเมื่อ {_generated} น."
+        )
+        ws_bs["A2"].font = Font(color="64748B", size=10)
+
+        def _bs_section_row(ws, row, label):
+            ws.cell(row=row, column=2, value=label).font = Font(bold=True, size=12, color="065F46")
+
+        row_idx = 4
+        _bs_section_row(ws_bs, row_idx, "สินทรัพย์ (Assets)")
+        row_idx += 1
+        for a in balance_sheet["assets"]:
+            ws_bs.cell(row=row_idx, column=2, value=f"  {a['account_name']} ({a['account_code']})")
+            money_cell(ws_bs, row_idx, 3, a["balance"])
             row_idx += 1
+        ws_bs.cell(row=row_idx, column=2, value="รวมสินทรัพย์").font = Font(bold=True)
+        money_cell(ws_bs, row_idx, 3, balance_sheet["assets_total"], bold=True)
+        fill_row(ws_bs, row_idx, (1, 2, 3), SECTION_FILL)
+        row_idx += 2
 
-        # ไม่มีรายการในช่วงนี้ → ใส่ placeholder กันตารางว่างลอย (ยังมีแถวรวม 0)
-        if not rows:
-            ws.cell(row=row_idx, column=4, value="(ไม่มีรายการในช่วงนี้)")
+        _bs_section_row(ws_bs, row_idx, "หนี้สิน (Liabilities)")
+        row_idx += 1
+        ws_bs.cell(row=row_idx, column=2, value="  (ระบบยังไม่มีหนี้สิน)")
+        money_cell(ws_bs, row_idx, 3, 0.0)
+        row_idx += 1
+        ws_bs.cell(row=row_idx, column=2, value="รวมหนี้สิน").font = Font(bold=True)
+        money_cell(ws_bs, row_idx, 3, 0.0, bold=True)
+        fill_row(ws_bs, row_idx, (1, 2, 3), SUBTOTAL_FILL)
+        row_idx += 2
+
+        _bs_section_row(ws_bs, row_idx, "ส่วนของเจ้าของ (Equity)")
+        row_idx += 1
+        for eq in balance_sheet["equities"]:
+            ws_bs.cell(row=row_idx, column=2, value=f"  {eq['account_name']} ({eq['account_code']})")
+            money_cell(ws_bs, row_idx, 3, eq["balance"])
             row_idx += 1
+        ws_bs.cell(row=row_idx, column=2, value="  กำไรสะสมถึงวันที่ (Retained Earnings)")
+        money_cell(ws_bs, row_idx, 3, balance_sheet["retained_earnings"])
+        row_idx += 1
+        ws_bs.cell(row=row_idx, column=2, value="รวมส่วนของเจ้าของ").font = Font(bold=True)
+        money_cell(ws_bs, row_idx, 3, balance_sheet["total_equity_side"], bold=True)
+        fill_row(ws_bs, row_idx, (1, 2, 3), TOTAL_FILL)
+        row_idx += 2
 
-        # แถวรวม (ยอดเดบิตต้องเท่ากับยอดเครดิตเสมอ)
-        debit_total = round(sum(float(r.get("debit") or 0.0) for r in rows), 2)
-        credit_total = round(sum(float(r.get("credit") or 0.0) for r in rows), 2)
-        ws.cell(row=row_idx, column=1, value="รวมทั้งสิ้น").font = Font(bold=True)
-        dcell = ws.cell(row=row_idx, column=7, value=debit_total)
-        dcell.number_format = "#,##0.00"
-        dcell.font = Font(bold=True)
-        ccell = ws.cell(row=row_idx, column=8, value=credit_total)
-        ccell.number_format = "#,##0.00"
-        ccell.font = Font(bold=True)
-        for col_idx in range(1, ncols + 1):
-            ws.cell(row=row_idx, column=col_idx).fill = TOTAL_FILL
-
-        ws.freeze_panes = "A5"
+        ws_bs.cell(row=row_idx, column=2, value="ตรวจสอบสมดุล (Assets = Liab + Equity + Retained)")
+        ws_bs.cell(row=row_idx, column=2).font = Font(bold=True, color="0F172A")
+        ok = balance_sheet["is_balanced"]
+        ws_bs.cell(row=row_idx, column=3, value="✅ สมดุล" if ok else "❌ ไม่สมดุล")
+        ws_bs.cell(row=row_idx, column=3).font = Font(bold=True, color="047857" if ok else "B91C1C")
+        row_idx += 1
+        ws_bs.cell(row=row_idx, column=2, value="หมายเหตุ: กำไรสุทธิของงวด (ตามงบกำไรขาดทุน)")
+        ws_bs.cell(row=row_idx, column=2).font = Font(color="64748B", size=10, italic=True)
+        money_cell(ws_bs, row_idx, 3, balance_sheet["period_net_income"])
 
         output = io.BytesIO()
         wb.save(output)
