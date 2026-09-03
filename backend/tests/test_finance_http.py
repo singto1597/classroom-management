@@ -952,7 +952,10 @@ async def test_web_export_finance_excel_200(client, db_pool):
     assert "attachment" in resp.headers["content-disposition"]
 
     wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-    assert wb.sheetnames == ["สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่"]
+    assert wb.sheetnames == [
+        "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
+        "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
+    ]
     ws_data = wb["ประวัติรายการ"]
     rows = list(ws_data.values)
     assert len(rows) == 2  # header + 1 รายการ
@@ -1074,10 +1077,14 @@ async def test_web_export_journal_excel_200(client, db_pool):
     assert "finance_journal_" in resp.headers["content-disposition"]
 
     wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-    assert wb.sheetnames == ["สมุดรายวัน"]
-    rows = list(wb["สมุดรายวัน"].values)
-    # header (แถวที่ 4) มีคอลัมน์ตามสเปค
-    header = rows[3]
+    assert wb.sheetnames == [
+        "Financial Dashboard", "สมุดรายวัน (General Journal)",
+        "สมุดบัญชีแยกประเภท (GL)", "งบทดลอง (Trial Balance)",
+        "งบกำไรขาดทุน (Income Statement)", "งบแสดงฐานะการเงิน (BS)",
+    ]
+    rows = list(wb["สมุดรายวัน (General Journal)"].values)
+    # header (แถวที่ 3 — title/subtitle อยู่แถว 1-2) มีคอลัมน์ตามสเปค
+    header = rows[2]
     assert header[0] == "วันที่" and header[6] == "เดบิต (บาท)" and header[7] == "เครดิต (บาท)"
 
 

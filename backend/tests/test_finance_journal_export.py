@@ -105,19 +105,23 @@ async def _add_txn(pool, room_id, owner, account_id, category_id, amount, ttype,
 
 
 def _read_journal(excel_file) -> tuple:
-    """อ่าน Sheet 'สมุดรายวัน' → (header, data_rows, totals)
+    """อ่าน Sheet 'สมุดรายวันทั่วไป (General Journal)' จาก workbook 6 แผ่น → (header, data_rows, totals)
 
-    โครงสร้างไฟล์: แถว 1 title, แถว 2 subtitle, แถว 3 ว่าง, แถว 4 = header,
-    แถว 5 ขึ้นไป = data, แถวสุดท้าย 'รวมทั้งสิ้น'
+    โครงสร้างไฟล์: แถว 1 title, แถว 2 subtitle, แถว 3 = header,
+    แถว 4 ขึ้นไป = data, แถวสุดท้าย 'รวมทั้งสิ้น'
     """
     wb = openpyxl.load_workbook(excel_file)
-    assert wb.sheetnames == ["สมุดรายวัน"]
-    ws = wb["สมุดรายวัน"]
+    assert wb.sheetnames == [
+        "Financial Dashboard", "สมุดรายวัน (General Journal)",
+        "สมุดบัญชีแยกประเภท (GL)", "งบทดลอง (Trial Balance)",
+        "งบกำไรขาดทุน (Income Statement)", "งบแสดงฐานะการเงิน (BS)",
+    ]
+    ws = wb["สมุดรายวัน (General Journal)"]
     all_rows = list(ws.values)
-    header = list(all_rows[3])
+    header = list(all_rows[2])
     data = []
     totals = None
-    for row in all_rows[4:]:
+    for row in all_rows[3:]:
         if row[0] == "รวมทั้งสิ้น":
             totals = row
             break
@@ -139,10 +143,12 @@ async def test_journal_export_empty_room_returns_valid_workbook(db_pool):
     assert isinstance(excel_file, io.BytesIO)
 
     header, data, totals = _read_journal(excel_file)
-    # คอลัมน์ครบตามสเปค (9 คอลัมน์)
+    # คอลัมน์ครบตามสเปค (9 คอลัมน์หลัก + Audit Trail 7 คอลัมน์)
     assert header == [
         "วันที่", "เวลา", "Reference", "คำอธิบาย", "รหัสบัญชี",
         "ชื่อบัญชี", "เดบิต (บาท)", "เครดิต (บาท)", "ผู้บันทึก",
+        "โมดูล (reference_type)", "Doc ID (reference_id)", "Legacy TX ID",
+        "Transfer Group", "Student Payment", "Journal Entry ID", "Journal Line ID",
     ]
     # ไม่มีรายการ → มี placeholder + แถวรวม 0
     assert len(data) == 1 and data[0][3] == "(ไม่มีรายการในช่วงนี้)"

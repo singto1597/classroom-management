@@ -570,7 +570,10 @@ async def test_export_router_post_cutoff_uses_v2(db_pool):
 
     import openpyxl
     wb = openpyxl.load_workbook(excel_file)
-    assert wb.sheetnames == ["สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่"]
+    assert wb.sheetnames == [
+        "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
+        "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
+    ]
 
     ws_summary = wb["สรุปยอด"]
     by_label = {row[0]: row[1] for row in ws_summary.values if row[0] and isinstance(row[1], (int, float))}
