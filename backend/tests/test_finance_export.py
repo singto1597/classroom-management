@@ -320,10 +320,16 @@ async def test_export_summary_sheet_has_correct_totals(db_pool):
     await _add(acc1, inc_cat, 500.0, "income", "บริจาค 500")
     await _add(acc2, inc_cat, 300.0, "income", "บริจาค 300")
     await _add(acc1, exp_cat, 200.0, "expense", "ซื้อของ 200")
+    # [ERA] ข้อมูลที่ export ด้วย seed/ยอดคงเหลือฝั่ง legacy → ให้อยู่ในเดือนก่อนวันที่ตัด (ส.ค. 2026)
+    # ระบบจะได้วิ่งเส้นทาง legacy (อ่าน finance_transactions + finance_accounts.balance)
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = '2026-08-15 09:00:00' WHERE room_id = $1", room_id
+        )
 
     excel_file = await FinanceService.export_transactions_excel(
-        pool=db_pool, req=FinanceExportRequest(), client_source="test", actor_identifier="test",
-        room_id=room_id, user_id=owner,
+        pool=db_pool, req=FinanceExportRequest(month=8, year=2026),
+        client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
     )
     wb = openpyxl.load_workbook(excel_file)
     ws = wb["สรุปยอด"]
@@ -366,10 +372,15 @@ async def test_export_soft_deleted_transactions_excluded(db_pool):
             "SELECT id FROM finance_transactions WHERE room_id = $1 AND id != $2", room_id, live_id
         )
         await conn.execute("UPDATE finance_transactions SET deleted_at = NOW() WHERE id = $1", del_id)
+    # [ERA] soft-delete เป็นกลไกของฝั่ง legacy (ก่อนวันที่ตัด) → ให้ข้อมูลอยู่ในเดือน ส.ค. 2026
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = '2026-08-15 09:00:00' WHERE room_id = $1", room_id
+        )
 
     excel_file = await FinanceService.export_transactions_excel(
-        pool=db_pool, req=FinanceExportRequest(), client_source="test", actor_identifier="test",
-        room_id=room_id, user_id=owner,
+        pool=db_pool, req=FinanceExportRequest(month=8, year=2026),
+        client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
     )
     rows = _load_data_sheet(excel_file)
     assert len(rows) == 1
@@ -516,3 +527,40 @@ async def test_export_summary_excludes_transfer_from_totals_v2(db_pool):
     transfer_rows = [r for r in data if r[3] == "โอนเงินระหว่างบัญชี"]
     assert len(transfer_rows) == 1
     assert transfer_rows[0][5] == 400.0  # คอลัมน์ รายจ่าย (บาท)
+
+
+async def test_export_spanning_merges_both_eras(db_pool):
+    """[MERGE] export แบบไม่กรองช่วง → รวม legacy (< 1 ก.ย.) + journal (>= 1 ก.ย.) ยอดรวมถูกต้อง"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+
+    # ฝั่ง legacy (ก่อน 1 ก.ย.) — insert ตรง ๆ ไม่มี journal
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO finance_transactions (room_id, account_id, category_id, amount, description, transaction_type, recorded_by, created_at)
+               VALUES ($1, $2, $3, 100.0, 'บริจาคก่อนตัด', 'income', 'Owner', '2026-08-15 09:00:00')""",
+            room_id, acc, cat,
+        )
+    # ฝั่ง journal (หลัง 1 ก.ย., NOW) — dual-write
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=200.0,
+                              description="บริจาคหลังตัด", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+
+    excel_file = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(), client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=owner,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    ws = wb["สรุปยอด"]
+    by_label = {row[0]: row[1] for row in ws.values if row[0] and isinstance(row[1], (int, float))}
+    assert by_label["รายรับรวม"] == 300.0   # 100 (legacy) + 200 (journal)
+    assert by_label["รายจ่ายรวม"] == 0.0
+    # แถวละเอียดมีครบ 2 รายการ (รายการก่อนตัด + หลังตัด)
+    data_rows = list(wb["ประวัติรายการ"].values)[1:]
+    data_rows = [r for r in data_rows if r and r[0] is not None]
+    assert len(data_rows) == 2

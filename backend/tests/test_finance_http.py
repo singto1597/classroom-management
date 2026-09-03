@@ -769,6 +769,33 @@ async def test_web_delete_category_in_use_400(client, db_pool):
     assert resp.status_code == 400
 
 
+async def test_web_revert_pre_cutoff_transaction_400(client, db_pool):
+    """[FIX B] web ลองยกเลิกรายการที่สร้างก่อน 1 ก.ย. → 400 (freeze legacy) + DB ไม่เปลี่ยน"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 100.0)
+    cat_id = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    async with db_pool.acquire() as conn:
+        tx_id = await conn.fetchval(
+            """INSERT INTO finance_transactions (room_id, account_id, category_id, amount, description, transaction_type, recorded_by, created_at)
+               VALUES ($1, $2, $3, 100.0, 'ของเก่าก่อนบัญชีคู่', 'income', 'Owner', '2026-08-01 10:00:00')
+               RETURNING id""",
+            room_id, account_id, cat_id,
+        )
+        await conn.execute("UPDATE finance_accounts SET balance = 200.0 WHERE id = $1", account_id)
+
+    resp = client.delete(
+        _room_api(room_id, f"/finance/transactions/{tx_id}"),
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT deleted_at FROM finance_transactions WHERE id = $1", tx_id)
+        assert row["deleted_at"] is None
+        bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1", account_id)
+    assert float(bal) == pytest.approx(200.0)
+
+
 async def test_web_get_summary_and_debtors_200(client, db_pool):
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
