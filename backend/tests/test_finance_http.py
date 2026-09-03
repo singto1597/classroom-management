@@ -107,6 +107,54 @@ async def _insert_category(pool, room_id: int, category_name="ค่าอาห
         )
 
 
+async def _provision_opening_balance(db_pool, room_id: int, account_id: int, amount: float):
+    """[DOUBLE-ENTRY] สร้าง 'ยอดยกมา' (opening balance) ให้บัญชี — เลียนแบบ migrate_phase2_5_opening_balance.py.
+
+    เงินตั้งต้นของบัญชีที่เกิดก่อนยุคบัญชีคู่ (ก่อน CUTOFF_DATE) จะไม่อยู่ใน journal
+    → ต้องแปลงเป็น journal reference_type='opening_balance' (asset Dr / equity Cr)
+    แล้ว Net Worth (v2 ซึ่งรวม asset สะสมจาก journal) จึงจะนับเงินส่วนนั้นได้
+    (ยอดยกมาไม่ถูกนับเป็นรายได้ของงวด เพราะถูกกรอง reference_type<>'opening_balance')
+    """
+    import json
+    async with db_pool.acquire() as conn:
+        asset_ledger_id = await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND legacy_account_id = $2",
+            room_id, account_id,
+        )
+        if not asset_ledger_id:
+            account_name = await conn.fetchval(
+                "SELECT account_name FROM finance_accounts WHERE id = $1", account_id
+            )
+            asset_ledger_id = await conn.fetchval(
+                """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, legacy_account_id, description)
+                   VALUES ($1, $2, $3, 'asset', $4, 'test') RETURNING id""",
+                room_id, f"1{account_id:04d}", account_name, account_id,
+            )
+        equity_ledger_id = await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND account_code = '3000'", room_id
+        )
+        if not equity_ledger_id:
+            equity_ledger_id = await conn.fetchval(
+                """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, description)
+                   VALUES ($1, '3000', 'ทุน-ยอดยกมา', 'equity', 'test') RETURNING id""", room_id
+            )
+        entry_id = await conn.fetchval(
+            """INSERT INTO journal_entries (room_id, reference_type, description, recorded_by, metadata)
+               VALUES ($1, 'opening_balance', 'ตั้งยอดยกมา (ระบบบัญชีคู่)', 'SYSTEM', $2::jsonb)
+               RETURNING id""",
+            room_id, json.dumps({"note": "test"}),
+        )
+        await conn.execute(
+            "INSERT INTO journal_lines (journal_entry_id, ledger_id, debit, credit, line_description) VALUES ($1, $2, $3, 0, 'ยอดยกมา')",
+            entry_id, asset_ledger_id, amount,
+        )
+        await conn.execute(
+            "INSERT INTO journal_lines (journal_entry_id, ledger_id, debit, credit, line_description) VALUES ($1, $2, 0, $3, 'ทุน')",
+            entry_id, equity_ledger_id, amount,
+        )
+        await conn.execute("UPDATE journal_entries SET transaction_date = '2026-09-01 00:00:00' WHERE id = $1", entry_id)
+
+
 async def _insert_collection(pool, room_id: int, title="ค่าเทอม", amount=1000.0, status="active") -> int:
     async with pool.acquire() as conn:
         return await conn.fetchval(
@@ -727,6 +775,11 @@ async def test_web_get_summary_and_debtors_200(client, db_pool):
     account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 100.0)
     cat_id = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
     from models.finance_schemas import TransactionCreate
+
+    # [DOUBLE-ENTRY] เดือนปัจจุบันเลย CUTOFF_DATE → /summary อ่านจาก journal (v2)
+    # เงินตั้งต้น 100 ต้องมี 'ยอดยกมา' ใน journal (เหมือน migration จริง) จึงจะรวมใน Net Worth
+    await _provision_opening_balance(db_pool, room_id, account_id, 100.0)
+
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(
@@ -743,6 +796,7 @@ async def test_web_get_summary_and_debtors_200(client, db_pool):
     )
     assert resp.status_code == 200
     data = resp.json()
+    # Net Worth (v2) = ยอดยกมา 100 + รายได้ 300; total_income ไม่นับยอดยกมา
     assert float(data["net_worth"]) == pytest.approx(400.0)
     assert float(data["total_income"]) == pytest.approx(300.0)
 

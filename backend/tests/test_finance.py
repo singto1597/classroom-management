@@ -1406,20 +1406,86 @@ async def test_remove_student_from_collection_not_found_raises(db_pool):
 # === Section 8: Summary & Debts (READ) ===
 
 
+async def _provision_opening_balance(db_pool, room_id: int, account_id: int, amount: float):
+    """[DOUBLE-ENTRY] สร้าง 'ยอดยกมา' (opening balance) ให้บัญชี — เลียนแบบ migrate_phase2_5_opening_balance.py.
+
+    เงินตั้งต้นของบัญชีที่เกิดก่อนยุคบัญชีคู่ (ก่อน CUTOFF_DATE) จะไม่อยู่ใน journal
+    → ต้องแปลงเป็น journal reference_type='opening_balance' (asset Dr / equity Cr)
+    แล้ว Net Worth (v2 ซึ่งรวม asset สะสมจาก journal) จึงจะนับเงินส่วนนั้นได้
+    (ยอดยกมาไม่ถูกนับเป็นรายได้ของงวด เพราะถูกกรอง reference_type<>'opening_balance')
+    """
+    import json
+    async with db_pool.acquire() as conn:
+        asset_ledger_id = await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND legacy_account_id = $2",
+            room_id, account_id,
+        )
+        if not asset_ledger_id:
+            account_name = await conn.fetchval(
+                "SELECT account_name FROM finance_accounts WHERE id = $1", account_id
+            )
+            asset_ledger_id = await conn.fetchval(
+                """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, legacy_account_id, description)
+                   VALUES ($1, $2, $3, 'asset', $4, 'test') RETURNING id""",
+                room_id, f"1{account_id:04d}", account_name, account_id,
+            )
+        equity_ledger_id = await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND account_code = '3000'", room_id
+        )
+        if not equity_ledger_id:
+            equity_ledger_id = await conn.fetchval(
+                """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, description)
+                   VALUES ($1, '3000', 'ทุน-ยอดยกมา', 'equity', 'test') RETURNING id""", room_id
+            )
+        entry_id = await conn.fetchval(
+            """INSERT INTO journal_entries (room_id, reference_type, description, recorded_by, metadata)
+               VALUES ($1, 'opening_balance', 'ตั้งยอดยกมา (ระบบบัญชีคู่)', 'SYSTEM', $2::jsonb)
+               RETURNING id""",
+            room_id, json.dumps({"note": "test"}),
+        )
+        await conn.execute(
+            "INSERT INTO journal_lines (journal_entry_id, ledger_id, debit, credit, line_description) VALUES ($1, $2, $3, 0, 'ยอดยกมา')",
+            entry_id, asset_ledger_id, amount,
+        )
+        await conn.execute(
+            "INSERT INTO journal_lines (journal_entry_id, ledger_id, debit, credit, line_description) VALUES ($1, $2, 0, $3, 'ทุน')",
+            entry_id, equity_ledger_id, amount,
+        )
+        # transaction_date ย้อนไปวันเปิดระบบบัญชีคู่ (ตอน migration จริงรัน) — ไม่กระทบ net worth (ไม่ filter วันที่)
+        await conn.execute("UPDATE journal_entries SET transaction_date = '2026-09-01 00:00:00' WHERE id = $1", entry_id)
+
+
 async def test_get_summary_current_month(db_pool):
+    """[DOUBLE-ENTRY] สรุปเดือนปัจจุบัน (เลย CUTOFF_DATE → อ่านจาก journal): Net Worth = ยอดยกมา + รายได้ − รายจ่าย."""
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
     account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 1000.0)
     inc_cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
     exp_cat = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
-    await _insert_transaction(db_pool, room_id, account_id, 300.0, "income", inc_cat)
-    await _insert_transaction(db_pool, room_id, account_id, 100.0, "expense", exp_cat)
+
+    # เงินตั้งต้นก่อนยุคบัญชีคู่ → ต้องมี 'ยอดยกมา' ใน journal (เหมือน migration จริง)
+    await _provision_opening_balance(db_pool, room_id, account_id, 1000.0)
+
+    # รายรับ/รายจ่ายผ่าน dual-write (add_transaction สร้าง journal ให้อัตโนมัติ)
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=account_id, category_id=inc_cat, amount=300.0,
+                              description="รับบริจาค", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=account_id, category_id=exp_cat, amount=100.0,
+                              description="ซื้อของ", transaction_type="expense", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
 
     summary = await FinanceService.get_summary(
         pool=db_pool, client_source="test", actor_identifier="test",
         room_id=room_id, user_id=owner,
     )
-    assert float(summary["net_worth"]) == pytest.approx(1000.0)
+    # Net Worth (สินทรัพย์สะสมจาก journal) = ยอดยกมา 1000 + รายได้ 300 − รายจ่าย 100
+    assert float(summary["net_worth"]) == pytest.approx(1200.0)
     assert float(summary["total_income"]) == pytest.approx(300.0)
     assert float(summary["total_expense"]) == pytest.approx(100.0)
     assert summary["period"] == "current_month"
@@ -1429,10 +1495,15 @@ async def test_get_summary_current_month(db_pool):
 
 
 async def test_get_summary_excludes_transfer_legs(db_pool):
+    """[DOUBLE-ENTRY] โอนเงินระหว่างบัญชี → 2 ขา asset (Dr ปลายทาง / Cr ต้นทาง) หักล้างกัน
+    จึงไม่นับเป็นรายรับ/รายจ่าย และ Net Worth (สินทรัพย์สะสม) คงเท่ายอดยกมา 1000"""
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
     from_acc = await _insert_finance_account(db_pool, room_id, "หลัก", 1000.0)
     to_acc = await _insert_finance_account(db_pool, room_id, "รอง", 0.0)
+    # ยอดยกมาของบัญชี "หลัก" (เงินตั้งต้นก่อนยุคบัญชีคู่)
+    await _provision_opening_balance(db_pool, room_id, from_acc, 1000.0)
+
     await FinanceService.transfer_money(
         pool=db_pool,
         req=TransferCreate(from_account_id=from_acc, to_account_id=to_acc, amount=400.0, description="ฝาก", user_name="Owner"),
@@ -1447,6 +1518,7 @@ async def test_get_summary_excludes_transfer_legs(db_pool):
     # ยอดโอนระหว่างบัญชีไม่นับเป็นรายรับ/รายจ่าย
     assert float(summary["total_income"]) == pytest.approx(0.0)
     assert float(summary["total_expense"]) == pytest.approx(0.0)
+    # Net Worth = ยอดยกมา 1000 + (Dr รอง 400 − Cr หลัก 400) = 1000 เท่าเดิม
     assert float(summary["net_worth"]) == pytest.approx(1000.0)
 
 
