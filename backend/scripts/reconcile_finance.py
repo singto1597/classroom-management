@@ -163,7 +163,8 @@ async def main(argv=None) -> int:
                         help="ผลต่างขั้นต่ำที่ถือว่าต้องปรับ (บาท) default 0.01")
     args = parser.parse_args(argv)
 
-    chosen = sum(1 for x in (args.room_id is not None, args.server_id is not None, args.all))
+    # 🐛 นับเฉพาะค่าที่เป็น True (sum(1 for ... if x)) — เดิม sum(1 for x in ...) นับสมาชิกเสมอ = 3 → reject ทุกคำสั่ง
+    chosen = sum(1 for x in (args.room_id is not None, args.server_id is not None, args.all) if x)
     if chosen != 1:
         parser.error("ต้องระบุอย่างใดอย่างหนึ่ง: --room-id, --server-id หรือ --all")
 
