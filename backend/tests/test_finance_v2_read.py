@@ -17,6 +17,7 @@ import random
 import string
 import uuid
 from datetime import date, datetime, timedelta
+from typing import Optional
 
 import pytest
 
@@ -90,6 +91,26 @@ async def _insert_category(pool, room_id: int, category_name="เงินบร
             "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3) RETURNING id",
             room_id, category_name, category_type,
         )
+
+
+async def _insert_legacy_only_transaction(
+    pool, room_id: int, account_id: int, category_id: int,
+    amount: float, transaction_type: str = "income",
+    description: str = "legacy", created_at: Optional[datetime] = None,
+) -> int:
+    """insert เฉพาะ finance_transactions (ไม่มี journal) — จำลองข้อมูลก่อนยุคบัญชีคู่ (legacy-only)."""
+    async with pool.acquire() as conn:
+        tx_id = await conn.fetchval(
+            """INSERT INTO finance_transactions
+               (room_id, account_id, category_id, amount, description, transaction_type, recorded_by)
+               VALUES ($1, $2, $3, $4, $5, $6, 'Owner') RETURNING id""",
+            room_id, account_id, category_id, amount, description, transaction_type,
+        )
+        if created_at is not None:
+            await conn.execute(
+                "UPDATE finance_transactions SET created_at = $2 WHERE id = $1", tx_id, created_at
+            )
+        return tx_id
 
 
 async def _set_tx_dates(pool, room_id: int, dates: dict):
@@ -193,47 +214,139 @@ async def test_router_post_cutoff_uses_v2(db_pool):
     assert isinstance(item["id"], int)  # สังเคราะห์เป็น int (TransactionResponse.id)
 
 
-async def test_router_no_filter_uses_legacy(db_pool):
-    """ไม่ระบุช่วงเวลา = "ทั้งหมด" → ครอบทั้งสองยุค → อ่าน legacy เสมอ"""
+async def test_router_no_filter_merges_both_eras(db_pool):
+    """ไม่กรองช่วง = "ทั้งหมด" → MERGE: legacy < 1 ก.ย. + journal >= 1 ก.ย. เรียง DESC"""
     owner = await _insert_user(db_pool)
     room_id = await _insert_room(db_pool, owner)
     acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
     cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
 
+    # รายการก่อนวันที่ตัด (legacy-only — อยู่เฉพาะตารางเก่า)
+    await _insert_legacy_only_transaction(
+        db_pool, room_id, acc, cat, 100.0, "income", "legacy เก่า", datetime(2026, 8, 15, 9, 0),
+    )
+    # รายการหลังวันที่ตัด (dual-write → อยู่ใน journal; NOW = หลังเส้น)
     await FinanceService.add_transaction(
         pool=db_pool,
-        req=TransactionCreate(account_id=acc, category_id=cat, amount=100.0,
-                              description="รายการ", transaction_type="income", user_name="Owner"),
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=300.0,
+                              description="รายการใหม่", transaction_type="income", user_name="Owner"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
+
     data = await FinanceService.get_transactions(
         pool=db_pool, client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
     )
-    assert data["total_count"] == 1
-    assert data["items"][0]["description"] == "รายการ"
+    assert data["total_count"] == 2
+    assert data["items"][0]["description"] == "รายการใหม่"   # DESC → หลังเส้นก่อน
+    assert data["items"][1]["description"] == "legacy เก่า"
 
 
-async def test_router_cross_period_start_before_cutoff_uses_legacy(db_pool):
-    """ช่วงคร่อมวันที่ตัด (start ก่อน cutoff) → ต้องอ่าน legacy เพื่อไม่ให้ข้อมูลหาย"""
+async def test_router_cross_period_merges_both_eras(db_pool):
+    """ช่วงคร่อมวันที่ตัด (start ก่อน 1 ก.ย., end หลัง) → MERGE 2 ยุค ไม่ให้ข้อมูลหาย"""
     owner = await _insert_user(db_pool)
     room_id = await _insert_room(db_pool, owner)
     acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
     cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
 
+    await _insert_legacy_only_transaction(
+        db_pool, room_id, acc, cat, 100.0, "income", "legacy ก่อนตัด", datetime(2026, 8, 15, 9, 0),
+    )
     await FinanceService.add_transaction(
         pool=db_pool,
-        req=TransactionCreate(account_id=acc, category_id=cat, amount=100.0,
-                              description="รายการ", transaction_type="income", user_name="Owner"),
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=200.0,
+                              description="journal หลังตัด", transaction_type="income", user_name="Owner"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
-    await _set_tx_dates(db_pool, room_id, {"legacy_0": datetime(2026, 8, 15, 9), "journal_0": datetime(2026, 8, 15, 9)})
 
     data = await FinanceService.get_transactions(
         pool=db_pool, client_source="test", actor_identifier="test",
         start_date=date(2026, 8, 1), end_date=date(2026, 10, 31), room_id=room_id, user_id=owner,
     )
-    # ข้อมูลอยู่ช่วง ต.ค. (หลัง cutoff) แต่ช่วงเริ่มก่อน → legacy → ยังอ่านเจอจาก legacy table
-    assert data["total_count"] == 1
+    descs = [i["description"] for i in data["items"]]
+    assert data["total_count"] == 2
+    assert "journal หลังตัด" in descs and "legacy ก่อนตัด" in descs
+    # เรียง DESC → รายการหลังเส้น (ใหม่กว่า) อยู่ก่อน
+    assert data["items"][0]["description"] == "journal หลังตัด"
+
+
+async def test_router_spanning_no_double_count(db_pool):
+    """ข้อมูล dual-write ที่ย้อนไปก่อน 1 ก.ย. ต้องโผล่จากฝั่ง legacy เพียงครั้งเดียว (กันเบิ้ล)"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+
+    # 3 รายการก่อนวันที่ตัด: 2 legacy-only + 1 dual-write (ย้อนทั้ง 2 ตารางไป 08-15)
+    await _insert_legacy_only_transaction(db_pool, room_id, acc, cat, 10.0, "income", "legacy1", datetime(2026, 8, 1, 9))
+    await _insert_legacy_only_transaction(db_pool, room_id, acc, cat, 20.0, "income", "legacy2", datetime(2026, 8, 2, 9))
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=30.0,
+                              description="dual ก่อนตัด", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    async with db_pool.acquire() as conn:
+        dual_legacy_id = await conn.fetchval(
+            "SELECT id FROM finance_transactions WHERE room_id = $1 AND description = 'dual ก่อนตัด'", room_id
+        )
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = '2026-08-15 09:00:00' WHERE id = $1", dual_legacy_id
+        )
+        dual_journal_id = await conn.fetchval(
+            """SELECT id FROM journal_entries
+               WHERE room_id = $1 AND metadata->>'legacy_transaction_id' = $2""", room_id, str(dual_legacy_id)
+        )
+        await conn.execute("UPDATE journal_entries SET transaction_date = '2026-08-15 09:00:00' WHERE id = $1", dual_journal_id)
+    # 1 รายการหลังวันที่ตัด (NOW)
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=40.0,
+                              description="post หลังตัด", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+
+    data = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
+    )
+    descs = [i["description"] for i in data["items"]]
+    # 3 (ก่อนเส้น) + 1 (หลังเส้น) = 4 — dual ก่อนตัด ต้องไม่เบิ้ล (ไม่งั้นได้ 5)
+    assert data["total_count"] == 4
+    assert len(descs) == len(set(descs))
+    assert descs.count("dual ก่อนตัด") == 1
+    assert data["items"][0]["description"] == "post หลังตัด"
+
+
+async def test_router_boundary_aug31_vs_sep01(db_pool):
+    """ขอบเขตแม่นยำ: legacy created_at = 31 ส.ค. 23:59:59 vs journal transaction_date = 1 ก.ย. 00:00"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+
+    await _insert_legacy_only_transaction(
+        db_pool, room_id, acc, cat, 1.0, "income", "สุดท้าย ส.ค.", datetime(2026, 8, 31, 23, 59, 59),
+    )
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=2.0,
+                              description="เริ่ม ก.ย.", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    async with db_pool.acquire() as conn:
+        jid = await conn.fetchval(
+            """SELECT id FROM journal_entries
+               WHERE room_id = $1 AND description = 'เริ่ม ก.ย.'""", room_id
+        )
+        await conn.execute("UPDATE journal_entries SET transaction_date = '2026-09-01 00:00:00' WHERE id = $1", jid)
+
+    data = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
+    )
+    descs = [i["description"] for i in data["items"]]
+    assert data["total_count"] == 2
+    assert descs.count("สุดท้าย ส.ค.") == 1
+    assert descs.count("เริ่ม ก.ย.") == 1
+    assert data["items"][0]["description"] == "เริ่ม ก.ย."  # DESC → 1 ก.ย. มาก่อน 31 ส.ค.
 
 
 # === [DOUBLE-ENTRY] _get_transactions_v2: ประเภทต่าง ๆ ===
@@ -646,6 +759,68 @@ async def test_v2_reads_require_membership(db_pool):
 # =====================================================================
 from fastapi.testclient import TestClient
 from core.config import settings
+
+
+async def test_income_statement_start_before_cutoff_clamps(db_pool):
+    """[CLAMP] ช่วงเริ่มก่อน 1 ก.ย. → ดัน start ขึ้นเป็น 1 ก.ย. + note (ยังเห็นข้อมูลหลังเส้น)"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=500.0,
+                              description="รายได้ ต.ค.", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE journal_entries SET transaction_date = '2026-10-10 09:00:00'
+               WHERE room_id = $1 AND reference_type = 'manual_transaction'""", room_id
+        )
+
+    data = await FinanceService.get_income_statement(
+        pool=db_pool, room_id=room_id, start_date=date(2026, 8, 1), end_date=date(2026, 10, 31),
+        client_source="test", actor_identifier="test", user_id=owner,
+    )
+    # ยังคงตอบ start/end เดิม (สำหรับ frontend) แต่มี note แจ้งว่าถูก clamp
+    assert data["start_date"] == "2026-08-01"
+    assert data["total_revenue"] == pytest.approx(500.0)
+    assert data["note"]
+    assert data["revenues"][0]["amount"] == pytest.approx(500.0)
+
+
+async def test_income_statement_entirely_before_cutoff_empty(db_pool):
+    """[CLAMP] ทั้งช่วงก่อน 1 ก.ย. → งบเป็นศูนย์ + note (journal ยังไม่มีข้อมูล)"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+
+    data = await FinanceService.get_income_statement(
+        pool=db_pool, room_id=room_id, start_date=date(2026, 8, 1), end_date=date(2026, 8, 31),
+        client_source="test", actor_identifier="test", user_id=owner,
+    )
+    assert data["revenues"] == []
+    assert data["expenses"] == []
+    assert data["total_revenue"] == 0.0
+    assert data["total_expense"] == 0.0
+    assert data["net_income"] == 0.0
+    assert data["note"]
+
+
+async def test_trial_balance_as_of_before_cutoff_empty(db_pool):
+    """[CLAMP] trial balance ณ วันที่ก่อน 1 ก.ย. → ว่าง + note (งบทดลองเป็นบัญชีคู่)"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+
+    data = await FinanceService.get_trial_balance(
+        pool=db_pool, room_id=room_id, client_source="test", actor_identifier="test",
+        user_id=owner, as_of_date=date(2026, 8, 31),
+    )
+    assert data["ledgers"] == []
+    assert data["total_debit"] == 0.0
+    assert data["total_credit"] == 0.0
+    assert data["is_balanced"] is True
+    assert data["note"]
 
 
 def _room_api(target_id: int, path: str) -> str:

@@ -75,6 +75,47 @@ def _legacy_id_from_journal(metadata: dict, journal_uuid: str) -> int:
         return -1
 
 
+def _naive_thai_dt(v) -> datetime:
+    """[DOUBLE-ENTRY] ปรับค่าเวลาให้เป็น datetime "naive" ในโซน Asia/Bangkok ก่อนนำไป sort/เทียบ.
+
+    ฝั่ง legacy เก็บ created_at เป็น naive TIMESTAMP (ไม่มี tz) ขณะที่ฝั่ง journal เก็บ
+    transaction_date เป็น timestamptz (aware) → merge 2 ยุคต้อง normalize ให้เป็นแบบเดียวกัน
+    ไม่งั้น Python เปรียบเทียบ naive กับ aware จะ TypeError.
+    """
+    if v is None:
+        return datetime.min
+    if isinstance(v, datetime):
+        return v.astimezone(THAI_TZ).replace(tzinfo=None) if v.tzinfo is not None else v
+    if isinstance(v, date):
+        return datetime.combine(v, dtime(0))
+    return datetime.min
+
+
+# [CLAMP] ข้อความหมายเหตุสำหรับฟังก์ชันงบการเงิน (journal-native) เมื่อช่วงที่ขอแตะก่อนวันที่ตัด
+_CLAMP_START_NOTE = ("หมายเหตุ: ช่วงก่อนวันที่ 2026-09-01 (ก่อนขึ้นระบบบัญชีคู่) ไม่มีข้อมูลในงบชุดนี้"
+                     " — แสดงผลตั้งแต่วันที่ 2026-09-01 เป็นต้นไป")
+_CLAMP_EMPTY_NOTE = ("หมายเหตุ: ช่วงเวลาที่ขออยู่ก่อนวันที่ 2026-09-01 (ก่อนขึ้นระบบบัญชีคู่)"
+                     " — ไม่มีรายการในระบบบัญชีคู่")
+
+
+def _clamp_to_cutoff(start: Optional[date], end: Optional[date]):
+    """[CLAMP] จำกัดช่วงเวลาของงบการเงิน (ที่อ่าน journal ล้วน) ให้ไม่ต่ำกว่า CUTOFF_DATE.
+
+    คืน (start2, end2, clamped, empty)
+    - clamped: start ถูกดันขึ้นเป็น CUTOFF_DATE (มีส่วนก่อนเส้นถูกตัดออก)
+    - empty  : ทั้งช่วงอยู่ก่อนเส้นตัด (หรือหลัง clamp แล้วว่าง) → ควรคืนค่าว่าง + note
+    """
+    clamped = False
+    if start is not None and start < CUTOFF_DATE:
+        start = CUTOFF_DATE
+        clamped = True
+    if end is not None and end < CUTOFF_DATE:
+        return start, end, clamped, True
+    if start is not None and end is not None and start > end:
+        return start, end, clamped, True
+    return start, end, clamped, False
+
+
 # [ROUTER] view ขนาดเล็ก ใช้ส่ง month/year/start_date/end_date แบบสลับกันไปมา
 # ระหว่าง router กับ _resolve_export_period (เดิมรับ req object เดียว)
 class _ExportPeriodView:
@@ -302,6 +343,44 @@ class FinanceService:
             "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND account_type = 'revenue' ORDER BY id LIMIT 1",
             room_id,
         )
+
+    @classmethod
+    async def _find_or_create_default_income_category(cls, conn: asyncpg.Connection, room_id: int) -> Optional[int]:
+        """[FIX A] หา/สร้าง finance_categories รายได้ค่าเริ่มต้น '📥 เก็บเงินห้องปกติ' ให้ห้อง.
+
+        กันกรณีห้องเก่าที่ seed หมวดหมู่ไม่ครบ: ถ้าสร้างไม่เจอตอน confirm_payment ระบบเดิมจะ
+        ข้าม dual-write (pass) → เงินเข้า legacy แต่ journal ไม่มี → ยอด 2 ระบบเบี้ยว.
+        สร้างหมวดนี้ + ให้ `_resolve_category_ledger` สร้าง revenue ledger ตามมา
+        → ทำให้ทุก path เจอหมวด+ledger ตัวเดียวกัน (find-or-create idempotent).
+        """
+        cat_id = await conn.fetchval(
+            """SELECT id FROM finance_categories
+               WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+               ORDER BY id LIMIT 1""",
+            room_id, DEFAULT_INCOME_CATEGORIES[0],
+        )
+        if cat_id:
+            return cat_id
+        # 🛡️ INSERT ... WHERE NOT EXISTS กัน race (2 request พร้อมกันสร้างหมวดซ้ำ)
+        cat_id = await conn.fetchval(
+            """INSERT INTO finance_categories (room_id, category_name, category_type)
+               SELECT $1, $2, 'income'
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM finance_categories
+                   WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+               )
+               RETURNING id""",
+            room_id, DEFAULT_INCOME_CATEGORIES[0],
+        )
+        if cat_id is None:
+            # อีก request สร้างไปแล้วระหว่าง SELECT กับ INSERT → ดึงกลับมา
+            return await conn.fetchval(
+                """SELECT id FROM finance_categories
+                   WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+                   ORDER BY id LIMIT 1""",
+                room_id, DEFAULT_INCOME_CATEGORIES[0],
+            )
+        return cat_id
 
     @classmethod
     async def _insert_journal_entry(
@@ -846,10 +925,13 @@ class FinanceService:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
 
-                # [ROUTER] ไม่ระบุช่วงเวลา = "ทั้งหมด" → ครอบทั้งสองยุค (มีข้อมูลก่อน cutoff
-                # อยู่ในตารางเก่าเท่านั้น) → ต้องอ่าน legacy เสมอ
+                # [ROUTER] แบ่งอ่านตามยุคของช่วงที่ขอ (CUTOFF_DATE = 2026-09-01):
+                #   - ทั้งช่วงก่อนเส้นตัด        → legacy (finance_transactions)
+                #   - เริ่มที่/หลังเส้นตัด        → บัญชีคู่ (journal) 100%
+                #   - "ทั้งหมด" (ไม่กรอง) / คร่อมเส้น → MERGE: legacy < 1 ก.ย. + journal >= 1 ก.ย.
+                # (เหตุผล: หลังวันที่ตัด ข้อมูลมีใน journal เป็นหลัก — อ่าน legacy เฉพาะข้อมูลเก่า)
                 if start_date is None and end_date is None:
-                    return await cls._get_transactions_legacy(
+                    return await cls._get_transactions_merged(
                         conn=conn, room_id=target_room_id,
                         limit=limit, offset=offset,
                         start_date=start_date, end_date=end_date,
@@ -859,14 +941,9 @@ class FinanceService:
                         start_time=start_time,
                     )
 
-                # [ROUTER] มีช่วงเวลา → ตัดสินจากจุดเริ่มของช่วง (ถ้าให้แค่ end_date
-                # จะมองว่าจุดเริ่ม = จุดเริ่มต้นประวัติ → ตกรุ่น legacy อย่างปลอดภัย)
                 period_start = start_date or date.min
-                use_v2 = period_start >= CUTOFF_DATE
-
-                if use_v2:
+                if period_start >= CUTOFF_DATE:
                     # [ROUTER] ขอข้อมูลหลังวันที่ตัด → อ่านจาก journal_entries/journal_lines
-                    # (ถ้าเกินหน้าออกไปก่อนยอดยกมา เช่น start ก่อน 2026-09-01 จะตกรุ่นไปใช้ legacy)
                     return await cls._get_transactions_v2(
                         conn=conn, room_id=target_room_id,
                         limit=limit, offset=offset,
@@ -876,8 +953,19 @@ class FinanceService:
                         client_source=client_source, actor_identifier=actor_identifier,
                         start_time=start_time,
                     )
-                # [ROUTER] ข้อมูลก่อนวันที่ตัด (หรือข้ามช่วง) → อ่านจากตารางเก่า
-                return await cls._get_transactions_legacy(
+                if end_date is not None and end_date < CUTOFF_DATE:
+                    # [ROUTER] ทั้งช่วงก่อนวันที่ตัด → อ่านจากตารางเก่า
+                    return await cls._get_transactions_legacy(
+                        conn=conn, room_id=target_room_id,
+                        limit=limit, offset=offset,
+                        start_date=start_date, end_date=end_date,
+                        account_id=account_id, category_id=category_id,
+                        transaction_type=transaction_type,
+                        client_source=client_source, actor_identifier=actor_identifier,
+                        start_time=start_time,
+                    )
+                # [ROUTER] ช่วงคร่อมเส้นตัด / ระบุแค่ start_date (ปลายเปิด) → MERGE 2 ยุค
+                return await cls._get_transactions_merged(
                     conn=conn, room_id=target_room_id,
                     limit=limit, offset=offset,
                     start_date=start_date, end_date=end_date,
@@ -900,14 +988,15 @@ class FinanceService:
             raise e
 
     @classmethod
-    async def _get_transactions_legacy(
+    async def _fetch_legacy_items(
         cls, conn: asyncpg.Connection, *, room_id: int,
-        limit: int = 50, offset: int = 0,
         start_date: Optional[date] = None, end_date: Optional[date] = None,
         account_id: Optional[int] = None, category_id: Optional[int] = None, transaction_type: Optional[str] = None,
-        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
-    ) -> dict:
-        """[ROUTER-LEGACY] Logic เดิมของ get_transactions — อ่านจาก finance_transactions (Single-Entry)."""
+        max_date_cap: Optional[date] = None,
+    ) -> List[dict]:
+        """[ROUTER-LEGACY] ดึงแถว finance_transactions ของห้องแบบไม่จำกัดหน้า (LIMIT) —
+        ใช้ร่วมกันโดย legacy worker (แล้ว slice เอง) และ merge (บังคับ cap ก่อนเส้นตัด).
+        max_date_cap: ถ้าตั้ง → บังคับ DATE(T.created_at) <= cap (merge ใช้ cap = วันก่อน CUTOFF_DATE)"""
         where_clause = "WHERE T.room_id = $1 AND T.deleted_at IS NULL"
         params = [room_id]
         param_idx = 2
@@ -915,9 +1004,12 @@ class FinanceService:
         if start_date:
             where_clause += f" AND DATE(T.created_at) >= ${param_idx}"
             params.append(start_date); param_idx += 1
-        if end_date:
+        effective_end = end_date
+        if max_date_cap is not None and (effective_end is None or max_date_cap < effective_end):
+            effective_end = max_date_cap
+        if effective_end is not None:
             where_clause += f" AND DATE(T.created_at) <= ${param_idx}"
-            params.append(end_date); param_idx += 1
+            params.append(effective_end); param_idx += 1
         if account_id:
             where_clause += f" AND T.account_id = ${param_idx}"
             params.append(account_id); param_idx += 1
@@ -928,9 +1020,7 @@ class FinanceService:
             where_clause += f" AND T.transaction_type = ${param_idx}"
             params.append(transaction_type); param_idx += 1
 
-        total_count = await conn.fetchval(f"SELECT COUNT(*) FROM finance_transactions T {where_clause}", *params)
-
-        data_sql = f"""
+        rows = await conn.fetch(f"""
             SELECT
                 T.id, T.amount, T.description, T.transaction_type, T.created_at,
                 T.slip_image_url, T.recorded_by, T.transfer_group_id,
@@ -939,13 +1029,27 @@ class FinanceService:
             LEFT JOIN finance_accounts A ON T.account_id = A.id
             LEFT JOIN finance_categories C ON T.category_id = C.id
             {where_clause}
-            ORDER BY T.created_at DESC LIMIT ${param_idx} OFFSET ${param_idx+1}
-        """
-        data_params = params.copy()
-        data_params.extend([limit, offset])
+            ORDER BY T.created_at DESC, T.id DESC
+        """, *params)
+        return [dict(row) for row in rows]
 
-        rows = await conn.fetch(data_sql, *data_params)
-        result = {"total_count": total_count, "items": [dict(row) for row in rows]}
+    @classmethod
+    async def _get_transactions_legacy(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        limit: int = 50, offset: int = 0,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        account_id: Optional[int] = None, category_id: Optional[int] = None, transaction_type: Optional[str] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> dict:
+        """[ROUTER-LEGACY] ประวัติฝั่ง Single-Entry — ดึงทั้งชุดแล้ว slice ที่ฝั่ง Python
+        (volume ห้องเรียนเล็ก; ทำให้ legacy/v2/merge ใช้ pagination แบบเดียวกัน)"""
+        items = await cls._fetch_legacy_items(
+            conn=conn, room_id=room_id,
+            start_date=start_date, end_date=end_date,
+            account_id=account_id, category_id=category_id,
+            transaction_type=transaction_type,
+        )
+        result = {"total_count": len(items), "items": items[offset:offset + limit]}
 
         if start_time is not None:
             exec_time = int((time.time() - start_time) * 1000)
@@ -1068,6 +1172,60 @@ class FinanceService:
                 endpoint_or_command="FinanceService.get_transactions", execution_time_ms=exec_time
             )
         return {"total_count": total_count, "items": paged}
+
+    @classmethod
+    async def _get_transactions_merged(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        limit: int = 50, offset: int = 0,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        account_id: Optional[int] = None, category_id: Optional[int] = None, transaction_type: Optional[str] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> dict:
+        """[ROUTER-MERGE] ประวัติที่ครอบ 2 ยุค (ขอ "ทั้งหมด" หรือช่วงคร่อมเส้นตัด):
+        legacy < CUTOFF_DATE + journal >= CUTOFF_DATE นำมารวม เรียง created_at DESC.
+
+        แบ่งที่เส้นกัน dual-write เบิ้ล: legacy ถูก cap ที่ DATE <= วันก่อน 1 ก.ย.,
+        journal ถูก floor ที่ DATE >= 1 ก.ย. (dual-write ใช้ timestamp เดียวกันทั้ง 2 ตาราง
+        → แต่ละรายการจะโผล่จากฝั่งเดียวเท่านั้น)
+        """
+        # [MERGE] ฝั่ง legacy: เฉพาะวันที่ < CUTOFF_DATE (DATE <= 2026-08-31)
+        legacy_res = await cls._get_transactions_legacy(
+            conn=conn, room_id=room_id,
+            limit=1_000_000, offset=0,
+            start_date=start_date, end_date=CUTOFF_DATE - timedelta(days=1),
+            account_id=account_id, category_id=category_id,
+            transaction_type=transaction_type,
+            client_source=client_source, actor_identifier=actor_identifier,
+            start_time=None,  # ไม่ log ที่ worker (log รวมที่ merged)
+        )
+        # [MERGE] ฝั่ง journal: วันที่ >= CUTOFF_DATE (floor start ที่ 1 ก.ย.)
+        journal_start = start_date if (start_date is not None and start_date >= CUTOFF_DATE) else CUTOFF_DATE
+        v2_res = await cls._get_transactions_v2(
+            conn=conn, room_id=room_id,
+            limit=1_000_000, offset=0,
+            start_date=journal_start, end_date=end_date,
+            account_id=account_id, category_id=category_id,
+            transaction_type=transaction_type,
+            client_source=client_source, actor_identifier=actor_identifier,
+            start_time=None,
+        )
+        # [MERGE] รวม + เรียง DESC (Python stable → ลำดับภายในฝั่งเดียวกันคงเดิม),
+        # normalize tz ก่อน sort (legacy naive ↔ journal aware)
+        merged = sorted(
+            legacy_res["items"] + v2_res["items"],
+            key=lambda it: _naive_thai_dt(it["created_at"]),
+            reverse=True,
+        )
+        paged = merged[offset:offset + limit]
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
+                endpoint_or_command="FinanceService.get_transactions", execution_time_ms=exec_time
+            )
+        return {"total_count": len(merged), "items": paged}
 
     @classmethod
     def _classify_journal_entry(cls, entry: dict, transaction_type: Optional[str] = None) -> Optional[dict]:
@@ -1317,21 +1475,15 @@ class FinanceService:
             conn, target_room_id, account_name=DEFAULT_INCOME_CATEGORIES[0]
         )
         if revenue_ledger_id is None:
-            # 💡 ห้องที่ยังไม่มี ledger รายได้เลย (เช่น ข้อมูลเก่าที่ยังไม่ผ่าน migration)
-            # → ลอง provision จาก legacy category ที่ชื่อ '📥 เก็บเงินห้องปกติ' (ถ้า seed ไว้)
-            #   เพื่อให้ journal ครบฝั่ง (กันบัญชีไม่สมดุล) — ถ้าไม่มี category นั้นด้วย → ข้าม dual-write
-            legacy_cat_id = await conn.fetchval(
-                """SELECT id FROM finance_categories
-                   WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
-                   ORDER BY id LIMIT 1""",
-                target_room_id, DEFAULT_INCOME_CATEGORIES[0],
-            )
+            # [FIX A] ปิดรอยรั่วข้าม dual-write: ห้องที่ยังไม่มี ledger รายได้/หมวดหมู่ค่าเริ่มต้น
+            # → สร้างหมวด '📥 เก็บเงินห้องปกติ' (ถ้ายังไม่มี) + revenue ledger ให้อัตโนมัติ
+            # เพื่อให้ journal ครบฝั่ง (กัน "legacy ได้เงิน แต่บัญชีคู่ไม่มีบิล")
+            legacy_cat_id = await cls._find_or_create_default_income_category(conn, target_room_id)
             if legacy_cat_id:
                 revenue_ledger_id = await cls._resolve_category_ledger(conn, target_room_id, legacy_cat_id, 'income')
+        # ห้ามข้าม dual-write: ถ้าหา/สร้าง ledger รายได้ไม่ได้ → error (rollback ทั้งชุด) แทนที่จะเงียบ
         if revenue_ledger_id is None:
-            # ยังไม่มี ledger รายได้ของห้องจริง ๆ → สร้าง journal ฝั่ง Debit อย่างเดียวไม่ได้
-            # (บัญชีไม่สมดุล) → ข้าม Dual-Write ไป (legacy ยังทำงานปกติเหมือนเดิม)
-            pass
+            raise ValueError("ไม่สามารถหา/สร้าง ledger รายได้ '📥 เก็บเงินห้องปกติ' เพื่อบันทึกบัญชีคู่ได้")
         else:
             await cls._insert_journal_entry(
                 conn, target_room_id,
@@ -1696,6 +1848,24 @@ class FinanceService:
                         transaction_id, target_room_id
                     )
                     if not t: raise TransactionNotFoundError("ไม่พบรายการธุรกรรมนี้")
+
+                    # [FIX B] Freeze Legacy: รายการที่สร้างก่อนวันที่ขึ้นระบบบัญชีคู่ (CUTOFF_DATE)
+                    # ไม่มี journal ให้ void ได้ → ห้ามยกเลิกเด็ดขาด (ให้บันทึกรายจ่ายปรับปรุงยอดแทน)
+                    # กันการ "ย้อน legacy ฝั่งเดียว" จนยอด 2 ระบบเบี้ยวซ้ำอีก (guard ก่อนแตะ balance)
+                    cutoff_dt = datetime.combine(CUTOFF_DATE, dtime.min)
+                    freeze_msg = ("ไม่สามารถยกเลิกรายการก่อนขึ้นระบบบัญชีคู่ได้ "
+                                  "ให้ใช้วิธีบันทึกรายจ่ายปรับปรุงยอดแทน")
+                    if t['transfer_group_id']:
+                        earliest = await conn.fetchval(
+                            """SELECT MIN(created_at) FROM finance_transactions
+                               WHERE transfer_group_id = $1 AND room_id = $2 AND deleted_at IS NULL""",
+                            t['transfer_group_id'], target_room_id,
+                        )
+                        if earliest is not None and _naive_thai_dt(earliest) < cutoff_dt:
+                            raise ValueError(freeze_msg)
+                    elif _naive_thai_dt(t['created_at']) < cutoff_dt:
+                        raise ValueError(freeze_msg)
+
                     old_values = dict(t)
 
                     if t['transfer_group_id']:
@@ -2013,6 +2183,17 @@ class FinanceService:
                 # 🛡️ ข้อมูลการเงิน → ต้องเป็นสมาชิกห้องเท่านั้น
                 await require_member(conn, target_room_id, user_id)
 
+                # [CLAMP] งบทดลองอ่านจาก journal ล้วน (ไม่มี ledger ของยุค Single-Entry)
+                # → ถ้า as_of_date อยู่ก่อนวันที่ตัด กลับค่าว่าง + note (ไม่มีข้อมูลให้สรุป)
+                if as_of_date is not None and as_of_date < CUTOFF_DATE:
+                    return {
+                        "ledgers": [],
+                        "total_debit": 0.0,
+                        "total_credit": 0.0,
+                        "is_balanced": True,
+                        "note": _CLAMP_EMPTY_NOTE,
+                    }
+
                 # [DOUBLE-ENTRY] ขอบเขตเวลา: ถึง as_of_date (ถ้าไม่ระบุ = ทั้งหมดจนถึงตอนนี้)
                 if as_of_date is not None:
                     date_filter = "AND JE.transaction_date < $2"
@@ -2116,7 +2297,21 @@ class FinanceService:
                 if start_date > end_date:
                     raise ValueError("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด")
 
-                # [DOUBLE-ENTRY] ขอบเขตปลาย → คร่อมทั้งวันของ end_date
+                # [CLAMP] งบกำไรขาดทุนอ่านจาก journal ล้วน (ข้อมูลก่อนวันที่ตัดไม่อยู่ในนี้)
+                query_start, _, clamped, empty = _clamp_to_cutoff(start_date, end_date)
+                if empty:
+                    return {
+                        "start_date": start_date.isoformat(),
+                        "end_date": end_date.isoformat(),
+                        "revenues": [],
+                        "expenses": [],
+                        "total_revenue": 0.0,
+                        "total_expense": 0.0,
+                        "net_income": 0.0,
+                        "note": _CLAMP_EMPTY_NOTE,
+                    }
+
+                # [DOUBLE-ENTRY] ขอบเขตปลาย → คร่อมทั้งวันของ end_date (end ยังเป็นค่าเดิม)
                 end_bound = datetime.combine(end_date, dtime(23, 59, 59))
 
                 rev_rows = await conn.fetch(
@@ -2131,7 +2326,7 @@ class FinanceService:
                          AND JE.transaction_date >= $2 AND JE.transaction_date <= $3
                        GROUP BY AL.account_name
                        ORDER BY total DESC""",
-                    target_room_id, start_date, end_bound,
+                    target_room_id, query_start, end_bound,
                 )
 
                 exp_rows = await conn.fetch(
@@ -2146,7 +2341,7 @@ class FinanceService:
                          AND JE.transaction_date >= $2 AND JE.transaction_date <= $3
                        GROUP BY AL.account_name
                        ORDER BY total DESC""",
-                    target_room_id, start_date, end_bound,
+                    target_room_id, query_start, end_bound,
                 )
 
                 revenues = [
@@ -2167,6 +2362,10 @@ class FinanceService:
                     "total_expense": total_expense,
                     "net_income": total_revenue - total_expense,
                 }
+
+                # [CLAMP] ถ้าช่วงที่ขอเริ่มก่อน 1 ก.ย. แล้วถูกดันมา → แจ้งในผลลัพธ์
+                if clamped:
+                    result["note"] = _CLAMP_START_NOTE
 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
@@ -2611,28 +2810,49 @@ class FinanceService:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
 
-                # [ROUTER] ตัดสินใจด้วยจุดเริ่มต้นของช่วง (ก่อน/หลัง CUTOFF_DATE)
-                month, year = getattr(req, "month", None), getattr(req, "year", None)
+                # [ROUTER] แบ่งอ่านตามยุค (หลัง CUTOFF_DATE = 2026-09-01 อ่าน journal 100%):
+                #   - ทั้งช่วงก่อนเส้นตัด       → legacy (finance_transactions)
+                #   - เริ่มที่/หลังเส้นตัด       → บัญชีคู่ (journal)
+                #   - "ทั้งหมด" (ไม่กรอง) / คร่อมเส้น → MERGE legacy + journal
+                month = getattr(req, "month", None)
+                year = getattr(req, "year", None)
                 start_date = getattr(req, "start_date", None)
                 end_date = getattr(req, "end_date", None)
-                # โจทย์ export ไม่ระบุ → "ทั้งหมด" ซึ่งรวมทั้งก่อนและหลัง cutoff → ต้องอ่าน legacy
-                # (เพราะข้อมูลก่อน cutoff มีแค่ในตารางเก่า) → ใช้ month/start_date ตัดสินใจหลัก
-                if (month is not None and year is not None) or start_date is not None or end_date is not None:
-                    period_start = cls._period_start(month, year, start_date, end_date)
-                    use_v2 = period_start >= CUTOFF_DATE
-                else:
-                    # [ROUTER] ไม่ระบุช่วง = ขอทุกอย่าง → ครอบคลุมทั้งสองยุค → ใช้ legacy ทั้งหมด
-                    # (หลีกเลี่ยงการอ่านข้อมูลก่อน cutoff ผ่าน Double-Entry ที่ไม่มี ledger)
-                    use_v2 = False
 
-                if use_v2:
+                if month is not None and year is not None:
+                    # เดือนเดียวคาบเส้นไม่ได้ → เดือนก่อนเส้น = legacy, เดือนที่เส้นขึ้นไป = journal
+                    if date(year, month, 1) >= CUTOFF_DATE:
+                        return await cls._export_transactions_excel_v2(
+                            conn=conn, room_id=target_room_id,
+                            month=month, year=year, start_date=start_date, end_date=end_date,
+                            client_source=client_source, actor_identifier=actor_identifier,
+                            start_time=start_time,
+                        )
+                    return await cls._export_transactions_excel_legacy(
+                        conn=conn, room_id=target_room_id,
+                        month=month, year=year, start_date=start_date, end_date=end_date,
+                        client_source=client_source, actor_identifier=actor_identifier,
+                        start_time=start_time,
+                    )
+
+                if end_date is not None and end_date < CUTOFF_DATE:
+                    # [ROUTER] ทั้งช่วงก่อนวันที่ตัด → อ่านจากตารางเก่า
+                    return await cls._export_transactions_excel_legacy(
+                        conn=conn, room_id=target_room_id,
+                        month=month, year=year, start_date=start_date, end_date=end_date,
+                        client_source=client_source, actor_identifier=actor_identifier,
+                        start_time=start_time,
+                    )
+                if start_date is not None and start_date >= CUTOFF_DATE:
+                    # [ROUTER] ขอข้อมูลหลังวันที่ตัด → อ่านจาก journal_entries/journal_lines
                     return await cls._export_transactions_excel_v2(
                         conn=conn, room_id=target_room_id,
                         month=month, year=year, start_date=start_date, end_date=end_date,
                         client_source=client_source, actor_identifier=actor_identifier,
                         start_time=start_time,
                     )
-                return await cls._export_transactions_excel_legacy(
+                # [ROUTER] คร่อมเส้นตัด / เปิดปลาย / ไม่ระบุช่วง (ทั้งหมด) → MERGE 2 ยุค
+                return await cls._export_transactions_excel_merged(
                     conn=conn, room_id=target_room_id,
                     month=month, year=year, start_date=start_date, end_date=end_date,
                     client_source=client_source, actor_identifier=actor_identifier,
@@ -2759,6 +2979,94 @@ class FinanceService:
 
         # [DOUBLE-ENTRY] ยอดคงเหลือรายบัญชีจาก Net Balance ของ ledger สินทรัพย์
         # (SUM(debit) − SUM(credit)) — สะท้อนยอดจริงจากระบบบัญชีคู่ ไม่ใช่ finance_accounts
+        balances = await conn.fetch(
+            """SELECT AL.account_name,
+                      COALESCE(SUM(L.debit - L.credit), 0) AS net_balance
+               FROM accounting_ledgers AL
+               LEFT JOIN journal_lines L ON L.ledger_id = AL.id
+               LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                   AND JE.deleted_at IS NULL AND JE.status <> 'voided'
+               WHERE AL.room_id = $1 AND AL.account_type = 'asset' AND AL.is_active = TRUE
+               GROUP BY AL.id, AL.account_name
+               ORDER BY AL.id""",
+            room_id,
+        )
+
+        excel_file = cls._build_finance_workbook(
+            room_name=room_name, period_label=period_label,
+            rows=final_rows,
+            account_balances=[(r["account_name"], r["net_balance"]) for r in balances],
+            generated_at=datetime.now(THAI_TZ),
+        )
+
+        if start_time is not None:
+            exec_time = int((time.time() - start_time) * 1000)
+            await service_logger.log(
+                conn=conn, action="EXPORT", actor_identifier=actor_identifier, client_source=client_source,
+                room_id=room_id, user_id=None, entity_type="FINANCE_TRANSACTION", status="success",
+                new_values={"period": period_label, "rows": len(final_rows)},
+                endpoint_or_command="FinanceService.export_transactions_excel", execution_time_ms=exec_time
+            )
+        return excel_file
+
+    @classmethod
+    async def _export_transactions_excel_merged(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        month: Optional[int] = None, year: Optional[int] = None,
+        start_date: Optional[date] = None, end_date: Optional[date] = None,
+        client_source: str = "", actor_identifier: str = "", start_time: Optional[float] = None,
+    ) -> io.BytesIO:
+        """[ROUTER-MERGE] Export ที่ครอบ 2 ยุค (ขอ "ทั้งหมด" หรือช่วงคร่อมเส้นตัด):
+        นำแถว legacy (เฉพาะ DATE(created_at) <= วันก่อน 1 ก.ย.) มา consolidate ขาโอน
+        แล้วต่อกับแถว journal (transaction_date >= 1 ก.ย.) ที่ format แล้ว
+        → ใส่ _build_finance_workbook เดียวกัน โดยยอดคงเหลือรายบัญชีใช้ ledger asset-net
+        (แหล่งเดียวกับฝั่ง v2) เพราะช่วงนี้แตะข้อมูลหลังเส้นตัดแล้ว"""
+        # [MERGE] ฉลากช่วงเวลา (เลียนแบบ v2 export / _resolve_inclusive_period)
+        _, _, period_label = _resolve_inclusive_period(month, year, start_date, end_date)
+
+        room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", room_id)
+        room_name = room["room_name"] if room else f"ห้อง #{room_id}"
+
+        # [MERGE] 1) ฝั่ง legacy: เฉพาะวันที่ < CUTOFF_DATE (consolidate ขาโอนภายใน subset นี้)
+        legacy_end = CUTOFF_DATE - timedelta(days=1)
+        params: List[Any] = [room_id, legacy_end]
+        start_cond = ""
+        if start_date is not None and start_date < CUTOFF_DATE:
+            start_cond = " AND DATE(T.created_at) >= $3"
+            params.append(start_date)
+        legacy_rows = await conn.fetch(
+            f"""
+            SELECT
+                T.id, T.transaction_type, T.amount, T.description, T.recorded_by,
+                T.created_at, T.transfer_group_id, T.student_payment_id,
+                A.account_name, C.category_name
+            FROM finance_transactions T
+            LEFT JOIN finance_accounts A ON T.account_id = A.id
+            LEFT JOIN finance_categories C ON T.category_id = C.id
+            WHERE T.room_id = $1 AND T.deleted_at IS NULL
+              AND DATE(T.created_at) <= $2 {start_cond}
+            ORDER BY T.created_at ASC, T.id ASC
+            """,
+            *params,
+        )
+        final_legacy = cls._consolidate_transfers([dict(r) for r in legacy_rows])
+
+        # [MERGE] 2) ฝั่ง journal: วันที่ >= CUTOFF_DATE (floor start ที่ 1 ก.ย.)
+        journal_start = start_date if (start_date is not None and start_date >= CUTOFF_DATE) else CUTOFF_DATE
+        txn_result = await cls._get_transactions_v2(
+            conn=conn, room_id=room_id,
+            limit=100000, offset=0,
+            start_date=journal_start, end_date=end_date,
+            client_source=client_source, actor_identifier=actor_identifier,
+            start_time=None,  # ไม่ log อีกครั้ง (export จะ log เอง)
+        )
+        final_v2 = cls._format_v2_rows(txn_result["items"])
+
+        # [MERGE] 3) รวม + เรียงตามเวลา (normalize tz ก่อน sort)
+        final_rows = final_legacy + final_v2
+        final_rows.sort(key=lambda x: (_naive_thai_dt(x["created_at"]), x["id"] or ""))
+
+        # [MERGE] 4) ยอดคงเหลือรายบัญชี = ledger asset-net (เหมือนฝั่ง v2)
         balances = await conn.fetch(
             """SELECT AL.account_name,
                       COALESCE(SUM(L.debit - L.credit), 0) AS net_balance
@@ -3165,6 +3473,13 @@ class FinanceService:
                 start_dt, end_dt, period_label = _resolve_inclusive_period(
                     month, year, start_date, end_date
                 )
+
+                # [CLAMP] สมุดรายวันอ่านจาก journal ล้วน (ข้อมูลก่อนวันที่ตัดไม่อยู่ในนี้)
+                # → ดัน start ขึ้นเป็น 1 ก.ย. ถ้าขอช่วงก่อนหน้า; window ที่ก่อนเส้นล้วนจะได้ 0 บรรทัด
+                #   (workbook แสดง "(ไม่มีรายการในช่วงนี้)" อยู่แล้ว)
+                start_dt, end_dt, clamped, _empty = _clamp_to_cutoff(start_dt, end_dt)
+                if clamped:
+                    period_label = f"{period_label} (ข้อมูลเริ่ม 2026-09-01)"
 
                 room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
                 room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"

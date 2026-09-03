@@ -340,3 +340,47 @@ async def test_journal_export_invalid_period_raises(db_pool):
             room_id=room_id, user_id=owner,
             start_date=date(2026, 2, 1), end_date=date(2026, 1, 1),
         )
+
+
+async def test_journal_export_pre_cutoff_window_empty(db_pool):
+    """[CLAMP] ขอสมุดรายวันเดือนก่อน 1 ก.ย. (journal ยังไม่มี) → workbook ว่างถูกต้อง + ยอดรวม 0"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner, room_name="ห้องเทส")
+
+    excel_file = await FinanceService.export_journal_excel(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=owner, month=8, year=2026,
+    )
+    assert isinstance(excel_file, io.BytesIO)
+    header, data, totals = _read_journal(excel_file)
+    assert len(data) == 1 and data[0][3] == "(ไม่มีรายการในช่วงนี้)"
+    assert totals[6] == 0.0 and totals[7] == 0.0
+
+
+async def test_journal_export_start_before_cutoff_clamps(db_pool):
+    """[CLAMP] start_date ก่อน 1 ก.ย. → ถูกดันขึ้นเป็น 1 ก.ย. (ยังเห็นบิลหลังเส้น)"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=500.0,
+                              description="บริจาค ต.ค.", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE journal_entries SET transaction_date = '2026-10-10 09:00:00'
+               WHERE room_id = $1 AND description = 'บริจาค ต.ค.'""", room_id
+        )
+
+    excel_file = await FinanceService.export_journal_excel(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=owner,
+        start_date=date(2026, 8, 1), end_date=date(2026, 10, 31),
+    )
+    header, data, totals = _read_journal(excel_file)
+    # ได้บิล ต.ค. มาทั้งบิล (2 บรรทัด Dr/Cr) — ช่วงก่อนเส้นถูกตัดออกไป
+    assert len(data) == 2
+    assert totals[6] == 500.0 and totals[7] == 500.0

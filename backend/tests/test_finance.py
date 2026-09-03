@@ -431,6 +431,11 @@ async def test_get_transactions_filter_by_type(db_pool):
     exp_cat = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
     await _insert_transaction(db_pool, room_id, account_id, 100.0, "income", inc_cat)
     await _insert_transaction(db_pool, room_id, account_id, 30.0, "expense", exp_cat)
+    # ข้อมูลฝั่ง legacy ต้องอยู่ก่อนวันที่ตัด (1 ก.ย. 2026) ระบบถึงจะอ่านจากตารางเก่า
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = '2026-08-15 09:00:00' WHERE room_id = $1", room_id
+        )
 
     data = await FinanceService.get_transactions(
         pool=db_pool, client_source="test", actor_identifier="test",
@@ -448,6 +453,11 @@ async def test_get_transactions_filter_by_account_and_category(db_pool):
     cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
     await _insert_transaction(db_pool, room_id, a1, 100.0, "income", cat)
     await _insert_transaction(db_pool, room_id, a2, 50.0, "income", cat)
+    # ข้อมูลฝั่ง legacy ต้องอยู่ก่อนวันที่ตัด (1 ก.ย. 2026) ระบบถึงจะอ่านจากตารางเก่า
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = '2026-08-15 09:00:00' WHERE room_id = $1", room_id
+        )
 
     data = await FinanceService.get_transactions(
         pool=db_pool, client_source="test", actor_identifier="test",
@@ -488,6 +498,11 @@ async def test_get_transactions_excludes_soft_deleted(db_pool):
     cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
     await _insert_transaction(db_pool, room_id, account_id, 100.0, "income", cat, deleted=True)
     live = await _insert_transaction(db_pool, room_id, account_id, 200.0, "income", cat)
+    # ข้อมูลฝั่ง legacy ต้องอยู่ก่อนวันที่ตัด (1 ก.ย. 2026) ระบบถึงจะอ่านจากตารางเก่า
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = '2026-08-15 09:00:00' WHERE room_id = $1", room_id
+        )
 
     data = await FinanceService.get_transactions(
         pool=db_pool, client_source="test", actor_identifier="test",
@@ -762,6 +777,91 @@ async def test_confirm_payment_full_payment_updates_everything(db_pool):
         assert tx["recorded_by"] == "Owner"
 
     assert await _count_audit_logs(db_pool, "STUDENT_PAYMENT", "UPDATE") == 1
+
+
+async def test_confirm_payment_auto_provisions_default_income(db_pool):
+    """[FIX A] ห้องที่ยังไม่มี ledger รายได้/หมวดค่าเริ่มต้น → confirm_payment ต้องสร้างให้เอง
+    (ห้ามข้าม dual-write แบบเดิม) เพื่อให้ journal มีบิลครบฝั่ง"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    student_id = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
+    collection_id = await _insert_collection(db_pool, room_id, "ค่าเทอม", 1000.0)
+    payment_id = await _insert_student_payment(db_pool, collection_id, student_id, "pending", 0.0)
+
+    # ห้องนี้ถูกสร้างผ่าน helper ที่ไม่ seed หมวดหมู่ → ต้องยังไม่มีหมวด/ledger รายได้
+    async with db_pool.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_categories WHERE room_id = $1 AND category_type = 'income'", room_id
+        ) == 0
+
+    await FinanceService.confirm_payment(
+        pool=db_pool, payment_id=payment_id,
+        req=PaymentConfirm(paid_to_account_id=account_id, paid_amount=1000.0, user_name="Owner"),
+        client_source="test", actor_identifier="test", room_id=room_id,
+    )
+
+    async with db_pool.acquire() as conn:
+        # 1) มี journal บิล student_payment (ไม่ข้าม dual-write)
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM journal_entries WHERE room_id = $1 AND reference_type = 'student_payment'", room_id
+        ) == 1
+        # 2) มีหมวดค่าเริ่มต้น '📥 เก็บเงินห้องปกติ' ถูกสร้างให้
+        cat = await conn.fetchrow(
+            """SELECT id FROM finance_categories
+               WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'""",
+            room_id, '📥 เก็บเงินห้องปกติ',
+        )
+        assert cat is not None
+        # 3) มี revenue ledger ผูกกับหมวดนั้น
+        rev = await conn.fetchrow(
+            """SELECT id FROM accounting_ledgers
+               WHERE room_id = $1 AND account_type = 'revenue' AND legacy_category_id = $2""",
+            room_id, cat["id"],
+        )
+        assert rev is not None
+        # 4) journal lines = asset Dr / revenue Cr จำนวน 1000
+        entry = await conn.fetchrow(
+            "SELECT id FROM journal_entries WHERE room_id = $1 AND reference_type = 'student_payment'", room_id
+        )
+        lines = await conn.fetch(
+            """SELECT AL.account_type, L.debit, L.credit
+               FROM journal_lines L
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE L.journal_entry_id = $1""", entry["id"]
+        )
+        asset_line = next(ln for ln in lines if ln["account_type"] == "asset")
+        rev_line = next(ln for ln in lines if ln["account_type"] == "revenue")
+        assert float(asset_line["debit"]) == pytest.approx(1000.0)
+        assert float(rev_line["credit"]) == pytest.approx(1000.0)
+    assert await _fetch_balance(db_pool, account_id) == pytest.approx(1000.0)
+
+
+async def test_revert_pre_cutoff_legacy_refused(db_pool):
+    """[FIX B] ยกเลิกรายการที่สร้างก่อน 1 ก.ย. (ยุค Single-Entry, ไม่มี journal) → โดนปฏิเสธ
+    และ DB ไม่เปลี่ยน (กัน "ย้อน legacy ฝั่งเดียว" จนยอด 2 ระบบเบี้ยว)"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 100.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    tx_id = await _insert_transaction(db_pool, room_id, account_id, 100.0, "income", cat)
+    async with db_pool.acquire() as conn:
+        # ย้อนไปยุคก่อนบัญชีคู่ + ปรับ balance เหมือนตอนบันทึก (100 → 200)
+        await conn.execute("UPDATE finance_transactions SET created_at = '2026-08-01 10:00:00' WHERE id = $1", tx_id)
+        await conn.execute("UPDATE finance_accounts SET balance = 200.0 WHERE id = $1", account_id)
+
+    with pytest.raises(ValueError) as excinfo:
+        await FinanceService.revert_transaction(
+            pool=db_pool, transaction_id=tx_id, user_id=owner,
+            client_source="test", actor_identifier="test", user_name="Owner", room_id=room_id,
+        )
+    assert "ไม่สามารถยกเลิกรายการก่อนขึ้นระบบบัญชีคู่ได้" in str(excinfo.value)
+
+    # DB ไม่เปลี่ยน (guard มาก่อน mutate balance/deleted)
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT deleted_at FROM finance_transactions WHERE id = $1", tx_id)
+        assert row["deleted_at"] is None
+    assert await _fetch_balance(db_pool, account_id) == pytest.approx(200.0)
 
 
 async def test_confirm_payment_partial_payment_keeps_pending(db_pool):
