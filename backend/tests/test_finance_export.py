@@ -564,3 +564,67 @@ async def test_export_spanning_merges_both_eras(db_pool):
     data_rows = list(wb["ประวัติรายการ"].values)[1:]
     data_rows = [r for r in data_rows if r and r[0] is not None]
     assert len(data_rows) == 2
+
+
+# === 🐛 Regression: บิลที่ถูกยกเลิก (voided) ต้องไม่ถูกนำมาบวก "ยอดคงเหลือรายบัญชี" ===
+# (เดิม balances ใช้ LEFT JOIN journal_entries ... AND JE.status <> 'voided' —
+#  เงื่อนไขที่อยู่ใน ON clause ไม่ได้กรองบรรทัด journal_lines ออก ฉะนั้น SUM ยังรวม
+#  Debit/Credit ของบิลที่ void แล้ว → Excel โชว์ยอดเกินจริง เช่น 1,389 ทั้งที่จริง 527
+#  แต่ reconcile (ใช้ subquery กรองใน WHERE) บอกผลต่าง 0 → แก้ให้ balances เป็น
+#  correlated subquery แบบเดียวกับ reconcile)
+
+
+async def test_export_balances_exclude_voided_journal(db_pool):
+    """ครอบ 2 เส้นทางที่ดึงยอดจาก ledger: v2 (month/year หลัง 1 ก.ย.) + merged (ไม่กรองช่วง).
+    บิลรายได้ที่โดน void แล้วต้องไม่ถูกบวกเข้ายอดคงเหลือรายบัญชีของ 'เงินสด'"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "เงินสด", 0.0)
+    inc_cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+
+    async def _add(amount: float, desc: str) -> None:
+        await FinanceService.add_transaction(
+            pool=db_pool,
+            req=TransactionCreate(account_id=acc, category_id=inc_cat, amount=amount,
+                                  description=desc, transaction_type="income", user_name="Owner"),
+            user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+        )
+
+    await _add(300.0, "บริจาคจริง")         # ยังใช้งาน → ต้องนับ
+    await _add(500.0, "บริจาคแล้วยกเลิก")   # โดน void → ต้องไม่นับ
+    async with db_pool.acquire() as conn:
+        # ย้ายทั้ง 2 บิลไปงวด ต.ค. 2026 (หลัง CUTOFF_DATE → วิ่งเส้นทาง v2 / merged)
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-10-10' WHERE room_id = $1", room_id
+        )
+        # ยกเลิกบิลที่ 2 — จำลอง Revert: journal โดนทำ status='voided' (เส้น journal_lines ยังอยู่)
+        await conn.execute(
+            """UPDATE journal_entries SET status = 'voided'
+               WHERE room_id = $1 AND description = 'บริจาคแล้วยกเลิก'""",
+            room_id,
+        )
+        # 🐛 Deep DB check: ยอด asset-ledger ตามสูตร reconcile (ตัด void) ต้องเท่ากับ 300
+        live_net = await conn.fetchval(
+            """SELECT COALESCE(SUM(L.debit - L.credit), 0)
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE AL.room_id = $1 AND AL.account_type = 'asset'
+                 AND JE.deleted_at IS NULL AND JE.status <> 'voided'""",
+            room_id,
+        )
+    assert live_net == 300.0
+
+    # เส้นทาง v2 (ขอเดือน ต.ค. 2026 — หลังเส้นตัด)
+    excel_v2 = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(month=10, year=2026),
+        client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
+    )
+    assert _load_summary_balances(excel_v2)["เงินสด"] == 300.0
+
+    # เส้นทาง merged (ไม่กรองช่วง — แตะ journal หลังเส้นด้วย)
+    excel_merged = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(),
+        client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
+    )
+    assert _load_summary_balances(excel_merged)["เงินสด"] == 300.0
