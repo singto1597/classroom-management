@@ -587,3 +587,21 @@
 - **Rule:** (1) logic อยู่ `FinanceService.reconcile_balances` (เทสได้ผ่าน db_pool) สคริปต์เป็นแค่ thin CLI เลียนแบบ `migrate_phase2_5_opening_balance.py` (2) วัดผลต่างด้วยเงื่อนไขเดียวกับ summary v2 เสมอ (3) mirror ขาเงิน "พัก" ต้องเป็น equity/liability ไม่ใช่ revenue/expense กันงอ income statement (4) เงินเป็น Decimal → cast float() ก่อนเสมอ, เขียนผ่าน `_insert_journal_entry` (cast+json ให้เอง)
 - **Tests:** `test_finance_reconcile.py` 5 ตัว: dry-run แล้ว apply แก้ให้ net==legacy (จำลองรั่วรับเงินไร้ journal), ทิศทาง ledger เกิน (Cr asset), idempotent รอบสอง, auto-provision ledger หาย, server_id resolve + RoomNotFoundError
 - **Date Added:** 2026-09-03
+
+### 🐛 SQL — กรอง `JE.status <> 'voided'` ต้องอยู่ใน WHERE ของ subquery ไม่อยู่ใน ON clause ของ LEFT JOIN
+- **Context/Problem:** Export Excel แสดงยอดคงเหลือรายบัญชี (เช่น เงินสด) สูงเกินจริง (โชว์ 1,389 แต่หน้าเว็บโชว์ 527) แต่รัน Reconcile แล้วผลต่าง 0 → เพราะคำสั่ง `balances` ใน `_export_transactions_excel_v2`/`_export_transactions_excel_merged` และ `get_trial_balance` (ตอนไม่ระบุ as_of) รวม Debit/Credit ของบิลที่ Revert (void) แล้ว
+- **Root Cause:** `COALESCE(SUM(L.debit - L.credit),0) ... LEFT JOIN journal_lines L ... LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id AND JE.deleted_at IS NULL AND JE.status <> 'voided'` — เงื่อนไขใน **ON clause ของ LEFT JOIN** แค่ทำให้คอลัมน์ JE เป็น NULL เมื่อไม่ตรงเงื่อนไข แต่แถว `journal_lines` ยังคงอยู่ในผลลัพธ์ → `SUM` ยังรวมเส้นของบิลที่ void/deleted อยู่ (เหมือนกันทั้ง `status` และ `deleted_at`)
+- **Correct Pattern/Solution:** ใช้ correlated subquery ที่ **JOIN ธรรมดา + กรองใน WHERE** เพื่อให้แถวไม่พึงประสงค์หลุดออกจาก aggregate จริง ๆ:
+  ```sql
+  SELECT AL.account_name,
+         (SELECT COALESCE(SUM(L.debit - L.credit), 0)
+          FROM journal_lines L JOIN journal_entries JE ON L.journal_entry_id = JE.id
+          WHERE L.ledger_id = AL.id
+            AND JE.deleted_at IS NULL AND JE.status <> 'voided') AS net_balance
+  FROM accounting_ledgers AL
+  WHERE AL.room_id = $1 AND AL.account_type = 'asset' AND AL.is_active = TRUE
+  ORDER BY AL.id
+  ```
+- **Rule:** aggregate ที่ต้อง "ไม่นับ" แถวที่ผูกตารางอ้างอิง (`journal_entries.status`/`deleted_at`) → อย่าใส่เงื่อนไขนั้นใน ON ของ LEFT JOIN; ให้ใส่ใน WHERE ของ aggregate (subquery/LATERAL) — LEFT JOIN ใช้เฉพาะเมื่ออยากได้แถวฝั่งซ้ายที่ไม่มีคู่แล้วได้ SUM=0 ผ่าน COALESCE; สแกนหา pattern เก่าได้ด้วย grep `LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id`
+- **Tests:** (1) `test_finance_export.py::test_export_balances_exclude_voided_journal` — รายได้ 300 (ใช้จริง) + 500 (void) → export เส้นทาง v2 (month/year) และ merged (ไม่กรอง) ต้องโชว์เงินสด = 300 ไม่ใช่ 800 (2) `test_finance_v2_read.py::test_trial_balance_excludes_voided_journal` — งบทดลองไม่ระบุ as_of: Dr/Cr รวม = 300 ไม่ใช่ 800 + ยังยืนยัน as_of หลังงวดกรองถูก
+- **Date Added:** 2026-09-03

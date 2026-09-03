@@ -667,6 +667,54 @@ async def test_trial_balance_as_of_date(db_pool):
     assert tb["is_balanced"] is True
 
 
+async def test_trial_balance_excludes_voided_journal(db_pool):
+    """งบทดลอง (ไม่ระบุ as_of — มองทั้งช่วง) ต้องไม่รวมบิลที่ void แล้ว.
+    เดิม SUM รวมเส้นของบิล void (LEFT JOIN JE + เงื่อนไขใน ON) → Dr/Cr รวมเกินจริง"""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+
+    async def _add(amount: float, desc: str) -> None:
+        await FinanceService.add_transaction(
+            pool=db_pool,
+            req=TransactionCreate(account_id=acc, category_id=cat, amount=amount,
+                                  description=desc, transaction_type="income", user_name="Owner"),
+            user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+        )
+
+    await _add(300.0, "รับจริง")          # ยังใช้งาน → ต้องนับ
+    await _add(500.0, "รับแล้วยกเลิก")    # โดน void → ต้องไม่นับ
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-10-10' WHERE room_id = $1", room_id
+        )
+        # ยกเลิกบิลที่ 2 (จำลอง Revert → status='voided' แต่ journal_lines ยังอยู่)
+        await conn.execute(
+            """UPDATE journal_entries SET status = 'voided'
+               WHERE room_id = $1 AND description = 'รับแล้วยกเลิก'""", room_id
+        )
+
+    # 🐛 เดิม: total_debit/credit = 800 (เส้น 500 ของบิล void ยังถูกบวก) — หลังแก้ต้องเป็น 300
+    tb = await FinanceService.get_trial_balance(
+        pool=db_pool, room_id=room_id, user_id=owner, client_source="test", actor_identifier="test",
+    )
+    assert float(tb["total_debit"]) == pytest.approx(300.0)
+    assert float(tb["total_credit"]) == pytest.approx(300.0)
+    assert tb["is_balanced"] is True
+    asset = next(l for l in tb["ledgers"] if l["account_type"] == "asset")
+    assert asset["balance"] == pytest.approx(300.0)
+
+    # as_of หลังงวด — หลัง rewrite ยังคงกรอง void + ตัดรายการหลังวันเดียวกันถูกต้อง
+    tb_asof = await FinanceService.get_trial_balance(
+        pool=db_pool, room_id=room_id, user_id=owner, client_source="test", actor_identifier="test",
+        as_of_date=date(2026, 10, 31),
+    )
+    assert float(tb_asof["total_debit"]) == pytest.approx(300.0)
+    assert float(tb_asof["total_credit"]) == pytest.approx(300.0)
+    assert tb_asof["is_balanced"] is True
+
+
 # === [DOUBLE-ENTRY] get_income_statement ===
 
 

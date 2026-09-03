@@ -2209,14 +2209,21 @@ class FinanceService:
                             AL.account_code,
                             AL.account_name,
                             AL.account_type,
-                            COALESCE(SUM(L.debit), 0)  AS total_debit,
-                            COALESCE(SUM(L.credit), 0) AS total_credit
+                            COALESCE(NET.total_debit, 0)  AS total_debit,
+                            COALESCE(NET.total_credit, 0) AS total_credit
                         FROM accounting_ledgers AL
-                        LEFT JOIN journal_lines L ON L.ledger_id = AL.id
-                        LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id
-                            AND JE.deleted_at IS NULL AND JE.status <> 'voided'
-                        WHERE AL.room_id = $1 AND AL.is_active = TRUE {date_filter}
-                        GROUP BY AL.id, AL.account_code, AL.account_name, AL.account_type
+                        LEFT JOIN (
+                            SELECT L.ledger_id,
+                                   SUM(L.debit)  AS total_debit,
+                                   SUM(L.credit) AS total_credit
+                            FROM journal_lines L
+                            JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                            WHERE JE.deleted_at IS NULL
+                              AND JE.status <> 'voided'
+                              {date_filter}
+                            GROUP BY L.ledger_id
+                        ) NET ON NET.ledger_id = AL.id
+                        WHERE AL.room_id = $1 AND AL.is_active = TRUE
                         ORDER BY AL.account_code NULLS LAST, AL.id""",
                     *params,
                 )
@@ -2981,13 +2988,14 @@ class FinanceService:
         # (SUM(debit) − SUM(credit)) — สะท้อนยอดจริงจากระบบบัญชีคู่ ไม่ใช่ finance_accounts
         balances = await conn.fetch(
             """SELECT AL.account_name,
-                      COALESCE(SUM(L.debit - L.credit), 0) AS net_balance
+                      (SELECT COALESCE(SUM(L.debit - L.credit), 0)
+                       FROM journal_lines L
+                       JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                       WHERE L.ledger_id = AL.id
+                         AND JE.deleted_at IS NULL
+                         AND JE.status <> 'voided') AS net_balance
                FROM accounting_ledgers AL
-               LEFT JOIN journal_lines L ON L.ledger_id = AL.id
-               LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id
-                   AND JE.deleted_at IS NULL AND JE.status <> 'voided'
                WHERE AL.room_id = $1 AND AL.account_type = 'asset' AND AL.is_active = TRUE
-               GROUP BY AL.id, AL.account_name
                ORDER BY AL.id""",
             room_id,
         )
@@ -3069,13 +3077,14 @@ class FinanceService:
         # [MERGE] 4) ยอดคงเหลือรายบัญชี = ledger asset-net (เหมือนฝั่ง v2)
         balances = await conn.fetch(
             """SELECT AL.account_name,
-                      COALESCE(SUM(L.debit - L.credit), 0) AS net_balance
+                      (SELECT COALESCE(SUM(L.debit - L.credit), 0)
+                       FROM journal_lines L
+                       JOIN journal_entries JE ON L.journal_entry_id = JE.id
+                       WHERE L.ledger_id = AL.id
+                         AND JE.deleted_at IS NULL
+                         AND JE.status <> 'voided') AS net_balance
                FROM accounting_ledgers AL
-               LEFT JOIN journal_lines L ON L.ledger_id = AL.id
-               LEFT JOIN journal_entries JE ON L.journal_entry_id = JE.id
-                   AND JE.deleted_at IS NULL AND JE.status <> 'voided'
                WHERE AL.room_id = $1 AND AL.account_type = 'asset' AND AL.is_active = TRUE
-               GROUP BY AL.id, AL.account_name
                ORDER BY AL.id""",
             room_id,
         )
