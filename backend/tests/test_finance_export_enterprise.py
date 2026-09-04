@@ -283,6 +283,49 @@ async def test_management_export_fee_sheet_lists_only_unpaid(db_pool):
     assert float(grand[7]) == 100.0
 
 
+async def test_management_export_v2_post_cutoff_month_still_lists_project_and_debtor(db_pool):
+    """Regression: export เดือนที่อยู่หลัง CUTOFF_DATE (เช่น ก.ย. 2026 = default ของหน้าเว็บ
+    ตั้งแต่ขึ้นระบบบัญชีคู่) จะวิ่งผ่าน path v2 (journal) — แต่ Sheet 4/5 (ข้อมูล Real-time
+    ของโปรเจค/ลูกหนี้) ต้องยังมีข้อมูลเหมือน path legacy/merged.
+
+    ก่อน fix: [ROUTER] จุดเรียก v2 (กรณี month/year ≥ CUTOFF_DATE) ลืมส่ง reg/ar ต่อไป
+    ให้ _export_transactions_excel_v2 → reg=None, ar=None → แผ่น 'สรุปโปรเจคเก็บเงิน (Fee)'
+    และ 'ทะเบียนลูกหนี้ (AR)' ออกมาว่างเปล่าทั้งที่เว็บยังเห็นข้อมูลอยู่."""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner, room_name="ห้องก.ย.66")
+    await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    s1 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
+    s2 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="Two"), 2)
+
+    c1 = await _insert_collection(db_pool, room_id, "ค่าเทอม", 100.0, due_date=date(2026, 12, 31))
+    await _insert_student_payment(db_pool, c1, s1, status="pending", paid_amount=30.0)  # ทยอยจ่าย 30/100
+    await _insert_student_payment(db_pool, c1, s2, status="pending", paid_amount=0.0)   # ยังไม่จ่าย
+
+    # month=9/year=2026 ≥ CUTOFF_DATE → [ROUTER] เลือก path v2 (journal)
+    excel_file = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(month=9, year=2026),
+        client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=owner,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+    assert wb.sheetnames == MANAGEMENT_SHEETS
+
+    # Sheet 4: ยังไล่รายชื่อผู้ค้างใต้โปรเจค (เหมือน path อื่น)
+    fee_data = _values(wb, "สรุปโปรเจคเก็บเงิน (Fee)")[3:]
+    banner = next(r for r in fee_data if r[0] and str(r[0]).startswith('โปรเจค "'))
+    assert "ค่าเทอม" in str(banner[0])
+    student_rows = [r for r in fee_data if isinstance(r[0], int)]
+    assert [r[0] for r in student_rows] == [1, 2]
+    assert sorted(float(r[5]) for r in student_rows) == [70.0, 100.0]
+
+    # Sheet 5: ทะเบียนลูกหนี้มีหนี้ครบ 170
+    ar_rows = _values(wb, "ทะเบียนลูกหนี้ (AR)")[3:]
+    subtotal_rows = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมหนี้ของ")]
+    assert sorted(float(r[7]) for r in subtotal_rows) == [70.0, 100.0]
+    grand = next(r for r in ar_rows if r[0] and str(r[0]).startswith("รวมลูกหนี้ทั้งสิ้น"))
+    assert float(grand[7]) == 170.0
+
+
 # =====================================================================
 # Requirement 2: Accounting export → 6 แผ่น (Audit Report)
 # =====================================================================
