@@ -2897,7 +2897,8 @@ class FinanceService:
         rows = await conn.fetch(
             """SELECT S.id                                 AS student_id,
                       S.student_no, S.student_id            AS student_id_no,
-                      U.first_name, U.nickname, U.first_name_en, U.last_name_en,
+                      U.first_name, U.last_name, U.nickname,
+                      U.first_name_en, U.last_name_en, U.nickname_en,
                       FC.id          AS collection_id,
                       FC.title, FC.amount, FC.due_date, FC.status,
                       SP.id AS payment_id, SP.paid_amount,
@@ -2918,9 +2919,13 @@ class FinanceService:
         seen_students: set = set()
         total_outstanding = 0.0
         for r in rows:
-            name = r["first_name"] or r.get("first_name_en") or "Unknown"
-            if r["nickname"]:
-                name += f" ({r['nickname']})"
+            # ชื่อเต็ม = ชื่อ (ไทย/อังกฤษ) + นามสกุล + ชื่อเล่น — เพื่อ export ที่ละเอียด
+            first = (r["first_name"] or r.get("first_name_en") or "").strip()
+            last = (r["last_name"] or r.get("last_name_en") or "").strip()
+            name = " ".join(p for p in (first, last) if p) or "Unknown"
+            nickname = r["nickname"] or r.get("nickname_en") or ""
+            if nickname:
+                name += f" ({nickname})"
             outstanding = round(float(r["outstanding"] or 0.0), 2)
             seen_students.add(r["student_id"])
             total_outstanding += outstanding
@@ -2929,6 +2934,7 @@ class FinanceService:
                 "student_no": r["student_no"],
                 "student_id_no": r["student_id_no"],
                 "name": name,
+                "nickname": nickname,
                 "collection_id": r["collection_id"],
                 "title": r["title"],
                 "fee_amount": round(float(r["amount"] or 0.0), 2),
@@ -3498,6 +3504,11 @@ class FinanceService:
         ar = ar or {}
         fee_projects: List[dict] = reg.get("projects") or []
         ar_rows: List[dict] = ar.get("rows") or []
+        # [DETAIL] ดัชนี "รายการค้างชำระรายคน" ต่อโปรเจค — ใช้ไล่รายชื่อผู้ค้างใต้แต่ละโปรเจค (Sheet 4)
+        #   เหมือนกด "ดูรายละเอียด" โปรเจคในเว็บ แต่กรองเฉพาะคนที่ยังจ่ายไม่ครบ
+        pending_by_collection: Dict[int, List[dict]] = {}
+        for _ar in ar_rows:
+            pending_by_collection.setdefault(_ar["collection_id"], []).append(_ar)
         live_as_of = reg.get("as_of") or ar.get("as_of")
         live_label = live_as_of.strftime("%d/%m/%Y") if live_as_of else "—"
 
@@ -3689,16 +3700,19 @@ class FinanceService:
         ws_cat.auto_filter.ref = f"A1:C{ws_cat.max_row}"
 
         # =====================================================================
-        # Sheet 4: สรุปโปรเจคเก็บเงิน (Fee Collections)
         # =====================================================================
+        # Sheet 4: สรุปโปรเจคเก็บเงิน (Fee Collections) — ไล่รายชื่อผู้ค้างรายคน
+        # =====================================================================
+        # โครงสร้าง: title/subtitle → หัวตาราง 1 แถว → block ต่อโปรเจค
+        #   block = แถว banner สรุปโปรเจค (ยอดเก็บ/ค้าง/%สำเร็จ) + รายชื่อนักเรียนที่ยังจ่ายไม่ครบ
+        #   (เหมือนกด "ดูรายละเอียด" โปรเจคในเว็บ แต่กรองเฉพาะคนที่ยังค้าง) + แถวรวมยอดค้างของโปรเจค
         ws_fee = wb.create_sheet("สรุปโปรเจคเก็บเงิน (Fee)")
         ws_fee.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[2]
-        fee_headers = [
-            ("ลำดับ", 6), ("ชื่อโปรเจค", 32), ("สถานะ", 12), ("กำหนดชำระ", 12),
-            ("สมาชิก (คน)", 11), ("เรียกเก็บ/คน (บาท)", 16), ("เป้าหมายรวม (บาท)", 16),
-            ("เก็บได้แล้ว (บาท)", 16), ("คงค้าง (บาท)", 14), ("ความสำเร็จ (%)", 13),
+        detail_headers = [
+            ("เลขที่", 8), ("ชื่อ-นามสกุล", 32), ("สถานะการจ่าย", 14),
+            ("เรียกเก็บ/คน (บาท)", 16), ("ชำระแล้ว (บาท)", 15), ("คงค้าง (บาท)", 15),
         ]
-        ncols_fee = len(fee_headers)
+        ncols_fee = len(detail_headers)
 
         def _table_title(ws, title, subtitle, ncols):
             """Title (แถว 1) + subtitle (แถว 2) merge ข้ามทุกคอลัมน์ → คืนแถว header (3)."""
@@ -3718,77 +3732,123 @@ class FinanceService:
                 cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             return len(col_specs)
 
+        def _merged_row(ws, row, ncols, text, *, fill=None, font=None, align="left"):
+            """Merge A..{ncols} ในแถวเดียวแล้วใส่ข้อความ (ใช้ทำแถว banner/หมายเหตุ/แถวรวม)."""
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=ncols)
+            cell = ws.cell(row=row, column=1, value=text)
+            if font is not None:
+                cell.font = font
+            cell.alignment = Alignment(horizontal=align, vertical="center")
+            if fill:
+                for cc in range(1, ncols + 1):
+                    ws.cell(row=row, column=cc).fill = fill
+            return cell
+
+        def _money_label(val) -> str:
+            return f"{float(val or 0.0):,.2f}"
+
         hr = _table_title(
             ws_fee, f"สรุปโปรเจคเก็บเงิน (Fee Collections) — {room_name}",
-            f"ข้อมูล ณ วันที่ {live_label} (Real-time) · สร้างเมื่อ "
-            f"{generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
+            f"รายชื่อผู้ค้างชำระรายคนใต้แต่ละโปรเจค · ข้อมูล ณ วันที่ {live_label} (Real-time) · "
+            f"สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
             ncols_fee,
         )
-        _write_header(ws_fee, hr, fee_headers)
+        _write_header(ws_fee, hr, detail_headers)
 
         r = hr + 1
-        sum_member = sum_expected = sum_paid = sum_pending = 0
-        for i, p in enumerate(fee_projects, start=1):
-            if p["member_count"]:
-                sum_member += p["member_count"]
-                sum_expected += p["expected"]
-                sum_paid += p["paid"]
-                sum_pending += p["pending"]
+        grand_member = grand_expected = grand_paid = grand_pending = 0.0
+        for p in fee_projects:
+            member_count = int(p["member_count"] or 0)
+            if member_count:
+                grand_member += member_count
+                grand_expected += p["expected"]
+                grand_paid += p["paid"]
+                grand_pending += p["pending"]
+
             status_label = COLLECTION_STATUS_LABELS.get(p["status"], p["status"])
             due_str = cls._fmt_date(p["due_date"])
-            ws_fee.cell(row=r, column=1, value=i)
-            ws_fee.cell(row=r, column=2, value=p["title"])
-            ws_fee.cell(row=r, column=3, value=status_label)
-            ws_fee.cell(row=r, column=4, value=due_str)
-            ws_fee.cell(row=r, column=5, value=p["member_count"])
-            money_cell(ws_fee, r, 6, p["fee_amount"])
-            money_cell(ws_fee, r, 7, p["expected"])
-            money_cell(ws_fee, r, 8, p["paid"])
-            money_cell(ws_fee, r, 9, p["pending"])
-            pct_cell = ws_fee.cell(row=r, column=10, value=p["completion_pct"])
-            pct_cell.number_format = PCT_NUM_FMT
-            if i % 2 == 0:
-                fill_row(ws_fee, r, tuple(range(1, ncols_fee + 1)), ZEBRA_FILL)
+            pending_here: List[dict] = pending_by_collection.get(p["id"], [])
+
+            # ---- แถว banner: สรุปยอดของโปรเจค (หัว block) ----
+            banner_text = (
+                f'โปรเจค "{p["title"]}"  ·  {status_label}  ·  กำหนดชำระ {due_str or "—"}  ·  '
+                f"สมาชิก {member_count} คน  ·  เรียกเก็บ {_money_label(p['fee_amount'])} บาท/คน  ·  "
+                f"เป้าหมายรวม {_money_label(p['expected'])} บาท  ·  เก็บได้แล้ว {_money_label(p['paid'])} บาท  ·  "
+                f"คงค้าง {_money_label(p['pending'])} บาท  ·  สำเร็จ {p['completion_pct']:,.2f}%"
+            )
+            _merged_row(
+                ws_fee, r, ncols_fee, banner_text,
+                fill=PatternFill("solid", fgColor="E0F2FE"),
+                font=Font(bold=True, color="1E3A8A", size=11),
+            )
+            r += 1
+
+            if not pending_here:
+                _merged_row(
+                    ws_fee, r, ncols_fee, "(ทุกคนจ่ายครบแล้วในโปรเจคนี้ 🎉)",
+                    font=Font(italic=True, color="64748B", size=10),
+                )
+                r += 1
+                continue
+
+            # ---- รายชื่อนักเรียนที่ยังค้าง (จ่ายไม่ครบ) ----
+            for b in pending_here:
+                pay_label = "ทยอยจ่ายแล้ว" if float(b["paid_amount"] or 0.0) > 0 else "ยังไม่จ่าย"
+                ws_fee.cell(row=r, column=1, value=b["student_no"])
+                ws_fee.cell(row=r, column=2, value=b["name"])
+                ws_fee.cell(row=r, column=3, value=pay_label)
+                money_cell(ws_fee, r, 4, b["fee_amount"])
+                money_cell(ws_fee, r, 5, b["paid_amount"])
+                money_cell(ws_fee, r, 6, b["outstanding"])
+                if r % 2 == 0:
+                    fill_row(ws_fee, r, tuple(range(1, ncols_fee + 1)), ZEBRA_FILL)
+                r += 1
+
+            # ---- แถวรวมยอดค้างของโปรเจคนี้ (เฉพาะคนที่ยังค้าง) ----
+            sub_total = round(sum(float(x["outstanding"] or 0.0) for x in pending_here), 2)
+            _merged_row(
+                ws_fee, r, 5,
+                f"รวมยอดคงค้างของคนที่ยังจ่ายไม่ครบในโปรเจคนี้ ({len(pending_here)} คน)",
+                fill=SUBTOTAL_FILL, font=Font(bold=True, color="1E3A8A"),
+            )
+            money_cell(ws_fee, r, 6, sub_total).font = Font(bold=True, color="1E3A8A")
             r += 1
 
         if not fee_projects:
-            ws_fee.cell(row=r, column=2, value="(ยังไม่มีโปรเจคเก็บเงินในห้องนี้)")
+            _merged_row(ws_fee, r, ncols_fee, "(ยังไม่มีโปรเจคเก็บเงินในห้องนี้)",
+                        font=Font(color="64748B"))
             r += 1
         else:
-            # แถวรวม
-            ws_fee.cell(row=r, column=1, value="รวมทั้งสิ้น").font = Font(bold=True)
-            ws_fee.cell(row=r, column=2, value=f"{len(fee_projects)} โปรเจค").font = Font(bold=True)
-            ws_fee.cell(row=r, column=5, value=sum_member).font = Font(bold=True)
-            money_cell(ws_fee, r, 7, round(sum_expected, 2)).font = Font(bold=True)
-            money_cell(ws_fee, r, 8, round(sum_paid, 2)).font = Font(bold=True)
-            money_cell(ws_fee, r, 9, round(sum_pending, 2)).font = Font(bold=True)
-            if sum_expected > 0:
-                rate_cell = ws_fee.cell(row=r, column=10, value=round(sum_paid / sum_expected * 100.0, 2))
-                rate_cell.number_format = PCT_NUM_FMT
-            fill_row(ws_fee, r, tuple(range(1, ncols_fee + 1)), TOTAL_FILL)
+            # แถวรวมทั้งสิ้น (ภาพรวมทั้งห้อง)
+            total_text = (
+                f"รวมทั้งสิ้น {len(fee_projects)} โปรเจค  ·  สมาชิกรวม {int(grand_member)} คน  ·  "
+                f"เรียกเก็บรวม {_money_label(grand_expected)} บาท  ·  เก็บได้รวม {_money_label(grand_paid)} บาท  ·  "
+                f"คงค้างรวม {_money_label(grand_pending)} บาท"
+            )
+            _merged_row(ws_fee, r, ncols_fee, total_text,
+                        fill=TOTAL_FILL, font=Font(bold=True, color="0F172A"))
+            r += 1
         ws_fee.freeze_panes = f"A{hr + 1}"
-        ws_fee.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_fee)}{ws_fee.max_row}"
+        ws_fee.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_fee)}{r - 1}"
 
         # =====================================================================
-        # Sheet 5: ทะเบียนลูกหนี้ (Accounts Receivable)
+        # Sheet 5: ทะเบียนลูกหนี้ (Accounts Receivable) — รายละเอียดหนี้ค้างรายคน
         # =====================================================================
         ws_ar = wb.create_sheet("ทะเบียนลูกหนี้ (AR)")
         ws_ar.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[3]
         ar_headers = [
-            ("เลขที่", 7), ("ชื่อ-นามสกุล", 26), ("รายการที่ค้างชำระ", 30),
+            ("เลขที่", 8), ("รหัสนักเรียน", 13), ("ชื่อ-นามสกุล", 30), ("รายการที่ค้างชำระ", 30),
             ("กำหนดชำระ", 12), ("ยอดเรียกเก็บ (บาท)", 15), ("ชำระแล้ว (บาท)", 14),
-            ("ยอดค้าง (บาท)", 14), ("สถานะโปรเจค", 12),
+            ("ยอดคงค้าง (บาท)", 15), ("สถานะโปรเจค", 12),
         ]
         ncols_ar = len(ar_headers)
         hr = _table_title(
             ws_ar, f"ทะเบียนลูกหนี้ (Accounts Receivable) — {room_name}",
-            f"หนี้ค้างชำระรายคน ณ วันที่ {live_label} (Real-time) · กรองเฉพาะรายการที่ยังไม่จ่ายครบ",
+            f"หนี้ค้างชำระรายคน ณ วันที่ {live_label} (Real-time) · เฉพาะรายการที่ยังจ่ายไม่ครบ "
+            f"(รวมโปรเจคที่ปิดไปแล้ว) · สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
             ncols_ar,
         )
         _write_header(ws_ar, hr, ar_headers)
-
-        def _ar_name_display(no: int) -> str:
-            return str(no)
 
         r = hr + 1
         i = 0
@@ -3800,36 +3860,46 @@ class FinanceService:
                 i += 1
             first = True
             for b in block:
+                if first:
+                    ws_ar.cell(row=r, column=1, value=b["student_no"])
+                    ws_ar.cell(row=r, column=2, value=b["student_id_no"] or "—")
+                    ws_ar.cell(row=r, column=3, value=b["name"])
                 due_str = cls._fmt_date(b["due_date"])
-                ws_ar.cell(row=r, column=1, value=_ar_name_display(b["student_no"]) if first else "")
-                ws_ar.cell(row=r, column=2, value=b["name"] if first else "")
-                ws_ar.cell(row=r, column=3, value=b["title"])
-                ws_ar.cell(row=r, column=4, value=due_str)
-                money_cell(ws_ar, r, 5, b["fee_amount"])
-                money_cell(ws_ar, r, 6, b["paid_amount"])
-                money_cell(ws_ar, r, 7, b["outstanding"])
-                ws_ar.cell(row=r, column=8, value=COLLECTION_STATUS_LABELS.get(b["collection_status"], b["collection_status"]))
+                ws_ar.cell(row=r, column=4, value=b["title"])
+                ws_ar.cell(row=r, column=5, value=due_str)
+                money_cell(ws_ar, r, 6, b["fee_amount"])
+                money_cell(ws_ar, r, 7, b["paid_amount"])
+                money_cell(ws_ar, r, 8, b["outstanding"])
+                ws_ar.cell(row=r, column=9, value=COLLECTION_STATUS_LABELS.get(b["collection_status"], b["collection_status"]))
                 if r % 2 == 0:
                     fill_row(ws_ar, r, tuple(range(1, ncols_ar + 1)), ZEBRA_FILL)
                 first = False
                 r += 1
-            # แถวย่อยรวมหนี้รายคน
-            subtotal = round(sum(b["outstanding"] for b in block), 2)
-            sub_cell = ws_ar.cell(row=r, column=3, value=f"รวมหนี้ของ {block[0]['name']} ({len(block)} รายการ)")
-            sub_cell.font = Font(bold=True)
-            money_cell(ws_ar, r, 7, subtotal).font = Font(bold=True)
-            fill_row(ws_ar, r, tuple(range(1, ncols_ar + 1)), SUBTOTAL_FILL)
+            # แถวย่อย: รวมหนี้รายคน (ค้างกี่รายการ/ยอดเท่าไร)
+            subtotal = round(sum(float(b["outstanding"] or 0.0) for b in block), 2)
+            _merged_row(
+                ws_ar, r, 7,
+                f"รวมหนี้ของ {block[0]['name']} — ค้าง {len(block)} รายการ",
+                fill=SUBTOTAL_FILL, font=Font(bold=True, color="1E3A8A"),
+            )
+            money_cell(ws_ar, r, 8, subtotal).font = Font(bold=True, color="1E3A8A")
             r += 1
 
         if not ar_rows:
-            ws_ar.cell(row=r, column=3, value="(ไม่มีลูกหนี้ค้างชำระ — เก็บเงินครบทุกคนแล้ว 🎉)")
+            _merged_row(ws_ar, r, ncols_ar, "(ไม่มีลูกหนี้ค้างชำระ — เก็บเงินครบทุกคนแล้ว 🎉)",
+                        font=Font(color="64748B"))
             r += 1
         else:
-            ws_ar.cell(row=r, column=3, value=f"รวมลูกหนี้ทั้งสิ้น ({ar.get('debtor_count')} คน)").font = Font(bold=True)
-            money_cell(ws_ar, r, 7, float(ar.get("total_outstanding") or 0.0)).font = Font(bold=True)
-            fill_row(ws_ar, r, tuple(range(1, ncols_ar + 1)), TOTAL_FILL)
+            grand_total = float(ar.get("total_outstanding") or 0.0)
+            _merged_row(
+                ws_ar, r, 7,
+                f"รวมลูกหนี้ทั้งสิ้น ({ar.get('debtor_count')} คน)",
+                fill=TOTAL_FILL, font=Font(bold=True, color="0F172A"),
+            )
+            money_cell(ws_ar, r, 8, grand_total).font = Font(bold=True, color="0F172A")
+            r += 1
         ws_ar.freeze_panes = f"A{hr + 1}"
-        ws_ar.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_ar)}{ws_ar.max_row}"
+        ws_ar.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_ar)}{r - 1}"
 
         output = io.BytesIO()
         wb.save(output)

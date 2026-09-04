@@ -160,13 +160,6 @@ def _find_row(rows: list, col: int, needle) -> tuple:
     raise AssertionError(f"ไม่พบแถวที่ col {col} == {needle!r} ใน {rows}")
 
 
-def _find_row_contains(rows: list, col: int, needle) -> tuple:
-    for r in rows:
-        if r and r[col] is not None and needle in str(r[col]):
-            return r
-    raise AssertionError(f"ไม่พบแถวที่มี '{needle}' ใน col {col}")
-
-
 # =====================================================================
 # Requirement 1: Management export → 5 แผ่น (Fee Collections + AR)
 # =====================================================================
@@ -208,22 +201,42 @@ async def test_management_export_fee_and_ar_sheets_match_db(db_pool):
     wb = openpyxl.load_workbook(excel_file)
     assert wb.sheetnames == MANAGEMENT_SHEETS
 
-    # ---- Sheet 4: สรุปโปรเจคเก็บเงิน ----
-    fee_rows = _values(wb, "สรุปโปรเจคเก็บเงิน (Fee)")[3:]  # ข้าม title/subtitle/header
-    proj = _find_row_contains(fee_rows, 1, "ค่าเทอม")
-    assert proj[4] == 2          # สมาชิก (คน)
-    assert proj[5] == 100.0      # เรียกเก็บ/คน
-    assert proj[6] == 200.0      # เป้าหมายรวม
-    assert proj[7] == 30.0       # เก็บได้แล้ว
-    assert proj[8] == 170.0      # คงค้าง
-    assert float(proj[9]) == pytest.approx(15.0)  # % สำเร็จ = 30/200
+    # ---- Sheet 4: สรุปโปรเจคเก็บเงิน — block ต่อโปรเจค ไล่รายชื่อผู้ค้าง ----
+    fee_all = _values(wb, "สรุปโปรเจคเก็บเงิน (Fee)")
+    assert "เลขที่" in fee_all[2] and "คงค้าง (บาท)" in fee_all[2]  # หัวตารางแถว 3
+    fee_data = fee_all[3:]  # ข้าม title/subtitle/header
 
-    # ---- Sheet 5: ทะเบียนลูกหนี้ ----
-    ar_rows = _values(wb, "ทะเบียนลูกหนี้ (AR)")[3:]
-    subtotals = sorted(r[6] for r in ar_rows if r[2] and str(r[2]).startswith("รวมหนี้ของ"))
-    assert subtotals == [70.0, 100.0]
-    grand = _find_row_contains(ar_rows, 2, "รวมลูกหนี้ทั้งสิ้น")
-    assert grand[6] == 170.0
+    banners = [r for r in fee_data if r[0] and str(r[0]).startswith('โปรเจค "')]
+    assert len(banners) == 1
+    banner = str(banners[0][0])
+    assert "ค่าเทอม" in banner
+    assert "สมาชิก 2 คน" in banner
+    assert "170.00" in banner                       # คงค้าง (บาท)
+    assert "15.00%" in banner                       # % สำเร็จ = 30/200
+
+    # แถวรายชื่อผู้ค้าง: col A = เลขที่ (int) → มีแค่ 2 คนที่ยังจ่ายไม่ครบ
+    student_rows = [r for r in fee_data if isinstance(r[0], int)]
+    assert [r[0] for r in student_rows] == [1, 2]
+    assert sorted(float(r[5]) for r in student_rows) == [70.0, 100.0]  # คงค้าง col6
+    # s1 ทยอยจ่าย 30/100 → "ทยอยจ่ายแล้ว", s2 ยังไม่จ่าย
+    assert sorted(str(r[2]) for r in student_rows) == ["ทยอยจ่ายแล้ว", "ยังไม่จ่าย"]
+
+    # แถวรวมยอดค้างของโปรเจคนี้ + แถวรวมทั้งสิ้น
+    proj_sub = [r for r in fee_data if r[0] and str(r[0]).startswith("รวมยอดคงค้างของคนที่ยังจ่ายไม่ครบ")]
+    assert len(proj_sub) == 1 and float(proj_sub[0][5]) == 170.0
+    total = [r for r in fee_data if r[0] and str(r[0]).startswith("รวมทั้งสิ้น")]
+    assert len(total) == 1 and "170.00" in str(total[0][0])
+
+    # ---- Sheet 5: ทะเบียนลูกหนี้ — รายละเอียดรายคน + รหัสนักเรียน + รวมหนี้ ----
+    ar_all = _values(wb, "ทะเบียนลูกหนี้ (AR)")
+    assert "รหัสนักเรียน" in ar_all[2] and "ยอดคงค้าง (บาท)" in ar_all[2]
+    ar_rows = ar_all[3:]
+    subtotal_rows = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมหนี้ของ")]
+    assert sorted(float(r[7]) for r in subtotal_rows) == [70.0, 100.0]  # ยอดคงค้าง col8
+    s2_rows = [r for r in ar_rows if isinstance(r[0], int) and r[0] == 2]
+    assert len(s2_rows) == 1 and float(s2_rows[0][7]) == 100.0
+    grand = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมลูกหนี้ทั้งสิ้น")]
+    assert float(grand[0][7]) == 170.0
 
     # ---- Sheet 1: สรุปยอด มีตัวเลขการเก็บเงิน/ลูกหนี้ ----
     summary = _values(wb, "สรุปยอด")
@@ -231,6 +244,43 @@ async def test_management_export_fee_and_ar_sheets_match_db(db_pool):
     assert float(by_label["อัตราการเก็บเงินสำเร็จ (%)"]) == pytest.approx(15.0)
     assert float(by_label["หนี้ค้างชำระรวม — AR (บาท)"]) == pytest.approx(170.0)
     assert by_label["จำนวนลูกหนี้ที่ยังค้าง (คน)"] == 2
+
+
+async def test_management_export_fee_sheet_lists_only_unpaid(db_pool):
+    """Regression: Sheet 4 ไล่รายชื่อเฉพาะคนที่ยังค้าง (คนที่จ่ายครบแล้วต้องไม่หลุดเข้ามา)
+    แต่ยังนับรวมในสรุปยอดของโปรเจค (สมาชิก/เก็บได้/%) — เหมือนหน้า 'ดูรายละเอียด' ในเว็บ."""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner, room_name="ห้องเทส")
+    await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    s1 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="จ่าย", last_name="ครบ"), 1)
+    s2 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="ยัง", last_name="ไม่จ่าย"), 2)
+
+    c1 = await _insert_collection(db_pool, room_id, "ค่าชีท", 100.0)
+    await _insert_student_payment(db_pool, c1, s1, status="paid", paid_amount=100.0)  # ✅ จ่ายครบ → ไม่ต้องขึ้นรายชื่อ
+    await _insert_student_payment(db_pool, c1, s2, status="pending", paid_amount=0.0)   # ❌ ยังค้าง
+
+    excel_file = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(), client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=owner,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+
+    fee_data = _values(wb, "สรุปโปรเจคเก็บเงิน (Fee)")[3:]
+    banner = str(next(r[0] for r in fee_data if r[0] and str(r[0]).startswith('โปรเจค "')))
+    # สรุปโปรเจคยังนับสมาชิกครบ 2 คน + เก็บได้ 100/200 (50%)
+    assert "สมาชิก 2 คน" in banner
+    assert "50.00%" in banner
+    assert "100.00" in banner and "200.00" in banner
+    # แต่รายชื่อผู้ค้างมีแค่คนที่ยังไม่จ่าย (เลขที่ 2) — ไม่มีคนจ่ายครบ (เลขที่ 1)
+    student_rows = [r for r in fee_data if isinstance(r[0], int)]
+    assert [r[0] for r in student_rows] == [2]
+
+    # ทะเบียนลูกหนี้ (AR) ยังเหลือหนี้ของคนที่ยังไม่จ่ายคนเดียว = 100
+    ar_rows = _values(wb, "ทะเบียนลูกหนี้ (AR)")[3:]
+    subtotal_rows = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมหนี้ของ")]
+    assert [float(r[7]) for r in subtotal_rows] == [100.0]
+    grand = next(r for r in ar_rows if r[0] and str(r[0]).startswith("รวมลูกหนี้ทั้งสิ้น"))
+    assert float(grand[7]) == 100.0
 
 
 # =====================================================================
