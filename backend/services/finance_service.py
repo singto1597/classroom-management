@@ -3004,6 +3004,7 @@ class FinanceService:
                             month=month, year=year, start_date=start_date, end_date=end_date,
                             client_source=client_source, actor_identifier=actor_identifier,
                             start_time=start_time,
+                            reg=collection_register, ar=accounts_receivable,
                         )
                     return await cls._export_transactions_excel_legacy(
                         conn=conn, room_id=target_room_id,
