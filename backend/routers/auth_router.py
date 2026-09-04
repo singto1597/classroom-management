@@ -1,21 +1,12 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from services import auth_service
 from core.dependencies import get_current_user, get_db_pool
+from routers._common import get_audit_context
 import asyncpg
 
 from models.auth_schemas import ProviderLoginRequest, TokenResponse, OAuthProfilePayload, UserProfileUpdate
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
-
-# 🌟 ฟังก์ชันแกะรอยผู้ใช้งาน
-def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str]:
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    ip = request.client.host if request.client else "unknown"
-    if user_ctx and "user_id" in user_ctx:
-        actor_identifier = f"user_id:{user_ctx['user_id']}"
-    else:
-        actor_identifier = request.headers.get("x-actor-id", f"ip:{ip}")
-    return client_source, actor_identifier
 
 @router.post("/discord/login", response_model=TokenResponse)
 async def discord_login(payload: ProviderLoginRequest, request: Request, pool: asyncpg.Pool = Depends(get_db_pool)):
