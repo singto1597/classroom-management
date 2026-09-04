@@ -14,18 +14,9 @@ from models.classroom_sync_schemas import (
 from core.dependencies import get_db_pool, get_current_user, get_current_user_or_bot, resolve_target_to_room_id, verify_api_key
 from core.exceptions import TaskNotFoundError, ForbiddenError, RoomNotFoundError
 from services.classroom_sync_service import ClassroomService
+from routers._common import get_audit_context
 
 router = APIRouter()
-
-# 🌟 ฟังก์ชันตัวช่วยสำหรับดึงข้อมูลลง Audit Log
-def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str]:
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    ip = request.client.host if request.client else "unknown"
-    if user_ctx and "user_id" in user_ctx:
-        actor_identifier = f"user_id:{user_ctx['user_id']}"
-    else:
-        actor_identifier = request.headers.get("x-actor-id", f"ip:{ip}")
-    return client_source, actor_identifier
 
 @router.post("/setup", response_model=SuccessResponse)
 async def setup_room(

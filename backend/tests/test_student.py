@@ -466,7 +466,7 @@ async def test_export_students_excel_empty_room_raises_studentnotfound(db_pool):
     async with db_pool.acquire() as conn:
         await conn.execute("UPDATE students SET deleted_at = NOW() WHERE room_id = $1", room_id)
 
-    with patch("services.student_service.require_permission", AsyncMock()):
+    with patch("services.student.export.require_permission", AsyncMock()):
         with pytest.raises(StudentNotFoundError):
             await StudentService.export_students_excel(
                 pool=db_pool, fields=["student_no"], user_name="Owner",

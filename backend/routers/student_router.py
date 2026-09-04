@@ -12,32 +12,10 @@ from models.student_schemas import (
 from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
 from services.student_service import StudentService
+from routers._common import TargetResolution, get_target, get_audit_context
 from fastapi.responses import StreamingResponse
 
 router = APIRouter()
-
-class TargetResolution(BaseModel):
-    server_id: Optional[int] = None
-    room_id: Optional[int] = None
-
-def get_target(
-    target_id: int = Path(...),
-    target_type: Literal["server", "room"] = Query("room", description="ระบุ 'room' สำหรับเว็บ หรือ 'server' สำหรับบอท")
-) -> TargetResolution:
-    return TargetResolution(
-        server_id=target_id if target_type == "server" else None,
-        room_id=target_id if target_type == "room" else None
-    )
-
-# 🌟 ฟังก์ชันแกะรอย
-def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str]:
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    ip = request.client.host if request.client else "unknown"
-    if user_ctx and "user_id" in user_ctx:
-        actor_identifier = f"user_id:{user_ctx['user_id']}"
-    else:
-        actor_identifier = request.headers.get("x-actor-id", f"ip:{ip}")
-    return client_source, actor_identifier
 
 @router.post("/{target_id}/students", response_model=SuccessResponse)
 async def add_student(req: StudentAddRequest, request: Request, target: TargetResolution = Depends(get_target), pool: asyncpg.Pool = Depends(get_db_pool), user_ctx: dict = Depends(get_current_user)):

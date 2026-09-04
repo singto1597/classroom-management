@@ -4,18 +4,10 @@ import asyncpg
 from models.action_schemas import CustomMessageRequest, CustomMessageResponse
 from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id
 from core.exceptions import RoomNotFoundError, ForbiddenError
+from routers._common import get_audit_context
 from services.action_service import ActionService
 
 router = APIRouter()
-
-def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str]:
-    client_source = request.headers.get("x-client-source", "WEB_APP")
-    ip = request.client.host if request.client else "unknown"
-    if user_ctx and "user_id" in user_ctx:
-        actor_identifier = f"user_id:{user_ctx['user_id']}"
-    else:
-        actor_identifier = request.headers.get("x-actor-id", f"ip:{ip}")
-    return client_source, actor_identifier
 
 @router.post("/{target_id}/messages", response_model=CustomMessageResponse, summary="ส่งข้อความประกาศเข้า Discord (จากเว็บ)")
 async def send_custom_message(
