@@ -1,9 +1,12 @@
 <script setup lang="ts">
+defineOptions({ name: 'DashboardView' });
+
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import { TaskService } from '@/services/task';
+import PageHeader from '@/components/ui/PageHeader.vue';
 import Swal from 'sweetalert2';
 
 const router = useRouter();
@@ -11,6 +14,14 @@ const authStore = useAuthStore();
 
 // ✨ ระบบชื่อใหม่ ดึงจาก authStore โดยตรง
 const userName = computed(() => authStore.currentUserName || 'ผู้ใช้งาน');
+// ⏰ ทักทายตามช่วงเวลาไทย (UTC+7 คงที่ ไม่มี DST) — เปลี่ยนแค่ถ้อยคำบนหัวหน้า ไม่ใช่ข้อมูล
+const greeting = computed(() => {
+  const bangkokHour = new Date(Date.now() + 7 * 60 * 60 * 1000).getUTCHours();
+  if (bangkokHour < 12) return 'สวัสดีตอนเช้า';
+  if (bangkokHour < 17) return 'สวัสดีตอนบ่าย';
+  return 'สวัสดีตอนเย็น';
+});
+const greetingTitle = computed(() => `${greeting.value}, ${userName.value}`);
 // บทบาทเป็นภาษาไทย ผ่าน computed จาก store (รองรับ class_role ทุกตำแหน่ง)
 const role = computed(() => authStore.currentRoleLabel);
 const isAdmin = computed(() => authStore.isAdmin);
@@ -25,14 +36,18 @@ const roomCode = computed(() => authStore.currentRoomCode || 'ไม่มีร
 // ✨ นับจำนวนงานในห้อง เพื่อแสดงบนการ์ดตารางและงาน
 const taskCount = ref(0);
 const pendingTaskCount = ref(0);
+// แยกสถานะโหลดของตัวเลขออกจากตัวหน้า — ระหว่างรอต้องไม่โชว์ 0 เพราะอ่านผิดความหมาย
+const isTaskCountLoading = ref(true);
 
 const fetchTaskCount = async () => {
   try {
     const result = await TaskService.getAllTasks(authStore.currentRoomId!);
     taskCount.value = result.length;
-    pendingTaskCount.value = result.filter((task: any) => task.status === 'pending').length;
+    pendingTaskCount.value = result.filter((task) => task.status === 'pending').length;
   } catch {
     // การ์ดยังแสดงได้โดยไม่ต้องมีตัวเลขถ้าดึงไม่สำเร็จ
+  } finally {
+    isTaskCountLoading.value = false;
   }
 };
 
@@ -41,26 +56,25 @@ onMounted(fetchTaskCount);
 // ✨ ฟีเจอร์สลับห้องเรียน (กลับไปหน้า lobby)
 const handleChangeRoom = () => {
   authStore.clearRoom();
-  router.push('/lobby'); 
+  router.push('/lobby');
 };
 
 const goToMyProfile = async () => {
   try {
-    Swal.fire({ 
-      title: 'กำลังดึงข้อมูล...', 
-      allowOutsideClick: false, 
-      didOpen: () => Swal.showLoading() 
+    Swal.fire({
+      title: 'กำลังดึงข้อมูล...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
     });
-    const myProfile: any = await StudentService.getMyProfile(authStore.currentRoomId!);
+    const myProfile = await StudentService.getMyProfile(authStore.currentRoomId!);
     Swal.close();
     router.push(`/students/${myProfile.student_no}`);
-  } catch (error) {
+  } catch {
     Swal.fire({
       icon: 'warning',
       title: 'ข้อผิดพลาด',
       text: 'ไม่สามารถเข้าถึงโปรไฟล์ได้ (คุณอาจเป็นผู้ดูแลระบบที่ไม่ได้มีชื่อในทะเบียนนักเรียน)',
-      customClass: { popup: 'rounded-3xl shadow-xl' },
-      confirmButtonColor: '#3b82f6',
+      confirmButtonColor: '#1d4ed8',
       confirmButtonText: 'รับทราบ'
     });
   }
@@ -68,258 +82,351 @@ const goToMyProfile = async () => {
 </script>
 
 <template>
-  <div class="relative overflow-hidden pb-12 bg-slate-50 min-h-screen font-sans">
-    <div class="max-w-7xl mx-auto space-y-6 md:space-y-8 relative z-10 p-4 sm:p-6 md:p-8">
-      
-      <!-- ========================================== -->
-      <!-- 1. HERO SECTION (Modern Glass & Gradient)    -->
-      <!-- ========================================== -->
-      <div class="relative bg-gradient-to-r from-blue-700 via-indigo-600 to-violet-700 rounded-[2rem] p-6 sm:p-8 md:p-10 shadow-2xl shadow-indigo-500/30 overflow-hidden group">
-        <!-- Glow Effects & Textures -->
-        <div class="absolute top-0 right-0 w-72 h-72 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 transition-transform duration-700 group-hover:scale-110"></div>
-        <div class="absolute bottom-0 left-10 w-56 h-56 bg-blue-400/20 rounded-full blur-2xl translate-y-1/2 transition-transform duration-700 group-hover:scale-110"></div>
-        
-        <div class="relative z-10 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
-          
-          <!-- Welcome Text -->
-          <div class="text-white min-w-0">
-            <h1 class="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight mb-2 drop-shadow-md truncate">
-              สวัสดี, {{ userName }}! <span class="inline-block animate-bounce origin-bottom">👋</span>
-            </h1>
-            <p class="text-blue-100 text-sm sm:text-base font-medium tracking-wide opacity-90">
-              ยินดีต้อนรับสู่แดชบอร์ดจัดการห้องเรียนของคุณ
-            </p>
+  <div class="space-y-4 sm:space-y-5">
+    <!-- ========================================== -->
+    <!-- 1. หัวหน้าแบบบรรณาธิการ                     -->
+    <!-- ========================================== -->
+    <PageHeader
+      eyebrow="Classroom Dashboard"
+      :title="greetingTitle"
+      :description="authStore.currentRoomName || 'ภาพรวมห้องเรียนของคุณ'"
+    >
+      <template #actions>
+        <span class="chip bg-brand-50 text-brand-700">
+          <i class="bi bi-person-badge" aria-hidden="true"></i>{{ role }}
+        </span>
+        <button type="button" class="btn-ghost-ui" title="สลับห้องเรียน" @click="handleChangeRoom">
+          <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+          <span class="hidden sm:inline">สลับห้องเรียน</span>
+          <span class="sm:hidden">สลับห้อง</span>
+        </button>
+      </template>
+    </PageHeader>
+
+    <!-- ========================================== -->
+    <!-- 2. KPI — พื้นขาว ขอบบาง ตัวเลข font-display -->
+    <!-- ========================================== -->
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div class="page-card p-4 sm:p-5">
+        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งานทั้งหมด</p>
+        <p
+          v-if="isTaskCountLoading"
+          class="mt-2 h-7 w-12 animate-pulse rounded-lg bg-stone-100 sm:h-9 sm:w-16"
+          aria-hidden="true"
+        ></p>
+        <p v-else class="font-display num mt-2 text-2xl font-bold text-stone-900 sm:text-3xl">
+          {{ taskCount }}
+        </p>
+        <p class="mt-1 text-xs font-bold text-stone-400">รายการในห้องนี้</p>
+      </div>
+
+      <div class="page-card p-4 sm:p-5">
+        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งานค้าง</p>
+        <p
+          v-if="isTaskCountLoading"
+          class="mt-2 h-7 w-12 animate-pulse rounded-lg bg-stone-100 sm:h-9 sm:w-16"
+          aria-hidden="true"
+        ></p>
+        <p
+          v-else
+          class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
+          :class="pendingTaskCount > 0 ? 'text-amber-600' : 'text-stone-900'"
+        >
+          {{ pendingTaskCount }}
+        </p>
+        <p class="mt-1 text-xs font-bold text-stone-400">ยังไม่ปิดงาน</p>
+      </div>
+
+      <div class="page-card p-4 sm:p-5">
+        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">รหัสห้องเรียน</p>
+        <p class="font-display num mt-2 truncate text-2xl font-bold tracking-widest text-stone-900 sm:text-3xl">
+          {{ roomCode }}
+        </p>
+        <p class="mt-1 text-xs font-bold text-stone-400">แชร์ให้นักเรียนเข้าร่วม</p>
+      </div>
+
+      <div class="page-card p-4 sm:p-5">
+        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">บทบาทของฉัน</p>
+        <p class="font-display mt-2 truncate text-xl font-bold text-stone-900 sm:text-2xl">{{ role }}</p>
+        <p
+          class="mt-1 text-xs font-bold"
+          :class="isAdmin ? 'text-emerald-600' : 'text-stone-400'"
+        >
+          {{ isAdmin ? 'ผู้ดูแลห้องเรียน' : 'สมาชิกในห้อง' }}
+        </p>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 3. การ์ดหลัก — งานที่ต้องทำ (2) + ภาพรวมห้อง (1) -->
+    <!-- ========================================== -->
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3 sm:gap-5">
+      <!-- งานที่ต้องทำ -->
+      <div class="page-card p-4 sm:p-5 lg:col-span-2">
+        <div class="flex items-center gap-3">
+          <div
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+          >
+            <i class="bi bi-clipboard-check text-lg" aria-hidden="true"></i>
           </div>
+          <div class="min-w-0">
+            <h2 class="section-title truncate">งานที่ต้องทำ</h2>
+            <p class="truncate text-xs text-stone-500">งาน โน้ต และตารางเรียนของห้องนี้</p>
+          </div>
+        </div>
 
-          <!-- Badges & Action Buttons -->
-          <div class="flex flex-wrap items-center w-full xl:w-auto gap-3">
-            
-            <!-- Discord Connect Button (Fixed SVG Bug) -->
-            <RouterLink to="/discord-connect" class="inline-flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white backdrop-blur-md rounded-xl font-semibold text-sm transition-all shadow-sm hover:shadow-md active:scale-95">
-              <i class="bi bi-discord text-lg text-indigo-200"></i>
-              เชื่อมต่อ Discord
-            </RouterLink>
-
-            <!-- Room Code Badge -->
-            <div class="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm">
-              <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                <i class="bi bi-key-fill text-blue-200 text-lg"></i>
-              </div>
-              <div class="flex flex-col">
-                <span class="text-[10px] font-bold text-blue-200 uppercase tracking-wider leading-none mb-1">Room Code</span>
-                <span class="text-white font-mono font-bold text-sm tracking-widest leading-none">{{ roomCode }}</span>
+        <div class="mt-4 space-y-2">
+          <RouterLink
+            to="/tasks"
+            class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-3 transition-colors hover:border-stone-300 hover:bg-stone-50 active:scale-[0.99]"
+          >
+            <div class="flex min-w-0 items-center gap-3">
+              <i class="bi bi-card-checklist shrink-0 text-lg text-brand-700" aria-hidden="true"></i>
+              <div class="min-w-0">
+                <p class="truncate text-sm font-bold text-stone-900">ดูรายการงานทั้งหมด</p>
+                <p v-if="taskCount > 0" class="num truncate text-xs font-medium text-stone-500">
+                  ยังไม่เสร็จ {{ pendingTaskCount }} / ทั้งหมด {{ taskCount }} ชิ้น
+                </p>
               </div>
             </div>
+            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+          </RouterLink>
 
-            <!-- Role Badge -->
-            <div class="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2.5 rounded-xl flex items-center gap-2.5 shadow-sm">
-              <span class="relative flex h-2.5 w-2.5">
-                <span :class="isAdmin ? 'bg-emerald-400' : 'bg-blue-400'" class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"></span>
-                <span :class="isAdmin ? 'bg-emerald-400' : 'bg-blue-400'" class="relative inline-flex rounded-full h-2.5 w-2.5"></span>
-              </span>
-              <span class="text-white font-bold text-xs tracking-widest uppercase leading-none">{{ role }}</span>
+          <RouterLink
+            v-if="canManageTasks"
+            to="/tasks/add"
+            class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-3 transition-colors hover:border-stone-300 hover:bg-stone-50 active:scale-[0.99]"
+          >
+            <div class="flex min-w-0 items-center gap-3">
+              <i class="bi bi-plus-lg shrink-0 text-lg text-brand-700" aria-hidden="true"></i>
+              <p class="truncate text-sm font-bold text-stone-900">เพิ่มงาน / โน้ตใหม่</p>
             </div>
+            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+          </RouterLink>
 
-            <!-- Switch Room Button -->
-            <button @click="handleChangeRoom" class="h-[42px] w-[42px] bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md border border-white/20 rounded-xl flex items-center justify-center text-white transition-all shadow-sm hover:shadow-md" title="สลับห้องเรียน">
-              <i class="bi bi-arrow-left-right text-lg"></i>
-            </button>
-
+          <div
+            v-else
+            class="rounded-xl border border-dashed border-stone-200 px-3.5 py-3 text-center text-xs font-bold text-stone-400"
+          >
+            <i class="bi bi-lock-fill me-1.5" aria-hidden="true"></i> เฉพาะผู้ดูแลที่เพิ่มงานได้
           </div>
+        </div>
+
+        <div class="mt-4 flex flex-col gap-2 border-t border-stone-100 pt-4 sm:flex-row">
+          <RouterLink to="/schedules" class="btn-ghost-ui flex-1">
+            <i class="bi bi-calendar-event" aria-hidden="true"></i> ตารางเรียนยืนพื้น
+          </RouterLink>
+          <RouterLink v-if="canManageTasks" to="/schedules" class="btn-danger flex-1">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> ข้อยกเว้นฉุกเฉิน
+          </RouterLink>
         </div>
       </div>
 
-      <!-- ========================================== -->
-      <!-- MAIN GRID WIDGETS (Bento Box Style)        -->
-      <!-- ========================================== -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        <!-- 2. TASKS WIDGET -->
-        <div class="bg-white rounded-[2rem] shadow-sm border border-slate-200 p-6 md:p-8 flex flex-col hover:shadow-xl hover:border-blue-200/60 transition-all duration-300 group/card">
-          <div class="flex items-center gap-4 mb-6">
-            <div class="w-14 h-14 bg-gradient-to-br from-blue-50 to-indigo-50 text-blue-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-blue-100 group-hover/card:scale-105 transition-transform duration-500 shrink-0">
-              <i class="bi bi-journal-check"></i>
-            </div>
-            <h2 class="text-xl md:text-2xl font-black text-slate-800 tracking-tight">ตารางและงาน</h2>
+      <!-- ภาพรวมห้อง -->
+      <div class="page-card p-4 sm:p-5">
+        <div class="flex items-center gap-3">
+          <div
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+          >
+            <i class="bi bi-buildings text-lg" aria-hidden="true"></i>
           </div>
-
-          <div class="flex flex-col gap-3 mb-6">
-            <!-- All Tasks -->
-            <router-link to="/tasks" class="flex items-center justify-between p-4 bg-slate-50 hover:bg-blue-50 active:scale-[0.98] rounded-2xl transition-all duration-300 border border-slate-100 hover:border-blue-200 group">
-              <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-blue-500 text-xl border border-slate-100 group-hover:scale-110 transition-transform shrink-0">
-                  <i class="bi bi-card-checklist"></i>
-                </div>
-                <div class="flex flex-col min-w-0">
-                  <span class="font-bold text-slate-700 text-sm group-hover:text-blue-700 transition-colors">ดูรายการงานทั้งหมด</span>
-                  <span v-if="taskCount > 0" class="text-xs text-slate-500 font-medium mt-1">ยังไม่เสร็จ {{ pendingTaskCount }} / ทั้งหมด {{ taskCount }} ชิ้น</span>
-                </div>
-              </div>
-              <i class="bi bi-chevron-right text-slate-400 group-hover:text-blue-600 shrink-0 transition-colors"></i>
-            </router-link>
-
-            <!-- Add Task -->
-            <router-link v-if="canManageTasks" to="/tasks/add" class="flex items-center justify-between p-4 bg-slate-50 hover:bg-blue-50 active:scale-[0.98] rounded-2xl transition-all duration-300 border border-slate-100 hover:border-blue-200 group">
-              <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-blue-500 text-xl border border-slate-100 group-hover:scale-110 transition-transform shrink-0">
-                  <i class="bi bi-plus-lg text-lg"></i>
-                </div>
-                <span class="font-bold text-slate-700 text-sm group-hover:text-blue-700 transition-colors">เพิ่มงาน / โน้ตใหม่</span>
-              </div>
-              <i class="bi bi-chevron-right text-slate-400 group-hover:text-blue-600 shrink-0 transition-colors"></i>
-            </router-link>
-
-            <!-- Read Only State -->
-            <div v-else class="flex items-center justify-center p-4 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 text-slate-400 font-medium text-sm">
-              <i class="bi bi-lock-fill me-2"></i> เฉพาะผู้ดูแลที่เพิ่มงานได้
-            </div>
-          </div>
-
-          <!-- Bottom Actions -->
-          <div class="mt-auto pt-6 border-t border-slate-100">
-            <div class="flex flex-wrap gap-3">
-              <router-link to="/schedules" class="flex-1 text-center px-4 py-3.5 bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-600 font-bold text-sm rounded-xl transition-all active:scale-95">ตารางเรียนยืนพื้น</router-link>
-              <router-link v-if="canManageTasks" to="/schedules" class="flex-1 text-center px-4 py-3.5 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 font-bold text-sm rounded-xl transition-all border border-rose-100 hover:border-rose-600 active:scale-95">ข้อยกเว้นฉุกเฉิน</router-link>
-            </div>
+          <div class="min-w-0">
+            <h2 class="section-title truncate">ภาพรวมห้อง</h2>
+            <p class="truncate text-xs text-stone-500">ข้อมูลห้องและการเชื่อมต่อ</p>
           </div>
         </div>
 
-        <!-- 3. STUDENTS WIDGET -->
-        <div class="bg-white rounded-[2rem] shadow-sm border border-slate-200 p-6 md:p-8 flex flex-col hover:shadow-xl hover:border-emerald-200/60 transition-all duration-300 group/card">
-          <div class="flex items-center gap-4 mb-6">
-            <div class="w-14 h-14 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner border border-emerald-100 group-hover/card:scale-105 transition-transform duration-500 shrink-0">
-              <i class="bi bi-people-fill"></i>
+        <dl class="mt-4 space-y-3 border-t border-stone-100 pt-4">
+          <div class="flex items-center justify-between gap-3">
+            <dt class="shrink-0 text-xs font-bold text-stone-500">ชื่อห้อง</dt>
+            <dd class="min-w-0 truncate text-sm font-bold text-stone-900">
+              {{ authStore.currentRoomName || '—' }}
+            </dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="shrink-0 text-xs font-bold text-stone-500">รหัสห้อง</dt>
+            <dd class="num shrink-0 text-sm font-bold tracking-widest text-stone-900">{{ roomCode }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <dt class="shrink-0 text-xs font-bold text-stone-500">บทบาท</dt>
+            <dd class="shrink-0">
+              <span class="chip bg-brand-50 text-brand-700">{{ role }}</span>
+            </dd>
+          </div>
+        </dl>
+
+        <div class="mt-4 flex flex-col gap-2 border-t border-stone-100 pt-4">
+          <RouterLink to="/discord-connect" class="btn-primary">
+            <i class="bi bi-discord" aria-hidden="true"></i> เชื่อมต่อ Discord
+          </RouterLink>
+          <button type="button" class="btn-ghost-ui" @click="handleChangeRoom">
+            <i class="bi bi-arrow-left-right" aria-hidden="true"></i> สลับห้องเรียน
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 4. ทางลัด — การ์ดขอบบาง ไม่มี gradient       -->
+    <!-- ========================================== -->
+    <section class="space-y-3">
+      <h2 class="section-title">ทางลัด</h2>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <!-- นักเรียน -->
+        <div class="page-card p-4 sm:p-5">
+          <div class="flex items-center gap-3">
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+            >
+              <i class="bi bi-people text-lg" aria-hidden="true"></i>
             </div>
-            <h2 class="text-xl md:text-2xl font-black text-slate-800 tracking-tight">ระบบนักเรียน</h2>
+            <div class="min-w-0">
+              <h3 class="section-title truncate">นักเรียน</h3>
+              <p class="truncate text-xs text-stone-500">รายชื่อและทะเบียนของห้อง</p>
+            </div>
           </div>
 
-          <div class="flex flex-col gap-3 flex-grow">
-            <!-- Student List -->
-            <router-link to="/students" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold p-4 rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all duration-300 flex items-center justify-between group">
-              <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-xl backdrop-blur-md border border-white/10 group-hover:scale-110 transition-transform shrink-0">
-                  <i class="bi bi-person-lines-fill"></i>
-                </div>
-                <span class="text-sm tracking-wide">ดูรายชื่อเพื่อนทั้งห้อง</span>
-              </div>
-              <i class="bi bi-chevron-right opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all text-lg shrink-0"></i>
-            </router-link>
+          <div class="mt-4 space-y-2">
+            <RouterLink
+              to="/students"
+              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+            >
+              <span class="truncate">ดูรายชื่อเพื่อนทั้งห้อง</span>
+              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            </RouterLink>
 
-            <!-- My Profile -->
-            <button @click="goToMyProfile" class="w-full bg-slate-50 hover:bg-emerald-50 active:scale-[0.98] text-slate-700 font-bold p-4 rounded-2xl border border-slate-100 hover:border-emerald-200 transition-all duration-300 flex items-center justify-between group text-left">
-              <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-slate-500 text-xl border border-slate-100 group-hover:scale-110 group-hover:text-emerald-500 transition-all shrink-0">
-                  <i class="bi bi-person-badge"></i>
-                </div>
-                <span class="group-hover:text-emerald-700 transition-colors text-sm">โปรไฟล์ของฉัน</span>
-              </div>
-              <i class="bi bi-chevron-right text-slate-400 group-hover:text-emerald-600 shrink-0 transition-colors"></i>
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+              @click="goToMyProfile"
+            >
+              <span class="truncate">โปรไฟล์ของฉัน</span>
+              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
             </button>
 
-            <!-- Admin Actions -->
             <template v-if="canManageStudents">
-              <router-link to="/students/add" class="w-full bg-slate-50 hover:bg-emerald-50 active:scale-[0.98] text-slate-700 font-bold p-4 rounded-2xl border border-slate-100 hover:border-emerald-200 transition-all duration-300 flex items-center justify-between group text-left">
-                <div class="flex items-center gap-4">
-                  <div class="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-slate-500 text-xl border border-slate-100 group-hover:scale-110 group-hover:text-emerald-500 transition-all shrink-0">
-                    <i class="bi bi-person-plus-fill"></i>
-                  </div>
-                  <span class="group-hover:text-emerald-700 transition-colors text-sm">เพิ่มนักเรียนใหม่</span>
-                </div>
-                <i class="bi bi-chevron-right text-slate-400 group-hover:text-emerald-600 shrink-0 transition-colors"></i>
-              </router-link>
-              <router-link to="/students/export" class="mt-2 text-xs font-bold text-slate-400 hover:text-emerald-600 transition-colors flex items-center justify-center gap-2 py-2 active:scale-95 w-full bg-transparent">
-                <i class="bi bi-file-earmark-excel-fill text-sm"></i> สร้างไฟล์ Export (Excel)
-              </router-link>
+              <RouterLink
+                to="/students/add"
+                class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+              >
+                <span class="truncate">เพิ่มนักเรียนใหม่</span>
+                <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+              </RouterLink>
+
+              <RouterLink
+                to="/students/export"
+                class="flex items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-bold text-stone-400 transition-colors hover:bg-stone-50 hover:text-brand-700 active:scale-[0.99]"
+              >
+                <i class="bi bi-file-earmark-excel-fill" aria-hidden="true"></i>
+                สร้างไฟล์ Export (Excel)
+              </RouterLink>
             </template>
           </div>
         </div>
 
-        <!-- 4. FINANCE WIDGET (Span 2 Columns on Desktop) -->
-        <div class="lg:col-span-2 relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 rounded-[2rem] shadow-xl shadow-orange-500/20 hover:shadow-2xl hover:-translate-y-1 transition-all duration-500 group">
-          <!-- Ambient Textures -->
-          <div class="absolute inset-0 bg-white/5 opacity-50 mix-blend-overlay pointer-events-none"></div>
-          
-          <div class="relative z-10 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div class="flex items-center gap-5 w-full md:w-auto">
-              <div class="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-3xl text-white shadow-inner border border-white/30 shrink-0 group-hover:rotate-6 transition-transform duration-500">
-                <i class="bi bi-wallet2"></i>
-              </div>
-              <div class="min-w-0">
-                <h2 class="text-2xl font-black text-white mb-1.5 tracking-tight drop-shadow-sm">การเงินห้อง</h2>
-                <p class="text-orange-50 font-medium text-sm tracking-wide">จัดการรายรับ-จ่าย, โปรเจกต์เก็บเงิน, และติดตามบิล</p>
-              </div>
+        <!-- การเงิน -->
+        <div class="page-card p-4 sm:p-5">
+          <div class="flex items-center gap-3">
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+            >
+              <i class="bi bi-wallet2 text-lg" aria-hidden="true"></i>
             </div>
+            <div class="min-w-0">
+              <h3 class="section-title truncate">การเงินห้อง</h3>
+              <p class="truncate text-xs text-stone-500">รายรับ-จ่าย โปรเจกต์ และบิล</p>
+            </div>
+          </div>
 
-            <!-- Finance Actions -->
-            <div class="grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-end gap-3 w-full md:w-auto">
-              <router-link to="/finance" class="flex items-center justify-center px-5 py-3 bg-amber-900/90 hover:bg-slate-900 text-white text-sm font-bold rounded-xl transition-all shadow-lg active:scale-95 whitespace-nowrap">
-                <i class="bi bi-bar-chart-fill me-2"></i> สรุปยอด
-              </router-link>
-              <router-link to="/finance/transactions" class="flex items-center justify-center px-5 py-3 bg-white hover:bg-orange-50 text-amber-900 text-sm font-bold rounded-xl transition-all shadow-lg active:scale-95 whitespace-nowrap">
-                <i class="bi bi-receipt-cutoff me-2"></i> ประวัติ
-              </router-link>
-              <router-link to="/finance/collections" class="flex items-center justify-center px-5 py-3 bg-white hover:bg-orange-50 text-amber-900 text-sm font-bold rounded-xl transition-all shadow-lg active:scale-95 whitespace-nowrap">
-                <i class="bi bi-box-seam-fill me-2"></i> โปรเจกต์
-              </router-link>
-              <router-link v-if="isAdmin" to="/finance/debtors" class="flex items-center justify-center px-5 py-3 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg active:scale-95 whitespace-nowrap border border-rose-500">
-                <i class="bi bi-exclamation-triangle-fill me-2"></i> ทวงหนี้
-              </router-link>
-            </div>
+          <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <RouterLink
+              to="/finance"
+              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+            >
+              <span class="truncate">สรุปยอด</span>
+              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            </RouterLink>
+
+            <RouterLink
+              to="/finance/transactions"
+              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+            >
+              <span class="truncate">ประวัติ</span>
+              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            </RouterLink>
+
+            <RouterLink
+              to="/finance/collections"
+              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+            >
+              <span class="truncate">โปรเจกต์</span>
+              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            </RouterLink>
+
+            <RouterLink
+              v-if="isAdmin"
+              to="/finance/debtors"
+              class="flex items-center justify-between gap-3 rounded-xl border border-red-200 px-3.5 py-2.5 text-sm font-bold text-red-600 transition-colors hover:bg-red-50 active:scale-[0.99]"
+            >
+              <span class="truncate">ทวงหนี้</span>
+              <i class="bi bi-chevron-right shrink-0 text-red-300" aria-hidden="true"></i>
+            </RouterLink>
           </div>
         </div>
 
-        <!-- 5. DISCORD ANNOUNCEMENT WIDGET (Fixed Bug: Added lg:col-span-2) -->
-        <div class="lg:col-span-2 relative overflow-hidden bg-gradient-to-r from-rose-500 to-red-500 rounded-[2rem] shadow-xl shadow-rose-500/20 hover:shadow-2xl hover:-translate-y-1 transition-all duration-500 group">
-          <div class="absolute inset-0 bg-white/5 opacity-50 mix-blend-overlay pointer-events-none"></div>
-
-          <div class="relative z-10 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div class="flex items-center gap-5 w-full md:w-auto">
-              <div class="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-3xl text-white shadow-inner border border-white/30 shrink-0 group-hover:-rotate-6 transition-transform duration-500">
-                <i class="bi bi-broadcast"></i>
-              </div>
-              <div class="min-w-0">
-                <h2 class="text-2xl font-black text-white mb-1.5 tracking-tight drop-shadow-sm">ประกาศเข้า Discord</h2>
-                <p class="text-rose-50 font-medium text-sm tracking-wide">พิมพ์ประกาศผ่านเว็บไซต์ ส่งตรงเข้าเซิร์ฟเวอร์ห้องทันที</p>
-              </div>
+        <!-- ประกาศ Discord -->
+        <div class="page-card p-4 sm:p-5">
+          <div class="flex items-center gap-3">
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+            >
+              <i class="bi bi-broadcast text-lg" aria-hidden="true"></i>
             </div>
-
-            <!-- Discord Actions -->
-            <div class="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-              <router-link to="/messages" class="flex items-center justify-center px-6 py-3 bg-rose-900/90 hover:bg-slate-900 text-white text-sm font-bold rounded-xl transition-all shadow-lg active:scale-95 whitespace-nowrap">
-                <i class="bi bi-megaphone-fill me-2"></i> เขียนประกาศ
-              </router-link>
-              <router-link to="/discord-connect" class="flex items-center justify-center px-6 py-3 bg-white hover:bg-rose-50 text-rose-700 text-sm font-bold rounded-xl transition-all shadow-lg active:scale-95 whitespace-nowrap">
-                <i class="bi bi-discord me-2"></i> จัดการบอท
-              </router-link>
+            <div class="min-w-0">
+              <h3 class="section-title truncate">ประกาศ Discord</h3>
+              <p class="truncate text-xs text-stone-500">ส่งประกาศตรงเข้าเซิร์ฟเวอร์ห้อง</p>
             </div>
+          </div>
+
+          <div class="mt-4 space-y-2">
+            <RouterLink
+              to="/messages"
+              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+            >
+              <span class="truncate">เขียนประกาศ</span>
+              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            </RouterLink>
+
+            <RouterLink
+              to="/discord-connect"
+              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
+            >
+              <span class="truncate">จัดการบอท</span>
+              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            </RouterLink>
           </div>
         </div>
 
-        <!-- 6. ROADMAP WIDGET -->
-        <div class="lg:col-span-2 group">
-          <router-link to="/roadmap" class="bg-slate-900 hover:bg-slate-800 rounded-[2rem] p-6 md:p-8 shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all duration-500 cursor-pointer border border-slate-800 flex items-center justify-between">
-            <div class="flex items-center gap-5">
-              <div class="w-14 h-14 bg-slate-800 rounded-2xl flex items-center justify-center text-2xl text-blue-400 shadow-inner border border-slate-700 shrink-0 group-hover:scale-110 group-hover:bg-blue-500 group-hover:text-white transition-all duration-500">
-                <i class="bi bi-map"></i>
-              </div>
-              <div class="min-w-0">
-                <h2 class="text-xl md:text-2xl font-bold text-white mb-1">แผนผังห้องเรียน</h2>
-                <p class="text-slate-400 font-medium text-sm truncate">โครงสร้างการบริหารและ Roadmap การทำงาน</p>
-              </div>
+        <!-- แผนผังห้องเรียน — กดได้ทั้งใบ -->
+        <RouterLink
+          to="/roadmap"
+          class="page-card card-hover flex items-center justify-between gap-3 p-4 sm:p-5"
+        >
+          <div class="flex min-w-0 items-center gap-3">
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+            >
+              <i class="bi bi-map text-lg" aria-hidden="true"></i>
             </div>
-            <div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 group-hover:bg-blue-600 group-hover:text-white group-hover:shadow-lg group-hover:shadow-blue-500/30 transition-all shrink-0">
-              <i class="bi bi-arrow-right text-xl"></i>
+            <div class="min-w-0">
+              <h3 class="section-title truncate">แผนผังห้องเรียน</h3>
+              <p class="truncate text-xs text-stone-500">โครงสร้างการบริหารและ Roadmap การทำงาน</p>
             </div>
-          </router-link>
-        </div>
-
+          </div>
+          <i class="bi bi-arrow-right shrink-0 text-stone-300" aria-hidden="true"></i>
+        </RouterLink>
       </div>
-    </div>
+    </section>
   </div>
 </template>
-
-<style scoped>
-* {
-  -webkit-tap-highlight-color: transparent;
-}
-</style>

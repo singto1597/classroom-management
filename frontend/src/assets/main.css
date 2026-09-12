@@ -4,14 +4,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   🎨 SYNCROOM — Design Tokens ("Academic Ledger")
+   กระดาษ stone + น้ำเงินเข้มสีเดียว + เส้นบาง hairline
+   ไม่มี gradient / glass / glow ทั้งโปรเจกต์
+   ============================================================ */
 :root {
-  font-family: 'Noto Sans Thai', system-ui, -apple-system, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+  font-family: 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
   font-weight: 400;
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+
+  --brand: #1d4ed8;
+  --brand-strong: #1e40af;
+  --paper: #fafaf9;
 }
 
 html {
@@ -19,62 +28,148 @@ html {
 }
 
 body {
-  @apply font-sans antialiased;
   margin: 0;
-  min-height: 100vh;
   min-height: 100dvh;
-  background-color: #f8fafc;
-  color: #1e293b;
-  overflow-x: hidden;
+  background-color: var(--paper);
+  color: #1c1917;
+  /* ⚠️ ห้าม overflow-x: hidden — จะทำให้ position: sticky พังทั้งแอป
+     ใช้ clip แทน (บทเรียนจากโปรเจคพี่น้อง) */
+  overflow-x: clip;
 }
-
-/* ============================================================
-   📱 Mobile-First Helper
-   ============================================================ */
 
 #app {
   min-height: 100dvh;
 }
 
-/* กันการ highlight สีฟ้าตอนแตะบนมือถือทั่วทั้งแอป */
+/* กันการ highlight สีฟ้าตอนแตะบนมือถือ */
 * {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ซ่อน scrollbar แบบ default แต่ยัง scroll ได้ (ดูมินิมอล) */
+/* Scrollbar บาง ๆ แบบมินิมอล */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: #d6d3d1 transparent;
 }
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 10px;
+  background: #d6d3d1;
+  border-radius: 9999px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #a8a29e;
 }
 
-/* กัน input ยืดเกินจอบนมือถือ (iOS zoom) — ใช้ 16px บนมือถือเท่านั้น
-   เพื่อให้ desktop input ขนาด text-lg (18px) ยังคงเดิม */
-@media (max-width: 768px) {
+/* 🍎 กัน iOS auto-zoom — input ต้อง ≥16px บนมือถือเท่านั้น
+   (desktop ยังคงขนาดปกติ) */
+@media (max-width: 640px) {
   input,
   select,
   textarea {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }
 
-/* ลดขนาด glow blob (decorative) บนมือถือเพื่อประหยัดการวาดจอ */
-@media (max-width: 768px) {
-  .blur-\[100px\],
-  .blur-\[80px\] {
-    opacity: 0.7;
+@layer components {
+  /* ---------------- การ์ด ---------------- */
+  .page-card {
+    @apply rounded-2xl border border-stone-200 bg-white;
+  }
+  .card-hover {
+    @apply transition-all duration-200 hover:-translate-y-px hover:border-stone-300;
+  }
+
+  /* ---------------- หัวข้อแบบบรรณาธิการ ---------------- */
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.18em] text-brand-700;
+  }
+  .page-title {
+    @apply font-display text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl;
+  }
+  .page-lede {
+    @apply text-sm leading-relaxed text-stone-500;
+  }
+  .section-title {
+    @apply font-display text-base font-bold tracking-tight text-stone-900;
+  }
+
+  /* ---------------- ปุ่ม ---------------- */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5
+           text-sm font-bold text-white transition-colors hover:bg-brand-800
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40
+           focus-visible:ring-offset-2 active:scale-[0.97]
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-ghost-ui {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-stone-200
+           bg-white px-4 py-2.5 text-sm font-bold text-stone-600 transition-colors
+           hover:bg-stone-50 hover:text-stone-900 focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-stone-300 active:scale-[0.97]
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-red-200
+           bg-white px-4 py-2.5 text-sm font-bold text-red-600 transition-colors
+           hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2
+           focus-visible:ring-red-300 active:scale-[0.97]
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  /* ---------------- ฟอร์ม ---------------- */
+  .field {
+    @apply w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm
+           text-stone-900 placeholder:text-stone-400 transition-colors
+           focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/15
+           disabled:bg-stone-50 disabled:text-stone-400;
+  }
+  .field-label {
+    @apply mb-1.5 block text-xs font-bold text-stone-600;
+  }
+
+  /* ---------------- ตาราง (desktop) ---------------- */
+  .data-table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .data-table thead th {
+    @apply whitespace-nowrap border-b border-stone-200 bg-stone-50/70 px-4 py-3
+           text-[11px] font-bold uppercase tracking-wider text-stone-500;
+  }
+  .data-table tbody td {
+    @apply border-b border-stone-100 px-4 py-3.5 align-middle text-stone-700;
+  }
+  .data-table tbody tr {
+    @apply transition-colors hover:bg-stone-50/70;
+  }
+
+  /* ---------------- ป้าย / ตัวเลข ---------------- */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-bold;
+  }
+  .num {
+    @apply tabular-nums;
+  }
+
+  /* ---------------- พื้นที่เนื้อหา ---------------- */
+  .page-wrap {
+    @apply mx-auto w-full max-w-7xl;
+  }
+}
+
+/* ---------------- ลดการเคลื่อนไหวตามความต้องการผู้ใช้ ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

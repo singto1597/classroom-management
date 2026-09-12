@@ -47,7 +47,7 @@ function removeRow(index: number) {
     <template v-if="readOnly">
       <div
         v-if="rows.length === 0"
-        class="text-center py-5 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200"
+        class="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
       >
         ไม่มีข้อมูลเพิ่มเติม
       </div>
@@ -55,10 +55,10 @@ function removeRow(index: number) {
         <div
           v-for="(row, index) in rows"
           :key="index"
-          class="flex flex-col sm:flex-row sm:items-baseline gap-x-2 gap-y-0.5 text-sm bg-slate-50 rounded-xl px-3 py-2 border border-slate-100"
+          class="flex flex-col gap-x-2 gap-y-0.5 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-sm sm:flex-row sm:items-baseline"
         >
-          <span class="text-xs font-bold text-violet-600 shrink-0">{{ row.label }}:</span>
-          <span class="text-slate-600 break-words">{{ row.value }}</span>
+          <span class="shrink-0 text-xs font-bold text-brand-700">{{ row.label }}:</span>
+          <span class="min-w-0 break-words text-stone-600">{{ row.value }}</span>
         </div>
       </div>
     </template>
@@ -66,53 +66,54 @@ function removeRow(index: number) {
     <!-- 🔧 โหมดแก้ไข -->
     <template v-else>
       <!-- Quick-add chips -->
-      <div v-if="quickAdd && quickAdd.length > 0" class="flex flex-wrap gap-2 mb-3">
+      <div v-if="quickAdd && quickAdd.length > 0" class="mb-3 flex flex-wrap gap-2">
         <button
           v-for="q in quickAdd"
           :key="q.key"
           type="button"
           @click="addRow({ label: q.label, value: '' })"
-          class="px-3 py-1.5 rounded-lg text-[11px] font-bold text-violet-600 bg-violet-50 border border-violet-100 hover:bg-violet-100 hover:border-violet-200 transition-colors inline-flex items-center gap-1"
+          class="chip bg-brand-50 px-3 py-1.5 text-brand-700 transition-colors hover:bg-brand-100 active:scale-[0.97]"
         >
-          <i class="bi bi-plus-lg text-[10px]"></i> {{ q.label }}
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ q.label }}
         </button>
       </div>
 
       <!-- Rows -->
       <div
         v-if="rows.length === 0"
-        class="text-center py-5 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200"
+        class="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
       >
-        ยังไม่มีข้อมูล — กด <b class="text-violet-500">เพิ่มข้อมูล</b> ด้านล่างเพื่อเริ่ม
+        ยังไม่มีข้อมูล — กด <b class="font-bold text-brand-700">เพิ่มข้อมูล</b> ด้านล่างเพื่อเริ่ม
       </div>
 
       <div v-else class="space-y-2.5">
         <div
           v-for="(row, index) in rows"
           :key="index"
-          class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-white rounded-xl border border-slate-100 p-2"
+          class="flex flex-col items-stretch gap-2 rounded-xl border border-stone-200 bg-white p-2 sm:flex-row sm:items-center"
         >
           <input
             :value="row.label"
             type="text"
             :placeholder="compact ? 'หัวข้อ' : 'หัวข้อ (เช่น อาหารที่แพ้, ไซส์รองเท้า)'"
             @input="(e: Event) => updateRow(index, { label: (e.target as HTMLInputElement).value })"
-            class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
+            class="field min-w-0 flex-1"
           />
           <input
             :value="row.value"
             type="text"
             :placeholder="placeholder || 'ค่า'"
             @input="(e: Event) => updateRow(index, { value: (e.target as HTMLInputElement).value })"
-            class="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
+            class="field min-w-0 flex-1"
           />
           <button
             type="button"
             @click="removeRow(index)"
-            class="w-9 h-9 sm:w-8 sm:h-8 flex-shrink-0 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors flex items-center justify-center"
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:h-8 sm:w-8"
             title="ลบข้อมูลนี้"
+            aria-label="ลบข้อมูลนี้"
           >
-            <i class="bi bi-x-lg"></i>
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
           </button>
         </div>
       </div>
@@ -121,9 +122,9 @@ function removeRow(index: number) {
       <button
         type="button"
         @click="addRow()"
-        class="mt-3 w-full sm:w-auto px-4 py-2 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5"
+        class="btn-ghost-ui mt-3 w-full sm:w-auto"
       >
-        <i class="bi bi-plus-lg"></i> เพิ่มข้อมูล
+        <i class="bi bi-plus-lg" aria-hidden="true"></i> เพิ่มข้อมูล
       </button>
     </template>
   </div>

@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import router from '@/router';
-import api from '@/services/api'; 
+import api from '@/services/api';
+import type { UserProfileResponse } from '@/services/auth';
 
 // ✨ ฟังก์ชันกวาดล้างข้อมูลผี (Ghost Data Cleaner)
 const safeGetItem = (key: string) => {
@@ -93,7 +94,7 @@ export const useAuthStore = defineStore('auth', () => {
     
     isFetchingProfile.value = true;
     try {
-      const data: any = await api.get(`/api/auth/me`);
+      const data = await api.get(`/api/auth/me`) as unknown as UserProfileResponse;
       
       if (data.id) setUserId(data.id);
       

@@ -3,6 +3,9 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import { displayName as personDisplayName } from '@/utils/name';
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import type { Student } from '@/types/student';
 import Swal from 'sweetalert2';
 
@@ -20,6 +23,9 @@ const authStore = useAuthStore();
 const roomId = authStore.currentRoomId!;
 const students = ref<Student[]>([]);
 const isLoading = ref(true);
+
+// สถานะผิดพลาดของการโหลด (เดิมแจ้งผ่าน Swal เท่านั้น ทำให้หน้าจอเหลือแต่ตำแหน่งว่าง)
+const hasError = ref(false);
 
 // 🎨 Config Theme & Labels สำหรับแต่ละตำแหน่ง
 const rolesConfig: Record<string, { label: string, icon: string, theme: string }> = {
@@ -91,17 +97,18 @@ const departments = computed<DepartmentNode[]>(() =>
 // Fetch
 const fetchStudents = async () => {
   isLoading.value = true;
+  hasError.value = false;
   try {
     const data = await StudentService.getStudents(roomId);
     students.value = Array.isArray(data) ? data : [];
-  } catch (error) {
+  } catch {
     Swal.fire({
       icon: 'error',
       title: 'โหลดข้อมูลไม่สำเร็จ',
       text: 'ไม่สามารถดึงข้อมูลรายชื่อนักเรียนได้',
-      confirmButtonColor: '#3b82f6',
-      customClass: { popup: 'rounded-3xl shadow-xl' }
+      confirmButtonColor: '#1d4ed8'
     });
+    hasError.value = true;
   } finally {
     isLoading.value = false;
   }
@@ -109,238 +116,242 @@ const fetchStudents = async () => {
 
 onMounted(fetchStudents);
 
-// Helper สำหรับ Theme CSS Classes ให้เป็นทางการมากขึ้น (เส้นขอบหนาด้านบน/ด้านซ้าย)
-const getThemeClasses = (theme: string, type: 'borderTop' | 'borderLeft' | 'text' | 'iconBg') => {
-  const themes: Record<string, any> = {
-    blue: { borderTop: 'border-t-blue-500', borderLeft: 'border-l-blue-500', text: 'text-blue-600', iconBg: 'bg-blue-50 text-blue-600' },
-    purple: { borderTop: 'border-t-purple-500', borderLeft: 'border-l-purple-500', text: 'text-purple-600', iconBg: 'bg-purple-50 text-purple-600' },
-    rose: { borderTop: 'border-t-rose-500', borderLeft: 'border-l-rose-500', text: 'text-rose-600', iconBg: 'bg-rose-50 text-rose-600' },
-    emerald: { borderTop: 'border-t-emerald-500', borderLeft: 'border-l-emerald-500', text: 'text-emerald-600', iconBg: 'bg-emerald-50 text-emerald-600' },
-    amber: { borderTop: 'border-t-amber-500', borderLeft: 'border-l-amber-500', text: 'text-amber-600', iconBg: 'bg-amber-50 text-amber-600' },
-    slate: { borderTop: 'border-t-slate-500', borderLeft: 'border-l-slate-500', text: 'text-slate-600', iconBg: 'bg-slate-50 text-slate-600' },
-    cyan: { borderTop: 'border-t-cyan-500', borderLeft: 'border-l-cyan-500', text: 'text-cyan-600', iconBg: 'bg-cyan-50 text-cyan-600' },
-    fuchsia: { borderTop: 'border-t-fuchsia-500', borderLeft: 'border-l-fuchsia-500', text: 'text-fuchsia-600', iconBg: 'bg-fuchsia-50 text-fuchsia-600' },
-    teal: { borderTop: 'border-t-teal-500', borderLeft: 'border-l-teal-500', text: 'text-teal-600', iconBg: 'bg-teal-50 text-teal-600' },
-  };
-  return themes[theme]?.[type] || '';
-};
+// 🎨 Academic Ledger ใช้สีเน้นเดียว (brand-700) ทุกตำแหน่งจึงได้โทนเดียวกัน
+// คงลายเซ็นเดิม (theme, type) ไว้เพื่อไม่ให้กระทบจุดเรียกใช้
+const themeClasses = {
+  borderTop: 'border-t-brand-700',
+  borderLeft: 'border-s-brand-700',
+  text: 'text-brand-700',
+  iconBg: 'bg-brand-50 text-brand-700',
+} as const;
+
+const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => themeClasses[type];
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 py-8 md:py-12">
-    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 space-y-8">
-      
-      <!-- HEADER -->
-      <header class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5 flex items-center gap-3">
-        <div class="w-11 h-11 sm:w-12 sm:h-12 bg-slate-800 text-white rounded-xl flex items-center justify-center text-xl sm:text-2xl shadow-sm shrink-0">
-          <i class="bi bi-diagram-3-fill"></i>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Classroom Structure"
+      title="แผนผังห้องเรียน"
+      description="โครงสร้างการบริหารและ Roadmap การทำงานของห้อง"
+    />
+
+    <!-- ============================================ -->
+    <!-- โหลด / ผิดพลาด / ว่าง                        -->
+    <!-- ============================================ -->
+    <SkeletonRows v-if="isLoading" :rows="5" height="h-20" />
+
+    <StateBlock
+      v-else-if="hasError"
+      variant="error"
+      title="โหลดโครงสร้างไม่สำเร็จ"
+      hint="ตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง"
+      @retry="fetchStudents"
+    />
+
+    <StateBlock
+      v-else-if="!students.length"
+      variant="empty"
+      title="ยังไม่มีนักเรียนในห้องนี้"
+      hint="เมื่อมีรายชื่อนักเรียน โครงสร้างการบริหารจะแสดงเป็นลำดับชั้นที่นี่"
+    />
+
+    <!-- ============================================ -->
+    <!-- ไทม์ไลน์แนวตั้ง — เส้นบาง + จุด marker brand-700 -->
+    <!-- ============================================ -->
+    <ol v-else class="page-card p-4 sm:p-5">
+      <!-- 👑 TIER 1: หัวหน้าห้อง -->
+      <li class="flex gap-3 sm:gap-4">
+        <div class="flex flex-col items-center" aria-hidden="true">
+          <span class="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-700"></span>
+          <span class="mt-1 w-px flex-1 bg-stone-200"></span>
         </div>
-        <div class="min-w-0">
-          <h1 class="text-lg sm:text-xl font-bold text-slate-800 tracking-tight truncate">แผนผังองค์กรห้องเรียน</h1>
-          <p class="text-slate-500 font-medium text-sm mt-0.5 truncate">โครงสร้างการบริหารระดับชั้นเรียน</p>
+
+        <div class="min-w-0 flex-1 pb-5">
+          <p class="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">หัวหน้าห้องเรียน</p>
+
+          <RouterLink
+            v-if="president"
+            :to="getStudentLink(president)"
+            class="page-card card-hover flex items-center gap-3 p-4"
+          >
+            <div
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl"
+              :class="getThemeClasses('amber', 'iconBg')"
+            >
+              <i class="bi bi-award-fill" aria-hidden="true"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate font-bold text-stone-900">{{ displayName(president) }}</p>
+              <p class="num mt-0.5 truncate text-xs text-stone-500">
+                เลขที่ {{ president.student_no }}
+              </p>
+            </div>
+            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+          </RouterLink>
+
+          <div
+            v-else
+            class="rounded-2xl border border-dashed border-stone-200 bg-stone-50/60 p-4 text-center"
+          >
+            <p class="text-sm font-bold text-stone-400">หัวหน้าห้อง (ว่าง)</p>
+          </div>
         </div>
-      </header>
+      </li>
 
-      <!-- LOADER -->
-      <div v-if="isLoading" class="flex flex-col items-center justify-center py-24 bg-white rounded-2xl shadow-sm border border-slate-200">
-        <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-100 border-t-slate-800 mb-4"></div>
-        <p class="text-slate-500 font-medium">กำลังโหลดโครงสร้าง...</p>
-      </div>
+      <!-- 🧑‍⚖️ TIER 2: คณะบริหาร (รองหัวหน้าห้อง + เลขานุการ) -->
+      <li class="flex gap-3 sm:gap-4">
+        <div class="flex flex-col items-center" aria-hidden="true">
+          <span class="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-700"></span>
+          <span class="mt-1 w-px flex-1 bg-stone-200"></span>
+        </div>
 
-      <!-- ORG CHART CONTENT (SCROLLABLE CONTAINER) -->
-      <div v-else class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-8 overflow-x-auto w-full custom-scrollbar">
-        <!-- Inner Wrapper: บังคับความกว้างขั้นต่ำ เพื่อให้เป็นทรงแผนผังทางการเสมอ -->
-        <div class="min-w-[1400px] flex flex-col items-center mx-auto pb-8">
-          
-          <!-- 👑 TIER 1: PRESIDENT -->
-          <div class="relative z-10 flex flex-col items-center">
-            <div v-if="president" class="w-[280px]">
-              <RouterLink :to="getStudentLink(president)" class="block bg-slate-900 border-t-4 border-amber-400 rounded-xl p-5 shadow-lg hover:-translate-y-1 transition-transform group relative overflow-hidden">
-                <div class="flex items-center gap-4 relative z-10">
-                  <div class="w-14 h-14 bg-amber-400/10 border border-amber-400/30 rounded-lg flex items-center justify-center text-amber-400 text-2xl shrink-0">
-                    <i class="bi bi-award-fill"></i>
-                  </div>
-                  <div class="text-left">
-                    <p class="text-amber-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">หัวหน้าห้องเรียน</p>
-                    <h2 class="text-lg font-bold text-white leading-tight mb-1 truncate">{{ displayName(president) }}</h2>
-                    <span class="text-slate-400 text-xs">เลขที่ {{ president.student_no }}</span>
-                  </div>
-                </div>
-              </RouterLink>
-            </div>
-            <div v-else class="w-[280px] bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-5 text-center">
-              <p class="text-slate-500 font-bold text-sm">หัวหน้าห้อง (ว่าง)</p>
-            </div>
-            
-            <!-- เส้นลากลงมาจากหัวหน้า -->
-            <div class="w-[2px] h-8 bg-slate-300"></div>
-          </div>
+        <div class="min-w-0 flex-1 pb-5">
+          <p class="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">คณะบริหาร</p>
 
-          <!-- 🧑‍⚖️ TIER 2: EXECUTIVE BOARD (รองหัวหน้าห้อง + เลขานุการ/เรขา) -->
-          <div class="relative z-10 flex flex-col items-center">
-            <div class="w-full grid grid-cols-2 gap-8 max-w-[560px]">
-              <div v-for="slot in execSlots" :key="slot.role" class="flex flex-col items-center">
-                <RouterLink
-                  v-if="slot.student"
-                  :to="getStudentLink(slot.student)"
-                  class="block w-full bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden"
-                >
-                  <div :class="`absolute top-0 left-0 right-0 h-[4px] ${getThemeClasses(slot.config.theme, 'borderTop').replace('border-t-', 'bg-')}`"></div>
-                  <div class="flex items-center gap-3">
-                    <div :class="`w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0 ${getThemeClasses(slot.config.theme, 'iconBg')}`">
-                      <i :class="`bi ${slot.config.icon}`"></i>
-                    </div>
-                    <div class="text-left min-w-0">
-                      <p :class="`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${getThemeClasses(slot.config.theme, 'text')}`">{{ slot.config.label }}</p>
-                      <h3 class="text-sm font-bold text-slate-800 leading-tight truncate">{{ displayName(slot.student) }}</h3>
-                      <span class="text-[11px] text-slate-500">เลขที่ {{ slot.student.student_no }}</span>
-                    </div>
-                  </div>
-                </RouterLink>
-                <div v-else class="w-full bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-4 text-center">
-                  <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">{{ slot.config.label }}</p>
-                  <p class="text-xs font-medium text-slate-500">ตำแหน่งว่าง</p>
-                </div>
-              </div>
-            </div>
-            <!-- เส้นลากลงมาจากระดับบริหาร -->
-            <div class="w-[2px] h-8 bg-slate-300"></div>
-          </div>
-
-          <!-- 🏢 TIER 3 & 4: THE TREE STRUCTURE -->
-          <div class="w-full relative z-0">
-            <!-- เส้นแกนกลางลากยาวลงไปหาเหรัญญิก (ซ่อนอยู่หลัง Grid) -->
-            <div class="absolute top-0 bottom-0 left-1/2 w-[2px] bg-slate-300 -translate-x-1/2 -z-10"></div>
-
-            <div class="grid grid-cols-6 w-full relative z-10">
-
-              <div v-for="(dept, index) in departments" :key="dept.role" class="flex flex-col items-center relative">
-                
-                <!-- 🌿 เส้นเชื่อมแนวนอนด้านบนสุด (วาดแบบ Segmented เพื่อความสมบูรณ์แบบ) -->
-                <div v-if="index === 0" class="absolute top-0 left-1/2 right-0 h-[2px] bg-slate-300"></div>
-                <div v-else-if="index === departments.length - 1" class="absolute top-0 left-0 right-1/2 h-[2px] bg-slate-300"></div>
-                <div v-else class="absolute top-0 left-0 right-0 h-[2px] bg-slate-300"></div>
-
-                <!-- เส้นลากลงมาหารองประธานแต่ละฝ่าย -->
-                <div class="absolute top-0 left-1/2 w-[2px] h-8 bg-slate-300 -translate-x-1/2"></div>
-
-                <!-- กล่องแผนก (เว้นระยะจากเส้นบน) -->
-                <div class="pt-8 w-full px-4 flex flex-col items-center">
-                  
-                  <!-- VP NODE -->
-                  <div class="w-full max-w-[220px]">
-                    <RouterLink 
-                      v-if="dept.head" 
-                      :to="getStudentLink(dept.head)"
-                      class="block bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden"
-                    >
-                      <!-- แถบสีด้านบน -->
-                      <div :class="`absolute top-0 left-0 right-0 h-[4px] ${getThemeClasses(dept.colorTheme, 'borderTop').replace('border-t-', 'bg-')}`"></div>
-                      
-                      <div class="flex flex-col items-center text-center mt-1">
-                        <div :class="`w-10 h-10 rounded-full flex items-center justify-center text-lg mb-2 ${getThemeClasses(dept.colorTheme, 'iconBg')}`">
-                          <i :class="`bi ${dept.icon}`"></i>
-                        </div>
-                        <p :class="`text-[10px] font-bold uppercase tracking-wider mb-1 ${getThemeClasses(dept.colorTheme, 'text')}`">{{ rolesConfig[dept.role]?.label || dept.label }}</p>
-                        <h3 class="text-sm font-bold text-slate-800 leading-tight mb-1 w-full truncate">{{ displayName(dept.head) }}</h3>
-                        <span class="text-[11px] text-slate-500">เลขที่ {{ dept.head.student_no }}</span>
-                      </div>
-                    </RouterLink>
-                    
-                    <div v-else class="bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-4 text-center">
-                      <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">{{ rolesConfig[dept.role]?.label || dept.label }}</p>
-                      <p class="text-xs font-medium text-slate-500">ตำแหน่งว่าง</p>
-                    </div>
-                  </div>
-
-                  <!-- เส้นลากลงไปหากรรมการ (แสดงเฉพาะเมื่อมีกรรมการ) -->
-                  <div v-if="dept.staffs.length > 0" class="w-[2px] h-6 bg-slate-300"></div>
-
-                  <!-- STAFF NODES STACK -->
-                  <div class="flex flex-col items-center w-full max-w-[220px]">
-                    <template v-for="(staff, sIndex) in dept.staffs" :key="staff.id">
-                      
-                      <!-- Staff Card -->
-                      <RouterLink 
-                        :to="getStudentLink(staff)"
-                        :class="`w-full bg-white border border-slate-200 shadow-sm hover:shadow-md transition-shadow p-3 flex items-center gap-3 relative rounded-lg ${getThemeClasses(dept.colorTheme, 'borderLeft')}`"
-                      >
-                        <div class="w-7 h-7 bg-slate-100 rounded text-slate-500 flex items-center justify-center text-xs font-bold shrink-0">
-                          {{ staff.student_no }}
-                        </div>
-                        <div class="flex-col overflow-hidden text-left">
-                          <p class="text-xs font-bold text-slate-800 truncate leading-tight">{{ displayName(staff) }}</p>
-                          <p class="text-[10px] text-slate-500 truncate mt-0.5">{{ personDisplayName(staff) }}</p>
-                        </div>
-                      </RouterLink>
-
-                      <!-- เส้นลากระหว่างกรรมการแต่ละคน -->
-                      <div v-if="sIndex !== dept.staffs.length - 1" class="w-[2px] h-4 bg-slate-300"></div>
-                    </template>
-                  </div>
-
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 💰 TIER 4: TREASURER (เชื่อมกับเส้นแกนกลาง) -->
-          <div class="flex flex-col items-center mt-8 relative z-10">
-            <!-- เส้นเชื่อมเหรัญญิก (ต่อจากแกนกลาง) -->
-            <div class="w-[2px] h-8 bg-slate-300"></div>
-            
-            <div v-if="treasurer" class="w-[260px]">
-              <RouterLink 
-                :to="getStudentLink(treasurer)"
-                class="block bg-white border border-slate-200 border-t-4 border-t-amber-500 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <template v-for="slot in execSlots" :key="slot.role">
+              <RouterLink
+                v-if="slot.student"
+                :to="getStudentLink(slot.student)"
+                class="page-card card-hover flex items-center gap-3 p-3.5"
               >
-                <div class="flex items-center gap-4">
-                  <div class="w-12 h-12 bg-amber-50 rounded-lg flex items-center justify-center text-amber-600 text-xl shrink-0">
-                    <i class="bi bi-safe2-fill"></i>
-                  </div>
-                  <div class="text-left">
-                    <p class="text-amber-600 text-[10px] font-bold uppercase tracking-wider mb-0.5">เหรัญญิก</p>
-                    <h3 class="text-sm font-bold text-slate-800 leading-tight mb-1 truncate">{{ displayName(treasurer) }}</h3>
-                    <span class="text-[11px] text-slate-500">เลขที่ {{ treasurer.student_no }}</span>
-                  </div>
+                <div
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base"
+                  :class="getThemeClasses(slot.config.theme, 'iconBg')"
+                >
+                  <i :class="`bi ${slot.config.icon}`" aria-hidden="true"></i>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-[11px] font-bold uppercase tracking-wider text-stone-400">
+                    {{ slot.config.label }}
+                  </p>
+                  <p class="truncate text-sm font-bold text-stone-900">
+                    {{ displayName(slot.student) }}
+                  </p>
+                  <p class="num truncate text-xs text-stone-500">
+                    เลขที่ {{ slot.student.student_no }}
+                  </p>
                 </div>
               </RouterLink>
-            </div>
-            
-            <div v-else class="w-[260px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-4 text-center">
-              <div class="flex flex-col items-center">
-                <i class="bi bi-safe2-fill text-slate-300 text-2xl mb-1"></i>
-                <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">เหรัญญิก</p>
-                <p class="text-xs font-medium text-slate-500">ตำแหน่งว่าง</p>
+
+              <div
+                v-else
+                class="rounded-2xl border border-dashed border-stone-200 bg-stone-50/60 p-3.5 text-center"
+              >
+                <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">
+                  {{ slot.config.label }}
+                </p>
+                <p class="mt-0.5 text-xs font-medium text-stone-500">ตำแหน่งว่าง</p>
               </div>
+            </template>
+          </div>
+        </div>
+      </li>
+
+      <!-- 🏢 TIER 3: ฝ่ายต่าง ๆ (หัวหน้าฝ่าย + กรรมการ) -->
+      <li v-for="dept in departments" :key="dept.role" class="flex gap-3 sm:gap-4">
+        <div class="flex flex-col items-center" aria-hidden="true">
+          <span class="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-700"></span>
+          <span class="mt-1 w-px flex-1 bg-stone-200"></span>
+        </div>
+
+        <div class="min-w-0 flex-1 pb-5">
+          <p class="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">{{ dept.label }}</p>
+
+          <!-- หัวหน้าฝ่าย -->
+          <RouterLink
+            v-if="dept.head"
+            :to="getStudentLink(dept.head)"
+            class="page-card card-hover flex items-center gap-3 p-3.5"
+          >
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg"
+              :class="getThemeClasses(dept.colorTheme, 'iconBg')"
+            >
+              <i :class="`bi ${dept.icon}`" aria-hidden="true"></i>
             </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-[11px] font-bold uppercase tracking-wider text-stone-400">
+                {{ rolesConfig[dept.role]?.label || dept.label }}
+              </p>
+              <p class="truncate font-bold text-stone-900">{{ displayName(dept.head) }}</p>
+              <p class="num truncate text-xs text-stone-500">เลขที่ {{ dept.head.student_no }}</p>
+            </div>
+            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+          </RouterLink>
+
+          <div
+            v-else
+            class="rounded-2xl border border-dashed border-stone-200 bg-stone-50/60 p-3.5 text-center"
+          >
+            <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">
+              {{ rolesConfig[dept.role]?.label || dept.label }}
+            </p>
+            <p class="mt-0.5 text-xs font-medium text-stone-500">ตำแหน่งว่าง</p>
           </div>
 
+          <!-- กรรมการในฝ่าย (ซ้อนใต้หัวหน้าฝ่าย) -->
+          <div
+            v-if="dept.staffs.length > 0"
+            class="mt-2 space-y-1.5 border-s border-stone-200 ps-3 sm:ps-4"
+          >
+            <RouterLink
+              v-for="staff in dept.staffs"
+              :key="staff.id"
+              :to="getStudentLink(staff)"
+              class="flex items-center gap-3 rounded-xl border border-stone-200 px-3 py-2 transition-colors hover:border-stone-300 hover:bg-stone-50 active:scale-[0.99]"
+            >
+              <span
+                class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-xs font-bold text-stone-500"
+              >
+                {{ staff.student_no }}
+              </span>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-xs font-bold text-stone-900">{{ displayName(staff) }}</p>
+                <p class="truncate text-[10px] text-stone-500">{{ personDisplayName(staff) }}</p>
+              </div>
+            </RouterLink>
+          </div>
         </div>
-      </div>
-      
-    </div>
+      </li>
+
+      <!-- 💰 TIER 4: เหรัญญิก (ปิดท้ายไทม์ไลน์) -->
+      <li class="flex gap-3 sm:gap-4">
+        <div class="flex flex-col items-center" aria-hidden="true">
+          <span class="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-700"></span>
+        </div>
+
+        <div class="min-w-0 flex-1">
+          <p class="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">เหรัญญิก</p>
+
+          <RouterLink
+            v-if="treasurer"
+            :to="getStudentLink(treasurer)"
+            class="page-card card-hover flex items-center gap-3 p-3.5"
+          >
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg"
+              :class="getThemeClasses('amber', 'iconBg')"
+            >
+              <i class="bi bi-safe2-fill" aria-hidden="true"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate font-bold text-stone-900">{{ displayName(treasurer) }}</p>
+              <p class="num truncate text-xs text-stone-500">เลขที่ {{ treasurer.student_no }}</p>
+            </div>
+            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+          </RouterLink>
+
+          <div
+            v-else
+            class="rounded-2xl border border-dashed border-stone-200 bg-stone-50/60 p-3.5 text-center"
+          >
+            <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">เหรัญญิก</p>
+            <p class="mt-0.5 text-xs font-medium text-stone-500">ตำแหน่งว่าง</p>
+          </div>
+        </div>
+      </li>
+    </ol>
   </div>
 </template>
-
-<style scoped>
-/* สไตล์แต่ง Scrollbar ให้ดูเรียบร้อยแบบทางการ */
-.custom-scrollbar::-webkit-scrollbar {
-  height: 8px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-* {
-  -webkit-tap-highlight-color: transparent;
-}
-</style>

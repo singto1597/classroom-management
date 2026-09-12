@@ -35,6 +35,9 @@ import BatchApplyModal from '@/components/activities/BatchApplyModal.vue'
 import AddStudentsModal from '@/components/activities/AddStudentsModal.vue'
 import CheckinSheetSection from '@/components/activities/CheckinSheetSection.vue'
 import DynamicFieldManager from '@/components/activities/DynamicFieldManager.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import StateBlock from '@/components/ui/StateBlock.vue'
+import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
 
 const route = useRoute()
@@ -94,7 +97,12 @@ const fetchData = async () => {
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ไม่พบกิจกรรม'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
     router.push('/activities')
   } finally {
     isLoading.value = false
@@ -189,7 +197,12 @@ async function saveInfoModal(payload: {
     await fetchData()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -200,7 +213,12 @@ const batchModalOpen = ref(false)
 
 function openBatch() {
   if (selectedCount.value === 0) {
-    Swal.fire('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม', 'warning')
+    Swal.fire({
+      icon: 'warning',
+      title: 'เลือกก่อน',
+      text: 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม',
+      confirmButtonColor: '#1d4ed8',
+    })
     return
   }
   batchModalOpen.value = true
@@ -239,7 +257,12 @@ async function applyBatch(payload: {
     await fetchData()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ตั้งค่าแบบกลุ่มไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -257,7 +280,12 @@ async function openAddStudents() {
     availableStudents.value = await ActivityService.getAvailableStudents(currentRoomId, activityId)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'โหลดรายชื่อนักเรียนไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   } finally {
     availableLoading.value = false
   }
@@ -276,7 +304,12 @@ async function handleAddStudents(studentNos: number[]) {
     await fetchData() // reload activity + sheets (ผู้เข้าร่วมใหม่ปรากฏในแผ่นเช็คชื่อด้วย)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'เพิ่มนักเรียนไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -299,7 +332,12 @@ async function loadSheets() {
 async function addSheet() {
   const title = newSheetTitle.value.trim()
   if (!title) {
-    Swal.fire('กรอกชื่อก่อน', 'ต้องระบุชื่อแผ่นเช็คชื่อ เช่น "เช็คขึ้นรถ"', 'warning')
+    Swal.fire({
+      icon: 'warning',
+      title: 'กรอกชื่อก่อน',
+      text: 'ต้องระบุชื่อแผ่นเช็คชื่อ เช่น "เช็คขึ้นรถ"',
+      confirmButtonColor: '#1d4ed8',
+    })
     return
   }
   try {
@@ -315,7 +353,12 @@ async function addSheet() {
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'สร้างแผ่นเช็คชื่อไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -325,7 +368,7 @@ async function deleteSheet(sheet: CheckinSheet) {
     text: `"${sheet.title}" และประวัติการเช็คทั้งหมดจะถูกลบ`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#e11d48',
+    confirmButtonColor: '#dc2626',
     confirmButtonText: 'ลบแผ่น',
     cancelButtonText: 'ยกเลิก',
   })
@@ -340,7 +383,12 @@ async function deleteSheet(sheet: CheckinSheet) {
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ลบแผ่นเช็คชื่อไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -356,7 +404,12 @@ async function toggleExpandSheet(sheetId: number) {
     sheetDetails.value[sheetId] = await ActivityService.getCheckinSheet(currentRoomId, activityId, sheetId)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'โหลดแผ่นเช็คชื่อไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   } finally {
     sheetLoadingId.value = null
   }
@@ -378,7 +431,12 @@ async function togglePresent(sheetId: number, participantId: number, next: boole
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'เช็คชื่อไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -403,7 +461,12 @@ async function markAllPresent(sheetId: number) {
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'เช็คทั้งหมดไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -420,7 +483,12 @@ async function updateDynamicFields(defs: DynamicFieldDef[]) {
     await fetchData()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'อัปเดตฟิลด์ไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
   }
 }
 
@@ -434,213 +502,177 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
-    <div class="max-w-7xl mx-auto">
-      <div v-if="isLoading" class="flex flex-col justify-center items-center py-20 gap-4">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
-        <p class="text-slate-400 font-medium animate-pulse">กำลังโหลดข้อมูลกิจกรรม...</p>
+  <div class="space-y-4 sm:space-y-5">
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
+
+    <template v-else-if="activity">
+      <!-- Header -->
+      <div>
+        <router-link
+          :to="`/activities/${activityId}`"
+          class="mb-2 inline-flex items-center gap-1.5 text-sm font-bold text-stone-400 transition-colors hover:text-brand-700"
+        >
+          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ารายละเอียด
+        </router-link>
+
+        <PageHeader
+          eyebrow="Activity Management"
+          :title="`จัดการผู้เข้าร่วม — ${activity.title}`"
+          description="ติ๊กชื่อเพื่อตั้งค่าแบบกลุ่ม · เพิ่มนักเรียน · เช็คชื่อตามเหตุการณ์ · สร้างฟิลด์เพิ่มเติม"
+        >
+          <template #actions>
+            <router-link :to="`/activities/${activityId}`" class="btn-ghost-ui">
+              <i class="bi bi-eye" aria-hidden="true"></i> ดูรายละเอียด
+            </router-link>
+            <router-link :to="`/activities/${activityId}/edit`" class="btn-primary">
+              <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไขกิจกรรม
+            </router-link>
+          </template>
+        </PageHeader>
       </div>
 
-      <div v-else-if="activity" class="space-y-5">
-        <!-- Header -->
-        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-          <div>
-            <router-link
-              :to="`/activities/${activityId}`"
-              class="inline-flex items-center gap-1.5 text-sm font-bold text-slate-400 hover:text-slate-700 mb-2 transition-colors"
-            >
-              <i class="bi bi-arrow-left"></i> กลับหน้ารายละเอียด
-            </router-link>
-            <h3
-              class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-3 flex-wrap"
-            >
-              <div
-                class="p-2 sm:p-2.5 bg-violet-100 rounded-xl text-violet-600 shadow-sm flex-shrink-0"
-              >
-                <i class="bi bi-sliders"></i>
-              </div>
-              จัดการผู้เข้าร่วม — {{ activity.title }}
-            </h3>
-            <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">
-              ติ๊กชื่อเพื่อตั้งค่าแบบกลุ่ม · เพิ่มนักเรียน · เช็คชื่อตามเหตุการณ์ · สร้างฟิลด์เพิ่มเติม
-            </p>
-          </div>
-          <div class="flex gap-2">
-            <router-link
-              :to="`/activities/${activityId}`"
-              class="px-4 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-all inline-flex items-center justify-center gap-2"
-            >
-              <i class="bi bi-eye"></i> ดูรายละเอียด
-            </router-link>
-            <router-link
-              :to="`/activities/${activityId}/edit`"
-              class="px-4 py-2.5 text-sm font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-xl shadow-lg shadow-violet-600/20 transition-all inline-flex items-center justify-center gap-2"
-            >
-              <i class="bi bi-pencil-square"></i> แก้ไขกิจกรรม
-            </router-link>
-          </div>
-        </div>
-
-        <!-- ========== ☑️ ผู้เข้าร่วม (เลือกเพื่อตั้งค่าแบบกลุ่ม) ========== -->
-        <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
-          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
-              <i class="bi bi-people-fill text-violet-500"></i> ผู้เข้าร่วม ({{
-                activity.participants.length
-              }})
-            </h4>
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                @click="openAddStudents"
-                class="px-3.5 py-2 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-xl transition-all inline-flex items-center gap-1.5"
-              >
-                <i class="bi bi-person-plus-fill"></i> เพิ่มนักเรียน
-              </button>
-              <button
-                v-if="selectedCount > 0"
-                @click="openBatch"
-                class="px-3.5 py-2 text-xs font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
-              >
-                <i class="bi bi-lightning-charge-fill"></i> ตั้งค่าแบบกลุ่ม ({{
-                  selectedCount
-                }})
-              </button>
-            </div>
-          </div>
-
-          <div
-            v-if="selectedCount > 0"
-            class="flex items-center gap-2 text-xs font-bold text-fuchsia-700 bg-fuchsia-50 border border-fuchsia-100 rounded-xl px-3 py-2 mb-3"
-          >
-            <i class="bi bi-check2-square"></i>
-            เลือกแล้ว {{ selectedCount }} คน — ตั้งค่าแบบกลุ่มจะแก้เฉพาะคนที่ติ๊กเท่านั้น
-          </div>
-
-          <div
-            v-if="activity.participants.length === 0"
-            class="text-center py-10 text-slate-400 text-sm"
-          >
-            ยังไม่มีผู้เข้าร่วม — กด "เพิ่มนักเรียน" เพื่อเพิ่มคนแรก
-          </div>
-          <ParticipantRosterList
-            v-else
-            :items="rosterItems"
-            :positions="positions"
-            :selected-keys="selectedKeys"
-            selectable
-            hide-duty-editor
-            :can-manage="canManage"
-            :empty-text="'ไม่มีรายชื่อในรายการนี้'"
-            @toggle-select="toggleSelect"
-            @select-all="selectAll"
-            @clear-all="clearAll"
-            @open-info="openInfoModal"
-            @batch="openBatch"
-          />
-        </div>
-
-        <!-- ========== ✅ เช็คชื่อแยกแผ่น ========== -->
-        <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
-          <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
-            <h4 class="text-base font-bold text-slate-700 flex items-center gap-2">
-              <i class="bi bi-clipboard2-check text-emerald-500"></i> เช็คชื่อตามเหตุการณ์
-            </h4>
-            <button
-              v-if="!showAddSheet"
-              @click="showAddSheet = true"
-              class="px-3.5 py-2 text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-all inline-flex items-center gap-1.5"
-            >
-              <i class="bi bi-plus-lg"></i> เพิ่มการเช็คชื่อ
+      <!-- ========== ☑️ ผู้เข้าร่วม (เลือกเพื่อตั้งค่าแบบกลุ่ม) ========== -->
+      <div class="page-card p-4 sm:p-5">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="section-title flex min-w-0 items-center gap-2">
+            <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i>
+            <span class="truncate">ผู้เข้าร่วม ({{ activity.participants.length }})</span>
+          </h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" class="btn-ghost-ui" @click="openAddStudents">
+              <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
+            </button>
+            <button v-if="selectedCount > 0" type="button" class="btn-primary" @click="openBatch">
+              <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
+              ตั้งค่าแบบกลุ่ม ({{ selectedCount }})
             </button>
           </div>
-          <p class="text-xs text-slate-400 mb-4">
-            สร้างแผ่นเช็คชื่อแยกตามเหตุการณ์ เช่น เช็คขึ้นรถ, เช็คเข้าฐาน — กดแผ่นเพื่อเช็คชื่อคน
-          </p>
+        </div>
 
-          <!-- inline form สร้างแผ่น -->
-          <div
-            v-if="showAddSheet"
-            class="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 mb-4 space-y-3"
+        <div
+          v-if="selectedCount > 0"
+          class="mb-3 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700"
+        >
+          <i class="bi bi-check2-square" aria-hidden="true"></i>
+          เลือกแล้ว {{ selectedCount }} คน — ตั้งค่าแบบกลุ่มจะแก้เฉพาะคนที่ติ๊กเท่านั้น
+        </div>
+
+        <StateBlock
+          v-if="activity.participants.length === 0"
+          variant="empty"
+          icon="bi-people"
+          title="ยังไม่มีผู้เข้าร่วม"
+          hint="กดปุ่มด้านล่างเพื่อเพิ่มนักเรียนคนแรกเข้ากิจกรรมนี้"
+        >
+          <button type="button" class="btn-primary mt-1.5" @click="openAddStudents">
+            <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
+          </button>
+        </StateBlock>
+        <ParticipantRosterList
+          v-else
+          :items="rosterItems"
+          :positions="positions"
+          :selected-keys="selectedKeys"
+          selectable
+          hide-duty-editor
+          :can-manage="canManage"
+          :empty-text="'ไม่มีรายชื่อในรายการนี้'"
+          @toggle-select="toggleSelect"
+          @select-all="selectAll"
+          @clear-all="clearAll"
+          @open-info="openInfoModal"
+          @batch="openBatch"
+        />
+      </div>
+
+      <!-- ========== ✅ เช็คชื่อแยกแผ่น ========== -->
+      <div class="page-card p-4 sm:p-5">
+        <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="section-title flex min-w-0 items-center gap-2">
+            <i class="bi bi-clipboard2-check text-emerald-600" aria-hidden="true"></i>
+            <span class="truncate">เช็คชื่อตามเหตุการณ์</span>
+          </h2>
+          <button
+            v-if="!showAddSheet"
+            type="button"
+            class="btn-ghost-ui"
+            @click="showAddSheet = true"
           >
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label
-                  class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block"
-                  >ชื่อแผ่นเช็คชื่อ *</label
-                >
-                <input
-                  v-model="newSheetTitle"
-                  type="text"
-                  placeholder="เช่น เช็คขึ้นรถ, เช็คเข้าฐาน"
-                  @keyup.enter="addSheet"
-                  class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-                />
-              </div>
-              <div>
-                <label
-                  class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block"
-                  >วันที่ (ไม่บังคับ)</label
-                >
-                <input
-                  v-model="newSheetDate"
-                  type="date"
-                  class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-                />
-              </div>
-            </div>
-            <div class="flex justify-end gap-2">
-              <button
-                @click="showAddSheet = false"
-                class="px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                ยกเลิก
-              </button>
-              <button
-                @click="addSheet"
-                class="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-all inline-flex items-center gap-1"
-              >
-                <i class="bi bi-check-lg"></i> สร้างแผ่นเช็คชื่อ
-              </button>
-            </div>
-          </div>
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> เพิ่มการเช็คชื่อ
+          </button>
+        </div>
+        <p class="mb-4 text-xs text-stone-400">
+          สร้างแผ่นเช็คชื่อแยกตามเหตุการณ์ เช่น เช็คขึ้นรถ, เช็คเข้าฐาน — กดแผ่นเพื่อเช็คชื่อคน
+        </p>
 
-          <!-- รายการแผ่น -->
-          <div v-if="sheets.length === 0" class="text-center py-6 text-sm text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-            ยังไม่มีแผ่นเช็คชื่อ — กด "เพิ่มการเช็คชื่อ" เพื่อสร้าง (เช่น เช็คขึ้นรถ)
+        <!-- inline form สร้างแผ่น -->
+        <div
+          v-if="showAddSheet"
+          class="mb-4 space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-4"
+        >
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="field-label" for="newSheetTitle">ชื่อแผ่นเช็คชื่อ *</label>
+              <input
+                id="newSheetTitle"
+                v-model="newSheetTitle"
+                type="text"
+                placeholder="เช่น เช็คขึ้นรถ, เช็คเข้าฐาน"
+                @keyup.enter="addSheet"
+                class="field"
+              />
+            </div>
+            <div>
+              <label class="field-label" for="newSheetDate">วันที่ (ไม่บังคับ)</label>
+              <input id="newSheetDate" v-model="newSheetDate" type="date" class="field" />
+            </div>
           </div>
-          <div v-else class="space-y-2.5">
-            <CheckinSheetSection
-              v-for="sheet in sheets"
-              :key="sheet.id"
-              :sheet="sheet"
-              :participants="sheetDetails[sheet.id]?.participants ?? null"
-              :loading="sheetLoadingId === sheet.id"
-              :expanded="expandedSheetId === sheet.id"
-              :can-manage="canManage"
-              @toggle-expand="toggleExpandSheet(sheet.id)"
-              @toggle-present="(pid, next) => togglePresent(sheet.id, pid, next)"
-              @delete-sheet="deleteSheet(sheet)"
-              @mark-all-present="markAllPresent(sheet.id)"
-            />
+          <div class="flex justify-end gap-2 border-t border-stone-100 pt-3">
+            <button type="button" class="btn-ghost-ui" @click="showAddSheet = false">ยกเลิก</button>
+            <button type="button" class="btn-primary" @click="addSheet">
+              <i class="bi bi-check-lg" aria-hidden="true"></i> สร้างแผ่นเช็คชื่อ
+            </button>
           </div>
         </div>
 
-        <!-- ========== 🧩 ฟิลด์เพิ่มเติม (Dynamic Fields) ========== -->
-        <div class="bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-100">
-          <h4 class="text-base font-bold text-slate-700 mb-1 flex items-center gap-2">
-            <i class="bi bi-puzzle text-violet-500"></i> ฟิลด์เพิ่มเติม
-          </h4>
-          <p class="text-xs text-slate-400 mb-4">
-            สร้างฟิลด์ข้อมูลที่ต้องการเก็บเพิ่มเติม (เช่น หมายเลขกลุ่ม, รถคันที่ลง) — ฟิลด์ใหม่จะ
-            ปรากฏกับผู้เข้าร่วมทุกคน และตั้งค่าแบบกลุ่มได้
-          </p>
-          <DynamicFieldManager
-            :defs="dynamicFieldDefs"
-            @update="updateDynamicFields"
+        <!-- รายการแผ่น -->
+        <StateBlock
+          v-if="sheets.length === 0"
+          variant="empty"
+          icon="bi-clipboard2"
+          title="ยังไม่มีแผ่นเช็คชื่อ"
+          hint='กด "เพิ่มการเช็คชื่อ" เพื่อสร้างแผ่นแรก เช่น เช็คขึ้นรถ'
+        />
+        <div v-else class="space-y-2.5">
+          <CheckinSheetSection
+            v-for="sheet in sheets"
+            :key="sheet.id"
+            :sheet="sheet"
+            :participants="sheetDetails[sheet.id]?.participants ?? null"
+            :loading="sheetLoadingId === sheet.id"
+            :expanded="expandedSheetId === sheet.id"
+            :can-manage="canManage"
+            @toggle-expand="toggleExpandSheet(sheet.id)"
+            @toggle-present="(pid, next) => togglePresent(sheet.id, pid, next)"
+            @delete-sheet="deleteSheet(sheet)"
+            @mark-all-present="markAllPresent(sheet.id)"
           />
         </div>
       </div>
-    </div>
+
+      <!-- ========== 🧩 ฟิลด์เพิ่มเติม (Dynamic Fields) ========== -->
+      <div class="page-card p-4 sm:p-5">
+        <h2 class="section-title mb-1 flex min-w-0 items-center gap-2">
+          <i class="bi bi-puzzle text-brand-700" aria-hidden="true"></i>
+          <span class="truncate">ฟิลด์เพิ่มเติม</span>
+        </h2>
+        <p class="mb-4 text-xs text-stone-400">
+          สร้างฟิลด์ข้อมูลที่ต้องการเก็บเพิ่มเติม (เช่น หมายเลขกลุ่ม, รถคันที่ลง) — ฟิลด์ใหม่จะ
+          ปรากฏกับผู้เข้าร่วมทุกคน และตั้งค่าแบบกลุ่มได้
+        </p>
+        <DynamicFieldManager :defs="dynamicFieldDefs" @update="updateDynamicFields" />
+      </div>
+    </template>
 
     <!-- 📋 Modal: ข้อมูลเพิ่มเติมของนักเรียน (ต่อคน) -->
     <ParticipantInfoModal

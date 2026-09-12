@@ -1,9 +1,14 @@
 <script setup lang="ts">
+defineOptions({ name: 'LobbyView' });
+
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ClassroomService } from '@/services/classroom';
 import { StudentService } from '@/services/student';
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import type { UserRoom } from '@/types/classroom';
 import type { Invite } from '@/types/student';
 import Swal from 'sweetalert2';
@@ -14,6 +19,9 @@ const router = useRouter();
 const isLoadingRooms = ref(true);
 const rooms = ref<UserRoom[]>([]);
 const searchQuery = ref('');
+
+// สถานะผิดพลาดของการโหลดห้อง (เดิมกลืน error เงียบ ๆ ทำให้เห็นเป็น "ยังไม่มีห้องเรียน")
+const hasErrorRooms = ref(false);
 
 // 🛡️ คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อให้ ต้องกดรับเองก่อนถึงเป็นสมาชิก
 const invites = ref<Invite[]>([]);
@@ -36,8 +44,7 @@ const acceptInvite = async (invite: Invite) => {
       title: 'รับคำเชิญแล้ว!',
       text: `เข้าร่วมห้อง "${invite.room_name}" แล้ว`,
       confirmButtonText: 'รับทราบ',
-      confirmButtonColor: '#10b981',
-      customClass: { popup: 'rounded-[2rem]', confirmButton: 'rounded-xl px-8 font-bold' }
+      confirmButtonColor: '#1d4ed8'
     });
   } catch (error: unknown) {
     Swal.fire('ข้อผิดพลาด', error instanceof Error ? error.message : 'ไม่สามารถรับคำเชิญได้', 'error');
@@ -56,21 +63,23 @@ onMounted(async () => {
     isLoadingRooms.value = false;
     return;
   }
-  
+
   if (!authStore.firstName) {
     await authStore.fetchProfile();
   }
-  
+
   await fetchRooms();
   await fetchInvites();
 });
 
 const fetchRooms = async () => {
   isLoadingRooms.value = true;
+  hasErrorRooms.value = false;
   try {
     rooms.value = await ClassroomService.getUserRooms(authStore.userId!);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Failed to load rooms:", error);
+    hasErrorRooms.value = true;
   } finally {
     isLoadingRooms.value = false;
   }
@@ -79,7 +88,7 @@ const fetchRooms = async () => {
 const filteredRooms = computed(() => {
   if (!searchQuery.value) return rooms.value;
   const q = searchQuery.value.toLowerCase();
-  return rooms.value.filter(r => 
+  return rooms.value.filter(r =>
     (r.room_name && r.room_name.toLowerCase().includes(q)) ||
     (r.room_code && r.room_code.toLowerCase().includes(q))
   );
@@ -88,10 +97,10 @@ const filteredRooms = computed(() => {
 const selectRoom = (room: UserRoom) => {
   // 🎯 ยัดสิทธิ์ (is_admin, permissions) เข้า Store ตอนเลือกห้อง!
   authStore.setRoom(
-    room.room_id, 
-    room.room_name, 
-    room.room_code, 
-    room.role, 
+    room.room_id,
+    room.room_name,
+    room.room_code,
+    room.role,
     authStore.currentUserName,
     room.is_admin || false,
     room.permissions || []
@@ -152,8 +161,7 @@ const submitJoinRoom = async () => {
         title: 'ส่งคำขอแล้ว!',
         text: 'รอหัวหน้าห้อง / ผู้ดูแลอนุมัติคำขอของคุณ',
         confirmButtonText: 'รับทราบ',
-        confirmButtonColor: '#10b981',
-        customClass: { popup: 'rounded-[2rem]', confirmButton: 'rounded-xl px-8 font-bold' }
+        confirmButtonColor: '#1d4ed8'
       });
     }
 
@@ -163,8 +171,7 @@ const submitJoinRoom = async () => {
       title: 'สำเร็จ!',
       text: result.message || 'เข้าสู่ห้องเรียนสำเร็จ',
       confirmButtonText: 'เข้าสู่แดชบอร์ด',
-      confirmButtonColor: '#10b981',
-      customClass: { popup: 'rounded-[2rem]', confirmButton: 'rounded-xl px-8 font-bold' }
+      confirmButtonColor: '#1d4ed8'
     }).then(() => {
       showJoinModal.value = false;
       // 🎯 เข้าห้องใหม่ สิทธิ์ตั้งต้นจะเป็น False และ []
@@ -172,13 +179,13 @@ const submitJoinRoom = async () => {
       router.push('/dashboard');
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '';
     Swal.fire({
       icon: 'error',
       title: 'ไม่สามารถเข้าร่วมได้',
-      text: error.message || 'รหัสห้องผิด หรือเลขที่นี้มีผู้ใช้งานแล้ว',
-      customClass: { popup: 'rounded-[2rem] shadow-xl' },
-      confirmButtonColor: '#0f172a',
+      text: message || 'รหัสห้องผิด หรือเลขที่นี้มีผู้ใช้งานแล้ว',
+      confirmButtonColor: '#1d4ed8',
       confirmButtonText: 'รับทราบ'
     });
   }
@@ -188,189 +195,244 @@ const submitCreateRoom = async () => {
   try {
     Swal.fire({ title: 'กำลังสร้างห้อง...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     const result = await ClassroomService.createRoom({ room_name: createForm.value.room_name });
-    
+
     Swal.fire({
       icon: 'success',
       title: 'สร้างห้องเรียนสำเร็จ!',
       text: `นำรหัสห้อง ${result.room_code} ไปแชร์ให้นักเรียนได้เลย`,
       confirmButtonText: 'ตกลง',
-      confirmButtonColor: '#3b82f6',
-      customClass: { popup: 'rounded-[2rem]' }
+      confirmButtonColor: '#1d4ed8'
     }).then(() => {
       showCreateModal.value = false;
       fetchRooms();
     });
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error.message || 'ไม่สามารถสร้างห้องได้', 'error');
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '';
+    Swal.fire('ข้อผิดพลาด', message || 'ไม่สามารถสร้างห้องได้', 'error');
   }
 };
 </script>
 
 <template>
-  <div class="max-w-6xl mx-auto pt-4 md:pt-10 pb-20 relative z-10">
-    
-    <div class="text-center mb-8 md:mb-12">
-      <div class="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 bg-white rounded-3xl shadow-xl shadow-blue-500/10 border border-slate-100 mb-5">
-        <i class="bi bi-grid-fill text-3xl md:text-4xl text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-indigo-600"></i>
-      </div>
-      <h1 class="text-2xl md:text-4xl font-black text-slate-800 tracking-tight mb-3 px-4">ยินดีต้อนรับ, <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{{ authStore.firstName || authStore.firstNameEn || 'ผู้ใช้งาน' }}</span> 👋</h1>
-      <p class="text-slate-500 text-sm md:text-lg font-medium max-w-2xl mx-auto px-4">เลือกห้องเรียนของคุณเพื่อเริ่มต้นการจัดการ หรือเข้าร่วมห้องเรียนใหม่ผ่านรหัสห้อง</p>
-    </div>
-
-    <div class="flex flex-col sm:flex-row justify-between items-center gap-3 mb-8">
-      <div class="relative w-full sm:w-96 group">
-        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-          <i class="bi bi-search text-slate-400 group-focus-within:text-blue-500 transition-colors"></i>
-        </div>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="ค้นหาชื่อห้อง หรือ รหัส..."
-          class="block w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 shadow-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all"
-        >
-      </div>
-
-      <div class="flex gap-2.5 w-full sm:w-auto">
-        <button @click="openJoinModal" class="flex-1 sm:flex-none px-5 py-3 bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md hover:text-blue-600 text-slate-600 font-bold rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2">
-          <i class="bi bi-door-open-fill"></i> เข้าห้องเรียน
+  <div class="space-y-4 sm:space-y-5">
+    <!-- ============================================ -->
+    <!-- หัวหน้าแบบบรรณาธิการ                          -->
+    <!-- ============================================ -->
+    <PageHeader
+      eyebrow="Choose a Classroom"
+      :title="`ยินดีต้อนรับ, ${authStore.firstName || authStore.firstNameEn || 'ผู้ใช้งาน'}`"
+      description="เลือกห้องเรียนของคุณเพื่อเริ่มต้นการจัดการ หรือเข้าร่วมห้องใหม่ด้วยรหัสห้อง"
+    >
+      <template #actions>
+        <button type="button" class="btn-ghost-ui" @click="openJoinModal">
+          <i class="bi bi-door-open" aria-hidden="true"></i> เข้าห้องเรียน
         </button>
-        <button @click="showCreateModal = true" class="flex-1 sm:flex-none px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-lg shadow-slate-900/20 transition-all active:scale-95 flex items-center justify-center gap-2">
-          <i class="bi bi-plus-lg"></i> สร้างห้อง
+        <button type="button" class="btn-primary" @click="showCreateModal = true">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างห้อง
         </button>
+      </template>
+    </PageHeader>
+
+    <!-- ค้นหาห้อง -->
+    <div class="relative">
+      <div class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5">
+        <i class="bi bi-search text-stone-400" aria-hidden="true"></i>
       </div>
+      <input
+        v-model="searchQuery"
+        type="text"
+        placeholder="ค้นหาชื่อห้อง หรือ รหัส..."
+        class="field ps-11"
+      />
     </div>
 
     <!-- 🛡️ คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อให้ ต้องกดรับเองก่อน -->
-    <div v-if="invites.length > 0" class="mb-8">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="w-9 h-9 bg-amber-50 text-amber-500 rounded-xl flex items-center justify-center"><i class="bi bi-envelope-fill"></i></span>
-        <h2 class="text-lg font-black text-slate-800">คำเชิญเข้าร่วมห้อง</h2>
-        <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-black rounded-full">{{ invites.length }} ฉบับ</span>
+    <section v-if="invites.length > 0" class="space-y-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <h2 class="section-title">คำเชิญเข้าร่วมห้อง</h2>
+        <span class="chip bg-amber-50 text-amber-700">{{ invites.length }} ฉบับ</span>
       </div>
-      <div class="space-y-3">
-        <div v-for="invite in invites" :key="invite.invite_id"
-             class="bg-white rounded-2xl border border-amber-200/70 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center gap-3 min-w-0">
-            <div class="w-11 h-11 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100 flex items-center justify-center text-amber-500 text-lg shrink-0">
-              <i class="bi bi-building-add"></i>
+
+      <div class="space-y-2.5">
+        <div v-for="invite in invites" :key="invite.invite_id" class="page-card p-4 sm:p-5">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex min-w-0 items-start gap-3">
+              <div
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"
+              >
+                <i class="bi bi-building-add text-lg" aria-hidden="true"></i>
+              </div>
+              <div class="min-w-0">
+                <p class="truncate font-bold text-stone-900">{{ invite.room_name }}</p>
+                <p class="num mt-0.5 truncate text-xs text-stone-500">
+                  เลขที่ {{ invite.student_no }} · เชิญโดย {{ invite.added_by_first || '' }}
+                  {{ invite.added_by_last || '' }}
+                </p>
+                <p class="mt-1 text-[11px] font-medium text-amber-600">
+                  รับคำเชิญแล้วระบบจะเปิดข้อมูลส่วนตัวของคุณให้ห้องนี้ดู
+                </p>
+              </div>
             </div>
-            <div class="min-w-0">
-              <p class="font-black text-slate-800 truncate">{{ invite.room_name }}</p>
-              <p class="text-xs text-slate-500 font-medium truncate">
-                เลขที่ {{ invite.student_no }} · เชิญโดย {{ invite.added_by_first || '' }} {{ invite.added_by_last || '' }}
-              </p>
-              <p class="text-[11px] text-amber-600 font-medium mt-0.5">รับคำเชิญแล้วระบบจะเปิดข้อมูลส่วนตัวของคุณให้ห้องนี้ดู</p>
-            </div>
+
+            <button type="button" class="btn-primary shrink-0" @click="acceptInvite(invite)">
+              <i class="bi bi-check-lg" aria-hidden="true"></i> รับคำเชิญ
+            </button>
           </div>
-          <button @click="acceptInvite(invite)"
-                  class="shrink-0 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center justify-center gap-2">
-            <i class="bi bi-check-lg"></i> รับคำเชิญ
-          </button>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div v-if="isLoadingRooms" class="flex justify-center items-center py-20">
-      <div class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-blue-600"></div>
-    </div>
+    <!-- ============================================ -->
+    <!-- รายการห้อง — โหลด / ผิดพลาด / ว่าง / มีข้อมูล  -->
+    <!-- ============================================ -->
+    <SkeletonRows v-if="isLoadingRooms" :rows="3" height="h-32" />
 
-    <div v-else-if="filteredRooms.length === 0" class="text-center py-20 bg-white rounded-[2rem] border border-slate-100 border-dashed">
-      <div class="text-slate-300 mb-4"><i class="bi bi-inbox-fill text-6xl"></i></div>
-      <h3 class="text-xl font-bold text-slate-600 mb-2">ยังไม่มีห้องเรียน</h3>
-      <p class="text-slate-400">คุณสามารถสร้างห้องใหม่ หรือขอรหัสเพื่อเข้าร่วมห้องได้เลย</p>
-    </div>
+    <StateBlock
+      v-else-if="hasErrorRooms"
+      variant="error"
+      title="โหลดรายการห้องไม่สำเร็จ"
+      hint="ตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง"
+      @retry="fetchRooms"
+    />
 
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div 
-        v-for="room in filteredRooms" :key="room.room_id"
+    <StateBlock
+      v-else-if="filteredRooms.length === 0"
+      variant="empty"
+      title="ยังไม่มีห้องเรียน"
+      hint="คุณสามารถสร้างห้องใหม่ หรือขอรหัสเพื่อเข้าร่วมห้องได้เลย"
+    />
+
+    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div
+        v-for="room in filteredRooms"
+        :key="room.room_id"
+        class="page-card card-hover cursor-pointer p-4 sm:p-5"
         @click="selectRoom(room)"
-        class="group bg-white rounded-[2rem] p-6 border border-slate-200/60 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_30px_rgba(59,130,246,0.12)] hover:border-blue-200 cursor-pointer transition-all duration-500 hover:-translate-y-1 relative overflow-hidden"
       >
-        <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-50 to-transparent rounded-bl-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-        
-        <div class="flex justify-between items-start mb-6 relative z-10">
-          <div class="w-14 h-14 bg-gradient-to-br from-slate-100 to-slate-50 rounded-2xl border border-slate-200/60 flex items-center justify-center text-slate-400 text-2xl group-hover:from-blue-50 group-hover:to-indigo-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-all duration-500 shadow-inner">
-            <i class="bi bi-buildings-fill"></i>
+        <div class="flex items-start justify-between gap-3">
+          <div
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500"
+          >
+            <i class="bi bi-buildings text-xl" aria-hidden="true"></i>
           </div>
+
           <!-- 🎯 โซนโชว์ป้าย (Role & Admin Badges) -->
-          <div class="flex flex-col items-end gap-1.5">
-            <span class="px-3 py-1 bg-slate-50 border border-slate-100 text-[10px] font-black tracking-widest uppercase text-slate-500 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-colors">
-              {{ room.role }}
+          <div class="flex flex-wrap items-center justify-end gap-1.5">
+            <span class="chip bg-stone-100 text-stone-600">{{ room.role }}</span>
+            <span v-if="room.is_admin" class="chip bg-brand-50 text-brand-700">
+              <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ADMIN
             </span>
-            <span v-if="room.is_admin" class="px-2.5 py-0.5 bg-gradient-to-r from-amber-500 to-orange-400 text-white text-[9px] font-black tracking-widest uppercase rounded-md shadow-sm shadow-orange-500/20 border border-orange-300 flex items-center gap-1">
-              <i class="bi bi-shield-lock-fill"></i> ADMIN
-            </span>
-            <span v-else-if="room.permissions && room.permissions.length > 0" class="px-2.5 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 text-[9px] font-black tracking-widest uppercase rounded-md shadow-sm flex items-center gap-1">
-              <i class="bi bi-key-fill"></i> STAFF
+            <span
+              v-else-if="room.permissions && room.permissions.length > 0"
+              class="chip bg-sky-50 text-sky-700"
+            >
+              <i class="bi bi-key-fill" aria-hidden="true"></i> STAFF
             </span>
           </div>
-        </div>
-        
-        <div class="relative z-10">
-          <h3 class="text-xl font-black text-slate-800 mb-1 line-clamp-1 group-hover:text-blue-700 transition-colors">{{ room.room_name }}</h3>
-          <p class="text-sm font-bold text-slate-400 font-mono tracking-wide flex items-center gap-2">
-            <i class="bi bi-key text-slate-300"></i> {{ room.room_code || 'ไม่มีรหัส' }}
-          </p>
         </div>
 
-        <div class="mt-6 pt-5 border-t border-slate-100 flex justify-between items-center relative z-10">
-          <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
-            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">{{ room.status }}</span>
-          </div>
-          <div class="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300 shadow-sm">
-            <i class="bi bi-arrow-right"></i>
-          </div>
+        <h3 class="font-display mt-4 truncate text-base font-bold text-stone-900">
+          {{ room.room_name }}
+        </h3>
+        <p class="font-display num mt-1 flex items-center gap-1.5 truncate text-sm font-bold tracking-widest text-stone-500">
+          <i class="bi bi-key shrink-0 text-stone-300" aria-hidden="true"></i>
+          {{ room.room_code || 'ไม่มีรหัส' }}
+        </p>
+
+        <div class="mt-4 flex items-center justify-between gap-3 border-t border-stone-100 pt-3">
+          <span class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-stone-500">
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden="true"></span>
+            {{ room.status }}
+          </span>
+          <i class="bi bi-arrow-right shrink-0 text-stone-300" aria-hidden="true"></i>
         </div>
       </div>
     </div>
 
-    <!-- Modals... (ยังคงเหมือนเดิม) -->
+    <!-- ============================================ -->
+    <!-- Modals                                       -->
+    <!-- ============================================ -->
     <Transition name="fade">
-      <div v-if="showJoinModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-        <div class="bg-white rounded-[2.5rem] p-8 md:p-10 w-full max-w-md shadow-2xl transform transition-all border border-slate-100">
-          <div class="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-inner border border-blue-100">
-            <i class="bi bi-door-open-fill"></i>
+      <div
+        v-if="showJoinModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4"
+      >
+        <div class="page-card w-full max-w-md max-h-[90vh] overflow-y-auto overscroll-contain p-5 sm:p-6">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+          >
+            <i class="bi bi-door-open-fill text-xl" aria-hidden="true"></i>
           </div>
-          <h2 class="text-2xl font-black text-slate-800 mb-2">เข้าร่วมห้องเรียน</h2>
-          <p class="text-sm text-slate-500 mb-8 font-medium leading-relaxed">กรอกรหัส 6 หลัก และตรวจสอบชื่อของคุณให้ตรงกับระบบเพื่อยืนยันตัวตน</p>
-          
-          <form @submit.prevent="submitJoinRoom" class="space-y-4">
+          <h2 class="font-display mt-4 text-xl font-bold text-stone-900">เข้าร่วมห้องเรียน</h2>
+          <p class="mt-1 text-sm leading-relaxed text-stone-500">
+            กรอกรหัส 6 หลัก และตรวจสอบชื่อของคุณให้ตรงกับระบบเพื่อยืนยันตัวตน
+          </p>
+
+          <form class="mt-5 space-y-4" @submit.prevent="submitJoinRoom">
             <div>
-              <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">รหัสเข้าห้อง <span class="text-rose-500">*</span></label>
-              <input v-model="joinForm.room_code" type="text" required placeholder="เช่น AB12CD" class="w-full bg-slate-50 border border-slate-200 text-slate-800 text-lg font-mono font-bold rounded-2xl px-5 py-4 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all uppercase placeholder:normal-case placeholder:font-sans placeholder:font-medium placeholder:text-slate-300">
+              <label class="field-label" for="joinRoomCode">
+                รหัสเข้าห้อง <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="joinRoomCode"
+                v-model="joinForm.room_code"
+                type="text"
+                required
+                placeholder="เช่น AB12CD"
+                class="field font-mono font-bold uppercase placeholder:font-sans placeholder:normal-case"
+              />
             </div>
-            
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div class="sm:col-span-1">
-                <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">เลขที่ <span class="text-rose-500">*</span></label>
-                <input v-model="joinForm.student_no" type="number" required class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 text-center focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+                <label class="field-label" for="joinStudentNo">
+                  เลขที่ <span class="text-red-500">*</span>
+                </label>
+                <input
+                  id="joinStudentNo"
+                  v-model="joinForm.student_no"
+                  type="number"
+                  required
+                  class="field num text-center"
+                />
               </div>
               <div class="sm:col-span-2">
-                <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง <span class="text-rose-500">*</span></label>
-                <input v-model="joinForm.first_name" type="text" required class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+                <label class="field-label" for="joinFirstName">
+                  ชื่อจริง <span class="text-red-500">*</span>
+                </label>
+                <input id="joinFirstName" v-model="joinForm.first_name" type="text" required class="field" />
               </div>
             </div>
 
             <div>
-              <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล <span class="text-rose-500">*</span></label>
-              <input v-model="joinForm.last_name" type="text" required class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+              <label class="field-label" for="joinLastName">
+                นามสกุล <span class="text-red-500">*</span>
+              </label>
+              <input id="joinLastName" v-model="joinForm.last_name" type="text" required class="field" />
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง (อังกฤษ) <span class="text-slate-400 font-normal normal-case">ไม่บังคับ</span></label>
-                <input v-model="joinForm.first_name_en" type="text" class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+                <label class="field-label" for="joinFirstNameEn">
+                  ชื่อจริง (อังกฤษ)
+                  <span class="font-normal normal-case text-stone-400">ไม่บังคับ</span>
+                </label>
+                <input id="joinFirstNameEn" v-model="joinForm.first_name_en" type="text" class="field" />
               </div>
               <div>
-                <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล (อังกฤษ) <span class="text-slate-400 font-normal normal-case">ไม่บังคับ</span></label>
-                <input v-model="joinForm.last_name_en" type="text" class="w-full min-w-0 bg-slate-50 border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all">
+                <label class="field-label" for="joinLastNameEn">
+                  นามสกุล (อังกฤษ)
+                  <span class="font-normal normal-case text-stone-400">ไม่บังคับ</span>
+                </label>
+                <input id="joinLastNameEn" v-model="joinForm.last_name_en" type="text" class="field" />
               </div>
             </div>
 
-            <div class="flex flex-col sm:flex-row gap-2.5 mt-6 pt-4">
-              <button type="button" @click="showJoinModal = false" class="flex-1 px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-all active:scale-95">ยกเลิก</button>
-              <button type="submit" class="flex-1 px-4 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95">ยืนยันเข้าร่วม</button>
+            <div
+              class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+            >
+              <button type="button" class="btn-ghost-ui" @click="showJoinModal = false">ยกเลิก</button>
+              <button type="submit" class="btn-primary">ยืนยันเข้าร่วม</button>
             </div>
           </form>
         </div>
@@ -378,22 +440,41 @@ const submitCreateRoom = async () => {
     </Transition>
 
     <Transition name="fade">
-      <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-        <div class="bg-white rounded-[2.5rem] p-8 md:p-10 w-full max-w-md shadow-2xl transform transition-all border border-slate-100">
-          <div class="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-inner border border-indigo-100">
-            <i class="bi bi-plus-circle-fill"></i>
+      <div
+        v-if="showCreateModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4"
+      >
+        <div class="page-card w-full max-w-md p-5 sm:p-6">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+          >
+            <i class="bi bi-plus-circle-fill text-xl" aria-hidden="true"></i>
           </div>
-          <h2 class="text-2xl font-black text-slate-800 mb-2">สร้างห้องเรียนใหม่</h2>
-          <p class="text-sm text-slate-500 mb-8 font-medium">ตั้งชื่อห้องเรียนของคุณ ระบบจะสร้างรหัสสำหรับแชร์ให้นักเรียนอัตโนมัติ</p>
-          
-          <form @submit.prevent="submitCreateRoom">
-            <div class="mb-8">
-              <label class="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อห้องเรียน <span class="text-rose-500">*</span></label>
-              <input v-model="createForm.room_name" type="text" required placeholder="เช่น ม.4/1, สมเกียรติวิทยา" class="w-full bg-slate-50 border border-slate-200 text-slate-800 text-lg font-bold rounded-2xl px-5 py-4 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all placeholder:font-medium placeholder:text-slate-300">
+          <h2 class="font-display mt-4 text-xl font-bold text-stone-900">สร้างห้องเรียนใหม่</h2>
+          <p class="mt-1 text-sm leading-relaxed text-stone-500">
+            ตั้งชื่อห้องเรียนของคุณ ระบบจะสร้างรหัสสำหรับแชร์ให้นักเรียนอัตโนมัติ
+          </p>
+
+          <form class="mt-5" @submit.prevent="submitCreateRoom">
+            <div>
+              <label class="field-label" for="createRoomName">
+                ชื่อห้องเรียน <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="createRoomName"
+                v-model="createForm.room_name"
+                type="text"
+                required
+                placeholder="เช่น ม.4/1, สมเกียรติวิทยา"
+                class="field"
+              />
             </div>
-            <div class="flex gap-3">
-              <button type="button" @click="showCreateModal = false" class="flex-1 px-4 py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-2xl transition-all active:scale-95">ยกเลิก</button>
-              <button type="submit" class="flex-1 px-4 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/30 transition-all active:scale-95">สร้างห้อง</button>
+
+            <div
+              class="mt-5 flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+            >
+              <button type="button" class="btn-ghost-ui" @click="showCreateModal = false">ยกเลิก</button>
+              <button type="submit" class="btn-primary">สร้างห้อง</button>
             </div>
           </form>
         </div>

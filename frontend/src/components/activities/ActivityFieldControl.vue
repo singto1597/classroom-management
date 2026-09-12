@@ -59,7 +59,7 @@ function onDatetime(e: Event) {
     :disabled="disabled"
     @input="onInput"
     @blur="onBlur"
-    class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
+    class="field"
   />
 
   <!-- 📄 Dropdown -->
@@ -68,26 +68,29 @@ function onDatetime(e: Event) {
     :value="stringValue"
     :disabled="disabled"
     @change="onSelect"
-    class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
+    class="field"
   >
     <option value="">—</option>
     <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
   </select>
 
-  <!-- ☑️ Boolean Checkbox -->
+  <!-- ☑️ Boolean Checkbox — พื้นที่กดสูง ≥44px เพื่อให้แตะง่ายบนมือถือ -->
   <label
     v-else-if="field.type === 'boolean'"
-    class="inline-flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap"
-    :class="{ 'opacity-50 pointer-events-none': disabled }"
+    class="inline-flex min-h-[44px] cursor-pointer select-none items-center gap-2 whitespace-nowrap"
+    :class="{ 'pointer-events-none opacity-50': disabled }"
   >
     <input
       type="checkbox"
       :checked="isPaid"
       :disabled="disabled"
       @change="onCheckbox"
-      class="w-4 h-4 rounded accent-violet-600"
+      class="h-4 w-4 shrink-0 rounded accent-brand-700"
     />
-    <span class="text-[11px] font-bold text-slate-500">{{ isPaid ? '✅ จ่ายแล้ว' : '⏳ ยังไม่จ่าย' }}</span>
+    <span class="chip" :class="isPaid ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-600'">
+      <i class="bi" :class="isPaid ? 'bi-check-circle-fill' : 'bi-clock'" aria-hidden="true"></i>
+      {{ isPaid ? 'จ่ายแล้ว' : 'ยังไม่จ่าย' }}
+    </span>
   </label>
 
   <!-- 🕐 Datetime -->
@@ -98,6 +101,6 @@ function onDatetime(e: Event) {
     :disabled="disabled"
     @input="onInput"
     @change="onDatetime"
-    class="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400 disabled:opacity-50"
+    class="field"
   />
 </template>

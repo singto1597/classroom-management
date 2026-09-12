@@ -6,7 +6,7 @@
 - **Framework:** Vue 3 (Composition API พร้อม `<script setup lang="ts">`)
 - **Language:** TypeScript อย่างเคร่งครัด (**ห้ามใช้ `any` เด็ดขาด**)
 - **State Management:** `Pinia`
-- **Styling:** `Tailwind CSS` + `DaisyUI`
+- **Styling:** `Tailwind CSS` (ไม่มี DaisyUI ในโปรเจกต์นี้) — ดูสัญญาการออกแบบที่ [`frontend/DESIGN.md`](../../frontend/DESIGN.md)
 - **HTTP Client:** `Axios` (ผ่าน `src/services/api.ts`)
 
 ## 2. โครงสร้างและการแยก Layer (4-Layer Architecture)
@@ -36,3 +36,8 @@
 ## 6. CSS & Theme
 - ใช้ Utility Classes ของ Tailwind เป็นหลัก
 - ห้ามเขียน Inline Style หรือ `<style>` ในไฟล์ `.vue` หากไม่จำเป็นจริงๆ เพื่อรักษาความสะอาดของโค้ด
+- **Design System บังคับ:** ทุกหน้าใหม่/ที่แก้ไข ต้องเป็นไปตาม [`frontend/DESIGN.md`](../../frontend/DESIGN.md) — ธีม "Academic Ledger" (กระดาษ `stone-*` + น้ำเงินเข้ม `brand-*` สีเดียว + เส้นบาง hairline)
+  - ใช้คลาสกลางใน `src/assets/main.css`: `.page-card`, `.btn-primary`, `.btn-ghost-ui`, `.btn-danger`, `.field`, `.field-label`, `.data-table`, `.chip`, `.eyebrow`, `.page-title`, `.section-title`, `.num`, `.page-wrap`
+  - ใช้คอมโพเนนต์กลางใน `src/components/ui/`: `PageHeader`, `StateBlock`, `SkeletonRows`
+  - **ห้ามใช้:** `bg-gradient-*`, `backdrop-blur*`, `blur-[*]`, `shadow-{color}`, `rounded-[2rem]`, `animate-bounce`, `animate-ping`, และสี `slate/gray/zinc/neutral/indigo/violet/purple/blue` (ใช้ `stone-*` กับ `brand-*` แทน)
+  - ทุก view ที่มี fetch ต้องมีครบ 3 สถานะ: `SkeletonRows` → `StateBlock variant="error"` → `StateBlock variant="empty"`

@@ -4,7 +4,10 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import type { Activity } from '@/types/activity'
-import { ACTIVITY_STATUS_LABELS, ACTIVITY_STATUS_BADGE } from '@/types/activity'
+import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import StateBlock from '@/components/ui/StateBlock.vue'
+import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
 
 const router = useRouter()
@@ -19,7 +22,17 @@ const canManageActivities = computed(
 
 const activities = ref<Activity[]>([])
 const isLoading = ref(true)
+const hasError = ref(false)
 const filter = ref<StatusFilter>('all')
+
+/** โทนสีป้ายสถานะ (chip) — คุมโทนตาม Design Contract ไม่ใช้สีฟ้า/ชมพูแบบเดิม */
+function statusChip(status: unknown): string {
+  const key = typeof status === 'string' ? status : ''
+  if (key === 'ongoing') return 'bg-amber-50 text-amber-700'
+  if (key === 'completed') return 'bg-emerald-50 text-emerald-700'
+  if (key === 'cancelled') return 'bg-red-50 text-red-700'
+  return 'bg-brand-50 text-brand-700'
+}
 
 const Toast = Swal.mixin({
   toast: true,
@@ -31,9 +44,11 @@ const Toast = Swal.mixin({
 
 const fetchData = async () => {
   isLoading.value = true
+  hasError.value = false
   try {
     activities.value = await ActivityService.getActivities(currentRoomId)
   } catch (error: unknown) {
+    hasError.value = true
     const msg = error instanceof Error ? error.message : 'ดึงข้อมูลกิจกรรมไม่สำเร็จ'
     Toast.fire({ icon: 'error', title: msg })
   } finally {
@@ -105,14 +120,19 @@ const openActivity = (activity: Activity) => {
 
 const deleteActivity = async (activity: Activity) => {
   if (!canManageActivities.value)
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น', 'error')
+    return Swal.fire({
+      icon: 'error',
+      title: 'ไม่มีสิทธิ์',
+      text: 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น',
+      confirmButtonColor: '#1d4ed8',
+    })
   const result = await Swal.fire({
     title: 'ลบกิจกรรมนี้ไหม?',
     text: `"${activity.title}" จะถูกลบ (soft delete) พร้อมผู้เข้าร่วมทั้งหมด`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#e11d48',
-    cancelButtonColor: '#94a3b8',
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#78716c',
     confirmButtonText: 'ลบข้อมูล',
     cancelButtonText: 'ยกเลิก',
   })
@@ -123,7 +143,12 @@ const deleteActivity = async (activity: Activity) => {
       await fetchData()
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'ไม่สามารถลบกิจกรรมได้'
-      Swal.fire('ข้อผิดพลาด', msg, 'error')
+      Swal.fire({
+        icon: 'error',
+        title: 'ข้อผิดพลาด',
+        text: msg,
+        confirmButtonColor: '#1d4ed8',
+      })
     }
   }
 }
@@ -132,173 +157,136 @@ onMounted(fetchData)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
-    <div class="max-w-6xl mx-auto">
-      <div
-        class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 md:mb-8 gap-4"
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Classroom Activities"
+      title="กิจกรรม & ผู้เข้าร่วม"
+      description="บันทึกกิจกรรม หน้าที่ และชั่วโมงจิตอาสาของห้อง"
+    >
+      <template #actions>
+        <router-link v-if="canManageActivities" to="/activities/create" class="btn-primary">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างกิจกรรม
+        </router-link>
+      </template>
+    </PageHeader>
+
+    <!-- แถบกรองแบบเส้นใต้บาง (ไม่ใช่ปุ่ม pill ทึบสี) -->
+    <nav
+      class="flex gap-1 overflow-x-auto border-b border-stone-200"
+      aria-label="กรองตามสถานะกิจกรรม"
+    >
+      <button
+        v-for="f in ['all', 'upcoming', 'ongoing', 'completed', 'cancelled'] as const"
+        :key="f"
+        type="button"
+        @click="filter = f"
+        class="-mb-px shrink-0 border-b-2 px-3 py-2.5 text-sm font-bold transition-colors"
+        :class="
+          filter === f
+            ? 'border-brand-700 text-brand-700'
+            : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-900'
+        "
       >
-        <div class="w-full lg:w-auto">
-          <h3
-            class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5"
-          >
-            <div
-              class="p-2 sm:p-2.5 bg-violet-100 rounded-xl text-violet-600 shadow-sm flex-shrink-0"
-            >
-              <i class="bi bi-calendar-heart-fill"></i>
-            </div>
-            กิจกรรม & ผู้เข้าร่วม
-          </h3>
-          <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">
-            บันทึกกิจกรรม หน้าที่ และชั่วโมงจิตอาสาของห้อง
-          </p>
+        {{ f === 'all' ? 'ทั้งหมด' : ACTIVITY_STATUS_LABELS[f] }}
+        <span class="num ms-1 text-[11px] font-bold text-stone-400">{{ statusCount[f] }}</span>
+      </button>
+    </nav>
+
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-28" />
+
+    <StateBlock v-else-if="hasError" variant="error" @retry="fetchData" />
+
+    <StateBlock
+      v-else-if="filteredActivities.length === 0"
+      variant="empty"
+      icon="bi-calendar-x"
+      title="ยังไม่มีกิจกรรมในหมวดนี้"
+      hint="สร้างกิจกรรมแรกของห้องเพื่อเริ่มบันทึกผู้เข้าร่วมและชั่วโมงจิตอาสา"
+    >
+      <router-link v-if="canManageActivities" to="/activities/create" class="btn-primary mt-1.5">
+        <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างกิจกรรมแรก
+      </router-link>
+    </StateBlock>
+
+    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div
+        v-for="activity in filteredActivities"
+        :key="activity.id"
+        @click="openActivity(activity)"
+        class="page-card card-hover flex cursor-pointer flex-col p-4 sm:p-5"
+        :class="{ 'opacity-70': activity.status === 'cancelled' }"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <h2 class="min-w-0 flex-1 truncate font-display text-base font-bold text-stone-900">
+            {{ activity.title }}
+          </h2>
+          <span class="chip shrink-0" :class="statusChip(activity.status)">
+            {{
+              ACTIVITY_STATUS_LABELS[
+                typeof activity.status === 'string' ? activity.status : 'upcoming'
+              ] || activity.status
+            }}
+          </span>
         </div>
 
-        <div class="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
-          <div
-            class="bg-slate-200/60 p-1.5 rounded-2xl flex flex-nowrap items-center gap-1 shadow-inner backdrop-blur-sm w-full sm:w-auto overflow-x-auto"
+        <!-- 🏷️ Badge หมวดหมู่จาก metadata.tags -->
+        <div v-if="getTags(activity).length" class="mt-2.5 flex flex-wrap gap-1.5">
+          <span
+            v-for="tag in getTags(activity)"
+            :key="tag"
+            class="chip bg-stone-100 text-stone-600"
           >
-            <button
-              v-for="f in ['all', 'upcoming', 'ongoing', 'completed', 'cancelled'] as const"
-              :key="f"
-              @click="filter = f"
-              :class="
-                filter === f
-                  ? 'bg-white text-violet-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              "
-              class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5"
+            #{{ tag }}
+          </span>
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <span class="chip bg-stone-100 text-stone-600">
+            <i class="bi bi-calendar-event" aria-hidden="true"></i>
+            <span class="num">{{ formatDate(activity.activity_date) }}</span>
+          </span>
+          <span v-if="activity.base_hours > 0" class="chip bg-emerald-50 text-emerald-700">
+            <i class="bi bi-clock-history" aria-hidden="true"></i>
+            <span class="num">{{ activity.base_hours }}</span> ชม.
+          </span>
+        </div>
+
+        <p class="mt-3 line-clamp-3 flex-1 text-sm leading-relaxed text-stone-600">
+          {{ activity.description || 'ไม่มีรายละเอียดเพิ่มเติม' }}
+        </p>
+
+        <div class="mt-3 flex items-center justify-between gap-2 border-t border-stone-100 pt-3">
+          <span class="inline-flex items-center gap-1.5 text-xs font-bold text-stone-500">
+            <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i>
+            <span class="num">{{ activity.participant_count }}</span> คน
+          </span>
+          <div v-if="canManageActivities" class="flex shrink-0 items-center gap-0.5">
+            <router-link
+              :to="`/activities/${activity.id}/edit`"
+              class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-brand-50 hover:text-brand-700 active:scale-[0.97]"
+              title="แก้ไขกิจกรรม"
+              aria-label="แก้ไขกิจกรรม"
             >
-              {{ f === 'all' ? 'ทั้งหมด' : ACTIVITY_STATUS_LABELS[f] }}
-              <span
-                class="px-1.5 py-0.5 rounded-full text-[10px] font-black"
-                :class="
-                  filter === f ? 'bg-violet-100 text-violet-600' : 'bg-slate-300/50 text-slate-600'
-                "
-                >{{ statusCount[f] }}</span
-              >
+              <i class="bi bi-pencil-square" aria-hidden="true"></i>
+            </router-link>
+            <button
+              type="button"
+              @click.stop="deleteActivity(activity)"
+              class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+              title="ลบกิจกรรม"
+              aria-label="ลบกิจกรรม"
+            >
+              <i class="bi bi-trash3-fill" aria-hidden="true"></i>
             </button>
           </div>
-
-          <router-link
-            v-if="canManageActivities"
-            to="/activities/create"
-            class="w-full sm:w-auto px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-lg shadow-violet-600/20 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
-          >
-            <i class="bi bi-plus-lg"></i> สร้างกิจกรรม
-          </router-link>
         </div>
       </div>
+    </div>
 
-      <div v-if="isLoading" class="flex flex-col justify-center items-center py-20 gap-4">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
-        <p class="text-slate-400 font-medium animate-pulse">กำลังดึงข้อมูลกิจกรรม...</p>
-      </div>
-
-      <div
-        v-else-if="filteredActivities.length === 0"
-        class="flex flex-col items-center justify-center py-20 md:py-24 bg-white rounded-[2rem] shadow-sm border border-slate-100 px-4 text-center"
-      >
-        <div
-          class="w-20 h-20 md:w-24 md:h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6"
-        >
-          <i class="bi bi-calendar-x text-3xl md:text-4xl text-slate-300"></i>
-        </div>
-        <h4 class="text-lg md:text-xl font-bold text-slate-700 mb-2">ยังไม่มีกิจกรรมในหมวดนี้</h4>
-        <p class="text-sm md:text-base text-slate-400">สร้างกิจกรรมแรกของห้องเลย! 🎪</p>
-      </div>
-
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
-        <div
-          v-for="activity in filteredActivities"
-          :key="activity.id"
-          @click="openActivity(activity)"
-          class="group cursor-pointer bg-white rounded-3xl p-4 md:p-5 shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
-          :class="{ 'opacity-70 grayscale-[0.2]': activity.status === 'cancelled' }"
-        >
-          <div
-            class="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-3 gap-2 sm:gap-4"
-          >
-            <h5 class="text-lg font-bold text-slate-800 leading-tight flex-grow">
-              {{ activity.title }}
-            </h5>
-            <span
-              class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap inline-block border"
-              :class="
-                ACTIVITY_STATUS_BADGE[
-                  typeof activity.status === 'string' ? activity.status : 'upcoming'
-                ] || ACTIVITY_STATUS_BADGE.upcoming
-              "
-            >
-              {{
-                ACTIVITY_STATUS_LABELS[
-                  typeof activity.status === 'string' ? activity.status : 'upcoming'
-                ] || activity.status
-              }}
-            </span>
-          </div>
-
-          <!-- 🏷️ Badge หมวดหมู่จาก metadata.tags -->
-          <div v-if="getTags(activity).length" class="flex flex-wrap gap-1.5 mb-3">
-            <span
-              v-for="tag in getTags(activity)"
-              :key="tag"
-              class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-violet-50 text-violet-600 border border-violet-100"
-            >
-              #{{ tag }}
-            </span>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2 text-slate-500 text-xs font-semibold mb-3">
-            <span
-              class="bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100 inline-flex items-center gap-1.5"
-            >
-              <i class="bi bi-calendar-event text-violet-500"></i>
-              {{ formatDate(activity.activity_date) }}
-            </span>
-            <span
-              v-if="activity.base_hours > 0"
-              class="bg-emerald-50 w-fit px-3 py-1.5 rounded-lg border border-emerald-100 inline-flex items-center gap-1.5 text-emerald-600"
-            >
-              <i class="bi bi-clock-history"></i> {{ activity.base_hours }} ชม.
-            </span>
-          </div>
-
-          <p class="text-slate-600 text-sm mb-4 whitespace-pre-wrap leading-relaxed flex-grow">
-            {{ activity.description || 'ไม่มีรายละเอียดเพิ่มเติม' }}
-          </p>
-
-          <div class="flex justify-between items-center mt-auto pt-3 border-t border-slate-100">
-            <span class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500">
-              <i class="bi bi-people-fill text-violet-500"></i> {{ activity.participant_count }} คน
-            </span>
-            <div v-if="canManageActivities" class="flex gap-2">
-              <router-link
-                :to="`/activities/${activity.id}/edit`"
-                class="w-10 h-10 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-400 bg-slate-50 hover:bg-violet-50 hover:text-violet-600 transition-colors"
-                title="แก้ไขกิจกรรม"
-              >
-                <i class="bi bi-pencil-square"></i>
-              </router-link>
-              <button
-                @click.stop="deleteActivity(activity)"
-                class="w-10 h-10 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-400 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                title="ลบกิจกรรม"
-              >
-                <i class="bi bi-trash3-fill"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="mt-10 md:mt-12 flex flex-col sm:flex-row justify-center items-center gap-4">
-        <router-link
-          to="/dashboard"
-          class="w-full sm:w-auto px-8 py-3 md:py-3.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold rounded-2xl transition-all flex items-center justify-center gap-2"
-        >
-          <i class="bi bi-house"></i> กลับหน้าหลัก
-        </router-link>
-      </div>
+    <div class="flex justify-center pt-2">
+      <router-link to="/dashboard" class="btn-ghost-ui">
+        <i class="bi bi-house" aria-hidden="true"></i> กลับหน้าหลัก
+      </router-link>
     </div>
   </div>
 </template>

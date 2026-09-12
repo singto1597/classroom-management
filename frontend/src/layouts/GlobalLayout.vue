@@ -1,26 +1,67 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { RouterView, useRouter } from 'vue-router';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { RouterView, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
 
 const authStore = useAuthStore();
-const router = useRouter();
-const activeDropdown = ref(false);
+const route = useRoute();
 
 // 🚨 บังคับดึงข้อมูลให้เป็นปัจจุบันที่สุดเสมอ ป้องกันข้อมูลผี
+const activeDropdown = ref(false);
+const dropdownStyle = ref<{ top: string; left: string; right: string }>({
+  top: '0px',
+  left: 'auto',
+  right: '0px',
+});
+
 onMounted(async () => {
   if (authStore.isAuthenticated) {
     await authStore.fetchProfile();
   }
+  window.addEventListener('scroll', closeDropdown, true);
+  window.addEventListener('resize', closeDropdown);
 });
 
-const toggleDropdown = () => {
-  activeDropdown.value = !activeDropdown.value;
-};
+onUnmounted(() => {
+  window.removeEventListener('scroll', closeDropdown, true);
+  window.removeEventListener('resize', closeDropdown);
+});
 
 const closeDropdown = () => {
   activeDropdown.value = false;
+};
+
+watch(
+  () => route.path,
+  () => closeDropdown(),
+);
+
+const toggleDropdown = (event: MouseEvent) => {
+  if (activeDropdown.value) {
+    closeDropdown();
+    return;
+  }
+
+  const trigger = event.currentTarget as HTMLElement;
+  const rect = trigger.getBoundingClientRect();
+  const panelWidth = 256;
+
+  // ชิดขวาเสมอ แต่ไม่ให้ล้นขอบจอ
+  const right = Math.max(12, window.innerWidth - rect.right);
+
+  dropdownStyle.value = {
+    top: `${rect.bottom + 8}px`,
+    left: 'auto',
+    right: `${Math.min(right, Math.max(12, window.innerWidth - panelWidth - 12))}px`,
+  };
+
+  activeDropdown.value = true;
+};
+
+const avatarChar = () => {
+  const name = authStore.nickname || authStore.firstName;
+  return name && name !== 'ไม่ระบุชื่อ' ? name.charAt(0).toUpperCase() : 'ส';
 };
 
 const logout = () => {
@@ -41,111 +82,157 @@ const goToProfileSettings = async () => {
   const googleScope = encodeURIComponent('openid email profile');
   const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${import.meta.env.VITE_GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(import.meta.env.VITE_GOOGLE_REDIRECT_URI)}&response_type=code&scope=${googleScope}`;
 
-  Swal.fire({
-    title: '<i class="bi bi-shield-lock-fill text-3xl text-slate-800"></i><br>จัดการบัญชีและการเชื่อมต่อ',
-    html: `
-      <div class="text-left mt-4 space-y-4">
-        <p class="text-sm text-slate-500 font-medium">จัดการเชื่อมต่อแพลตฟอร์มต่างๆ เพื่อป้องกันการสูญหายของข้อมูลห้องเรียน</p>
-        
-        <div class="p-4 rounded-[1.5rem] border ${isGoogleLinked ? 'bg-emerald-50/50 border-emerald-100' : 'bg-slate-50 border-slate-200'} flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <div class="w-10 h-10 rounded-full flex items-center justify-center bg-white shadow-sm border border-slate-100">
-              <i class="bi bi-google text-rose-500 text-lg"></i>
-            </div>
-            <div>
-              <p class="font-bold text-slate-800 leading-tight">Google Account</p>
-              <p class="text-[11px] font-bold mt-0.5 ${isGoogleLinked ? 'text-emerald-600' : 'text-slate-400'}">
-                ${isGoogleLinked ? '<i class="bi bi-check-circle-fill"></i> เชื่อมต่อแล้ว' : 'ยังไม่ได้เชื่อมต่อ'}
-              </p>
-            </div>
-          </div>
-          ${!isGoogleLinked ? `<a href="${googleUrl}" class="px-4 py-2 bg-white border border-slate-200 hover:border-blue-500 hover:text-blue-600 text-xs font-bold rounded-xl transition-all shadow-sm">ผูกบัญชี</a>` : ''}
+  const row = (linked: boolean, label: string, icon: string, href: string, brandColor: string) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:14px;border:1px solid ${linked ? '#A7F3D0' : '#E7E5E4'};background:${linked ? '#ECFDF5' : '#FFFFFF'}">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0">
+        <div style="width:40px;height:40px;border-radius:12px;background:#F5F5F4;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="${icon}" style="font-size:18px;color:${brandColor}"></i>
         </div>
+        <div style="text-align:left;min-width:0">
+          <p style="font-weight:700;color:#1C1917;margin:0;font-size:14px">${label}</p>
+          <p style="font-size:11px;font-weight:700;margin:2px 0 0;color:${linked ? '#059669' : '#A8A29E'}">
+            ${linked ? 'เชื่อมต่อแล้ว' : 'ยังไม่ได้เชื่อมต่อ'}
+          </p>
+        </div>
+      </div>
+      ${!linked ? `<a href="${href}" style="flex-shrink:0;padding:8px 16px;background:#1D4ED8;color:#fff;font-size:12px;font-weight:700;border-radius:10px;text-decoration:none">ผูกบัญชี</a>` : ''}
+    </div>
+  `;
 
-        <div class="p-4 rounded-[1.5rem] border ${isDiscordLinked ? 'bg-emerald-50/50 border-emerald-100' : 'bg-slate-50 border-slate-200'} flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <div class="w-10 h-10 rounded-full flex items-center justify-center bg-white shadow-sm border border-slate-100">
-              <i class="bi bi-discord text-[#5865F2] text-xl"></i>
-            </div>
-            <div>
-              <p class="font-bold text-slate-800 leading-tight">Discord Account</p>
-              <p class="text-[11px] font-bold mt-0.5 ${isDiscordLinked ? 'text-emerald-600' : 'text-slate-400'}">
-                ${isDiscordLinked ? '<i class="bi bi-check-circle-fill"></i> เชื่อมต่อแล้ว' : 'ยังไม่ได้เชื่อมต่อ'}
-              </p>
-            </div>
-          </div>
-          ${!isDiscordLinked ? `<a href="${discordUrl}" class="px-4 py-2 bg-white border border-slate-200 hover:border-[#5865F2] hover:text-[#5865F2] text-xs font-bold rounded-xl transition-all shadow-sm">ผูกบัญชี</a>` : ''}
-        </div>
+  Swal.fire({
+    title:
+      '<span style="font-family:Anuphan;font-weight:700;font-size:19px">จัดการบัญชีและการเชื่อมต่อ</span>',
+    html: `
+      <div style="text-align:left;display:flex;flex-direction:column;gap:12px;margin-top:16px">
+        <p style="font-size:13px;color:#78716C;margin:0">เชื่อมต่อแพลตฟอร์มต่างๆ เพื่อรวมข้อมูลของคุณให้เป็นหนึ่งเดียว ป้องกันการสูญหาย</p>
+        ${row(isGoogleLinked, 'Google Account', 'bi bi-google', googleUrl, '#EA4335')}
+        ${row(isDiscordLinked, 'Discord Account', 'bi bi-discord', discordUrl, '#5865F2')}
       </div>
     `,
     showConfirmButton: true,
     confirmButtonText: 'ปิดหน้าต่าง',
-    confirmButtonColor: '#0f172a',
-    customClass: {
-      popup: 'rounded-[2.5rem] shadow-2xl border border-slate-100 p-6',
-      confirmButton: 'rounded-xl px-8 py-3 font-bold tracking-wide'
-    }
+    confirmButtonColor: '#1d4ed8',
   });
 };
 </script>
 
 <template>
-  <div class="min-h-screen min-h-dvh bg-[#f8fafc] font-sans flex flex-col relative overflow-hidden">
-
-    <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-400/5 rounded-full blur-[100px] pointer-events-none -translate-y-1/2 translate-x-1/3"></div>
-    <div class="absolute top-40 left-0 w-[400px] h-[400px] bg-indigo-400/5 rounded-full blur-[80px] pointer-events-none -translate-x-1/2"></div>
-
-    <header class="bg-white/70 backdrop-blur-xl border-b border-slate-200/50 sticky top-0 z-30 shadow-[0_4px_30px_rgba(0,0,0,0.02)]">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 md:h-20 flex items-center justify-between">
-
-        <div class="flex items-center gap-2.5 md:gap-3 min-w-0">
-          <div class="w-9 h-9 md:w-10 md:h-10 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl flex items-center justify-center shadow-lg shadow-slate-900/20 shrink-0">
-            <i class="bi bi-box-fill text-white text-lg md:text-xl"></i>
-          </div>
-          <h1 class="text-lg md:text-2xl font-black tracking-widest text-slate-800 truncate">SYNC<span class="font-light text-slate-500">ROOM</span></h1>
-        </div>
-
-        <div class="relative shrink-0">
-          <button
-            @click="toggleDropdown"
-            class="flex items-center gap-2 md:gap-3 p-1.5 md:pe-4 bg-white/50 hover:bg-white border border-slate-200/60 rounded-full transition-all duration-300 shadow-sm hover:shadow-md cursor-pointer active:scale-95 group"
+  <div class="relative flex min-h-screen min-h-dvh flex-col bg-paper font-sans text-ink">
+    <!-- ============================================
+         🔝 HEADER แบบแบน — เส้นคั่นบาง ไม่มีกระจกเงา
+         ============================================ -->
+    <header
+      class="sticky top-0 z-30 border-b border-stone-200 bg-white"
+      :style="{ paddingTop: 'env(safe-area-inset-top)' }"
+    >
+      <div class="page-wrap flex h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:h-20">
+        <!-- โลโก้ -->
+        <RouterLink to="/lobby" class="flex min-w-0 items-center gap-2.5">
+          <div
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white sm:h-10 sm:w-10"
           >
-            <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-blue-600 text-white flex items-center justify-center font-black shadow-inner group-hover:scale-105 transition-transform duration-300">
-              {{ (authStore.nickname || authStore.firstName || 'ส').charAt(0).toUpperCase() }}
+            <i class="bi bi-box-fill text-base sm:text-lg" aria-hidden="true"></i>
+          </div>
+          <span
+            class="font-display truncate text-lg font-bold tracking-[0.2em] text-stone-900 sm:text-xl"
+          >
+            SYNC<span class="font-normal text-stone-400">ROOM</span>
+          </span>
+        </RouterLink>
+
+        <!-- โปรไฟล์ -->
+        <div class="shrink-0">
+          <button
+            v-if="authStore.isAuthenticated"
+            type="button"
+            class="flex items-center gap-2 rounded-full border border-stone-200 bg-white p-1 transition-colors hover:border-stone-300 hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 sm:pe-3"
+            :class="{ 'ring-2 ring-brand-500/25': activeDropdown }"
+            @click.stop="toggleDropdown"
+          >
+            <div
+              class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-700 text-sm font-bold text-white"
+            >
+              {{ avatarChar() }}
             </div>
-            <span class="text-sm font-bold text-slate-700 hidden sm:block tracking-wide">{{ authStore.currentUserName }}</span>
-            <i class="bi bi-chevron-down text-xs text-slate-400 ms-1 transition-transform duration-300" :class="{'rotate-180': activeDropdown}"></i>
+            <span class="hidden max-w-[140px] truncate text-sm font-bold text-stone-700 sm:block">
+              {{ authStore.currentUserName }}
+            </span>
+            <i
+              class="bi bi-chevron-down hidden text-[10px] text-stone-400 transition-transform duration-200 sm:block"
+              :class="{ 'rotate-180': activeDropdown }"
+              aria-hidden="true"
+            ></i>
           </button>
         </div>
-
       </div>
     </header>
 
-    <main class="flex-1 w-full mx-auto relative z-10 p-4 sm:p-6 md:p-8">
-      <RouterView v-slot="{ Component }">
-        <transition name="fade-slide" mode="out-in">
-          <component :is="Component" />
-        </transition>
-      </RouterView>
+    <!-- ============================================
+         📄 เนื้อหา
+         ============================================ -->
+    <main class="relative z-10 flex-1 px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:px-6 sm:py-8 lg:py-10">
+      <div class="page-wrap">
+        <RouterView v-slot="{ Component, route: r }">
+          <transition name="fade-slide" mode="out-in">
+            <div :key="r.path">
+              <component :is="Component" />
+            </div>
+          </transition>
+        </RouterView>
+      </div>
     </main>
 
-    <!-- Dropdown panel + backdrop: teleport ไป body กัน stacking context เดิม -->
+    <!-- ============================================
+         ⚓ ท้ายหน้า — จุดยึดสายตาปิดท้าย
+         ============================================ -->
+    <footer class="border-t border-stone-200 bg-white">
+      <div
+        class="page-wrap flex flex-col items-center justify-between gap-2 px-4 py-5 text-xs text-stone-400 sm:flex-row sm:px-6"
+      >
+        <p class="font-semibold">SYNCROOM — ระบบจัดการห้องเรียน</p>
+        <p>เวลาไทย (Asia/Bangkok) · ใช้ฟรีสำหรับห้องเรียน</p>
+      </div>
+    </footer>
+
+    <!-- ============================================
+         🗂️ DROPDOWN (Teleport กัน stacking context)
+         ============================================ -->
     <Teleport to="body">
       <div v-if="activeDropdown" class="fixed inset-0 z-[70]" @click="closeDropdown"></div>
 
-      <Transition name="fade-scale">
-        <div v-if="activeDropdown" class="fixed z-[80] right-4 md:right-8 top-16 md:top-20 w-64 max-w-[calc(100vw-2rem)] bg-white rounded-[1.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 py-3 origin-top-right">
-          <div class="px-5 py-3 mb-2 bg-slate-50/50 mx-2 rounded-2xl border border-slate-100/50">
-            <p class="text-sm font-black text-slate-800 truncate">{{ authStore.currentUserName }}</p>
-            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Global Account</p>
+      <Transition name="dropdown-anim">
+        <div
+          v-if="activeDropdown"
+          class="fixed z-[80] flex w-64 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
+          :style="dropdownStyle"
+        >
+          <div class="border-b border-stone-100 bg-stone-50/70 px-5 py-4">
+            <p class="truncate text-sm font-bold text-stone-800">
+              {{ authStore.currentUserName }}
+            </p>
+            <p class="mt-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">
+              Global Account
+            </p>
           </div>
-          <div class="px-2 space-y-1">
-            <button @click="goToProfileSettings" class="w-full text-left px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-xl transition-all duration-200 flex items-center gap-3">
-              <div class="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center"><i class="bi bi-link-45deg text-slate-400 text-lg"></i></div> จัดการผูกบัญชี
+
+          <div class="py-1.5">
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
+              @click.stop="goToProfileSettings"
+            >
+              <i class="bi bi-link-45deg text-xl opacity-70" aria-hidden="true"></i>
+              จัดการผูกบัญชี
             </button>
-            <div class="h-px bg-slate-100 my-2 mx-2"></div>
-            <button @click="logout" class="w-full text-left px-4 py-2.5 text-sm font-black text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all duration-200 flex items-center gap-3">
-              <div class="w-7 h-7 rounded-lg bg-rose-50 flex items-center justify-center"><i class="bi bi-power text-rose-400"></i></div> ออกจากระบบ
+          </div>
+
+          <div class="border-t border-stone-100 bg-stone-50/60 p-2">
+            <button
+              type="button"
+              class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50"
+              @click.stop="logout"
+            >
+              ออกจากระบบ
             </button>
           </div>
         </div>
@@ -155,10 +242,37 @@ const goToProfileSettings = async () => {
 </template>
 
 <style scoped>
-.fade-slide-enter-active, .fade-slide-leave-active { transition: all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.fade-slide-enter-from { opacity: 0; transform: translateY(20px) scale(0.98); }
-.fade-slide-leave-to { opacity: 0; transform: translateY(-20px) scale(0.98); }
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
 
-.fade-scale-enter-active, .fade-scale-leave-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.fade-scale-enter-from, .fade-scale-leave-to { opacity: 0; transform: scale(0.95) translateY(-10px); }
+.dropdown-anim-enter-active {
+  transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dropdown-anim-leave-active {
+  transition: all 0.12s ease-in;
+}
+.dropdown-anim-enter-from,
+.dropdown-anim-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-slide-enter-active,
+  .fade-slide-leave-active,
+  .dropdown-anim-enter-active,
+  .dropdown-anim-leave-active {
+    transition-duration: 0.01ms;
+  }
+}
 </style>

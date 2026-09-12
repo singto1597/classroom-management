@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
+import PageHeader from '@/components/ui/PageHeader.vue';
 
 const authStore = useAuthStore();
 
@@ -22,155 +23,122 @@ const copyRoomCode = async () => {
       text: `รหัสห้อง "${currentRoomCode.value}" ถูกคัดลอกไปยังคลิปบอร์ดแล้ว`,
       timer: 2000,
       showConfirmButton: false,
-      customClass: { popup: 'rounded-3xl' },
     });
   } catch {
     Swal.fire({
       icon: 'error',
       title: 'ไม่สามารถคัดลอกได้',
       text: 'กรุณาคัดลอกด้วยตนเอง',
-      customClass: { popup: 'rounded-3xl' },
+      confirmButtonColor: '#1d4ed8',
     });
   }
 };
 </script>
 
 <template>
-  <div class="min-h-[80vh] w-full flex items-center justify-center p-4">
-    <div class="bg-white shadow-xl border border-slate-200/60 rounded-[1.75rem] sm:rounded-[2rem] overflow-hidden max-w-2xl w-full">
-    <!-- Header -->
-    <div class="bg-gradient-to-r from-[#5865F2] to-[#4752C4] px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4">
-      <!-- Discord SVG icon -->
-      <svg
-        class="w-9 h-9 sm:w-10 sm:h-10 shrink-0"
-        viewBox="0 0 127.14 96.36"
-        fill="white"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"
-        />
-      </svg>
-      <div class="min-w-0">
-        <h2 class="text-white text-lg sm:text-xl font-black tracking-tight">
-          เชื่อมต่อ Discord
-        </h2>
-        <p class="text-indigo-200 text-sm font-medium truncate">
-          รับการแจ้งเตือนและเช็คข้อมูลส่วนตัวผ่านบอท
-        </p>
-      </div>
-    </div>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Discord Integration"
+      title="เชื่อมต่อ Discord"
+      description="รับการแจ้งเตือนและเช็คข้อมูลส่วนตัวผ่านบอท"
+    />
 
-    <!-- Body -->
-    <div class="px-4 sm:px-6 py-5 sm:py-6 space-y-5">
-      <!-- Step 1 -->
-      <div class="flex gap-4">
+    <div class="page-card overflow-hidden">
+      <div class="flex items-center gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
         <div
-          class="w-9 h-9 rounded-full bg-[#5865F2] text-white font-black text-sm flex items-center justify-center shrink-0"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
         >
-          1
+          <i class="bi bi-discord text-base" aria-hidden="true"></i>
         </div>
-        <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-slate-800 text-base mb-1">
-            เชิญบอทเข้าเซิร์ฟเวอร์ของคุณ
-          </h3>
-          <p class="text-slate-500 text-sm leading-relaxed mb-3">
-            คลิกปุ่มด้านล่างเพื่อเพิ่มบอทลงในเซิร์ฟเวอร์ Discord
-            ที่คุณต้องการรับการแจ้งเตือน
-          </p>
-          <a
-            :href="botInviteUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center gap-2 px-6 py-3 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-2xl transition-all shadow-md"
-          >
-            <svg
-              class="w-5 h-5"
-              viewBox="0 0 127.14 96.36"
-              fill="currentColor"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"
-              />
-            </svg>
-            เพิ่มบอทลง Discord
-          </a>
+        <div class="min-w-0">
+          <p class="section-title truncate">ขั้นตอนการเชื่อมต่อ</p>
+          <p class="truncate text-xs text-stone-500">ทำตามลำดับสองขั้นตอนด้านล่าง</p>
         </div>
       </div>
 
-      <!-- Divider -->
-      <div class="flex items-center gap-3">
-        <span class="flex-1 h-px bg-slate-200"></span>
-        <span class="text-xs font-bold text-slate-400 uppercase tracking-widest"
-          >จากนั้น</span
-        >
-        <span class="flex-1 h-px bg-slate-200"></span>
-      </div>
-
-      <!-- Step 2 -->
-      <div class="flex gap-4">
-        <div
-          class="w-9 h-9 rounded-full bg-[#5865F2] text-white font-black text-sm flex items-center justify-center shrink-0"
-        >
-          2
-        </div>
-        <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-slate-800 text-base mb-1">
-            พิมพ์คำสั่งใน Discord
-          </h3>
-          <p class="text-slate-500 text-sm leading-relaxed mb-3">
-            หลังจากเพิ่มบอทแล้ว ให้พิมพ์คำสั่งด้านล่างในช่องแชท
-            (หรือ DM หาบอท) เพื่อเชื่อมต่อบัญชีของคุณกับห้องเรียน
-          </p>
-
-          <!-- Command box -->
-          <div
-            class="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3"
+      <!-- ลำดับขั้นด้วยเลข font-display คั่นด้วยเส้น hairline ไม่ใช่การ์ดซ้อนการ์ด -->
+      <ol class="divide-y divide-stone-100">
+        <li class="flex gap-3.5 p-4 sm:gap-4 sm:p-5">
+          <span
+            class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 font-display text-sm font-bold text-brand-700"
+            aria-hidden="true"
           >
-            <div
-              class="bg-slate-800 text-green-300 font-mono text-sm px-4 py-3 rounded-xl overflow-x-auto whitespace-nowrap"
-            >
-              <span class="text-slate-400">/</span>sync_room
-              <span class="text-yellow-300">{{ currentRoomCode }}&nbsp;</span><span class="text-blue-300">5</span>
-            </div>
-            <p class="text-xs text-slate-400 leading-relaxed">
-              เปลี่ยนเลข
-              <span class="text-blue-400 font-bold">5</span>
-              เป็นเลขที่ของคุณ (เช่น
-              <span class="text-blue-400 font-bold">1</span>,
-              <span class="text-blue-400 font-bold">12</span>,
-              <span class="text-blue-400 font-bold">30</span>)
+            1
+          </span>
+          <div class="min-w-0 flex-1">
+            <h2 class="font-display text-base font-bold text-stone-900">
+              เชิญบอทเข้าเซิร์ฟเวอร์ของคุณ
+            </h2>
+            <p class="mt-1 text-sm leading-relaxed text-stone-500">
+              คลิกปุ่มด้านล่างเพื่อเพิ่มบอทลงในเซิร์ฟเวอร์ Discord
+              ที่คุณต้องการรับการแจ้งเตือน
             </p>
+            <a
+              :href="botInviteUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn-primary mt-3"
+            >
+              <i class="bi bi-discord" aria-hidden="true"></i>
+              เพิ่มบอทลง Discord
+            </a>
           </div>
+        </li>
 
-          <!-- Room code copy -->
-          <div class="mt-3 flex items-center gap-2">
-            <span class="text-sm font-semibold text-slate-600"
-              >รหัสห้อง:</span
-            >
-            <code
-              class="bg-slate-100 text-slate-800 font-mono font-bold px-3 py-1.5 rounded-lg text-sm"
-            >
-              {{ currentRoomCode }}
-            </code>
-            <button
-              class="ml-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-colors flex items-center gap-1.5 text-sm active:scale-95"
-              @click="copyRoomCode"
-            >
-              <i class="bi bi-clipboard"></i>
-              คัดลอก
-            </button>
+        <li class="flex gap-3.5 p-4 sm:gap-4 sm:p-5">
+          <span
+            class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 font-display text-sm font-bold text-brand-700"
+            aria-hidden="true"
+          >
+            2
+          </span>
+          <div class="min-w-0 flex-1">
+            <h2 class="font-display text-base font-bold text-stone-900">พิมพ์คำสั่งใน Discord</h2>
+            <p class="mt-1 text-sm leading-relaxed text-stone-500">
+              หลังจากเพิ่มบอทแล้ว ให้พิมพ์คำสั่งด้านล่างในช่องแชท
+              (หรือ DM หาบอท) เพื่อเชื่อมต่อบัญชีของคุณกับห้องเรียน
+            </p>
+
+            <div class="mt-3 space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-3.5">
+              <div
+                class="overflow-x-auto whitespace-nowrap rounded-xl bg-stone-900 px-3.5 py-3 font-mono text-sm text-emerald-300"
+              >
+                <span class="text-stone-500">/</span>sync_room
+                <span class="text-amber-300">{{ currentRoomCode }}&nbsp;</span><span
+                  class="text-brand-300"
+                  >5</span
+                >
+              </div>
+              <p class="text-xs leading-relaxed text-stone-500">
+                เปลี่ยนเลข
+                <span class="font-bold text-brand-700">5</span>
+                เป็นเลขที่ของคุณ (เช่น
+                <span class="font-bold text-brand-700">1</span>,
+                <span class="font-bold text-brand-700">12</span>,
+                <span class="font-bold text-brand-700">30</span>)
+              </p>
+            </div>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <span class="text-sm font-semibold text-stone-500">รหัสห้อง:</span>
+              <code
+                class="min-w-0 truncate rounded-lg bg-stone-100 px-3 py-1.5 font-mono text-sm font-bold text-stone-800"
+              >
+                {{ currentRoomCode }}
+              </code>
+              <button type="button" class="btn-ghost-ui ms-auto" @click="copyRoomCode">
+                <i class="bi bi-clipboard" aria-hidden="true"></i>
+                คัดลอก
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
+        </li>
+      </ol>
     </div>
-    <!-- Back to dashboard button -->
-    <div class="px-4 sm:px-6 pb-5 sm:pb-6">
-      <RouterLink to="/dashboard" class="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all active:scale-95 w-full inline-flex items-center justify-center">
-        กลับสู่หน้าหลัก
-      </RouterLink>
-    </div>
+
+    <RouterLink to="/dashboard" class="btn-ghost-ui w-full">
+      <i class="bi bi-arrow-left" aria-hidden="true"></i>
+      กลับสู่หน้าหลัก
+    </RouterLink>
   </div>
-</div>
 </template>

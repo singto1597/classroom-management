@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import type { Task, DailyNote } from '@/types/task'
 import Swal from 'sweetalert2'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import StateBlock from '@/components/ui/StateBlock.vue'
+import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 
-const router = useRouter()
 const authStore = useAuthStore()
+
+// ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
+// ที่อ่าน detail จาก response ของ axios ไว้
+const apiErrorDetail = (error: unknown): string | undefined => {
+  if (!isAxiosError<{ detail?: unknown }>(error)) return undefined
+  const detail = error.response?.data?.detail
+  return typeof detail === 'string' ? detail : undefined
+}
 
 // --- ถอด Mock Data เปลี่ยนมาดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
@@ -23,6 +33,9 @@ const notes = ref<DailyNote[]>([])
 const isLoading = ref(true)
 const filter = ref<'all' | 'pending' | 'done'>('pending')
 
+// สถานะผิดพลาด — เดิมแจ้งด้วย toast อย่างเดียว ตอนนี้ใช้โชว์ StateBlock ด้วย
+const hasError = ref(false)
+
 // ตั้งค่า Toast สำหรับ SweetAlert ให้แจ้งเตือนแบบสมูท ไม่บล็อกหน้าจอ
 const Toast = Swal.mixin({
   toast: true,
@@ -34,6 +47,7 @@ const Toast = Swal.mixin({
 
 const fetchData = async () => {
   isLoading.value = true
+  hasError.value = false
   try {
     const [tasksResult, notesResult] = await Promise.allSettled([
       TaskService.getAllTasks(currentRoomId),
@@ -43,13 +57,14 @@ const fetchData = async () => {
     if (tasksResult.status === 'fulfilled') {
       tasks.value = tasksResult.value as Task[]
     } else {
+      hasError.value = true
       Toast.fire({ icon: 'error', title: 'ดึงข้อมูลงานไม่สำเร็จ' })
     }
 
     if (notesResult.status === 'fulfilled') {
       notes.value = notesResult.value as DailyNote[]
     } else {
-      notes.value = [] 
+      notes.value = []
     }
   } finally {
     isLoading.value = false
@@ -98,19 +113,30 @@ const filteredTasks = computed(() => {
   })
 })
 
-// ปรับสี Badge ให้ดูพรีเมียมขึ้น (Pastel & Border)
+// โทนสีป้ายสถานะตาม Design Contract (โทนพาสเทล + ตัวอักษรเข้ม)
 const getStatusBadgeClass = (task: Task) => {
-  if (task.status === 'done') return 'bg-slate-100 text-slate-500 border border-slate-200'
+  if (task.status === 'done') return 'bg-stone-100 text-stone-600'
 
   const diffDays = diffDaysFromToday(task.due_date)
 
-  if (diffDays < 0) return 'bg-rose-50 text-rose-600 border border-rose-200'
-  if (diffDays === 0 || diffDays === 1) return 'bg-amber-50 text-amber-600 border border-amber-200'
-  return 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+  if (diffDays < 0) return 'bg-red-50 text-red-700'
+  if (diffDays === 0 || diffDays === 1) return 'bg-amber-50 text-amber-700'
+  return 'bg-emerald-50 text-emerald-700'
+}
+
+// ไอคอนในป้ายสถานะ — คู่กับเงื่อนไขเดียวกับ getStatusBadgeClass
+const getStatusIcon = (task: Task) => {
+  if (task.status === 'done') return 'bi-check-circle-fill'
+
+  const diffDays = diffDaysFromToday(task.due_date)
+
+  if (diffDays < 0) return 'bi-exclamation-circle-fill'
+  if (diffDays === 0 || diffDays === 1) return 'bi-clock-fill'
+  return 'bi-clock'
 }
 
 const getStatusText = (task: Task) => {
-  if (task.status === 'done') return 'ส่งแล้ว 🎉'
+  if (task.status === 'done') return 'ส่งแล้ว'
 
   const diffDays = diffDaysFromToday(task.due_date)
 
@@ -131,8 +157,8 @@ const toggleStatus = async (task: Task) => {
       Toast.fire({ icon: 'info', title: '🔄 เปลี่ยนกลับเป็นยังไม่เสร็จ' })
     }
     await fetchData()
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถอัปเดตสถานะได้', 'error')
+  } catch (error: unknown) {
+    Swal.fire('ข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถอัปเดตสถานะได้', 'error')
   }
 }
 
@@ -143,8 +169,8 @@ const deleteTask = async (taskId: number) => {
     text: "คุณจะไม่สามารถกู้คืนข้อมูลได้!",
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#e11d48',
-    cancelButtonColor: '#94a3b8',
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#78716c',
     confirmButtonText: 'ลบข้อมูล',
     cancelButtonText: 'ยกเลิก'
   })
@@ -154,8 +180,8 @@ const deleteTask = async (taskId: number) => {
       await TaskService.deleteTask(currentRoomId, taskId, currentUserName)
       Toast.fire({ icon: 'success', title: '🗑️ ลบงานเรียบร้อยแล้ว' })
       await fetchData()
-    } catch (error: any) {
-      Swal.fire('ข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถลบงานได้', 'error')
+    } catch (error: unknown) {
+      Swal.fire('ข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถลบงานได้', 'error')
     }
   }
 }
@@ -164,142 +190,198 @@ onMounted(fetchData)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
-    <div class="max-w-6xl mx-auto">
-      
-      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 md:mb-8 gap-4">
-        <div class="w-full lg:w-auto">
-          <h3 class="text-lg sm:text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5">
-            <div class="p-2 sm:p-2.5 bg-blue-100 rounded-xl text-blue-600 shadow-sm flex-shrink-0">
-              <i class="bi bi-clipboard-check"></i>
-            </div>
-            รายการงาน & โน้ต
-          </h3>
-          <p class="text-slate-500 mt-1.5 ml-1 text-sm md:text-base">จัดการการบ้านและอัปเดตประกาศรายวันของห้อง</p>
-        </div>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Classroom Tasks"
+      title="รายการงาน & โน้ต"
+      description="จัดการการบ้านและอัปเดตประกาศรายวันของห้อง"
+    >
+      <template #actions>
+        <RouterLink v-if="canManageTasks" to="/tasks/add" class="btn-primary">
+          <i class="bi bi-plus-lg" aria-hidden="true" />
+          สร้างใหม่
+        </RouterLink>
+      </template>
+    </PageHeader>
 
-        <div class="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
-          <div class="bg-slate-200/60 p-1.5 rounded-2xl flex flex-nowrap items-center gap-1 shadow-inner backdrop-blur-sm w-full sm:w-auto overflow-x-auto">
-            <button @click="filter = 'pending'" :class="filter === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5">กำลังทำ<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'pending' ? 'bg-blue-100 text-blue-600' : 'bg-slate-300/50 text-slate-600'">{{ pendingCount }}</span></button>
-            <button @click="filter = 'done'" :class="filter === 'done' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5">เสร็จแล้ว<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'done' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-300/50 text-slate-600'">{{ doneCount }}</span></button>
-            <button @click="filter = 'all'" :class="filter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'" class="flex-1 sm:flex-none px-3.5 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap text-center inline-flex items-center justify-center gap-1.5">ทั้งหมด<span class="px-1.5 py-0.5 rounded-full text-[10px] font-black" :class="filter === 'all' ? 'bg-slate-200 text-slate-700' : 'bg-slate-300/50 text-slate-600'">{{ tasks.length }}</span></button>
-          </div>
-
-          <router-link v-if="canManageTasks" to="/tasks/add" class="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 whitespace-nowrap">
-            <i class="bi bi-plus-lg"></i> สร้างใหม่
-          </router-link>
-        </div>
-      </div>
-
-      <div v-if="notes.length > 0" class="mb-10 md:mb-12">
-        <div class="flex items-center gap-2 mb-4 ml-1">
-          <i class="bi bi-sticky-fill text-amber-500 text-lg"></i>
-          <h4 class="text-base md:text-lg font-bold text-slate-700">โน้ตรายวันล่าสุด</h4>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
-          <div v-for="note in notes.slice(0, 3)" :key="note.id" 
-               class="relative bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/60 rounded-3xl p-5 md:p-6 shadow-sm hover:shadow-md transition-shadow">
-            <div class="absolute -top-3 -right-3 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100 text-amber-400">
-              <i class="bi bi-pin-angle-fill"></i>
-            </div>
-            <div class="mb-4">
-              <span class="text-xs font-bold text-amber-700 bg-amber-200/50 px-3 py-1.5 rounded-full backdrop-blur-sm">
-                📅 {{ formatDueDate(note.target_date) }}
-              </span>
-            </div>
-            <div class="space-y-3">
-              <div class="flex items-start gap-2 text-slate-700">
-                <span class="mt-0.5">🎒</span>
-                <p class="text-sm font-semibold leading-relaxed">เตรียม: <span class="font-bold text-amber-900">{{ note.bring_items || '-' }}</span></p>
-              </div>
-              <div class="flex items-start gap-2 text-slate-700">
-                <span class="mt-0.5 text-rose-500"><i class="bi bi-megaphone-fill"></i></span>
-                <p class="text-sm font-medium leading-relaxed">{{ note.announcement || 'ไม่มีประกาศ' }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="isLoading" class="flex flex-col justify-center items-center py-20 gap-4">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <p class="text-slate-400 font-medium animate-pulse">กำลังดึงข้อมูลงาน...</p>
-      </div>
-
-      <div v-else-if="filteredTasks.length === 0" class="flex flex-col items-center justify-center py-20 md:py-24 bg-white rounded-[2rem] shadow-sm border border-slate-100 px-4 text-center">
-        <div class="w-20 h-20 md:w-24 md:h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-          <i class="bi bi-inbox text-3xl md:text-4xl text-slate-300"></i>
-        </div>
-        <h4 class="text-lg md:text-xl font-bold text-slate-700 mb-2">ยังไม่มีงานในหมวดหมู่นี้เลย</h4>
-        <p class="text-sm md:text-base text-slate-400">พักผ่อนให้สบาย หรือเพิ่มงานใหม่เพื่อเริ่มต้นกันเถอะ!</p>
-      </div>
-
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
-        <div
-          v-for="task in filteredTasks"
-          :key="task.id"
-          class="group bg-white rounded-3xl p-4 md:p-5 shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 flex flex-col"
-          :class="{ 'opacity-60 bg-slate-50 grayscale-[0.2]': task.status === 'done' }"
+    <!-- ตัวกรองสถานะ -->
+    <div class="page-card p-1.5">
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+          :class="filter === 'pending' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+          @click="filter = 'pending'"
         >
-          <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-4 gap-2 sm:gap-4">
-            <h5 class="text-lg font-bold text-slate-800 leading-tight" :class="{ 'line-through text-slate-400': task.status === 'done' }">
-              {{ task.task_name }}
-            </h5>
-            <div class="flex-shrink-0">
-              <span :class="['px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider whitespace-nowrap inline-block', getStatusBadgeClass(task)]">
-                {{ getStatusText(task) }}
-              </span>
+          กำลังทำ
+          <span
+            class="num rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+            :class="filter === 'pending' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
+          >{{ pendingCount }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+          :class="filter === 'done' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+          @click="filter = 'done'"
+        >
+          เสร็จแล้ว
+          <span
+            class="num rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+            :class="filter === 'done' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
+          >{{ doneCount }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+          :class="filter === 'all' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+          @click="filter = 'all'"
+        >
+          ทั้งหมด
+          <span
+            class="num rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+            :class="filter === 'all' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
+          >{{ tasks.length }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- โน้ตรายวันล่าสุด (แสดง 3 รายการแรก) -->
+    <section v-if="notes.length > 0" class="space-y-3">
+      <div class="flex items-center gap-2">
+        <i class="bi bi-sticky-fill text-base text-amber-500" aria-hidden="true"></i>
+        <h2 class="section-title">โน้ตรายวันล่าสุด</h2>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <article
+          v-for="note in notes.slice(0, 3)"
+          :key="note.id"
+          class="page-card border-s-4 border-s-amber-400 p-4 sm:p-5"
+        >
+          <span class="chip bg-amber-50 text-amber-700">
+            <i class="bi bi-calendar3" aria-hidden="true"></i>
+            {{ formatDueDate(note.target_date) }}
+          </span>
+
+          <div class="mt-3 space-y-2.5">
+            <div class="flex items-start gap-2">
+              <i class="bi bi-backpack-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
+              <p class="min-w-0 text-sm leading-relaxed text-stone-600">
+                เตรียม: <span class="font-bold text-stone-900">{{ note.bring_items || '-' }}</span>
+              </p>
+            </div>
+            <div class="flex items-start gap-2">
+              <i class="bi bi-megaphone-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
+              <p class="min-w-0 text-sm leading-relaxed text-stone-600">
+                {{ note.announcement || 'ไม่มีประกาศ' }}
+              </p>
             </div>
           </div>
-          
-          <div class="flex items-center gap-2 text-slate-500 text-xs font-semibold mb-3 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
-            <i class="bi bi-calendar-event text-blue-500"></i>
-            กำหนดส่ง: <span class="text-slate-700">{{ formatDueDate(task.due_date) }}</span>
-          </div>
+        </article>
+      </div>
+    </section>
 
-          <p class="text-slate-600 text-sm mb-4 whitespace-pre-wrap leading-relaxed flex-grow" :class="{ 'line-through text-slate-400': task.status === 'done' }">
-            {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
-          </p>
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-32" />
 
-          <div v-if="canManageTasks" class="flex justify-between items-center mt-auto pt-4 border-t border-slate-100">
-            <button 
-              @click="toggleStatus(task)"
-              class="flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-sm font-bold transition-colors"
-              :class="task.status === 'done' ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'"
+    <StateBlock
+      v-else-if="hasError"
+      variant="error"
+      hint="ตรวจสอบการเชื่อมต่อแล้วลองใหม่อีกครั้ง"
+      @retry="fetchData"
+    />
+
+    <StateBlock
+      v-else-if="filteredTasks.length === 0"
+      variant="empty"
+      title="ยังไม่มีงานในหมวดหมู่นี้เลย"
+      hint="พักผ่อนให้สบาย หรือเพิ่มงานใหม่เพื่อเริ่มต้นกันเถอะ!"
+    />
+
+    <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <article
+        v-for="task in filteredTasks"
+        :key="task.id"
+        class="page-card flex flex-col p-4 sm:p-5"
+        :class="[
+          task.status === 'done' ? 'opacity-70' : '',
+          // งานที่เลยกำหนดแล้วและยังไม่ส่ง — เน้นด้วยแถบแดงด้านซ้าย
+          task.status === 'pending' && diffDaysFromToday(task.due_date) < 0
+            ? 'border-s-4 border-s-red-500'
+            : '',
+        ]"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <h3
+              class="break-words font-display text-base font-bold leading-snug text-stone-900"
+              :class="{ 'line-through text-stone-400': task.status === 'done' }"
             >
-              <i :class="task.status === 'done' ? 'bi bi-arrow-counterclockwise' : 'bi bi-check-circle-fill'"></i>
-              {{ task.status === 'done' ? 'ยกเลิก' : 'ติ๊กเสร็จ' }}
-            </button>
+              {{ task.task_name }}
+            </h3>
+            <p class="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs font-bold text-stone-500">
+              <i class="bi bi-calendar-event text-stone-400" aria-hidden="true"></i>
+              กำหนดส่ง
+              <span class="num text-stone-700">{{ formatDueDate(task.due_date) }}</span>
+            </p>
+          </div>
 
-            <div class="flex gap-2">
-              <router-link 
-                :to="`/tasks/${task.id}/edit`" 
-                class="w-10 h-10 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-400 bg-slate-50 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                title="แก้ไข"
-              >
-                <i class="bi bi-pencil-square"></i>
-              </router-link>
-              <button 
-                @click="deleteTask(task.id)"
-                class="w-10 h-10 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-400 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                title="ลบ"
-              >
-                <i class="bi bi-trash3-fill"></i>
-              </button>
-            </div>
+          <span class="chip shrink-0" :class="getStatusBadgeClass(task)">
+            <i class="bi" :class="getStatusIcon(task)" aria-hidden="true"></i>
+            {{ getStatusText(task) }}
+          </span>
+        </div>
+
+        <p
+          class="mt-3 grow whitespace-pre-wrap text-sm leading-relaxed text-stone-600"
+          :class="{ 'line-through text-stone-400': task.status === 'done' }"
+        >
+          {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
+        </p>
+
+        <div
+          v-if="canManageTasks"
+          class="mt-4 flex items-center justify-between gap-2 border-t border-stone-100 pt-3.5"
+        >
+          <button type="button" class="btn-ghost-ui" @click="toggleStatus(task)">
+            <i
+              class="bi"
+              :class="task.status === 'done' ? 'bi-arrow-counterclockwise' : 'bi-check-circle-fill'"
+              aria-hidden="true"
+            ></i>
+            {{ task.status === 'done' ? 'ยกเลิก' : 'ติ๊กเสร็จ' }}
+          </button>
+
+          <div class="flex shrink-0 items-center gap-2">
+            <RouterLink
+              :to="`/tasks/${task.id}/edit`"
+              class="btn-ghost-ui h-10 w-10 !p-0"
+              title="แก้ไข"
+              aria-label="แก้ไขงาน"
+            >
+              <i class="bi bi-pencil-square" aria-hidden="true"></i>
+            </RouterLink>
+            <button
+              type="button"
+              class="btn-danger h-10 w-10 !p-0"
+              title="ลบ"
+              aria-label="ลบงาน"
+              @click="deleteTask(task.id)"
+            >
+              <i class="bi bi-trash3-fill" aria-hidden="true"></i>
+            </button>
           </div>
         </div>
-      </div>
+      </article>
+    </div>
 
-      <div class="mt-10 md:mt-12 flex flex-col sm:flex-row justify-center items-center gap-4">
-        <router-link to="/dashboard" class="w-full sm:w-auto px-8 py-3 md:py-3.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold rounded-2xl transition-all flex items-center justify-center gap-2">
-          <i class="bi bi-house"></i> กลับหน้าหลัก
-        </router-link>
-      </div>
-
+    <div class="flex justify-center">
+      <RouterLink to="/dashboard" class="btn-ghost-ui">
+        <i class="bi bi-house" aria-hidden="true"></i>
+        กลับหน้าหลัก
+      </RouterLink>
     </div>
   </div>
 </template>
-
-<style scoped>
-</style>

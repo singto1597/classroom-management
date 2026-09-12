@@ -2,17 +2,23 @@
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import { loginWithGoogle } from '@/services/auth';
-import api from '@/services/api';
+import { linkGoogleAccount, loginWithGoogle } from '@/services/auth';
 import Swal from 'sweetalert2';
+import StateBlock from '@/components/ui/StateBlock.vue';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const errorMsg = ref<string | null>(null);
 
+/** รูปร่าง error ที่หลุดมาจาก axios/Backend — api.ts reject เป็น Error ที่มี message เสมอ */
+interface ApiErrorLike {
+  message?: string;
+  response?: { data?: { detail?: string } };
+}
+
 onMounted(async () => {
-  const code = route.query.code as string;
+  const code = typeof route.query.code === 'string' ? route.query.code : null;
   if (!code) {
     errorMsg.value = 'ไม่พบรหัสยืนยันตัวตนจาก Google';
     return;
@@ -21,23 +27,23 @@ onMounted(async () => {
   try {
     if (authStore.isAuthenticated) {
       // 🔗 โหมดผูกบัญชี
-      const response: any = await api.post('/api/auth/google/link', { code });
+      const response = await linkGoogleAccount(code);
       await authStore.fetchProfile();
       Swal.fire({
-        icon: 'success', title: 'สำเร็จ!',
+        icon: 'success',
+        title: 'สำเร็จ!',
         text: response?.message || 'ผูกบัญชี Google เข้ากับระบบสำเร็จแล้ว',
-        customClass: { popup: 'rounded-3xl' }, confirmButtonColor: '#10b981'
+        confirmButtonColor: '#1d4ed8',
       }).then(() => router.push('/dashboard'));
 
     } else {
       // 🔑 โหมดเข้าสู่ระบบ
-      // 🚨 แก้ไขตรงนี้: ใส่ : any ป้องกัน TypeScript แจ้งเตือน
-      const response: any = await loginWithGoogle(code);
+      const response = await loginWithGoogle(code);
       authStore.setToken(response.access_token);
-      
+
       // เซฟ user_id ลง Store
       authStore.setUserId(response.user_id);
-      
+
       await authStore.fetchProfile();
       if (!authStore.isOnboarded) {
         router.push('/onboarding');
@@ -45,32 +51,62 @@ onMounted(async () => {
         router.push('/lobby');
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Google Auth failed:', err);
-    errorMsg.value = err.response?.data?.detail || err.message || 'การยืนยันตัวตนล้มเหลว';
+    const apiError = typeof err === 'object' && err !== null ? (err as ApiErrorLike) : null;
+    errorMsg.value = apiError?.response?.data?.detail || apiError?.message || 'การยืนยันตัวตนล้มเหลว';
   }
 });
 const goBackToLogin = () => router.push('/login');
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-slate-50">
-    <div class="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-10 text-center">
-      <div v-if="!errorMsg">
-        <div class="relative w-20 h-20 mx-auto mb-6">
-          <div class="absolute inset-0 rounded-full border-4 border-slate-100"></div>
-          <div class="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
-          <i class="bi bi-google absolute inset-0 flex items-center justify-center text-2xl text-blue-500"></i>
+  <!-- ⚠️ หน้านี้อยู่นอก MainLayout จึงต้องจัดระยะขอบ + จัดกลางจอเอง -->
+  <div
+    class="flex min-h-screen min-h-dvh flex-col items-center justify-center bg-paper px-4 py-10 font-sans text-ink"
+  >
+    <div class="w-full max-w-md">
+      <div class="mb-6 flex items-center justify-center gap-2.5">
+        <div
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
+        >
+          <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
         </div>
-        <h2 class="text-2xl font-bold text-slate-800 mb-2">{{ authStore.isAuthenticated ? 'กำลังผูกบัญชี Google...' : 'กำลังเข้าสู่ระบบ...' }}</h2>
-        <p class="text-slate-500 font-medium">กรุณารอสักครู่ ระบบกำลังสื่อสารกับเซิร์ฟเวอร์อย่างปลอดภัย</p>
+        <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-stone-900">
+          SYNC<span class="font-normal text-stone-400">ROOM</span>
+        </span>
       </div>
-      <div v-else class="animate-in fade-in zoom-in duration-300">
-        <div class="w-20 h-20 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner"><i class="bi bi-exclamation-triangle-fill text-3xl"></i></div>
-        <h2 class="text-2xl font-bold text-slate-800 mb-2">ทำรายการไม่สำเร็จ</h2>
-        <p class="text-rose-600 font-medium mb-8 bg-rose-50 p-4 rounded-xl border border-rose-100 text-sm break-words">{{ errorMsg }}</p>
-        <button @click="goBackToLogin" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 px-6 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"><i class="bi bi-arrow-left"></i> กลับไปหน้าเข้าสู่ระบบ</button>
+
+      <div v-if="!errorMsg" class="page-card p-8 text-center">
+        <div class="relative mx-auto mb-5 h-16 w-16">
+          <div class="absolute inset-0 rounded-full border-2 border-stone-200"></div>
+          <div
+            class="absolute inset-0 animate-spin rounded-full border-2 border-brand-700 border-t-transparent"
+          ></div>
+          <i
+            class="bi bi-google absolute inset-0 flex items-center justify-center text-2xl text-brand-700"
+            aria-hidden="true"
+          ></i>
+        </div>
+        <p class="font-display text-lg font-bold text-stone-900">
+          {{ authStore.isAuthenticated ? 'กำลังผูกบัญชี Google...' : 'กำลังเข้าสู่ระบบ...' }}
+        </p>
+        <p class="mt-1 text-sm leading-relaxed text-stone-500">
+          กรุณารอสักครู่ ระบบกำลังสื่อสารกับเซิร์ฟเวอร์อย่างปลอดภัย
+        </p>
       </div>
+
+      <StateBlock
+        v-else
+        variant="error"
+        icon="bi-exclamation-triangle"
+        title="ทำรายการไม่สำเร็จ"
+        :hint="errorMsg || undefined"
+        retry-text="กลับไปหน้าเข้าสู่ระบบ"
+        @retry="goBackToLogin"
+      />
+
+      <p class="mt-6 text-center text-xs text-stone-400">SYNCROOM — ระบบจัดการห้องเรียน</p>
     </div>
   </div>
 </template>

@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { ScheduleService } from '@/services/schedule'
 import Swal from 'sweetalert2'
+import PageHeader from '@/components/ui/PageHeader.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
+
+// ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
+// ที่อ่าน detail จาก response ของ axios ไว้
+const apiErrorDetail = (error: unknown): string | undefined => {
+  if (!isAxiosError<{ detail?: unknown }>(error)) return undefined
+  const detail = error.response?.data?.detail
+  return typeof detail === 'string' ? detail : undefined
+}
 
 // ถอด Mock Data ออก และดึงค่าจาก Store แทน
 const currentRoomId = authStore.currentRoomId!
@@ -23,10 +33,11 @@ const isSubmitting = ref(false)
 const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์']
 
 // ดึงวันที่ปัจจุบันแบบ Local Timezone ป้องกัน UTC Bug (แบบเดียวกับ AddTask.vue)
-const getLocalDate = () => {
+const getLocalDate = (): string => {
   const date = new Date()
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-  return date.toISOString().split('T')[0]
+  const [datePart] = date.toISOString().split('T')
+  return datePart ?? ''
 }
 
 const defaultForm = reactive({
@@ -61,8 +72,8 @@ const handleSaveDefault = async () => {
       timer: 2000,
       showConfirmButton: false
     })
-  } catch (error: any) {
-    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถบันทึกตารางได้', 'error')
+  } catch (error: unknown) {
+    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถบันทึกตารางได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -79,7 +90,7 @@ const handleSaveOverride = async () => {
 
   try {
     await ScheduleService.saveOverride(currentRoomId, {
-      ...(overrideForm as any),
+      ...overrideForm,
       user_name: currentUserName
     })
     Swal.fire({
@@ -88,8 +99,8 @@ const handleSaveOverride = async () => {
       timer: 2000,
       showConfirmButton: false
     })
-  } catch (error: any) {
-    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถบันทึกข้อยกเว้นได้', 'error')
+  } catch (error: unknown) {
+    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถบันทึกข้อยกเว้นได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -97,178 +108,177 @@ const handleSaveOverride = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
-    <div class="max-w-3xl mx-auto">
-
-      <!-- Header -->
-      <div class="flex items-center gap-3 mb-6">
-        <button
-          @click="router.push('/dashboard')"
-          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all shrink-0"
-          title="กลับหน้าหลัก"
-        >
-          <i class="bi bi-arrow-left text-lg"></i>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Class Schedule"
+      title="จัดการตารางเรียน"
+      description="ตั้งค่าตารางเรียนยืนพื้น และข้อยกเว้นการแต่งกายรายวัน"
+    >
+      <template #actions>
+        <button type="button" class="btn-ghost-ui" @click="router.push('/dashboard')">
+          <i class="bi bi-arrow-left" aria-hidden="true" />
+          กลับหน้าหลัก
         </button>
-        <div class="min-w-0">
-          <h1 class="text-xl md:text-2xl font-extrabold text-slate-800 flex items-center gap-2.5">
-            <span class="p-2 bg-blue-100 rounded-xl text-blue-600 shadow-sm shrink-0">
-              <i class="bi bi-calendar-check"></i>
-            </span>
-            จัดการตารางเรียน
-          </h1>
-          <p class="text-slate-500 mt-0.5 text-sm truncate">ตั้งค่าตารางเรียนยืนพื้น และข้อยกเว้นการแต่งกายรายวัน</p>
+      </template>
+    </PageHeader>
+
+    <div class="page-card overflow-hidden">
+      <!-- สลับโหมด: ตารางปกติ / ข้อยกเว้น -->
+      <div class="border-b border-stone-100 p-1.5">
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
+            :class="activeTab === 'default' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+            @click="activeTab = 'default'"
+          >
+            <i class="bi bi-calendar-week text-base" aria-hidden="true"></i>
+            ตารางปกติ
+          </button>
+          <button
+            type="button"
+            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
+            :class="activeTab === 'override' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+            @click="activeTab = 'override'"
+          >
+            <i class="bi bi-exclamation-triangle text-base" aria-hidden="true"></i>
+            ข้อยกเว้นพิเศษ
+          </button>
         </div>
       </div>
 
-      <div class="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden">
+      <div class="p-5 sm:p-6">
+        <!-- ตารางเรียนยืนพื้น -->
+        <form v-if="activeTab === 'default'" class="space-y-5" @submit.prevent="handleSaveDefault">
+          <h2 class="section-title flex items-center gap-2">
+            <i class="bi bi-calendar-week text-brand-700" aria-hidden="true"></i>
+            ตั้งตารางเรียนยืนพื้น (จันทร์ - อาทิตย์)
+          </h2>
 
-        <!-- Tabs -->
-        <div class="flex p-2 bg-slate-50/50 border-b border-slate-100">
-          <button
-            @click="activeTab = 'default'"
-            class="flex-1 py-3.5 text-center font-bold text-sm transition-all rounded-2xl flex items-center justify-center gap-2 outline-none"
-            :class="activeTab === 'default' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'"
-          >
-            <i class="bi bi-calendar-week text-lg"></i> ตารางปกติ
-          </button>
-          <button
-            @click="activeTab = 'override'"
-            class="flex-1 py-3.5 text-center font-bold text-sm transition-all rounded-2xl flex items-center justify-center gap-2 outline-none"
-            :class="activeTab === 'override' ? 'bg-white text-rose-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'"
-          >
-            <i class="bi bi-exclamation-triangle text-lg"></i> ข้อยกเว้นพิเศษ
-          </button>
-        </div>
-
-        <div class="p-5 md:p-8">
-          <!-- ตารางปกติ -->
-          <form v-if="activeTab === 'default'" @submit.prevent="handleSaveDefault" class="space-y-6">
-            <h2 class="text-lg font-black text-slate-800 flex items-center gap-2">
-              📅 ตั้งตารางเรียนยืนพื้น (จันทร์ - อาทิตย์)
-            </h2>
-
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-calendar3 text-blue-500"></i> วันในสัปดาห์
-              </label>
-              <select
-                v-model="defaultForm.day_of_week"
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none font-bold"
-              >
+          <div class="space-y-4 border-t border-stone-100 pt-4">
+            <div>
+              <label class="field-label" for="dayOfWeek">วันในสัปดาห์</label>
+              <select id="dayOfWeek" v-model="defaultForm.day_of_week" class="field font-bold">
                 <option v-for="day in days" :key="day" :value="day">{{ day }}</option>
               </select>
             </div>
 
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-tshirt text-blue-500"></i> ชุดที่ต้องใส่
-              </label>
+            <div>
+              <label class="field-label" for="attire">ชุดที่ต้องใส่</label>
               <input
+                id="attire"
                 v-model="defaultForm.attire"
                 type="text"
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                class="field"
                 placeholder="เช่น ชุดนักเรียน, ชุดพละ"
                 required
               />
             </div>
 
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-book text-blue-500"></i> วิชาเรียน (เรียงตามคาบ)
-              </label>
+            <div>
+              <label class="field-label" for="subjects">วิชาเรียน (เรียงตามคาบ)</label>
               <textarea
+                id="subjects"
                 v-model="defaultForm.subjects"
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none resize-none"
+                class="field h-32 resize-none"
                 placeholder="คณิต, ไทย, อังกฤษ, พักกลางวัน, ฟิสิกส์..."
                 required
               ></textarea>
             </div>
+          </div>
 
-            <div class="flex flex-col gap-3 pt-2">
-              <template v-if="canManageSchedule">
-                <button
-                  type="submit"
-                  class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                  :disabled="isSubmitting"
-                >
-                  <span v-if="isSubmitting" class="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  <template v-else><i class="bi bi-save me-1"></i> บันทึกตารางเรียน</template>
-                </button>
-              </template>
-              <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-bold border border-slate-200 flex items-center justify-center gap-2">
-                <i class="bi bi-lock-fill text-rose-500"></i> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
-              </div>
-
-              <router-link to="/dashboard" class="w-full text-center px-4 py-3 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold rounded-xl transition-all">
-                กลับหน้าหลัก
-              </router-link>
+          <div class="flex flex-col gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:items-center sm:justify-end">
+            <template v-if="canManageSchedule">
+              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+                <span
+                  v-if="isSubmitting"
+                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  aria-hidden="true"
+                ></span>
+                <template v-else><i class="bi bi-save" aria-hidden="true" /> บันทึกตารางเรียน</template>
+              </button>
+            </template>
+            <div
+              v-else
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500 sm:w-auto"
+            >
+              <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
             </div>
-          </form>
 
-          <!-- ข้อยกเว้นพิเศษ -->
-          <form v-else @submit.prevent="handleSaveOverride" class="space-y-6">
-            <h2 class="text-lg font-black text-slate-800 flex items-center gap-2">
-              🚨 ตั้งข้อยกเว้นฉุกเฉิน (เปลี่ยนชุด/กิจกรรมพิเศษ)
+            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
+              กลับหน้าหลัก
+            </RouterLink>
+          </div>
+        </form>
+
+        <!-- ข้อยกเว้นพิเศษรายวัน -->
+        <form v-else class="space-y-5" @submit.prevent="handleSaveOverride">
+          <div class="flex flex-wrap items-center gap-2">
+            <h2 class="section-title flex items-center gap-2">
+              <i class="bi bi-exclamation-triangle text-amber-600" aria-hidden="true"></i>
+              ตั้งข้อยกเว้นฉุกเฉิน (เปลี่ยนชุด/กิจกรรมพิเศษ)
             </h2>
+          </div>
 
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-calendar-event text-rose-500"></i> วันที่เกิดการยกเว้น
-              </label>
+          <div class="space-y-4 border-t border-stone-100 pt-4">
+            <div>
+              <label class="field-label" for="overrideDate">วันที่เกิดการยกเว้น</label>
               <input
+                id="overrideDate"
                 v-model="overrideForm.target_date"
                 type="date"
-                class="w-full px-4 py-3 bg-rose-50/30 border border-rose-200/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all outline-none font-bold"
+                class="field font-bold"
                 required
               />
             </div>
 
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-tshirt text-rose-500"></i> ชุดใหม่ที่ต้องใส่
-              </label>
+            <div>
+              <label class="field-label" for="newAttire">ชุดใหม่ที่ต้องใส่</label>
               <input
+                id="newAttire"
                 v-model="overrideForm.new_attire"
                 type="text"
-                class="w-full px-4 py-3 bg-rose-50/30 border border-rose-200/60 rounded-xl focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all outline-none"
+                class="field"
                 placeholder="เช่น ชุดนักเรียน, ชุดพละ"
                 required
               />
             </div>
 
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-megaphone text-rose-500"></i> หมายเหตุ / สาเหตุที่เปลี่ยน
-              </label>
+            <div>
+              <label class="field-label" for="overrideNote">หมายเหตุ / สาเหตุที่เปลี่ยน</label>
               <textarea
+                id="overrideNote"
                 v-model="overrideForm.note"
-                class="w-full px-4 py-3 bg-rose-50/30 border border-rose-200/60 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all outline-none resize-none"
+                class="field h-32 resize-none"
                 placeholder="เช่น มีกิจกรรม...จึงต้องใส่ชุดนักเรียน"
                 required
               ></textarea>
             </div>
+          </div>
 
-            <div class="flex flex-col gap-3 pt-2">
-              <template v-if="canManageSchedule">
-                <button
-                  type="submit"
-                  class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-rose-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                  :disabled="isSubmitting"
-                >
-                  <span v-if="isSubmitting" class="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  <template v-else><i class="bi bi-save me-1"></i> บันทึกข้อยกเว้น</template>
-                </button>
-              </template>
-              <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-bold border border-slate-200 flex items-center justify-center gap-2">
-                <i class="bi bi-lock-fill text-rose-500"></i> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
-              </div>
-
-              <router-link to="/dashboard" class="w-full text-center px-4 py-3 text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-bold rounded-xl transition-all">
-                กลับหน้าหลัก
-              </router-link>
+          <div class="flex flex-col gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:items-center sm:justify-end">
+            <template v-if="canManageSchedule">
+              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+                <span
+                  v-if="isSubmitting"
+                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  aria-hidden="true"
+                ></span>
+                <template v-else><i class="bi bi-save" aria-hidden="true" /> บันทึกข้อยกเว้น</template>
+              </button>
+            </template>
+            <div
+              v-else
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500 sm:w-auto"
+            >
+              <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
             </div>
-          </form>
-        </div>
+
+            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
+              กลับหน้าหลัก
+            </RouterLink>
+          </div>
+        </form>
       </div>
     </div>
   </div>

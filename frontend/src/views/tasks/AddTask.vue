@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import Swal from 'sweetalert2'
+import PageHeader from '@/components/ui/PageHeader.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
+
+// ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
+// ที่อ่าน detail จาก response ของ axios ไว้
+const apiErrorDetail = (error: unknown): string | undefined => {
+  if (!isAxiosError<{ detail?: unknown }>(error)) return undefined
+  const detail = error.response?.data?.detail
+  return typeof detail === 'string' ? detail : undefined
+}
 
 // --- ถอด Mock Data เปลี่ยนมาดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
@@ -21,10 +31,11 @@ const activeTab = ref<'task' | 'note'>('task')
 const isSubmitting = ref(false)
 
 // 🛠️ Fix Bug: ฟังก์ชันดึงวันที่ปัจจุบัน (Local Timezone) เพื่อป้องกันวันที่เพี้ยนเป็นเมื่อวานตอนเช้าตรู่ (UTC Bug)
-const getLocalDate = () => {
+const getLocalDate = (): string => {
   const date = new Date()
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-  return date.toISOString().split('T')[0]
+  const [datePart] = date.toISOString().split('T')
+  return datePart ?? ''
 }
 
 const taskForm = reactive({
@@ -43,24 +54,25 @@ const handleAddTask = async () => {
   if (!canManageTasks.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มงานได้', 'error')
   }
-  
+
   if (!taskForm.task_name) return
   isSubmitting.value = true
-  
+
   try {
     await TaskService.createTask(currentRoomId, {
-      ...(taskForm as any),
+      ...taskForm,
       user_name: currentUserName
     })
     await Swal.fire({
       icon: 'success',
       title: 'เพิ่มงานเรียบร้อยแล้ว!',
       timer: 1500,
-      showConfirmButton: false
+      showConfirmButton: false,
+      confirmButtonColor: '#1d4ed8'
     })
     router.push('/tasks')
-  } catch (error: any) {
-    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถเพิ่มงานได้', 'error')
+  } catch (error: unknown) {
+    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถเพิ่มงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -73,21 +85,22 @@ const handleAddNote = async () => {
 
   if (!noteForm.target_date) return
   isSubmitting.value = true
-  
+
   try {
     await TaskService.createDailyNote(currentRoomId, {
-      ...(noteForm as any),
+      ...noteForm,
       user_name: currentUserName
     })
     await Swal.fire({
       icon: 'success',
       title: `บันทึกโน้ตสำหรับวันที่ ${noteForm.target_date} เรียบร้อย!`,
       timer: 1500,
-      showConfirmButton: false
+      showConfirmButton: false,
+      confirmButtonColor: '#1d4ed8'
     })
     router.push('/tasks')
-  } catch (error: any) {
-    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถเพิ่มโน้ตได้', 'error')
+  } catch (error: unknown) {
+    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถเพิ่มโน้ตได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -95,158 +108,164 @@ const handleAddNote = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 py-10 px-4 sm:px-6">
-    <div class="max-w-2xl mx-auto">
-      
-      <div class="flex items-center gap-4 mb-8">
-        <button 
-          @click="router.push('/tasks')" 
-          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all"
-        >
-          <i class="bi bi-arrow-left text-lg"></i>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="New Entry"
+      title="สร้างรายการใหม่"
+      description="เพิ่มการบ้าน ชิ้นงาน หรือโน้ตประกาศรายวัน"
+    >
+      <template #actions>
+        <button type="button" class="btn-ghost-ui" @click="router.push('/tasks')">
+          <i class="bi bi-arrow-left" aria-hidden="true" />
+          ย้อนกลับ
         </button>
-        <div>
-          <h1 class="text-2xl font-extrabold text-slate-800">สร้างรายการใหม่</h1>
-          <p class="text-slate-500 text-sm mt-0.5">เพิ่มการบ้าน, ชิ้นงาน หรือโน้ตประกาศรายวัน</p>
+      </template>
+    </PageHeader>
+
+    <div class="page-card overflow-hidden">
+      <!-- สลับฟอร์ม: งาน / โน้ต -->
+      <div class="border-b border-stone-100 p-1.5">
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
+            :class="activeTab === 'task' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+            @click="activeTab = 'task'"
+          >
+            <i class="bi bi-journal-plus text-base" aria-hidden="true"></i>
+            งาน / การบ้าน
+          </button>
+          <button
+            type="button"
+            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
+            :class="activeTab === 'note' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+            @click="activeTab = 'note'"
+          >
+            <i class="bi bi-sticky text-base" aria-hidden="true"></i>
+            โน้ต / ประกาศ
+          </button>
         </div>
       </div>
 
-      <div class="bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden border border-slate-100">
-        
-        <div class="flex p-2 bg-slate-50/50 border-b border-slate-100">
-          <button 
-            @click="activeTab = 'task'"
-            class="flex-1 py-3.5 text-center font-bold text-sm transition-all rounded-2xl flex items-center justify-center gap-2 outline-none"
-            :class="activeTab === 'task' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'"
-          >
-            <i class="bi bi-journal-plus text-lg"></i> งาน / การบ้าน
-          </button>
-          <button 
-            @click="activeTab = 'note'"
-            class="flex-1 py-3.5 text-center font-bold text-sm transition-all rounded-2xl flex items-center justify-center gap-2 outline-none"
-            :class="activeTab === 'note' ? 'bg-white text-amber-600 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'"
-          >
-            <i class="bi bi-sticky text-lg"></i> โน้ต / ประกาศ
-          </button>
-        </div>
+      <div class="p-5 sm:p-6">
+        <form v-if="activeTab === 'task'" class="space-y-4" @submit.prevent="handleAddTask">
+          <div>
+            <label class="field-label" for="taskName">
+              ชื่องาน <span class="text-red-600">*</span>
+            </label>
+            <input
+              id="taskName"
+              :disabled="!canManageTasks"
+              v-model="taskForm.task_name"
+              type="text"
+              class="field"
+              placeholder="เช่น การบ้านคณิตศาสตร์ หน้า 45"
+              required
+            />
+          </div>
 
-        <div class="p-5 md:p-8">
-          <form v-if="activeTab === 'task'" @submit.prevent="handleAddTask" class="space-y-6">
-            
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-bookmark-fill text-blue-500"></i> ชื่องาน <span class="text-rose-500">*</span>
-              </label>
-              <input 
-                :disabled="!canManageTasks"
-                v-model="taskForm.task_name" 
-                type="text" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60" 
-                placeholder="เช่น การบ้านคณิตศาสตร์ หน้า 45"
-                required 
-              />
+          <div>
+            <label class="field-label" for="taskDetail">รายละเอียด</label>
+            <textarea
+              id="taskDetail"
+              :disabled="!canManageTasks"
+              v-model="taskForm.task_detail"
+              class="field h-32 resize-none"
+              placeholder="อธิบายรายละเอียดงาน, ขั้นตอนการทำ, หรือแนบลิงก์ที่เกี่ยวข้อง..."
+            ></textarea>
+          </div>
+
+          <div>
+            <label class="field-label" for="taskDueDate">
+              กำหนดส่ง <span class="text-red-600">*</span>
+            </label>
+            <input
+              id="taskDueDate"
+              :disabled="!canManageTasks"
+              v-model="taskForm.due_date"
+              type="date"
+              class="field"
+              required
+            />
+          </div>
+
+          <div class="flex border-t border-stone-100 pt-4 sm:justify-end">
+            <template v-if="canManageTasks">
+              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+                <span
+                  v-if="isSubmitting"
+                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  aria-hidden="true"
+                ></span>
+                <template v-else><i class="bi bi-plus-lg" aria-hidden="true" /> บันทึกงานใหม่</template>
+              </button>
+            </template>
+            <div
+              v-else
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500"
+            >
+              <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะแอดมิน
             </div>
+          </div>
+        </form>
 
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-card-text text-blue-500"></i> รายละเอียด
-              </label>
-              <textarea 
-                :disabled="!canManageTasks"
-                v-model="taskForm.task_detail" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none resize-none disabled:opacity-60" 
-                placeholder="อธิบายรายละเอียดงาน, ขั้นตอนการทำ, หรือแนบลิงก์ที่เกี่ยวข้อง..."
-              ></textarea>
+        <form v-else class="space-y-4" @submit.prevent="handleAddNote">
+          <div>
+            <label class="field-label" for="noteDate">
+              วันที่เป้าหมาย <span class="text-red-600">*</span>
+            </label>
+            <input
+              id="noteDate"
+              :disabled="!canManageTasks"
+              v-model="noteForm.target_date"
+              type="date"
+              class="field"
+              required
+            />
+          </div>
+
+          <div>
+            <label class="field-label" for="noteBringItems">สิ่งที่ต้องเตรียม</label>
+            <input
+              id="noteBringItems"
+              :disabled="!canManageTasks"
+              v-model="noteForm.bring_items"
+              type="text"
+              class="field"
+              placeholder="เช่น สีไม้, อุปกรณ์พละ (ถ้าไม่มีให้เว้นว่างไว้)"
+            />
+          </div>
+
+          <div>
+            <label class="field-label" for="noteAnnouncement">ประกาศ / หมายเหตุ</label>
+            <textarea
+              id="noteAnnouncement"
+              :disabled="!canManageTasks"
+              v-model="noteForm.announcement"
+              class="field h-32 resize-none"
+              placeholder="ประกาศแจ้งเตือนเพื่อนๆ ในห้อง... (ถ้าไม่มีให้เว้นว่างไว้)"
+            ></textarea>
+          </div>
+
+          <div class="flex border-t border-stone-100 pt-4 sm:justify-end">
+            <template v-if="canManageTasks">
+              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+                <span
+                  v-if="isSubmitting"
+                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  aria-hidden="true"
+                ></span>
+                <template v-else><i class="bi bi-plus-lg" aria-hidden="true" /> บันทึกโน้ต/ประกาศ</template>
+              </button>
+            </template>
+            <div
+              v-else
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500"
+            >
+              <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะแอดมิน
             </div>
-
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-calendar-event text-blue-500"></i> กำหนดส่ง <span class="text-rose-500">*</span>
-              </label>
-              <input 
-                :disabled="!canManageTasks"
-                v-model="taskForm.due_date" 
-                type="date" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60" 
-                required 
-              />
-            </div>
-
-            <div class="pt-4">
-              <template v-if="canManageTasks">
-                <button 
-                  type="submit" 
-                  class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
-                  :disabled="isSubmitting"
-                >
-                  <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  <template v-else><i class="bi bi-plus-lg"></i> บันทึกงานใหม่</template>
-                </button>
-              </template>
-              <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-medium border border-slate-200 flex items-center justify-center gap-2">
-                <i class="bi bi-lock-fill"></i> เฉพาะแอดมิน
-              </div>
-            </div>
-          </form>
-
-          <form v-else @submit.prevent="handleAddNote" class="space-y-6">
-            
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-calendar-check-fill text-amber-500"></i> วันที่เป้าหมาย <span class="text-rose-500">*</span>
-              </label>
-              <input 
-                :disabled="!canManageTasks"
-                v-model="noteForm.target_date" 
-                type="date" 
-                class="w-full px-4 py-3 bg-amber-50/30 border border-amber-200/50 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none disabled:opacity-60" 
-                required 
-              />
-            </div>
-
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-backpack-fill text-amber-500"></i> สิ่งที่ต้องเตรียม
-              </label>
-              <input 
-                :disabled="!canManageTasks"
-                v-model="noteForm.bring_items" 
-                type="text" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none disabled:opacity-60" 
-                placeholder="เช่น สีไม้, อุปกรณ์พละ (ถ้าไม่มีให้เว้นว่างไว้)"
-              />
-            </div>
-
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-megaphone-fill text-amber-500"></i> ประกาศ / หมายเหตุ
-              </label>
-              <textarea 
-                :disabled="!canManageTasks"
-                v-model="noteForm.announcement" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none resize-none disabled:opacity-60" 
-                placeholder="ประกาศแจ้งเตือนเพื่อนๆ ในห้อง... (ถ้าไม่มีให้เว้นว่างไว้)"
-              ></textarea>
-            </div>
-
-            <div class="pt-4">
-              <template v-if="canManageTasks">
-                <button 
-                  type="submit" 
-                  class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
-                  :disabled="isSubmitting"
-                >
-                  <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  <template v-else><i class="bi bi-plus-lg"></i> บันทึกโน้ต/ประกาศ</template>
-                </button>
-              </template>
-              <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-medium border border-slate-200 flex items-center justify-center gap-2">
-                <i class="bi bi-lock-fill"></i> เฉพาะแอดมิน
-              </div>
-            </div>
-          </form>
-
-        </div>
+          </div>
+        </form>
       </div>
     </div>
   </div>

@@ -85,7 +85,7 @@ export interface StudentDebtProfile {
   student_id: number;
   student_name: string;
   total_pending_amount: number;
-  debts: StudentDebtItem[]; // ดึง Type เดิมที่ปลอดภัยกว่า any[] กลับมา
+  debts: StudentDebtItem[]; // ใช้ Type ที่เจาะจงแทนการปล่อยเป็น array กว้าง ๆ
 }
 
 export interface CategoryBreakdown {
@@ -99,7 +99,7 @@ export interface FinanceSummary {
   total_expense: number;
   pending_collection_amount: number;
   period: string;
-  expense_breakdown: CategoryBreakdown[]; // ดึง Type เดิมที่ปลอดภัยกว่า any[] กลับมา
+  expense_breakdown: CategoryBreakdown[]; // ใช้ Type ที่เจาะจงแทนการปล่อยเป็น array กว้าง ๆ
 }
 
 // ✨ เพิ่ม Type ใหม่สำหรับดึงรายชื่อเด็กโดยเฉพาะ
@@ -181,4 +181,20 @@ export interface FeeCollectionUpdate {
   due_date?: string;
   status?: 'active' | 'closed';
   user_name?: string;
+}
+
+// --- Query Params ---
+
+// ตัวกรองสำหรับดึงประวัติการทำรายการ
+// โครงตรงกับ TransactionFilter ฝั่ง backend (limit/offset/start_date/end_date/account_id/category_id/transaction_type)
+// ส่วน `type` เป็นคีย์ที่หน้าจอส่งซ้ำไปด้วยเพื่อความเข้ากันได้กับ payload เดิม (backend ไม่ได้อ่านค่านี้)
+export interface TransactionQueryParams {
+  limit: number;
+  offset: number;
+  type?: 'income' | 'expense';
+  transaction_type?: 'income' | 'expense';
+  start_date?: string;
+  end_date?: string;
+  account_id?: number;
+  category_id?: number;
 }

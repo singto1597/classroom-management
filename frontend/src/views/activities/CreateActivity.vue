@@ -6,5 +6,8 @@ const router = useRouter()
 </script>
 
 <template>
-  <ActivityForm mode="create" @saved="router.push('/activities')" />
+  <!-- Wrapper เท่านั้น — หัวหน้า/ฟอร์มอยู่ใน ActivityForm -->
+  <div class="space-y-4 sm:space-y-5">
+    <ActivityForm mode="create" @saved="router.push('/activities')" />
+  </div>
 </template>

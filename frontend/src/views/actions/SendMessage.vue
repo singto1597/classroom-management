@@ -5,6 +5,8 @@ import { useAuthStore } from '@/stores/auth';
 import { ActionService } from '@/services/action';
 import { ClassroomService } from '@/services/classroom';
 import Swal from 'sweetalert2';
+import PageHeader from '@/components/ui/PageHeader.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -78,7 +80,7 @@ const handleSend = async () => {
       icon: 'error',
       title: 'ส่งประกาศไม่สำเร็จ',
       text: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดจากระบบ โปรดลองใหม่อีกครั้ง',
-      confirmButtonColor: '#3b82f6'
+      confirmButtonColor: '#1d4ed8'
     });
   } finally {
     isSubmitting.value = false;
@@ -87,143 +89,167 @@ const handleSend = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 py-10 px-4 sm:px-6">
-    <div class="max-w-2xl mx-auto">
-
-      <div class="flex items-center gap-3 mb-6">
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Discord Announcement"
+      title="ประกาศเข้า Discord"
+      description="ส่งข้อความประกาศจากเว็บไปยังห้อง Discord ถึงเพื่อนทุกคน"
+    >
+      <template #actions>
         <button
-          @click="router.push('/dashboard')"
-          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all shrink-0"
+          type="button"
+          class="btn-ghost-ui"
           title="กลับหน้าหลัก"
+          @click="router.push('/dashboard')"
         >
-          <i class="bi bi-arrow-left text-lg"></i>
+          <i class="bi bi-arrow-left" aria-hidden="true"></i>
+          กลับหน้าหลัก
         </button>
-        <div class="min-w-0">
-          <h1 class="text-xl font-extrabold text-slate-800">ประกาศเข้า Discord</h1>
-          <p class="text-slate-500 text-sm mt-0.5 truncate">ส่งข้อความประกาศจากเว็บไปยังห้อง Discord ถึงเพื่อนทุกคน</p>
-        </div>
-      </div>
+      </template>
+    </PageHeader>
 
-      <!-- ⚠️ เตือนห้องที่ยังไม่ได้ผูก Discord -->
+    <!-- ⚠️ สถานะการผูก Discord ของห้อง -->
+    <SkeletonRows v-if="isLoadingRoom" :rows="1" height="h-20" />
+
+    <div
+      v-else-if="!isDiscordLinked"
+      class="page-card flex items-start gap-3 border-amber-200 bg-amber-50 p-4 sm:gap-4 sm:p-5"
+    >
       <div
-        v-if="isLoadingRoom"
-        class="bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl border border-slate-100 p-5 mb-6 flex items-center gap-3"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"
       >
-        <div class="w-5 h-5 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
-        <p class="text-sm font-semibold text-slate-500">กำลังตรวจสอบการเชื่อมต่อ Discord...</p>
+        <i class="bi bi-discord text-lg" aria-hidden="true"></i>
       </div>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-bold text-amber-800">ห้องนี้ยังไม่ได้เชื่อมต่อกับ Discord</p>
+        <p class="mt-1 text-xs leading-relaxed text-amber-700">
+          ประกาศจะถูกส่งได้เฉพาะห้องที่มี Discord Server ผูกไว้แล้ว — กดเชื่อมต่อเพื่อให้บอทประกาศข้อความถึงเพื่อนทุกคนได้
+        </p>
+        <RouterLink to="/discord-connect" class="btn-ghost-ui mt-3">
+          <i class="bi bi-plug-fill" aria-hidden="true"></i>
+          ไปหน้าเชื่อมต่อ Discord
+        </RouterLink>
+      </div>
+    </div>
 
+    <div
+      v-else
+      class="page-card flex items-start gap-3 border-emerald-200 bg-emerald-50 p-4 sm:gap-4 sm:p-5"
+    >
       <div
-        v-else-if="!isDiscordLinked"
-        class="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6 flex items-start gap-4"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"
       >
-        <div class="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 shrink-0">
-          <i class="bi bi-discord text-xl"></i>
-        </div>
-        <div class="flex-1">
-          <p class="font-bold text-amber-800 text-sm">ห้องนี้ยังไม่ได้เชื่อมต่อกับ Discord</p>
-          <p class="text-amber-700/80 text-xs font-medium mt-1 leading-relaxed">
-            ประกาศจะถูกส่งได้เฉพาะห้องที่มี Discord Server ผูกไว้แล้ว — กดเชื่อมต่อเพื่อให้บอทประกาศข้อความถึงเพื่อนทุกคนได้
-          </p>
-          <router-link
-            to="/discord-connect"
-            class="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition-all shadow-sm active:scale-95"
-          >
-            <i class="bi bi-plug-fill"></i> ไปหน้าเชื่อมต่อ Discord
-          </router-link>
-        </div>
+        <i class="bi bi-discord text-lg" aria-hidden="true"></i>
       </div>
-
-      <!-- ✅ แจ้งว่าห้องผูก Discord แล้ว -->
-      <div
-        v-else
-        class="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 mb-6 flex items-start gap-4"
-      >
-        <div class="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 shrink-0">
-          <i class="bi bi-discord text-xl"></i>
-        </div>
-        <div>
-          <p class="font-bold text-emerald-800 text-sm">ห้องเชื่อมต่อ Discord เรียบร้อยแล้ว</p>
-          <p class="text-emerald-700/80 text-xs font-medium mt-1">ประกาศจะถูกส่งไปยังช่องประกาศของห้องทันที</p>
-        </div>
+      <div class="min-w-0">
+        <p class="text-sm font-bold text-emerald-800">ห้องเชื่อมต่อ Discord เรียบร้อยแล้ว</p>
+        <p class="mt-1 text-xs leading-relaxed text-emerald-700">
+          ประกาศจะถูกส่งไปยังช่องประกาศของห้องทันที
+        </p>
       </div>
+    </div>
 
-      <div class="bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden border border-slate-100">
-        <form @submit.prevent="handleSend" class="p-5 md:p-8 space-y-5">
-
-          <div class="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <div class="w-12 h-12 bg-gradient-to-br from-rose-50 to-red-50 text-rose-600 rounded-2xl flex items-center justify-center text-xl shadow-inner border border-rose-100 shrink-0">
-              <i class="bi bi-megaphone-fill"></i>
+    <div class="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3">
+      <!-- ฟอร์ม -->
+      <div class="page-card p-5 sm:p-6 lg:col-span-2">
+        <form class="space-y-4" @submit.prevent="handleSend">
+          <div class="flex items-center gap-3 border-b border-stone-100 pb-4">
+            <div
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+            >
+              <i class="bi bi-megaphone-fill text-base" aria-hidden="true"></i>
             </div>
-            <div>
-              <h2 class="font-black text-slate-800 text-base md:text-lg">แบบฟอร์มประกาศ</h2>
-              <p class="text-xs text-slate-400 font-semibold mt-0.5">บอทจะประกาศเป็น Embed ในช่องที่กำหนดไว้</p>
+            <div class="min-w-0">
+              <p class="section-title truncate">แบบฟอร์มประกาศ</p>
+              <p class="truncate text-xs text-stone-400">
+                บอทจะประกาศเป็น Embed ในช่องที่กำหนดไว้
+              </p>
             </div>
           </div>
 
-          <div class="space-y-2">
-            <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <i class="bi bi-bookmark-fill text-rose-500"></i> หัวข้อประกาศ <span class="text-rose-500">*</span>
-            </label>
+          <div>
+            <label class="field-label" for="announceTitle">หัวข้อประกาศ *</label>
             <input
+              id="announceTitle"
               :disabled="!canSendMessage"
               v-model="messageForm.title"
               type="text"
               maxlength="200"
-              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all outline-none disabled:opacity-60"
+              class="field"
               placeholder="เช่น ประกาศด่วน! พรุ่งนี้เลื่อนเรียน"
               required
             />
           </div>
 
-          <div class="space-y-2">
-            <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <i class="bi bi-card-text text-rose-500"></i> ข้อความประกาศ <span class="text-rose-500">*</span>
-            </label>
+          <div>
+            <label class="field-label" for="announceMessage">ข้อความประกาศ *</label>
             <textarea
+              id="announceMessage"
               :disabled="!canSendMessage"
               v-model="messageForm.message"
               maxlength="2000"
-              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-40 focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all outline-none resize-none disabled:opacity-60"
+              class="field h-40 resize-none"
               placeholder="รายละเอียดประกาศ เช่น วันเวลา สถานที่ หรือสิ่งที่ต้องเตรียม..."
               required
             ></textarea>
-            <div class="text-right text-xs font-semibold text-slate-400">
+            <div class="num mt-1 text-right text-xs font-bold text-stone-400">
               {{ charCount }} / 2000
             </div>
           </div>
 
-          <div class="space-y-2">
-            <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <i class="bi bi-person-fill text-rose-500"></i> ชื่อผู้ประกาศ
-            </label>
+          <div>
+            <label class="field-label" for="announceAuthor">ชื่อผู้ประกาศ</label>
             <input
+              id="announceAuthor"
               :disabled="!canSendMessage"
               v-model="messageForm.user_name"
               type="text"
               maxlength="100"
-              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all outline-none disabled:opacity-60"
+              class="field"
               placeholder="ชื่อที่จะแสดงใต้ประกาศใน Discord"
             />
           </div>
 
-          <div class="pt-4">
+          <div class="border-t border-stone-100 pt-4">
             <template v-if="canSendMessage">
-              <button
-                type="submit"
-                class="w-full bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-rose-600/20 transition-all flex items-center justify-center gap-2"
-                :disabled="isSubmitting"
-              >
-                <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                <template v-else><i class="bi bi-send-fill"></i> ส่งประกาศไป Discord</template>
+              <button type="submit" class="btn-primary w-full" :disabled="isSubmitting">
+                <span
+                  v-if="isSubmitting"
+                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                ></span>
+                <template v-else>
+                  <i class="bi bi-send-fill" aria-hidden="true"></i>
+                  ส่งประกาศไป Discord
+                </template>
               </button>
             </template>
-            <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-medium border border-slate-200 flex items-center justify-center gap-2">
-              <i class="bi bi-lock-fill"></i> เฉพาะผู้ดูแล / ผู้มีสิทธิ์จัดการตั้งค่าห้อง
+            <div
+              v-else
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-center text-sm font-bold text-stone-500"
+            >
+              <i class="bi bi-lock-fill" aria-hidden="true"></i>
+              เฉพาะผู้ดูแล / ผู้มีสิทธิ์จัดการตั้งค่าห้อง
             </div>
           </div>
-
         </form>
+      </div>
+
+      <!-- ตัวอย่างที่จะปรากฏใน Discord -->
+      <div class="page-card h-fit p-4 sm:p-5">
+        <p class="eyebrow mb-3">ตัวอย่างประกาศ</p>
+        <div class="rounded-xl border-s-4 border-s-brand-700 bg-stone-50 p-3.5">
+          <p class="min-w-0 truncate font-display text-sm font-bold text-stone-900">
+            {{ messageForm.title || 'หัวข้อประกาศ' }}
+          </p>
+          <p
+            class="mt-1 whitespace-pre-line break-words text-sm leading-relaxed text-stone-600"
+          >
+            {{ messageForm.message || 'รายละเอียดประกาศจะแสดงที่นี่' }}
+          </p>
+          <p class="mt-3 truncate border-t border-stone-200 pt-2.5 text-xs font-bold text-stone-400">
+            ประกาศโดย {{ messageForm.user_name || currentUserName }}
+          </p>
+        </div>
       </div>
     </div>
   </div>

@@ -92,7 +92,8 @@ function removeField(def: DynamicFieldDef) {
     text: `"${def.label}" จะถูกลบออกจากกิจกรรม — ค่าที่กรอกไว้แล้วในผู้เข้าร่วมจะไม่แสดงอีก`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#e11d48',
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#78716c',
     confirmButtonText: 'ลบฟิลด์',
     cancelButtonText: 'ยกเลิก',
   }).then((result) => {
@@ -109,63 +110,53 @@ function removeField(def: DynamicFieldDef) {
 <template>
   <div>
     <!-- รายการฟิลด์ปัจจุบัน -->
-    <div v-if="defs.length > 0" class="space-y-2 mb-4">
+    <div v-if="defs.length > 0" class="mb-4 space-y-2">
       <div
         v-for="def in defs"
         :key="def.key"
-        class="flex items-center gap-2 bg-violet-50/50 border border-violet-100 rounded-xl px-3 py-2"
+        class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 transition-colors hover:bg-stone-50"
       >
-        <span class="text-[11px] font-black text-violet-400 w-10 flex-shrink-0">{{ def.key }}</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-xs font-bold text-slate-700 truncate">{{ def.label }}</span>
-          <span class="block text-[10px] text-slate-400">{{ TYPE_LABELS[def.type] }}</span>
+        <span class="num w-10 shrink-0 text-[11px] font-bold text-stone-400">{{ def.key }}</span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-xs font-bold text-stone-700">{{ def.label }}</span>
+          <span class="mt-0.5 block text-[10px] text-stone-400">{{ TYPE_LABELS[def.type] }}</span>
         </span>
         <button
           type="button"
           @click="removeField(def)"
           title="ลบฟิลด์"
-          class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors flex-shrink-0"
+          aria-label="ลบฟิลด์"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600"
         >
-          <i class="bi bi-x-lg text-sm"></i>
+          <i class="bi bi-x-lg text-sm" aria-hidden="true"></i>
         </button>
       </div>
     </div>
-    <p v-else class="text-xs text-slate-400 mb-4">
+    <p v-else class="mb-4 text-xs text-stone-400">
       ยังไม่มีฟิลด์เพิ่มเติม — กด "เพิ่มฟิลด์" เพื่อสร้างฟิลด์ที่ใช้กับผู้เข้าร่วมทุกคน
     </p>
 
     <!-- ปุ่มเพิ่มฟิลด์ -->
-    <button
-      v-if="!showAddRow"
-      type="button"
-      @click="showAddRow = true"
-      class="px-3.5 py-2 text-xs font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-xl transition-colors inline-flex items-center gap-1.5"
-    >
-      <i class="bi bi-plus-lg"></i> เพิ่มฟิลด์
+    <button v-if="!showAddRow" type="button" class="btn-ghost-ui" @click="showAddRow = true">
+      <i class="bi bi-plus-lg" aria-hidden="true"></i> เพิ่มฟิลด์
     </button>
 
     <!-- แบบฟอร์มเพิ่มฟิลด์ -->
-    <div v-else class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div v-else class="space-y-3 rounded-xl border border-stone-200 bg-stone-50/70 p-3">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block"
-            >หัวข้อฟิลด์ *</label
-          >
+          <label class="field-label" for="dfLabel">หัวข้อฟิลด์ *</label>
           <input
+            id="dfLabel"
             v-model="newLabel"
             type="text"
             placeholder="เช่น หมายเลขกลุ่ม, รถคันที่ลง"
-            class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
+            class="field"
           />
         </div>
         <div>
-          <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block"
-            >ชนิด</label
-          >
-          <select
-            v-model="newType"
-            class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
-          >
+          <label class="field-label" for="dfType">ชนิด</label>
+          <select id="dfType" v-model="newType" class="field">
             <option v-for="(label, type) in TYPE_LABELS" :key="type" :value="type">
               {{ label }}
             </option>
@@ -174,31 +165,20 @@ function removeField(def: DynamicFieldDef) {
       </div>
 
       <div v-if="newType === 'dropdown'">
-        <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 block"
-          >ตัวเลือก (คั่นด้วย , หรือขึ้นบรรทัดใหม่)</label
-        >
+        <label class="field-label" for="dfOptions">ตัวเลือก (คั่นด้วย , หรือขึ้นบรรทัดใหม่)</label>
         <input
+          id="dfOptions"
           v-model="newOptionsText"
           type="text"
           placeholder="เช่น กลุ่มแดง, กลุ่มน้ำเงิน, กลุ่มเขียว"
-          class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400"
+          class="field"
         />
       </div>
 
-      <div class="flex justify-end gap-2">
-        <button
-          type="button"
-          @click="showAddRow = false"
-          class="px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
-        >
-          ยกเลิก
-        </button>
-        <button
-          type="button"
-          @click="addField"
-          class="px-4 py-2 text-xs font-bold text-white bg-violet-600 hover:bg-violet-700 rounded-lg shadow-sm transition-all inline-flex items-center gap-1"
-        >
-          <i class="bi bi-check-lg"></i> เพิ่มฟิลด์
+      <div class="flex flex-col-reverse gap-2 border-t border-stone-200 pt-3 sm:flex-row sm:justify-end">
+        <button type="button" class="btn-ghost-ui" @click="showAddRow = false">ยกเลิก</button>
+        <button type="button" class="btn-primary" @click="addField">
+          <i class="bi bi-check-lg" aria-hidden="true"></i> เพิ่มฟิลด์
         </button>
       </div>
     </div>

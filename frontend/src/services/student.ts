@@ -1,5 +1,12 @@
 import api from '@/services/api'
-import type { Student, Invite } from '@/types/student'
+import type {
+  Student,
+  Invite,
+  StudentQuickAdd,
+  StudentAddPayload,
+  PendingStudentRequest
+} from '@/types/student'
+import type { ApiSuccessResponse } from '@/types/api'
 
 export const StudentService = {
   /**
@@ -16,8 +23,13 @@ export const StudentService = {
     return await api.get(`/api/classroom/${roomId}/students/profile/${studentNo}?target_type=room`) as Student
   },
 
-  async getMyProfile(roomId: number) { 
-    return await api.get(`/api/classroom/${roomId}/students/me?target_type=room`);
+  /**
+   * ดึงโปรไฟล์นักเรียนของ "ตัวเอง" ในห้องที่ระบุ (ใช้ขึ้นหน้าโปรไฟล์ส่วนตัว)
+   */
+  async getMyProfile(roomId: number): Promise<Student> {
+    return (await api.get(
+      `/api/classroom/${roomId}/students/me?target_type=room`,
+    )) as Student
   },
 
   /**
@@ -58,7 +70,7 @@ export const StudentService = {
   /**
    * เพิ่มนักเรียน (คนเดียว)
    */
-  async addStudent(roomId: number, payload: any): Promise<void> {
+  async addStudent(roomId: number, payload: StudentAddPayload): Promise<void> {
     await api.post(`/api/classroom/${roomId}/students?target_type=room`, payload)
   },
 
@@ -67,7 +79,7 @@ export const StudentService = {
    */
   async bulkAddStudents(
     roomId: number,
-    students: any[],
+    students: StudentQuickAdd[],
     userName: string
   ): Promise<void> {
     await api.post(`/api/classroom/${roomId}/students/bulk?target_type=room`, {
@@ -76,7 +88,7 @@ export const StudentService = {
     })
   },
 
-  async getPendingRequests(roomId: number): Promise<any[]> {
+  async getPendingRequests(roomId: number): Promise<PendingStudentRequest[]> {
     return await api.get(`/api/classroom/${roomId}/requests`);
   },
 
@@ -87,11 +99,11 @@ export const StudentService = {
   async acceptInvite(inviteId: number): Promise<void> {
     await api.post(`/api/classroom/invites/${inviteId}/accept`);
   },
-  async approveStudent(roomId: number, studentNo: number): Promise<any> {
-    return await api.put(`/api/classroom/${roomId}/requests/${studentNo}/approve`);
+  async approveStudent(roomId: number, studentNo: number): Promise<ApiSuccessResponse> {
+    return await api.put(`/api/classroom/${roomId}/requests/${studentNo}/approve`) as unknown as ApiSuccessResponse;
   },
-  async rejectStudent(roomId: number, studentNo: number): Promise<any> {
-    return await api.delete(`/api/classroom/${roomId}/requests/${studentNo}/reject`);
+  async rejectStudent(roomId: number, studentNo: number): Promise<ApiSuccessResponse> {
+    return await api.delete(`/api/classroom/${roomId}/requests/${studentNo}/reject`) as unknown as ApiSuccessResponse;
   },
 
   /**
