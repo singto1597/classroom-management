@@ -1,13 +1,24 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import Swal from 'sweetalert2'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+
+// ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
+// ที่อ่าน detail จาก response ของ axios ไว้
+const apiErrorDetail = (error: unknown): string | undefined => {
+  if (!isAxiosError<{ detail?: unknown }>(error)) return undefined
+  const detail = error.response?.data?.detail
+  return typeof detail === 'string' ? detail : undefined
+}
 
 // --- ถอด Mock Data เปลี่ยนมาดึงจาก Store ---
 const currentRoomId = authStore.currentRoomId!
@@ -35,8 +46,8 @@ const fetchTask = async () => {
     form.task_name = task.task_name
     form.task_detail = task.task_detail || ''
     form.due_date = task.due_date
-  } catch (error: any) {
-    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถโหลดข้อมูลงานได้', 'error')
+  } catch (error: unknown) {
+    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลงานได้', 'error')
     router.push('/tasks')
   } finally {
     isLoading.value = false
@@ -50,7 +61,7 @@ const handleUpdateTask = async () => {
 
   if (!form.task_name) return
   isSubmitting.value = true
-  
+
   try {
     await TaskService.updateTask(currentRoomId, taskId, {
       ...form,
@@ -60,11 +71,12 @@ const handleUpdateTask = async () => {
       icon: 'success',
       title: 'แก้ไขงานเรียบร้อย!',
       timer: 1500,
-      showConfirmButton: false
+      showConfirmButton: false,
+      confirmButtonColor: '#1d4ed8'
     })
     router.push('/tasks')
-  } catch (error: any) {
-    Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.detail || 'ไม่สามารถอัปเดตงานได้', 'error')
+  } catch (error: unknown) {
+    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถอัปเดตงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -74,96 +86,96 @@ onMounted(fetchTask)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 py-10 px-4 sm:px-6">
-    <div class="max-w-2xl mx-auto">
-      
-      <div class="flex items-center gap-4 mb-8">
-        <button 
-          @click="router.push('/tasks')" 
-          class="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200 hover:text-slate-800 hover:shadow transition-all"
-        >
-          <i class="bi bi-arrow-left text-lg"></i>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Edit Entry"
+      title="แก้ไขข้อมูลงาน"
+      description="อัปเดตรายละเอียด หรือเลื่อนกำหนดส่งของการบ้าน"
+    >
+      <template #actions>
+        <button type="button" class="btn-ghost-ui" @click="router.push('/tasks')">
+          <i class="bi bi-arrow-left" aria-hidden="true" />
+          ย้อนกลับ
         </button>
-        <div>
-          <h1 class="text-2xl font-extrabold text-slate-800">แก้ไขข้อมูลงาน</h1>
-          <p class="text-slate-500 text-sm mt-0.5">อัปเดตรายละเอียด หรือเลื่อนกำหนดส่งของการบ้าน</p>
+      </template>
+    </PageHeader>
+
+    <div class="page-card overflow-hidden">
+      <!-- หัวการ์ด: ระบุรหัสงานที่กำลังแก้ -->
+      <div class="flex items-center gap-3 border-b border-stone-100 px-5 py-4">
+        <div
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+        >
+          <i class="bi bi-pencil-square" aria-hidden="true"></i>
+        </div>
+        <div class="min-w-0">
+          <p class="truncate font-display text-base font-bold text-stone-900">ฟอร์มแก้ไขงาน</p>
+          <p class="text-xs text-stone-500">รหัสงาน <span class="num">#{{ taskId }}</span></p>
         </div>
       </div>
 
-      <div class="bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] overflow-hidden border border-slate-100">
-        
-        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white flex items-center gap-3">
-          <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md border border-white/20">
-            <i class="bi bi-pencil-square text-lg"></i>
+      <div class="p-5 sm:p-6">
+        <SkeletonRows v-if="isLoading" :rows="3" height="h-14" />
+
+        <form v-else class="space-y-4" @submit.prevent="handleUpdateTask">
+          <div>
+            <label class="field-label" for="taskName">
+              ชื่องาน <span class="text-red-600">*</span>
+            </label>
+            <input
+              id="taskName"
+              :disabled="!canManageTasks"
+              v-model="form.task_name"
+              type="text"
+              class="field disabled:cursor-not-allowed"
+              required
+            />
           </div>
-          <h4 class="text-xl font-bold">ฟอร์มแก้ไขงาน (รหัสงาน #{{ taskId }})</h4>
-        </div>
 
-        <div class="p-5 md:p-8">
-
-          <div v-if="isLoading" class="flex flex-col items-center justify-center py-10 gap-3">
-            <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-200 border-t-blue-600"></div>
-            <p class="text-slate-500 font-medium animate-pulse">กำลังโหลดข้อมูล...</p>
+          <div>
+            <label class="field-label" for="taskDetail">รายละเอียด</label>
+            <textarea
+              id="taskDetail"
+              :disabled="!canManageTasks"
+              v-model="form.task_detail"
+              class="field h-32 resize-none disabled:cursor-not-allowed"
+              placeholder="อธิบายรายละเอียดงาน, ขั้นตอนการทำ, หรือแนบลิงก์ที่เกี่ยวข้อง..."
+            ></textarea>
           </div>
 
-          <form v-else @submit.prevent="handleUpdateTask" class="space-y-6">
-            
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-bookmark-fill text-blue-500"></i> ชื่องาน <span class="text-rose-500">*</span>
-              </label>
-              <input 
-                :disabled="!canManageTasks"
-                v-model="form.task_name" 
-                type="text" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed" 
-                required 
-              />
-            </div>
+          <div>
+            <label class="field-label" for="taskDueDate">
+              กำหนดส่ง <span class="text-red-600">*</span>
+            </label>
+            <input
+              id="taskDueDate"
+              :disabled="!canManageTasks"
+              v-model="form.due_date"
+              type="date"
+              class="field disabled:cursor-not-allowed"
+              required
+            />
+          </div>
 
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-card-text text-blue-500"></i> รายละเอียด
-              </label>
-              <textarea 
-                :disabled="!canManageTasks"
-                v-model="form.task_detail" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl h-32 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none resize-none disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed" 
-                placeholder="อธิบายรายละเอียดงาน, ขั้นตอนการทำ, หรือแนบลิงก์ที่เกี่ยวข้อง..."
-              ></textarea>
+          <div class="flex border-t border-stone-100 pt-4 sm:justify-end">
+            <template v-if="canManageTasks">
+              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+                <span
+                  v-if="isSubmitting"
+                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  aria-hidden="true"
+                ></span>
+                <template v-else><i class="bi bi-save-fill" aria-hidden="true" /> บันทึกการแก้ไข</template>
+              </button>
+            </template>
+            <div
+              v-else
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500"
+            >
+              <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขได้
             </div>
-
-            <div class="space-y-2">
-              <label class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <i class="bi bi-calendar-event text-blue-500"></i> กำหนดส่ง <span class="text-rose-500">*</span>
-              </label>
-              <input 
-                :disabled="!canManageTasks"
-                v-model="form.due_date" 
-                type="date" 
-                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none disabled:opacity-60 disabled:bg-slate-100 disabled:cursor-not-allowed" 
-                required 
-              />
-            </div>
-
-            <div class="pt-6 mt-6 border-t border-slate-100">
-              <template v-if="canManageTasks">
-                <button 
-                  type="submit" 
-                  class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
-                  :disabled="isSubmitting"
-                >
-                  <span v-if="isSubmitting" class="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  <i v-else class="bi bi-save-fill"></i> บันทึกการแก้ไข
-                </button>
-              </template>
-              <div v-else class="w-full text-center py-3.5 bg-slate-100 text-slate-500 rounded-xl font-medium border border-slate-200 flex items-center justify-center gap-2">
-                <i class="bi bi-lock-fill text-rose-500"></i> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขได้
-              </div>
-            </div>
-          </form>
-
-        </div>
+          </div>
+        </form>
       </div>
     </div>
   </div>

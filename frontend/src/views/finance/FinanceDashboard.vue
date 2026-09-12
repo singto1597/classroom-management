@@ -4,6 +4,11 @@ import { FinanceService } from '@/services/finance';
 import type { FinanceSummary, Account } from '@/types/finance';
 import { Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, ArcElement, CategoryScale } from 'chart.js';
+import type { ChartOptions } from 'chart.js';
+
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
@@ -17,6 +22,9 @@ const currentUserName = authStore.currentUserName || 'ผู้ดูแลร�
 const summary = ref<FinanceSummary | null>(null);
 const accounts = ref<Account[]>([]);
 const isLoading = ref(true);
+
+// สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
+const hasError = ref(false);
 
 const isExporting = ref(false);
 const isExportMenuOpen = ref(false);
@@ -40,6 +48,7 @@ const yearOptions = computed(() => {
 
 const fetchDashboardData = async () => {
   isLoading.value = true;
+  hasError.value = false;
   try {
     const [summaryRes, accountsRes] = await Promise.all([
       FinanceService.getSummary(currentServerId, selectedMonth.value, selectedYear.value),
@@ -49,6 +58,7 @@ const fetchDashboardData = async () => {
     accounts.value = accountsRes;
   } catch (error) {
     console.error('Failed to fetch dashboard data:', error);
+    hasError.value = true;
   } finally {
     isLoading.value = false;
   }
@@ -60,7 +70,7 @@ const chartData = computed(() => {
       labels: ['ยังไม่มีรายจ่าย'],
       datasets: [{
         data: [1],
-        backgroundColor: ['#f1f5f9'], // slate-100
+        backgroundColor: ['#e7e5e4'], // stone-200
         borderWidth: 0
       }]
     };
@@ -70,8 +80,9 @@ const chartData = computed(() => {
     labels: summary.value.expense_breakdown.map(item => item.category_name),
     datasets: [{
       data: summary.value.expense_breakdown.map(item => item.total_amount),
+      // 🎨 ธีม Academic Ledger: เฉดน้ำเงิน brand ไล่ระดับ + เทา stone (ไม่ใช้สีรุ้ง)
       backgroundColor: [
-        '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#6366f1'
+        '#1D4ED8', '#2563EB', '#3B82F6', '#93C5FD', '#78716C', '#A8A29E', '#D6D3D1'
       ],
       borderWidth: 0,
       hoverOffset: 6
@@ -79,12 +90,12 @@ const chartData = computed(() => {
   };
 });
 
-const chartOptions = {
+const chartOptions: ChartOptions<'doughnut'> = {
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
     legend: {
-      position: 'bottom' as const,
+      position: 'bottom',
       labels: {
         usePointStyle: true,
         padding: 20,
@@ -94,12 +105,12 @@ const chartOptions = {
           size: 11,
           weight: 'bold'
         },
-        color: '#64748b' // slate-500
+        color: '#78716c' // stone-500
       }
     },
     tooltip: {
       enabled: summary.value?.expense_breakdown.length !== 0,
-      backgroundColor: 'rgba(15, 23, 42, 0.9)',
+      backgroundColor: 'rgba(28, 25, 23, 0.92)', // stone-900
       titleFont: { family: "'Noto Sans Thai', sans-serif", size: 13 },
       bodyFont: { family: "'Noto Sans Thai', sans-serif", size: 13, weight: 'bold' },
       padding: 12,
@@ -113,7 +124,7 @@ const chartOptions = {
     animateScale: true,
     animateRotate: true
   }
-} as any ;
+};
 
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num);
@@ -181,7 +192,8 @@ const runExport = async (kind: ExportKind) => {
     Swal.fire({
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
-      text: 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง'
+      text: 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
+      confirmButtonColor: '#1d4ed8'
     });
   } finally {
     isExporting.value = false;
@@ -198,292 +210,265 @@ watch([selectedMonth, selectedYear], () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50/50 p-4 sm:p-6 md:p-8">
-    <div class="max-w-7xl mx-auto">
-      
-      <!-- Header Section -->
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 md:mb-7 gap-4">
-        <div class="flex items-center gap-3 w-full md:w-auto min-w-0">
-          <RouterLink
-            to="/dashboard"
-            class="bg-white hover:bg-slate-100 text-slate-600 p-2.5 rounded-xl transition-all shadow-sm border border-slate-200 shrink-0 group"
-            title="กลับหน้าหลัก"
-          >
-            <i class="bi bi-house-door-fill text-lg group-hover:scale-110 transition-transform"></i>
-          </RouterLink>
-          <div class="min-w-0">
-            <h1 class="text-xl md:text-2xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
-              ภาพรวมการเงิน
-            </h1>
-            <p class="text-slate-500 mt-0.5 text-sm md:text-base font-medium truncate">
-              ประจำเดือน <span class="text-blue-600 font-bold">{{ thaiMonths[selectedMonth - 1] }} {{ selectedYear + 543 }}</span>
-            </p>
-          </div>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Finance Overview"
+      title="ภาพรวมการเงิน"
+      :description="`สรุปการเงินประจำเดือน ${thaiMonths[selectedMonth - 1]} ${selectedYear + 543}`"
+    >
+      <template #actions>
+        <!-- ตัวกรองเดือน/ปี -->
+        <div class="relative w-full sm:w-auto">
+          <select v-model="selectedMonth" class="field appearance-none pe-9 sm:w-36" aria-label="เลือกเดือน">
+            <option v-for="(month, index) in thaiMonths" :key="index" :value="index + 1">
+              {{ month }}
+            </option>
+          </select>
+          <i
+            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-400"
+            aria-hidden="true"
+          ></i>
         </div>
 
-        <!-- Date Filters (เรียง 2 แถวบนมือถือ, แถวเดียวบนเดสก์ท็อป) -->
-        <div class="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full md:w-auto">
-          <div class="flex gap-2 w-full sm:w-auto">
-            <div class="relative flex-1 sm:flex-none">
-              <select
-                v-model="selectedMonth"
-                class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-3 pr-9 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer min-w-0"
-              >
-                <option v-for="(month, index) in thaiMonths" :key="index" :value="index + 1">
-                  {{ month }}
-                </option>
-              </select>
-              <i class="bi bi-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
-            </div>
-            <div class="relative flex-1 sm:flex-none">
-              <select
-                v-model="selectedYear"
-                class="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 pl-3 pr-9 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 font-bold text-sm transition-all cursor-pointer min-w-0"
-              >
-                <option v-for="y in yearOptions" :key="y" :value="y">
-                  พ.ศ. {{ y + 543 }}
-                </option>
-              </select>
-              <i class="bi bi-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs font-bold"></i>
-            </div>
-          </div>
+        <div class="relative w-full sm:w-auto">
+          <select v-model="selectedYear" class="field appearance-none pe-9 sm:w-32" aria-label="เลือกปีการศึกษา">
+            <option v-for="y in yearOptions" :key="y" :value="y">
+              พ.ศ. {{ y + 543 }}
+            </option>
+          </select>
+          <i
+            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-400"
+            aria-hidden="true"
+          ></i>
+        </div>
 
-          <!-- 📥 ปุ่มส่งออก Excel (ตามเดือน/ปีที่เลือก) — Dropdown เลือกแบบสรุปรายการ หรือสมุดรายวัน -->
-          <div class="relative w-full sm:w-auto">
+        <!-- 📥 ปุ่มส่งออก Excel (ตามเดือน/ปีที่เลือก) — Dropdown เลือกแบบสรุปรายการ หรือสมุดรายวัน -->
+        <div class="relative w-full sm:w-auto">
+          <button
+            @click="isExportMenuOpen = !isExportMenuOpen"
+            :disabled="isExporting"
+            class="btn-primary w-full sm:w-auto"
+            title="ส่งออกข้อมูลการเงินของเดือนนี้เป็น Excel"
+          >
+            <i class="bi bi-file-earmark-excel" aria-hidden="true"></i>
+            <span>ส่งออก Excel</span>
+            <i class="bi bi-chevron-down text-xs" aria-hidden="true"></i>
+          </button>
+
+          <!-- Overlay ไว้ปิดเมนูเมื่อคลิกข้างนอก -->
+          <div v-if="isExportMenuOpen" class="fixed inset-0 z-20" @click="isExportMenuOpen = false"></div>
+
+          <!-- Dropdown Menu: 2 ตัวเลือก -->
+          <div
+            v-if="isExportMenuOpen"
+            class="absolute end-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white"
+          >
+            <!-- แบบที่ 1: สรุปรายการ (แบบปกติ) -->
             <button
-              @click="isExportMenuOpen = !isExportMenuOpen"
-              :disabled="isExporting"
-              class="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all"
-              title="ส่งออกข้อมูลการเงินของเดือนนี้เป็น Excel"
+              @click="runExport('summary')"
+              class="group flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-stone-50 active:scale-[0.99]"
+              title="ดาวน์โหลดสรุป รายรับ/รายจ่าย + ยอดคงเหลือรายบัญชี"
             >
-              <i class="bi bi-file-earmark-excel-fill text-lg"></i>
-              <span class="lg:inline">ส่งออก Excel</span>
-              <i class="bi bi-chevron-down text-xs"></i>
+              <div
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 transition-colors group-hover:bg-brand-700 group-hover:text-white"
+              >
+                <i class="bi bi-file-earmark-excel text-xl" aria-hidden="true"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-bold text-brand-700">ดาวน์โหลดสรุปรายการ (แบบปกติ)</p>
+                <p class="mt-0.5 text-xs text-stone-400">รายรับ/รายจ่าย แยกหมวดหมู่ + ยอดคงเหลือบัญชี</p>
+              </div>
+              <i class="bi bi-chevron-right shrink-0 self-center text-stone-300" aria-hidden="true"></i>
             </button>
 
-            <!-- Overlay ไว้ปิดเมนูเมื่อคลิกข้างนอก -->
-            <div
-              v-if="isExportMenuOpen"
-              class="fixed inset-0 z-20"
-              @click="isExportMenuOpen = false"
-            ></div>
+            <div class="mx-4 border-t border-stone-100"></div>
 
-            <!-- Dropdown Menu: 2 ตัวเลือก -->
-            <div
-              v-if="isExportMenuOpen"
-              class="absolute right-0 top-full mt-2 z-30 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl shadow-slate-900/10 border border-slate-100 overflow-hidden"
+            <!-- แบบที่ 2: สมุดรายวัน (แบบนักบัญชี) -->
+            <button
+              @click="runExport('journal')"
+              class="group flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-stone-50 active:scale-[0.99]"
+              title="ดาวน์โหลดสมุดรายวันทั่วไป (เดบิต/เครดิต) สำหรับนักบัญชี"
             >
-              <!-- แบบที่ 1: สรุปรายการ (แบบปกติ) — สีเขียว Primary -->
-              <button
-                @click="runExport('summary')"
-                class="w-full flex items-center gap-3 p-3.5 text-left hover:bg-emerald-50 transition-colors group active:scale-[0.99]"
-                title="ดาวน์โหลดสรุป รายรับ/รายจ่าย + ยอดคงเหลือรายบัญชี"
+              <div
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600 transition-colors group-hover:bg-stone-800 group-hover:text-white"
               >
-                <div class="w-10 h-10 flex items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0">
-                  <i class="bi bi-file-earmark-excel-fill text-xl"></i>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <p class="text-sm font-bold text-emerald-700">ดาวน์โหลดสรุปรายการ (แบบปกติ)</p>
-                  <p class="text-xs text-slate-400 mt-0.5">รายรับ/รายจ่าย แยกหมวดหมู่ + ยอดคงเหลือบัญชี</p>
-                </div>
-                <i class="bi bi-chevron-right text-slate-300 group-hover:text-emerald-500 self-center"></i>
-              </button>
-
-              <div class="mx-4 border-t border-slate-100"></div>
-
-              <!-- แบบที่ 2: สมุดรายวัน (แบบนักบัญชี) — สีม่วง/Indigo Secondary -->
-              <button
-                @click="runExport('journal')"
-                class="w-full flex items-center gap-3 p-3.5 text-left hover:bg-indigo-50 transition-colors group active:scale-[0.99]"
-                title="ดาวน์โหลดสมุดรายวันทั่วไป (เดบิต/เครดิต) สำหรับนักบัญชี"
-              >
-                <div class="w-10 h-10 flex items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
-                  <i class="bi bi-journal-text text-xl"></i>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <p class="text-sm font-bold text-indigo-700">ดาวน์โหลดสมุดรายวัน (แบบนักบัญชี)</p>
-                  <p class="text-xs text-slate-400 mt-0.5">รายการ เดบิต/เครดิต รายบัญชี (สมุดรายวันทั่วไป)</p>
-                </div>
-                <i class="bi bi-chevron-right text-slate-300 group-hover:text-indigo-500 self-center"></i>
-              </button>
-            </div>
+                <i class="bi bi-journal-text text-xl" aria-hidden="true"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-bold text-stone-700">ดาวน์โหลดสมุดรายวัน (แบบนักบัญชี)</p>
+                <p class="mt-0.5 text-xs text-stone-400">รายการ เดบิต/เครดิต รายบัญชี (สมุดรายวันทั่วไป)</p>
+              </div>
+              <i class="bi bi-chevron-right shrink-0 self-center text-stone-300" aria-hidden="true"></i>
+            </button>
           </div>
+        </div>
+      </template>
+    </PageHeader>
+
+    <!-- สถานะโหลด / ผิดพลาด -->
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
+    <StateBlock v-else-if="hasError || !summary" variant="error" @retry="fetchDashboardData" />
+
+    <template v-else>
+      <!-- KPI การเงิน: ยอดคงเหลือ / ค้างชำระ / รายรับ / รายจ่าย -->
+      <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div class="page-card col-span-2 border-s-4 border-s-brand-700 p-4 sm:p-5 lg:col-span-1">
+          <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">เงินคงเหลือรวม</p>
+          <p class="font-display num mt-2 break-words text-2xl font-bold text-stone-900 sm:text-3xl">
+            <span class="me-1 text-lg text-stone-400">฿</span>{{ formatNumber(summary.net_worth) }}
+          </p>
+        </div>
+
+        <div class="page-card col-span-2 p-4 sm:p-5 lg:col-span-1">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
+            <i class="bi bi-hourglass-split text-amber-600" aria-hidden="true"></i>
+            ยอดที่เพื่อนค้างจ่ายรวม
+          </p>
+          <p class="font-display num mt-2 break-words text-2xl font-bold text-amber-700 sm:text-3xl">
+            <span class="me-1 text-lg text-amber-500/70">฿</span>{{ formatNumber(summary.pending_collection_amount) }}
+          </p>
+        </div>
+
+        <div class="page-card p-4 sm:p-5">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
+            <i class="bi bi-graph-up-arrow text-emerald-600" aria-hidden="true"></i>
+            รายรับเดือนนี้
+          </p>
+          <p class="font-display num mt-2 break-words text-xl font-bold text-emerald-600 sm:text-2xl">
+            +{{ formatNumber(summary.total_income) }}
+          </p>
+        </div>
+
+        <div class="page-card p-4 sm:p-5">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
+            <i class="bi bi-graph-down-arrow text-red-600" aria-hidden="true"></i>
+            รายจ่ายเดือนนี้
+          </p>
+          <p class="font-display num mt-2 break-words text-xl font-bold text-red-600 sm:text-2xl">
+            -{{ formatNumber(summary.total_expense) }}
+          </p>
         </div>
       </div>
 
-      <!-- Loading State -->
-      <div v-if="isLoading" class="flex flex-col items-center justify-center py-24 bg-white rounded-3xl border border-slate-100 shadow-sm">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-        <p class="text-slate-400 font-medium">กำลังโหลดข้อมูลภาพรวม...</p>
+      <!-- ทางลัด -->
+      <div class="page-card p-4 sm:p-5">
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <RouterLink
+            to="/finance/transactions"
+            class="flex flex-col items-center gap-2 rounded-xl border border-stone-200 px-2 py-4 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          >
+            <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+              <i class="bi bi-receipt text-xl" aria-hidden="true"></i>
+            </span>
+            <span class="text-xs font-bold text-stone-600">ประวัติรายการ</span>
+          </RouterLink>
+
+          <RouterLink
+            to="/finance/collections"
+            class="flex flex-col items-center gap-2 rounded-xl border border-stone-200 px-2 py-4 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          >
+            <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+              <i class="bi bi-box-seam text-xl" aria-hidden="true"></i>
+            </span>
+            <span class="text-xs font-bold text-stone-600">โปรเจกต์เก็บเงิน</span>
+          </RouterLink>
+
+          <RouterLink
+            to="/finance/debtors"
+            class="flex flex-col items-center gap-2 rounded-xl border border-stone-200 px-2 py-4 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          >
+            <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+              <i class="bi bi-exclamation-triangle text-xl" aria-hidden="true"></i>
+            </span>
+            <span class="text-xs font-bold text-stone-600">สรุปยอดค้างจ่าย</span>
+          </RouterLink>
+
+          <!-- Admin Only: ถ้าไม่ใช่แอดมิน ช่องนี้แสดงแบบปิดการใช้งาน -->
+          <div
+            v-if="!authStore.isAdmin"
+            class="flex flex-col items-center gap-2 rounded-xl border border-dashed border-stone-200 px-2 py-4 text-center opacity-60"
+          >
+            <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-400">
+              <i class="bi bi-gear text-xl" aria-hidden="true"></i>
+            </span>
+            <span class="text-xs font-bold text-stone-400">ตั้งค่า (แอดมิน)</span>
+          </div>
+
+          <RouterLink
+            v-else
+            to="/finance/settings"
+            class="flex flex-col items-center gap-2 rounded-xl border border-stone-200 px-2 py-4 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          >
+            <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-600">
+              <i class="bi bi-gear text-xl" aria-hidden="true"></i>
+            </span>
+            <span class="text-xs font-bold text-stone-600">ตั้งค่าการเงิน</span>
+          </RouterLink>
+        </div>
       </div>
 
-      <div v-else-if="summary" class="space-y-6 md:space-y-8">
-        
-        <!-- SUMMARY CARDS (Smart Mobile Grid) -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5 md:gap-5">
-          <!-- Net Worth Card (Full width on mobile) -->
-          <div class="col-span-2 lg:col-span-1 bg-gradient-to-br from-slate-800 to-slate-900 rounded-[1.5rem] shadow-lg shadow-slate-900/20 p-5 md:p-6 text-white relative overflow-hidden group">
-            <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-            <i class="bi bi-wallet2 absolute -right-2 -bottom-2 text-6xl text-white/10 group-hover:scale-110 transition-transform duration-500"></i>
-            <p class="text-slate-300 text-xs md:text-sm font-bold uppercase tracking-wider mb-2">เงินคงเหลือรวม</p>
-            <h2 class="text-3xl md:text-4xl font-black tracking-tight">
-              <span class="text-xl md:text-2xl mr-1 opacity-80">฿</span>{{ formatNumber(summary.net_worth) }}
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <!-- กระเป๋าเงินห้อง -->
+        <div class="page-card p-4 sm:p-5 lg:col-span-2">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <h2 class="section-title flex min-w-0 items-center gap-2">
+              <i class="bi bi-credit-card-2-front text-brand-700" aria-hidden="true"></i>
+              <span class="truncate">กระเป๋าเงินห้อง</span>
             </h2>
-          </div>
-
-          <!-- Pending Debt Card (Full width on mobile) -->
-          <div class="col-span-2 lg:col-span-1 bg-gradient-to-br from-amber-500 to-orange-600 rounded-[1.5rem] shadow-lg shadow-orange-500/20 p-5 md:p-6 text-white relative overflow-hidden group">
-            <div class="absolute -right-4 -bottom-4 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-            <i class="bi bi-hourglass-split absolute -right-2 -bottom-2 text-6xl text-white/10 group-hover:scale-110 group-hover:-rotate-12 transition-transform duration-500"></i>
-            <p class="text-amber-100 text-xs md:text-sm font-bold uppercase tracking-wider mb-2">ยอดที่เพื่อนค้างจ่ายรวม</p>
-            <h2 class="text-3xl md:text-4xl font-black tracking-tight">
-              <span class="text-xl md:text-2xl mr-1 opacity-80">฿</span>{{ formatNumber(summary.pending_collection_amount) }}
-            </h2>
-          </div>
-
-          <!-- Income Card (Half width on mobile) -->
-          <div class="col-span-1 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-[1.5rem] shadow-md shadow-emerald-500/10 p-4 md:p-6 text-white relative overflow-hidden group">
-            <i class="bi bi-graph-up-arrow absolute -right-2 -bottom-2 text-5xl text-white/10 group-hover:scale-110 group-hover:-translate-y-1 transition-transform duration-500"></i>
-            <p class="text-emerald-100 text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1.5 md:mb-2 line-clamp-1">รายรับเดือนนี้</p>
-            <h2 class="text-xl sm:text-2xl md:text-3xl font-black tracking-tight truncate">
-              <span class="text-sm md:text-xl mr-0.5 opacity-80">+</span>{{ formatNumber(summary.total_income) }}
-            </h2>
-          </div>
-
-          <!-- Expense Card (Half width on mobile) -->
-          <div class="col-span-1 bg-gradient-to-br from-rose-500 to-pink-600 rounded-[1.5rem] shadow-md shadow-rose-500/10 p-4 md:p-6 text-white relative overflow-hidden group">
-            <i class="bi bi-graph-down-arrow absolute -right-2 -bottom-2 text-5xl text-white/10 group-hover:scale-110 group-hover:translate-y-1 transition-transform duration-500"></i>
-            <p class="text-rose-100 text-[10px] md:text-xs font-bold uppercase tracking-wider mb-1.5 md:mb-2 line-clamp-1">รายจ่ายเดือนนี้</p>
-            <h2 class="text-xl sm:text-2xl md:text-3xl font-black tracking-tight truncate">
-              <span class="text-sm md:text-xl mr-0.5 opacity-80">-</span>{{ formatNumber(summary.total_expense) }}
-            </h2>
-          </div>
-        </div>
-
-        <!-- QUICK MENU (App Style - 2x2 on mobile, 4 in a row on desktop) -->
-        <div class="bg-white rounded-3xl p-4 md:p-6 shadow-sm border border-slate-100">
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <RouterLink
-              to="/finance/transactions"
-              class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
-            >
-              <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-blue-50 text-blue-600 rounded-[1rem] md:rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors shadow-sm">
-                <i class="bi bi-receipt text-xl md:text-2xl"></i>
-              </div>
-              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">ประวัติรายการ</span>
-            </RouterLink>
-
-            <RouterLink
-              to="/finance/collections"
-              class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
-            >
-              <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-[1rem] md:rounded-2xl group-hover:bg-emerald-600 group-hover:text-white transition-colors shadow-sm">
-                <i class="bi bi-box-seam-fill text-xl md:text-2xl"></i>
-              </div>
-              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">โปรเจกต์เก็บเงิน</span>
-            </RouterLink>
-
-            <RouterLink
-              to="/finance/debtors"
-              class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
-            >
-              <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-rose-50 text-rose-600 rounded-[1rem] md:rounded-2xl group-hover:bg-rose-600 group-hover:text-white transition-colors shadow-sm">
-                <i class="bi bi-exclamation-triangle-fill text-xl md:text-2xl"></i>
-              </div>
-              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">สรุปยอดค้างจ่าย</span>
-            </RouterLink>
-
-            <!-- Admin Only: If not admin, this space can be empty or show a disabled icon -->
-            <div v-if="!authStore.isAdmin" class="flex flex-col items-center gap-2 opacity-40 grayscale">
-              <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-slate-100 text-slate-400 rounded-[1rem] md:rounded-2xl shadow-sm">
-                <i class="bi bi-gear-fill text-xl md:text-2xl"></i>
-              </div>
-              <span class="text-xs md:text-sm font-bold text-slate-400 text-center leading-tight">ตั้งค่า (แอดมิน)</span>
-            </div>
-
-            <RouterLink
-              v-else
+              v-if="authStore.isAdmin"
               to="/finance/settings"
-              class="flex flex-col items-center gap-2 group active:scale-95 transition-transform"
+              class="btn-ghost-ui shrink-0 px-3 py-2 text-xs"
             >
-              <div class="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-slate-100 text-slate-600 rounded-[1rem] md:rounded-2xl group-hover:bg-slate-800 group-hover:text-white transition-colors shadow-sm">
-                <i class="bi bi-gear-fill text-xl md:text-2xl"></i>
-              </div>
-              <span class="text-xs md:text-sm font-bold text-slate-600 text-center leading-tight">ตั้งค่าการเงิน</span>
+              จัดการบัญชี
             </RouterLink>
+          </div>
+
+          <StateBlock
+            v-if="accounts.length === 0"
+            variant="empty"
+            title="ยังไม่มีกระเป๋าเงิน"
+            hint="เพิ่มกระเป๋าเงินได้ที่หน้าตั้งค่าการเงิน"
+          />
+
+          <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div
+              v-for="acc in accounts"
+              :key="acc.id"
+              class="min-w-0 rounded-xl border border-stone-200 bg-stone-50/60 p-4"
+            >
+              <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">ชื่อบัญชี</p>
+              <p class="truncate font-display text-base font-bold text-stone-900">{{ acc.account_name }}</p>
+
+              <p class="mt-3 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">ยอดคงเหลือ</p>
+              <p class="font-display num text-lg font-bold text-brand-700">
+                ฿ {{ formatNumber(acc.balance) }}
+              </p>
+            </div>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-          <!-- WALLETS SECTION (Digital Card Style) -->
-          <div class="lg:col-span-2 bg-white rounded-3xl border border-slate-100 shadow-sm p-5 md:p-7">
-            <div class="flex justify-between items-center mb-6">
-              <h3 class="text-lg md:text-xl font-extrabold text-slate-800 flex items-center gap-2">
-                <i class="bi bi-credit-card-2-front text-blue-500"></i> กระเป๋าเงินห้อง
-              </h3>
-              <RouterLink 
-                v-if="authStore.isAdmin"
-                to="/finance/settings" 
-                class="text-[11px] md:text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:text-slate-800 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                จัดการบัญชี
-              </RouterLink>
+        <!-- สัดส่วนรายจ่าย -->
+        <div class="page-card flex flex-col p-4 sm:p-5">
+          <h2 class="section-title mb-4 flex items-center gap-2">
+            <i class="bi bi-pie-chart text-stone-400" aria-hidden="true"></i>
+            สัดส่วนรายจ่าย
+          </h2>
+          <div class="relative flex min-h-[220px] grow items-center justify-center">
+            <!-- ป้ายกลางวง เมื่อยังไม่มีรายจ่าย -->
+            <div
+              v-if="!summary?.expense_breakdown.length"
+              class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
+            >
+              <i class="bi bi-cup-hot mb-1 text-3xl text-stone-300" aria-hidden="true"></i>
+              <p class="text-xs font-bold text-stone-400">ยังไม่มีรายจ่าย</p>
             </div>
-
-            <div v-if="accounts.length === 0" class="text-center py-12 border border-dashed border-slate-200 rounded-2xl bg-slate-50">
-              <i class="bi bi-wallet2 text-3xl text-slate-300 mb-2 block"></i>
-              <p class="text-slate-400 font-bold text-sm">ยังไม่มีกระเป๋าเงิน</p>
-            </div>
-            <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div 
-                v-for="acc in accounts" 
-                :key="acc.id" 
-                class="relative overflow-hidden p-5 rounded-[1.25rem] border border-slate-200 bg-gradient-to-br from-white to-slate-50 group hover:shadow-md hover:border-blue-200 transition-all"
-              >
-                <!-- Decorative Card Chip -->
-                <div class="absolute top-5 right-5 opacity-20 group-hover:opacity-40 transition-opacity">
-                  <i class="bi bi-sim text-2xl text-slate-400"></i>
-                </div>
-                
-                <div class="mb-6">
-                  <span class="text-slate-400 text-[10px] font-bold uppercase tracking-wider block mb-0.5">ชื่อบัญชี</span>
-                  <span class="font-extrabold text-slate-800 text-base line-clamp-1">{{ acc.account_name }}</span>
-                </div>
-                <div>
-                  <span class="text-slate-400 text-[10px] font-bold uppercase tracking-wider block mb-0.5">ยอดคงเหลือ</span>
-                  <span class="text-blue-600 font-black text-xl tracking-tight">฿ {{ formatNumber(acc.balance) }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- EXPENSE CHART SECTION -->
-          <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 md:p-7 flex flex-col">
-            <h3 class="text-lg md:text-xl font-extrabold text-slate-800 flex items-center gap-2 mb-6">
-              <i class="bi bi-pie-chart text-rose-500"></i> สัดส่วนรายจ่าย
-            </h3>
-            <div class="flex-grow flex items-center justify-center relative min-h-[220px] md:min-h-[260px]">
-              <!-- Custom Center Label if empty -->
-              <div v-if="!summary?.expense_breakdown.length" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <i class="bi bi-cup-hot text-slate-300 text-3xl mb-1"></i>
-                <p class="text-slate-400 text-xs font-bold">ยังไม่มีรายจ่าย</p>
-              </div>
-              <div class="w-full h-full max-h-[260px]">
-                <Doughnut :data="chartData" :options="chartOptions" />
-              </div>
+            <div class="h-full max-h-[260px] w-full">
+              <Doughnut :data="chartData" :options="chartOptions" />
             </div>
           </div>
         </div>
       </div>
-
-    </div>
+    </template>
   </div>
 </template>
-
-<style scoped>
-/* ให้แน่ใจว่า Font Noto Sans Thai ทำงานทั้งหน้า (โหลดผ่าน index.html แล้ว ไม่ต้อง @import ซ้ำ) */
-* {
-  font-family: 'Noto Sans Thai', sans-serif;
-  -webkit-tap-highlight-color: transparent;
-}
-</style>

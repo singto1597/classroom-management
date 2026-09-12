@@ -6,6 +6,10 @@ import type { Account, Category } from '@/types/finance';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
 
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+
 const authStore = useAuthStore();
 const router = useRouter();
 
@@ -17,6 +21,12 @@ const categories = ref<Category[]>([]);
 const activeTab = ref<'expense' | 'income' | 'transfer'>('expense');
 const isLoading = ref(true);
 const isSubmitting = ref(false);
+
+// รายการแท็บสำหรับ segmented control (พิมพ์ type ไว้ให้ template รู้จัก union โดยไม่ต้อง cast)
+const tabs: Array<'expense' | 'income' | 'transfer'> = ['expense', 'income', 'transfer'];
+
+// สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
+const hasError = ref(false);
 
 // Form States
 const form = ref({
@@ -31,6 +41,7 @@ const form = ref({
 
 const fetchInitData = async () => {
   isLoading.value = true;
+  hasError.value = false;
   try {
     const [accRes, catRes] = await Promise.all([
       FinanceService.getAccounts(currentServerId),
@@ -38,7 +49,8 @@ const fetchInitData = async () => {
     ]);
     accounts.value = accRes;
     categories.value = catRes;
-  } catch (error: any) {
+  } catch {
+    hasError.value = true;
     Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลเริ่มต้นได้', 'error');
   } finally {
     isLoading.value = false;
@@ -101,8 +113,8 @@ const handleSubmit = async () => {
       showConfirmButton: false
     });
     router.push('/finance/transactions');
-  } catch (error: any) {
-    Swal.fire('พัง!', error.message || 'บันทึกรายการไม่สำเร็จ', 'error');
+  } catch (error: unknown) {
+    Swal.fire('พัง!', error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ', 'error');
   } finally {
     isSubmitting.value = false;
   }
@@ -114,157 +126,146 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-4 md:p-6 max-w-2xl mx-auto">
-    <div class="flex items-center gap-3 mb-5">
-      <RouterLink
-        to="/finance/transactions"
-        class="w-10 h-10 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition shadow-sm group flex items-center justify-center shrink-0"
-        title="กลับหน้าประวัติ"
-      >
-        <i class="bi bi-arrow-left text-lg"></i>
-      </RouterLink>
-      <div>
-        <h1 class="text-xl md:text-2xl font-bold text-gray-800">บันทึกรายการเงิน</h1>
-        <p class="text-sm text-slate-500 mt-0.5">บันทึกรายรับ รายจ่าย หรือโอนระหว่างกระเป๋า</p>
-      </div>
-    </div>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="New Transaction"
+      title="บันทึกรายการเงิน"
+      description="บันทึกรายรับ รายจ่าย หรือโอนระหว่างกระเป๋า"
+    >
+      <template #actions>
+        <RouterLink to="/finance/transactions" class="btn-ghost-ui" title="กลับหน้าประวัติ">
+          <i class="bi bi-arrow-left" aria-hidden="true"></i>
+          กลับหน้าประวัติ
+        </RouterLink>
+      </template>
+    </PageHeader>
 
-    <!-- Tabs -->
-    <div class="bg-gray-100 p-1 rounded-2xl flex mb-5">
-      <button
-        v-for="tab in ['expense', 'income', 'transfer']"
-        :key="tab"
-        @click="switchTab(tab as any)"
-        :class="[
-          'flex-1 py-2.5 rounded-xl font-bold transition-all text-sm sm:text-base',
-          activeTab === tab
-            ? 'bg-white shadow-sm text-gray-800'
-            : 'text-gray-400 hover:text-gray-600'
-        ]"
-      >
-        <span v-if="tab === 'expense'">🔴 รายจ่าย</span>
-        <span v-if="tab === 'income'">🟢 รายรับ</span>
-        <span v-if="tab === 'transfer'">🔵 โอนเงิน</span>
-      </button>
-    </div>
+    <!-- สถานะโหลด / ผิดพลาด / ยังไม่มีกระเป๋าเงิน -->
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-14" />
+    <StateBlock v-else-if="hasError" variant="error" @retry="fetchInitData" />
+    <StateBlock
+      v-else-if="!accounts.length"
+      variant="empty"
+      title="ยังไม่มีกระเป๋าเงิน"
+      hint="เพิ่มกระเป๋าเงินได้ที่หน้าตั้งค่าการเงินก่อนบันทึกรายการ"
+    />
 
-    <!-- Form Section -->
-    <div v-if="isLoading" class="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-gray-100 shadow-sm">
-      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-    </div>
-
-    <form v-else @submit.prevent="handleSubmit" class="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 md:p-7 space-y-5">
-      
-      <!-- Amount Input -->
-      <div>
-        <label class="block text-sm font-bold text-gray-400 mb-2 uppercase">จำนวนเงิน (฿)</label>
-        <input 
-          v-model="form.amount" 
-          type="number" 
-          step="0.01" 
-          required 
-          class="w-full text-right text-3xl font-extrabold text-gray-800 bg-gray-50 border border-gray-100 rounded-2xl p-4 focus:ring-4 focus:ring-blue-100 outline-none transition"
-          placeholder="0.00"
+    <template v-else>
+      <!-- เลือกประเภท: segmented ขอบบาง -->
+      <div class="flex gap-1 rounded-xl border border-stone-200 bg-stone-50 p-1">
+        <button
+          v-for="tab in tabs"
+          :key="tab"
+          type="button"
+          class="flex-1 rounded-lg px-2 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
+          :class="
+            activeTab === tab
+              ? 'border border-stone-200 bg-white text-brand-700'
+              : 'border border-transparent text-stone-500 hover:text-stone-800'
+          "
+          @click="switchTab(tab)"
         >
+          <span v-if="tab === 'expense'"><i class="bi bi-arrow-up-right me-1" aria-hidden="true"></i>รายจ่าย</span>
+          <span v-if="tab === 'income'"><i class="bi bi-arrow-down-left me-1" aria-hidden="true"></i>รายรับ</span>
+          <span v-if="tab === 'transfer'"><i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>โอนเงิน</span>
+        </button>
       </div>
 
-      <!-- Account Selection (Non-Transfer) -->
-      <div v-if="activeTab !== 'transfer'">
-        <label class="block text-sm font-bold text-gray-400 mb-2 uppercase">บัญชี/กระเป๋าเงิน</label>
-        <select 
-          v-model="form.account_id" 
-          required 
-          class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-blue-100 outline-none transition font-bold"
-        >
-          <option value="" disabled>-- เลือกบัญชี --</option>
-          <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
-            {{ acc.account_name }} (เหลือ ฿{{ new Intl.NumberFormat().format(acc.balance) }})
-          </option>
-        </select>
+      <div class="page-card p-5 sm:p-6">
+        <form class="space-y-4" @submit.prevent="handleSubmit">
+          <!-- จำนวนเงิน -->
+          <div>
+            <label class="field-label" for="amount">จำนวนเงิน (฿)</label>
+            <input
+              id="amount"
+              v-model="form.amount"
+              class="field num font-display text-right text-xl font-bold"
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              required
+            />
+          </div>
+
+          <!-- บัญชีปลายทาง (ไม่ใช่โอน) -->
+          <div v-if="activeTab !== 'transfer'">
+            <label class="field-label" for="accountId">บัญชี/กระเป๋าเงิน</label>
+            <select id="accountId" v-model="form.account_id" class="field" required>
+              <option value="" disabled>-- เลือกบัญชี --</option>
+              <option v-for="acc in accounts" :key="acc.id" :value="acc.id" class="num">
+                {{ acc.account_name }} (เหลือ ฿{{ new Intl.NumberFormat('th-TH').format(acc.balance) }})
+              </option>
+            </select>
+          </div>
+
+          <!-- บัญชีต้นทาง/ปลายทาง (โอนเงิน) -->
+          <div v-if="activeTab === 'transfer'" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="field-label" for="fromAccountId">โอนจาก</label>
+              <select id="fromAccountId" v-model="form.from_account_id" class="field" required>
+                <option value="" disabled>-- ต้นทาง --</option>
+                <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.account_name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="toAccountId">เข้าสู่</label>
+              <select id="toAccountId" v-model="form.to_account_id" class="field" required>
+                <option value="" disabled>-- ปลายทาง --</option>
+                <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.account_name }}</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- หมวดหมู่ (ไม่ใช่โอน) -->
+          <div v-if="activeTab !== 'transfer'">
+            <label class="field-label" for="categoryId">หมวดหมู่</label>
+            <select id="categoryId" v-model="form.category_id" class="field" required>
+              <option value="" disabled>-- เลือกหมวดหมู่ --</option>
+              <option v-for="cat in filteredCategories" :key="cat.id" :value="cat.id">
+                {{ cat.category_name }}
+              </option>
+            </select>
+          </div>
+
+          <!-- รายละเอียด -->
+          <div>
+            <label class="field-label" for="description">รายละเอียด (บันทึกช่วยจำ)</label>
+            <input
+              id="description"
+              v-model="form.description"
+              class="field"
+              type="text"
+              placeholder="เช่น ซื้อเครื่องเขียน, ค่าขนมเพื่อน..."
+              required
+            />
+          </div>
+
+          <!-- สลิป (ไม่บังคับ) -->
+          <div>
+            <label class="field-label" for="slipUrl">URL รูปสลิปหลักฐาน (ถ้ามี)</label>
+            <input
+              id="slipUrl"
+              v-model="form.slip_image_url"
+              class="field"
+              type="url"
+              placeholder="https://..."
+            />
+          </div>
+
+          <div class="border-t border-stone-100 pt-4">
+            <button type="submit" class="btn-primary w-full py-3" :disabled="isSubmitting">
+              <span
+                v-if="isSubmitting"
+                class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                aria-hidden="true"
+              ></span>
+              <span v-else>
+                {{ activeTab === 'expense' ? 'บันทึกรายจ่าย' : activeTab === 'income' ? 'บันทึกรายรับ' : 'ยืนยันการโอนเงิน' }}
+              </span>
+            </button>
+          </div>
+        </form>
       </div>
-
-      <!-- Transfer Accounts Selection -->
-      <div v-if="activeTab === 'transfer'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-bold text-rose-500 mb-2 uppercase">โอนจาก</label>
-          <select 
-            v-model="form.from_account_id" 
-            required 
-            class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-rose-100 outline-none transition font-bold"
-          >
-            <option value="" disabled>-- ต้นทาง --</option>
-            <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.account_name }}</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm font-bold text-emerald-500 mb-2 uppercase">เข้าสู่</label>
-          <select 
-            v-model="form.to_account_id" 
-            required 
-            class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none transition font-bold"
-          >
-            <option value="" disabled>-- ปลายทาง --</option>
-            <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.account_name }}</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Category Selection (Non-Transfer) -->
-      <div v-if="activeTab !== 'transfer'">
-        <label class="block text-sm font-bold text-gray-400 mb-2 uppercase">หมวดหมู่</label>
-        <select 
-          v-model="form.category_id" 
-          required 
-          class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-blue-100 outline-none transition font-bold"
-        >
-          <option value="" disabled>-- เลือกหมวดหมู่ --</option>
-          <option v-for="cat in filteredCategories" :key="cat.id" :value="cat.id">
-            {{ cat.category_name }}
-          </option>
-        </select>
-      </div>
-
-      <!-- Description Input -->
-      <div>
-        <label class="block text-sm font-bold text-gray-400 mb-2 uppercase">รายละเอียด (บันทึกช่วยจำ)</label>
-        <input 
-          v-model="form.description" 
-          type="text" 
-          required 
-          class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-blue-100 outline-none transition"
-          placeholder="เช่น ซื้อเครื่องเขียน, ค่าขนมเพื่อน..."
-        >
-      </div>
-
-      <!-- Slip Image (Optional) -->
-      <div>
-        <label class="block text-sm font-bold text-gray-400 mb-2 uppercase">URL รูปสลิปหลักฐาน (ถ้ามี)</label>
-        <input
-          v-model="form.slip_image_url"
-          type="url"
-          class="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl focus:ring-4 focus:ring-blue-100 outline-none transition"
-          placeholder="https://..."
-        >
-      </div>
-
-      <!-- Submit Button -->
-      <button 
-        type="submit" 
-        :disabled="isSubmitting"
-        :class="[
-          'w-full py-4 rounded-2xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2',
-          activeTab === 'expense' ? 'bg-rose-600 hover:bg-rose-700' : 
-          activeTab === 'income' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700',
-          isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
-        ]"
-      >
-        <span v-if="isSubmitting" class="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span>
-        <span v-else>
-          {{ activeTab === 'expense' ? 'บันทึกรายจ่าย' : activeTab === 'income' ? 'บันทึกรายรับ' : 'ยืนยันการโอนเงิน' }}
-        </span>
-      </button>
-
-    </form>
+    </template>
   </div>
 </template>
-

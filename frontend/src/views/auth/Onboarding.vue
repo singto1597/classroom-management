@@ -1,12 +1,19 @@
 <script setup lang="ts">
+defineOptions({ name: 'OnboardingView' });
+
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import api from '@/services/api';
+import { updateMyProfile } from '@/services/auth';
 import Swal from 'sweetalert2';
+import PageHeader from '@/components/ui/PageHeader.vue';
 
-// @ts-ignore
 import * as ThaiAddressDB from 'thai-address-database';
+import type {
+  ThaiAddressModule,
+  ThaiAddressRecord,
+  ThaiAddressSearchFn,
+} from 'thai-address-database';
 
 interface AddressOption {
   subDistrict: string;
@@ -48,7 +55,7 @@ const activeAddressField = ref<'address_sub_district' | 'address_district' | 'ad
 const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'address_province' | 'address_post_code') => {
   activeAddressField.value = field;
   const query = String(form.value[field] ?? '').trim();
-  
+
   if (!query) {
     addressSuggestions.value = [];
     isAddressDropdownOpen.value = false;
@@ -67,8 +74,8 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
 
   searchTimeout = setTimeout(() => {
     // 🛡️ ดึงฟังก์ชันค้นหาจาก thai-address-database ให้ตรงกับช่องที่กำลังพิมพ์
-    const db: any = ThaiAddressDB.default || ThaiAddressDB;
-    let searchFn: Function | null = null;
+    const db: ThaiAddressModule = ThaiAddressDB.default || ThaiAddressDB;
+    let searchFn: ThaiAddressSearchFn | null = null;
 
     if (field === 'address_sub_district') {
       searchFn = db.searchAddressByDistrict;
@@ -79,7 +86,7 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
     } else if (field === 'address_post_code') {
       searchFn = db.searchAddressByZipcode;
     }
-    
+
     if (!searchFn || typeof searchFn !== 'function') {
       console.warn('[thai-address-database] Specific search function not found for field:', field, db);
       return;
@@ -87,9 +94,9 @@ const onAddressInput = (field: 'address_sub_district' | 'address_district' | 'ad
 
     try {
       const results = searchFn(query);
-      
+
       // Map ข้อมูลให้ตรงกับโครงสร้างของ thai-address-database (district = ตำบล, amphoe = อำเภอ)
-      addressSuggestions.value = (results || []).map((item: any) => ({
+      addressSuggestions.value = (results || []).map((item: ThaiAddressRecord) => ({
         subDistrict: item.district || item.subdistrict || item.tambon || '',
         district: item.amphoe || item.district || '',
         province: item.province || item.changwat || '',
@@ -162,23 +169,34 @@ const submitProfile = async () => {
   });
 
   if (!isAllFilled) {
-    Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลให้ครบถ้วน', 'warning');
+    Swal.fire({
+      icon: 'warning',
+      title: 'ข้อมูลไม่ครบ',
+      text: 'กรุณากรอกข้อมูลให้ครบถ้วน',
+      confirmButtonColor: '#1d4ed8',
+    });
     return;
   }
 
   isSubmitting.value = true;
   try {
     // 🚀 ยิง API อัปเดตข้อมูลตัวเอง โดยส่ง form ทั้งตัวไปเลย
-    await api.patch('/api/auth/me', form.value);
+    await updateMyProfile(form.value);
 
     // 🔄 สั่งให้ Store ดึงข้อมูลใหม่ เพื่อรับรองว่า Onboard แล้ว
     await authStore.fetchProfile();
-    
+
     // 🚪 ปล่อยผ่านเข้าล็อบบี้ได้เลย!
     router.push('/lobby');
-    
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error.message || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '';
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: message || 'ไม่สามารถบันทึกข้อมูลได้',
+      confirmButtonColor: '#1d4ed8',
+    });
   } finally {
     isSubmitting.value = false;
   }
@@ -186,158 +204,384 @@ const submitProfile = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
-    <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none -translate-y-1/2 translate-x-1/3"></div>
-    <div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none translate-y-1/2 -translate-x-1/3"></div>
+  <!-- ⚠️ หน้านี้อยู่นอก MainLayout จึงต้องจัดระยะขอบเอง -->
+  <div class="min-h-screen min-h-dvh bg-paper font-sans text-ink">
+    <div class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+      <PageHeader
+        eyebrow="Profile Setup"
+        title="ตั้งค่าโปรไฟล์ครั้งแรก"
+        description="ข้อมูลนี้จะถูกใช้เพื่อยืนยันตัวตนและผูกเข้ากับรายชื่อในห้องเรียน กรุณากรอกให้ตรงตามความจริง"
+      />
 
-    <div class="max-w-lg w-full bg-white/80 backdrop-blur-xl rounded-[2rem] shadow-2xl shadow-slate-200/50 border border-white p-5 sm:p-7 md:p-10 relative z-10">
-
-      <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 mb-6 mx-auto">
-        <i class="bi bi-person-vcard text-white text-3xl"></i>
+      <!-- ลำดับหัวข้อ (แสดงผลอย่างเดียว) — คั่นด้วยเส้นบาง ไม่ใช่แถบสีทึบ -->
+      <div
+        class="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-y border-stone-200 py-3 sm:mb-6"
+        aria-hidden="true"
+      >
+        <div class="flex items-center gap-2">
+          <span
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700"
+          >
+            1
+          </span>
+          <span class="text-xs font-bold text-stone-600">ข้อมูลส่วนตัว</span>
+        </div>
+        <div class="hidden h-px w-6 shrink-0 bg-stone-200 sm:block"></div>
+        <div class="flex items-center gap-2">
+          <span
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700"
+          >
+            2
+          </span>
+          <span class="text-xs font-bold text-stone-600">ข้อมูลการติดต่อ</span>
+        </div>
+        <div class="hidden h-px w-6 shrink-0 bg-stone-200 sm:block"></div>
+        <div class="flex items-center gap-2">
+          <span
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700"
+          >
+            3
+          </span>
+          <span class="text-xs font-bold text-stone-600">ที่อยู่ปัจจุบัน</span>
+        </div>
       </div>
 
-      <div class="text-center mb-8">
-        <h1 class="text-2xl font-black text-slate-800 tracking-tight mb-2">ตั้งค่าโปรไฟล์ครั้งแรก</h1>
-        <p class="text-slate-500 font-medium text-sm">ข้อมูลนี้จะถูกใช้เพื่อยืนยันตัวตนและผูกเข้ากับรายชื่อในห้องเรียน กรุณากรอกให้ตรงตามความจริง</p>
-      </div>
+      <form class="space-y-4" @submit.prevent="submitProfile">
+        <!-- ── ส่วนที่ 1: ข้อมูลส่วนตัว ── -->
+        <section class="page-card p-5 sm:p-6">
+          <h2 class="section-title border-b border-stone-100 pb-2.5">ข้อมูลส่วนตัว</h2>
 
-      <form @submit.prevent="submitProfile" class="space-y-8">
-        <!-- Section 1: ข้อมูลส่วนตัว -->
-        <div>
-          <h3 class="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 mb-4">ข้อมูลส่วนตัว</h3>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div class="sm:col-span-2">
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">คำนำหน้า <span class="text-rose-500">*</span></label>
+              <label class="field-label" for="prefix">
+                คำนำหน้า <span class="text-red-500">*</span>
+              </label>
               <div class="relative">
-                <select v-model="form.prefix" required class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm appearance-none cursor-pointer">
+                <select
+                  id="prefix"
+                  v-model="form.prefix"
+                  required
+                  class="field cursor-pointer appearance-none pe-10"
+                >
                   <option value="" disabled selected>เลือกคำนำหน้า</option>
                   <option value="นาย">นาย</option>
                   <option value="นางสาว">นางสาว</option>
                   <option value="เด็กชาย">เด็กชาย (ด.ช.)</option>
                   <option value="เด็กหญิง">เด็กหญิง (ด.ญ.)</option>
                 </select>
-                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
-                  <i class="bi bi-chevron-down"></i>
-                </div>
+                <i
+                  class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3.5 flex items-center text-sm text-stone-400"
+                  aria-hidden="true"
+                ></i>
               </div>
             </div>
 
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง <span class="text-rose-500">*</span></label>
-              <input v-model="form.first_name" type="text" required placeholder="สมชาย" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="first_name">
+                ชื่อจริง <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="first_name"
+                v-model="form.first_name"
+                type="text"
+                required
+                placeholder="สมชาย"
+                class="field"
+              />
             </div>
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล <span class="text-rose-500">*</span></label>
-              <input v-model="form.last_name" type="text" required placeholder="ใจดี" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="last_name">
+                นามสกุล <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="last_name"
+                v-model="form.last_name"
+                type="text"
+                required
+                placeholder="ใจดี"
+                class="field"
+              />
+            </div>
+
+            <div>
+              <label class="field-label" for="first_name_en">
+                ชื่อจริง (อังกฤษ)
+                <span class="font-normal text-stone-400">ไม่บังคับ</span>
+              </label>
+              <input
+                id="first_name_en"
+                v-model="form.first_name_en"
+                type="text"
+                placeholder="Somchai"
+                class="field"
+              />
             </div>
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อจริง (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
-              <input v-model="form.first_name_en" type="text" placeholder="Somchai" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="last_name_en">
+                นามสกุล (อังกฤษ)
+                <span class="font-normal text-stone-400">ไม่บังคับ</span>
+              </label>
+              <input
+                id="last_name_en"
+                v-model="form.last_name_en"
+                type="text"
+                placeholder="Jaidee"
+                class="field"
+              />
+            </div>
+
+            <div>
+              <label class="field-label" for="nickname">
+                ชื่อเล่น <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="nickname"
+                v-model="form.nickname"
+                type="text"
+                required
+                placeholder="เช่น โอม"
+                class="field"
+              />
             </div>
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">นามสกุล (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
-              <input v-model="form.last_name_en" type="text" placeholder="Jaidee" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="nickname_en">
+                ชื่อเล่น (อังกฤษ)
+                <span class="font-normal text-stone-400">ไม่บังคับ</span>
+              </label>
+              <input
+                id="nickname_en"
+                v-model="form.nickname_en"
+                type="text"
+                placeholder="เช่น Om"
+                class="field"
+              />
             </div>
+
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อเล่น <span class="text-rose-500">*</span></label>
-              <input v-model="form.nickname" type="text" required placeholder="เช่น โอม" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
-            </div>
-            <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ชื่อเล่น (อังกฤษ) <span class="text-slate-400 font-normal">ไม่บังคับ</span></label>
-              <input v-model="form.nickname_en" type="text" placeholder="เช่น Om" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
-            </div>
-            <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">วันเกิด <span class="text-rose-500">*</span></label>
-              <input v-model="form.birthday" type="date" required class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="birthday">
+                วันเกิด <span class="text-red-500">*</span>
+              </label>
+              <input id="birthday" v-model="form.birthday" type="date" required class="field" />
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- Section 2: ข้อมูลการติดต่อ -->
-        <div>
-          <h3 class="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 mb-4">ข้อมูลการติดต่อ</h3>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <!-- ── ส่วนที่ 2: ข้อมูลการติดต่อ ── -->
+        <section class="page-card p-5 sm:p-6">
+          <h2 class="section-title border-b border-stone-100 pb-2.5">ข้อมูลการติดต่อ</h2>
+
+          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">เบอร์โทรศัพท์ <span class="text-rose-500">*</span></label>
-              <input v-model="form.phone_number" type="tel" required placeholder="081-234-5678" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="phone_number">
+                เบอร์โทรศัพท์ <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="phone_number"
+                v-model="form.phone_number"
+                type="tel"
+                required
+                placeholder="081-234-5678"
+                class="field"
+              />
             </div>
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Line ID <span class="text-rose-500">*</span></label>
-              <input v-model="form.line_id" type="text" required placeholder="เช่น om_2005" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="line_id">
+                Line ID <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="line_id"
+                v-model="form.line_id"
+                type="text"
+                required
+                placeholder="เช่น om_2005"
+                class="field"
+              />
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- Section 3: ที่อยู่ปัจจุบัน -->
-        <div>
-          <h3 class="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 mb-4">ที่อยู่ปัจจุบัน</h3>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <!-- ── ส่วนที่ 3: ที่อยู่ปัจจุบัน ── -->
+        <section class="page-card p-5 sm:p-6">
+          <h2 class="section-title border-b border-stone-100 pb-2.5">ที่อยู่ปัจจุบัน</h2>
+
+          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">บ้านเลขที่/หมู่ <span class="text-rose-500">*</span></label>
-              <input v-model="form.address_house_no" type="text" required placeholder="123/45 หมู่ 2" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="address_house_no">
+                บ้านเลขที่/หมู่ <span class="text-red-500">*</span>
+              </label>
+              <input
+                id="address_house_no"
+                v-model="form.address_house_no"
+                type="text"
+                required
+                placeholder="123/45 หมู่ 2"
+                class="field"
+              />
             </div>
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ถนน/ซอย</label>
-              <input v-model="form.address_road" type="text" placeholder="ซอยสุขุมวิท 50" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm">
+              <label class="field-label" for="address_road">ถนน/ซอย</label>
+              <input
+                id="address_road"
+                v-model="form.address_road"
+                type="text"
+                placeholder="ซอยสุขุมวิท 50"
+                class="field"
+              />
             </div>
+
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">ตำบล/แขวง <span class="text-rose-500">*</span></label>
+              <label class="field-label" for="address_sub_district">
+                ตำบล/แขวง <span class="text-red-500">*</span>
+              </label>
               <div class="relative">
-                <input v-model="form.address_sub_district" type="text" required placeholder="พระโขนง" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_sub_district')" @focus="onAddressInput('address_sub_district')" @blur="closeAddressDropdown">
-                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_sub_district'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
-                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
-                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
-                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                <input
+                  id="address_sub_district"
+                  v-model="form.address_sub_district"
+                  type="text"
+                  required
+                  placeholder="พระโขนง"
+                  class="field"
+                  @input="onAddressInput('address_sub_district')"
+                  @focus="onAddressInput('address_sub_district')"
+                  @blur="closeAddressDropdown"
+                />
+                <ul
+                  v-if="isAddressDropdownOpen && activeAddressField === 'address_sub_district'"
+                  class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
+                >
+                  <li
+                    v-for="(option, idx) in addressSuggestions"
+                    :key="idx"
+                    class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
+                    @mousedown.prevent="selectAddress(option)"
+                  >
+                    <span class="font-bold text-stone-900">{{ option.subDistrict }} ต.</span>
+                    <span class="text-stone-500">
+                      อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span
+                    >
                   </li>
                 </ul>
               </div>
             </div>
+
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">อำเภอ/เขต <span class="text-rose-500">*</span></label>
+              <label class="field-label" for="address_district">
+                อำเภอ/เขต <span class="text-red-500">*</span>
+              </label>
               <div class="relative">
-                <input v-model="form.address_district" type="text" required placeholder="คลองเตย" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_district')" @focus="onAddressInput('address_district')" @blur="closeAddressDropdown">
-                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_district'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
-                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
-                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
-                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                <input
+                  id="address_district"
+                  v-model="form.address_district"
+                  type="text"
+                  required
+                  placeholder="คลองเตย"
+                  class="field"
+                  @input="onAddressInput('address_district')"
+                  @focus="onAddressInput('address_district')"
+                  @blur="closeAddressDropdown"
+                />
+                <ul
+                  v-if="isAddressDropdownOpen && activeAddressField === 'address_district'"
+                  class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
+                >
+                  <li
+                    v-for="(option, idx) in addressSuggestions"
+                    :key="idx"
+                    class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
+                    @mousedown.prevent="selectAddress(option)"
+                  >
+                    <span class="font-bold text-stone-900">{{ option.subDistrict }} ต.</span>
+                    <span class="text-stone-500">
+                      อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span
+                    >
                   </li>
                 </ul>
               </div>
             </div>
+
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">จังหวัด <span class="text-rose-500">*</span></label>
+              <label class="field-label" for="address_province">
+                จังหวัด <span class="text-red-500">*</span>
+              </label>
               <div class="relative">
-                <input v-model="form.address_province" type="text" required placeholder="กรุงเทพมหานคร" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_province')" @focus="onAddressInput('address_province')" @blur="closeAddressDropdown">
-                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_province'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
-                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
-                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
-                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                <input
+                  id="address_province"
+                  v-model="form.address_province"
+                  type="text"
+                  required
+                  placeholder="กรุงเทพมหานคร"
+                  class="field"
+                  @input="onAddressInput('address_province')"
+                  @focus="onAddressInput('address_province')"
+                  @blur="closeAddressDropdown"
+                />
+                <ul
+                  v-if="isAddressDropdownOpen && activeAddressField === 'address_province'"
+                  class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
+                >
+                  <li
+                    v-for="(option, idx) in addressSuggestions"
+                    :key="idx"
+                    class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
+                    @mousedown.prevent="selectAddress(option)"
+                  >
+                    <span class="font-bold text-stone-900">{{ option.subDistrict }} ต.</span>
+                    <span class="text-stone-500">
+                      อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span
+                    >
                   </li>
                 </ul>
               </div>
             </div>
+
             <div>
-              <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">รหัสไปรษณีย์ <span class="text-rose-500">*</span></label>
+              <label class="field-label" for="address_post_code">
+                รหัสไปรษณีย์ <span class="text-red-500">*</span>
+              </label>
               <div class="relative">
-                <input v-model="form.address_post_code" type="text" required placeholder="10110" class="w-full bg-white border border-slate-200 text-slate-800 text-base font-bold rounded-2xl px-4 py-3.5 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm" @input="onAddressInput('address_post_code')" @focus="onAddressInput('address_post_code')" @blur="closeAddressDropdown">
-                <ul v-if="isAddressDropdownOpen && activeAddressField === 'address_post_code'" class="absolute z-30 mt-2 w-full bg-white border border-slate-200 shadow-2xl rounded-xl max-h-60 overflow-y-auto">
-                  <li v-for="(option, idx) in addressSuggestions" :key="idx" @mousedown.prevent="selectAddress(option)" class="px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0">
-                    <span class="font-bold">{{ option.subDistrict }} ต.</span>
-                    <span class="text-slate-500"> อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span>
+                <input
+                  id="address_post_code"
+                  v-model="form.address_post_code"
+                  type="text"
+                  required
+                  placeholder="10110"
+                  class="field"
+                  @input="onAddressInput('address_post_code')"
+                  @focus="onAddressInput('address_post_code')"
+                  @blur="closeAddressDropdown"
+                />
+                <ul
+                  v-if="isAddressDropdownOpen && activeAddressField === 'address_post_code'"
+                  class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
+                >
+                  <li
+                    v-for="(option, idx) in addressSuggestions"
+                    :key="idx"
+                    class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
+                    @mousedown.prevent="selectAddress(option)"
+                  >
+                    <span class="font-bold text-stone-900">{{ option.subDistrict }} ต.</span>
+                    <span class="text-stone-500">
+                      อ. {{ option.district }} จ. {{ option.province }} {{ option.zipcode }}</span
+                    >
                   </li>
                 </ul>
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="pt-6">
-          <button type="submit" :disabled="isSubmitting" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-black text-lg py-4 rounded-2xl transition-all shadow-lg shadow-slate-900/20 active:scale-95 disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2">
-            <span v-if="isSubmitting" class="animate-spin inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></span>
-            <span v-else>บันทึกและเข้าสู่ระบบ <i class="bi bi-arrow-right"></i></span>
+        <!-- ── ปุ่มยืนยัน: มือถือเต็มความกว้าง ── -->
+        <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
+          <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+            <span
+              v-if="isSubmitting"
+              class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              aria-hidden="true"
+            ></span>
+            <span v-else>บันทึกและเข้าสู่ระบบ <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
           </button>
         </div>
-
       </form>
     </div>
   </div>

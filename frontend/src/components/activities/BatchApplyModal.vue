@@ -98,49 +98,45 @@ function handleApply() {
     <Transition name="fade">
       <div
         v-if="open"
-        class="fixed inset-0 z-[70] bg-slate-900/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
+        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 p-3 md:items-center md:p-4"
         @click.self="emit('close')"
       >
         <div
-          class="w-full md:max-w-lg bg-white rounded-t-3xl md:rounded-3xl shadow-2xl p-5 md:p-6 max-h-[90dvh] overflow-y-auto overflow-x-hidden"
+          class="max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-5 sm:p-6 md:max-w-lg"
         >
           <!-- Header -->
-          <div class="flex items-center justify-between mb-1">
-            <h4 class="text-base font-bold text-slate-800 flex items-center gap-2">
-              <i class="bi bi-lightning-charge-fill text-fuchsia-500"></i>
-              ตั้งค่าแบบกลุ่ม
-            </h4>
+          <div class="mb-4 flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h4 class="flex items-center gap-2 font-display text-base font-bold text-stone-900">
+                <i class="bi bi-lightning-charge-fill shrink-0 text-brand-700" aria-hidden="true"></i>
+                ตั้งค่าแบบกลุ่ม
+              </h4>
+              <p class="mt-1 text-xs leading-relaxed text-stone-400">
+                ตั้งค่าให้ผู้เข้าร่วม <b class="num font-bold text-brand-700">{{ count }} คน</b> พร้อมกัน
+                — เฉพาะคนที่ติ๊กเท่านั้น (คนที่ไม่ได้ติ๊กไม่ถูกแตะ)
+              </p>
+            </div>
             <button
+              type="button"
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+              aria-label="ปิดหน้าต่าง"
               @click="emit('close')"
-              class="w-9 h-9 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center"
             >
-              <i class="bi bi-x-lg"></i>
+              <i class="bi bi-x-lg" aria-hidden="true"></i>
             </button>
           </div>
-          <p class="text-xs text-slate-400 mb-4">
-            ตั้งค่าให้ผู้เข้าร่วม <b class="text-fuchsia-600">{{ count }} คน</b> พร้อมกัน
-            — เฉพาะคนที่ติ๊กเท่านั้น (คนที่ไม่ได้ติ๊กไม่ถูกแตะ)
-          </p>
 
           <!-- หน้าที่/ตำแหน่ง -->
           <div v-if="positions.length > 0" class="mb-5">
-            <label
-              class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5"
-            >
-              <i class="bi bi-diagram-3 text-fuchsia-500"></i> หน้าที่/ตำแหน่ง
+            <label class="field-label flex items-center gap-1.5">
+              <i class="bi bi-diagram-3 text-stone-400" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
             </label>
-            <select
-              v-model="dutyPosition"
-              class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-400"
-            >
+            <select v-model="dutyPosition" class="field">
               <option value="">— ตั้งหน้าที่ทั้งหมด —</option>
               <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
             </select>
-            <p
-              v-if="dutyPosition"
-              class="text-[11px] text-amber-600 mt-1.5 flex items-center gap-1"
-            >
-              <i class="bi bi-exclamation-triangle-fill"></i> จะแทนที่หน้าที่เดิมทั้งหมดของ
+            <p v-if="dutyPosition" class="mt-1.5 flex items-center gap-1 text-[11px] text-amber-600">
+              <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> จะแทนที่หน้าที่เดิมทั้งหมดของ
               {{ count }} คนนี้
             </p>
           </div>
@@ -148,17 +144,11 @@ function handleApply() {
           <!-- 🌟 role_type / status / earned_hours (หน้า ManageActivity) -->
           <div
             v-if="showRoleType || showStatus || showEarnedHours"
-            class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5"
+            class="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3"
           >
             <div v-if="showRoleType">
-              <label
-                class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
-                >บทบาท</label
-              >
-              <select
-                v-model="roleType"
-                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-400"
-              >
+              <label class="field-label">บทบาท</label>
+              <select v-model="roleType" class="field">
                 <option value="">— ไม่เปลี่ยน —</option>
                 <option v-for="opt in ROLE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
@@ -166,14 +156,8 @@ function handleApply() {
               </select>
             </div>
             <div v-if="showStatus">
-              <label
-                class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
-                >สถานะ</label
-              >
-              <select
-                v-model="status"
-                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-400"
-              >
+              <label class="field-label">สถานะ</label>
+              <select v-model="status" class="field">
                 <option value="">— ไม่เปลี่ยน —</option>
                 <option v-for="opt in STATUS_OPTIONS" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
@@ -181,35 +165,26 @@ function handleApply() {
               </select>
             </div>
             <div v-if="showEarnedHours">
-              <label
-                class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
-                >ชั่วโมงจิตอาสา</label
-              >
+              <label class="field-label">ชั่วโมงจิตอาสา</label>
               <input
                 v-model.number="earnedHours"
                 type="number"
                 min="0"
                 step="0.5"
                 placeholder="ไม่เปลี่ยน"
-                class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 focus:border-fuchsia-400"
+                class="field num"
               />
             </div>
           </div>
 
           <!-- 🌟 Dynamic Fields (ฟิลด์เพิ่มเติมที่ผู้จัดการสร้างเอง) -->
           <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-5">
-            <label
-              class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5"
-            >
-              <i class="bi bi-puzzle text-fuchsia-500"></i> ฟิลด์เพิ่มเติม
+            <label class="field-label flex items-center gap-1.5">
+              <i class="bi bi-puzzle text-stone-400" aria-hidden="true"></i> ฟิลด์เพิ่มเติม
             </label>
             <div class="space-y-4">
               <div v-for="field in dynamicFields" :key="field.key">
-                <label
-                  class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block"
-                >
-                  {{ field.label }}
-                </label>
+                <label class="field-label">{{ field.label }}</label>
                 <ActivityFieldControl
                   :field="field"
                   :model-value="typeBValues[field.key]"
@@ -225,19 +200,16 @@ function handleApply() {
 
           <!-- Type B fields -->
           <div v-if="typeBFields.length > 0">
-            <label
-              class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5"
-            >
-              <i class="bi bi-list-check text-fuchsia-500"></i> ข้อมูลที่จัดเก็บ
+            <label class="field-label flex items-center gap-1.5">
+              <i class="bi bi-list-check text-stone-400" aria-hidden="true"></i> ข้อมูลที่จัดเก็บ
             </label>
             <div class="space-y-4">
               <div v-for="field in typeBFields" :key="field.key">
-                <label
-                  class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block flex items-center gap-1.5"
-                >
+                <label class="field-label flex items-center gap-1.5">
                   <i
-                    class="bi"
+                    class="bi text-stone-400"
                     :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"
+                    aria-hidden="true"
                   ></i>
                   {{ field.label }}
                 </label>
@@ -263,26 +235,25 @@ function handleApply() {
               !showEarnedHours &&
               !(dynamicFields && dynamicFields.length > 0)
             "
-            class="text-sm text-slate-500 bg-slate-50 rounded-xl p-4 text-center"
+            class="rounded-2xl border border-dashed border-stone-200 bg-stone-50/60 p-4 text-center text-sm leading-relaxed text-stone-500"
           >
             ยังไม่มีค่าที่ตั้งค่าแบบกลุ่มได้ — เพิ่มตำแหน่ง/หน้าที่ หรือเลือกฟิลด์ในส่วน Required
             Data ก่อน
           </div>
 
           <!-- Actions -->
-          <div class="flex justify-end gap-3 mt-6">
+          <div
+            class="mt-6 flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+          >
+            <button type="button" class="btn-ghost-ui" @click="emit('close')">ยกเลิก</button>
             <button
-              @click="emit('close')"
-              class="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
-            >
-              ยกเลิก
-            </button>
-            <button
-              @click="handleApply"
+              type="button"
+              class="btn-primary"
               :disabled="!hasSomethingToSet()"
-              class="px-6 py-2.5 text-sm font-bold text-white bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50 rounded-xl shadow-lg shadow-fuchsia-600/20 transition-all inline-flex items-center gap-1.5"
+              @click="handleApply"
             >
-              <i class="bi bi-lightning-charge-fill"></i> ใช้ค่ากับ {{ count }} คน
+              <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
+              ใช้ค่ากับ {{ count }} คน
             </button>
           </div>
         </div>

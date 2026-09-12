@@ -9,8 +9,8 @@ const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 
-// 🌙 สถานะ sidebar
-const isMobileDrawerOpen = ref(false);
+// 🌙 สถานะ sidebar (desktop) + bottom sheet (มือถือ)
+const isMoreSheetOpen = ref(false);
 const isSidebarCollapsed = ref(false);
 const activeDropdown = ref<string | null>(null);
 
@@ -22,7 +22,7 @@ onMounted(async () => {
   if (authStore.isAuthenticated) {
     await authStore.fetchProfile();
   }
-  // 🔁 ปิด Dropdown เมื่อมีการ Scroll หน้าจอ (UX ที่ดีกว่าการพยายามเลื่อนตาม)
+  // 🔁 ปิด Dropdown เมื่อมีการ Scroll หน้าจอ
   window.addEventListener('scroll', closeDropdowns, true);
   window.addEventListener('resize', closeDropdowns);
 });
@@ -39,51 +39,38 @@ const avatarChar = computed(() => {
   return name && name !== 'ไม่ระบุชื่อ' ? name.charAt(0).toUpperCase() : 'ส';
 });
 
-// 🎯 Dropdown System แบบใหม่ (ฉลาดขึ้น & ไม่ล้นจอ)
+// 🎯 Dropdown System (ฉลาดขึ้น & ไม่ล้นจอ)
 const dropdownStyle = ref<{ top: string; left: string; bottom?: string }>({ top: '0px', left: '0px' });
-const dropdownAlign = ref<'left' | 'right' | 'center'>('left');
 
 const toggleDropdown = (event: MouseEvent, dropdownName: string) => {
-  // ถ้ากดอันเดิมให้ปิด
   if (activeDropdown.value === dropdownName) {
     closeDropdowns();
     return;
   }
-  
+
   activeDropdown.value = dropdownName;
-  
-  // ใช้ currentTarget จากอีเวนต์โดยตรง แม่นยำ 100% ไม่ต้องพึ่ง ID
+
   const trigger = event.currentTarget as HTMLElement;
   const rect = trigger.getBoundingClientRect();
-  
-  // กำหนดความกว้างโดยประมาณของ Dropdown แต่ละตัว
-  const panelWidth = dropdownName === 'headerSettings' ? 240 : 224; 
-  const panelHeight = 200; // ความสูงโดยประมาณ เพื่อเช็คว่าล้นขอบล่างไหม
+  const panelWidth = 240;
+  const panelHeight = 220;
 
-  // คำนวณแกน X (ซ้าย-ขวา)
-  let left = dropdownName === 'headerSettings' 
-    ? rect.right - panelWidth 
-    : rect.left;
-
-  // กันหลุดขอบจอซ้าย-ขวา
+  let left = rect.right - panelWidth;
   left = Math.max(12, Math.min(left, window.innerWidth - panelWidth - 12));
 
-  // คำนวณแกน Y (บน-ล่าง) - ถ้าระยะด้านล่างไม่พอ ให้เปิดขึ้นข้างบน (Drop-up)
   const spaceBelow = window.innerHeight - rect.bottom;
-  
+
   if (spaceBelow < panelHeight) {
-    // เปิดขึ้นด้านบน
-    dropdownStyle.value = { 
+    dropdownStyle.value = {
       top: 'auto',
       bottom: `${window.innerHeight - rect.top + 8}px`,
-      left: `${left}px` 
+      left: `${left}px`,
     };
   } else {
-    // เปิดลงด้านล่างปกติ
-    dropdownStyle.value = { 
-      top: `${rect.bottom + 8}px`, 
+    dropdownStyle.value = {
+      top: `${rect.bottom + 8}px`,
       bottom: 'auto',
-      left: `${left}px` 
+      left: `${left}px`,
     };
   }
 };
@@ -92,21 +79,20 @@ const closeDropdowns = () => {
   activeDropdown.value = null;
 };
 
-// Drawer มือถือ
-const openMobileDrawer = () => {
+const openMoreSheet = () => {
   closeDropdowns();
-  isMobileDrawerOpen.value = true;
+  isMoreSheetOpen.value = true;
 };
-const closeMobileDrawer = () => {
-  isMobileDrawerOpen.value = false;
+const closeMoreSheet = () => {
+  isMoreSheetOpen.value = false;
 };
 
 watch(
   () => route.path,
   () => {
-    closeMobileDrawer();
+    closeMoreSheet();
     closeDropdowns();
-  }
+  },
 );
 
 // Toggle Sidebar Desktop
@@ -115,46 +101,76 @@ const toggleSidebarCollapse = () => {
   localStorage.setItem(COLLAPSE_KEY, isSidebarCollapsed.value ? '1' : '0');
 };
 
-const menuItems = [
-  { name: 'แดชบอร์ด', path: '/dashboard', icon: 'bi-grid-fill' },
-  { name: 'นักเรียน', path: '/students', icon: 'bi-people-fill' },
-  { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check-fill' },
-  { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event-fill' },
+// ---------------- เมนู ----------------
+type MenuItem = { name: string; path: string; icon: string };
+
+const menuItems: MenuItem[] = [
+  { name: 'แดชบอร์ด', path: '/dashboard', icon: 'bi-grid' },
+  { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
+  { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check' },
+  { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
-  { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart-fill' },
-  { name: 'ประกาศ Discord', path: '/messages', icon: 'bi-megaphone-fill' },
+  { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
+  { name: 'ประกาศ Discord', path: '/messages', icon: 'bi-megaphone' },
+  { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
 ];
+
+// แท็บบนมือถือ 4 ช่อง (ช่องกลางเป็น FAB)
+const bottomTabs = computed<MenuItem[]>(() => [
+  { name: 'หน้าแรก', path: '/dashboard', icon: 'bi-house-door' },
+  { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
+  { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
+]);
+
+const canManageTasks = computed(
+  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS'),
+);
+
+// เมนูที่เหลือในชีต "เพิ่มเติม" (มือถือ) — ตัดตัวที่อยู่ในแท็บล่างออกแล้ว
+const moreItems = computed<MenuItem[]>(() =>
+  menuItems.filter((i) => !['/dashboard', '/students', '/finance'].includes(i.path)),
+);
 
 const isItemActive = (path: string) =>
   path === '/dashboard'
     ? route.path === '/dashboard' || route.path === '/'
     : route.path.startsWith(path);
 
+// ชื่อเมนูย่อยสำหรับ breadcrumb
+const currentSubMenuName = computed(() => {
+  if (route.path === '/dashboard' || route.path === '/') return null;
+  const matchedMenu = menuItems.find(
+    (item) => item.path !== '/dashboard' && route.path.startsWith(item.path),
+  );
+  return matchedMenu ? matchedMenu.name : null;
+});
+
+// ---------------- การทำงาน ----------------
 const handleChangeRoom = () => {
   closeDropdowns();
+  closeMoreSheet();
   authStore.clearRoom();
   router.push('/lobby');
 };
 
-const currentSubMenuName = computed(() => {
-  if (route.path === '/dashboard' || route.path === '/') return null;
-  const matchedMenu = menuItems.find((item) => item.path !== '/dashboard' && route.path.startsWith(item.path));
-  return matchedMenu ? matchedMenu.name : null;
-});
-
 const goToMyProfile = async () => {
   closeDropdowns();
+  closeMoreSheet();
   try {
-    Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-    const myProfile: any = await StudentService.getMyProfile(authStore.currentRoomId!);
+    Swal.fire({
+      title: 'กำลังโหลดข้อมูล...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+    });
+    const myProfile = await StudentService.getMyProfile(authStore.currentRoomId!);
     Swal.close();
     router.push(`/students/${myProfile.student_no}`);
-  } catch (error) {
+  } catch {
     Swal.fire({
       icon: 'warning',
       title: 'ไม่สามารถเข้าถึงได้',
       text: 'คุณอาจเป็นผู้ดูแลระบบ (Admin) ที่ไม่มีข้อมูลในรายชื่อนักเรียนห้องนี้',
-      customClass: { popup: 'rounded-[2rem] shadow-2xl' }
+      confirmButtonColor: '#1d4ed8',
     });
   }
 };
@@ -162,39 +178,40 @@ const goToMyProfile = async () => {
 const showAccountInfo = () => {
   closeDropdowns();
   Swal.fire({
-    title: '<span class="text-slate-800 font-bold">ข้อมูลบัญชีระบบ</span>',
+    title: '<span style="font-family:Anuphan;font-weight:700">ข้อมูลบัญชีระบบ</span>',
     html: `
-      <div class="text-left mt-5 space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
-        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
-          <span class="text-sm text-slate-500 font-medium">Discord ID</span>
-          <span class="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-lg font-mono text-sm font-bold shadow-sm">${authStore.discordId || 'ยังไม่ระบุ'}</span>
+      <div style="text-align:left;margin-top:18px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E7E5E4;padding-bottom:12px">
+          <span style="font-size:13px;color:#78716C;font-weight:600">Discord ID</span>
+          <span style="font-family:ui-monospace,monospace;font-size:13px;font-weight:700;color:#1C1917">${authStore.discordId || 'ยังไม่ระบุ'}</span>
         </div>
-        <div class="flex items-center justify-between pt-1">
-          <span class="text-sm text-slate-500 font-medium">บทบาทในห้อง</span>
-          <span class="uppercase font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg tracking-wider text-xs">${authStore.currentRoleLabel}</span>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;color:#78716C;font-weight:600">บทบาทในห้อง</span>
+          <span style="font-size:12px;font-weight:700;color:#1D4ED8;background:#EFF6FF;padding:4px 10px;border-radius:8px">${authStore.currentRoleLabel}</span>
         </div>
       </div>
     `,
     icon: 'info',
     confirmButtonText: 'ปิดหน้าต่าง',
-    confirmButtonColor: '#3b82f6',
-    customClass: {
-      popup: 'rounded-[2rem] shadow-2xl border border-slate-100',
-      confirmButton: 'rounded-xl px-8 py-2.5 font-bold tracking-wide'
-    }
+    confirmButtonColor: '#1d4ed8',
   });
 };
 
 const logout = () => {
   closeDropdowns();
+  closeMoreSheet();
   authStore.logout();
 };
 
 const goToProfileSettings = async () => {
   closeDropdowns();
-  closeMobileDrawer();
+  closeMoreSheet();
 
-  Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+  Swal.fire({
+    title: 'กำลังโหลดข้อมูล...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading(),
+  });
   await authStore.fetchProfile();
   Swal.close();
 
@@ -207,138 +224,164 @@ const goToProfileSettings = async () => {
   const googleScope = encodeURIComponent('openid email profile');
   const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${import.meta.env.VITE_GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(import.meta.env.VITE_GOOGLE_REDIRECT_URI)}&response_type=code&scope=${googleScope}`;
 
+  const row = (linked: boolean, label: string, sub: string, icon: string, href: string) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:14px;border:1px solid ${linked ? '#A7F3D0' : '#E7E5E4'};background:${linked ? '#ECFDF5' : '#FFFFFF'}">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0">
+        <div style="width:40px;height:40px;border-radius:12px;background:#F5F5F4;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="${icon}" style="font-size:18px"></i>
+        </div>
+        <div style="text-align:left;min-width:0">
+          <p style="font-weight:700;color:#1C1917;margin:0;font-size:14px">${label}</p>
+          <p style="font-size:11px;font-weight:700;margin:2px 0 0;color:${linked ? '#059669' : '#A8A29E'}">${linked ? 'เชื่อมต่อแล้ว' : sub}</p>
+        </div>
+      </div>
+      ${!linked ? `<a href="${href}" style="flex-shrink:0;padding:8px 16px;background:#1D4ED8;color:#fff;font-size:12px;font-weight:700;border-radius:10px;text-decoration:none">ผูกบัญชี</a>` : ''}
+    </div>
+  `;
+
   Swal.fire({
-    title: '<i class="bi bi-shield-check text-4xl text-slate-800 mb-2 inline-block"></i><br><span class="font-bold text-xl">จัดการบัญชีและการเชื่อมต่อ</span>',
+    title: '<span style="font-family:Anuphan;font-weight:700;font-size:19px">จัดการบัญชีและการเชื่อมต่อ</span>',
     html: `
-      <div class="text-left mt-5 space-y-4">
-        <p class="text-sm text-slate-500 font-medium px-1">เชื่อมต่อแพลตฟอร์มต่างๆ เพื่อรวมข้อมูลของคุณให้เป็นหนึ่งเดียว ป้องกันการสูญหาย</p>
-
-        <div class="p-4 rounded-[1.5rem] border transition-all duration-300 ${isGoogleLinked ? 'bg-emerald-50/50 border-emerald-200' : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'} flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <div class="w-11 h-11 rounded-full flex items-center justify-center bg-white shadow-sm border border-slate-100">
-              <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-5 h-5" alt="Google">
-            </div>
-            <div>
-              <p class="font-bold text-slate-800 leading-tight">Google Account</p>
-              <p class="text-xs font-bold mt-1 ${isGoogleLinked ? 'text-emerald-600' : 'text-slate-400'}">
-                ${isGoogleLinked ? '<i class="bi bi-check-circle-fill me-1"></i> เชื่อมต่อแล้ว' : 'ยังไม่ได้เชื่อมต่อ'}
-              </p>
-            </div>
-          </div>
-          ${!isGoogleLinked ? `<a href="${googleUrl}" class="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition-all shadow-sm">ผูกบัญชี</a>` : ''}
-        </div>
-
-        <div class="p-4 rounded-[1.5rem] border transition-all duration-300 ${isDiscordLinked ? 'bg-emerald-50/50 border-emerald-200' : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'} flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <div class="w-11 h-11 rounded-full flex items-center justify-center bg-[#5865F2]/10 border border-[#5865F2]/20">
-              <i class="bi bi-discord text-[#5865F2] text-xl"></i>
-            </div>
-            <div>
-              <p class="font-bold text-slate-800 leading-tight">Discord Account</p>
-              <p class="text-xs font-bold mt-1 ${isDiscordLinked ? 'text-emerald-600' : 'text-slate-400'}">
-                ${isDiscordLinked ? '<i class="bi bi-check-circle-fill me-1"></i> เชื่อมต่อแล้ว' : 'ยังไม่ได้เชื่อมต่อ'}
-              </p>
-            </div>
-          </div>
-          ${!isDiscordLinked ? `<a href="${discordUrl}" class="px-5 py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white text-xs font-bold rounded-xl transition-all shadow-sm">ผูกบัญชี</a>` : ''}
-        </div>
+      <div style="text-align:left;display:flex;flex-direction:column;gap:12px;margin-top:16px">
+        <p style="font-size:13px;color:#78716C;margin:0">เชื่อมต่อแพลตฟอร์มต่างๆ เพื่อรวมข้อมูลของคุณให้เป็นหนึ่งเดียว ป้องกันการสูญหาย</p>
+        ${row(isGoogleLinked, 'Google Account', 'ยังไม่ได้เชื่อมต่อ', 'bi bi-google', googleUrl)}
+        ${row(isDiscordLinked, 'Discord Account', 'ยังไม่ได้เชื่อมต่อ', 'bi bi-discord', discordUrl)}
       </div>
     `,
     showConfirmButton: true,
     confirmButtonText: 'ปิดหน้าต่าง',
-    confirmButtonColor: '#0f172a',
-    customClass: {
-      popup: 'rounded-[2.5rem] shadow-2xl border border-slate-100 p-6',
-      confirmButton: 'rounded-xl px-8 py-3 font-bold tracking-wide'
-    }
+    confirmButtonColor: '#1d4ed8',
   });
 };
 </script>
 
 <template>
-  <div class="flex h-screen h-dvh bg-slate-50 overflow-hidden font-sans relative text-slate-800">
-
+  <div class="relative flex h-screen h-dvh overflow-hidden bg-paper font-sans text-ink">
     <!-- ============================================
          🖥️ DESKTOP SIDEBAR
          ============================================ -->
     <aside
-      class="hidden md:flex md:flex-shrink-0 relative z-30 transition-[width] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
-      :class="isSidebarCollapsed ? 'md:w-[84px]' : 'md:w-64'"
+      class="relative z-30 hidden shrink-0 transition-[width] duration-300 ease-smooth lg:flex"
+      :class="isSidebarCollapsed ? 'lg:w-[80px]' : 'lg:w-[264px]'"
     >
-      <div
-        class="flex flex-col bg-white border-r border-slate-200/60 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.05)] h-full overflow-hidden transition-all duration-300"
-        :class="isSidebarCollapsed ? 'w-[84px]' : 'w-64'"
-      >
-        <!-- Logo -->
+      <div class="flex h-full flex-col overflow-hidden border-r border-stone-200 bg-white">
+        <!-- โลโก้ -->
         <RouterLink
           to="/dashboard"
-          class="flex items-center h-16 px-5 bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 transition-all duration-300 cursor-pointer shrink-0"
+          class="flex h-16 shrink-0 items-center border-b border-stone-200 px-5 transition-colors hover:bg-stone-50"
           :class="isSidebarCollapsed ? 'justify-center px-0' : ''"
         >
-          <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm shrink-0" :class="isSidebarCollapsed ? '' : 'me-3'">
-            <i class="bi bi-box-fill text-white text-lg"></i>
+          <div
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
+            :class="isSidebarCollapsed ? '' : 'me-3'"
+          >
+            <i class="bi bi-box-fill text-base"></i>
           </div>
-          <span v-if="!isSidebarCollapsed" class="text-white text-xl font-black tracking-widest whitespace-nowrap">SYNC<span class="font-light opacity-80">ROOM</span></span>
+          <span
+            v-if="!isSidebarCollapsed"
+            class="font-display whitespace-nowrap text-lg font-bold tracking-[0.2em] text-stone-900"
+          >
+            SYNC<span class="font-normal text-stone-400">ROOM</span>
+          </span>
         </RouterLink>
 
-        <!-- Menu -->
-        <div class="flex-1 flex flex-col overflow-y-auto overflow-x-hidden scrollbar-hide py-5">
-          <nav class="flex-1 px-3 space-y-1.5">
+        <!-- เมนู -->
+        <div class="flex flex-1 flex-col overflow-y-auto overflow-x-hidden py-4">
+          <p
+            v-if="!isSidebarCollapsed"
+            class="mb-2 px-5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+          >
+            เมนูหลัก
+          </p>
+
+          <nav class="flex-1 space-y-0.5 px-3">
             <RouterLink
               v-for="item in menuItems"
               :key="item.path"
               :to="item.path"
-              class="flex items-center rounded-xl transition-all duration-200 group relative"
+              class="group relative flex items-center rounded-xl transition-colors"
               :class="[
-                isSidebarCollapsed ? 'justify-center px-0 py-3 w-full' : 'px-4 py-3',
-                isItemActive(item.path) 
-                  ? 'bg-blue-50/80 text-blue-700 font-bold shadow-sm ring-1 ring-blue-100' 
-                  : 'text-slate-500 font-semibold hover:bg-slate-50 hover:text-slate-900'
+                isSidebarCollapsed ? 'w-full justify-center px-0 py-3' : 'px-3.5 py-2.5',
+                isItemActive(item.path)
+                  ? 'bg-brand-50 font-bold text-brand-700'
+                  : 'font-semibold text-stone-500 hover:bg-stone-100 hover:text-stone-900',
               ]"
               :title="isSidebarCollapsed ? item.name : undefined"
             >
-              <i :class="['bi', item.icon, 'shrink-0 transition-transform duration-300 group-hover:scale-110', isSidebarCollapsed ? 'text-xl' : 'text-lg me-3.5', isItemActive(item.path) ? 'text-blue-600' : '']"></i>
-              <span v-if="!isSidebarCollapsed" class="text-sm truncate">{{ item.name }}</span>
+              <!-- แถบ indicator ด้านซ้ายเมื่อ active -->
+              <span
+                v-if="isItemActive(item.path) && !isSidebarCollapsed"
+                class="absolute inset-y-2 start-0 w-[3px] rounded-full bg-brand-700"
+                aria-hidden="true"
+              ></span>
+              <i
+                :class="[
+                  'bi',
+                  item.icon,
+                  'shrink-0',
+                  isSidebarCollapsed ? 'text-xl' : 'me-3 text-lg',
+                ]"
+                aria-hidden="true"
+              ></i>
+              <span v-if="!isSidebarCollapsed" class="truncate text-sm">{{ item.name }}</span>
             </RouterLink>
           </nav>
 
-          <!-- ปุ่มย่อ/ขยาย sidebar -->
-          <div class="px-3 mt-4">
+          <!-- ปุ่มย่อ/ขยาย -->
+          <div class="mt-4 px-3">
             <button
-              @click="toggleSidebarCollapse"
-              class="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors border border-dashed border-slate-200 hover:border-slate-300"
+              type="button"
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-stone-200 py-2.5 text-xs font-bold text-stone-400 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700"
               :title="isSidebarCollapsed ? 'ขยายเมนู' : 'ย่อเมนู'"
+              @click="toggleSidebarCollapse"
             >
-              <i :class="['bi', isSidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left', 'text-base']"></i>
+              <i
+                :class="[
+                  'bi text-base',
+                  isSidebarCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left',
+                ]"
+                aria-hidden="true"
+              ></i>
               <span v-if="!isSidebarCollapsed">ย่อเมนูบาร์</span>
             </button>
           </div>
         </div>
 
-        <!-- User Footer (ส่วนที่เคยมีปัญหา Dropdown) -->
-        <div class="p-3 border-t border-slate-100 bg-slate-50/50 shrink-0">
-          <div class="flex items-center gap-2 rounded-xl bg-white p-1.5 border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
+        <!-- ผู้ใช้ -->
+        <div class="shrink-0 border-t border-stone-200 bg-stone-50/60 p-3">
+          <div
+            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white p-1.5"
+          >
             <button
-              class="flex items-center overflow-hidden flex-1 cursor-pointer min-w-0"
+              type="button"
+              class="flex min-w-0 flex-1 cursor-pointer items-center overflow-hidden text-left"
               @click="showAccountInfo"
             >
-              <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-100 to-indigo-50 text-blue-700 flex items-center justify-center font-bold shadow-inner border border-blue-100/50 shrink-0">
+              <div
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-700 text-sm font-bold text-white"
+              >
                 {{ avatarChar }}
               </div>
-              <div v-if="!isSidebarCollapsed" class="ms-3 overflow-hidden text-left">
-                <p class="text-[13px] font-bold text-slate-800 truncate leading-tight">{{ displayName }}</p>
-                <p class="text-[10px] tracking-widest text-blue-600 font-bold uppercase truncate mt-0.5">{{ authStore.currentRoleLabel }}</p>
+              <div v-if="!isSidebarCollapsed" class="ms-3 overflow-hidden">
+                <p class="truncate text-[13px] font-bold leading-tight text-stone-800">
+                  {{ displayName }}
+                </p>
+                <p
+                  class="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wider text-brand-700"
+                >
+                  {{ authStore.currentRoleLabel }}
+                </p>
               </div>
             </button>
 
-            <!-- 🚨 แก้ไขตรงนี้: ส่ง $event เข้าไปในฟังก์ชัน -->
             <button
-              @click.stop="toggleDropdown($event, 'sidebarSettings')"
-              class="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors shrink-0"
-              :class="{'bg-slate-200 text-slate-800 ring-2 ring-slate-200': activeDropdown === 'sidebarSettings'}"
+              type="button"
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-800"
+              :class="{ 'bg-stone-100 text-stone-800': activeDropdown === 'sidebarSettings' }"
               :title="isSidebarCollapsed ? 'การตั้งค่า' : undefined"
+              @click.stop="toggleDropdown($event, 'sidebarSettings')"
             >
-              <i class="bi bi-gear-fill text-lg transition-transform duration-300 hover:rotate-90"></i>
+              <i class="bi bi-three-dots-vertical text-lg" aria-hidden="true"></i>
             </button>
           </div>
         </div>
@@ -346,161 +389,116 @@ const goToProfileSettings = async () => {
     </aside>
 
     <!-- ============================================
-         📱 MOBILE DRAWER
+         ⚙️ พื้นที่หลัก (Header + เนื้อหา)
          ============================================ -->
-    <Transition name="fade">
-      <div
-        v-if="isMobileDrawerOpen"
-        class="fixed inset-0 z-50 md:hidden bg-slate-900/40 backdrop-blur-sm"
-        @click="closeMobileDrawer"
-      ></div>
-    </Transition>
-
-    <Transition name="slide-right">
-      <div
-        v-if="isMobileDrawerOpen"
-        class="fixed inset-y-0 left-0 z-[60] w-[280px] max-w-[85vw] bg-white shadow-2xl flex flex-col md:hidden"
+    <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <!-- Header -->
+      <header
+        class="z-20 shrink-0 border-b border-stone-200 bg-white"
+        :style="{ paddingTop: 'env(safe-area-inset-top)' }"
       >
-        <div class="flex items-center justify-between h-16 px-5 bg-gradient-to-r from-blue-600 to-indigo-700 shrink-0">
-          <RouterLink
-            to="/dashboard"
-            @click="closeMobileDrawer"
-            class="flex items-center gap-3 text-white font-black tracking-widest"
-          >
-            <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center backdrop-blur-sm">
-              <i class="bi bi-box-fill text-white text-lg"></i>
-            </div>
-            <span>SYNC<span class="font-light opacity-80">ROOM</span></span>
-          </RouterLink>
-          <button @click="closeMobileDrawer" class="w-10 h-10 flex items-center justify-center text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors" aria-label="ปิดเมนู">
-            <i class="bi bi-x-lg text-lg"></i>
-          </button>
-        </div>
-
-        <nav class="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-          <RouterLink
-            v-for="item in menuItems"
-            :key="item.path"
-            :to="item.path"
-            @click="closeMobileDrawer"
-            class="flex items-center px-4 py-3.5 text-sm font-semibold rounded-xl transition-all"
-            :class="isItemActive(item.path) ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'"
-          >
-            <i :class="['bi', item.icon, 'text-xl me-4', isItemActive(item.path) ? 'text-blue-600' : '']"></i>
-            {{ item.name }}
-          </RouterLink>
-        </nav>
-
-        <div class="p-4 border-t border-slate-100 shrink-0 space-y-2.5 bg-slate-50">
-          <button @click="goToMyProfile" class="w-full flex items-center justify-center px-4 py-3 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm rounded-xl transition-all">
-            <i class="bi bi-person-badge text-lg me-2 text-slate-400"></i> โปรไฟล์ของฉัน
-          </button>
-          <button @click="goToProfileSettings" class="w-full flex items-center justify-center px-4 py-3 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm rounded-xl transition-all">
-            <i class="bi bi-link-45deg text-xl me-2 text-slate-400"></i> จัดการผูกบัญชี
-          </button>
-          <div class="flex gap-2">
-            <button @click="handleChangeRoom" class="flex-1 flex items-center justify-center px-3 py-3 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 shadow-sm rounded-xl transition-all" title="สลับห้องเรียน">
-              <i class="bi bi-arrow-left-right text-lg"></i>
-            </button>
-            <button @click="logout" class="flex-1 flex items-center justify-center px-3 py-3 text-sm font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 shadow-sm rounded-xl transition-all" title="ออกจากระบบ">
-              <i class="bi bi-power text-lg"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- ============================================
-         ⚙️ MAIN AREA (Header + Content)
-         ============================================ -->
-    <div class="flex flex-col flex-1 min-w-0 overflow-hidden bg-slate-50/50">
-
-      <header class="flex-shrink-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 z-20 sticky top-0">
-        <div class="h-16 flex items-center justify-between px-4 sm:px-6">
-          <div class="flex items-center min-w-0 gap-2">
-            
-            <!-- Mobile Menu Btn -->
-            <button
-              @click="openMobileDrawer"
-              class="md:hidden w-10 h-10 -ml-1 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors flex items-center justify-center border border-transparent hover:border-slate-200"
+        <div class="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
+          <!-- ซ้าย: โลโก้ (มือถือ) + breadcrumb -->
+          <div class="flex min-w-0 items-center gap-2">
+            <RouterLink
+              to="/dashboard"
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white lg:hidden"
+              aria-label="หน้าแรก"
             >
-              <i class="bi bi-list text-2xl"></i>
-            </button>
+              <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
+            </RouterLink>
 
-            <!-- Desktop Collapse Btn (Optional location) -->
-            <button
-              @click="toggleSidebarCollapse"
-              class="hidden md:flex w-10 h-10 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors items-center justify-center"
-            >
-              <i class="bi bi-text-left text-xl"></i>
-            </button>
-
-            <!-- Breadcrumb Navigation -->
-            <div class="flex items-center text-sm font-bold text-slate-700 tracking-tight gap-1.5 min-w-0 ms-1">
+            <div class="flex min-w-0 items-center gap-1.5 text-sm font-bold text-stone-700">
               <template v-if="authStore.currentRoomId">
                 <button
-                  @click="handleChangeRoom"
-                  class="flex items-center justify-center w-9 h-9 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors shrink-0"
+                  type="button"
+                  class="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-brand-50 hover:text-brand-700 sm:flex"
                   title="หน้าเลือกห้อง"
+                  @click="handleChangeRoom"
                 >
-                  <i class="bi bi-grid-3x3-gap-fill text-base"></i>
+                  <i class="bi bi-grid-3x3-gap text-base" aria-hidden="true"></i>
                 </button>
 
-                <i class="bi bi-chevron-right text-[10px] font-black text-slate-300"></i>
-
-                <div class="relative flex items-center shrink-0">
-                  <button
-                    @click.stop="toggleDropdown($event, 'breadcrumbMenu')"
-                    class="flex items-center justify-center h-8 px-2.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
-                  >
-                    <span class="truncate max-w-[100px] sm:max-w-[180px]">{{ authStore.currentRoomName || authStore.currentRoomId }}</span>
-                    <i class="bi bi-chevron-down text-[10px] ms-2 opacity-50"></i>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  class="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+                  @click.stop="toggleDropdown($event, 'breadcrumbMenu')"
+                >
+                  <span class="max-w-[110px] truncate sm:max-w-[180px]">
+                    {{ authStore.currentRoomName || authStore.currentRoomId }}
+                  </span>
+                  <i class="bi bi-chevron-down text-[10px] opacity-50" aria-hidden="true"></i>
+                </button>
 
                 <template v-if="currentSubMenuName">
-                  <i class="bi bi-chevron-right text-[10px] font-black text-slate-300 shrink-0"></i>
-                  <span class="text-blue-600 px-2 truncate max-w-[90px] sm:max-w-[140px]">{{ currentSubMenuName }}</span>
+                  <i
+                    class="bi bi-chevron-right shrink-0 text-[10px] text-stone-300"
+                    aria-hidden="true"
+                  ></i>
+                  <span class="max-w-[90px] truncate px-1 text-brand-700 sm:max-w-[140px]">
+                    {{ currentSubMenuName }}
+                  </span>
                 </template>
               </template>
+
               <template v-else>
-                <div class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
-                  <i class="bi bi-house-door-fill"></i>
-                </div>
-                <i class="bi bi-chevron-right text-[10px] font-black text-slate-300 mx-2"></i>
-                <span>ระบบจัดการ</span>
+                <span class="font-display text-base tracking-tight text-stone-900">
+                  SYNC<span class="font-normal text-stone-400">ROOM</span>
+                </span>
               </template>
             </div>
           </div>
 
-          <!-- Header Right Profile -->
-          <div class="relative shrink-0">
+          <!-- ขวา: ปุ่มสลับห้อง + โปรไฟล์ -->
+          <div class="flex shrink-0 items-center gap-2">
             <button
-              @click.stop="toggleDropdown($event, 'headerSettings')"
-              class="flex items-center p-1 sm:pe-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-full transition-all duration-300 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              :class="{'ring-2 ring-blue-500/30 border-blue-300': activeDropdown === 'headerSettings'}"
+              v-if="authStore.currentRoomId"
+              type="button"
+              class="hidden h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-800 sm:flex"
+              title="สลับห้องเรียน"
+              @click="handleChangeRoom"
             >
-              <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-inner transition-transform duration-300 hover:rotate-6">
-                {{ avatarChar }}
-              </div>
-              <div class="ms-3 hidden sm:block text-left">
-                <p class="text-[13px] font-bold text-slate-800 leading-tight">{{ displayName }}</p>
-                <p class="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mt-0.5 flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Online
-                </p>
-              </div>
-              <i class="bi bi-chevron-down text-slate-400 text-[10px] ms-3 hidden sm:block"></i>
+              <i class="bi bi-arrow-left-right text-base" aria-hidden="true"></i>
             </button>
+
+            <div class="relative">
+              <button
+                type="button"
+                class="flex items-center rounded-full border border-stone-200 bg-white p-1 transition-colors hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 sm:pe-3.5"
+                :class="{ 'ring-2 ring-brand-500/25': activeDropdown === 'headerSettings' }"
+                @click.stop="toggleDropdown($event, 'headerSettings')"
+              >
+                <div
+                  class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-700 text-sm font-bold text-white"
+                >
+                  {{ avatarChar }}
+                </div>
+                <div class="ms-2.5 hidden text-left sm:block">
+                  <p class="text-[13px] font-bold leading-tight text-stone-800">
+                    {{ displayName }}
+                  </p>
+                  <p class="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-brand-700">
+                    {{ authStore.currentRoleLabel }}
+                  </p>
+                </div>
+                <i
+                  class="bi bi-chevron-down ms-2.5 hidden text-[10px] text-stone-400 sm:block"
+                  aria-hidden="true"
+                ></i>
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <main class="flex-1 overflow-y-auto overflow-x-hidden focus:outline-none scroll-smooth p-4 md:p-6 lg:p-8">
-        <div class="max-w-7xl mx-auto h-full">
-          <RouterView v-slot="{ Component, route }">
+      <!-- เนื้อหา — scroll เกิดที่นี่ที่เดียว -->
+      <main
+        class="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(env(safe-area-inset-bottom)+7rem)] focus:outline-none sm:p-6 lg:p-8 lg:pb-8"
+      >
+        <div class="page-wrap">
+          <RouterView v-slot="{ Component, route: r }">
             <transition name="fade-slide" mode="out-in">
-              <div :key="route.path" class="h-full">
+              <div :key="r.path">
                 <component :is="Component" />
               </div>
             </transition>
@@ -510,92 +508,317 @@ const goToProfileSettings = async () => {
     </div>
 
     <!-- ============================================
-         🗂️ TELEPORT DROPDOWNS
+         📱 BOTTOM TAB BAR (มือถือ)
+         ============================================ -->
+    <nav
+      class="fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] lg:hidden"
+      aria-label="เมนูหลัก"
+    >
+      <div
+        class="mx-auto flex max-w-[460px] items-center justify-between gap-0.5 rounded-3xl border border-stone-200 bg-white px-1.5 py-1.5 shadow-[0_10px_34px_-14px_rgba(28,25,23,0.28)]"
+      >
+        <!-- แท็บ 1–2 -->
+        <RouterLink
+          v-for="tab in bottomTabs.slice(0, 2)"
+          :key="tab.path"
+          :to="tab.path"
+          class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 transition-colors"
+          :class="
+            isItemActive(tab.path)
+              ? 'text-brand-700'
+              : 'text-stone-400 hover:text-stone-700'
+          "
+          :aria-current="isItemActive(tab.path) ? 'page' : undefined"
+        >
+          <i :class="['bi', tab.icon, 'text-xl']" aria-hidden="true"></i>
+          <span class="text-[10px] font-bold">{{ tab.name }}</span>
+        </RouterLink>
+
+        <!-- ★ FAB กลาง -->
+        <div class="flex shrink-0 items-center justify-center px-0.5">
+          <RouterLink
+            v-if="canManageTasks"
+            to="/tasks/add"
+            class="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-700 text-white transition-transform active:scale-95"
+            aria-label="เพิ่มงานหรือโน้ตใหม่"
+          >
+            <i class="bi bi-plus-lg text-xl" aria-hidden="true"></i>
+          </RouterLink>
+          <button
+            v-else
+            type="button"
+            class="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-700 text-white transition-transform active:scale-95"
+            aria-label="เปิดเมนูทั้งหมด"
+            @click="openMoreSheet"
+          >
+            <i class="bi bi-plus-lg text-xl" aria-hidden="true"></i>
+          </button>
+        </div>
+
+        <!-- แท็บ 3 -->
+        <RouterLink
+          v-for="tab in bottomTabs.slice(2)"
+          :key="tab.path"
+          :to="tab.path"
+          class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 transition-colors"
+          :class="
+            isItemActive(tab.path)
+              ? 'text-brand-700'
+              : 'text-stone-400 hover:text-stone-700'
+          "
+          :aria-current="isItemActive(tab.path) ? 'page' : undefined"
+        >
+          <i :class="['bi', tab.icon, 'text-xl']" aria-hidden="true"></i>
+          <span class="text-[10px] font-bold">{{ tab.name }}</span>
+        </RouterLink>
+
+        <!-- แท็บ 4: เพิ่มเติม -->
+        <button
+          type="button"
+          class="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 text-stone-400 transition-colors hover:text-stone-700"
+          :class="{ 'text-brand-700': isMoreSheetOpen }"
+          @click="openMoreSheet"
+        >
+          <i class="bi bi-three-dots text-xl" aria-hidden="true"></i>
+          <span class="text-[10px] font-bold">เพิ่มเติม</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- ============================================
+         📱 BOTTOM SHEET — เมนู "เพิ่มเติม"
+         ============================================ -->
+    <Transition name="sheet-fade">
+      <div
+        v-if="isMoreSheetOpen"
+        class="fixed inset-0 z-50 bg-stone-900/40 lg:hidden"
+        @click="closeMoreSheet"
+      ></div>
+    </Transition>
+
+    <Transition name="sheet-slide">
+      <div
+        v-if="isMoreSheetOpen"
+        class="fixed inset-x-0 bottom-0 z-[60] flex max-h-[86vh] flex-col overflow-hidden rounded-t-3xl border-t border-stone-200 bg-white lg:hidden"
+        role="dialog"
+        aria-label="เมนูเพิ่มเติม"
+      >
+        <!-- drag handle (แสดงผลเท่านั้น) -->
+        <div class="flex shrink-0 justify-center pt-3" aria-hidden="true">
+          <div class="h-1 w-10 rounded-full bg-stone-300"></div>
+        </div>
+
+        <div class="flex shrink-0 items-center justify-between px-5 pb-3 pt-3">
+          <div>
+            <p class="eyebrow mb-1">เมนูทั้งหมด</p>
+            <p class="font-display text-lg font-bold text-stone-900">
+              {{ authStore.currentRoomName || 'SYNCROOM' }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="flex h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-800"
+            aria-label="ปิดเมนู"
+            @click="closeMoreSheet"
+          >
+            <i class="bi bi-x-lg text-lg" aria-hidden="true"></i>
+          </button>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
+          <nav class="grid grid-cols-3 gap-2">
+            <RouterLink
+              v-for="item in moreItems"
+              :key="item.path"
+              :to="item.path"
+              class="flex flex-col items-center justify-center gap-2 rounded-2xl border px-2 py-4 text-center transition-colors"
+              :class="
+                isItemActive(item.path)
+                  ? 'border-brand-200 bg-brand-50 text-brand-700'
+                  : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
+              "
+            >
+              <i :class="['bi', item.icon, 'text-2xl']" aria-hidden="true"></i>
+              <span class="text-[11px] font-bold leading-tight">{{ item.name }}</span>
+            </RouterLink>
+          </nav>
+
+          <div class="my-4 h-px bg-stone-200"></div>
+
+          <p class="mb-2 px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">
+            บัญชี
+          </p>
+          <div class="space-y-1">
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+              @click="goToMyProfile"
+            >
+              <i class="bi bi-person-badge text-lg text-stone-400" aria-hidden="true"></i>
+              โปรไฟล์ของฉัน
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+              @click="goToProfileSettings"
+            >
+              <i class="bi bi-link-45deg text-xl text-stone-400" aria-hidden="true"></i>
+              จัดการผูกบัญชี
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+              @click="handleChangeRoom"
+            >
+              <i class="bi bi-arrow-left-right text-lg text-stone-400" aria-hidden="true"></i>
+              สลับห้องเรียน
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+              @click="logout"
+            >
+              <i class="bi bi-box-arrow-right text-lg" aria-hidden="true"></i>
+              ออกจากระบบ
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ============================================
+         🗂️ DROPDOWNS (Teleport)
          ============================================ -->
     <Teleport to="body">
-      <!-- Backdrop ล่องหน เพื่อดักจับการคลิกนอกกรอบ -->
-      <div
-        v-if="activeDropdown"
-        class="fixed inset-0 z-[70]"
-        @click="closeDropdowns"
-      ></div>
+      <div v-if="activeDropdown" class="fixed inset-0 z-[70]" @click="closeDropdowns"></div>
 
-      <!-- Dropdown สำหรับ Sidebar Settings -->
+      <!-- ตั้งค่าบัญชี (sidebar) -->
       <Transition name="dropdown-anim">
         <div
           v-if="activeDropdown === 'sidebarSettings'"
-          class="fixed z-[80] bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-slate-200/60 py-2 w-56 max-w-[calc(100vw-2rem)] overflow-hidden"
+          class="fixed z-[80] w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white py-1.5 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
           :style="dropdownStyle"
         >
-          <div class="px-4 py-2.5 mb-1 border-b border-slate-100 bg-slate-50/50">
-            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">การจัดการบัญชี</p>
-          </div>
-          <button @click.stop="goToMyProfile" class="w-full text-left px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-3">
-            <i class="bi bi-person-badge text-lg opacity-70"></i> โปรไฟล์ของฉัน
+          <p
+            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+          >
+            การจัดการบัญชี
+          </p>
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
+            @click.stop="goToMyProfile"
+          >
+            <i class="bi bi-person-badge text-lg opacity-70" aria-hidden="true"></i>
+            โปรไฟล์ของฉัน
           </button>
-          <button @click.stop="goToProfileSettings" class="w-full text-left px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-3">
-            <i class="bi bi-link-45deg text-xl opacity-70 -ms-0.5"></i> จัดการผูกบัญชี
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
+            @click.stop="goToProfileSettings"
+          >
+            <i class="bi bi-link-45deg text-xl opacity-70" aria-hidden="true"></i>
+            จัดการผูกบัญชี
           </button>
-          <button @click.stop="handleChangeRoom" class="w-full text-left px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-3">
-            <i class="bi bi-arrow-left-right text-lg opacity-70"></i> สลับห้องเรียน
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
+            @click.stop="handleChangeRoom"
+          >
+            <i class="bi bi-arrow-left-right text-lg opacity-70" aria-hidden="true"></i>
+            สลับห้องเรียน
           </button>
-          <div class="h-px bg-slate-100 my-1.5 mx-3"></div>
-          <button @click.stop="logout" class="w-full text-left px-4 py-2.5 text-sm font-black text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors flex items-center gap-3">
-            <i class="bi bi-box-arrow-right text-lg opacity-80"></i> ออกจากระบบ
+          <div class="mx-3 my-1.5 h-px bg-stone-100"></div>
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+            @click.stop="logout"
+          >
+            <i class="bi bi-box-arrow-right text-lg" aria-hidden="true"></i>
+            ออกจากระบบ
           </button>
         </div>
       </Transition>
 
-      <!-- Dropdown สำหรับ Breadcrumb Navigation -->
+      <!-- เมนูด่วน (breadcrumb) -->
       <Transition name="dropdown-anim">
         <div
           v-if="activeDropdown === 'breadcrumbMenu'"
-          class="fixed z-[80] bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-slate-200/60 py-2 w-56 max-w-[calc(100vw-2rem)]"
+          class="fixed z-[80] w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white py-1.5 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
           :style="dropdownStyle"
         >
-          <p class="px-4 py-2.5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 bg-slate-50/50 mb-1">เมนูด่วน</p>
+          <p
+            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+          >
+            เมนูด่วน
+          </p>
           <RouterLink
             v-for="item in menuItems"
             :key="item.path"
             :to="item.path"
+            class="flex items-center px-4 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
             @click="closeDropdowns"
-            class="flex items-center px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
           >
-            <i :class="['bi', item.icon, 'text-base me-3 opacity-70']"></i>
+            <i :class="['bi', item.icon, 'me-3 text-base opacity-70']" aria-hidden="true"></i>
             {{ item.name }}
           </RouterLink>
         </div>
       </Transition>
 
-      <!-- Dropdown สำหรับ Header Profile -->
+      <!-- โปรไฟล์ (header) -->
       <Transition name="dropdown-anim">
         <div
           v-if="activeDropdown === 'headerSettings'"
-          class="fixed z-[80] bg-white/95 backdrop-blur-xl rounded-3xl shadow-[0_15px_50px_-12px_rgba(0,0,0,0.15)] border border-slate-200/60 w-64 max-w-[calc(100vw-2rem)] overflow-hidden flex flex-col"
+          class="fixed z-[80] flex w-64 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
           :style="dropdownStyle"
         >
-          <div class="px-5 py-4 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-base shadow-sm shrink-0">
-                {{ avatarChar }}
+          <div class="flex items-center gap-3 border-b border-stone-100 bg-stone-50/70 px-5 py-4">
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-700 text-base font-bold text-white"
+            >
+              {{ avatarChar }}
             </div>
             <div class="min-w-0">
-              <p class="text-sm font-black text-slate-800 truncate leading-tight">{{ displayName }}</p>
-              <p class="text-xs text-blue-600 font-bold uppercase truncate mt-0.5">{{ authStore.currentRoleLabel }}</p>
+              <p class="truncate text-sm font-bold leading-tight text-stone-800">
+                {{ displayName }}
+              </p>
+              <p class="mt-0.5 truncate text-[11px] font-bold uppercase tracking-wider text-brand-700">
+                {{ authStore.currentRoleLabel }}
+              </p>
             </div>
           </div>
-          <div class="py-2">
-            <button @click.stop="goToMyProfile" class="w-full text-left px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-700 transition-colors flex items-center gap-3">
-              <i class="bi bi-person-badge text-lg opacity-70"></i> โปรไฟล์ของฉัน
+          <div class="py-1.5">
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-50 hover:text-brand-700"
+              @click.stop="goToMyProfile"
+            >
+              <i class="bi bi-person-badge text-lg opacity-70" aria-hidden="true"></i>
+              โปรไฟล์ของฉัน
             </button>
-            <button @click.stop="goToProfileSettings" class="w-full text-left px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-700 transition-colors flex items-center gap-3">
-              <i class="bi bi-link-45deg text-xl opacity-70 -ms-0.5"></i> จัดการบัญชีเชื่อมต่อ
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-50 hover:text-brand-700"
+              @click.stop="goToProfileSettings"
+            >
+              <i class="bi bi-link-45deg text-xl opacity-70" aria-hidden="true"></i>
+              จัดการบัญชีเชื่อมต่อ
             </button>
-            <button @click.stop="handleChangeRoom" class="w-full text-left px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-blue-700 transition-colors flex items-center gap-3">
-              <i class="bi bi-grid-3x3-gap-fill text-base opacity-70 ms-0.5"></i> สลับห้องเรียน
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-50 hover:text-brand-700"
+              @click.stop="handleChangeRoom"
+            >
+              <i class="bi bi-grid-3x3-gap text-base opacity-70" aria-hidden="true"></i>
+              สลับห้องเรียน
             </button>
           </div>
-          <div class="p-2 border-t border-slate-100 bg-slate-50/50">
-            <button @click.stop="logout" class="w-full text-center px-4 py-2.5 text-sm font-black text-red-600 bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded-xl transition-colors shadow-sm">
+          <div class="border-t border-stone-100 bg-stone-50/60 p-2">
+            <button
+              type="button"
+              class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50"
+              @click.stop="logout"
+            >
               ออกจากระบบ
             </button>
           </div>
@@ -606,59 +829,60 @@ const goToProfileSettings = async () => {
 </template>
 
 <style scoped>
-/* ซ่อน Scrollbar แต่อยู่ให้ Scroll ได้ */
-.scrollbar-hide::-webkit-scrollbar {
-    display: none;
-}
-.scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
-
-/* 🪄 Router View Animation */
+/* 🪄 เปลี่ยนหน้าเนื้อหาเท่านั้น (header/tab bar อยู่นิ่ง) */
 .fade-slide-enter-active,
 .fade-slide-leave-active {
-  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: all 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .fade-slide-enter-from {
   opacity: 0;
-  transform: translateY(15px);
+  transform: translateY(8px);
 }
 .fade-slide-leave-to {
   opacity: 0;
-  transform: translateY(-15px);
+  transform: translateY(-8px);
 }
 
-/* 🪄 General Fade */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
+/* 🪄 Bottom sheet */
+.sheet-fade-enter-active,
+.sheet-fade-leave-active {
+  transition: opacity 0.22s ease;
 }
-.fade-enter-from,
-.fade-leave-to {
+.sheet-fade-enter-from,
+.sheet-fade-leave-to {
   opacity: 0;
 }
 
-/* 🪄 Drawer Animation */
-.slide-right-enter-active,
-.slide-right-leave-active {
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+.sheet-slide-enter-active,
+.sheet-slide-leave-active {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.slide-right-enter-from,
-.slide-right-leave-to {
-  transform: translateX(-100%);
+.sheet-slide-enter-from,
+.sheet-slide-leave-to {
+  transform: translateY(100%);
 }
 
-/* 🪄 Dropdown Animation (Smooth Scale) */
+/* 🪄 Dropdown */
 .dropdown-anim-enter-active {
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .dropdown-anim-leave-active {
-  transition: all 0.15s cubic-bezier(0.4, 0, 1, 1);
+  transition: all 0.12s ease-in;
 }
 .dropdown-anim-enter-from,
 .dropdown-anim-leave-to {
   opacity: 0;
-  transform: scale(0.92) translateY(-10px);
+  transform: translateY(-6px) scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-slide-enter-active,
+  .fade-slide-leave-active,
+  .sheet-slide-enter-active,
+  .sheet-slide-leave-active,
+  .dropdown-anim-enter-active,
+  .dropdown-anim-leave-active {
+    transition-duration: 0.01ms;
+  }
 }
 </style>

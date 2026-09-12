@@ -9,11 +9,11 @@ interface MinimalAuthStore {
 }
 
 // 2. ✨ สร้าง Interface สำหรับข้อมูลใน JWT Payload
+// ประกาศเฉพาะ claim ที่โปรเจกต์นี้ใช้งานจริง (user_id จาก Web login, discord_id จาก Discord OAuth, sub จาก Google OAuth)
 interface JwtPayload {
   user_id?: string | number;
   discord_id?: string | number;
   sub?: string | number;
-  [key: string]: any; // สำหรับค่าอื่นๆ ที่ติดมาใน Token
 }
 
 // Discord Configs
@@ -34,12 +34,88 @@ export const getGoogleAuthUrl = (): string => {
   return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOGLE_REDIRECT_URI)}&response_type=code&scope=${scope}`;
 };
 
-export const loginWithDiscord = async (code: string): Promise<{ access_token: string }> => {
+/** ผลลัพธ์จากการเข้าสู่ระบบ — ตรงกับ TokenResponse ฝั่ง backend */
+export interface LoginResult {
+  access_token: string;
+  user_id: string;
+}
+
+/** ผลลัพธ์จากการผูกบัญชี OAuth เข้ากับบัญชีที่ล็อกอินอยู่ */
+export interface LinkAccountResult {
+  status: string;
+  message: string;
+}
+
+/** ข้อมูลโปรไฟล์ที่ส่งตอน Onboarding — ตรงกับ UserProfileUpdate ฝั่ง backend */
+export interface ProfileUpdatePayload {
+  prefix: string;
+  first_name: string;
+  last_name: string;
+  first_name_en: string;
+  last_name_en: string;
+  nickname: string;
+  nickname_en: string;
+  birthday: string;
+  phone_number: string;
+  line_id: string;
+  address_house_no: string;
+  address_road: string;
+  address_sub_district: string;
+  address_district: string;
+  address_province: string;
+  address_post_code: string;
+}
+
+export const loginWithDiscord = async (code: string): Promise<LoginResult> => {
   return await api.post('/api/auth/discord/login', { code });
 };
 
-export const loginWithGoogle = async (code: string): Promise<{ access_token: string }> => {
+export const loginWithGoogle = async (code: string): Promise<LoginResult> => {
   return await api.post('/api/auth/google/login', { code });
+};
+
+/**
+ * โปรไฟล์ผู้ใช้ที่ได้จาก GET /api/auth/me
+ * ตรงกับ SELECT ใน routers/auth_router.py → get_current_user_profile()
+ * (ฟิลด์ข้อความ nullable ทั้งหมด เพราะคอลัมน์ใน users ไม่ได้ NOT NULL ทุกตัว)
+ */
+export interface UserProfileResponse {
+  id: number;
+  prefix: string | null;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  first_name_en: string | null;
+  last_name_en: string | null;
+  username: string | null;
+  nickname: string | null;
+  nickname_en: string | null;
+  birthday: string | null;
+  phone_number: string | null;
+  line_id: string | null;
+  address_house_no: string | null;
+  address_road: string | null;
+  address_sub_district: string | null;
+  address_district: string | null;
+  address_province: string | null;
+  address_post_code: string | null;
+  discord_id: number | null;
+  google_id: string | null;
+}
+
+/** ผูกบัญชี Discord เข้ากับบัญชีที่ล็อกอินอยู่ (โหมด link) */
+export const linkDiscordAccount = async (code: string): Promise<LinkAccountResult> => {
+  return await api.post('/api/auth/discord/link', { code });
+};
+
+/** ผูกบัญชี Google เข้ากับบัญชีที่ล็อกอินอยู่ (โหมด link) */
+export const linkGoogleAccount = async (code: string): Promise<LinkAccountResult> => {
+  return await api.post('/api/auth/google/link', { code });
+};
+
+/** บันทึกข้อมูลโปรไฟล์ส่วนตัวครั้งแรก (Onboarding) */
+export const updateMyProfile = async (payload: ProfileUpdatePayload): Promise<void> => {
+  await api.patch('/api/auth/me', payload);
 };
 
 /**
@@ -91,8 +167,9 @@ export const processAuthSuccess = (token: string, authStore: MinimalAuthStore, r
     authStore.setUserId(userId);
     router.push('/lobby');
     
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('JWT Processing error:', err);
-    throw new Error(`การประมวลผลสิทธิ์ล้มเหลว: ${err.message}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`การประมวลผลสิทธิ์ล้มเหลว: ${msg}`);
   }
 };

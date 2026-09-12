@@ -618,3 +618,22 @@
 - **Rule:** (1) ข้อมูล fee_collections/student_payments เป็นข้ามยุค → ใช้ Real-time (มีคอลัมน์ "ณ วันที่" กำกับ) ไม่ filter ตาม CUTOFF_DATE (2) งบ GL/TB/PL/BS อ่านจาก journal ล้วน → `export_journal_excel` ต้อง clamp ช่วงด้วย `_clamp_to_cutoff` และขึ้น note "ข้อมูลเริ่ม 2026-09-01" (3) เปลี่ยน sheet/column layout ของ export = ต้องอัปเดตเทสที่ assert `wb.sheetnames`/index ด้วย (มีทั้ง service-level + HTTP)
 - **Tests:** `test_finance_export_enterprise.py` (ใหม่): management 5 แผ่น ตัวเลขโปรเจค/AR ตรง deep DB; accounting 6 แผ่น GL/TB/PL/BS ตรง deep SQL, Dr=Cr สมดุล, audit trail มีค่า, voided ถูกตัด; แก้ sheetname/header index ใน `test_finance_export.py`/`test_finance_v2_read.py`/`test_finance_http.py`/`test_finance_journal_export.py`
 - **Date Added:** 2026-09-04
+
+### 🎨 Frontend — เปลี่ยน Design System ทั้งระบบเป็น "Academic Ledger" (stone paper + น้ำเงินเดียว + เส้นบาง)
+- **Context/Problem:** ระบบเดิมหน้าตาเป็น gradient/glassmorphism (gradient hero, `backdrop-blur` header, การ์ด `rounded-[2rem] shadow-2xl`, glow blob, `animate-bounce`/`animate-ping`, ปุ่มมีเงาสี) และใช้สีปนกันหลายตระกูล (`slate`/`blue`/`indigo`/`violet`/`emerald`) ทำให้แต่ละหน้าไม่เป็นภาษาเดียวกัน แก้ทีละหน้าไม่คุ้มเพราะ 40+ ไฟล์ต้องออกมาตรงกันหมด
+- **Root Cause:** ไม่มี "สัญญาการออกแบบ" กลาง — ต่างคนต่างเลือกสี/เงา/มุมโค้งเอง จึงไม่มีเกณฑ์ว่าอะไรผิด ถ้าต่างคนต่างแก้จะได้ 40 หน้าตาที่ไม่เหมือนกัน
+- **Correct Pattern/Solution:**
+  1. **ตรึง token ก่อน แล้วค่อยแตะหน้า** — `tailwind.config.js` ประกาศสี `brand-*` (สเกลเดียว), `paper`, `ink` + ฟอนต์ `font-display` (Anuphan) / `font-sans` (Noto Sans Thai) แล้ว **ห้ามใช้สีอื่น**: `slate/gray/zinc/neutral` → `stone-*`, `indigo/violet/purple/blue` → `brand-*`
+  2. **ยกคลาสที่ใช้ซ้ำขึ้นเป็น `.class` กลางใน `@layer components`** (`src/assets/main.css`): `.page-card`, `.card-hover`, `.btn-primary`, `.btn-ghost-ui`, `.btn-danger`, `.field`, `.field-label`, `.data-table`, `.chip`, `.eyebrow`, `.page-title`, `.page-lede`, `.section-title`, `.num`, `.page-wrap` — ทำให้ grep ตรวจได้และแก้ที่เดียวกระทบทั้งระบบ
+  3. **สร้างคอมโพเนนต์กลาง 3 ตัวใน `src/components/ui/`** — `PageHeader` (eyebrow→h1→lede + slot `#actions`), `StateBlock` (error/empty กรอบเส้นประ), `SkeletonRows` — บังคับให้ทุก view ใช้ ทำให้หัวหน้าและสถานะโหลด/ว่าง/พัง เหมือนกันทั้งระบบ
+  4. **เขียน `frontend/DESIGN.md` เป็น "สัญญา" ก่อนกระจายงาน** — 13 ข้อ รวม checklist คำต้องห้ามและตาราง "คลาสกลางใช้เมื่อไหร่" จากนั้นจึง fan-out subagent แปลงทีละกลุ่ม (งานขนานจะได้ผลตรงกัน ไม่ใช่ 40 หน้าตาที่ต่างกัน)
+  5. **grep เป็นด่านตรวจสุดท้าย** — `grep -rnE "slate-[0-9]|gray-[0-9]|indigo-[0-9]|blue-[0-9]|bg-gradient|backdrop-blur|rounded-\[2|animate-bounce|animate-ping" src --include=*.vue` ต้องได้ 0 — **ระวัง false positive คำว่า `translate-x-5` มี substring `slate-`** ให้เติม `[^a-z]` ข้างหน้า หรือ `| grep -v translate-`
+- **กับดักที่เจอจริงตอนแก้ (สำคัญ):**
+  - `body { overflow-x: hidden }` **ทำให้ `position: sticky` พังทั้งแอป** → ใช้ `overflow-x: clip` แทน (ใส่คอมเมนต์เตือนไว้ใน `main.css` แล้ว)
+  - มือถือ iOS **ซูมเองเมื่อโฟกัส input ที่ font-size < 16px** → กันด้วย `@media (max-width:640px){ input,select,textarea{ font-size:16px !important } }` และ **ห้าม override ด้วย `text-xs`/`text-sm` บน input ในมือถือ**
+  - **Tailwind JIT ไม่สแกนสตริงใน `Swal.fire({ html })`** — คลาสใน HTML ที่ส่งเข้า Swal ใช้ไม่ได้ ถ้าจำเป็นต้องจัดสไตล์ให้ใช้ inline style
+  - **ตาราง `w-full` กว้างเกินจอมือถือเสมอ** → ต้องมีสองเรนเดอร์: `hidden lg:block` (`.data-table`) คู่กับ `lg:hidden` (การ์ด) — และทุกกล่องข้อความยาวต้องมี `min-w-0` ที่พ่อ + `truncate` ที่ลูก ไม่งั้น flex จะดันจอล้น
+  - **Layout ที่ `h-screen` + ให้ `<main>` เป็นตัว scroll เอง** ทำให้ `sticky top-0` ภายในหน้าทำงานได้ และต้องเว้นที่ให้ bottom tab bar ด้วย `pb-[calc(env(safe-area-inset-bottom)+7rem)]`
+- **Navigation:** เปลี่ยนเมนูมือถือจาก left-slide drawer เป็น **Bottom Tab Bar ลอย (5 ช่อง) + FAB กลาง + Bottom Sheet สำหรับเมนูที่เหลือ** — ลบ `md:` ของ sidebar เดิมเป็น `lg:` เพื่อให้แท็บเล็ตได้ tab bar ด้วย
+- **Rule:** (1) แก้หน้าตาทั้งระบบ = ตรึง token → ทำคลาสกลาง → ทำคอมโพเนนต์กลาง → เขียนสัญญา → ค่อยกระจายงาน (2) งานขนานต้องกำหนด "คำต้องห้าม" ให้ grep ได้เป็นรูปธรรม ไม่งั้น subagent ตีความคนละทาง (3) **ห้ามแตะ logic/ชื่อตัวแปร/service call/RBAC ระหว่างงานดีไซน์** — เปลี่ยนได้แค่หน้าตา (4) type-check + build ต้องผ่านหลังแปลง (5) ตรวจว่า pass ไม่ได้มาจาก cache: ลบ `node_modules/.tmp` แล้วรัน `npx vue-tsc --build --force`
+- **Date Added:** 2026-09-12

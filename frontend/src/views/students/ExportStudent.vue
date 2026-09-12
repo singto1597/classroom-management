@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
+import PageHeader from '@/components/ui/PageHeader.vue';
 import Swal from 'sweetalert2';
 import draggable from 'vuedraggable'; // 📦 vuedraggable สำหรับ Vue 3
 
@@ -35,9 +36,10 @@ interface SelectedColumn {
 }
 
 // --- 📂 2. Schema ข้อมูล ---
+// 🎨 ธีม Academic Ledger: สีเน้นเดียว (brand) — แยกหมวดด้วยไอคอน ไม่ใช่ด้วยสี
 const exportSchema: Category[] = [
   {
-    id: 'core', name: 'ข้อมูลส่วนตัวพื้นฐาน', icon: 'bi-person-badge-fill', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', ring: 'ring-blue-500/30',
+    id: 'core', name: 'ข้อมูลส่วนตัวพื้นฐาน', icon: 'bi-person-badge-fill', color: 'text-brand-700', bg: 'bg-brand-50', border: 'border-brand-200', ring: 'ring-brand-500/30',
     fields: [
       { id: 'student_no', label: 'เลขที่' },
       { id: 'student_id', label: 'รหัสนักเรียน' },
@@ -52,7 +54,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'academic', name: 'วิชาการและหน้าที่', icon: 'bi-journal-bookmark-fill', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', ring: 'ring-amber-500/30',
+    id: 'academic', name: 'วิชาการและหน้าที่', icon: 'bi-journal-bookmark-fill', color: 'text-brand-700', bg: 'bg-brand-50', border: 'border-brand-200', ring: 'ring-brand-500/30',
     fields: [
       { id: 'class_role', label: 'บทบาทในห้อง' },
       { id: 'cleaning_duty', label: 'เวรทำความสะอาด' },
@@ -62,7 +64,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'health', name: 'ข้อมูลสุขภาพ', icon: 'bi-heart-pulse-fill', color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200', ring: 'ring-rose-500/30',
+    id: 'health', name: 'ข้อมูลสุขภาพ', icon: 'bi-heart-pulse-fill', color: 'text-brand-700', bg: 'bg-brand-50', border: 'border-brand-200', ring: 'ring-brand-500/30',
     fields: [
       { id: 'blood_group', label: 'กรุ๊ปเลือด' },
       { id: 'shirt_size', label: 'ไซส์เสื้อ' },
@@ -71,7 +73,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'contact', name: 'การติดต่อ', icon: 'bi-telephone-fill', color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', ring: 'ring-indigo-500/30',
+    id: 'contact', name: 'การติดต่อ', icon: 'bi-telephone-fill', color: 'text-brand-700', bg: 'bg-brand-50', border: 'border-brand-200', ring: 'ring-brand-500/30',
     fields: [
       { id: 'phone_number', label: 'เบอร์โทรศัพท์' },
       { id: 'phone_number_parent', label: 'เบอร์ผู้ปกครอง' },
@@ -82,7 +84,7 @@ const exportSchema: Category[] = [
     ]
   },
   {
-    id: 'address', name: 'ที่อยู่', icon: 'bi-house-door-fill', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', ring: 'ring-emerald-500/30',
+    id: 'address', name: 'ที่อยู่', icon: 'bi-house-door-fill', color: 'text-brand-700', bg: 'bg-brand-50', border: 'border-brand-200', ring: 'ring-brand-500/30',
     fields: [
       { id: 'address_house_no', label: 'บ้านเลขที่/หมู่/ซอย' },
       { id: 'address_road', label: 'ถนน' },
@@ -99,11 +101,7 @@ const selectedColumns = ref<SelectedColumn[]>([]);
 
 // 🎨 Map สี checkbox แบบ literal (Tailwind JIT ต้องเห็นข้อความเต็ม ถึงจะ compile)
 const CHECK_COLORS: Record<string, { checked: string; partial: string }> = {
-  'text-blue-600': { checked: 'bg-blue-500 border-transparent', partial: 'bg-blue-300 border-transparent' },
-  'text-amber-600': { checked: 'bg-amber-500 border-transparent', partial: 'bg-amber-300 border-transparent' },
-  'text-rose-600': { checked: 'bg-rose-500 border-transparent', partial: 'bg-rose-300 border-transparent' },
-  'text-indigo-600': { checked: 'bg-indigo-500 border-transparent', partial: 'bg-indigo-300 border-transparent' },
-  'text-emerald-600': { checked: 'bg-emerald-500 border-transparent', partial: 'bg-emerald-300 border-transparent' },
+  'text-brand-700': { checked: 'bg-brand-700 border-transparent', partial: 'bg-brand-300 border-transparent' },
 };
 
 const isFieldSelected = (fieldId: string) => !!selectedColumns.value.find(c => c.id === fieldId);
@@ -137,247 +135,215 @@ const clearAll = () => { selectedColumns.value = []; };
 // --- 🚀 4. ฟังก์ชันส่งออก ---
 const handleExport = async () => {
   if (selectedColumns.value.length === 0) {
-    return Swal.fire({ 
-      icon: 'warning', 
-      title: 'แจ้งเตือน', 
+    return Swal.fire({
+      icon: 'warning',
+      title: 'แจ้งเตือน',
       text: 'กรุณาเลือกข้อมูลอย่างน้อย 1 คอลัมน์ครับ!',
-      confirmButtonColor: '#3b82f6'
+      confirmButtonColor: '#1d4ed8'
     });
   }
 
   const finalFieldsOrder = selectedColumns.value.map(col => col.id);
 
   try {
-    Swal.fire({ 
-      title: 'กำลังคราฟต์ไฟล์ Excel...', 
-      text: 'ระบบกำลังจัดเรียงคอลัมน์ให้คุณ', 
-      allowOutsideClick: false, 
-      didOpen: () => Swal.showLoading() 
+    Swal.fire({
+      title: 'กำลังคราฟต์ไฟล์ Excel...',
+      text: 'ระบบกำลังจัดเรียงคอลัมน์ให้คุณ',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
     });
-    
+
     // ดึงก้อน Blob ออกมาจาก API
     const blob = await StudentService.exportStudentsExcel(roomId.value, finalFieldsOrder, userName.value);
-    
+
     // เปลี่ยน Blob ให้เป็นลิงก์ดาวน์โหลด
-    const url = window.URL.createObjectURL(blob); 
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    
+
     // ตั้งชื่อไฟล์สวยๆ
     const dateStr = new Date().toISOString().split('T')[0];
     link.setAttribute('download', `Custom_Export_${roomId.value}_${dateStr}.xlsx`);
-    
+
     document.body.appendChild(link);
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
 
-    Swal.fire({ 
-      icon: 'success', 
-      title: 'สำเร็จ!', 
-      text: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว', 
-      timer: 1500, 
-      showConfirmButton: false 
+    Swal.fire({
+      icon: 'success',
+      title: 'สำเร็จ!',
+      text: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว',
+      timer: 1500,
+      showConfirmButton: false
     });
   } catch (error) {
     console.error(error);
-    Swal.fire({ 
-      icon: 'error', 
-      title: 'เกิดข้อผิดพลาด', 
-      text: 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง' 
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
+      confirmButtonColor: '#1d4ed8'
     });
   }
 };
 </script>
 
 <template>
-  <div class="relative overflow-hidden min-h-screen bg-slate-50/50 pb-12">
-    <div class="max-w-7xl mx-auto space-y-6 md:space-y-8 relative z-10 p-4 sm:p-6 md:p-8">
-      
-      <!-- Top Navigation -->
-      <div class="flex items-center gap-4 mb-2">
-        <button 
-          @click="router.back()" 
-          class="w-10 h-10 md:w-auto md:px-5 flex items-center justify-center gap-2 bg-white text-slate-600 rounded-full md:rounded-2xl shadow-sm border border-slate-200 hover:bg-slate-50 active:scale-95 transition-all font-bold group"
-        >
-          <i class="bi bi-arrow-left text-lg group-hover:-translate-x-1 transition-transform"></i>
-          <span class="hidden md:inline">กลับหน้ารายชื่อ</span>
-        </button>
-      </div>
+  <div class="space-y-4 sm:space-y-5">
 
-      <!-- Header Section -->
-      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-5 md:p-7 rounded-3xl border border-slate-200 shadow-[0_4px_20px_rgb(0,0,0,0.04)]">
-        <div class="min-w-0">
-          <h2 class="text-xl md:text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-            <span class="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center text-lg shadow-inner shrink-0">🪄</span>
-            เครื่องมือสร้างไฟล์ Export
-          </h2>
-          <p class="text-slate-500 mt-1.5 font-medium text-sm">เลือกหมวดหมู่ และลากวางคอลัมน์เพื่อจัดลำดับไฟล์ Excel</p>
-        </div>
-        <button
-          @click="handleExport"
-          class="w-full lg:w-auto bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold px-6 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 group"
-        >
-          <i class="bi bi-file-earmark-excel-fill text-lg group-hover:scale-110 transition-transform"></i>
+    <PageHeader
+      eyebrow="Export Builder"
+      title="เครื่องมือสร้างไฟล์ Export"
+      description="เลือกหมวดหมู่ และลากวางคอลัมน์เพื่อจัดลำดับไฟล์ Excel"
+    >
+      <template #actions>
+        <button type="button" class="btn-ghost-ui" @click="router.back()">
+          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับ
+        </button>
+        <button type="button" class="btn-primary" @click="handleExport">
+          <i class="bi bi-file-earmark-excel-fill" aria-hidden="true"></i>
           สร้างไฟล์ Excel
         </button>
-      </div>
+      </template>
+    </PageHeader>
 
-      <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 lg:gap-6 items-start">
-        
-        <!-- ⬅️ ซ้าย: กล่องเลือกข้อมูล (Source) -->
-        <div class="xl:col-span-7 space-y-4">
-          <div 
-            v-for="cat in exportSchema" 
-            :key="cat.id" 
-            class="bg-white rounded-[1.5rem] border border-slate-200 overflow-hidden shadow-sm transition-all hover:shadow-md hover:border-slate-300"
+    <div class="grid grid-cols-1 items-start gap-4 sm:gap-5 xl:grid-cols-12">
+
+      <!-- ⬅️ ซ้าย: กล่องเลือกข้อมูล (Source) -->
+      <div class="space-y-4 xl:col-span-7">
+        <section v-for="cat in exportSchema" :key="cat.id" class="page-card overflow-hidden">
+
+          <!-- Category Header -->
+          <div
+            class="flex cursor-pointer select-none items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 transition-colors hover:bg-stone-100 sm:px-5"
+            @click="toggleCategory(cat)"
           >
-            <!-- Category Header -->
-            <div 
-              @click="toggleCategory(cat)"
-              class="p-5 cursor-pointer flex items-center justify-between transition-colors group select-none"
-              :class="cat.bg"
-            >
-              <div class="flex items-center gap-4">
-                <div class="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                  <i :class="[cat.icon, cat.color, 'text-xl']"></i>
-                </div>
-                <h3 class="font-bold text-slate-800 text-lg group-hover:text-black transition-colors">{{ cat.name }}</h3>
-              </div>
-              
-              <!-- Checkbox -->
-              <div
-                class="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all shadow-sm"
-                :class="isCategoryAllSelected(cat)
-                  ? CHECK_COLORS[cat.color]?.checked || 'bg-blue-500 border-transparent'
-                  : isCategoryPartialSelected(cat)
-                    ? CHECK_COLORS[cat.color]?.partial || 'bg-blue-300 border-transparent'
-                    : 'border-slate-300 bg-white'"
-              >
-                <i v-if="isCategoryAllSelected(cat)" class="bi bi-check-lg font-black text-sm"></i>
-                <i v-else-if="isCategoryPartialSelected(cat)" class="bi bi-dash-lg font-black text-sm"></i>
-              </div>
-            </div>
+            <h3 class="flex min-w-0 items-center gap-2.5">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-stone-200">
+                <i :class="[cat.icon, cat.color, 'text-base']" aria-hidden="true"></i>
+              </span>
+              <span class="section-title truncate">{{ cat.name }}</span>
+            </h3>
 
-            <!-- Fields Grid -->
-            <div class="p-5 bg-white border-t border-slate-100">
-              <div class="flex flex-wrap gap-3">
-                <button 
-                  v-for="field in cat.fields" 
-                  :key="field.id"
-                  @click="toggleField(field, cat)"
-                  class="px-4 py-2 rounded-xl text-sm font-bold border transition-all active:scale-95 select-none flex items-center"
-                  :class="isFieldSelected(field.id) ? `${cat.color} ${cat.bg} border-transparent shadow-sm ring-1 ring-inset ${cat.ring}` : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'"
-                >
-                  <i v-if="isFieldSelected(field.id)" class="bi bi-check2 me-1.5 text-lg leading-none"></i>
-                  <i v-else class="bi bi-plus me-1.5 text-lg leading-none opacity-50"></i>
-                  {{ field.label }}
-                </button>
-              </div>
+            <!-- Checkbox เลือกทั้งหมวด -->
+            <div
+              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-all"
+              :class="isCategoryAllSelected(cat)
+                ? CHECK_COLORS[cat.color]?.checked || 'bg-brand-700 border-transparent'
+                : isCategoryPartialSelected(cat)
+                  ? CHECK_COLORS[cat.color]?.partial || 'bg-brand-300 border-transparent'
+                  : 'border-stone-300 bg-white'"
+            >
+              <i v-if="isCategoryAllSelected(cat)" class="bi bi-check-lg text-sm font-black text-white" aria-hidden="true"></i>
+              <i v-else-if="isCategoryPartialSelected(cat)" class="bi bi-dash-lg text-sm font-black text-stone-600" aria-hidden="true"></i>
             </div>
           </div>
+
+          <!-- Fields -->
+          <div class="flex flex-wrap gap-2 p-4 sm:p-5">
+            <button
+              v-for="field in cat.fields"
+              :key="field.id"
+              type="button"
+              class="flex select-none items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+              :class="isFieldSelected(field.id)
+                ? `${cat.color} ${cat.bg} border-transparent ring-1 ring-inset ${cat.ring}`
+                : 'border-stone-200 text-stone-500 hover:border-stone-300 hover:bg-stone-50'"
+              @click="toggleField(field, cat)"
+            >
+              <span
+                class="flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors"
+                :class="isFieldSelected(field.id) ? 'border-brand-700 bg-brand-700' : 'border-stone-300'"
+                aria-hidden="true"
+              >
+                <i v-if="isFieldSelected(field.id)" class="bi bi-check text-[10px] font-black leading-none text-white"></i>
+              </span>
+              {{ field.label }}
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <!-- ➡️ ขวา: จัดลำดับการส่งออก (แสดงก่อนบนมือถือ เพราะเป็น action หลัก) -->
+      <div class="page-card order-first overflow-hidden xl:order-none xl:col-span-5 xl:sticky xl:top-8">
+
+        <div class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+          <div class="min-w-0">
+            <h3 class="section-title flex items-center gap-2">
+              <i class="bi bi-list-ol text-brand-700" aria-hidden="true"></i> ลำดับคอลัมน์ Excel
+            </h3>
+            <p class="mt-0.5 text-xs text-stone-500">
+              เลือกแล้ว <span class="num font-bold text-brand-700">{{ selectedColumns.length }}</span> รายการ
+            </p>
+          </div>
+
+          <button
+            v-if="selectedColumns.length > 0"
+            type="button"
+            class="btn-danger shrink-0 px-3 py-1.5 text-xs"
+            @click="clearAll"
+          >
+            <i class="bi bi-trash" aria-hidden="true"></i> ล้างทั้งหมด
+          </button>
         </div>
 
-        <!-- ➡️ ขวา: จัดลำดับการส่งออก (Sortable Result) — แสดงก่อนบนมือถือ เพราะเป็น action หลัก -->
-        <div class="xl:col-span-5 order-first xl:order-none relative overflow-hidden bg-gradient-to-b from-slate-900 to-slate-800 rounded-[1.5rem] p-5 lg:p-7 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] xl:sticky xl:top-8 border border-slate-700">
-          <!-- Background Texture -->
-          <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 mix-blend-overlay pointer-events-none"></div>
+        <div class="p-4 sm:p-5">
+          <!-- กล่องว่างเปล่า -->
+          <div
+            v-if="selectedColumns.length === 0"
+            class="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-stone-300 px-6 py-12 text-center"
+          >
+            <i class="bi bi-cursor text-3xl text-stone-300" aria-hidden="true"></i>
+            <p class="text-sm leading-relaxed text-stone-500">
+              คลิกเลือกข้อมูลจากฝั่งซ้าย<br />เพื่อนำมาจัดลำดับที่นี่
+            </p>
+          </div>
 
-          <div class="relative z-10">
-            <div class="flex justify-between items-center mb-6 border-b border-slate-700/50 pb-5">
-              <div>
-                <h3 class="font-black text-xl flex items-center gap-2 text-white"><i class="bi bi-list-ol text-emerald-400"></i> ลำดับคอลัมน์ Excel</h3>
-                <p class="text-slate-400 text-sm mt-1">จำนวนที่เลือก: <span class="text-emerald-400 font-bold">{{ selectedColumns.length }}</span> รายการ</p>
-              </div>
-              <button 
-                v-if="selectedColumns.length > 0" 
-                @click="clearAll" 
-                class="text-xs font-bold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500 border border-rose-500/20 hover:border-rose-500 px-3 py-2 rounded-xl transition-all active:scale-95"
-              >
-                ล้างทั้งหมด
-              </button>
-            </div>
+          <!-- 🚀 กล่อง DRAG & DROP (บังคับให้จับเฉพาะที่ Handle) -->
+          <draggable
+            v-else
+            v-model="selectedColumns"
+            item-key="id"
+            handle=".drag-handle"
+            :animation="250"
+            class="max-h-[55vh] space-y-2 overflow-y-auto overscroll-contain pe-1"
+            ghost-class="opacity-40"
+            drag-class="cursor-grabbing"
+          >
+            <template #item="{ element, index }">
+              <div class="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-white p-3 transition-colors hover:border-stone-300">
 
-            <!-- กล่องว่างเปล่า -->
-            <div v-if="selectedColumns.length === 0" class="border-2 border-dashed border-slate-700 bg-slate-800/50 rounded-[1.5rem] p-12 flex flex-col items-center justify-center text-slate-500 gap-4 mt-8">
-              <div class="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center border border-slate-700">
-                <i class="bi bi-cursor text-2xl text-slate-400"></i>
-              </div>
-              <p class="font-medium text-sm text-center leading-relaxed">คลิกเลือกข้อมูลจากฝั่งซ้าย<br>เพื่อนำมาจัดลำดับที่นี่</p>
-            </div>
-
-            <!-- 🚀 กล่อง DRAG & DROP (บังคับให้จับเฉพาะที่ Handle) -->
-            <draggable 
-              v-else
-              v-model="selectedColumns" 
-              item-key="id"
-              handle=".drag-handle" 
-              :animation="250"
-              class="space-y-3 max-h-[55vh] overflow-y-auto pr-2 custom-scrollbar"
-              ghost-class="opacity-50 ring-2 ring-emerald-500 ring-offset-2 ring-offset-slate-900 rounded-2xl"
-              drag-class="cursor-grabbing shadow-2xl scale-[1.02]"
-            >
-              <template #item="{ element, index }">
-                <!-- Item Card -->
-                <div class="group flex items-center justify-between bg-slate-800/80 backdrop-blur-sm border border-slate-700/80 hover:border-slate-500 p-3.5 rounded-2xl transition-colors">
-                  
-                  <div class="flex items-center gap-3 overflow-hidden w-full">
-                    <!-- จุดจับลาก (Drag Handle) -->
-                    <div class="drag-handle p-1.5 -ml-1.5 text-slate-500 hover:text-emerald-400 transition-colors">
-                      <i class="bi bi-grip-vertical text-lg"></i>
-                    </div>
-                    
-                    <!-- เนื้อหา -->
-                    <div class="flex items-center gap-3 truncate">
-                      <span class="text-[10px] font-black bg-slate-950 text-slate-400 w-7 h-7 flex items-center justify-center rounded-full shrink-0 shadow-inner border border-slate-800">
-                        {{ index + 1 }}
-                      </span>
-                      <span :class="[element.catColor, 'font-bold text-sm truncate tracking-wide']">{{ element.label }}</span>
-                    </div>
+                <div class="flex min-w-0 items-center gap-2.5">
+                  <!-- จุดจับลาก (Drag Handle) -->
+                  <div class="drag-handle -ms-1 shrink-0 cursor-grab p-1.5 text-stone-400 transition-colors hover:text-brand-700">
+                    <i class="bi bi-grip-vertical text-lg" aria-hidden="true"></i>
                   </div>
 
-                  <!-- ปุ่มลบ -->
-                  <button 
-                    @click.stop="toggleField(element, { color: element.catColor })" 
-                    class="w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all shrink-0 active:scale-90"
-                    title="ลบออก"
-                  >
-                    <i class="bi bi-x-lg text-[10px] font-black"></i>
-                  </button>
+                  <span class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-stone-100 text-[11px] font-bold text-stone-600">
+                    {{ index + 1 }}
+                  </span>
 
+                  <span :class="[element.catColor, 'truncate text-sm font-bold tracking-wide']">{{ element.label }}</span>
                 </div>
-              </template>
-            </draggable>
-          </div>
-        </div>
 
+                <!-- ปุ่มลบ -->
+                <button
+                  type="button"
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+                  title="ลบออก"
+                  aria-label="ลบออก"
+                  @click.stop="toggleField(element, { color: element.catColor })"
+                >
+                  <i class="bi bi-x-lg text-[10px] font-black" aria-hidden="true"></i>
+                </button>
+
+              </div>
+            </template>
+          </draggable>
+        </div>
       </div>
+
     </div>
   </div>
 </template>
-
-<style scoped>
-/* Scrollbar ฝั่งขวาสีมืด */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 10px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-/* บังคับเคอร์เซอร์ตอนชี้ที่จุดจับลาก */
-.drag-handle {
-  cursor: grab;
-}
-.drag-handle:active {
-  cursor: grabbing;
-}
-</style>

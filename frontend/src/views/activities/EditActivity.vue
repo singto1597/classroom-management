@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import type { Activity } from '@/types/activity'
 import ActivityForm from '@/components/activities/ActivityForm.vue'
+import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
 
 const route = useRoute()
@@ -23,7 +24,12 @@ onMounted(async () => {
     activity.value = await ActivityService.getActivity(currentRoomId, activityId)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ไม่พบกิจกรรม'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: msg,
+      confirmButtonColor: '#1d4ed8',
+    })
     router.push('/activities')
   } finally {
     isLoading.value = false
@@ -32,11 +38,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
-    <div v-if="isLoading" class="flex flex-col justify-center items-center py-20 gap-4">
-      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
-      <p class="text-slate-400 font-medium animate-pulse">กำลังโหลดกิจกรรม...</p>
-    </div>
+  <!-- Wrapper เท่านั้น — หัวหน้า/ฟอร์มอยู่ใน ActivityForm -->
+  <div class="space-y-4 sm:space-y-5">
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
     <ActivityForm
       v-else-if="activity"
       mode="edit"

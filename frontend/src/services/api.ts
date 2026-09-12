@@ -1,4 +1,5 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import type { PydanticValidationError } from '@/types/api';
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
@@ -27,7 +28,7 @@ let isRedirectingToLogin = false;
 
 api.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  (error: AxiosError<{ detail?: unknown }>) => {
     if (error.response) {
       if (error.response.status === 401) {
         // ✅ เคลียร์ Session ทั้งหมด (ไม่ใช่แค่ token) เพื่อป้องกัน redirect วนลูป
@@ -47,17 +48,18 @@ api.interceptors.response.use(
         }
       }
 
-      let detail = error.response.data?.detail || 'เกิดข้อผิดพลาดจาก API';
-      
+      const rawDetail: unknown = error.response.data?.detail;
+      let detail = rawDetail ? String(rawDetail) : 'เกิดข้อผิดพลาดจาก API';
+
       // ✨ ปลดล็อก Pydantic 422 Error ให้อ่านรู้เรื่อง!
       // ถ้า Backend ส่ง Array Error มา จะจับมาแกะชื่อฟิลด์บอกให้ชัดเจน
-      if (Array.isArray(detail)) {
-        detail = detail.map((err: any) => {
+      if (Array.isArray(rawDetail)) {
+        detail = (rawDetail as PydanticValidationError[]).map((err) => {
           const field = err.loc ? err.loc[err.loc.length - 1] : 'Unknown';
           return `ฟิลด์ '${field}': ${err.msg}`;
         }).join('\n');
       }
-      
+
       return Promise.reject(new Error(detail));
     }
     return Promise.reject(new Error('ไม่สามารถเชื่อมต่อกับ Backend ได้: ' + error.message));

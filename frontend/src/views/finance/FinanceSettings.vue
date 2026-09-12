@@ -5,6 +5,10 @@ import { FinanceService } from '@/services/finance';
 import type { Account, Category } from '@/types/finance';
 import Swal from 'sweetalert2';
 
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+
 const authStore = useAuthStore();
 
 // ดึงค่าจาก Store แทน Mock Data เดิม
@@ -16,8 +20,12 @@ const accounts = ref<Account[]>([]);
 const categories = ref<Category[]>([]);
 const isLoading = ref(true);
 
+// สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
+const hasError = ref(false);
+
 const fetchSettingsData = async () => {
   isLoading.value = true;
+  hasError.value = false;
   try {
     const [accRes, catRes] = await Promise.all([
       FinanceService.getAccounts(currentServerId),
@@ -25,8 +33,9 @@ const fetchSettingsData = async () => {
     ]);
     accounts.value = accRes;
     categories.value = catRes;
-  } catch (error: any) {
-    Swal.fire('เกิดข้อผิดพลาด', error.message || 'โหลดข้อมูลล้มเหลว', 'error');
+  } catch (error: unknown) {
+    hasError.value = true;
+    Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'โหลดข้อมูลล้มเหลว', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -49,6 +58,8 @@ const handleAddAccount = async () => {
     showCancelButton: true,
     confirmButtonText: 'บันทึกข้อมูล',
     cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#1d4ed8',
+    cancelButtonColor: '#78716c',
     preConfirm: () => {
       const name = (document.getElementById('swal-input1') as HTMLInputElement).value;
       const balance = (document.getElementById('swal-input2') as HTMLInputElement).value;
@@ -65,8 +76,8 @@ const handleAddAccount = async () => {
       await FinanceService.createAccount(currentServerId, { ...formValues, user_name: currentUserName });
       Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
-    } catch (error: any) {
-      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
+    } catch (error: unknown) {
+      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'เพิ่มกระเป๋าเงินไม่สำเร็จ', 'error');
     }
   }
 };
@@ -81,6 +92,8 @@ const handleEditAccount = async (account: Account) => {
     showCancelButton: true,
     confirmButtonText: 'บันทึก',
     cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#1d4ed8',
+    cancelButtonColor: '#78716c',
     inputValidator: (value) => {
       if (!value) return 'กรุณากรอกชื่อกระเป๋าเงิน';
       return null;
@@ -92,8 +105,8 @@ const handleEditAccount = async (account: Account) => {
       await FinanceService.updateAccount(currentServerId, account.id, name, currentUserName);
       Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
-    } catch (error: any) {
-      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
+    } catch (error: unknown) {
+      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'แก้ไขกระเป๋าเงินไม่สำเร็จ', 'error');
     }
   }
 };
@@ -106,7 +119,8 @@ const handleDeleteAccount = async (id: number) => {
     text: 'หากลบแล้วข้อมูลประวัติที่เกี่ยวข้องอาจได้รับผลกระทบ',
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#ef4444',
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#78716c',
     confirmButtonText: 'ลบทันที',
     cancelButtonText: 'ยกเลิก'
   });
@@ -116,8 +130,8 @@ const handleDeleteAccount = async (id: number) => {
       await FinanceService.deleteAccount(currentServerId, id);
       Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
-    } catch (error: any) {
-      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
+    } catch (error: unknown) {
+      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'ลบกระเป๋าเงินไม่สำเร็จ', 'error');
     }
   }
 };
@@ -139,6 +153,8 @@ const handleAddCategory = async () => {
     showCancelButton: true,
     confirmButtonText: 'เพิ่มหมวดหมู่',
     cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#1d4ed8',
+    cancelButtonColor: '#78716c',
     preConfirm: () => {
       const type = (document.getElementById('swal-type') as HTMLSelectElement).value as 'income' | 'expense';
       const name = (document.getElementById('swal-name') as HTMLInputElement).value;
@@ -155,8 +171,8 @@ const handleAddCategory = async () => {
       await FinanceService.createCategory(currentServerId, { ...formValues, user_name: currentUserName });
       Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
-    } catch (error: any) {
-      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
+    } catch (error: unknown) {
+      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'เพิ่มหมวดหมู่ไม่สำเร็จ', 'error');
     }
   }
 };
@@ -171,6 +187,8 @@ const handleEditCategory = async (category: Category) => {
     showCancelButton: true,
     confirmButtonText: 'บันทึก',
     cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#1d4ed8',
+    cancelButtonColor: '#78716c',
     inputValidator: (value) => {
       if (!value) return 'กรุณากรอกชื่อหมวดหมู่';
       return null;
@@ -182,8 +200,8 @@ const handleEditCategory = async (category: Category) => {
       await FinanceService.updateCategory(currentServerId, category.id, name, currentUserName);
       Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
-    } catch (error: any) {
-      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
+    } catch (error: unknown) {
+      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'แก้ไขหมวดหมู่ไม่สำเร็จ', 'error');
     }
   }
 };
@@ -196,7 +214,8 @@ const handleDeleteCategory = async (id: number) => {
     text: 'การลบหมวดหมู่อาจส่งผลต่อการจัดกลุ่มรายงาน',
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#ef4444',
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#78716c',
     confirmButtonText: 'ลบทันที',
     cancelButtonText: 'ยกเลิก'
   });
@@ -206,8 +225,8 @@ const handleDeleteCategory = async (id: number) => {
       await FinanceService.deleteCategory(currentServerId, id);
       Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
-    } catch (error: any) {
-      Swal.fire('เกิดข้อผิดพลาด', error.message, 'error');
+    } catch (error: unknown) {
+      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'ลบหมวดหมู่ไม่สำเร็จ', 'error');
     }
   }
 };
@@ -222,62 +241,81 @@ const formatNumber = (num: number) => {
 </script>
 
 <template>
-  <div class="p-4 md:p-8 max-w-6xl mx-auto">
-    <div class="mb-6 flex items-center gap-3">
-      <RouterLink
-        to="/finance"
-        class="w-10 h-10 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition shadow-sm group flex items-center justify-center shrink-0"
-        title="กลับหน้าภาพรวม"
-      >
-        <i class="bi bi-arrow-left text-lg"></i>
-      </RouterLink>
-      <div class="min-w-0">
-        <h1 class="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
-          ⚙️ ตั้งค่าระบบการเงิน
-        </h1>
-        <p class="text-gray-500 mt-0.5 text-sm truncate">จัดการกระเป๋าเงินห้องและหมวดหมู่สำหรับบันทึกรายรับ/รายจ่าย</p>
-      </div>
-    </div>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Finance Settings"
+      title="ตั้งค่าระบบการเงิน"
+      description="จัดการกระเป๋าเงินห้องและหมวดหมู่สำหรับบันทึกรายรับ/รายจ่าย"
+    >
+      <template #actions>
+        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
+          <i class="bi bi-arrow-left" aria-hidden="true"></i>
+          กลับหน้าภาพรวม
+        </RouterLink>
+      </template>
+    </PageHeader>
 
-    <div v-if="isLoading" class="flex flex-col items-center justify-center py-20">
-      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-    </div>
+    <!-- สถานะโหลด / ผิดพลาด -->
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
+    <StateBlock v-else-if="hasError" variant="error" @retry="fetchSettingsData" />
 
-    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden h-fit">
-        <div class="p-6 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-          <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
-            <i class="bi bi-wallet2 text-blue-500"></i> กระเป๋าเงินห้อง
-          </h3>
-          <button 
-            v-if="isAdmin"
-            @click="handleAddAccount"
-            class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl shadow-sm transition flex items-center gap-2 text-sm"
-          >
-            <i class="bi bi-plus-circle"></i> เพิ่มบัญชี
+    <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <!-- กระเป๋าเงินห้อง -->
+      <div class="page-card h-fit overflow-hidden">
+        <div
+          class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5"
+        >
+          <h2 class="section-title flex min-w-0 items-center gap-2">
+            <i class="bi bi-wallet2 text-brand-700" aria-hidden="true"></i>
+            <span class="truncate">กระเป๋าเงินห้อง</span>
+          </h2>
+          <button v-if="isAdmin" class="btn-primary shrink-0" @click="handleAddAccount">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+            เพิ่มบัญชี
           </button>
         </div>
-        
-        <div class="p-6">
-          <div v-if="accounts.length === 0" class="text-center py-10 text-gray-400">
-            ยังไม่มีกระเป๋าเงิน
-          </div>
-          <div v-else class="space-y-3">
-            <div 
-              v-for="acc in accounts" 
-              :key="acc.id" 
-              class="flex justify-between items-center p-4 rounded-2xl border border-gray-50 bg-white hover:border-blue-100 hover:shadow-md transition-all group"
+
+        <div class="p-4 sm:p-5">
+          <StateBlock
+            v-if="accounts.length === 0"
+            variant="empty"
+            title="ยังไม่มีกระเป๋าเงิน"
+            hint="เพิ่มกระเป๋าเงินใบแรกเพื่อเริ่มบันทึกรายรับ/รายจ่าย"
+          />
+
+          <div v-else class="space-y-2.5">
+            <div
+              v-for="acc in accounts"
+              :key="acc.id"
+              class="group flex items-center justify-between gap-3 rounded-xl border border-stone-200 p-3 transition-colors hover:border-stone-300"
             >
-              <div>
-                <h4 class="font-bold text-gray-800">{{ acc.account_name }}</h4>
-                <p class="text-gray-500 text-sm">คงเหลือ: <span class="text-blue-600 font-bold">฿ {{ formatNumber(acc.balance) }}</span></p>
+              <div class="min-w-0">
+                <p class="truncate font-bold text-stone-900">{{ acc.account_name }}</p>
+                <p class="mt-0.5 text-sm text-stone-500">
+                  คงเหลือ
+                  <span class="num font-bold text-brand-700">฿ {{ formatNumber(acc.balance) }}</span>
+                </p>
               </div>
-              <div v-if="isAdmin" class="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                <button @click="handleEditAccount(acc)" class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="แก้ไข">
-                  <i class="bi bi-pencil-square"></i>
+
+              <div
+                v-if="isAdmin"
+                class="flex shrink-0 items-center gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100"
+              >
+                <button
+                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                  title="แก้ไข"
+                  aria-label="แก้ไขกระเป๋าเงิน"
+                  @click="handleEditAccount(acc)"
+                >
+                  <i class="bi bi-pencil-square" aria-hidden="true"></i>
                 </button>
-                <button @click="handleDeleteAccount(acc.id)" class="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition" title="ลบ">
-                  <i class="bi bi-trash"></i>
+                <button
+                  class="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                  title="ลบ"
+                  aria-label="ลบกระเป๋าเงิน"
+                  @click="handleDeleteAccount(acc.id)"
+                >
+                  <i class="bi bi-trash" aria-hidden="true"></i>
                 </button>
               </div>
             </div>
@@ -285,66 +323,103 @@ const formatNumber = (num: number) => {
         </div>
       </div>
 
-      <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-          <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
-            <i class="bi bi-tags text-emerald-500"></i> หมวดหมู่รายการ
-          </h3>
-          <button 
-            v-if="isAdmin"
-            @click="handleAddCategory"
-            class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-xl shadow-sm transition flex items-center gap-2 text-sm"
-          >
-            <i class="bi bi-plus-circle"></i> เพิ่มหมวดหมู่
+      <!-- หมวดหมู่รายการ -->
+      <div class="page-card h-fit overflow-hidden">
+        <div
+          class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5"
+        >
+          <h2 class="section-title flex min-w-0 items-center gap-2">
+            <i class="bi bi-tags text-brand-700" aria-hidden="true"></i>
+            <span class="truncate">หมวดหมู่รายการ</span>
+          </h2>
+          <button v-if="isAdmin" class="btn-ghost-ui shrink-0" @click="handleAddCategory">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+            เพิ่มหมวดหมู่
           </button>
         </div>
 
-        <div class="p-5 md:p-6">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <h5 class="font-bold text-emerald-600 mb-3 flex items-center gap-2 border-b border-emerald-50 pb-2">
-                🟢 รายรับ
-              </h5>
-              <div v-if="incomeCategories.length === 0" class="text-center py-4 text-gray-300 text-xs italic">ไม่มีข้อมูล</div>
-              <div class="flex flex-wrap gap-2">
-                <div
-                  v-for="cat in incomeCategories"
-                  :key="cat.id"
-                  class="bg-emerald-50 text-emerald-700 border border-emerald-100 py-2 px-3 rounded-full text-sm font-semibold flex items-center gap-1.5 group hover:bg-emerald-600 hover:text-white transition-all max-w-full"
-                >
-                  <span class="truncate">{{ cat.category_name }}</span>
-                  <div v-if="isAdmin" class="flex gap-1 shrink-0">
-                    <button @click.stop="handleEditCategory(cat)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-emerald-100/70 hover:text-white transition-all" title="แก้ไข">
-                      <i class="bi bi-pencil text-xs"></i>
-                    </button>
-                    <button @click.stop="handleDeleteCategory(cat.id)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-rose-400/70 hover:text-white transition-all" title="ลบ">
-                      <i class="bi bi-x-lg text-xs"></i>
-                    </button>
-                  </div>
+        <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
+          <!-- รายรับ -->
+          <div class="min-w-0">
+            <div class="mb-3 flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
+              <span class="chip bg-emerald-50 text-emerald-700">
+                <i class="bi bi-arrow-down-left" aria-hidden="true"></i>
+                รายรับ
+              </span>
+              <span class="num text-xs font-bold text-stone-400">{{ incomeCategories.length }}</span>
+            </div>
+
+            <p v-if="incomeCategories.length === 0" class="py-3 text-center text-xs text-stone-400">
+              ยังไม่มีหมวดหมู่รายรับ
+            </p>
+
+            <div v-else class="space-y-2">
+              <div
+                v-for="cat in incomeCategories"
+                :key="cat.id"
+                class="group flex items-center justify-between gap-2 rounded-xl border border-stone-200 px-3 py-1.5"
+              >
+                <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
+                <div v-if="isAdmin" class="flex shrink-0 items-center gap-0.5">
+                  <button
+                    class="flex h-10 w-10 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    title="แก้ไข"
+                    aria-label="แก้ไขหมวดหมู่"
+                    @click.stop="handleEditCategory(cat)"
+                  >
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                  </button>
+                  <button
+                    class="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                    title="ลบ"
+                    aria-label="ลบหมวดหมู่"
+                    @click.stop="handleDeleteCategory(cat.id)"
+                  >
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                  </button>
                 </div>
               </div>
             </div>
+          </div>
 
-            <div>
-              <h5 class="font-bold text-rose-600 mb-3 flex items-center gap-2 border-b border-rose-50 pb-2">
-                🔴 รายจ่าย
-              </h5>
-              <div v-if="expenseCategories.length === 0" class="text-center py-4 text-gray-300 text-xs italic">ไม่มีข้อมูล</div>
-              <div class="flex flex-wrap gap-2">
-                <div
-                  v-for="cat in expenseCategories"
-                  :key="cat.id"
-                  class="bg-rose-50 text-rose-700 border border-rose-100 py-2 px-3 rounded-full text-sm font-semibold flex items-center gap-1.5 group hover:bg-rose-600 hover:text-white transition-all max-w-full"
-                >
-                  <span class="truncate">{{ cat.category_name }}</span>
-                  <div v-if="isAdmin" class="flex gap-1 shrink-0">
-                    <button @click.stop="handleEditCategory(cat)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-rose-100/70 hover:text-white transition-all" title="แก้ไข">
-                      <i class="bi bi-pencil text-xs"></i>
-                    </button>
-                    <button @click.stop="handleDeleteCategory(cat.id)" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-rose-400/70 hover:text-white transition-all" title="ลบ">
-                      <i class="bi bi-x-lg text-xs"></i>
-                    </button>
-                  </div>
+          <!-- รายจ่าย -->
+          <div class="min-w-0">
+            <div class="mb-3 flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
+              <span class="chip bg-red-50 text-red-700">
+                <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                รายจ่าย
+              </span>
+              <span class="num text-xs font-bold text-stone-400">{{ expenseCategories.length }}</span>
+            </div>
+
+            <p v-if="expenseCategories.length === 0" class="py-3 text-center text-xs text-stone-400">
+              ยังไม่มีหมวดหมู่รายจ่าย
+            </p>
+
+            <div v-else class="space-y-2">
+              <div
+                v-for="cat in expenseCategories"
+                :key="cat.id"
+                class="group flex items-center justify-between gap-2 rounded-xl border border-stone-200 px-3 py-1.5"
+              >
+                <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
+                <div v-if="isAdmin" class="flex shrink-0 items-center gap-0.5">
+                  <button
+                    class="flex h-10 w-10 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    title="แก้ไข"
+                    aria-label="แก้ไขหมวดหมู่"
+                    @click.stop="handleEditCategory(cat)"
+                  >
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                  </button>
+                  <button
+                    class="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                    title="ลบ"
+                    aria-label="ลบหมวดหมู่"
+                    @click.stop="handleDeleteCategory(cat.id)"
+                  >
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                  </button>
                 </div>
               </div>
             </div>
@@ -354,10 +429,3 @@ const formatNumber = (num: number) => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.swal2-input, .swal2-select {
-  border-radius: 1rem !important;
-  font-family: 'Noto Sans Thai', sans-serif !important;
-}
-</style>

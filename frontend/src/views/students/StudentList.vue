@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router'; 
+import { useRouter } from 'vue-router';
+import { isAxiosError } from 'axios';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
+import type { Student, PendingStudentRequest } from '@/types/student';
 import { displayName } from '@/utils/name';
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import Swal from 'sweetalert2';
 
 const router = useRouter();
@@ -18,11 +23,14 @@ const canExportStudents = computed(() => isGodAdmin.value || authStore.currentPe
 
 // --- States ---
 const currentTab = ref<'active' | 'pending'>('active');
-const students = ref<any[]>([]); 
-const pendingStudents = ref<any[]>([]);
+const students = ref<Student[]>([]);
+const pendingStudents = ref<PendingStudentRequest[]>([]);
 const isLoading = ref(true);
 const searchQuery = ref('');
 const showInactive = ref(false);
+
+// ให้ StateBlock มีสถานะผิดพลาดของตัวเอง (เดิมพึ่ง Swal อย่างเดียว)
+const hasError = ref(false);
 
 // --- Dropdown Menu State (จุด 3 จุด) ---
 const openDropdown = ref<number | null>(null);
@@ -36,8 +44,17 @@ const closeDropdown = () => {
   openDropdown.value = null;
 };
 
+// ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
+// ที่อ่าน detail จาก response ของ axios ไว้
+const apiErrorDetail = (error: unknown): string | undefined => {
+  if (!isAxiosError<{ detail?: unknown }>(error)) return undefined;
+  const detail = error.response?.data?.detail;
+  return typeof detail === 'string' ? detail : undefined;
+};
+
 const fetchData = async () => {
   isLoading.value = true;
+  hasError.value = false;
   try {
     const [activeRes, pendingRes] = await Promise.allSettled([
       StudentService.getStudents(currentRoomId),
@@ -50,8 +67,9 @@ const fetchData = async () => {
     if (pendingRes.status === 'fulfilled' && canManageStudents.value) {
       pendingStudents.value = Array.isArray(pendingRes.value) ? pendingRes.value : [];
     }
-  } catch (error: any) {
-    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: error.response?.data?.detail || 'ไม่สามารถโหลดข้อมูลได้' });
+  } catch (error: unknown) {
+    hasError.value = true;
+    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลได้' });
   } finally {
     isLoading.value = false;
   }
@@ -65,7 +83,7 @@ const switchTab = (tab: 'active' | 'pending') => {
 
 onMounted(() => {
   fetchData();
-  document.addEventListener('click', closeDropdown); 
+  document.addEventListener('click', closeDropdown);
 });
 
 onUnmounted(() => {
@@ -107,13 +125,13 @@ const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเ�
 
 const filteredStudents = computed(() => {
   if (!students.value || students.value.length === 0) return [];
-  
+
   return students.value.filter((student) => {
     if (!showInactive.value && student.status === 'inactive') return false;
-    
+
     const query = searchQuery.value.toLowerCase().trim();
     if (!query) return true;
-    
+
     const fullName = `${student.first_name || ''} ${student.last_name || ''} ${student.first_name_en || ''} ${student.last_name_en || ''}`.toLowerCase();
     const studentNo = student.student_no?.toString() || '';
     const studentId = student.student_id?.toString().toLowerCase() || '';
@@ -123,7 +141,7 @@ const filteredStudents = computed(() => {
   });
 });
 
-const confirmDelete = async (student: any) => {
+const confirmDelete = async (student: Student) => {
   closeDropdown();
   if (!canManageStudents.value) return;
 
@@ -132,8 +150,8 @@ const confirmDelete = async (student: any) => {
     text: `ลบ ${displayName(student)} (เลขที่ ${student.student_no}) ใช่หรือไม่?`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#ef4444',
-    cancelButtonColor: '#64748b',
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#78716c',
     confirmButtonText: 'ลบข้อมูล',
     cancelButtonText: 'ยกเลิก'
   });
@@ -143,8 +161,8 @@ const confirmDelete = async (student: any) => {
       await StudentService.deleteStudent(currentRoomId, student.student_no, currentUserName);
       Swal.fire({ title: 'ลบสำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false });
       fetchData();
-    } catch (error: any) {
-      Swal.fire('ลบไม่สำเร็จ', error.response?.data?.detail, 'error');
+    } catch (error: unknown) {
+      Swal.fire('ลบไม่สำเร็จ', apiErrorDetail(error), 'error');
     }
   }
 };
@@ -152,10 +170,10 @@ const confirmDelete = async (student: any) => {
 const approveJoin = async (studentNo: number) => {
   try {
     await StudentService.approveStudent(currentRoomId, studentNo);
-    await fetchData(); 
+    await fetchData();
     Swal.fire({ title: 'อนุมัติสำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false });
-  } catch (error: any) {
-    Swal.fire('ข้อผิดพลาด', error.response?.data?.detail, 'error');
+  } catch (error: unknown) {
+    Swal.fire('ข้อผิดพลาด', apiErrorDetail(error), 'error');
   }
 };
 
@@ -165,7 +183,8 @@ const rejectJoin = async (studentNo: number) => {
     text: 'คำขอนี้จะถูกลบออกจากระบบ',
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#ef4444',
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#78716c',
     confirmButtonText: 'ปฏิเสธ',
     cancelButtonText: 'ยกเลิก'
   });
@@ -173,237 +192,442 @@ const rejectJoin = async (studentNo: number) => {
     try {
       await StudentService.rejectStudent(currentRoomId, studentNo);
       await fetchData();
-    } catch (error: any) {
-      Swal.fire('ข้อผิดพลาด', error.response?.data?.detail, 'error');
+    } catch (error: unknown) {
+      Swal.fire('ข้อผิดพลาด', apiErrorDetail(error), 'error');
     }
   }
 };
 </script>
 
 <template>
-  <div class="p-4 sm:p-6 md:p-8 max-w-5xl mx-auto min-h-screen">
-    
-    <!-- HEADER -->
-    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-      <h1 class="text-2xl md:text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-        <div class="w-10 h-10 bg-slate-100 text-slate-700 rounded-xl flex items-center justify-center">
-          <i class="bi bi-people-fill"></i>
-        </div>
-        จัดการนักเรียน
-      </h1>
-      
-      <div class="flex gap-2 w-full sm:w-auto">
-        <RouterLink v-if="canExportStudents" to="/students/export" class="flex-[1] sm:flex-none bg-white hover:bg-emerald-50 text-emerald-600 font-bold px-4 py-2.5 rounded-xl transition-all flex items-center justify-center border border-slate-200 shadow-sm active:scale-95 group">
-          <i class="bi bi-file-earmark-excel-fill text-lg group-hover:scale-110 transition-transform"></i>
-        </RouterLink>
-        <RouterLink v-if="canManageStudents" to="/students/add" class="flex-[4] sm:flex-none bg-slate-900 hover:bg-slate-800 text-white font-bold px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center active:scale-95 gap-2">
-          <i class="bi bi-person-plus-fill"></i> เพิ่มนักเรียน
-        </RouterLink>
-      </div>
-    </div>
+  <div class="space-y-4 sm:space-y-5">
 
-    <!-- TABS -->
-    <div v-if="canManageStudents" class="flex gap-2 mb-6 bg-slate-100/70 p-1.5 rounded-xl w-fit">
-      <button 
-        @click="switchTab('active')" 
-        class="py-2 px-4 font-bold text-sm transition-all rounded-lg flex items-center gap-2"
-        :class="currentTab === 'active' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'"
+    <PageHeader
+      eyebrow="Academic Records"
+      title="จัดการนักเรียน"
+      description="รายชื่อนักเรียนทั้งหมดในห้องนี้ พร้อมคำขอเข้าร่วมที่รออนุมัติ"
+    >
+      <template #actions>
+        <RouterLink
+          v-if="canExportStudents"
+          to="/students/export"
+          class="btn-ghost-ui"
+          aria-label="ส่งออกข้อมูลนักเรียนเป็น Excel"
+        >
+          <i class="bi bi-file-earmark-excel-fill text-base" aria-hidden="true"></i>
+          <span class="hidden sm:inline">ส่งออก</span>
+        </RouterLink>
+        <RouterLink v-if="canManageStudents" to="/students/add" class="btn-primary">
+          <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
+        </RouterLink>
+      </template>
+    </PageHeader>
+
+    <!-- แท็บ: นักเรียนปัจจุบัน / รออนุมัติ -->
+    <div v-if="canManageStudents" class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-stone-50 p-1">
+      <button
+        type="button"
+        class="flex shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+        :class="currentTab === 'active'
+          ? 'border-stone-200 bg-white text-brand-700'
+          : 'border-transparent text-stone-500 hover:text-stone-800'"
+        @click="switchTab('active')"
       >
         นักเรียนปัจจุบัน
       </button>
-      <button 
-        @click="switchTab('pending')" 
-        class="py-2 px-4 font-bold text-sm transition-all rounded-lg flex items-center gap-2"
-        :class="currentTab === 'pending' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'"
+      <button
+        type="button"
+        class="flex shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+        :class="currentTab === 'pending'
+          ? 'border-stone-200 bg-white text-brand-700'
+          : 'border-transparent text-stone-500 hover:text-stone-800'"
+        @click="switchTab('pending')"
       >
-        รออนุมัติ 
-        <span v-if="pendingStudents.length > 0" class="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black">
+        รออนุมัติ
+        <span v-if="pendingStudents.length > 0" class="chip num bg-amber-100 text-amber-700">
           {{ pendingStudents.length }}
         </span>
       </button>
     </div>
 
-    <!-- SEARCH & FILTER -->
-    <div v-if="currentTab === 'active'" class="bg-white p-3 md:p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-col md:flex-row gap-4 md:items-center justify-between">
-      <div class="relative w-full md:flex-1 max-w-md">
-        <span class="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400">
-          <i class="bi bi-search"></i>
-        </span>
-        <input v-model="searchQuery" type="text" placeholder="ค้นหาชื่อ, เลขที่, หรือชื่อเล่น..." class="w-full pl-11 pr-4 py-2.5 text-sm font-medium border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-200 focus:border-slate-400 outline-none transition-all bg-slate-50 focus:bg-white" />
+    <!-- ค้นหา + ตัวกรอง -->
+    <div
+      v-if="currentTab === 'active'"
+      class="page-card flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4"
+    >
+      <div class="relative min-w-0 flex-1">
+        <i
+          class="bi bi-search pointer-events-none absolute inset-y-0 start-0 flex w-10 items-center justify-center text-stone-400"
+          aria-hidden="true"
+        ></i>
+        <input
+          v-model="searchQuery"
+          type="text"
+          class="field ps-10"
+          placeholder="ค้นหาชื่อ, เลขที่, หรือชื่อเล่น..."
+          aria-label="ค้นหานักเรียน"
+        />
       </div>
-      <div class="flex items-center gap-2 select-none border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
-        <label class="relative inline-flex items-center cursor-pointer">
-          <input type="checkbox" v-model="showInactive" class="sr-only peer">
-          <div class="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-700"></div>
-          <span class="ms-2.5 text-sm font-bold text-slate-600">แสดง Inactive</span>
+
+      <div class="flex shrink-0 items-center border-t border-stone-100 pt-3 sm:border-t-0 sm:pt-0">
+        <label class="flex cursor-pointer select-none items-center">
+          <input v-model="showInactive" type="checkbox" class="peer sr-only" />
+          <span
+            class="relative h-5 w-10 shrink-0 rounded-full bg-stone-200 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-700 peer-checked:after:translate-x-full"
+            aria-hidden="true"
+          ></span>
+          <span class="ms-2.5 text-sm font-bold text-stone-600">แสดง Inactive</span>
         </label>
       </div>
     </div>
 
-    <!-- LOADER -->
-    <div v-if="isLoading" class="flex justify-center py-20">
-      <div class="animate-spin rounded-full h-10 w-10 border-4 border-slate-100 border-t-slate-700"></div>
-    </div>
+    <!-- โหลด -->
+    <SkeletonRows v-if="isLoading" :rows="6" height="h-16" />
 
-    <!-- ====================== TAB: ACTIVE (LIST CARDS) ====================== -->
-    <div v-else-if="currentTab === 'active'">
-      <div v-if="filteredStudents.length === 0" class="bg-white rounded-2xl py-16 text-center text-slate-400 font-medium border border-slate-100">
-        ไม่พบข้อมูลนักเรียน
-      </div>
+    <!-- ผิดพลาด -->
+    <StateBlock v-else-if="hasError" variant="error" @retry="fetchData" />
 
-      <!-- 📋 List Cards (เรียงยาวลงมาเหมือนตาราง แต่เป็น Card) -->
-      <div class="flex flex-col gap-3 sm:gap-4">
-        <div
-          v-for="student in filteredStudents"
-          :key="student.id"
-          @click="goToStudent(student.student_no)"
-          class="group relative bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-100 hover:shadow-md hover:border-slate-200 cursor-pointer transition-all duration-300 flex items-center justify-between"
-          :class="{ 'opacity-60 grayscale-[0.4]': student.status === 'inactive' }"
-        >
-          
-          <!-- ส่วนซ้าย: ข้อมูลนักเรียน -->
-          <div class="flex items-center gap-4 sm:gap-5 flex-1 min-w-0">
-            <!-- เลขที่ -->
-            <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-slate-50 text-slate-600 flex items-center justify-center font-black text-lg sm:text-xl group-hover:bg-slate-100 transition-colors shrink-0 border border-slate-100">
-              {{ student.student_no }}
-            </div>
-            
-            <!-- ชื่อและรายละเอียด -->
-            <div class="flex-1 min-w-0 flex flex-col justify-center">
-              <div class="flex items-center gap-2 mb-1">
-                <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] truncate group-hover:text-blue-600 transition-colors">
-                  {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
-                </h3>
-                <i v-if="student.is_admin" class="bi bi-shield-lock-fill text-amber-500 text-sm shrink-0" title="System Admin"></i>
-                <!-- 🛡️ Consent Model: สมาชิกที่ยังไม่ได้ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->
-                <span v-if="student.identity_claimed === false" class="px-1.5 py-0.5 bg-slate-100 text-slate-400 border border-slate-200 text-[9px] font-black rounded-md tracking-wide shrink-0" title="ยังไม่ได้ยืนยันตัวตน — ข้อมูลส่วนตัวถูกปิดบัง">
-                  🔒 ยังไม่ยืนยันตัวตน
-                </span>
-              </div>
-              
-              <div class="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs sm:text-sm text-slate-500">
-                <!-- ป้ายสถานะแบบเนียนๆ -->
-                <div class="flex items-center gap-1.5 font-medium">
-                  <span class="w-2 h-2 rounded-full" :class="{
-                    'bg-emerald-400': student.status === 'active',
-                    'bg-amber-400': student.status === 'pending',
-                    'bg-slate-300': student.status === 'inactive'
-                  }"></span>
-                  <span>{{ student.status === 'active' ? 'Active' : student.status === 'pending' ? 'รออนุมัติ' : 'Inactive' }}</span>
-                </div>
-                
-                <span class="text-slate-300 hidden sm:inline">•</span>
-                
-                <!-- ชื่อเล่น -->
-                <div v-if="student.nickname || student.nickname_en" class="flex items-center">
-                  <span class="sm:hidden mr-1">,</span>{{ student.nickname || student.nickname_en }}
-                </div>
-                
-                <span class="text-slate-300 hidden sm:inline" v-if="student.nickname">•</span>
-                <span class="text-slate-300 sm:hidden" v-else-if="student.class_role && student.class_role !== 'student'">,</span>
+    <!-- ====================== TAB: ACTIVE ====================== -->
+    <template v-else-if="currentTab === 'active'">
+      <StateBlock
+        v-if="filteredStudents.length === 0"
+        variant="empty"
+        title="ไม่พบข้อมูลนักเรียน"
+        :hint="searchQuery ? 'ลองปรับคำค้นหา หรือเปิดตัวกรอง Inactive ดูอีกครั้ง' : 'เพิ่มนักเรียนคนแรกเพื่อเริ่มต้นทะเบียนห้องนี้'"
+      />
 
-                <!-- บทบาท -->
-                <span v-if="student.class_role && student.class_role !== 'student'" class="font-bold text-indigo-600">
-                  {{ roleLabel(student.class_role) }}
-                </span>
-                <span v-else class="text-slate-400">นักเรียน</span>
-              </div>
-            </div>
-          </div>
+      <template v-else>
+        <!-- 🖥️ Desktop: ตารางเต็ม (ไม่ครอบ overflow เพื่อให้เมนูจัดการล้นออกได้) -->
+        <div class="page-card hidden lg:block">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="w-16 rounded-ss-2xl">เลขที่</th>
+                <th>ชื่อ-นามสกุล</th>
+                <th class="hidden xl:table-cell">ชื่อเล่น</th>
+                <th>บทบาท</th>
+                <th>สถานะ</th>
+                <th class="w-20 rounded-se-2xl text-right">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="student in filteredStudents"
+                :key="student.id"
+                class="cursor-pointer"
+                :class="{ 'opacity-60': student.status === 'inactive' }"
+                @click="goToStudent(student.student_no)"
+              >
+                <td class="num font-bold text-stone-900">{{ student.student_no }}</td>
 
-          <!-- ส่วนขวา: จุด 3 จุด Dropdown -->
-          <div class="relative ml-3 shrink-0" v-if="canManageStudents">
-            <button 
-              @click.stop="toggleDropdown(student.student_no, $event)" 
-              class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-            >
-              <i class="bi bi-three-dots-vertical text-lg"></i>
-            </button>
+                <td>
+                  <div class="flex min-w-0 items-center gap-2">
+                    <span class="truncate font-bold text-stone-900">
+                      {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
+                    </span>
+                    <i
+                      v-if="student.is_admin"
+                      class="bi bi-shield-lock-fill shrink-0 text-amber-500"
+                      title="System Admin"
+                      aria-hidden="true"
+                    ></i>
+                    <!-- 🛡️ Consent Model: สมาชิกที่ยังไม่ได้ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->
+                    <span
+                      v-if="student.identity_claimed === false"
+                      class="chip shrink-0 bg-stone-100 text-stone-500"
+                      title="ยังไม่ได้ยืนยันตัวตน — ข้อมูลส่วนตัวถูกปิดบัง"
+                    >
+                      <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
+                    </span>
+                  </div>
+                </td>
 
-            <!-- Dropdown Menu -->
-            <transition name="fade">
-              <div v-if="openDropdown === student.student_no" class="absolute right-0 top-12 w-36 bg-white rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border border-slate-100 overflow-hidden z-20 py-1 origin-top-right">
-                <button @click.stop="editStudent(student.student_no)" class="w-full text-left px-4 py-2.5 text-sm text-slate-700 font-medium hover:bg-slate-50 flex items-center gap-2.5 transition-colors">
-                  <i class="bi bi-pencil-square text-slate-400"></i> แก้ไข
-                </button>
-                <div class="h-px bg-slate-100 my-1 mx-2"></div>
-                <button @click.stop="confirmDelete(student)" class="w-full text-left px-4 py-2.5 text-sm text-rose-600 font-medium hover:bg-rose-50 flex items-center gap-2.5 transition-colors">
-                  <i class="bi bi-trash text-rose-400"></i> ลบข้อมูล
-                </button>
-              </div>
-            </transition>
-          </div>
-        </div>
-      </div>
-    </div>
+                <td class="text-stone-500">
+                  <span class="block truncate">{{ student.nickname || student.nickname_en || '-' }}</span>
+                </td>
 
-    <!-- ====================== TAB: PENDING (LIST CARDS) ====================== -->
-    <div v-else-if="currentTab === 'pending'">
-      <div v-if="pendingStudents.length === 0" class="bg-white rounded-2xl py-16 text-center border border-dashed border-slate-300 text-slate-400 font-medium">
-        ไม่มีคำขอที่รออนุมัติ
-      </div>
-
-      <div class="flex flex-col gap-3 sm:gap-4">
-        <div v-for="req in pendingStudents" :key="req.student_no" class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-l-4 border-amber-100 border-l-amber-400 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-
-          <!-- ซ้าย: ข้อมูล -->
-          <div class="flex items-center gap-4 min-w-0">
-            <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-black text-lg border border-amber-100 shrink-0">
-              {{ req.student_no }}
-            </div>
-
-            <div class="flex-1 min-w-0">
-              <!-- 🛡️ claim_request: มีคนขออ้างสิทธิ์ ghost → แอดมินเห็นชื่อเดิม vs ชื่อผู้ขอ แล้วตัดสิน -->
-              <template v-if="req.request_type === 'claim_request'">
-                <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
-                  {{ displayName(req) }} <span class="text-amber-600 font-bold">อ้างสิทธิ์เลขที่นี้</span>
-                </h3>
-                <p class="text-xs sm:text-sm text-slate-500 mt-0.5">
-                  ชื่อในระบบเดิม: <span class="font-bold text-slate-700">{{ req.ghost_first_name || '-' }} {{ req.ghost_last_name || '-' }}</span>
-                  <span v-if="req.name_match !== undefined" class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-black" :class="req.name_match ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'">
-                    {{ req.name_match ? 'ชื่อตรงกัน' : 'ชื่อไม่ตรง' }}
+                <td>
+                  <span
+                    class="chip"
+                    :class="student.class_role && student.class_role !== 'student'
+                      ? 'bg-brand-50 text-brand-700'
+                      : 'bg-stone-100 text-stone-600'"
+                  >
+                    {{ roleLabel(student.class_role) }}
                   </span>
-                </p>
-                <p class="text-xs text-slate-400 mt-0.5"><i class="bi bi-person-check me-1"></i>ผู้ขอ: {{ displayName(req) }} — ตรวจสอบว่าเป็นคนเดียวกันก่อนอนุมัติ</p>
-              </template>
+                </td>
 
-              <!-- 🛡️ invite_pending: แอดมินแอดชื่อให้ (บัญชีจริง) → รอเจ้าตัวกดรับ แอดมินอนุมัติแทนไม่ได้ -->
-              <template v-else-if="req.request_type === 'invite_pending'">
-                <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
-                  {{ displayName(req) }}
-                </h3>
-                <p class="text-xs sm:text-sm text-slate-500 mt-0.5 flex items-center gap-1.5">
-                  <i class="bi bi-envelope text-amber-500"></i> คำเชิญที่เพิ่มให้ — รอเจ้าตัวกดรับ ข้อมูลส่วนตัวจะเปิดให้ห้องดูเมื่อยืนยันแล้ว
-                </p>
-              </template>
+                <td>
+                  <span
+                    class="chip"
+                    :class="{
+                      'bg-emerald-50 text-emerald-700': student.status === 'active',
+                      'bg-amber-50 text-amber-700': student.status === 'pending',
+                      'bg-stone-100 text-stone-600': student.status === 'inactive'
+                    }"
+                  >
+                    <i
+                      class="bi"
+                      :class="{
+                        'bi-check-circle-fill': student.status === 'active',
+                        'bi-clock-fill': student.status === 'pending',
+                        'bi-dash-circle-fill': student.status === 'inactive'
+                      }"
+                      aria-hidden="true"
+                    ></i>
+                    {{ student.status === 'active' ? 'Active' : student.status === 'pending' ? 'รออนุมัติ' : 'Inactive' }}
+                  </span>
+                </td>
 
-              <!-- join_request: ขอเข้าห้องเอง ปกติ -->
-              <template v-else>
-                <h3 class="font-bold text-slate-800 text-[16px] sm:text-[17px] leading-snug truncate">
-                  {{ displayName(req) }}
-                </h3>
-                <p class="text-xs sm:text-sm text-slate-500 mt-0.5 flex items-center gap-1.5">
-                  <i class="bi bi-clock text-slate-400"></i> ขอเข้าร่วมเมื่อ {{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) }}
+                <td class="text-right">
+                  <div class="relative flex justify-end">
+                    <button
+                      v-if="canManageStudents"
+                      type="button"
+                      class="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
+                      aria-label="ตัวเลือกจัดการนักเรียน"
+                      @click.stop="toggleDropdown(student.student_no, $event)"
+                    >
+                      <i class="bi bi-three-dots-vertical text-lg" aria-hidden="true"></i>
+                    </button>
+                    <i v-else class="bi bi-chevron-right p-2 text-stone-300" aria-hidden="true"></i>
+
+                    <transition name="fade">
+                      <div
+                        v-if="openDropdown === student.student_no"
+                        class="absolute right-0 top-11 z-20 w-36 origin-top-right overflow-hidden rounded-xl border border-stone-200 bg-white py-1"
+                        @click.stop
+                      >
+                        <button
+                          type="button"
+                          class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-stone-700 transition-colors hover:bg-stone-50"
+                          @click.stop="editStudent(student.student_no)"
+                        >
+                          <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไข
+                        </button>
+                        <div class="mx-2 my-1 h-px bg-stone-100"></div>
+                        <button
+                          type="button"
+                          class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+                          @click.stop="confirmDelete(student)"
+                        >
+                          <i class="bi bi-trash" aria-hidden="true"></i> ลบข้อมูล
+                        </button>
+                      </div>
+                    </transition>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 📱 มือถือ: การ์ดเรียงแนวตั้ง -->
+        <div class="space-y-2.5 lg:hidden">
+          <div
+            v-for="student in filteredStudents"
+            :key="student.id"
+            class="page-card card-hover relative p-4"
+            :class="{ 'opacity-60': student.status === 'inactive' }"
+            @click="goToStudent(student.student_no)"
+          >
+            <div class="flex items-start gap-3">
+              <!-- avatar ตัวอักษรแรก -->
+              <div
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 font-display text-base font-bold text-brand-700"
+                aria-hidden="true"
+              >
+                {{ displayName(student).charAt(0) || '?' }}
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <p class="truncate font-display text-[15px] font-bold text-stone-900">
+                    {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
+                  </p>
+                  <i
+                    v-if="student.is_admin"
+                    class="bi bi-shield-lock-fill shrink-0 text-xs text-amber-500"
+                    title="System Admin"
+                    aria-hidden="true"
+                  ></i>
+                </div>
+
+                <p class="num mt-0.5 truncate text-xs text-stone-500">
+                  เลขที่ {{ student.student_no }}
+                  <span v-if="student.nickname || student.nickname_en"> · {{ student.nickname || student.nickname_en }}</span>
                 </p>
-              </template>
+
+                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span
+                    class="chip"
+                    :class="student.class_role && student.class_role !== 'student'
+                      ? 'bg-brand-50 text-brand-700'
+                      : 'bg-stone-100 text-stone-600'"
+                  >
+                    {{ roleLabel(student.class_role) }}
+                  </span>
+
+                  <span
+                    class="chip"
+                    :class="{
+                      'bg-emerald-50 text-emerald-700': student.status === 'active',
+                      'bg-amber-50 text-amber-700': student.status === 'pending',
+                      'bg-stone-100 text-stone-600': student.status === 'inactive'
+                    }"
+                  >
+                    <i
+                      class="bi"
+                      :class="{
+                        'bi-check-circle-fill': student.status === 'active',
+                        'bi-clock-fill': student.status === 'pending',
+                        'bi-dash-circle-fill': student.status === 'inactive'
+                      }"
+                      aria-hidden="true"
+                    ></i>
+                    {{ student.status === 'active' ? 'Active' : student.status === 'pending' ? 'รออนุมัติ' : 'Inactive' }}
+                  </span>
+
+                  <!-- 🛡️ Consent Model: ยังไม่ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->
+                  <span
+                    v-if="student.identity_claimed === false"
+                    class="chip bg-stone-100 text-stone-500"
+                    title="ยังไม่ได้ยืนยันตัวตน — ข้อมูลส่วนตัวถูกปิดบัง"
+                  >
+                    <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
+                  </span>
+                </div>
+              </div>
+
+              <!-- เมนูจัดการ -->
+              <div v-if="canManageStudents" class="relative shrink-0">
+                <button
+                  type="button"
+                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
+                  aria-label="ตัวเลือกจัดการนักเรียน"
+                  @click.stop="toggleDropdown(student.student_no, $event)"
+                >
+                  <i class="bi bi-three-dots-vertical text-lg" aria-hidden="true"></i>
+                </button>
+
+                <transition name="fade">
+                  <div
+                    v-if="openDropdown === student.student_no"
+                    class="absolute right-0 top-11 z-20 w-36 origin-top-right overflow-hidden rounded-xl border border-stone-200 bg-white py-1"
+                    @click.stop
+                  >
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-stone-700 transition-colors hover:bg-stone-50"
+                      @click.stop="editStudent(student.student_no)"
+                    >
+                      <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไข
+                    </button>
+                    <div class="mx-2 my-1 h-px bg-stone-100"></div>
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+                      @click.stop="confirmDelete(student)"
+                    >
+                      <i class="bi bi-trash" aria-hidden="true"></i> ลบข้อมูล
+                    </button>
+                  </div>
+                </transition>
+              </div>
+
+              <i v-else class="bi bi-chevron-right shrink-0 p-2 text-stone-300" aria-hidden="true"></i>
             </div>
           </div>
+        </div>
+      </template>
+    </template>
 
-          <!-- ขวา: ปุ่มจัดการ (invite_pending แอดมินทำอะไรไม่ได้ ต้องรอเจ้าตัว) -->
-          <div v-if="req.request_type !== 'invite_pending'" class="flex gap-2 sm:shrink-0 mt-2 sm:mt-0">
-            <button @click="rejectJoin(req.student_no)" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors text-sm font-bold flex items-center justify-center gap-1.5">
-               ปฏิเสธ
-            </button>
-            <button @click="approveJoin(req.student_no)" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-white bg-amber-500 hover:bg-amber-600 transition-colors text-sm font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-amber-500/20">
-               ยอมรับ
-            </button>
-          </div>
-          <div v-else class="px-4 py-2.5 text-xs font-bold text-slate-400 bg-slate-50 rounded-xl flex items-center gap-1.5 sm:shrink-0">
-            <i class="bi bi-hourglass-split"></i> รอการยืนยันจากนักเรียน
+    <!-- ====================== TAB: PENDING ====================== -->
+    <template v-else-if="currentTab === 'pending'">
+      <StateBlock
+        v-if="pendingStudents.length === 0"
+        variant="empty"
+        title="ไม่มีคำขอที่รออนุมัติ"
+        hint="เมื่อมีนักเรียนขอเข้าร่วมห้อง รายการคำขอจะแสดงที่นี่"
+      />
+
+      <div v-else class="space-y-2.5">
+        <div
+          v-for="req in pendingStudents"
+          :key="req.student_no"
+          class="page-card border-s-4 border-s-amber-400 p-4"
+        >
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <!-- ซ้าย: ข้อมูล -->
+            <div class="flex min-w-0 items-start gap-3">
+              <div
+                class="num flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 font-display text-base font-bold text-amber-700"
+              >
+                {{ req.student_no }}
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <!-- 🛡️ claim_request: มีคนขออ้างสิทธิ์ ghost → แอดมินเห็นชื่อเดิม vs ชื่อผู้ขอ แล้วตัดสิน -->
+                <template v-if="req.request_type === 'claim_request'">
+                  <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
+                    {{ displayName(req) }} <span class="text-amber-700">อ้างสิทธิ์เลขที่นี้</span>
+                  </p>
+                  <p class="mt-0.5 text-sm text-stone-500">
+                    ชื่อในระบบเดิม: <span class="font-bold text-stone-700">{{ req.ghost_first_name || '-' }} {{ req.ghost_last_name || '-' }}</span>
+                    <span
+                      v-if="req.name_match !== undefined"
+                      class="chip ms-1.5"
+                      :class="req.name_match ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+                    >
+                      {{ req.name_match ? 'ชื่อตรงกัน' : 'ชื่อไม่ตรง' }}
+                    </span>
+                  </p>
+                  <p class="mt-0.5 text-xs text-stone-400">
+                    <i class="bi bi-person-check me-1" aria-hidden="true"></i>ผู้ขอ: {{ displayName(req) }} — ตรวจสอบว่าเป็นคนเดียวกันก่อนอนุมัติ
+                  </p>
+                </template>
+
+                <!-- 🛡️ invite_pending: แอดมินแอดชื่อให้ (บัญชีจริง) → รอเจ้าตัวกดรับ แอดมินอนุมัติแทนไม่ได้ -->
+                <template v-else-if="req.request_type === 'invite_pending'">
+                  <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
+                    {{ displayName(req) }}
+                  </p>
+                  <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
+                    <i class="bi bi-envelope text-amber-600" aria-hidden="true"></i> คำเชิญที่เพิ่มให้ — รอเจ้าตัวกดรับ ข้อมูลส่วนตัวจะเปิดให้ห้องดูเมื่อยืนยันแล้ว
+                  </p>
+                </template>
+
+                <!-- join_request: ขอเข้าห้องเอง ปกติ -->
+                <template v-else>
+                  <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
+                    {{ displayName(req) }}
+                  </p>
+                  <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
+                    <i class="bi bi-clock text-stone-400" aria-hidden="true"></i> ขอเข้าร่วมเมื่อ {{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) }}
+                  </p>
+                </template>
+              </div>
+            </div>
+
+            <!-- ขวา: ปุ่มจัดการ (invite_pending แอดมินทำอะไรไม่ได้ ต้องรอเจ้าตัว) -->
+            <div v-if="req.request_type !== 'invite_pending'" class="flex gap-2 sm:shrink-0">
+              <button type="button" class="btn-danger flex-1 sm:flex-none" @click="rejectJoin(req.student_no)">
+                <i class="bi bi-x-lg" aria-hidden="true"></i> ปฏิเสธ
+              </button>
+              <button type="button" class="btn-primary flex-1 sm:flex-none" @click="approveJoin(req.student_no)">
+                <i class="bi bi-check-lg" aria-hidden="true"></i> ยอมรับ
+              </button>
+            </div>
+            <div
+              v-else
+              class="flex shrink-0 items-center gap-1.5 rounded-xl bg-stone-50 px-4 py-2.5 text-xs font-bold text-stone-500"
+            >
+              <i class="bi bi-hourglass-split" aria-hidden="true"></i> รอการยืนยันจากนักเรียน
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </template>
 
   </div>
 </template>
