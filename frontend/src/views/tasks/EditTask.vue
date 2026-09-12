@@ -91,30 +91,18 @@ onMounted(fetchTask)
       eyebrow="Edit Entry"
       title="แก้ไขข้อมูลงาน"
       description="อัปเดตรายละเอียด หรือเลื่อนกำหนดส่งของการบ้าน"
-    >
-      <template #actions>
-        <button type="button" class="btn-ghost-ui" @click="router.push('/tasks')">
-          <i class="bi bi-arrow-left" aria-hidden="true" />
-          ย้อนกลับ
-        </button>
-      </template>
-    </PageHeader>
+    />
 
     <div class="page-card overflow-hidden">
-      <!-- หัวการ์ด: ระบุรหัสงานที่กำลังแก้ -->
-      <div class="flex items-center gap-3 border-b border-stone-100 px-5 py-4">
-        <div
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
-        >
-          <i class="bi bi-pencil-square" aria-hidden="true"></i>
-        </div>
-        <div class="min-w-0">
-          <p class="truncate font-display text-base font-bold text-stone-900">ฟอร์มแก้ไขงาน</p>
-          <p class="text-xs text-stone-500">รหัสงาน <span class="num">#{{ taskId }}</span></p>
-        </div>
+      <!-- แถบรหัสงาน — ไม่ซ้ำกับหัวข้อหน้า และไม่กินพื้นที่แนวตั้งเกินจำเป็น -->
+      <div
+        class="flex items-center gap-2 border-b border-stone-100 px-4 py-2.5 text-xs text-stone-500 sm:px-6"
+      >
+        <i class="bi bi-hash shrink-0" aria-hidden="true"></i>
+        รหัสงาน <span class="num text-stone-700">#{{ taskId }}</span>
       </div>
 
-      <div class="p-5 sm:p-6">
+      <div class="p-4 sm:p-6">
         <SkeletonRows v-if="isLoading" :rows="3" height="h-14" />
 
         <form v-else class="space-y-4" @submit.prevent="handleUpdateTask">
@@ -157,8 +145,9 @@ onMounted(fetchTask)
             />
           </div>
 
-          <div class="flex border-t border-stone-100 pt-4 sm:justify-end">
+          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
+              <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
               <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
                 <span
                   v-if="isSubmitting"
@@ -168,12 +157,12 @@ onMounted(fetchTask)
                 <template v-else><i class="bi bi-save-fill" aria-hidden="true" /> บันทึกการแก้ไข</template>
               </button>
             </template>
-            <div
+            <p
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500"
+              class="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-50 py-2.5 text-sm font-bold text-stone-500"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขได้
-            </div>
+            </p>
           </div>
         </form>
       </div>

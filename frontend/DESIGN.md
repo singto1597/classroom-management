@@ -45,9 +45,24 @@
 
 ### ระยะห่าง
 
-- ระยะห่างระหว่างการ์ด: `space-y-4` (มือถือ) → `sm:space-y-5`
-- Padding ในการ์ด: `p-4 sm:p-5` (การ์ดเนื้อหา), `p-5 sm:p-6` (การ์ดฟอร์ม/แดชบอร์ด)
-- ระยะขอบหน้า: จัดการโดย `MainLayout` แล้ว — view **ไม่ต้องใส่** `px-*` ระดับหน้าเอง
+**ระยะระหว่างการ์ด** — `space-y-4` (มือถือ) → `sm:space-y-5`
+view root เป็น block div ธรรมดา margin จึง **collapse** กับ `mb-*` ของ `PageHeader` (ได้ `max(16,16)=16px`) — ไม่มีการซ้อนกัน ไม่ต้องไปลดค่านี้
+
+**Padding ในการ์ด** — มือถือต้องแน่นกว่า `sm:` หนึ่งขั้นเสมอ **ห้ามเหลือ `p-5` / `p-6` ลอย ๆ ที่มือถือ**
+
+| ชนิดการ์ด | คลาส |
+|---|---|
+| สถิติ / KPI / การ์ดข้อมูลสั้น | `p-3.5 sm:p-5` |
+| เนื้อหา / ลิสต์ / ตาราง (ค่าเริ่มต้น) | `p-4 sm:p-5` |
+| ฟอร์ม / บล็อกใหญ่ | `p-4 sm:p-6` |
+| แถบค้นหา / ตัวกรอง / toolbar | `p-3 sm:p-4` |
+
+**ระยะภายในกาด** — ลดหนึ่งขั้นบนมือถือ: `mt-4`→`mt-3 sm:mt-4`, `pt-4`→`pt-3 sm:pt-4`, `gap-4`→`gap-3 sm:gap-4`, `space-y-5`→`space-y-4`
+เหตุผล: 16px ในกาดกว้าง 343px อ่านเป็น "ช่องว่าง" แต่ 12px อ่านเป็น "กลุ่มเดียวกัน"
+
+**แถวในลิสต์** — แถวที่แค่แสดงข้อมูล ลดได้ถึง `py-2.5`; แถวที่กดได้ต้อง ≥44px (คง `py-3` ไว้)
+
+**ระยะขอบหน้า** — จัดการโดย `MainLayout` แล้ว — view **ไม่ต้องใส่** `px-*` ระดับหน้าเอง
 
 ---
 
@@ -60,12 +75,12 @@
 | `.page-card` | กล่องเนื้อหาทุกกล่อง → `rounded-2xl border border-stone-200 bg-white` |
 | `.card-hover` | การ์ดที่กดได้ทั้งใบ → เติม `hover:-translate-y-px` |
 | `.eyebrow` | ป้ายเล็กเหนือหัวข้อ (อังกฤษ พิมพ์ใหญ่) |
-| `.page-title` | `h1` ของหน้า |
+| `.page-title` | `h1` ของหน้า — `1.375rem` → `sm:2xl` → `lg:3xl` (ไล่ 3 ขั้น ไม่กระโดด) |
 | `.page-lede` | คำโปรยใต้ `h1` |
 | `.section-title` | หัวข้อย่อยในหน้า |
 | `.btn-primary` | ปุ่มหลัก (น้ำเงินทึบ) — **1 ปุ่มต่อ 1 พื้นที่** |
-| `.btn-ghost-ui` | ปุ่มรอง (ขาวขอบเทา) |
-| `.btn-danger` | ปุ่มลบ |
+| `.btn-ghost-ui` | ปุ่มรอง (ขาวขอบเทา) — ใช้กับการนำทางและปุ่มที่ไม่ทำลายข้อมูล |
+| `.btn-danger` | **ปุ่มลบเท่านั้น** — ห้ามเอาไปใช้กับการนำทาง (`RouterLink`) หรือปุ่มที่ไม่ได้ลบข้อมูล |
 | `.field` | `input` / `select` / `textarea` ทุกตัว |
 | `.field-label` | ป้ายกำกับฟิลด์ |
 | `.data-table` | ตาราง desktop (พร้อม `thead th` / `tbody td` / hover) |
@@ -83,6 +98,15 @@
 
 **ทุก view ที่มีหัวหน้าต้องใช้ `PageHeader`** — ห้ามเขียน `<h1>` เอง
 **ทุก view ที่มี fetch ต้องมีครบ 3 สถานะ**: `SkeletonRows` → `StateBlock variant="error"` → `StateBlock variant="empty"`
+
+พฤติกรรมของ `PageHeader` ที่ **ห้ามแก้กลับ** (รายละเอียดกลไกอยู่ใน §6):
+
+- **มือถือ (`<640px`) เป็นคอลัมน์** — หัวข้อได้เต็มความกว้าง และปุ่มใน `#actions` ลงไปอยู่บรรทัดของตัวเอง
+  ห้ามเปลี่ยนกลับเป็น `flex-row` + `flex-1` เด็ดขาด เพราะจะบีบหัวข้อไทยให้เหลือคอลัมน์แคบ ๆ ข้างปุ่ม
+  (เคสจริง: `ManageActivity` เคยเหลือหัวข้อกว้าง **18px** บนจอ 375px)
+- **`eyebrow` ถูกซ่อนที่มือถือ** (`hidden sm:block`) เพราะเป็นภาษาอังกฤษและกินพื้นที่โดยไม่จำเป็น
+  → ข้อความใน `title` ต้องอ่านรู้เรื่องได้ด้วยตัวเอง **ห้ามให้ `eyebrow` เป็นที่เดียวที่บอกความหมาย**
+- **`description` ต้องไม่ซ้ำกับข้อความอื่นในหน้า** ถ้าหน้ามีการ์ดที่แสดงค่าเดียวกันอยู่แล้ว ให้ตัด `description` ทิ้ง
 
 ---
 
@@ -162,7 +186,44 @@ import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 | เลื่อนในชีตไม่ลากหน้าหลัง | `overscroll-contain` ที่กล่อง scroll |
 | รองรับรอยบาก iPhone | `pb-[calc(env(safe-area-inset-bottom)+…)]` — `MainLayout` จัดให้แล้ว |
 | `input` ไม่ทำให้ iOS ซูม | `main.css` ตั้ง `16px` ให้แล้ว — **อย่า override ด้วย `text-xs`/`text-sm` บน input บนมือถือ** |
-| พื้นที่กดขั้นต่ำ | 44×44px (`h-11 w-11` ขึ้นไป สำหรับปุ่มกลม) |
+| พื้นที่กดขั้นต่ำ | 44×44px (`h-11 w-11` ขึ้นไป สำหรับปุ่มกลม — `.btn-*` มี `min-h-11` ให้แล้ว) |
+| หัวข้อกับปุ่มต้องไม่แย่งที่กัน | มือถือใช้ `flex-col` ให้หัวข้อเต็มความกว้าง แล้วปุ่มขึ้นบรรทัดใหม่ |
+
+### ⚠️ กับดัก 3 ข้อที่เคยทำให้ระบบพังมาแล้ว
+
+**1. `flex-1` + `min-w-0` ทำให้ `flex-wrap` ไม่มีวันทำงาน**
+`flex-wrap` ตัดสินใจขึ้นบรรทัดใหม่จาก *hypothetical main size* ซึ่งคือ `flex-basis` **ไม่ใช่ความกว้างที่ข้อความต้องการ**
+`flex-1` = `flex: 1 1 0%` → basis = 0 และ `min-w-0` ถอด `min-width:auto` ออก → ขนาดตามทฤษฎี = **0px**
+ผลคือผลรวมบรรทัดไม่เคยเกิน container → **wrap ไม่เคย trigger** เบราว์เซอร์เหลือทางเดียวคือหดกล่องหัวข้อจนเหลือริ้วตัวอักษร
+
+```vue
+<!-- ❌ หัวข้อถูกบีบเหลือคอลัมน์แคบข้างปุ่ม -->
+<div class="flex flex-wrap items-end justify-between gap-3">
+  <div class="min-w-0 flex-1">…หัวข้อ…</div>
+  <div class="flex shrink-0 gap-2">…ปุ่ม…</div>
+</div>
+
+<!-- ✅ มือถือสลับเป็นคอลัมน์ + ที่ sm: ให้หัวข้อมี basis จริง wrap จึงทำงาน -->
+<div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
+  <div class="min-w-0 sm:min-w-[16rem] sm:flex-1">…หัวข้อ…</div>
+  <div class="flex flex-wrap gap-2 sm:shrink-0">…ปุ่ม…</div>
+</div>
+```
+
+**2. Tailwind shorthand ทับ property ย่อย — เงียบแต่หายนะ**
+Tailwind เรียง base → `sm:` → `lg:` ดังนั้น `sm:p-6` **เขียนทับ `pb-[...]`** ที่เขียนไว้ที่ base
+
+```vue
+<!-- ❌ ที่ 640–1023px sm:p-6 ลบระยะกันแท็บล่าง เหลือ 24px → แถวล่างสุดถูกแท็บบังถาวร -->
+<main class="p-4 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:p-6 lg:p-8">
+
+<!-- ✅ แยก shorthand เป็นแกน แล้วคง pb-* ไว้จนถึง breakpoint ที่องค์ประกอบนั้นหายจริง -->
+<main class="p-4 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-6 sm:pt-6 lg:px-8 lg:pt-8 lg:pb-8">
+```
+
+> **ต้องตรวจที่ 375px และ 640–1023px** — แท็บล่างซ่อนที่ `lg:` (1024px) แต่ `sm:` เริ่มที่ 640px ช่วงกลางนี้คือช่วงที่พังบ่อยที่สุด
+
+**3. คอมเมนต์ HTML ห้ามอยู่ "ใน" แท็ก** — `<div <!-- x --> class="y">` ทำให้ Vue โยน `Illegal '/' in tags` และ **build ล้มทั้งโปรเจกต์** ต้องวางคอมเมนต์บรรทัดใหม่ก่อนแท็ก
 
 ---
 
@@ -210,9 +271,9 @@ Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOuts
 ## 9. ฟอร์ม
 
 ```vue
-<div class="page-card p-5 sm:p-6">
+<div class="page-card p-4 sm:p-6">
   <form class="space-y-4" @submit.prevent="submit">
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
       <div>
         <label class="field-label" for="firstName">ชื่อ</label>
         <input id="firstName" v-model="form.firstName" class="field" required />
@@ -220,7 +281,7 @@ Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOuts
     </div>
 
     <!-- ปุ่ม: มือถือเต็มความกว้าง -->
-    <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
+    <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
       <button type="button" class="btn-ghost-ui" @click="router.back()">ยกเลิก</button>
       <button type="submit" class="btn-primary" :disabled="isSaving">บันทึก</button>
     </div>

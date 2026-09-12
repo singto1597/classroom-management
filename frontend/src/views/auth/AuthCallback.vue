@@ -67,8 +67,13 @@ const goBackToLogin = () => {
       </div>
 
       <!-- กำลังยืนยันตัวตน: วงแหวนบาง ไม่มีเงาเรืองแสง -->
-      <div v-if="!errorMsg" class="page-card p-8 text-center">
-        <div class="relative mx-auto mb-5 h-16 w-16">
+      <div
+        v-if="!errorMsg"
+        class="page-card p-4 text-center sm:p-6"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="relative mx-auto mb-4 h-14 w-14">
           <div class="absolute inset-0 rounded-full border-2 border-stone-200"></div>
           <div
             class="absolute inset-0 animate-spin rounded-full border-2 border-brand-700 border-t-transparent"
@@ -78,7 +83,9 @@ const goBackToLogin = () => {
             aria-hidden="true"
           ></i>
         </div>
-        <p class="font-display text-lg font-bold text-stone-900">กำลังยืนยันตัวตน...</p>
+        <h1 class="font-display text-xl font-bold tracking-tight text-stone-900">
+          กำลังยืนยันตัวตน...
+        </h1>
         <p class="mt-1 text-sm leading-relaxed text-stone-500">
           กรุณารอสักครู่ ระบบกำลังเข้าสู่ระบบอย่างปลอดภัย
         </p>
@@ -94,7 +101,7 @@ const goBackToLogin = () => {
         @retry="goBackToLogin"
       />
 
-      <p class="mt-6 text-center text-xs text-stone-400">SYNCROOM — ระบบจัดการห้องเรียน</p>
+      <p class="mt-4 text-center text-xs text-stone-500">ระบบจัดการห้องเรียน</p>
     </div>
   </div>
 </template>

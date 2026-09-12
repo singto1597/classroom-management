@@ -98,11 +98,11 @@ function handleApply() {
     <Transition name="fade">
       <div
         v-if="open"
-        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 p-3 md:items-center md:p-4"
+        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:items-center md:px-4 md:py-4"
         @click.self="emit('close')"
       >
         <div
-          class="max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-5 sm:p-6 md:max-w-lg"
+          class="max-h-[85dvh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-4 sm:p-6 md:max-w-lg"
         >
           <!-- Header -->
           <div class="mb-4 flex items-start justify-between gap-3">
@@ -111,14 +111,13 @@ function handleApply() {
                 <i class="bi bi-lightning-charge-fill shrink-0 text-brand-700" aria-hidden="true"></i>
                 ตั้งค่าแบบกลุ่ม
               </h4>
-              <p class="mt-1 text-xs leading-relaxed text-stone-400">
-                ตั้งค่าให้ผู้เข้าร่วม <b class="num font-bold text-brand-700">{{ count }} คน</b> พร้อมกัน
-                — เฉพาะคนที่ติ๊กเท่านั้น (คนที่ไม่ได้ติ๊กไม่ถูกแตะ)
+              <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
+                ใช้กับคนที่ติ๊กเท่านั้น — คนที่ไม่ได้ติ๊กจะไม่ถูกแตะ
               </p>
             </div>
             <button
               type="button"
-              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+              class="-me-1.5 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
               aria-label="ปิดหน้าต่าง"
               @click="emit('close')"
             >
@@ -127,15 +126,20 @@ function handleApply() {
           </div>
 
           <!-- หน้าที่/ตำแหน่ง -->
-          <div v-if="positions.length > 0" class="mb-5">
-            <label class="field-label flex items-center gap-1.5">
+          <div v-if="positions.length > 0" class="mb-4">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
               <i class="bi bi-diagram-3 text-stone-400" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
-            </label>
-            <select v-model="dutyPosition" class="field">
+            </div>
+            <select v-model="dutyPosition" aria-label="หน้าที่/ตำแหน่ง" class="field">
               <option value="">— ตั้งหน้าที่ทั้งหมด —</option>
               <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
             </select>
-            <p v-if="dutyPosition" class="mt-1.5 flex items-center gap-1 text-[11px] text-amber-600">
+            <p
+              v-if="dutyPosition"
+              class="mt-1.5 flex items-start gap-1 text-xs font-semibold leading-relaxed text-amber-700"
+            >
               <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> จะแทนที่หน้าที่เดิมทั้งหมดของ
               {{ count }} คนนี้
             </p>
@@ -144,11 +148,11 @@ function handleApply() {
           <!-- 🌟 role_type / status / earned_hours (หน้า ManageActivity) -->
           <div
             v-if="showRoleType || showStatus || showEarnedHours"
-            class="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3"
+            class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
           >
             <div v-if="showRoleType">
-              <label class="field-label">บทบาท</label>
-              <select v-model="roleType" class="field">
+              <label class="field-label" for="batch-role">บทบาท</label>
+              <select id="batch-role" v-model="roleType" class="field">
                 <option value="">— ไม่เปลี่ยน —</option>
                 <option v-for="opt in ROLE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
@@ -156,8 +160,8 @@ function handleApply() {
               </select>
             </div>
             <div v-if="showStatus">
-              <label class="field-label">สถานะ</label>
-              <select v-model="status" class="field">
+              <label class="field-label" for="batch-status">สถานะ</label>
+              <select id="batch-status" v-model="status" class="field">
                 <option value="">— ไม่เปลี่ยน —</option>
                 <option v-for="opt in STATUS_OPTIONS" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
@@ -165,8 +169,9 @@ function handleApply() {
               </select>
             </div>
             <div v-if="showEarnedHours">
-              <label class="field-label">ชั่วโมงจิตอาสา</label>
+              <label class="field-label" for="batch-hours">ชั่วโมงจิตอาสา</label>
               <input
+                id="batch-hours"
                 v-model.number="earnedHours"
                 type="number"
                 min="0"
@@ -178,15 +183,18 @@ function handleApply() {
           </div>
 
           <!-- 🌟 Dynamic Fields (ฟิลด์เพิ่มเติมที่ผู้จัดการสร้างเอง) -->
-          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-5">
-            <label class="field-label flex items-center gap-1.5">
+          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-4">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
               <i class="bi bi-puzzle text-stone-400" aria-hidden="true"></i> ฟิลด์เพิ่มเติม
-            </label>
-            <div class="space-y-4">
+            </div>
+            <div class="space-y-3">
               <div v-for="field in dynamicFields" :key="field.key">
-                <label class="field-label">{{ field.label }}</label>
+                <div class="field-label">{{ field.label }}</div>
                 <ActivityFieldControl
                   :field="field"
+                  :aria-label="field.label"
                   :model-value="typeBValues[field.key]"
                   @update:model-value="
                     (v: unknown) => {
@@ -200,21 +208,24 @@ function handleApply() {
 
           <!-- Type B fields -->
           <div v-if="typeBFields.length > 0">
-            <label class="field-label flex items-center gap-1.5">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
               <i class="bi bi-list-check text-stone-400" aria-hidden="true"></i> ข้อมูลที่จัดเก็บ
-            </label>
-            <div class="space-y-4">
+            </div>
+            <div class="space-y-3">
               <div v-for="field in typeBFields" :key="field.key">
-                <label class="field-label flex items-center gap-1.5">
+                <div class="field-label flex items-center gap-1.5">
                   <i
                     class="bi text-stone-400"
                     :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"
                     aria-hidden="true"
                   ></i>
                   {{ field.label }}
-                </label>
+                </div>
                 <ActivityFieldControl
                   :field="field"
+                  :aria-label="field.label"
                   :model-value="typeBValues[field.key]"
                   @update:model-value="
                     (v: unknown) => {
@@ -241,9 +252,9 @@ function handleApply() {
             Data ก่อน
           </div>
 
-          <!-- Actions -->
+          <!-- Actions — sticky ให้ปุ่มหลักกดถึงเสมอแม้ฟอร์มยาว -->
           <div
-            class="mt-6 flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+            class="sticky bottom-0 -mx-4 mt-4 flex flex-col-reverse gap-2 border-t border-stone-100 bg-white px-4 pt-4 sm:-mx-6 sm:px-6"
           >
             <button type="button" class="btn-ghost-ui" @click="emit('close')">ยกเลิก</button>
             <button

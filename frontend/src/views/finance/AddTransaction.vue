@@ -62,6 +62,16 @@ const filteredCategories = computed(() => {
   return categories.value.filter(c => c.category_type === activeTab.value);
 });
 
+// ข้อความบนปุ่มยืนยัน — แยกออกมาเพื่อให้คง accessible name ไว้ระหว่างส่งข้อมูล
+const submitLabel = computed(() =>
+  activeTab.value === 'expense' ? 'บันทึกรายจ่าย' : activeTab.value === 'income' ? 'บันทึกรายรับ' : 'ยืนยันการโอนเงิน'
+);
+
+// จัดรูปแบบเงินให้ตรงกับหน้าอื่นในระบบ (ทศนิยม 2 ตำแหน่งเสมอ)
+const formatMoney = (num: number) => {
+  return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num);
+};
+
 // 🔄 เมื่อสลับแท็บ ให้เคลียร์ค่าที่เลือกไว้ เพื่อไม่ให้ส่ง id ค้างจาก tab ก่อน
 const switchTab = (tab: 'expense' | 'income' | 'transfer') => {
   activeTab.value = tab;
@@ -127,11 +137,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="New Transaction"
-      title="บันทึกรายการเงิน"
-      description="บันทึกรายรับ รายจ่าย หรือโอนระหว่างกระเป๋า"
-    >
+    <PageHeader eyebrow="New Transaction" title="บันทึกรายการเงิน">
       <template #actions>
         <RouterLink to="/finance/transactions" class="btn-ghost-ui" title="กลับหน้าประวัติ">
           <i class="bi bi-arrow-left" aria-hidden="true"></i>
@@ -163,6 +169,7 @@ onMounted(() => {
               ? 'border border-stone-200 bg-white text-brand-700'
               : 'border border-transparent text-stone-500 hover:text-stone-800'
           "
+          :aria-pressed="activeTab === tab"
           @click="switchTab(tab)"
         >
           <span v-if="tab === 'expense'"><i class="bi bi-arrow-up-right me-1" aria-hidden="true"></i>รายจ่าย</span>
@@ -171,7 +178,7 @@ onMounted(() => {
         </button>
       </div>
 
-      <div class="page-card p-5 sm:p-6">
+      <div class="page-card p-4 sm:p-6">
         <form class="space-y-4" @submit.prevent="handleSubmit">
           <!-- จำนวนเงิน -->
           <div>
@@ -179,11 +186,13 @@ onMounted(() => {
             <input
               id="amount"
               v-model="form.amount"
-              class="field num font-display text-right text-xl font-bold"
+              class="field num font-display text-right !text-xl font-bold"
               type="number"
+              inputmode="decimal"
               step="0.01"
               placeholder="0.00"
               required
+              @focus="($event.target as HTMLInputElement).select()"
             />
           </div>
 
@@ -192,14 +201,14 @@ onMounted(() => {
             <label class="field-label" for="accountId">บัญชี/กระเป๋าเงิน</label>
             <select id="accountId" v-model="form.account_id" class="field" required>
               <option value="" disabled>-- เลือกบัญชี --</option>
-              <option v-for="acc in accounts" :key="acc.id" :value="acc.id" class="num">
-                {{ acc.account_name }} (เหลือ ฿{{ new Intl.NumberFormat('th-TH').format(acc.balance) }})
+              <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
+                {{ acc.account_name }} (เหลือ ฿{{ formatMoney(acc.balance) }})
               </option>
             </select>
           </div>
 
           <!-- บัญชีต้นทาง/ปลายทาง (โอนเงิน) -->
-          <div v-if="activeTab === 'transfer'" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div v-if="activeTab === 'transfer'" class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <div>
               <label class="field-label" for="fromAccountId">โอนจาก</label>
               <select id="fromAccountId" v-model="form.from_account_id" class="field" required>
@@ -252,16 +261,14 @@ onMounted(() => {
             />
           </div>
 
-          <div class="border-t border-stone-100 pt-4">
+          <div class="border-t border-stone-100 pt-3 sm:pt-4">
             <button type="submit" class="btn-primary w-full py-3" :disabled="isSubmitting">
               <span
                 v-if="isSubmitting"
                 class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
                 aria-hidden="true"
               ></span>
-              <span v-else>
-                {{ activeTab === 'expense' ? 'บันทึกรายจ่าย' : activeTab === 'income' ? 'บันทึกรายรับ' : 'ยืนยันการโอนเงิน' }}
-              </span>
+              <span>{{ isSubmitting ? 'กำลังบันทึก...' : submitLabel }}</span>
             </button>
           </div>
         </form>

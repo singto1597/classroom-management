@@ -22,6 +22,7 @@ const isLoading = ref(true);
 
 // สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
 const hasError = ref(false);
+const errorMessage = ref('');
 
 const fetchSettingsData = async () => {
   isLoading.value = true;
@@ -34,8 +35,8 @@ const fetchSettingsData = async () => {
     accounts.value = accRes;
     categories.value = catRes;
   } catch (error: unknown) {
+    errorMessage.value = error instanceof Error ? error.message : 'โหลดข้อมูลการตั้งค่าไม่สำเร็จ';
     hasError.value = true;
-    Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'โหลดข้อมูลล้มเหลว', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -47,7 +48,13 @@ const expenseCategories = computed(() => categories.value.filter(c => c.category
 // --- Account Actions ---
 
 const handleAddAccount = async () => {
-  if (!isAdmin.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error');
+  if (!isAdmin.value)
+    return Swal.fire({
+      icon: 'error',
+      title: 'ไม่มีสิทธิ์',
+      text: 'เฉพาะแอดมินเท่านั้น',
+      confirmButtonColor: '#1d4ed8'
+    });
 
   const { value: formValues } = await Swal.fire({
     title: 'เพิ่มกระเป๋าเงินใหม่',
@@ -77,13 +84,24 @@ const handleAddAccount = async () => {
       Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'เพิ่มกระเป๋าเงินไม่สำเร็จ', 'error');
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'เพิ่มกระเป๋าเงินไม่สำเร็จ',
+        confirmButtonColor: '#1d4ed8'
+      });
     }
   }
 };
 
 const handleEditAccount = async (account: Account) => {
-  if (!isAdmin.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error');
+  if (!isAdmin.value)
+    return Swal.fire({
+      icon: 'error',
+      title: 'ไม่มีสิทธิ์',
+      text: 'เฉพาะแอดมินเท่านั้น',
+      confirmButtonColor: '#1d4ed8'
+    });
 
   const { value: name } = await Swal.fire({
     title: 'แก้ไขชื่อกระเป๋าเงิน',
@@ -106,13 +124,24 @@ const handleEditAccount = async (account: Account) => {
       Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'แก้ไขกระเป๋าเงินไม่สำเร็จ', 'error');
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'แก้ไขกระเป๋าเงินไม่สำเร็จ',
+        confirmButtonColor: '#1d4ed8'
+      });
     }
   }
 };
 
 const handleDeleteAccount = async (id: number) => {
-  if (!isAdmin.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error');
+  if (!isAdmin.value)
+    return Swal.fire({
+      icon: 'error',
+      title: 'ไม่มีสิทธิ์',
+      text: 'เฉพาะแอดมินเท่านั้น',
+      confirmButtonColor: '#1d4ed8'
+    });
 
   const result = await Swal.fire({
     title: 'ยืนยันการลบ?',
@@ -131,7 +160,12 @@ const handleDeleteAccount = async (id: number) => {
       Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'ลบกระเป๋าเงินไม่สำเร็จ', 'error');
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'ลบกระเป๋าเงินไม่สำเร็จ',
+        confirmButtonColor: '#1d4ed8'
+      });
     }
   }
 };
@@ -139,7 +173,13 @@ const handleDeleteAccount = async (id: number) => {
 // --- Category Actions ---
 
 const handleAddCategory = async () => {
-  if (!isAdmin.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error');
+  if (!isAdmin.value)
+    return Swal.fire({
+      icon: 'error',
+      title: 'ไม่มีสิทธิ์',
+      text: 'เฉพาะแอดมินเท่านั้น',
+      confirmButtonColor: '#1d4ed8'
+    });
 
   const { value: formValues } = await Swal.fire({
     title: 'เพิ่มหมวดหมู่ใหม่',
@@ -172,13 +212,24 @@ const handleAddCategory = async () => {
       Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'เพิ่มหมวดหมู่ไม่สำเร็จ', 'error');
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'เพิ่มหมวดหมู่ไม่สำเร็จ',
+        confirmButtonColor: '#1d4ed8'
+      });
     }
   }
 };
 
 const handleEditCategory = async (category: Category) => {
-  if (!isAdmin.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error');
+  if (!isAdmin.value)
+    return Swal.fire({
+      icon: 'error',
+      title: 'ไม่มีสิทธิ์',
+      text: 'เฉพาะแอดมินเท่านั้น',
+      confirmButtonColor: '#1d4ed8'
+    });
 
   const { value: name } = await Swal.fire({
     title: 'แก้ไขชื่อหมวดหมู่',
@@ -201,13 +252,24 @@ const handleEditCategory = async (category: Category) => {
       Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'แก้ไขหมวดหมู่ไม่สำเร็จ', 'error');
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'แก้ไขหมวดหมู่ไม่สำเร็จ',
+        confirmButtonColor: '#1d4ed8'
+      });
     }
   }
 };
 
 const handleDeleteCategory = async (id: number) => {
-  if (!isAdmin.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error');
+  if (!isAdmin.value)
+    return Swal.fire({
+      icon: 'error',
+      title: 'ไม่มีสิทธิ์',
+      text: 'เฉพาะแอดมินเท่านั้น',
+      confirmButtonColor: '#1d4ed8'
+    });
 
   const result = await Swal.fire({
     title: 'ลบหมวดหมู่?',
@@ -226,7 +288,12 @@ const handleDeleteCategory = async (id: number) => {
       Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchSettingsData();
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'ลบหมวดหมู่ไม่สำเร็จ', 'error');
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'ลบหมวดหมู่ไม่สำเร็จ',
+        confirmButtonColor: '#1d4ed8'
+      });
     }
   }
 };
@@ -257,7 +324,12 @@ const formatNumber = (num: number) => {
 
     <!-- สถานะโหลด / ผิดพลาด -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
-    <StateBlock v-else-if="hasError" variant="error" @retry="fetchSettingsData" />
+    <StateBlock
+      v-else-if="hasError"
+      variant="error"
+      :hint="errorMessage"
+      @retry="fetchSettingsData"
+    />
 
     <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <!-- กระเป๋าเงินห้อง -->
@@ -299,7 +371,7 @@ const formatNumber = (num: number) => {
 
               <div
                 v-if="isAdmin"
-                class="flex shrink-0 items-center gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100"
+                class="flex shrink-0 items-center gap-1 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:focus-within:opacity-100"
               >
                 <button
                   class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
@@ -332,13 +404,13 @@ const formatNumber = (num: number) => {
             <i class="bi bi-tags text-brand-700" aria-hidden="true"></i>
             <span class="truncate">หมวดหมู่รายการ</span>
           </h2>
-          <button v-if="isAdmin" class="btn-ghost-ui shrink-0" @click="handleAddCategory">
+          <button v-if="isAdmin" class="btn-primary shrink-0" @click="handleAddCategory">
             <i class="bi bi-plus-lg" aria-hidden="true"></i>
             เพิ่มหมวดหมู่
           </button>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
+        <div class="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:gap-4 sm:p-5">
           <!-- รายรับ -->
           <div class="min-w-0">
             <div class="mb-3 flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
@@ -349,9 +421,13 @@ const formatNumber = (num: number) => {
               <span class="num text-xs font-bold text-stone-400">{{ incomeCategories.length }}</span>
             </div>
 
-            <p v-if="incomeCategories.length === 0" class="py-3 text-center text-xs text-stone-400">
-              ยังไม่มีหมวดหมู่รายรับ
-            </p>
+            <StateBlock
+              v-if="incomeCategories.length === 0"
+              variant="empty"
+              icon="bi-tags"
+              title="ยังไม่มีหมวดหมู่รายรับ"
+              hint="เพิ่มหมวดหมู่เพื่อใช้จัดกลุ่มรายรับ"
+            />
 
             <div v-else class="space-y-2">
               <div
@@ -360,9 +436,9 @@ const formatNumber = (num: number) => {
                 class="group flex items-center justify-between gap-2 rounded-xl border border-stone-200 px-3 py-1.5"
               >
                 <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
-                <div v-if="isAdmin" class="flex shrink-0 items-center gap-0.5">
+                <div v-if="isAdmin" class="flex shrink-0 items-center gap-1">
                   <button
-                    class="flex h-10 w-10 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
                     title="แก้ไข"
                     aria-label="แก้ไขหมวดหมู่"
                     @click.stop="handleEditCategory(cat)"
@@ -370,12 +446,12 @@ const formatNumber = (num: number) => {
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                   </button>
                   <button
-                    class="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
                     title="ลบ"
                     aria-label="ลบหมวดหมู่"
                     @click.stop="handleDeleteCategory(cat.id)"
                   >
-                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    <i class="bi bi-trash" aria-hidden="true"></i>
                   </button>
                 </div>
               </div>
@@ -392,9 +468,13 @@ const formatNumber = (num: number) => {
               <span class="num text-xs font-bold text-stone-400">{{ expenseCategories.length }}</span>
             </div>
 
-            <p v-if="expenseCategories.length === 0" class="py-3 text-center text-xs text-stone-400">
-              ยังไม่มีหมวดหมู่รายจ่าย
-            </p>
+            <StateBlock
+              v-if="expenseCategories.length === 0"
+              variant="empty"
+              icon="bi-tags"
+              title="ยังไม่มีหมวดหมู่รายจ่าย"
+              hint="เพิ่มหมวดหมู่เพื่อใช้จัดกลุ่มรายจ่าย"
+            />
 
             <div v-else class="space-y-2">
               <div
@@ -403,9 +483,9 @@ const formatNumber = (num: number) => {
                 class="group flex items-center justify-between gap-2 rounded-xl border border-stone-200 px-3 py-1.5"
               >
                 <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
-                <div v-if="isAdmin" class="flex shrink-0 items-center gap-0.5">
+                <div v-if="isAdmin" class="flex shrink-0 items-center gap-1">
                   <button
-                    class="flex h-10 w-10 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
                     title="แก้ไข"
                     aria-label="แก้ไขหมวดหมู่"
                     @click.stop="handleEditCategory(cat)"
@@ -413,12 +493,12 @@ const formatNumber = (num: number) => {
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                   </button>
                   <button
-                    class="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
                     title="ลบ"
                     aria-label="ลบหมวดหมู่"
                     @click.stop="handleDeleteCategory(cat.id)"
                   >
-                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    <i class="bi bi-trash" aria-hidden="true"></i>
                   </button>
                 </div>
               </div>

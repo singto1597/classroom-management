@@ -63,6 +63,9 @@ const fetchData = async () => {
 
     if (activeRes.status === 'fulfilled') {
       students.value = Array.isArray(activeRes.value) ? activeRes.value : [];
+    } else {
+      // Promise.allSettled ไม่ throw — ต้องเช็คสถานะเอง ไม่งั้นโหลดพังแล้วผู้ใช้เห็นเป็น "ไม่มีนักเรียน"
+      hasError.value = true;
     }
     if (pendingRes.status === 'fulfilled' && canManageStudents.value) {
       pendingStudents.value = Array.isArray(pendingRes.value) ? pendingRes.value : [];
@@ -105,7 +108,7 @@ const ROLE_LABELS: Record<string, string> = {
   student: 'นักเรียน',
   president: 'หัวหน้าห้อง',
   vice_president: 'รองหัวหน้าห้อง',
-  secretary: 'เลขานุการ',
+  secretary: 'เลขานุการ (เรขา)',
   vice_academic: 'รองวิชาการ',
   vice_activity: 'รองกิจกรรม',
   vice_discipline: 'รองระเบียบวินัย',
@@ -205,7 +208,7 @@ const rejectJoin = async (studentNo: number) => {
     <PageHeader
       eyebrow="Academic Records"
       title="จัดการนักเรียน"
-      description="รายชื่อนักเรียนทั้งหมดในห้องนี้ พร้อมคำขอเข้าร่วมที่รออนุมัติ"
+      description="รายชื่อนักเรียนในห้องนี้"
     >
       <template #actions>
         <RouterLink
@@ -215,7 +218,7 @@ const rejectJoin = async (studentNo: number) => {
           aria-label="ส่งออกข้อมูลนักเรียนเป็น Excel"
         >
           <i class="bi bi-file-earmark-excel-fill text-base" aria-hidden="true"></i>
-          <span class="hidden sm:inline">ส่งออก</span>
+          <span>ส่งออก</span>
         </RouterLink>
         <RouterLink v-if="canManageStudents" to="/students/add" class="btn-primary">
           <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
@@ -227,7 +230,7 @@ const rejectJoin = async (studentNo: number) => {
     <div v-if="canManageStudents" class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-stone-50 p-1">
       <button
         type="button"
-        class="flex shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+        class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
         :class="currentTab === 'active'
           ? 'border-stone-200 bg-white text-brand-700'
           : 'border-transparent text-stone-500 hover:text-stone-800'"
@@ -237,7 +240,7 @@ const rejectJoin = async (studentNo: number) => {
       </button>
       <button
         type="button"
-        class="flex shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+        class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
         :class="currentTab === 'pending'
           ? 'border-stone-200 bg-white text-brand-700'
           : 'border-transparent text-stone-500 hover:text-stone-800'"
@@ -276,13 +279,13 @@ const rejectJoin = async (studentNo: number) => {
             class="relative h-5 w-10 shrink-0 rounded-full bg-stone-200 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-700 peer-checked:after:translate-x-full"
             aria-hidden="true"
           ></span>
-          <span class="ms-2.5 text-sm font-bold text-stone-600">แสดง Inactive</span>
+          <span class="ms-2.5 text-sm font-bold text-stone-600">แสดงนักเรียนที่ปิดใช้งาน</span>
         </label>
       </div>
     </div>
 
     <!-- โหลด -->
-    <SkeletonRows v-if="isLoading" :rows="6" height="h-16" />
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-16" />
 
     <!-- ผิดพลาด -->
     <StateBlock v-else-if="hasError" variant="error" @retry="fetchData" />
@@ -293,7 +296,7 @@ const rejectJoin = async (studentNo: number) => {
         v-if="filteredStudents.length === 0"
         variant="empty"
         title="ไม่พบข้อมูลนักเรียน"
-        :hint="searchQuery ? 'ลองปรับคำค้นหา หรือเปิดตัวกรอง Inactive ดูอีกครั้ง' : 'เพิ่มนักเรียนคนแรกเพื่อเริ่มต้นทะเบียนห้องนี้'"
+        :hint="searchQuery ? 'ลองปรับคำค้นหา หรือเปิดตัวกรองที่ปิดใช้งานดูอีกครั้ง' : 'เพิ่มนักเรียนคนแรกเพื่อเริ่มต้นทะเบียนห้องนี้'"
       />
 
       <template v-else>
@@ -375,7 +378,7 @@ const rejectJoin = async (studentNo: number) => {
                       }"
                       aria-hidden="true"
                     ></i>
-                    {{ student.status === 'active' ? 'Active' : student.status === 'pending' ? 'รออนุมัติ' : 'Inactive' }}
+                    {{ student.status === 'active' ? 'ใช้งาน' : student.status === 'pending' ? 'รออนุมัติ' : 'ปิดใช้งาน' }}
                   </span>
                 </td>
 
@@ -424,12 +427,12 @@ const rejectJoin = async (studentNo: number) => {
 
         <!-- 📱 มือถือ: การ์ดเรียงแนวตั้ง -->
         <div class="space-y-2.5 lg:hidden">
-          <div
+          <RouterLink
             v-for="student in filteredStudents"
             :key="student.id"
-            class="page-card card-hover relative p-4"
+            :to="`/students/${student.student_no}`"
+            class="page-card card-hover relative block p-4 sm:p-5"
             :class="{ 'opacity-60': student.status === 'inactive' }"
-            @click="goToStudent(student.student_no)"
           >
             <div class="flex items-start gap-3">
               <!-- avatar ตัวอักษรแรก -->
@@ -485,7 +488,7 @@ const rejectJoin = async (studentNo: number) => {
                       }"
                       aria-hidden="true"
                     ></i>
-                    {{ student.status === 'active' ? 'Active' : student.status === 'pending' ? 'รออนุมัติ' : 'Inactive' }}
+                    {{ student.status === 'active' ? 'ใช้งาน' : student.status === 'pending' ? 'รออนุมัติ' : 'ปิดใช้งาน' }}
                   </span>
 
                   <!-- 🛡️ Consent Model: ยังไม่ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->
@@ -537,7 +540,7 @@ const rejectJoin = async (studentNo: number) => {
 
               <i v-else class="bi bi-chevron-right shrink-0 p-2 text-stone-300" aria-hidden="true"></i>
             </div>
-          </div>
+          </RouterLink>
         </div>
       </template>
     </template>
@@ -555,7 +558,7 @@ const rejectJoin = async (studentNo: number) => {
         <div
           v-for="req in pendingStudents"
           :key="req.student_no"
-          class="page-card border-s-4 border-s-amber-400 p-4"
+          class="page-card border-s-4 border-s-amber-400 p-4 sm:p-5"
         >
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <!-- ซ้าย: ข้อมูล -->
@@ -583,7 +586,7 @@ const rejectJoin = async (studentNo: number) => {
                     </span>
                   </p>
                   <p class="mt-0.5 text-xs text-stone-400">
-                    <i class="bi bi-person-check me-1" aria-hidden="true"></i>ผู้ขอ: {{ displayName(req) }} — ตรวจสอบว่าเป็นคนเดียวกันก่อนอนุมัติ
+                    <i class="bi bi-person-check me-1" aria-hidden="true"></i>ตรวจสอบว่าเป็นคนเดียวกันก่อนอนุมัติ
                   </p>
                 </template>
 
@@ -593,7 +596,7 @@ const rejectJoin = async (studentNo: number) => {
                     {{ displayName(req) }}
                   </p>
                   <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
-                    <i class="bi bi-envelope text-amber-600" aria-hidden="true"></i> คำเชิญที่เพิ่มให้ — รอเจ้าตัวกดรับ ข้อมูลส่วนตัวจะเปิดให้ห้องดูเมื่อยืนยันแล้ว
+                    <i class="bi bi-envelope text-amber-600" aria-hidden="true"></i> คำเชิญที่ระบบส่งให้ — รอเจ้าตัวกดรับ
                   </p>
                 </template>
 

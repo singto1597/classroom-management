@@ -201,38 +201,38 @@ onMounted(() => {
           class="page-card border-s-4 border-s-red-500 p-4"
         >
           <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <span class="chip num bg-stone-100 text-stone-500">#{{ d.student_no }}</span>
-              <h2 class="font-display mt-1.5 truncate text-base font-bold text-stone-900">
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="chip num shrink-0 bg-stone-100 text-stone-500">#{{ d.student_no }}</span>
+              <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
                 {{ d.student_name }}
               </h2>
-              <span class="chip mt-2 bg-amber-50 text-amber-700">
-                <i class="bi bi-receipt" aria-hidden="true"></i>
-                ค้าง {{ d.overdue_count }} รายการ
-              </span>
             </div>
 
             <div class="shrink-0 text-right">
-              <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">
-                ยอดค้างชำระ
-              </p>
-              <p class="font-display num mt-1 text-xl font-bold text-red-600">
+              <p class="text-[11px] font-bold text-stone-500">ยอดค้างชำระ</p>
+              <p class="font-display num mt-0.5 whitespace-nowrap text-lg font-bold text-red-600">
                 ฿{{ formatNumber(d.total_pending_amount) }}
               </p>
             </div>
           </div>
 
-          <div class="mt-3 flex justify-end border-t border-stone-100 pt-3">
+          <div
+            class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
+          >
+            <span class="chip shrink-0 bg-amber-50 text-amber-700">
+              <i class="bi bi-receipt" aria-hidden="true"></i>
+              ค้าง {{ d.overdue_count }} รายการ
+            </span>
             <button
               v-if="isAdmin"
               type="button"
-              class="btn-primary w-full sm:w-auto"
+              class="btn-primary shrink-0"
               @click="handleClearDebt(d)"
             >
               <i class="bi bi-wallet2" aria-hidden="true"></i>
               เคลียร์หนี้
             </button>
-            <span v-else class="chip bg-stone-100 text-stone-500">
+            <span v-else class="chip shrink-0 bg-stone-100 text-stone-500">
               <i class="bi bi-lock" aria-hidden="true"></i>
               รอแอดมินดำเนินการ
             </span>
@@ -339,16 +339,22 @@ onMounted(() => {
             <label
               v-for="debt in studentDebts"
               :key="debt.payment_id"
-              class="flex cursor-pointer items-center gap-3 rounded-2xl border p-4 transition-colors md:gap-4"
+              class="relative flex cursor-pointer items-center gap-3 rounded-2xl border p-4 transition-colors md:gap-4"
               :class="
                 selectedPaymentIds.includes(debt.payment_id)
                   ? 'border-brand-200 bg-brand-50'
                   : 'border-stone-200 bg-white hover:border-stone-300'
               "
             >
-              <!-- ช่องทำเครื่องหมาย (ซ่อน input จริงไว้) -->
+              <!-- ช่องทำเครื่องหมาย: input จริงซ่อนแบบ sr-only เพื่อให้ยังโฟกัสด้วยคีย์บอร์ดได้ -->
+              <input
+                v-model="selectedPaymentIds"
+                type="checkbox"
+                :value="debt.payment_id"
+                class="peer sr-only"
+              />
               <span
-                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors"
+                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
                 :class="
                   selectedPaymentIds.includes(debt.payment_id)
                     ? 'border-brand-700 bg-brand-700'
@@ -361,12 +367,6 @@ onMounted(() => {
                   aria-hidden="true"
                 ></i>
               </span>
-              <input
-                v-model="selectedPaymentIds"
-                type="checkbox"
-                :value="debt.payment_id"
-                class="hidden"
-              />
 
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-bold text-stone-900">{{ debt.title }}</p>
@@ -375,9 +375,9 @@ onMounted(() => {
                 </p>
               </div>
 
-              <div class="relative w-28 shrink-0 md:w-32">
+              <div class="relative w-32 shrink-0 sm:w-36">
                 <span
-                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3 text-sm font-bold text-stone-400"
+                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-2.5 text-sm font-bold text-stone-400"
                   aria-hidden="true"
                 >
                   ฿
@@ -387,7 +387,7 @@ onMounted(() => {
                   type="number"
                   :disabled="!selectedPaymentIds.includes(debt.payment_id)"
                   :aria-label="`ยอดรับเงิน ${debt.title}`"
-                  class="field num ps-7 text-right"
+                  class="field num ps-6 pe-1.5 text-right"
                 />
               </div>
             </label>
@@ -418,7 +418,7 @@ onMounted(() => {
         </div>
 
         <div
-          class="flex shrink-0 flex-col gap-3 border-t border-stone-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6"
+          class="flex shrink-0 flex-col gap-3 border-t border-stone-200 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:pt-4 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
         >
           <div class="flex items-center justify-between gap-3 sm:block">
             <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">

@@ -71,11 +71,11 @@ function confirmAdd() {
     <Transition name="fade">
       <div
         v-if="open"
-        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 p-3 md:items-center md:p-4"
+        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:items-center md:px-4 md:py-4"
         @click.self="emit('close')"
       >
         <div
-          class="max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-5 sm:p-6 md:max-w-lg"
+          class="max-h-[85dvh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-4 sm:p-6 md:max-w-lg"
         >
           <!-- Header -->
           <div class="mb-4 flex items-start justify-between gap-3">
@@ -84,13 +84,11 @@ function confirmAdd() {
                 <i class="bi bi-person-plus-fill shrink-0 text-brand-700" aria-hidden="true"></i>
                 เพิ่มนักเรียนเข้ากิจกรรม
               </h4>
-              <p class="mt-1 text-xs leading-relaxed text-stone-400">
-                นักเรียนในห้องที่ยังไม่ได้เข้าร่วมกิจกรรมนี้ — ติ๊กชื่อแล้วกดเพิ่ม
-              </p>
+              <p class="mt-0.5 text-xs leading-relaxed text-stone-500">ติ๊กชื่อแล้วกดเพิ่ม</p>
             </div>
             <button
               type="button"
-              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+              class="-me-1.5 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
               aria-label="ปิดหน้าต่าง"
               @click="emit('close')"
             >
@@ -116,7 +114,7 @@ function confirmAdd() {
           <div class="mb-3 flex items-center gap-2">
             <button
               type="button"
-              class="chip bg-brand-50 px-3 py-1.5 text-brand-700 transition-colors hover:bg-brand-100 active:scale-[0.97]"
+              class="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-brand-50 px-3 text-xs font-bold text-brand-700 transition-colors hover:bg-brand-100 active:scale-[0.97]"
               @click="selectAll"
             >
               <i class="bi bi-check-all" aria-hidden="true"></i> เลือกทั้งหมด
@@ -124,7 +122,7 @@ function confirmAdd() {
             <button
               v-if="selected.size > 0"
               type="button"
-              class="chip bg-stone-100 px-3 py-1.5 text-stone-600 transition-colors hover:bg-stone-200 active:scale-[0.97]"
+              class="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-stone-100 px-3 text-xs font-bold text-stone-600 transition-colors hover:bg-stone-200 active:scale-[0.97]"
               @click="clearAll"
             >
               <i class="bi bi-x-lg" aria-hidden="true"></i> ล้าง
@@ -142,18 +140,16 @@ function confirmAdd() {
             v-else-if="filtered.length === 0"
             variant="empty"
             :icon="props.students.length === 0 ? 'bi-people' : 'bi-search'"
-            :title="
-              props.students.length === 0 ? 'ทุกคนในห้องเข้ากิจกรรมนี้แล้ว 🎉' : 'ไม่พบนักเรียนที่ค้นหา'
-            "
+            :title="props.students.length === 0 ? 'ไม่มีนักเรียนให้เพิ่ม' : 'ไม่พบนักเรียนที่ค้นหา'"
             :hint="
               props.students.length === 0
-                ? 'ไม่มีนักเรียนเหลือให้เพิ่มเข้ากิจกรรมนี้'
+                ? 'ทุกคนอาจเข้าร่วมกิจกรรมนี้แล้ว หรือโหลดรายชื่อไม่สำเร็จ — ปิดแล้วเปิดใหม่เพื่อลองอีกครั้ง'
                 : 'ลองพิมพ์ชื่อ เลขที่ หรือชื่อเล่นใหม่อีกครั้ง'
             "
           />
 
           <!-- List -->
-          <div v-else class="max-h-72 space-y-2 overflow-y-auto overscroll-contain pe-1">
+          <div v-else class="space-y-2">
             <label
               v-for="s in filtered"
               :key="s.student_id"
@@ -184,9 +180,9 @@ function confirmAdd() {
             </label>
           </div>
 
-          <!-- Actions -->
+          <!-- Actions — sticky ให้ปุ่มหลักกดถึงเสมอแม้ลิสต์ยาว -->
           <div
-            class="mt-6 flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+            class="sticky bottom-0 -mx-4 mt-4 flex flex-col-reverse gap-2 border-t border-stone-100 bg-white px-4 pt-4 sm:-mx-6 sm:px-6"
           >
             <button type="button" class="btn-ghost-ui" @click="emit('close')">ยกเลิก</button>
             <button

@@ -397,7 +397,7 @@ const goToProfileSettings = async () => {
         class="z-20 shrink-0 border-b border-stone-200 bg-white"
         :style="{ paddingTop: 'env(safe-area-inset-top)' }"
       >
-        <div class="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
+        <div class="flex h-14 items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
           <!-- ซ้าย: โลโก้ (มือถือ) + breadcrumb -->
           <div class="flex min-w-0 items-center gap-2">
             <RouterLink
@@ -492,8 +492,14 @@ const goToProfileSettings = async () => {
       </header>
 
       <!-- เนื้อหา — scroll เกิดที่นี่ที่เดียว -->
+      <!--
+        ⚠️ ต้องใช้ sm:px-* / sm:pt-* ไม่ใช่ sm:p-* — เพราะ sm:p-6 จะเขียนทับ padding-bottom
+        ที่กันแท็บล่างไว้ และแท็บล่างซ่อนที่ lg: เท่านั้น (640–1023px ยังเห็นอยู่)
+        ถ้าเผลอใช้ sm:p-* แถวล่างสุดจะถูกแท็บล่างบังถาวรบน iPad / มือถือแนวนอน
+        (คอมเมนต์ HTML ต้องอยู่นอกแท็ก ห้ามแทรกระหว่าง attribute)
+      -->
       <main
-        class="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(env(safe-area-inset-bottom)+7rem)] focus:outline-none sm:p-6 lg:p-8 lg:pb-8"
+        class="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] focus:outline-none sm:px-6 sm:pt-6 lg:px-8 lg:pb-8 lg:pt-8"
       >
         <div class="page-wrap">
           <RouterView v-slot="{ Component, route: r }">
@@ -522,7 +528,7 @@ const goToProfileSettings = async () => {
           v-for="tab in bottomTabs.slice(0, 2)"
           :key="tab.path"
           :to="tab.path"
-          class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 transition-colors"
+          class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 transition-colors"
           :class="
             isItemActive(tab.path)
               ? 'text-brand-700'
@@ -530,7 +536,7 @@ const goToProfileSettings = async () => {
           "
           :aria-current="isItemActive(tab.path) ? 'page' : undefined"
         >
-          <i :class="['bi', tab.icon, 'text-xl']" aria-hidden="true"></i>
+          <i :class="['bi', tab.icon, 'text-lg']" aria-hidden="true"></i>
           <span class="text-[10px] font-bold">{{ tab.name }}</span>
         </RouterLink>
 
@@ -560,7 +566,7 @@ const goToProfileSettings = async () => {
           v-for="tab in bottomTabs.slice(2)"
           :key="tab.path"
           :to="tab.path"
-          class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 transition-colors"
+          class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 transition-colors"
           :class="
             isItemActive(tab.path)
               ? 'text-brand-700'
@@ -568,18 +574,18 @@ const goToProfileSettings = async () => {
           "
           :aria-current="isItemActive(tab.path) ? 'page' : undefined"
         >
-          <i :class="['bi', tab.icon, 'text-xl']" aria-hidden="true"></i>
+          <i :class="['bi', tab.icon, 'text-lg']" aria-hidden="true"></i>
           <span class="text-[10px] font-bold">{{ tab.name }}</span>
         </RouterLink>
 
         <!-- แท็บ 4: เพิ่มเติม -->
         <button
           type="button"
-          class="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-2 text-stone-400 transition-colors hover:text-stone-700"
+          class="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 text-stone-400 transition-colors hover:text-stone-700"
           :class="{ 'text-brand-700': isMoreSheetOpen }"
           @click="openMoreSheet"
         >
-          <i class="bi bi-three-dots text-xl" aria-hidden="true"></i>
+          <i class="bi bi-three-dots text-lg" aria-hidden="true"></i>
           <span class="text-[10px] font-bold">เพิ่มเติม</span>
         </button>
       </div>

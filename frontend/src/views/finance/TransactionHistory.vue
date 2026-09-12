@@ -113,13 +113,39 @@ const formatNumber = (num: number) => {
 
 const totalPages = computed(() => Math.ceil(totalCount.value / filters.value.limit));
 
+// หน้าต่างปุ่มแบ่งหน้า (แสดงผลเท่านั้น) — จำกัดไม่ให้ปุ่มล้นออกนอกจอมือถือ
+// ที่ 375px พื้นที่ใช้ได้จริงราว 330px จึงพอดีกับปุ่ม 44px จำนวน 6 ปุ่ม
+const visiblePages = computed(() => {
+  const total = totalPages.value;
+  if (total <= 6) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const start = Math.min(Math.max(currentPage.value - 2, 1), total - 5);
+  return Array.from({ length: 6 }, (_, i) => start + i);
+});
+
 onMounted(() => {
   fetchTransactions();
 });
 
-watch([currentPage, () => filters.value.limit], () => {
+watch(currentPage, () => {
   fetchTransactions();
 });
+
+// เปลี่ยน "จำนวนแถวต่อหน้า" แล้วจำนวนหน้าอาจลดลงจนหน้าเดิมไม่มีอยู่จริง
+// (เช่น 200 รายการ: limit 50 = 5 หน้า อยู่หน้า 5 แล้วเปลี่ยนเป็น 100 = 2 หน้า
+//  offset ที่ส่งไปเกินช่วงข้อมูล → ได้ 0 แถว กลายเป็น "ไม่พบรายการ" ปลอม)
+// select ผูก v-model ตรง ๆ จึงไม่ผ่าน applyFilters ที่รีเซ็ตหน้าไว้แล้ว
+watch(
+  () => filters.value.limit,
+  () => {
+    if (currentPage.value !== 1) {
+      currentPage.value = 1; // ให้ watcher ของ currentPage เป็นคนดึงข้อมูล (ยิงครั้งเดียว)
+      return;
+    }
+    fetchTransactions();
+  }
+);
 
 const applyFilters = () => {
   currentPage.value = 1;
@@ -147,9 +173,13 @@ const resetFilters = () => {
       description="รายการรับ จ่าย และโอนเงินทั้งหมดของห้อง"
     >
       <template #actions>
-        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
+        <RouterLink
+          to="/finance"
+          class="btn-ghost-ui h-11 w-11 shrink-0 px-0"
+          title="กลับหน้าภาพรวม"
+          aria-label="กลับหน้าภาพรวม"
+        >
           <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าภาพรวม
         </RouterLink>
         <RouterLink v-if="isAdmin" to="/finance/transactions/add" class="btn-primary">
           <i class="bi bi-plus-lg" aria-hidden="true"></i>
@@ -160,8 +190,8 @@ const resetFilters = () => {
 
     <!-- ตัวกรอง -->
     <div class="page-card p-4 sm:p-5">
-      <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
+      <div class="grid grid-cols-2 items-end gap-3 lg:grid-cols-4">
+        <div class="col-span-2 sm:col-span-1">
           <label class="field-label" for="filterType">ประเภทรายการ</label>
           <select id="filterType" v-model="filters.type" class="field">
             <option value="">ทั้งหมด</option>
@@ -169,15 +199,15 @@ const resetFilters = () => {
             <option value="expense">รายจ่าย</option>
           </select>
         </div>
-        <div>
+        <div class="min-w-0">
           <label class="field-label" for="filterStart">จากวันที่</label>
           <input id="filterStart" v-model="filters.start_date" class="field" type="date" />
         </div>
-        <div>
+        <div class="min-w-0">
           <label class="field-label" for="filterEnd">ถึงวันที่</label>
           <input id="filterEnd" v-model="filters.end_date" class="field" type="date" />
         </div>
-        <div class="flex gap-2">
+        <div class="col-span-2 flex gap-2 sm:col-span-1">
           <button class="btn-primary flex-1" @click="applyFilters">ค้นหา</button>
           <button class="btn-ghost-ui flex-1" @click="resetFilters">ล้างค่า</button>
         </div>
@@ -185,7 +215,7 @@ const resetFilters = () => {
     </div>
 
     <!-- จำนวนผลลัพธ์ + จำนวนแถวต่อหน้า -->
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
       <p class="flex items-center gap-1.5 text-sm font-bold text-stone-500">
         พบข้อมูลทั้งหมด
         <span class="chip num bg-brand-50 text-brand-700">{{ totalCount }}</span>
@@ -193,7 +223,7 @@ const resetFilters = () => {
       </p>
       <div class="flex shrink-0 items-center gap-2">
         <span class="text-xs font-bold uppercase tracking-wider text-stone-400">แสดง</span>
-        <select v-model="filters.limit" class="field w-auto py-1.5" aria-label="จำนวนแถวต่อหน้า">
+        <select v-model="filters.limit" class="field w-auto" aria-label="จำนวนแถวต่อหน้า">
           <option :value="10">10 แถว</option>
           <option :value="50">50 แถว</option>
           <option :value="100">100 แถว</option>
@@ -258,7 +288,7 @@ const resetFilters = () => {
               </span>
               <button
                 v-else-if="isAdmin"
-                class="btn-danger px-3 py-2 text-xs"
+                class="btn-danger px-3"
                 aria-label="ยกเลิกรายการ"
                 @click="handleRevert(t)"
               >
@@ -345,10 +375,11 @@ const resetFilters = () => {
       <div v-if="totalPages > 1" class="flex justify-center">
         <div class="page-card flex flex-wrap justify-center gap-1 p-1.5">
           <button
-            v-for="page in totalPages"
+            v-for="page in visiblePages"
             :key="page"
             class="num h-11 min-w-[44px] rounded-lg px-2 text-sm font-bold transition-colors active:scale-[0.97]"
             :class="currentPage === page ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100'"
+            :aria-current="currentPage === page ? 'page' : undefined"
             @click="currentPage = page"
           >
             {{ page }}

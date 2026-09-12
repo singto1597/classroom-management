@@ -96,11 +96,11 @@ function handleSave() {
     <Transition name="fade">
       <div
         v-if="open && item"
-        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 p-3 md:items-center md:p-4"
+        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:items-center md:p-4"
         @click.self="emit('close')"
       >
         <div
-          class="max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-5 sm:p-6 md:max-w-xl"
+          class="max-h-[85dvh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-4 sm:p-6 md:max-w-xl"
         >
           <!-- Header -->
           <div class="mb-4 flex items-start justify-between gap-3">
@@ -109,14 +109,13 @@ function handleSave() {
                 <i class="bi bi-person-badge shrink-0 text-brand-700" aria-hidden="true"></i>
                 <span class="min-w-0 truncate">ข้อมูลเพิ่มเติม — {{ displayName(item) }}</span>
               </h4>
-              <p class="mt-1 text-xs leading-relaxed text-stone-400">
-                เลขที่ <span class="num">{{ item.student_no }}</span> ·
-                {{ readOnly ? 'ดูหน้าที่และข้อมูลของคนนี้' : 'ตั้งค่าหน้าที่และข้อมูลเฉพาะคนนี้' }}
+              <p class="mt-0.5 text-xs text-stone-500">
+                เลขที่ <span class="num">{{ item.student_no }}</span>
               </p>
             </div>
             <button
               type="button"
-              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+              class="me-1 mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
               aria-label="ปิดหน้าต่าง"
               @click="emit('close')"
             >
@@ -125,10 +124,12 @@ function handleSave() {
           </div>
 
           <!-- หน้าที่ -->
-          <div class="mb-5">
-            <label class="field-label flex items-center gap-1.5">
-              <i class="bi bi-diagram-3 text-stone-400" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
-            </label>
+          <div class="mb-4">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
+              <i class="bi bi-diagram-3 shrink-0 text-stone-400" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
+            </div>
             <!-- readOnly: แสดงเป็น text -->
             <template v-if="readOnly">
               <div
@@ -148,7 +149,12 @@ function handleSave() {
             </template>
             <!-- mode แก้ไข: select + input -->
             <div v-else class="flex flex-col gap-2 sm:flex-row">
-              <select v-model="dutyPosition" :disabled="!canManage" class="field min-w-0 flex-1">
+              <select
+                v-model="dutyPosition"
+                :disabled="!canManage"
+                class="field min-w-0 flex-1"
+                aria-label="หน้าที่/ตำแหน่ง"
+              >
                 <option value="">— ไม่มีหน้าที่ —</option>
                 <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
               </select>
@@ -163,10 +169,12 @@ function handleSave() {
           </div>
 
           <!-- Type B ข้อมูลที่จัดเก็บ -->
-          <div v-if="typeBFields.length > 0" class="mb-5">
-            <label class="field-label flex items-center gap-1.5">
-              <i class="bi bi-list-check text-stone-400" aria-hidden="true"></i> ข้อมูลที่จัดเก็บของกิจกรรมนี้
-            </label>
+          <div v-if="typeBFields.length > 0" class="mb-4">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
+              <i class="bi bi-list-check shrink-0 text-stone-400" aria-hidden="true"></i> ข้อมูลที่จัดเก็บของกิจกรรมนี้
+            </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div v-for="field in typeBFields" :key="field.key">
                 <label class="field-label">{{ field.label }}</label>
@@ -185,10 +193,12 @@ function handleSave() {
           </div>
 
           <!-- 🌟 Dynamic Fields (ฟิลด์เพิ่มเติมของกิจกรรมนี้) -->
-          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-5">
-            <label class="field-label flex items-center gap-1.5">
-              <i class="bi bi-puzzle text-stone-400" aria-hidden="true"></i> ฟิลด์เพิ่มเติมของกิจกรรมนี้
-            </label>
+          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-4">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
+              <i class="bi bi-puzzle shrink-0 text-stone-400" aria-hidden="true"></i> ฟิลด์เพิ่มเติมของกิจกรรมนี้
+            </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div v-for="field in dynamicFields" :key="field.key">
                 <label class="field-label">{{ field.label }}</label>
@@ -207,10 +217,12 @@ function handleSave() {
           </div>
 
           <!-- ข้อมูลเพิ่มเติม (หัวข้อ+ค่า) -->
-          <div class="mb-5">
-            <label class="field-label flex items-center gap-1.5">
-              <i class="bi bi-asterisk text-stone-400" aria-hidden="true"></i> ข้อมูลเพิ่มเติมเฉพาะคนนี้
-            </label>
+          <div class="mb-4">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
+              <i class="bi bi-asterisk shrink-0 text-stone-400" aria-hidden="true"></i> ข้อมูลเพิ่มเติมเฉพาะคนนี้
+            </div>
             <ExtraInfoRows
               :rows="customFields"
               compact
@@ -226,10 +238,12 @@ function handleSave() {
           </div>
 
           <!-- Type A (🔒 จากโปรไฟล์) -->
-          <div v-if="typeAFields.length > 0" class="mb-5">
-            <label class="field-label flex items-center gap-1.5">
-              <i class="bi bi-lock-fill text-stone-400" aria-hidden="true"></i> จากโปรไฟล์ส่วนตัว (อ่านอย่างเดียว)
-            </label>
+          <div v-if="typeAFields.length > 0" class="mb-4">
+            <div
+              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
+            >
+              <i class="bi bi-lock-fill shrink-0 text-stone-400" aria-hidden="true"></i> จากโปรไฟล์ส่วนตัว (อ่านอย่างเดียว)
+            </div>
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div
                 v-for="field in typeAFields"
@@ -237,19 +251,23 @@ function handleSave() {
                 class="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2"
               >
                 <span class="shrink-0 text-[11px] font-semibold text-stone-500">{{ field.label }}</span>
-                <span class="min-w-0 truncate text-xs font-bold text-stone-700">{{
-                  String(profileValue(field) ?? '—')
-                }}</span>
+                <span
+                  class="min-w-0 break-words text-end text-xs font-bold leading-snug text-stone-700"
+                  :title="String(profileValue(field) ?? '—')"
+                >
+                  {{ String(profileValue(field) ?? '—') }}
+                </span>
               </div>
             </div>
-            <p class="mt-1.5 text-[11px] leading-relaxed text-stone-400">
-              🔒 ข้อมูลนี้อัปเดตได้ที่หน้าโปรไฟล์ของนักเรียน ไม่ถูกบันทึกลงกิจกรรมนี้
+            <p class="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-stone-500">
+              <i class="bi bi-lock-fill shrink-0 text-stone-400" aria-hidden="true"></i>
+              <span>ข้อมูลนี้อัปเดตได้ที่หน้าโปรไฟล์ของนักเรียน ไม่ถูกบันทึกลงกิจกรรมนี้</span>
             </p>
           </div>
 
           <!-- Actions -->
           <div
-            class="mt-2 flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+            class="mt-3 flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4"
           >
             <button type="button" class="btn-ghost-ui" @click="emit('close')">ปิด</button>
             <button

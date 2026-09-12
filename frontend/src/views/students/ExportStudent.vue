@@ -214,9 +214,11 @@ const handleExport = async () => {
       <div class="space-y-4 xl:col-span-7">
         <section v-for="cat in exportSchema" :key="cat.id" class="page-card overflow-hidden">
 
-          <!-- Category Header -->
-          <div
-            class="flex cursor-pointer select-none items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 transition-colors hover:bg-stone-100 sm:px-5"
+          <!-- Category Header (เป็นปุ่มจริงเพื่อให้กดด้วยคีย์บอร์ด/โปรแกรมอ่านจอได้) -->
+          <button
+            type="button"
+            class="flex w-full cursor-pointer select-none items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 text-left transition-colors hover:bg-stone-100 sm:px-5"
+            :aria-pressed="isCategoryAllSelected(cat)"
             @click="toggleCategory(cat)"
           >
             <h3 class="flex min-w-0 items-center gap-2.5">
@@ -238,7 +240,7 @@ const handleExport = async () => {
               <i v-if="isCategoryAllSelected(cat)" class="bi bi-check-lg text-sm font-black text-white" aria-hidden="true"></i>
               <i v-else-if="isCategoryPartialSelected(cat)" class="bi bi-dash-lg text-sm font-black text-stone-600" aria-hidden="true"></i>
             </div>
-          </div>
+          </button>
 
           <!-- Fields -->
           <div class="flex flex-wrap gap-2 p-4 sm:p-5">
@@ -292,11 +294,11 @@ const handleExport = async () => {
           <!-- กล่องว่างเปล่า -->
           <div
             v-if="selectedColumns.length === 0"
-            class="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-stone-300 px-6 py-12 text-center"
+            class="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-stone-300 px-5 py-8 text-center sm:px-6 sm:py-12"
           >
             <i class="bi bi-cursor text-3xl text-stone-300" aria-hidden="true"></i>
-            <p class="text-sm leading-relaxed text-stone-500">
-              คลิกเลือกข้อมูลจากฝั่งซ้าย<br />เพื่อนำมาจัดลำดับที่นี่
+            <p class="text-sm leading-normal text-stone-500">
+              <span class="sm:hidden">แตะเลือกข้อมูลจากด้านล่าง</span><span class="hidden sm:inline">คลิกเลือกข้อมูลจากฝั่งซ้าย</span><br />เพื่อนำมาจัดลำดับที่นี่
             </p>
           </div>
 
@@ -315,8 +317,12 @@ const handleExport = async () => {
               <div class="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-white p-3 transition-colors hover:border-stone-300">
 
                 <div class="flex min-w-0 items-center gap-2.5">
-                  <!-- จุดจับลาก (Drag Handle) -->
-                  <div class="drag-handle -ms-1 shrink-0 cursor-grab p-1.5 text-stone-400 transition-colors hover:text-brand-700">
+                  <!-- จุดจับลาก (Drag Handle) — พื้นที่แตะ 44px ตามสัญญา DESIGN ข้อ 6 (-my-2 ไม่ให้แถวสูงขึ้น) -->
+                  <div
+                    class="drag-handle -my-2 -ms-1 flex h-11 w-11 shrink-0 cursor-grab items-center justify-center text-stone-400 transition-colors hover:text-brand-700"
+                    role="button"
+                    aria-label="ลากเพื่อจัดลำดับคอลัมน์"
+                  >
                     <i class="bi bi-grip-vertical text-lg" aria-hidden="true"></i>
                   </div>
 
@@ -327,10 +333,10 @@ const handleExport = async () => {
                   <span :class="[element.catColor, 'truncate text-sm font-bold tracking-wide']">{{ element.label }}</span>
                 </div>
 
-                <!-- ปุ่มลบ -->
+                <!-- ปุ่มลบ — พื้นที่แตะ 44px (-my-1.5 คุมความสูงแถวไม่ให้บวม) -->
                 <button
                   type="button"
-                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+                  class="-my-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
                   title="ลบออก"
                   aria-label="ลบออก"
                   @click.stop="toggleField(element, { color: element.catColor })"

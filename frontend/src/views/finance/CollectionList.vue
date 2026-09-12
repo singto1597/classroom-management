@@ -234,11 +234,11 @@ onMounted(() => {
       </button>
     </StateBlock>
 
-    <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div v-else class="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
       <div
         v-for="col in collections"
         :key="col.id"
-        class="page-card flex flex-col justify-between gap-4 border-s-4 p-4 sm:p-5"
+        class="page-card flex flex-col justify-between gap-3 border-s-4 p-4 sm:gap-4 sm:p-5"
         :class="col.status === 'active' ? 'border-s-brand-700' : 'border-s-stone-300'"
       >
         <div class="min-w-0">
@@ -282,7 +282,7 @@ onMounted(() => {
             ครบกำหนด {{ formatDate(col.due_date) }}
           </p>
 
-          <p class="mt-4 flex items-baseline gap-1">
+          <p class="mt-3 flex items-baseline gap-1 sm:mt-4">
             <span
               class="font-display num text-3xl font-bold tracking-tight"
               :class="col.status === 'active' ? 'text-brand-700' : 'text-stone-400'"
@@ -341,7 +341,7 @@ onMounted(() => {
               />
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="colAmount">ยอดเรียกเก็บ (฿)</label>
                 <div class="relative">
@@ -371,7 +371,7 @@ onMounted(() => {
 
           <div>
             <p class="field-label">ต้องการเรียกเก็บใครบ้าง?</p>
-            <div class="mb-4 grid grid-cols-2 gap-3">
+            <div class="mb-3 grid grid-cols-2 gap-3 sm:mb-4">
               <button
                 type="button"
                 class="flex flex-col items-center justify-center gap-1 rounded-xl border px-3 py-3 text-sm font-bold transition-colors active:scale-[0.97]"
@@ -408,7 +408,7 @@ onMounted(() => {
                 <div class="flex items-center gap-2">
                   <button
                     type="button"
-                    class="text-xs font-bold text-brand-700 hover:underline"
+                    class="inline-flex min-h-11 items-center text-xs font-bold text-brand-700 hover:underline"
                     @click="selectedStudentIds = studentsList.map((s) => s.id)"
                   >
                     เลือกทั้งหมด
@@ -416,7 +416,7 @@ onMounted(() => {
                   <span class="text-stone-300">|</span>
                   <button
                     type="button"
-                    class="text-xs font-bold text-stone-500 hover:underline"
+                    class="inline-flex min-h-11 items-center text-xs font-bold text-stone-500 hover:underline"
                     @click="selectedStudentIds = []"
                   >
                     ล้างทั้งหมด

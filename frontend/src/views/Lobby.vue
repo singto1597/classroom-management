@@ -94,6 +94,55 @@ const filteredRooms = computed(() => {
   );
 });
 
+// 🔎 แยกข้อความ empty state: "ยังไม่มีห้องเรียน" กับ "ค้นหาไม่เจอ"
+const isSearching = computed(() => searchQuery.value.trim().length > 0);
+
+// 🏷️ แปลง class_role (อังกฤษ) → ป้ายไทย ใช้ชุดเดียวกับหน้าอื่นในระบบ
+const ROLE_LABELS: Record<string, string> = {
+  student: 'นักเรียน',
+  president: 'หัวหน้าห้อง',
+  vice_president: 'รองหัวหน้าห้อง',
+  secretary: 'เลขานุการ (เรขา)',
+  vice_academic: 'รองวิชาการ',
+  vice_activity: 'รองกิจกรรม',
+  vice_discipline: 'รองระเบียบวินัย',
+  vice_reception: 'รองปฏิคม',
+  vice_pr: 'รองประชาสัมพันธ์',
+  vice_sanitation: 'รองสุขาภิบาล',
+  staff_academic: 'กรรมการวิชาการ',
+  staff_activity: 'กรรมการกิจกรรม',
+  staff_discipline: 'กรรมการระเบียบวินัย',
+  staff_reception: 'กรรมการปฏิคม',
+  staff_pr: 'กรรมการประชาสัมพันธ์',
+  staff_sanitation: 'กรรมการสุขาภิบาล',
+  treasurer: 'เหรัญญิก',
+  admin: 'ผู้ดูแลระบบ',
+};
+
+const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเรียน';
+
+// 🎨 ป้ายสถานะสมาชิกในห้อง (students.status) — เดิมขึ้นจุดเขียวเสมอแม้ยังไม่อนุมัติ
+type StatusMeta = { chip: string; icon: string; label: string };
+
+// สถานะที่ไม่รู้จัก/ถูกระงับ ใช้ป้ายกลาง ๆ ไม่ให้ป้ายหายไปทั้งอัน
+const STATUS_FALLBACK: StatusMeta = {
+  chip: 'bg-stone-100 text-stone-600',
+  icon: 'bi-slash-circle-fill',
+  label: 'ปิดใช้งาน',
+};
+
+const STATUS_META: Record<string, StatusMeta> = {
+  active: { chip: 'bg-emerald-50 text-emerald-700', icon: 'bi-check-circle-fill', label: 'ใช้งาน' },
+  pending: { chip: 'bg-amber-50 text-amber-700', icon: 'bi-clock-fill', label: 'รออนุมัติ' },
+  inactive: STATUS_FALLBACK,
+};
+
+const statusMeta = (status: string) => STATUS_META[status] ?? STATUS_FALLBACK;
+
+// 🙋 ชื่อผู้เชิญ — กันข้อความค้างเป็น "เชิญโดย" เปล่า ๆ เมื่อ backend ไม่มีชื่อ
+const inviterName = (invite: Invite) =>
+  [invite.added_by_first, invite.added_by_last].filter(Boolean).join(' ') || 'ผู้ดูแลห้อง';
+
 const selectRoom = (room: UserRoom) => {
   // 🎯 ยัดสิทธิ์ (is_admin, permissions) เข้า Store ตอนเลือกห้อง!
   authStore.setRoom(
@@ -224,10 +273,10 @@ const submitCreateRoom = async () => {
       description="เลือกห้องเรียนของคุณเพื่อเริ่มต้นการจัดการ หรือเข้าร่วมห้องใหม่ด้วยรหัสห้อง"
     >
       <template #actions>
-        <button type="button" class="btn-ghost-ui" @click="openJoinModal">
+        <button type="button" class="btn-ghost-ui flex-1 sm:flex-none" @click="openJoinModal">
           <i class="bi bi-door-open" aria-hidden="true"></i> เข้าห้องเรียน
         </button>
-        <button type="button" class="btn-primary" @click="showCreateModal = true">
+        <button type="button" class="btn-primary flex-1 sm:flex-none" @click="showCreateModal = true">
           <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างห้อง
         </button>
       </template>
@@ -241,22 +290,23 @@ const submitCreateRoom = async () => {
       <input
         v-model="searchQuery"
         type="text"
+        aria-label="ค้นหาห้องเรียน"
         placeholder="ค้นหาชื่อห้อง หรือ รหัส..."
         class="field ps-11"
       />
     </div>
 
     <!-- 🛡️ คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อให้ ต้องกดรับเองก่อน -->
-    <section v-if="invites.length > 0" class="space-y-3">
+    <section v-if="invites.length > 0" class="space-y-2.5">
       <div class="flex flex-wrap items-center gap-2">
         <h2 class="section-title">คำเชิญเข้าร่วมห้อง</h2>
         <span class="chip bg-amber-50 text-amber-700">{{ invites.length }} ฉบับ</span>
       </div>
 
       <div class="space-y-2.5">
-        <div v-for="invite in invites" :key="invite.invite_id" class="page-card p-4 sm:p-5">
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex min-w-0 items-start gap-3">
+        <div v-for="invite in invites" :key="invite.invite_id" class="page-card p-3.5 sm:p-5">
+          <div class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex min-w-0 items-start gap-2.5">
               <div
                 class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"
               >
@@ -265,8 +315,7 @@ const submitCreateRoom = async () => {
               <div class="min-w-0">
                 <p class="truncate font-bold text-stone-900">{{ invite.room_name }}</p>
                 <p class="num mt-0.5 truncate text-xs text-stone-500">
-                  เลขที่ {{ invite.student_no }} · เชิญโดย {{ invite.added_by_first || '' }}
-                  {{ invite.added_by_last || '' }}
+                  เลขที่ {{ invite.student_no }} · เชิญโดย {{ inviterName(invite) }}
                 </p>
                 <p class="mt-1 text-[11px] font-medium text-amber-600">
                   รับคำเชิญแล้วระบบจะเปิดข้อมูลส่วนตัวของคุณให้ห้องนี้ดู
@@ -285,7 +334,7 @@ const submitCreateRoom = async () => {
     <!-- ============================================ -->
     <!-- รายการห้อง — โหลด / ผิดพลาด / ว่าง / มีข้อมูล  -->
     <!-- ============================================ -->
-    <SkeletonRows v-if="isLoadingRooms" :rows="3" height="h-32" />
+    <SkeletonRows v-if="isLoadingRooms" :rows="3" height="h-40" />
 
     <StateBlock
       v-else-if="hasErrorRooms"
@@ -298,55 +347,62 @@ const submitCreateRoom = async () => {
     <StateBlock
       v-else-if="filteredRooms.length === 0"
       variant="empty"
-      title="ยังไม่มีห้องเรียน"
-      hint="คุณสามารถสร้างห้องใหม่ หรือขอรหัสเพื่อเข้าร่วมห้องได้เลย"
+      :title="isSearching ? 'ไม่พบห้องที่ค้นหา' : 'ยังไม่มีห้องเรียน'"
+      :hint="
+        isSearching
+          ? 'ลองพิมพ์ชื่อห้อง หรือรหัสห้องใหม่อีกครั้ง'
+          : 'คุณสามารถสร้างห้องใหม่ หรือขอรหัสเพื่อเข้าร่วมห้องได้เลย'
+      "
     />
 
-    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <div
+    <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+      <button
         v-for="room in filteredRooms"
         :key="room.room_id"
-        class="page-card card-hover cursor-pointer p-4 sm:p-5"
+        type="button"
+        class="page-card card-hover w-full p-4 text-left sm:p-5"
         @click="selectRoom(room)"
       >
         <div class="flex items-start justify-between gap-3">
           <div
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500"
           >
-            <i class="bi bi-buildings text-xl" aria-hidden="true"></i>
+            <i class="bi bi-buildings text-lg" aria-hidden="true"></i>
           </div>
 
           <!-- 🎯 โซนโชว์ป้าย (Role & Admin Badges) -->
           <div class="flex flex-wrap items-center justify-end gap-1.5">
-            <span class="chip bg-stone-100 text-stone-600">{{ room.role }}</span>
-            <span v-if="room.is_admin" class="chip bg-brand-50 text-brand-700">
-              <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ADMIN
+            <span class="chip shrink-0 bg-stone-100 text-stone-600">{{ roleLabel(room.role) }}</span>
+            <span v-if="room.is_admin" class="chip shrink-0 bg-brand-50 text-brand-700">
+              <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ผู้ดูแลระบบ
             </span>
             <span
               v-else-if="room.permissions && room.permissions.length > 0"
-              class="chip bg-sky-50 text-sky-700"
+              class="chip shrink-0 bg-sky-50 text-sky-700"
             >
-              <i class="bi bi-key-fill" aria-hidden="true"></i> STAFF
+              <i class="bi bi-key-fill" aria-hidden="true"></i> เจ้าหน้าที่
             </span>
           </div>
         </div>
 
-        <h3 class="font-display mt-4 truncate text-base font-bold text-stone-900">
+        <p class="font-display mt-3 truncate text-base font-bold text-stone-900">
           {{ room.room_name }}
-        </h3>
-        <p class="font-display num mt-1 flex items-center gap-1.5 truncate text-sm font-bold tracking-widest text-stone-500">
+        </p>
+        <p
+          class="font-display num mt-0.5 flex min-w-0 items-center gap-1.5 text-sm font-bold tracking-widest text-stone-500"
+        >
           <i class="bi bi-key shrink-0 text-stone-300" aria-hidden="true"></i>
-          {{ room.room_code || 'ไม่มีรหัส' }}
+          <span class="truncate">{{ room.room_code || 'ไม่มีรหัส' }}</span>
         </p>
 
-        <div class="mt-4 flex items-center justify-between gap-3 border-t border-stone-100 pt-3">
-          <span class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-stone-500">
-            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden="true"></span>
-            {{ room.status }}
+        <div class="mt-3 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5">
+          <span class="chip shrink-0" :class="statusMeta(room.status).chip">
+            <i class="bi" :class="statusMeta(room.status).icon" aria-hidden="true"></i>
+            {{ statusMeta(room.status).label }}
           </span>
           <i class="bi bi-arrow-right shrink-0 text-stone-300" aria-hidden="true"></i>
         </div>
-      </div>
+      </button>
     </div>
 
     <!-- ============================================ -->
@@ -357,18 +413,18 @@ const submitCreateRoom = async () => {
         v-if="showJoinModal"
         class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4"
       >
-        <div class="page-card w-full max-w-md max-h-[90vh] overflow-y-auto overscroll-contain p-5 sm:p-6">
+        <div class="page-card w-full max-w-md max-h-[90vh] overflow-y-auto overscroll-contain p-4 sm:p-6">
           <div
             class="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
           >
             <i class="bi bi-door-open-fill text-xl" aria-hidden="true"></i>
           </div>
-          <h2 class="font-display mt-4 text-xl font-bold text-stone-900">เข้าร่วมห้องเรียน</h2>
+          <h2 class="font-display mt-3 text-xl font-bold text-stone-900 sm:mt-4">เข้าร่วมห้องเรียน</h2>
           <p class="mt-1 text-sm leading-relaxed text-stone-500">
             กรอกรหัส 6 หลัก และตรวจสอบชื่อของคุณให้ตรงกับระบบเพื่อยืนยันตัวตน
           </p>
 
-          <form class="mt-5 space-y-4" @submit.prevent="submitJoinRoom">
+          <form class="mt-4 space-y-4" @submit.prevent="submitJoinRoom">
             <div>
               <label class="field-label" for="joinRoomCode">
                 รหัสเข้าห้อง <span class="text-red-500">*</span>
@@ -383,7 +439,7 @@ const submitCreateRoom = async () => {
               />
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
               <div class="sm:col-span-1">
                 <label class="field-label" for="joinStudentNo">
                   เลขที่ <span class="text-red-500">*</span>
@@ -411,7 +467,7 @@ const submitCreateRoom = async () => {
               <input id="joinLastName" v-model="joinForm.last_name" type="text" required class="field" />
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="joinFirstNameEn">
                   ชื่อจริง (อังกฤษ)
@@ -429,7 +485,7 @@ const submitCreateRoom = async () => {
             </div>
 
             <div
-              class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+              class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4"
             >
               <button type="button" class="btn-ghost-ui" @click="showJoinModal = false">ยกเลิก</button>
               <button type="submit" class="btn-primary">ยืนยันเข้าร่วม</button>
@@ -444,18 +500,18 @@ const submitCreateRoom = async () => {
         v-if="showCreateModal"
         class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4"
       >
-        <div class="page-card w-full max-w-md p-5 sm:p-6">
+        <div class="page-card w-full max-w-md p-4 sm:p-6">
           <div
             class="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
           >
             <i class="bi bi-plus-circle-fill text-xl" aria-hidden="true"></i>
           </div>
-          <h2 class="font-display mt-4 text-xl font-bold text-stone-900">สร้างห้องเรียนใหม่</h2>
+          <h2 class="font-display mt-3 text-xl font-bold text-stone-900 sm:mt-4">สร้างห้องเรียนใหม่</h2>
           <p class="mt-1 text-sm leading-relaxed text-stone-500">
             ตั้งชื่อห้องเรียนของคุณ ระบบจะสร้างรหัสสำหรับแชร์ให้นักเรียนอัตโนมัติ
           </p>
 
-          <form class="mt-5" @submit.prevent="submitCreateRoom">
+          <form class="mt-4" @submit.prevent="submitCreateRoom">
             <div>
               <label class="field-label" for="createRoomName">
                 ชื่อห้องเรียน <span class="text-red-500">*</span>
@@ -471,7 +527,7 @@ const submitCreateRoom = async () => {
             </div>
 
             <div
-              class="mt-5 flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end"
+              class="mt-4 flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4"
             >
               <button type="button" class="btn-ghost-ui" @click="showCreateModal = false">ยกเลิก</button>
               <button type="submit" class="btn-primary">สร้างห้อง</button>

@@ -50,22 +50,28 @@ function actionClass(isPresent: boolean): string {
 </script>
 
 <template>
-  <div class="page-card overflow-hidden transition-colors" :class="expanded ? 'ring-1 ring-brand-200' : ''">
+  <!-- การ์ดซ้อนใน page-card ของแม่แล้ว → ลดเป็นกล่องด้านในเส้นเดียว ไม่ให้เห็นกรอบซ้อนกรอบ -->
+  <div
+    class="overflow-hidden rounded-xl border border-stone-200 bg-white transition-colors"
+    :class="expanded ? 'ring-1 ring-brand-200' : ''"
+  >
     <!-- Header -->
-    <div class="flex items-center gap-2 px-3 py-3 sm:px-4">
+    <div class="flex items-center gap-2 px-3 py-2.5 sm:px-4">
       <button
         type="button"
-        class="flex min-w-0 flex-1 items-center gap-3 py-0.5 text-left"
+        :aria-expanded="expanded"
+        :aria-label="`${expanded ? 'ย่อ' : 'ขยาย'}แผ่นเช็คชื่อ ${sheet.title}`"
+        class="flex min-w-0 flex-1 items-center gap-2.5 py-1 text-left"
         @click="emit('toggleExpand')"
       >
         <div
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700"
         >
           <i class="bi bi-clipboard2-check" aria-hidden="true"></i>
         </div>
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-bold text-stone-900">{{ sheet.title }}</p>
-          <p class="mt-0.5 text-[11px] text-stone-400">
+          <p class="mt-0.5 text-xs text-stone-500">
             <span v-if="sheet.event_date">{{ formatDate(sheet.event_date) }} · </span>
             ตรวจแล้ว <b class="num text-emerald-600">{{ checkedCount }}</b>/<span class="num">{{ totalCount }}</span>
           </p>
@@ -97,19 +103,20 @@ function actionClass(isPresent: boolean): string {
         <SkeletonRows :rows="4" height="h-14" />
       </div>
 
-      <div
-        v-else-if="participants === null || participants.length === 0"
-        class="px-4 py-8 text-center text-sm text-stone-400"
-      >
+      <!-- โหลดไม่สำเร็จ (parent กลืน error แล้วปล่อย participants = null) — ต้องไม่โกหกว่าว่าง -->
+      <div v-else-if="participants === null" class="px-4 py-6 text-center text-sm text-stone-400">
+        โหลดรายชื่อไม่สำเร็จ — ลองย่อแล้วกดขยายอีกครั้ง
+      </div>
+
+      <div v-else-if="participants.length === 0" class="px-4 py-6 text-center text-sm text-stone-400">
         ยังไม่มีผู้เข้าร่วมในกิจกรรมนี้
       </div>
 
-      <div v-else class="space-y-2 p-3">
-        <div class="mb-1 flex justify-end">
+      <div v-else class="space-y-2 px-3 pb-3 pt-2">
+        <div v-if="canManage && checkedCount < totalCount" class="mb-1 flex sm:justify-end">
           <button
-            v-if="canManage && checkedCount < totalCount"
             type="button"
-            class="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-[11px] font-bold text-emerald-700 transition-colors hover:bg-emerald-100"
+            class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-100 sm:w-auto"
             @click="emit('markAllPresent')"
           >
             <i class="bi bi-check2-all" aria-hidden="true"></i> เช็คทั้งหมดว่า "มาแล้ว"
@@ -129,8 +136,8 @@ function actionClass(isPresent: boolean): string {
           </div>
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-bold text-stone-900">{{ displayName(p) }}</p>
-            <p v-if="p.checked_at" class="mt-0.5 text-[10px] text-stone-400">
-              เช็คเมื่อ
+            <p v-if="p.checked_at" class="mt-0.5 text-xs text-stone-500">
+              เช็ค
               {{ new Date(p.checked_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) }}
               น.
             </p>
@@ -139,7 +146,7 @@ function actionClass(isPresent: boolean): string {
             v-if="canManage"
             type="button"
             :disabled="loading"
-            class="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-xl border px-3 text-[11px] font-bold transition-colors active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50"
+            class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl border px-3 text-xs font-bold transition-colors active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50"
             :class="actionClass(p.is_present)"
             @click="emit('togglePresent', p.id, !p.is_present)"
           >

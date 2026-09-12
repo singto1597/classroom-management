@@ -10,9 +10,13 @@ const currentRoomCode = computed(() => {
   return authStore.currentRoomCode || 'N/A';
 });
 
+// ถ้าไม่ได้ตั้งค่า env ไว้ เดิมจะ fallback เป็น '#' ทำให้ปุ่มหลักกดแล้วเหมือนไม่มีอะไรเกิดขึ้น
+// (เบราว์เซอร์เลื่อนกลับขึ้นบนสุด) — แยกเป็นค่าว่างแล้วปิดปุ่มพร้อมบอกสาเหตุแทน
 const botInviteUrl = computed(() => {
-  return import.meta.env.VITE_DISCORD_BOT_INVITE_URL || '#';
+  return import.meta.env.VITE_DISCORD_BOT_INVITE_URL || '';
 });
+
+const hasBotInviteUrl = computed(() => botInviteUrl.value.length > 0);
 
 const copyRoomCode = async () => {
   try {
@@ -58,7 +62,7 @@ const copyRoomCode = async () => {
 
       <!-- ลำดับขั้นด้วยเลข font-display คั่นด้วยเส้น hairline ไม่ใช่การ์ดซ้อนการ์ด -->
       <ol class="divide-y divide-stone-100">
-        <li class="flex gap-3.5 p-4 sm:gap-4 sm:p-5">
+        <li class="flex gap-3 p-4 sm:gap-4 sm:p-5">
           <span
             class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 font-display text-sm font-bold text-brand-700"
             aria-hidden="true"
@@ -66,14 +70,13 @@ const copyRoomCode = async () => {
             1
           </span>
           <div class="min-w-0 flex-1">
-            <h2 class="font-display text-base font-bold text-stone-900">
-              เชิญบอทเข้าเซิร์ฟเวอร์ของคุณ
-            </h2>
+            <h2 class="section-title">เชิญบอทเข้าเซิร์ฟเวอร์ของคุณ</h2>
             <p class="mt-1 text-sm leading-relaxed text-stone-500">
               คลิกปุ่มด้านล่างเพื่อเพิ่มบอทลงในเซิร์ฟเวอร์ Discord
               ที่คุณต้องการรับการแจ้งเตือน
             </p>
             <a
+              v-if="hasBotInviteUrl"
               :href="botInviteUrl"
               target="_blank"
               rel="noopener noreferrer"
@@ -82,10 +85,20 @@ const copyRoomCode = async () => {
               <i class="bi bi-discord" aria-hidden="true"></i>
               เพิ่มบอทลง Discord
             </a>
+            <template v-else>
+              <button type="button" class="btn-primary mt-3" disabled>
+                <i class="bi bi-discord" aria-hidden="true"></i>
+                เพิ่มบอทลง Discord
+              </button>
+              <p class="mt-2 text-xs leading-relaxed text-amber-700">
+                <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>
+                ยังไม่ได้ตั้งค่าลิงก์เชิญบอทในระบบ กรุณาแจ้งผู้ดูแลระบบ
+              </p>
+            </template>
           </div>
         </li>
 
-        <li class="flex gap-3.5 p-4 sm:gap-4 sm:p-5">
+        <li class="flex gap-3 p-4 sm:gap-4 sm:p-5">
           <span
             class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 font-display text-sm font-bold text-brand-700"
             aria-hidden="true"
@@ -93,13 +106,13 @@ const copyRoomCode = async () => {
             2
           </span>
           <div class="min-w-0 flex-1">
-            <h2 class="font-display text-base font-bold text-stone-900">พิมพ์คำสั่งใน Discord</h2>
+            <h2 class="section-title">พิมพ์คำสั่งใน Discord</h2>
             <p class="mt-1 text-sm leading-relaxed text-stone-500">
               หลังจากเพิ่มบอทแล้ว ให้พิมพ์คำสั่งด้านล่างในช่องแชท
               (หรือ DM หาบอท) เพื่อเชื่อมต่อบัญชีของคุณกับห้องเรียน
             </p>
 
-            <div class="mt-3 space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-3.5">
+            <div class="mt-3 space-y-2.5 rounded-xl bg-stone-50 p-3.5">
               <div
                 class="overflow-x-auto whitespace-nowrap rounded-xl bg-stone-900 px-3.5 py-3 font-mono text-sm text-emerald-300"
               >
@@ -119,14 +132,14 @@ const copyRoomCode = async () => {
               </p>
             </div>
 
-            <div class="mt-3 flex flex-wrap items-center gap-2">
+            <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <span class="text-sm font-semibold text-stone-500">รหัสห้อง:</span>
               <code
-                class="min-w-0 truncate rounded-lg bg-stone-100 px-3 py-1.5 font-mono text-sm font-bold text-stone-800"
+                class="min-w-0 max-w-full self-start truncate rounded-lg bg-stone-100 px-3 py-1.5 font-mono text-sm font-bold text-stone-800"
               >
                 {{ currentRoomCode }}
               </code>
-              <button type="button" class="btn-ghost-ui ms-auto" @click="copyRoomCode">
+              <button type="button" class="btn-ghost-ui shrink-0 sm:ms-auto" @click="copyRoomCode">
                 <i class="bi bi-clipboard" aria-hidden="true"></i>
                 คัดลอก
               </button>
@@ -136,7 +149,7 @@ const copyRoomCode = async () => {
       </ol>
     </div>
 
-    <RouterLink to="/dashboard" class="btn-ghost-ui w-full">
+    <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
       <i class="bi bi-arrow-left" aria-hidden="true"></i>
       กลับสู่หน้าหลัก
     </RouterLink>

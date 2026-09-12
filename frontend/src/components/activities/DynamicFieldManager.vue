@@ -108,36 +108,46 @@ function removeField(def: DynamicFieldDef) {
 </script>
 
 <template>
-  <div>
+  <div class="space-y-3 sm:space-y-4">
     <!-- รายการฟิลด์ปัจจุบัน -->
-    <div v-if="defs.length > 0" class="mb-4 space-y-2">
+    <div v-if="defs.length > 0" class="space-y-2">
       <div
         v-for="def in defs"
         :key="def.key"
-        class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 transition-colors hover:bg-stone-50"
+        class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-1.5 transition-colors hover:bg-stone-50"
       >
-        <span class="num w-10 shrink-0 text-[11px] font-bold text-stone-400">{{ def.key }}</span>
+        <span class="num hidden w-10 shrink-0 text-[11px] font-bold text-stone-400 sm:block">{{
+          def.key
+        }}</span>
         <span class="min-w-0 flex-1">
           <span class="block truncate text-xs font-bold text-stone-700">{{ def.label }}</span>
-          <span class="mt-0.5 block text-[10px] text-stone-400">{{ TYPE_LABELS[def.type] }}</span>
+          <span class="mt-0.5 block text-xs text-stone-500">{{ TYPE_LABELS[def.type] }}</span>
         </span>
         <button
           type="button"
           @click="removeField(def)"
           title="ลบฟิลด์"
           aria-label="ลบฟิลด์"
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:h-9 sm:w-9"
         >
-          <i class="bi bi-x-lg text-sm" aria-hidden="true"></i>
+          <i class="bi bi-x-lg text-base sm:text-sm" aria-hidden="true"></i>
         </button>
       </div>
     </div>
-    <p v-else class="mb-4 text-xs text-stone-400">
-      ยังไม่มีฟิลด์เพิ่มเติม — กด "เพิ่มฟิลด์" เพื่อสร้างฟิลด์ที่ใช้กับผู้เข้าร่วมทุกคน
-    </p>
+    <div
+      v-else
+      class="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400"
+    >
+      ยังไม่มีฟิลด์เพิ่มเติม — กด "เพิ่มฟิลด์" เพื่อเริ่มต้น
+    </div>
 
     <!-- ปุ่มเพิ่มฟิลด์ -->
-    <button v-if="!showAddRow" type="button" class="btn-ghost-ui" @click="showAddRow = true">
+    <button
+      v-if="!showAddRow"
+      type="button"
+      class="btn-ghost-ui w-full sm:w-auto"
+      @click="showAddRow = true"
+    >
       <i class="bi bi-plus-lg" aria-hidden="true"></i> เพิ่มฟิลด์
     </button>
 

@@ -204,44 +204,44 @@ onMounted(fetchData)
       </template>
     </PageHeader>
 
-    <!-- ตัวกรองสถานะ -->
-    <div class="page-card p-1.5">
+    <!-- ตัวกรองสถานะ — ซ่อนระหว่างโหลด/ผิดพลาด ไม่ให้เห็นตัวเลข 0 หลอกตา -->
+    <div v-if="!isLoading && !hasError" class="page-card p-1.5">
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
           :class="filter === 'pending' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
           @click="filter = 'pending'"
         >
           กำลังทำ
           <span
-            class="num rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+            class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
             :class="filter === 'pending' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
           >{{ pendingCount }}</span>
         </button>
 
         <button
           type="button"
-          class="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
           :class="filter === 'done' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
           @click="filter = 'done'"
         >
           เสร็จแล้ว
           <span
-            class="num rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+            class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
             :class="filter === 'done' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
           >{{ doneCount }}</span>
         </button>
 
         <button
           type="button"
-          class="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
           :class="filter === 'all' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
           @click="filter = 'all'"
         >
           ทั้งหมด
           <span
-            class="num rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+            class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
             :class="filter === 'all' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
           >{{ tasks.length }}</span>
         </button>
@@ -255,29 +255,32 @@ onMounted(fetchData)
         <h2 class="section-title">โน้ตรายวันล่าสุด</h2>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div class="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
         <article
           v-for="note in notes.slice(0, 3)"
           :key="note.id"
-          class="page-card border-s-4 border-s-amber-400 p-4 sm:p-5"
+          class="page-card border-s-4 border-s-amber-400 p-3.5 sm:p-5"
         >
-          <span class="chip bg-amber-50 text-amber-700">
-            <i class="bi bi-calendar3" aria-hidden="true"></i>
-            {{ formatDueDate(note.target_date) }}
-          </span>
+          <!-- ป้ายวันอยู่ซ้าย ข้อความอยู่ขวา — การ์ดเตี้ยลงและใช้ความกว้างคุ้มขึ้นบนมือถือ -->
+          <div class="flex items-start gap-3">
+            <span class="chip shrink-0 bg-amber-50 text-amber-700">
+              <i class="bi bi-calendar3" aria-hidden="true"></i>
+              {{ formatDueDate(note.target_date) }}
+            </span>
 
-          <div class="mt-3 space-y-2.5">
-            <div class="flex items-start gap-2">
-              <i class="bi bi-backpack-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
-              <p class="min-w-0 text-sm leading-relaxed text-stone-600">
-                เตรียม: <span class="font-bold text-stone-900">{{ note.bring_items || '-' }}</span>
-              </p>
-            </div>
-            <div class="flex items-start gap-2">
-              <i class="bi bi-megaphone-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
-              <p class="min-w-0 text-sm leading-relaxed text-stone-600">
-                {{ note.announcement || 'ไม่มีประกาศ' }}
-              </p>
+            <div class="min-w-0 flex-1 space-y-1.5">
+              <div class="flex items-start gap-2">
+                <i class="bi bi-backpack-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
+                <p class="min-w-0 break-words text-sm leading-relaxed text-stone-600">
+                  เตรียม: <span class="font-bold text-stone-900">{{ note.bring_items || '-' }}</span>
+                </p>
+              </div>
+              <div class="flex items-start gap-2">
+                <i class="bi bi-megaphone-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
+                <p class="min-w-0 break-words text-sm leading-relaxed text-stone-600">
+                  {{ note.announcement || 'ไม่มีประกาศ' }}
+                </p>
+              </div>
             </div>
           </div>
         </article>
@@ -298,9 +301,14 @@ onMounted(fetchData)
       variant="empty"
       title="ยังไม่มีงานในหมวดหมู่นี้เลย"
       hint="พักผ่อนให้สบาย หรือเพิ่มงานใหม่เพื่อเริ่มต้นกันเถอะ!"
-    />
+    >
+      <RouterLink v-if="canManageTasks" to="/tasks/add" class="btn-primary mt-1">
+        <i class="bi bi-plus-lg" aria-hidden="true" />
+        สร้างงานใหม่
+      </RouterLink>
+    </StateBlock>
 
-    <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div v-else class="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
       <article
         v-for="task in filteredTasks"
         :key="task.id"
@@ -313,8 +321,9 @@ onMounted(fetchData)
             : '',
         ]"
       >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+          <!-- min-width ที่ sm: ทำให้ flex-wrap ทำงานจริง ป้ายสถานะจึงตกบรรทัดแทนที่จะบีบชื่องาน -->
+          <div class="min-w-0 flex-1 sm:min-w-[16rem]">
             <h3
               class="break-words font-display text-base font-bold leading-snug text-stone-900"
               :class="{ 'line-through text-stone-400': task.status === 'done' }"
@@ -335,7 +344,7 @@ onMounted(fetchData)
         </div>
 
         <p
-          class="mt-3 grow whitespace-pre-wrap text-sm leading-relaxed text-stone-600"
+          class="mt-3 grow whitespace-pre-wrap break-words text-sm leading-relaxed text-stone-600"
           :class="{ 'line-through text-stone-400': task.status === 'done' }"
         >
           {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
@@ -343,7 +352,7 @@ onMounted(fetchData)
 
         <div
           v-if="canManageTasks"
-          class="mt-4 flex items-center justify-between gap-2 border-t border-stone-100 pt-3.5"
+          class="mt-3 flex items-center justify-between gap-2 border-t border-stone-100 pt-3 sm:mt-4 sm:pt-3.5"
         >
           <button type="button" class="btn-ghost-ui" @click="toggleStatus(task)">
             <i
@@ -354,10 +363,10 @@ onMounted(fetchData)
             {{ task.status === 'done' ? 'ยกเลิก' : 'ติ๊กเสร็จ' }}
           </button>
 
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="flex shrink-0 items-center gap-2.5">
             <RouterLink
               :to="`/tasks/${task.id}/edit`"
-              class="btn-ghost-ui h-10 w-10 !p-0"
+              class="btn-ghost-ui h-11 w-11 !p-0"
               title="แก้ไข"
               aria-label="แก้ไขงาน"
             >
@@ -365,7 +374,7 @@ onMounted(fetchData)
             </RouterLink>
             <button
               type="button"
-              class="btn-danger h-10 w-10 !p-0"
+              class="btn-danger h-11 w-11 !p-0"
               title="ลบ"
               aria-label="ลบงาน"
               @click="deleteTask(task.id)"
@@ -375,13 +384,6 @@ onMounted(fetchData)
           </div>
         </div>
       </article>
-    </div>
-
-    <div class="flex justify-center">
-      <RouterLink to="/dashboard" class="btn-ghost-ui">
-        <i class="bi bi-house" aria-hidden="true"></i>
-        กลับหน้าหลัก
-      </RouterLink>
     </div>
   </div>
 </template>

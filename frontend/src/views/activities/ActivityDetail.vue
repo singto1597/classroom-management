@@ -348,22 +348,21 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
     <template v-else-if="activity">
       <!-- Header -->
       <div>
-        <router-link
-          to="/activities"
-          class="mb-2 inline-flex items-center gap-1.5 text-sm font-bold text-stone-400 transition-colors hover:text-brand-700"
-        >
-          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับรายการกิจกรรม
-        </router-link>
-
         <PageHeader
           eyebrow="Activity"
           :title="activity.title"
           description="รายละเอียดกิจกรรม ผู้เข้าร่วม และการเช็คอิน"
         >
           <template #actions>
+            <router-link to="/activities" class="btn-ghost-ui w-full sm:w-auto">
+              <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับรายการกิจกรรม
+            </router-link>
             <template v-if="canManage">
               <!-- ปุ่มหลัก: จัดการผู้เข้าร่วม -->
-              <router-link :to="`/activities/${activityId}/manage`" class="btn-primary">
+              <router-link
+                :to="`/activities/${activityId}/manage`"
+                class="btn-primary w-full sm:w-auto"
+              >
                 <i class="bi bi-sliders" aria-hidden="true"></i> จัดการผู้เข้าร่วม
               </router-link>
 
@@ -385,16 +384,14 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                     class="absolute right-0 top-12 z-30 w-56 origin-top-right overflow-hidden rounded-2xl border border-stone-200 bg-white py-1 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
                   >
                     <!-- เปลี่ยนสถานะ -->
-                    <p
-                      class="px-4 pb-1 pt-2.5 text-[10px] font-bold uppercase tracking-wider text-stone-400"
-                    >
+                    <p class="px-4 pb-1 pt-2.5 text-[11px] font-bold text-stone-500">
                       เปลี่ยนสถานะ
                     </p>
                     <button
                       v-for="(label, key) in ACTIVITY_STATUS_LABELS"
                       :key="key"
                       type="button"
-                      class="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm transition-colors"
+                      class="flex min-h-11 w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm transition-colors"
                       :class="
                         activity.status === key
                           ? 'bg-brand-50/60 font-bold text-brand-700'
@@ -422,14 +419,14 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                     <!-- แก้ไข / Export -->
                     <router-link
                       :to="`/activities/${activityId}/edit`"
-                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-50"
+                      class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-50"
                     >
                       <i class="bi bi-pencil-square text-stone-400" aria-hidden="true"></i>
                       แก้ไขกิจกรรม
                     </router-link>
                     <button
                       type="button"
-                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-50 disabled:opacity-50"
+                      class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-50 disabled:opacity-50"
                       :disabled="isExporting"
                       @click="exportExcel"
                     >
@@ -493,17 +490,17 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           <div v-if="activityInfoRows.length === 0" class="text-sm text-stone-400">
             ไม่มีข้อมูลเพิ่มเติม
           </div>
-          <!-- Grid แบบ Minimal: แต่ละรายการเป็นกล่องเล็ก (label ด้านบน, ค่าด้านล่าง) -->
-          <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <!-- Definition list แบบแน่น: label ซ้าย / ค่าขวา คั่นด้วยเส้นบาง -->
+          <dl v-else class="divide-y divide-stone-100">
             <div
               v-for="(row, i) in activityInfoRows"
               :key="i"
-              class="rounded-xl border border-stone-200 bg-stone-50/70 px-3.5 py-2.5"
+              class="flex flex-wrap items-baseline gap-x-3 py-2.5 first:pt-0 last:pb-0"
             >
-              <p class="mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+              <dt class="w-full text-xs font-bold text-stone-500 sm:w-32 sm:shrink-0">
                 {{ row.label }}
-              </p>
-              <div class="break-all text-sm text-stone-700">
+              </dt>
+              <dd class="min-w-0 flex-1 break-all text-sm text-stone-700">
                 <!-- ลิงก์แผนที่ -->
                 <a
                   v-if="row.kind === 'link'"
@@ -545,30 +542,27 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                 </span>
                 <!-- ข้อความปกติ -->
                 <span v-else>{{ infoValueDisplay(row) }}</span>
-              </div>
+              </dd>
             </div>
-          </div>
+          </dl>
         </div>
       </div>
 
       <!-- ผู้เข้าร่วม — การ์ดรายชื่อ (อ่านอย่างเดียว) -->
       <div class="page-card p-4 sm:p-5">
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 class="section-title flex min-w-0 items-center gap-2">
             <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i>
             <span class="truncate">ผู้เข้าร่วม ({{ activity.participants.length }})</span>
           </h2>
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="chip bg-emerald-50 text-emerald-700">
-              <i class="bi bi-check2-circle" aria-hidden="true"></i>
-              มาแล้ว {{ attendedCount }}/{{ activity.participants.length }}
-            </span>
-            <span v-if="canManage" class="chip bg-stone-100 text-stone-600">
-              <i class="bi bi-info-circle" aria-hidden="true"></i>
-              กด "ยังไม่มา" เพื่อเช็คอิน
-            </span>
-          </div>
+          <span class="chip shrink-0 bg-emerald-50 text-emerald-700">
+            <i class="bi bi-check2-circle" aria-hidden="true"></i>
+            มาแล้ว {{ attendedCount }}/{{ activity.participants.length }}
+          </span>
         </div>
+        <p v-if="canManage" class="mb-3 text-xs text-stone-400">
+          <i class="bi bi-info-circle me-1" aria-hidden="true"></i>กด "ยังไม่มา" เพื่อเช็คอิน
+        </p>
 
         <StateBlock
           v-if="activity.participants.length === 0"
