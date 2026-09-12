@@ -637,3 +637,89 @@
 - **Navigation:** เปลี่ยนเมนูมือถือจาก left-slide drawer เป็น **Bottom Tab Bar ลอย (5 ช่อง) + FAB กลาง + Bottom Sheet สำหรับเมนูที่เหลือ** — ลบ `md:` ของ sidebar เดิมเป็น `lg:` เพื่อให้แท็บเล็ตได้ tab bar ด้วย
 - **Rule:** (1) แก้หน้าตาทั้งระบบ = ตรึง token → ทำคลาสกลาง → ทำคอมโพเนนต์กลาง → เขียนสัญญา → ค่อยกระจายงาน (2) งานขนานต้องกำหนด "คำต้องห้าม" ให้ grep ได้เป็นรูปธรรม ไม่งั้น subagent ตีความคนละทาง (3) **ห้ามแตะ logic/ชื่อตัวแปร/service call/RBAC ระหว่างงานดีไซน์** — เปลี่ยนได้แค่หน้าตา (4) type-check + build ต้องผ่านหลังแปลง (5) ตรวจว่า pass ไม่ได้มาจาก cache: ลบ `node_modules/.tmp` แล้วรัน `npx vue-tsc --build --force`
 - **Date Added:** 2026-09-12
+
+### 📱 Frontend — บั๊คมือถือ 3 ตัวที่ "มองไม่เห็น" จนกว่าจะรู้กลไก: หัวข้อถูกบีบ, `sm:p-*` ทับระยะกันแท็บล่าง, และคอมเมนต์ในแท็ก
+- **Context/Problem:** ผู้ใช้รายงานว่า "ในโทรศัพท์หลายหน้ามันบั๊ค ตรงหัวข้อของแต่ละหน้า และข้อความต่างๆ ... หลายอย่างมันห่างกันเกินไป ทำให้ดูบวม" — อาการคือหัวข้อหน้าถูกบีบเป็นคอลัมน์แคบ ๆ เตี้ย ๆ ข้างปุ่ม (หัวข้อไทยยาว ๆ ขึ้นบรรทัดละ 1-2 ตัวอักษร) และหน้าที่มีระยะห่างเยอะอ่านแล้วโปร่งเกินไป
+- **Root Cause:**
+  1. **`flex-1` + `min-w-0` + `flex-wrap` = wrap ไม่มีวันทำงาน** — `PageHeader` เดิมเป็น `flex flex-wrap items-end justify-between gap-3` โดยกล่องหัวข้อเป็น `flex-1` (คือ `flex: 1 1 0%`) และกล่องปุ่มเป็น `shrink-0`
+     - `flex-wrap` ตัดสินใจขึ้นบรรทัดใหม่จาก **"outer hypothetical main size"** ซึ่งก็คือ flex-basis (ถูก clamp ด้วย min/max) **ไม่ใช่ความกว้างที่ข้อความต้องการจริง**
+     - `flex-1` ทำให้ basis = `0%` และ `min-w-0` ถอด `min-width:auto` ออก → ขนาดตามทฤษฎีของกล่องหัวข้อ = **0px**
+     - ดังนั้นผลรวมบรรทัด = `0 + ความกว้างปุ่ม + gap` ซึ่งแทบไม่เคยเกิน container → **wrap ไม่เคย trigger** เบราว์เซอร์จึงเหลือทางเดียวคือ "หด" กล่องหัวข้อ
+     - หน้าที่ส่งปุ่ม 2 ปุ่ม (เช่น `ManageActivity` = "ดูรายละเอียด" + "แก้ไขกิจกรรม" ≈ 313px) ทำให้กล่องหัวข้อเหลือ 343−12−313 = **18px** → ได้ริ้วตัวอักษรไทยสูง ~290px
+     - **บทเรียน:** `flex-wrap` ช่วยไม่ได้เลยถ้า item ที่ยืดหยุ่นมี basis 0 — ต้องให้มันมี "ความกว้างจริง" ก่อน (ใส่ `min-w-*` กลับ) wrap จึงจะทำงาน
+  2. **Tailwind variant layer ทับกันเงียบ ๆ** — `<main>` มีทั้ง `pb-[calc(env(safe-area-inset-bottom)+7rem)]` (base) และ `sm:p-6` ใน class list เดียวกัน
+     - Tailwind เรียงลำดับ base → `sm:` → `lg:` ดังนั้นที่ ≥640px `sm:p-6` **เขียนทับ padding-bottom** เหลือ 24px
+     - แต่แท็บล่างซ่อนที่ `lg:` (1024px) → ช่วง **640–1023px (iPad portrait, มือถือแนวนอน)** แท็บล่างยังอยู่ แต่พื้นที่กันไว้เหลือ 24px → **แถวล่างสุดของทุกหน้าถูกแท็บล่างบังถาวร เลื่อนหนีไม่ได้** เพราะ padding อยู่ใน scroll container
+     - **บทเรียน:** ห้ามใช้ shorthand (`p-*`) รวมกับ arbitrary value ของ property ย่อย (`pb-[...]`) ใน element เดียวกันถ้ามี breakpoint คั่น — ให้แยกเป็น `sm:px-*` / `sm:pt-*` แล้วปล่อย `pb-*` ไว้จนถึง breakpoint ที่องค์ประกอบนั้นหายจริง
+  3. **คอมเมนต์ HTML ใส่ในแท็กระหว่าง attribute ไม่ได้** — `<main <!-- ... --> class="...">` ทำให้ Vue compiler โยน `SyntaxError: Illegal '/' in tags` แล้ว **build ล้มทั้งโปรเจกต์** (ไม่ใช่แค่ไฟล์นั้น) ต้องวางคอมเมนต์บรรทัดใหม่ "ก่อน" แท็ก
+- **Correct Pattern/Solution:**
+  1. **มือถือต้องสลับเป็นคอลัมน์จริง ไม่ใช่พึ่ง wrap** — `PageHeader` ใช้ `flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between` ให้หัวข้อได้เต็มความกว้างก่อน แล้วปุ่มค่อยขึ้นบรรทัดใหม่เอง; ที่ `sm:` ต้องเติม `sm:min-w-[16rem]` ให้กล่องหัวข้อมี basis จริง เพื่อให้ `sm:flex-wrap` ทำงานได้จริงเมื่อปุ่มเยอะ
+  2. **สเกลตัวอักษรไล่ขึ้น ไม่กระโดด** — `.page-title` เปลี่ยนจาก `text-2xl sm:text-3xl` (24→30px) เป็น `text-[1.375rem] leading-snug sm:text-2xl lg:text-3xl` (22→24→30px)
+  3. **`eyebrow` ภาษาอังกฤษซ่อนบนมือถือ** (`hidden sm:block`) — ประหยัด ~21px ทุกหน้า และหัวข้อไทยต้องยืนได้ด้วยตัวเอง
+  4. **ปุ่มได้พื้นที่กดขั้นต่ำตามสัญญา** — เติม `min-h-11` (44px) ใน `.btn-primary` / `.btn-ghost-ui` / `.btn-danger` (เดิม `py-2.5` ให้แค่ 40px)
+  5. **ความบวมจริงอยู่ที่ "ระยะห่างใน/ระหว่างการ์ด" ไม่ใช่ระยะระหว่างการ์ด** — margin ของ `PageHeader` (`mb-4`) collapse กับ `space-y-4` ของ root view (view root เป็น block div ธรรมดา) ได้ `max(16,16)=16px` **ไม่มีการซ้อนกันเลย** → อย่าไปแก้ `space-y-*` ที่ root ให้ลด `p-*`/`mt-*`/`pt-*` **ภายในการ์ด** ลงหนึ่งขั้นบนมือถือแทน (`p-4 sm:p-5`, `mt-3 sm:mt-4`, `pt-3 sm:pt-4`)
+  6. **ความซ้ำคือต้นเหตุความบวมที่ใหญ่ที่สุด** — หน้าที่โชว์ค่าเดียวกัน 2-3 ที่ (บทบาท, ชื่อห้อง, รหัสห้อง) หรือมีลิสต์ทางลัดที่ซ้ำกับเมนูนำทาง ให้เหลือ "บ้านหลังเดียว" ต่อหนึ่งข้อเท็จจริง
+- **Rule:** (1) ตรวจ UI มือถือ = ต้องคิดที่ 375px และ **640–1023px** ด้วย ไม่ใช่แค่ 375 กับ desktop (2) อย่าดูแค่ "คลาสที่เขียน" ต้องไล่กลไก flex/ลำดับ layer ของ Tailwind จริง ๆ (3) `flex-wrap` ใช้ไม่ได้ถ้า item มี basis 0 (4) shorthand กับ property ย่อยใน element เดียวกัน = กับดัก (5) คอมเมนต์ HTML ต้องอยู่นอกแท็กเสมอ (6) ก่อนรายงานว่าเสร็จ ต้องรัน `npm run build` จริง — `type-check` ผ่านไม่ได้แปลว่าเทมเพลต parse ผ่าน
+- **Date Added:** 2026-09-12
+
+### 🧩 Frontend — แผนที่ lookup ใน Vue template (`Record<string, T>`) พัง type-check เพราะ `noUncheckedIndexedAccess`
+- **Context/Problem:** เพิ่มตัวช่วยแปลค่า enum → ป้าย (เช่น `statusMeta(status)` ที่คืน `{ chip, icon, label }` จาก `Record<string, StatusMeta>`) แล้วเรียกใช้ใน template แบบ `statusMeta(room.status).chip` — `vue-tsc` ล้มด้วย `error TS2532: Object is possibly 'undefined'` ที่ทุกบรรทัดที่เรียกใช้
+- **Root Cause:** `frontend/tsconfig.app.json` เปิด `noUncheckedIndexedAccess` ไว้ → ทุก index access (`MAP[key]`) มี type เป็น `T | undefined` **ไม่ใช่ `T`** ดังนั้น `STATUS_META[status] || STATUS_META.inactive` ที่เขียนเป็น fallback ก็ยังคืน `T | undefined` อยู่ดี เพราะฝั่งขวาของ `||` เองก็มาจาก index access (`MAP.inactive` ของ Record ที่ index ได้ = `T | undefined`)
+- **Correct Pattern/Solution:** แยก fallback ออกมาเป็น const ที่ "ไม่ผ่าน index" แล้วประกาศ type ให้ชัด
+  ```ts
+  type StatusMeta = { chip: string; icon: string; label: string }
+  const STATUS_FALLBACK: StatusMeta = { chip: 'bg-stone-100 text-stone-600', icon: 'bi-slash-circle-fill', label: 'ปิดใช้งาน' }
+  const STATUS_META: Record<string, StatusMeta> = { active: {...}, pending: {...}, inactive: STATUS_FALLBACK }
+  const statusMeta = (status: string) => STATUS_META[status] ?? STATUS_FALLBACK   // → StatusMeta แน่นอน
+  ```
+  ถ้าฝั่งขวาเป็น literal string / primitive อยู่แล้ว (เช่น `ROLE_LABELS[role] || role || 'นักเรียน'`) ไม่ต้องทำอะไร เพราะ union collapse เหลือ `string` เอง
+- **Rule:** (1) helper ที่อ่านจาก `Record<>` แล้วคืน object และถูกเรียกใน template → ต้องมี fallback ที่เป็น const ประกาศ type ไว้ ไม่ใช่ตัวที่ได้จาก index (2) `type-check` เป็นด่านแรกที่จับเรื่องนี้ ไม่ใช่ runtime — รัน `npx vue-tsc --noEmit -p tsconfig.app.json` หลังแก้ template ทุกครั้ง
+- **Date Added:** 2026-09-12
+
+### 📱 Frontend — `truncate` บน "ข้อมูลที่อ่านอย่างเดียว" = ซ่อนข้อมูลถาวรบนมือถือ
+- **Context/Problem:** ตอนจัดหน้าให้กระชับ มีการเติม `truncate` ให้ป้ายยาว ๆ เพื่อกันล้น ซึ่งถูกต้องสำหรับ "ชื่อรายการในลิสต์ที่กดเข้าไปดูเต็มได้" แต่ผิดสำหรับ "ค่าที่แสดงครั้งเดียวจบ" เช่น แถวข้อมูลส่วนตัวใน modal หรือตัวอย่างประกาศ — ข้อความที่ถูกตัดจะ **ไม่มีทางดูเต็มได้เลย** เพราะมือถือไม่มี hover (ไม่มี tooltip) และไม่มีหน้าไหนให้เข้าไปดูต่อ
+- **Root Cause:** `truncate` = `overflow:hidden; text-overflow:ellipsis; white-space:nowrap` ตัดสินที่ "บรรทัดเดียว" ไม่สนใจว่าผู้ใช้จะได้เห็นส่วนที่เหลือหรือไม่ — มันจึงปลอดภัยก็ต่อเมื่อ "ปลายทางอื่น" มีข้อมูลนั้นจริง
+- **Correct Pattern/Solution:** ถามว่า "ถ้าตัดแล้ว ผู้ใช้ไปดูเต็มได้ที่ไหน" ถ้าไม่มีคำตอบ → ใช้ `break-words` (หรือ `break-words leading-snug`) ให้ขึ้นบรรทัดใหม่แทน แลกความสูงของแถวกับความครบของข้อมูล
+  - เปลี่ยนจริงในรอบนี้: `ParticipantInfoModal` (แถวข้อมูลส่วนตัว) และ `SendMessage` (ตัวอย่างหัวข้อประกาศ) → `truncate` เป็น `break-words`
+  - ที่ยังคง `truncate` ไว้ถูกต้อง: ชื่อห้อง/ชื่อนักเรียนในลิสต์ เพราะกดเข้าไปดูหน้าถัดไปได้
+- **Rule:** `truncate` ใช้ได้กับ "ลิสต์ที่กดเข้าไปดูได้" เท่านั้น — ข้อมูลอ่านครั้งเดียวจบ (modal, ตัวอย่าง, KPI) ต้อง `break-words`
+- **Date Added:** 2026-09-12
+
+### 🤖 Process — แปล enum เดียวกันด้วยเอเจนต์ขนานกัน = ข้อความไม่ตรงกันข้ามหน้า
+- **Context/Problem:** งานนี้กระจายแก้ 42 ไฟล์ให้เอเจนต์หลายตัวพร้อมกัน แต่ละตัวต้อง "แปลค่า enum อังกฤษเป็นป้ายไทย" เอง ผลคือ **ค่าเดียวกันถูกแปลคนละแบบในคนละหน้า** โดยไม่มีใครผิด:
+  - `class_role = secretary` → `Lobby.vue` + `StudentList.vue` เขียน `'เลขานุการ'` แต่ `stores/auth.ts` + `StudentProfile.vue` + `RoadmapView.vue` เขียน `'เลขานุการ (เรขา)'`
+  - `students.status = inactive` → `Lobby.vue` เขียน `'ระงับการใช้งาน'` แต่ `StudentList.vue` เขียน `'ปิดใช้งาน'` (และร้าน filter ของ StudentList ผูกกับ `'ปิดใช้งาน'` ไปแล้ว)
+  - `students.status = active` → `'ใช้งานอยู่'` (Lobby) vs `'ใช้งาน'` (StudentList)
+  - chip `ADMIN` / `STAFF` ยังเป็นอังกฤษ ดิบ ๆ ข้างป้ายบทบาทไทยที่เพิ่งแปลเสร็จในหน้าเดียวกัน
+- **Root Cause:** `ROLE_LABELS` ถูกประกาศซ้ำ **6 ที่** ในโปรเจกต์ (`stores/auth.ts` ประกาศไว้แต่ **ไม่ export** จึงใช้ร่วมไม่ได้) → ไม่มี single source of truth ให้ทุกเอเจนต์อ้าง ทำให้การแปลขนานกันกลายเป็นการแปลอิสระ
+- **Correct Pattern/Solution:** หลังงานที่กระจายให้หลายเอเจนต์ **ต้องมีรอบเก็บกวาดข้อความข้ามไฟล์** — วิธีจับที่ได้ผลจริงคือ grep ตัวป้าย (ไม่ใช่ตัว enum) ทั้งโปรเจกต์แล้วเทียบ:
+  ```bash
+  grep -rn "เลขานุการ" src/            # เจอทั้ง 'เลขานุการ' และ 'เลขานุการ (เรขา)'
+  grep -rn "ปิดใช้งาน\|ระงับการใช้งาน" src/
+  grep -rn "> ADMIN\|> STAFF" src/     # จับ chip ที่ยังไม่แปล
+  ```
+  แล้วยึด "ฝั่งที่ข้อความอื่นผูกอยู่แล้ว" เป็นมาตรฐาน (เช่น StudentList มี filter ที่เขียน `'ปิดใช้งาน'` → ใช้ `'ปิดใช้งาน'`) ไม่ใช่ยึดฝั่งที่แก้ทีหลัง
+- **Rule:** (1) งานแปลข้อความที่กระจายหลายเอเจนต์ ต้องมี "รอบเก็บกวาดข้ามไฟล์" เป็นขั้นบังคับ ไม่ใช่หวังว่าแต่ละตัวจะตรงกันเอง (2) เวลาจะรวมข้อความที่ขัดกัน ให้ดูว่าฝั่งไหนมีโค้ดอื่นอ้างถึงอยู่แล้ว แล้วยึดฝั่งนั้น (3) ทางแก้ระยะยาวคือ export `ROLE_LABELS` จาก `stores/auth.ts` แล้วให้ทุกหน้า import — ตอนนี้ยังไม่ได้ทำเพราะเป็นการ refactor ที่แตะ store
+- **Date Added:** 2026-09-12
+
+### 📄 Frontend — เปลี่ยน "จำนวนแถวต่อหน้า" ต้องรีเซ็ต/หนีบ page ด้วย ไม่งั้นได้ "ไม่พบรายการ" ปลอม
+- **Context/Problem:** `TransactionHistory.vue` มี select จำนวนแถวต่อหน้าที่ผูก `v-model="filters.limit"` ตรง ๆ ผู้ใช้ที่อยู่หน้า 5 แล้วเปลี่ยน limit จาก 50 เป็น 100 จะเห็น **"ไม่พบรายการ"** ทั้งที่ข้อมูลมีอยู่
+- **Root Cause:** หน้าถูกคำนวณจาก `offset = (currentPage - 1) * limit` พอ limit โตขึ้น จำนวนหน้าจริงลดลง (200 แถว: 50/หน้า = 5 หน้า → 100/หน้า = 2 หน้า) แต่ `currentPage` ยังเป็น 5 → offset 400 เกินช่วงข้อมูล → backend คืน 0 แถวอย่างถูกต้อง แล้ว UI ตีความเป็น empty state
+- **จุดที่พลาดได้ง่าย:** ไฟล์นี้มี `applyFilters()` ที่ `currentPage.value = 1` อยู่แล้ว ทำให้ดูเหมือนปัญหาถูกจัดการแล้ว แต่ select **ไม่ได้เรียก `applyFilters`** — มันผูก `v-model` ตรง ๆ แล้วพึ่ง watcher รวม `watch([currentPage, () => filters.value.limit])` ซึ่งเปลี่ยน limit โดยไม่แตะ page
+- **Correct Pattern/Solution:** แยก watcher ของ limit ออกมา แล้วหนีบ page ก่อนดึงข้อมูล โดยให้ watcher ของ page เป็นคนดึง (กันยิงซ้ำสองรอบ)
+  ```ts
+  watch(currentPage, () => { fetchTransactions(); });
+
+  watch(
+    () => filters.value.limit,
+    () => {
+      if (currentPage.value !== 1) {
+        currentPage.value = 1; // watcher ของ currentPage จะดึงข้อมูลให้ (ยิงครั้งเดียว)
+        return;
+      }
+      fetchTransactions();
+    }
+  );
+  ```
+- **Rule:** ตัวควบคุมที่เปลี่ยน "ขนาดหน้า" (limit / per_page / page_size) ต้องรีเซ็ตหรือหนีบ page เสมอ และถ้ามี watcher รวมหลาย source ให้ตรวจว่าการเปลี่ยน source หนึ่งไม่ได้ทิ้ง source อื่นไว้ค่าเก่า
+- **Date Added:** 2026-09-12

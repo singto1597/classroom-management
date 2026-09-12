@@ -47,18 +47,11 @@ const editActivityId = computed(() =>
 
 const isLoading = ref(true)
 const isSaving = ref(false)
+const hasError = ref(false)
 
 const canManage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
 )
-
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
-})
 
 // ================================================================
 // 🏷️ โซน A — ข้อมูลกิจกรรม
@@ -66,7 +59,7 @@ const Toast = Swal.mixin({
 const form = ref({
   title: '',
   description: '',
-  activity_date: new Date().toISOString().slice(0, 10),
+  activity_date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date()),
   base_hours: 0,
   status: 'upcoming' as string,
 })
@@ -231,7 +224,12 @@ const saveInfoModal = (payload: {
   participantMeta.value = { ...participantMeta.value, [no]: payload.metadata }
   infoModalOpen.value = false
   infoModalKey.value = null
-  Toast.fire({ icon: 'success', title: 'บันทึกข้อมูลของนักเรียนคนนี้แล้ว (ยังไม่บันทึกกิจกรรม)' })
+  Swal.fire({
+    icon: 'success',
+    title: 'บันทึกข้อมูลของนักเรียนคนนี้แล้ว',
+    text: 'ยังไม่บันทึกกิจกรรม',
+    confirmButtonColor: '#1d4ed8',
+  })
 }
 
 // ================================================================
@@ -270,9 +268,11 @@ const applyBatch = (payload: { dutyPosition: string; typeB: Record<string, unkno
   dutyNote.value = { ...dutyNote.value }
   participantMeta.value = { ...participantMeta.value }
   batchModalOpen.value = false
-  Toast.fire({
+  Swal.fire({
     icon: 'success',
-    title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนแล้ว (ยังไม่บันทึก)`,
+    title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนแล้ว`,
+    text: 'ยังไม่บันทึกกิจกรรม',
+    confirmButtonColor: '#1d4ed8',
   })
 }
 
@@ -327,8 +327,9 @@ const applyInitial = () => {
   participantStatus.value = statuses
 }
 
-onMounted(async () => {
+const load = async () => {
   isLoading.value = true
+  hasError.value = false
   try {
     const list = await StudentService.getStudents(currentRoomId)
     students.value = (list as Student[]).filter((s) => s.status === 'active')
@@ -337,12 +338,15 @@ onMounted(async () => {
     }
     applyInitial()
   } catch (error: unknown) {
+    hasError.value = true
     const msg = error instanceof Error ? error.message : 'โหลดรายชื่อนักเรียนไม่สำเร็จ'
     Swal.fire('ข้อผิดพลาด', msg, 'error')
   } finally {
     isLoading.value = false
   }
-})
+}
+
+onMounted(load)
 
 // ================================================================
 // 🚀 Submit
@@ -482,9 +486,7 @@ const submit = async () => {
       eyebrow="Activity Setup"
       :title="mode === 'edit' ? 'แก้ไขกิจกรรม' : 'สร้างกิจกรรมใหม่'"
       :description="
-        mode === 'edit'
-          ? 'แก้ไขข้อมูลกิจกรรม ตำแหน่ง และผู้เข้าร่วมได้ทุกอย่าง'
-          : 'กรอกข้อมูลหัวกิจกรรม + เลือกฟิลด์ที่ต้องจัดเก็บ + เลือกผู้เข้าร่วม'
+        mode === 'edit' ? 'แก้ไขข้อมูลและผู้เข้าร่วม' : 'ตั้งค่ากิจกรรมและเลือกผู้เข้าร่วม'
       "
     >
       <template #actions>
@@ -504,8 +506,8 @@ const submit = async () => {
       <!-- ========== โซน A: ตั้งค่ากิจกรรม ========== -->
       <div class="min-w-0 space-y-4 sm:space-y-5 lg:col-span-2">
         <!-- ข้อมูลกิจกรรม -->
-        <section class="page-card p-5 sm:p-6">
-          <h2 class="section-title mb-4 flex items-center gap-2">
+        <section class="page-card p-4 sm:p-6">
+          <h2 class="section-title mb-3 flex items-center gap-2 sm:mb-4">
             <i class="bi bi-card-heading text-brand-700" aria-hidden="true"></i> ข้อมูลกิจกรรม
           </h2>
           <div class="space-y-4">
@@ -519,7 +521,7 @@ const submit = async () => {
                 class="field"
               />
             </div>
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="activityDate">วันที่ *</label>
                 <input id="activityDate" v-model="form.activity_date" type="date" class="field" />
@@ -560,7 +562,7 @@ const submit = async () => {
         </section>
 
         <!-- 🎖️ หน้าที่/ตำแหน่งของกิจกรรม -->
-        <section class="page-card p-5 sm:p-6">
+        <section class="page-card p-4 sm:p-6">
           <h2 class="section-title flex items-center gap-2">
             <i class="bi bi-diagram-3 text-brand-700" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
           </h2>
@@ -569,7 +571,7 @@ const submit = async () => {
             และตั้งค่าแบบกลุ่มได้ (เช่น หัวหน้ากลุ่ม, ทีมงาน, ฝ่ายทะเบียน)
           </p>
 
-          <div class="mt-4 flex gap-2">
+          <div class="mt-3 flex gap-2 sm:mt-4">
             <input
               v-model="newPosition"
               type="text"
@@ -585,61 +587,61 @@ const submit = async () => {
 
           <p
             v-if="positions.length === 0"
-            class="mt-4 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-4 py-4 text-center text-xs text-stone-400"
+            class="mt-3 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400 sm:mt-4"
           >
             ยังไม่มีตำแหน่ง — เพิ่มด้านบน หรือใช้ค่าเริ่มต้น
           </p>
-          <div v-else class="mt-4 flex flex-wrap gap-2">
+          <div v-else class="mt-3 flex flex-wrap gap-2 sm:mt-4">
             <div
               v-for="(pos, index) in positions"
               :key="pos"
-              class="inline-flex items-center gap-1 rounded-xl border border-brand-200 bg-brand-50 py-1 pe-1 ps-3 text-xs font-bold text-brand-700"
+              class="inline-flex items-center gap-0.5 rounded-xl border border-brand-200 bg-brand-50 py-0.5 pe-0.5 ps-3 text-xs font-bold text-brand-700"
             >
-              <span class="max-w-[10rem] truncate">{{ pos }}</span>
+              <span class="max-w-[6.5rem] truncate sm:max-w-[10rem]">{{ pos }}</span>
               <button
                 v-if="positions.length > 1"
                 type="button"
                 :disabled="index === 0"
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
                 title="เลื่อนขึ้น"
                 aria-label="เลื่อนตำแหน่งขึ้น"
                 @click="movePosition(index, -1)"
               >
-                <i class="bi bi-chevron-up text-[10px]" aria-hidden="true"></i>
+                <i class="bi bi-chevron-up text-xs" aria-hidden="true"></i>
               </button>
               <button
                 v-if="positions.length > 1"
                 type="button"
                 :disabled="index === positions.length - 1"
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
                 title="เลื่อนลง"
                 aria-label="เลื่อนตำแหน่งลง"
                 @click="movePosition(index, 1)"
               >
-                <i class="bi bi-chevron-down text-[10px]" aria-hidden="true"></i>
+                <i class="bi bi-chevron-down text-xs" aria-hidden="true"></i>
               </button>
               <button
                 type="button"
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600"
                 title="ลบตำแหน่ง"
                 aria-label="ลบตำแหน่ง"
                 @click="removePosition(index)"
               >
-                <i class="bi bi-x-lg text-[10px]" aria-hidden="true"></i>
+                <i class="bi bi-x-lg text-xs" aria-hidden="true"></i>
               </button>
             </div>
           </div>
         </section>
 
         <!-- 📝 ข้อมูลเพิ่มเติมของกิจกรรม (หัวข้อ + ค่า) -->
-        <section class="page-card p-5 sm:p-6">
+        <section class="page-card p-4 sm:p-6">
           <h2 class="section-title flex items-center gap-2">
             <i class="bi bi-asterisk text-brand-700" aria-hidden="true"></i> ข้อมูลเพิ่มเติมของกิจกรรม
           </h2>
           <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
             เพิ่มข้อมูลที่อยากให้คนเห็น เช่น สถานที่, ลิงก์แผนที่, กำหนดการ — แค่บอกหัวข้อกับค่า
           </p>
-          <div class="mt-4">
+          <div class="mt-3 sm:mt-4">
             <ExtraInfoRows
               :rows="activityMetaRows"
               :quick-add="ACTIVITY_META_QUICK_ADD"
@@ -657,12 +659,12 @@ const submit = async () => {
       <!-- ========== โซน B: ผู้เข้าร่วม ========== -->
       <div class="min-w-0 space-y-4 sm:space-y-5 lg:col-span-3">
         <!-- Field Selector -->
-        <section class="page-card p-5 sm:p-6">
+        <section class="page-card p-4 sm:p-6">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
               <h2 class="section-title flex items-center gap-2">
                 <i class="bi bi-list-check text-brand-700" aria-hidden="true"></i>
-                ข้อมูลที่ต้องการจัดเก็บของนักเรียน (Required Data)
+                ข้อมูลที่จัดเก็บของนักเรียน
               </h2>
               <p class="mt-1 text-xs leading-relaxed text-stone-500">
                 ติ๊กเลือกฟิลด์ → ผู้เข้าร่วมต้องกรอกข้อมูลเหล่านี้ ·
@@ -674,7 +676,7 @@ const submit = async () => {
             </span>
           </div>
 
-          <div v-for="cat in ACTIVITY_FIELD_CATEGORY_ORDER" :key="cat" class="mt-4">
+          <div v-for="cat in ACTIVITY_FIELD_CATEGORY_ORDER" :key="cat" class="mt-3 sm:mt-4">
             <h3
               class="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400"
             >
@@ -689,7 +691,7 @@ const submit = async () => {
               <label
                 v-for="field in ALL_ACTIVITY_FIELDS.filter((f) => f.category === cat)"
                 :key="field.key"
-                class="flex cursor-pointer select-none items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
+                class="flex cursor-pointer select-none items-start gap-2.5 rounded-xl border px-3 py-2 transition-colors sm:py-2.5"
                 :class="
                   requiredFields.has(field.key)
                     ? 'border-brand-200 bg-brand-50'
@@ -712,7 +714,7 @@ const submit = async () => {
                       aria-hidden="true"
                     ></i>
                   </span>
-                  <span class="mt-0.5 block truncate text-[10px] text-stone-400">{{
+                  <span class="mt-0.5 hidden truncate text-[10px] text-stone-400 sm:block">{{
                     field.hint || field.placeholder || ''
                   }}</span>
                 </span>
@@ -722,7 +724,7 @@ const submit = async () => {
         </section>
 
         <!-- เลือกผู้เข้าร่วม -->
-        <section class="page-card p-5 sm:p-6">
+        <section class="page-card p-4 sm:p-6">
           <h2 class="section-title flex items-center gap-2">
             <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i> เลือกผู้เข้าร่วม
           </h2>
@@ -732,13 +734,13 @@ const submit = async () => {
           </p>
 
           <div
-            class="mt-4 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700"
+            class="mt-3 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700 sm:mt-4"
           >
             <i class="bi bi-person-check-fill" aria-hidden="true"></i> เลือกแล้ว
             <span class="num">{{ selectedCount }}</span> คน
           </div>
 
-          <div class="mt-4">
+          <div class="mt-3 sm:mt-4">
             <ParticipantRosterList
               v-if="students.length > 0"
               :items="rosterItems"
@@ -756,6 +758,14 @@ const submit = async () => {
             />
 
             <StateBlock
+              v-else-if="hasError"
+              variant="error"
+              title="โหลดรายชื่อนักเรียนไม่สำเร็จ"
+              hint="ตรวจการเชื่อมต่อแล้วลองใหม่อีกครั้ง"
+              @retry="load"
+            />
+
+            <StateBlock
               v-else
               variant="empty"
               title="ยังไม่มีนักเรียนในห้องนี้"
@@ -767,7 +777,7 @@ const submit = async () => {
             v-if="typeBColumns.length === 0 && students.length > 0"
             class="mt-3 text-[11px] text-stone-400"
           >
-            ยังไม่ได้เลือกฟิลด์ Type B → ติ๊กในส่วน "Required Data" ด้านบน
+            ยังไม่ได้เลือกฟิลด์ Type B → ติ๊กในส่วน "ข้อมูลที่จัดเก็บของนักเรียน" ด้านบน
             แล้วผู้เข้าร่วมจะกรอกได้ในปุ่ม "ข้อมูลเพิ่มเติม"
           </p>
         </section>

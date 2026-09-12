@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth';
 import { updateMyProfile } from '@/services/auth';
 import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
 import * as ThaiAddressDB from 'thai-address-database';
 import type {
@@ -45,6 +46,7 @@ const form = ref({
 });
 
 const isSubmitting = ref(false);
+const isLoadingPage = ref(true);
 
 // ---------- Thai address autocomplete ----------
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -138,21 +140,30 @@ const selectAddress = (option: AddressOption) => {
 
 // ----------------------------------------------
 
-onMounted(async () => {
-  // 📥 ดึงโปรไฟล์ล่าสุดจาก Backend ก่อน Pre-fill เพื่อข้อมูลสดใหม่เสมอ
-  if (authStore.isAuthenticated) {
-    await authStore.fetchProfile();
-  }
+// 📥 ดึงโปรไฟล์ล่าสุดจาก Backend ก่อน Pre-fill เพื่อข้อมูลสดใหม่เสมอ
+// แล้วค่อย Pre-fill ข้อมูลทั้งหมดที่มีจาก authStore เพื่อลดการพิมพ์ซ้ำ
+const loadProfile = async () => {
+  try {
+    if (authStore.isAuthenticated) {
+      await authStore.fetchProfile();
+    }
 
-  // 📥 Pre-fill ข้อมูลทั้งหมดที่มีจาก authStore เพื่อลดการพิมพ์ซ้ำ
-  form.value.prefix = authStore.prefix ?? '';
-  form.value.first_name = authStore.firstName ?? '';
-  form.value.last_name = authStore.lastName ?? '';
-  form.value.first_name_en = authStore.firstNameEn ?? '';
-  form.value.last_name_en = authStore.lastNameEn ?? '';
-  form.value.nickname = authStore.nickname ?? '';
-  form.value.nickname_en = authStore.nicknameEn ?? '';
-  form.value.phone_number = authStore.phoneNumber ?? '';
+    form.value.prefix = authStore.prefix ?? '';
+    form.value.first_name = authStore.firstName ?? '';
+    form.value.last_name = authStore.lastName ?? '';
+    form.value.first_name_en = authStore.firstNameEn ?? '';
+    form.value.last_name_en = authStore.lastNameEn ?? '';
+    form.value.nickname = authStore.nickname ?? '';
+    form.value.nickname_en = authStore.nicknameEn ?? '';
+    form.value.phone_number = authStore.phoneNumber ?? '';
+  } finally {
+    // ปลดล็อกฟอร์มเสมอ แม้ดึงโปรไฟล์ไม่สำเร็จ (ฟอร์มยังกรอกเองได้ตามปกติ)
+    isLoadingPage.value = false;
+  }
+};
+
+onMounted(() => {
+  void loadProfile();
 });
 
 const submitProfile = async () => {
@@ -206,52 +217,22 @@ const submitProfile = async () => {
 <template>
   <!-- ⚠️ หน้านี้อยู่นอก MainLayout จึงต้องจัดระยะขอบเอง -->
   <div class="min-h-screen min-h-dvh bg-paper font-sans text-ink">
-    <div class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+    <div class="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-12">
       <PageHeader
         eyebrow="Profile Setup"
         title="ตั้งค่าโปรไฟล์ครั้งแรก"
-        description="ข้อมูลนี้จะถูกใช้เพื่อยืนยันตัวตนและผูกเข้ากับรายชื่อในห้องเรียน กรุณากรอกให้ตรงตามความจริง"
+        description="ใช้ยืนยันตัวตนกับรายชื่อในห้องเรียน กรอกให้ตรงตามความจริง"
       />
 
-      <!-- ลำดับหัวข้อ (แสดงผลอย่างเดียว) — คั่นด้วยเส้นบาง ไม่ใช่แถบสีทึบ -->
-      <div
-        class="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-y border-stone-200 py-3 sm:mb-6"
-        aria-hidden="true"
-      >
-        <div class="flex items-center gap-2">
-          <span
-            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700"
-          >
-            1
-          </span>
-          <span class="text-xs font-bold text-stone-600">ข้อมูลส่วนตัว</span>
-        </div>
-        <div class="hidden h-px w-6 shrink-0 bg-stone-200 sm:block"></div>
-        <div class="flex items-center gap-2">
-          <span
-            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700"
-          >
-            2
-          </span>
-          <span class="text-xs font-bold text-stone-600">ข้อมูลการติดต่อ</span>
-        </div>
-        <div class="hidden h-px w-6 shrink-0 bg-stone-200 sm:block"></div>
-        <div class="flex items-center gap-2">
-          <span
-            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-[11px] font-bold text-brand-700"
-          >
-            3
-          </span>
-          <span class="text-xs font-bold text-stone-600">ที่อยู่ปัจจุบัน</span>
-        </div>
-      </div>
+      <!-- โครงร่างระหว่างดึงโปรไฟล์ — กันไม่ให้ฟอร์มขึ้นว่างแล้วค่ากระโดดเข้ามาทีหลัง -->
+      <SkeletonRows v-if="isLoadingPage" :rows="7" height="h-16" />
 
-      <form class="space-y-4" @submit.prevent="submitProfile">
+      <form v-else class="space-y-4" @submit.prevent="submitProfile">
         <!-- ── ส่วนที่ 1: ข้อมูลส่วนตัว ── -->
-        <section class="page-card p-5 sm:p-6">
+        <section class="page-card p-4 sm:p-6">
           <h2 class="section-title border-b border-stone-100 pb-2.5">ข้อมูลส่วนตัว</h2>
 
-          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="mt-3 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
             <div class="sm:col-span-2">
               <label class="field-label" for="prefix">
                 คำนำหน้า <span class="text-red-500">*</span>
@@ -306,7 +287,7 @@ const submitProfile = async () => {
             <div>
               <label class="field-label" for="first_name_en">
                 ชื่อจริง (อังกฤษ)
-                <span class="font-normal text-stone-400">ไม่บังคับ</span>
+                <span class="font-normal text-stone-500">ไม่บังคับ</span>
               </label>
               <input
                 id="first_name_en"
@@ -319,7 +300,7 @@ const submitProfile = async () => {
             <div>
               <label class="field-label" for="last_name_en">
                 นามสกุล (อังกฤษ)
-                <span class="font-normal text-stone-400">ไม่บังคับ</span>
+                <span class="font-normal text-stone-500">ไม่บังคับ</span>
               </label>
               <input
                 id="last_name_en"
@@ -346,7 +327,7 @@ const submitProfile = async () => {
             <div>
               <label class="field-label" for="nickname_en">
                 ชื่อเล่น (อังกฤษ)
-                <span class="font-normal text-stone-400">ไม่บังคับ</span>
+                <span class="font-normal text-stone-500">ไม่บังคับ</span>
               </label>
               <input
                 id="nickname_en"
@@ -367,10 +348,10 @@ const submitProfile = async () => {
         </section>
 
         <!-- ── ส่วนที่ 2: ข้อมูลการติดต่อ ── -->
-        <section class="page-card p-5 sm:p-6">
+        <section class="page-card p-4 sm:p-6">
           <h2 class="section-title border-b border-stone-100 pb-2.5">ข้อมูลการติดต่อ</h2>
 
-          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="mt-3 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
             <div>
               <label class="field-label" for="phone_number">
                 เบอร์โทรศัพท์ <span class="text-red-500">*</span>
@@ -401,10 +382,10 @@ const submitProfile = async () => {
         </section>
 
         <!-- ── ส่วนที่ 3: ที่อยู่ปัจจุบัน ── -->
-        <section class="page-card p-5 sm:p-6">
+        <section class="page-card p-4 sm:p-6">
           <h2 class="section-title border-b border-stone-100 pb-2.5">ที่อยู่ปัจจุบัน</h2>
 
-          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="mt-3 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
             <div>
               <label class="field-label" for="address_house_no">
                 บ้านเลขที่/หมู่ <span class="text-red-500">*</span>
@@ -447,11 +428,13 @@ const submitProfile = async () => {
                 />
                 <ul
                   v-if="isAddressDropdownOpen && activeAddressField === 'address_sub_district'"
+                  role="listbox"
                   class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
                 >
                   <li
                     v-for="(option, idx) in addressSuggestions"
                     :key="idx"
+                    role="option"
                     class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
                     @mousedown.prevent="selectAddress(option)"
                   >
@@ -482,11 +465,13 @@ const submitProfile = async () => {
                 />
                 <ul
                   v-if="isAddressDropdownOpen && activeAddressField === 'address_district'"
+                  role="listbox"
                   class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
                 >
                   <li
                     v-for="(option, idx) in addressSuggestions"
                     :key="idx"
+                    role="option"
                     class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
                     @mousedown.prevent="selectAddress(option)"
                   >
@@ -517,11 +502,13 @@ const submitProfile = async () => {
                 />
                 <ul
                   v-if="isAddressDropdownOpen && activeAddressField === 'address_province'"
+                  role="listbox"
                   class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
                 >
                   <li
                     v-for="(option, idx) in addressSuggestions"
                     :key="idx"
+                    role="option"
                     class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
                     @mousedown.prevent="selectAddress(option)"
                   >
@@ -543,6 +530,8 @@ const submitProfile = async () => {
                   id="address_post_code"
                   v-model="form.address_post_code"
                   type="text"
+                  inputmode="numeric"
+                  maxlength="5"
                   required
                   placeholder="10110"
                   class="field"
@@ -552,11 +541,13 @@ const submitProfile = async () => {
                 />
                 <ul
                   v-if="isAddressDropdownOpen && activeAddressField === 'address_post_code'"
+                  role="listbox"
                   class="page-card absolute z-30 mt-2 max-h-60 w-full overflow-y-auto overscroll-contain border-stone-300"
                 >
                   <li
                     v-for="(option, idx) in addressSuggestions"
                     :key="idx"
+                    role="option"
                     class="cursor-pointer border-b border-stone-100 px-4 py-3 text-sm transition-colors last:border-b-0 hover:bg-stone-50"
                     @mousedown.prevent="selectAddress(option)"
                   >
@@ -572,14 +563,20 @@ const submitProfile = async () => {
         </section>
 
         <!-- ── ปุ่มยืนยัน: มือถือเต็มความกว้าง ── -->
-        <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:justify-end">
-          <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+        <div class="flex flex-col-reverse gap-2 border-t border-stone-200 pt-3 sm:flex-row sm:justify-end sm:pt-4">
+          <button
+            type="submit"
+            class="btn-primary w-full sm:w-auto"
+            :disabled="isSubmitting"
+            :aria-busy="isSubmitting"
+          >
             <span
               v-if="isSubmitting"
               class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
               aria-hidden="true"
             ></span>
-            <span v-else>บันทึกและเข้าสู่ระบบ <i class="bi bi-arrow-right" aria-hidden="true"></i></span>
+            <span>{{ isSubmitting ? 'กำลังบันทึก...' : 'บันทึกและเข้าสู่ระบบ' }}</span>
+            <i v-if="!isSubmitting" class="bi bi-arrow-right" aria-hidden="true"></i>
           </button>
         </div>
       </form>

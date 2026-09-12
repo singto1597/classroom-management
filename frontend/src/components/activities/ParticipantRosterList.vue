@@ -158,7 +158,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 <template>
   <div>
     <!-- Search + Toolbar -->
-    <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div class="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="relative w-full md:max-w-xs md:flex-1">
         <span
           class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 text-stone-400"
@@ -204,7 +204,11 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
       variant="empty"
       icon="bi-people"
       :title="emptyText || 'ไม่มีรายชื่อในรายการนี้'"
-      hint="ลองปรับคำค้นหา หรือเพิ่มนักเรียนเข้าร่วมกิจกรรมก่อน"
+      :hint="
+        searchQuery.trim()
+          ? 'ลองปรับคำค้นหา หรือสะกดชื่อให้ต่างออกไป'
+          : 'เพิ่มนักเรียนเข้าร่วมกิจกรรมก่อนเพื่อเริ่มต้น'
+      "
     />
 
     <template v-else>
@@ -370,16 +374,16 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
         <div
           v-for="item in filteredItems"
           :key="item.key"
-          class="page-card card-hover group p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 sm:p-4"
+          class="page-card group p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 sm:p-4"
           :class="[
+            readOnly ? 'card-hover cursor-pointer' : '',
             isSelected(item) ? 'border-brand-200 bg-brand-50/60' : '',
             isDisabled(item) ? 'opacity-70' : '',
-            readOnly ? 'cursor-pointer' : '',
           ]"
           :role="readOnly ? 'button' : undefined"
           :tabindex="readOnly ? 0 : undefined"
           @click="onCardClick(item)"
-          @keydown.enter="onCardKeydown($event, item)"
+          @keydown="onCardKeydown($event, item)"
         >
           <!-- แถวบน: เลขที่ + ชื่อ (min-w-0 → ชื่อไม่ถูกเบียดหาย) + ปุ่ม info + จุด 3 จุด -->
           <div class="flex items-center gap-2.5 sm:gap-3.5">
@@ -394,7 +398,12 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 
             <!-- เลขที่ badge (เล็กลงบนมือถือ ให้ชื่อมีที่) -->
             <div
-              class="num flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-stone-50 text-sm font-bold text-stone-600 transition-colors group-hover:border-brand-200 group-hover:bg-brand-50 group-hover:text-brand-700 sm:h-12 sm:w-12 sm:text-lg"
+              class="num flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-stone-50 text-sm font-bold text-stone-600 transition-colors sm:h-12 sm:w-12 sm:text-lg"
+              :class="
+                readOnly
+                  ? 'group-hover:border-brand-200 group-hover:bg-brand-50 group-hover:text-brand-700'
+                  : ''
+              "
             >
               {{ item.student_no }}
             </div>
@@ -407,9 +416,9 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                   :class="statusDot(item.status)"
                   aria-hidden="true"
                 ></span>
-                <h4 class="truncate text-sm font-bold text-stone-900 sm:text-[15px]">
+                <p class="truncate text-sm font-bold text-stone-900 sm:text-[15px]">
                   {{ item.prefix ? item.prefix + ' ' : '' }}{{ displayName(item) }}
-                </h4>
+                </p>
               </div>
               <div class="flex items-center gap-1.5 text-[11px] text-stone-400 sm:text-xs">
                 <span v-if="item.nickname || item.nickname_en" class="truncate">{{
@@ -429,7 +438,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="readOnly && showStatusToggle"
               type="button"
               @click.stop="emit('toggleStatus', item.key)"
-              class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border px-2.5 py-2 text-[11px] font-bold transition-colors active:scale-[0.97]"
+              class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-lg border px-3 py-2 text-xs font-bold transition-colors active:scale-[0.97] sm:text-[11px]"
               :class="actionClass(item.status)"
             >
               <i
@@ -448,7 +457,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               :disabled="isDisabled(item)"
               title="ข้อมูลเพิ่มเติม"
               aria-label="ข้อมูลเพิ่มเติม"
-              class="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-stone-200 bg-white text-stone-600 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97] sm:w-auto sm:px-3 sm:py-2"
+              class="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-stone-200 bg-white text-stone-600 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97] sm:h-auto sm:w-auto sm:px-3 sm:py-2"
             >
               <i class="bi bi-info-circle" aria-hidden="true"></i>
               <span class="hidden text-[11px] font-bold sm:inline">ข้อมูลเพิ่มเติม</span>
@@ -459,7 +468,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               <button
                 type="button"
                 @click.stop="toggleMenu(item.key, $event)"
-                class="flex h-9 w-9 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+                class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
                 aria-label="เมนูเพิ่มเติม"
               >
                 <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
@@ -495,7 +504,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
           <!-- mode แก้ไข (ActivityForm): select หน้าที่ + input หมายเหตุ -->
           <div
             v-else-if="!hideDutyEditor"
-            class="mt-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center"
+            class="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-row sm:items-center"
           >
             <select
               :value="dutyOf(item).position"
@@ -531,7 +540,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="showStatusToggle"
               type="button"
               @click="emit('toggleStatus', item.key)"
-              class="shrink-0 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors active:scale-[0.97]"
+              class="min-h-11 shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition-colors active:scale-[0.97]"
               :class="actionClass(item.status)"
             >
               {{ actionLabel(item.status) }}
@@ -540,7 +549,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="showRemove"
               type="button"
               @click="emit('remove', item.key)"
-              class="inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+              class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
             >
               <i class="bi bi-trash3" aria-hidden="true"></i> นำออก
             </button>

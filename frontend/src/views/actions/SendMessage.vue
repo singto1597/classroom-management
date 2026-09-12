@@ -6,6 +6,7 @@ import { ActionService } from '@/services/action';
 import { ClassroomService } from '@/services/classroom';
 import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
 const router = useRouter();
@@ -23,13 +24,18 @@ const canSendMessage = computed(
 const isDiscordLinked = ref(false);
 const isLoadingRoom = ref(true);
 
+// แยก "ตรวจสอบไม่สำเร็จ" ออกจาก "ยืนยันแล้วว่าไม่ได้ผูก" — เดิม catch เงียบทำให้ขึ้นการ์ด
+// "ยังไม่ได้เชื่อมต่อ" ทั้งที่ระบบไม่เคยรู้จริง ๆ
+const hasError = ref(false);
+
 const fetchRoomStatus = async () => {
   isLoadingRoom.value = true;
+  hasError.value = false;
   try {
     const roomData = await ClassroomService.getRoomData(currentRoomId);
     isDiscordLinked.value = !!roomData?.server_id;
   } catch {
-    // เก็บค่าเริ่มต้น (false) ไว้ — การ์ดจะชี้ไปหน้าเชื่อมต่อ Discord
+    hasError.value = true;
   } finally {
     isLoadingRoom.value = false;
   }
@@ -111,6 +117,14 @@ const handleSend = async () => {
     <!-- ⚠️ สถานะการผูก Discord ของห้อง -->
     <SkeletonRows v-if="isLoadingRoom" :rows="1" height="h-20" />
 
+    <StateBlock
+      v-else-if="hasError"
+      variant="error"
+      title="ตรวจสอบสถานะ Discord ไม่สำเร็จ"
+      hint="ไม่สามารถดึงข้อมูลห้องได้ในขณะนี้"
+      @retry="fetchRoomStatus"
+    />
+
     <div
       v-else-if="!isDiscordLinked"
       class="page-card flex items-start gap-3 border-amber-200 bg-amber-50 p-4 sm:gap-4 sm:p-5"
@@ -151,9 +165,9 @@ const handleSend = async () => {
 
     <div class="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3">
       <!-- ฟอร์ม -->
-      <div class="page-card p-5 sm:p-6 lg:col-span-2">
+      <div class="page-card p-4 sm:p-6 lg:col-span-2">
         <form class="space-y-4" @submit.prevent="handleSend">
-          <div class="flex items-center gap-3 border-b border-stone-100 pb-4">
+          <div class="flex items-center gap-3 border-b border-stone-100 pb-3 sm:pb-4">
             <div
               class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
             >
@@ -188,7 +202,7 @@ const handleSend = async () => {
               :disabled="!canSendMessage"
               v-model="messageForm.message"
               maxlength="2000"
-              class="field h-40 resize-none"
+              class="field h-32 resize-none sm:h-40"
               placeholder="รายละเอียดประกาศ เช่น วันเวลา สถานที่ หรือสิ่งที่ต้องเตรียม..."
               required
             ></textarea>
@@ -210,17 +224,16 @@ const handleSend = async () => {
             />
           </div>
 
-          <div class="border-t border-stone-100 pt-4">
+          <div class="border-t border-stone-100 pt-3 sm:pt-4">
             <template v-if="canSendMessage">
               <button type="submit" class="btn-primary w-full" :disabled="isSubmitting">
                 <span
                   v-if="isSubmitting"
-                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                  class="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                  aria-hidden="true"
                 ></span>
-                <template v-else>
-                  <i class="bi bi-send-fill" aria-hidden="true"></i>
-                  ส่งประกาศไป Discord
-                </template>
+                <i v-else class="bi bi-send-fill" aria-hidden="true"></i>
+                {{ isSubmitting ? 'กำลังส่งประกาศ...' : 'ส่งประกาศไป Discord' }}
               </button>
             </template>
             <div
@@ -235,10 +248,10 @@ const handleSend = async () => {
       </div>
 
       <!-- ตัวอย่างที่จะปรากฏใน Discord -->
-      <div class="page-card h-fit p-4 sm:p-5">
-        <p class="eyebrow mb-3">ตัวอย่างประกาศ</p>
+      <div class="page-card order-first h-fit p-4 sm:p-5 lg:order-none">
+        <p class="mb-2 text-[11px] font-bold text-stone-400">ตัวอย่างประกาศ</p>
         <div class="rounded-xl border-s-4 border-s-brand-700 bg-stone-50 p-3.5">
-          <p class="min-w-0 truncate font-display text-sm font-bold text-stone-900">
+          <p class="min-w-0 break-words font-display text-sm font-bold text-stone-900">
             {{ messageForm.title || 'หัวข้อประกาศ' }}
           </p>
           <p

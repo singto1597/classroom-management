@@ -236,7 +236,7 @@ onMounted(() => {
         </template>
         <div
           v-else
-          class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-bold text-stone-400"
+          class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-bold text-stone-600"
         >
           <i class="bi bi-lock-fill" aria-hidden="true"></i> สิทธิ์จำกัด
         </div>
@@ -257,12 +257,12 @@ onMounted(() => {
             ผู้ดูแลระบบ (Admin Zone)
           </h2>
           <span class="chip shrink-0 bg-red-50 text-red-700">
-            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Danger Zone
+            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> โซนอันตราย
           </span>
         </div>
 
-        <div class="space-y-5 p-4 sm:p-6">
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="space-y-4 p-4 sm:p-6">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
             <div>
               <label class="field-label" for="newStudentNo">เปลี่ยนเลขที่นักเรียน</label>
               <input id="newStudentNo" v-model="form.new_student_no" type="number" class="field" />
@@ -311,7 +311,7 @@ onMounted(() => {
           </div>
 
           <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-4">
-            <label class="flex cursor-pointer items-start gap-3 border-b border-stone-200 pb-4">
+            <label class="flex cursor-pointer items-start gap-3 border-b border-stone-200 pb-3 sm:pb-4">
               <input v-model="form.is_admin" type="checkbox" class="peer sr-only" />
               <span
                 class="relative mt-0.5 h-7 w-12 shrink-0 rounded-full bg-stone-300 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-6 after:w-6 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-700 peer-checked:after:translate-x-5"
@@ -325,7 +325,11 @@ onMounted(() => {
               </span>
             </label>
 
-            <div class="mt-4 space-y-3" :class="{ 'pointer-events-none opacity-40': form.is_admin }">
+            <div
+              class="mt-3 space-y-3 sm:mt-4"
+              :class="{ 'pointer-events-none': form.is_admin }"
+              :aria-disabled="form.is_admin"
+            >
               <p class="flex items-center gap-2 text-sm font-bold text-stone-700">
                 <i class="bi bi-ui-checks-grid text-brand-700" aria-hidden="true"></i> กำหนดสิทธิ์ย่อย (Custom Permissions):
               </p>
@@ -334,6 +338,7 @@ onMounted(() => {
                   v-for="perm in AVAILABLE_PERMISSIONS"
                   :key="perm.id"
                   class="flex cursor-pointer items-start gap-2.5 rounded-xl border border-stone-200 bg-white p-3 transition-colors hover:border-stone-300"
+                  :class="{ 'bg-stone-50': form.is_admin }"
                 >
                   <span class="relative mt-0.5 inline-flex shrink-0 items-center">
                     <input
@@ -342,7 +347,7 @@ onMounted(() => {
                       :checked="form.permissions?.includes(perm.id)"
                       @change="togglePermission(perm.id)"
                     />
-                    <span class="flex h-4 w-4 items-center justify-center rounded border-2 border-stone-300 transition-colors peer-checked:border-brand-700 peer-checked:bg-brand-700">
+                    <span class="flex h-4 w-4 items-center justify-center rounded border-2 border-stone-300 transition-colors peer-checked:border-brand-700 peer-checked:bg-brand-700 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2">
                       <i
                         v-if="form.permissions?.includes(perm.id)"
                         class="bi bi-check text-[10px] font-black leading-none text-white"
@@ -384,7 +389,7 @@ onMounted(() => {
               <input id="birthday" :disabled="!isEditMode" v-model="form.birthday" type="date" class="field" />
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
               <div>
                 <label class="field-label" for="prefix">คำนำหน้า</label>
                 <input id="prefix" :disabled="!isEditMode" v-model="form.prefix" type="text" class="field" />
@@ -399,7 +404,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="firstName">ชื่อจริง <span class="text-red-500">*</span></label>
                 <input id="firstName" :disabled="!isEditMode" v-model="form.first_name" type="text" class="field" required />
@@ -434,7 +439,7 @@ onMounted(() => {
           </div>
 
           <div class="space-y-4 p-4 sm:p-5">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="bloodGroup">กรุ๊ปเลือด</label>
                 <input id="bloodGroup" :disabled="!isEditMode" v-model="form.blood_group" type="text" class="field" placeholder="A, B, O, AB" />
@@ -472,7 +477,7 @@ onMounted(() => {
               <input id="phoneNumber" :disabled="!isEditMode" v-model="form.phone_number" type="text" class="field" />
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="phoneParent">เบอร์ผู้ปกครอง</label>
                 <input id="phoneParent" :disabled="!isEditMode" v-model="form.phone_number_parent" type="text" class="field" />
@@ -483,7 +488,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
               <div>
                 <label class="field-label" for="lineId">Line ID</label>
                 <input id="lineId" :disabled="!isEditMode" v-model="form.line_id" type="text" class="field" />
@@ -509,8 +514,8 @@ onMounted(() => {
             <h3 class="section-title">วิชาการและหน้าที่</h3>
           </div>
 
-          <div class="flex flex-col gap-4 p-4 sm:p-5">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="flex flex-col gap-3 p-4 sm:gap-4 sm:p-5">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="targetFaculty">คณะที่ใฝ่ฝัน</label>
                 <input id="targetFaculty" :disabled="!isEditMode" v-model="form.target_faculty" type="text" class="field" />
@@ -563,7 +568,7 @@ onMounted(() => {
           </div>
 
           <div class="p-4 sm:p-5">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
               <div>
                 <label class="field-label" for="addressHouseNo">บ้านเลขที่/หมู่/ซอย</label>
                 <input id="addressHouseNo" :disabled="!isEditMode" v-model="form.address_house_no" type="text" class="field" />
@@ -594,10 +599,13 @@ onMounted(() => {
 
       </div>
 
-      <!-- 📌 แถบบันทึกติดล่าง (มือถือ) — โผล่เฉพาะตอนเปิดโหมดแก้ไข -->
+      <!--
+        📌 แถบบันทึกติดล่าง (มือถือ) — โผล่เฉพาะตอนเปิดโหมดแก้ไข
+        ⚠️ ต้องเผื่อความสูงของแถบเมนูล่าง (fixed bottom-0 z-40 ใน MainLayout) ไม่งั้นปุ่มบันทึกถูกทับจนกดไม่ได้
+      -->
       <div
         v-if="isEditMode"
-        class="sticky bottom-4 z-30 flex gap-2 rounded-2xl border border-stone-200 bg-white p-3 sm:hidden"
+        class="sticky bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-30 flex gap-2 rounded-2xl border border-stone-200 bg-white p-3 sm:hidden"
       >
         <button type="button" class="btn-ghost-ui flex-1" :disabled="saving" @click="toggleEditMode">
           <i class="bi bi-x-lg" aria-hidden="true"></i> ยกเลิก

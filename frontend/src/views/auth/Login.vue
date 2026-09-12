@@ -14,10 +14,10 @@ const handleGoogleLogin = () => {
 </script>
 
 <template>
-  <div class="min-h-screen min-h-dvh bg-paper font-sans text-ink">
+  <div class="min-h-screen min-h-dvh font-sans text-ink">
     <!-- ── แถบหัวเรื่อง: เส้นบาง ไม่มีกระจก ─────────────────────────── -->
     <header class="border-b border-stone-200 bg-white">
-      <div class="page-wrap flex h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+      <div class="page-wrap flex h-14 items-center justify-between gap-3 px-4 sm:h-16 sm:px-6 lg:px-8">
         <a href="/" class="flex min-w-0 items-center gap-2.5">
           <div
             class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
@@ -39,16 +39,16 @@ const handleGoogleLogin = () => {
       <div class="grid lg:grid-cols-2">
         <!-- ── ฝั่งซ้าย: แผงแบรนด์พื้นทึบ (สลับลำดับบนมือถือ) ── -->
         <section class="order-2 flex bg-stone-900 lg:order-1">
-          <div class="flex w-full px-4 py-12 sm:px-6 lg:justify-end lg:py-20 lg:pe-14">
+          <div class="flex w-full px-4 py-8 sm:px-6 sm:py-12 lg:justify-end lg:py-20 lg:pe-14">
             <div class="w-full max-w-lg">
               <p class="eyebrow text-brand-300">Syncroom Classroom</p>
 
-              <h2
+              <p
                 class="font-display mt-3 text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl"
               >
                 จัดการห้องเรียน<br class="hidden sm:block" />
                 อย่างเป็นระบบ
-              </h2>
+              </p>
 
               <p class="mt-4 text-sm leading-relaxed text-stone-300 sm:text-base">
                 แพลตฟอร์มที่เชื่อมต่อครูและนักเรียนเข้าด้วยกัน จัดการรายชื่อ ตารางเรียน
@@ -56,8 +56,8 @@ const handleGoogleLogin = () => {
               </p>
 
               <!-- จุดขาย — คั่นด้วยเส้น hairline ไม่ใช่การ์ด -->
-              <ul class="mt-8 divide-y divide-white/10 border-y border-white/10">
-                <li class="flex items-start gap-3.5 py-4">
+              <ul class="mt-6 divide-y divide-white/10 border-y border-white/10">
+                <li class="flex items-start gap-3 py-3">
                   <i class="bi bi-people-fill mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">ทะเบียนนักเรียน</p>
@@ -66,7 +66,7 @@ const handleGoogleLogin = () => {
                     </p>
                   </div>
                 </li>
-                <li class="flex items-start gap-3.5 py-4">
+                <li class="flex items-start gap-3 py-3">
                   <i class="bi bi-calendar2-event-fill mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">ตารางเรียนร่วมกัน</p>
@@ -75,7 +75,7 @@ const handleGoogleLogin = () => {
                     </p>
                   </div>
                 </li>
-                <li class="flex items-start gap-3.5 py-4">
+                <li class="flex items-start gap-3 py-3">
                   <i class="bi bi-cash-coin mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">การเงินห้องเรียน</p>
@@ -84,7 +84,7 @@ const handleGoogleLogin = () => {
                     </p>
                   </div>
                 </li>
-                <li class="flex items-start gap-3.5 py-4">
+                <li class="flex items-start gap-3 py-3">
                   <i class="bi bi-discord mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">แจ้งเตือนผ่าน Discord</p>
@@ -99,20 +99,19 @@ const handleGoogleLogin = () => {
         </section>
 
         <!-- ── ฝั่งขวา: ทางเข้าสู่ระบบ ── -->
-        <section class="order-1 flex bg-paper lg:order-2">
-          <div class="flex w-full px-4 py-10 sm:px-6 lg:justify-start lg:py-20 lg:ps-14">
+        <section class="order-1 flex lg:order-2">
+          <div class="flex w-full px-4 py-8 sm:px-6 sm:py-10 lg:justify-start lg:py-20 lg:ps-14">
             <div class="w-full max-w-md">
               <PageHeader
-                eyebrow="Sign In"
                 title="เข้าสู่ระบบ"
                 description="เลือกบัญชีของคุณเพื่อดำเนินการต่อ"
               />
 
-              <div class="page-card p-5 sm:p-6">
+              <div class="page-card p-4 sm:p-6">
                 <div class="flex flex-col gap-3">
                   <button
                     type="button"
-                    class="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-stone-200 bg-white px-4 text-sm font-bold text-stone-800 transition-colors hover:border-stone-300 hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 focus-visible:ring-offset-2 active:scale-[0.97]"
+                    class="btn-ghost-ui h-12 w-full gap-3 text-stone-800 hover:border-stone-300"
                     @click="handleGoogleLogin"
                   >
                     <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
@@ -126,7 +125,7 @@ const handleGoogleLogin = () => {
 
                   <button
                     type="button"
-                    class="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-stone-200 bg-white px-4 text-sm font-bold text-stone-800 transition-colors hover:border-stone-300 hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 focus-visible:ring-offset-2 active:scale-[0.97]"
+                    class="btn-ghost-ui h-12 w-full gap-3 text-stone-800 hover:border-stone-300"
                     @click="handleDiscordLogin"
                   >
                     <i class="bi bi-discord shrink-0 text-xl" aria-hidden="true"></i>
@@ -135,7 +134,7 @@ const handleGoogleLogin = () => {
                 </div>
 
                 <p
-                  class="mt-5 border-t border-stone-100 pt-4 text-center text-xs leading-relaxed text-stone-400"
+                  class="mt-4 border-t border-stone-100 pt-3 text-center text-xs leading-relaxed text-stone-400 sm:pt-4"
                 >
                   การเข้าสู่ระบบแสดงว่าคุณยอมรับ
                   <a
@@ -159,8 +158,8 @@ const handleGoogleLogin = () => {
 
     <!-- ── ฟีเจอร์ ─────────────────────────────────────────────────── -->
     <section class="border-t border-stone-200 bg-white">
-      <div class="page-wrap px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
-        <p class="eyebrow">Features</p>
+      <div class="page-wrap px-4 py-8 sm:px-6 sm:py-14 lg:px-8">
+        <p class="eyebrow hidden sm:block">Features</p>
         <h2 class="section-title mt-1.5 text-xl sm:text-2xl">
           ฟีเจอร์ที่ออกแบบมาเพื่อห้องเรียนยุคใหม่
         </h2>
@@ -168,74 +167,74 @@ const handleGoogleLogin = () => {
           ลดงานเอกสารซ้ำซ้อน เพิ่มเวลาให้กับการเรียนการสอนอย่างเต็มที่
         </p>
 
-        <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div class="page-card p-5">
+        <div class="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+          <div class="page-card p-4 sm:p-5">
             <div
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-700"
             >
               <i class="bi bi-people-fill text-lg" aria-hidden="true"></i>
             </div>
-            <h3 class="section-title mt-4">ทะเบียนนักเรียน</h3>
+            <h3 class="section-title mt-3 sm:mt-4">ทะเบียนนักเรียน</h3>
             <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
               จัดการข้อมูลพื้นฐาน รายชื่อ เลขที่ อย่างเป็นระบบ ค้นหาง่าย อัปเดตได้แบบเรียลไทม์
             </p>
           </div>
 
-          <div class="page-card p-5">
+          <div class="page-card p-4 sm:p-5">
             <div
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-700"
             >
               <i class="bi bi-clipboard2-check-fill text-lg" aria-hidden="true"></i>
             </div>
-            <h3 class="section-title mt-4">ระบบเช็คชื่ออัจฉริยะ</h3>
+            <h3 class="section-title mt-3 sm:mt-4">ระบบเช็คชื่ออัจฉริยะ</h3>
             <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
               บันทึกการเข้าเรียน ขาด ลา มาสาย ได้รวดเร็ว พร้อมสรุปสถิติรายสัปดาห์แบบอัตโนมัติ
             </p>
           </div>
 
-          <div class="page-card p-5">
+          <div class="page-card p-4 sm:p-5">
             <div
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-700"
             >
               <i class="bi bi-calendar2-event-fill text-lg" aria-hidden="true"></i>
             </div>
-            <h3 class="section-title mt-4">ตารางเรียนร่วมกัน</h3>
+            <h3 class="section-title mt-3 sm:mt-4">ตารางเรียนร่วมกัน</h3>
             <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
               ซิงค์ตารางเรียนให้ทุกคนในห้องเห็นตรงกัน แจ้งเตือนเมื่อมีการเปลี่ยนคาบหรือยกเลิกคลาส
             </p>
           </div>
 
-          <div class="page-card p-5">
+          <div class="page-card p-4 sm:p-5">
             <div
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-700"
             >
               <i class="bi bi-cash-coin text-lg" aria-hidden="true"></i>
             </div>
-            <h3 class="section-title mt-4">จัดการเหรัญญิก</h3>
+            <h3 class="section-title mt-3 sm:mt-4">จัดการเหรัญญิก</h3>
             <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
               เก็บเงินค่าห้อง โปร่งใส ตรวจสอบง่าย หมดปัญหาการตามทวงเงินที่วุ่นวาย
             </p>
           </div>
 
-          <div class="page-card p-5">
+          <div class="page-card p-4 sm:p-5">
             <div
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-700"
             >
               <i class="bi bi-card-checklist text-lg" aria-hidden="true"></i>
             </div>
-            <h3 class="section-title mt-4">ติดตามงานที่มอบหมาย</h3>
+            <h3 class="section-title mt-3 sm:mt-4">ติดตามงานที่มอบหมาย</h3>
             <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
               ศูนย์รวมการบ้านและโปรเจกต์ ดูสถานะการส่งงานของนักเรียนแต่ละคนได้อย่างละเอียด
             </p>
           </div>
 
-          <div class="page-card p-5">
+          <div class="page-card p-4 sm:p-5">
             <div
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-stone-100 text-stone-700"
             >
               <i class="bi bi-discord text-lg" aria-hidden="true"></i>
             </div>
-            <h3 class="section-title mt-4">เชื่อมต่อ Discord</h3>
+            <h3 class="section-title mt-3 sm:mt-4">เชื่อมต่อ Discord</h3>
             <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
               ส่งประกาศ แจ้งเตือนการบ้าน และอัปเดตกิจกรรมต่างๆ เข้าไปยังเซิร์ฟเวอร์โดยตรง
             </p>

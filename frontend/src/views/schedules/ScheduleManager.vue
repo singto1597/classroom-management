@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { ScheduleService } from '@/services/schedule'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
-const router = useRouter()
 const authStore = useAuthStore()
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
@@ -109,27 +107,21 @@ const handleSaveOverride = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
+    <!-- ไม่มีปุ่มใน #actions: ปุ่ม "กลับหน้าหลัก" ที่ท้ายฟอร์มเป็นทางออกเดียวของหน้านี้ -->
     <PageHeader
       eyebrow="Class Schedule"
       title="จัดการตารางเรียน"
       description="ตั้งค่าตารางเรียนยืนพื้น และข้อยกเว้นการแต่งกายรายวัน"
-    >
-      <template #actions>
-        <button type="button" class="btn-ghost-ui" @click="router.push('/dashboard')">
-          <i class="bi bi-arrow-left" aria-hidden="true" />
-          กลับหน้าหลัก
-        </button>
-      </template>
-    </PageHeader>
+    />
 
     <div class="page-card overflow-hidden">
       <!-- สลับโหมด: ตารางปกติ / ข้อยกเว้น -->
-      <div class="border-b border-stone-100 p-1.5">
-        <div class="flex items-center gap-1">
+      <div class="border-b border-stone-100 p-3 sm:p-4">
+        <div class="flex items-center gap-1 rounded-xl bg-stone-100 p-1">
           <button
             type="button"
-            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-            :class="activeTab === 'default' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+            :class="activeTab === 'default' ? 'bg-brand-50 text-brand-700' : 'text-stone-500 hover:bg-stone-200/60 hover:text-stone-900'"
             @click="activeTab = 'default'"
           >
             <i class="bi bi-calendar-week text-base" aria-hidden="true"></i>
@@ -137,8 +129,8 @@ const handleSaveOverride = async () => {
           </button>
           <button
             type="button"
-            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-            :class="activeTab === 'override' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
+            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+            :class="activeTab === 'override' ? 'bg-brand-50 text-brand-700' : 'text-stone-500 hover:bg-stone-200/60 hover:text-stone-900'"
             @click="activeTab = 'override'"
           >
             <i class="bi bi-exclamation-triangle text-base" aria-hidden="true"></i>
@@ -147,15 +139,15 @@ const handleSaveOverride = async () => {
         </div>
       </div>
 
-      <div class="p-5 sm:p-6">
+      <div class="p-4 sm:p-6">
         <!-- ตารางเรียนยืนพื้น -->
-        <form v-if="activeTab === 'default'" class="space-y-5" @submit.prevent="handleSaveDefault">
+        <form v-if="activeTab === 'default'" class="space-y-4" @submit.prevent="handleSaveDefault">
           <h2 class="section-title flex items-center gap-2">
             <i class="bi bi-calendar-week text-brand-700" aria-hidden="true"></i>
             ตั้งตารางเรียนยืนพื้น (จันทร์ - อาทิตย์)
           </h2>
 
-          <div class="space-y-4 border-t border-stone-100 pt-4">
+          <div class="space-y-3.5 border-t border-stone-100 pt-3 sm:pt-4">
             <div>
               <label class="field-label" for="dayOfWeek">วันในสัปดาห์</label>
               <select id="dayOfWeek" v-model="defaultForm.day_of_week" class="field font-bold">
@@ -187,15 +179,23 @@ const handleSaveOverride = async () => {
             </div>
           </div>
 
-          <div class="flex flex-col gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:items-center sm:justify-end">
+          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
+            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
+              กลับหน้าหลัก
+            </RouterLink>
             <template v-if="canManageSchedule">
-              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+              <button
+                type="submit"
+                class="btn-primary w-full sm:w-auto sm:min-w-[11rem]"
+                :disabled="isSubmitting"
+              >
                 <span
                   v-if="isSubmitting"
-                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  class="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/40 border-t-white"
                   aria-hidden="true"
                 ></span>
-                <template v-else><i class="bi bi-save" aria-hidden="true" /> บันทึกตารางเรียน</template>
+                <i v-else class="bi bi-save" aria-hidden="true" />
+                {{ isSubmitting ? 'กำลังบันทึก...' : 'บันทึกตารางเรียน' }}
               </button>
             </template>
             <div
@@ -204,15 +204,11 @@ const handleSaveOverride = async () => {
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
             </div>
-
-            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
-              กลับหน้าหลัก
-            </RouterLink>
           </div>
         </form>
 
         <!-- ข้อยกเว้นพิเศษรายวัน -->
-        <form v-else class="space-y-5" @submit.prevent="handleSaveOverride">
+        <form v-else class="space-y-4" @submit.prevent="handleSaveOverride">
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="section-title flex items-center gap-2">
               <i class="bi bi-exclamation-triangle text-amber-600" aria-hidden="true"></i>
@@ -220,7 +216,7 @@ const handleSaveOverride = async () => {
             </h2>
           </div>
 
-          <div class="space-y-4 border-t border-stone-100 pt-4">
+          <div class="space-y-3.5 border-t border-stone-100 pt-3 sm:pt-4">
             <div>
               <label class="field-label" for="overrideDate">วันที่เกิดการยกเว้น</label>
               <input
@@ -256,15 +252,23 @@ const handleSaveOverride = async () => {
             </div>
           </div>
 
-          <div class="flex flex-col gap-2 border-t border-stone-100 pt-4 sm:flex-row sm:items-center sm:justify-end">
+          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
+            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
+              กลับหน้าหลัก
+            </RouterLink>
             <template v-if="canManageSchedule">
-              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+              <button
+                type="submit"
+                class="btn-primary w-full sm:w-auto sm:min-w-[11rem]"
+                :disabled="isSubmitting"
+              >
                 <span
                   v-if="isSubmitting"
-                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                  class="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/40 border-t-white"
                   aria-hidden="true"
                 ></span>
-                <template v-else><i class="bi bi-save" aria-hidden="true" /> บันทึกข้อยกเว้น</template>
+                <i v-else class="bi bi-save" aria-hidden="true" />
+                {{ isSubmitting ? 'กำลังบันทึก...' : 'บันทึกข้อยกเว้น' }}
               </button>
             </template>
             <div
@@ -273,10 +277,6 @@ const handleSaveOverride = async () => {
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
             </div>
-
-            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
-              กลับหน้าหลัก
-            </RouterLink>
           </div>
         </form>
       </div>

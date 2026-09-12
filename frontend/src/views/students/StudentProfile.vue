@@ -47,6 +47,20 @@ const ROLE_LABELS: Record<string, string> = {
 
 const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเรียน';
 
+// 🏠 ประกอบที่อยู่จากส่วนที่มีข้อมูลจริง — ไม่ปล่อยให้เหลือ "ถ.- ต.- อ.-" เมื่อฟิลด์ว่าง
+const addressText = computed(() => {
+  const s = student.value
+  if (!s) return ''
+  return [
+    s.address_house_no,
+    s.address_road ? `ถ.${s.address_road}` : '',
+    s.address_sub_district ? `ต.${s.address_sub_district}` : '',
+    s.address_district ? `อ.${s.address_district}` : '',
+    s.address_province ? `จ.${s.address_province}` : '',
+    s.address_post_code
+  ].filter(Boolean).join(' ')
+})
+
 // 🎯 เงื่อนไขสำหรับแสดงปุ่ม "แก้ไขข้อมูล"
 const canEdit = computed(() => {
   return authStore.isAdmin ||
@@ -78,7 +92,6 @@ const fetchStudent = async () => {
       text: apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลนักเรียนได้',
       confirmButtonColor: '#1d4ed8'
     })
-    router.push('/students')
   } finally {
     loading.value = false
   }
@@ -95,16 +108,16 @@ onMounted(() => {
     <PageHeader
       eyebrow="Student Profile"
       title="โปรไฟล์นักเรียน"
-      description="ข้อมูลส่วนตัว การติดต่อ และข้อมูลสุขภาพของนักเรียนในห้องนี้"
+      description="ข้อมูลส่วนตัว การติดต่อ และข้อมูลสุขภาพ"
     >
       <template #actions>
-        <button type="button" class="btn-ghost-ui" @click="router.push('/students')">
+        <button type="button" class="btn-ghost-ui w-full sm:w-auto" @click="router.push('/students')">
           <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ารายชื่อ
         </button>
         <RouterLink
           v-if="canEdit && student"
           :to="`/students/${student.student_no}/edit`"
-          class="btn-primary"
+          class="btn-primary w-full sm:w-auto"
         >
           <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไขข้อมูล
         </RouterLink>
@@ -115,7 +128,11 @@ onMounted(() => {
     <SkeletonRows v-if="loading" :rows="4" height="h-24" />
 
     <!-- ผิดพลาด -->
-    <StateBlock v-else-if="hasError" variant="error" @retry="fetchStudent" />
+    <StateBlock v-else-if="hasError" variant="error" @retry="fetchStudent">
+      <button type="button" class="btn-ghost-ui" @click="router.push('/students')">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ารายชื่อ
+      </button>
+    </StateBlock>
 
     <!-- ไม่พบข้อมูล -->
     <StateBlock
@@ -132,7 +149,7 @@ onMounted(() => {
       <!-- ========================================== -->
       <div class="page-card overflow-hidden">
         <div class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-          <p class="eyebrow">Academic Records</p>
+          <p class="text-[11px] font-bold text-stone-400">เลขที่ในห้อง</p>
           <span class="num font-display text-lg font-bold text-brand-700">#{{ student.student_no }}</span>
         </div>
 
@@ -172,7 +189,7 @@ onMounted(() => {
                 <span class="chip bg-brand-50 text-brand-700">{{ roleLabel(student.class_role) }}</span>
 
                 <span v-if="student.is_admin" class="chip bg-amber-50 text-amber-700">
-                  <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ADMIN
+                  <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ผู้ดูแลระบบ
                 </span>
               </div>
             </div>
@@ -190,7 +207,7 @@ onMounted(() => {
 
           <!-- ข้อมูลการติดต่อ -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
                 <i class="bi bi-link-45deg" aria-hidden="true"></i>
               </span>
@@ -221,8 +238,8 @@ onMounted(() => {
           </section>
 
           <!-- ผู้ติดต่อฉุกเฉิน -->
-          <section class="page-card overflow-hidden border-s-4 border-s-red-300">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+          <section class="page-card overflow-hidden">
+            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
                 <i class="bi bi-shield-plus" aria-hidden="true"></i>
               </span>
@@ -263,7 +280,7 @@ onMounted(() => {
 
           <!-- ข้อมูลสุขภาพ -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
                 <i class="bi bi-info-circle-fill" aria-hidden="true"></i>
               </span>
@@ -271,16 +288,20 @@ onMounted(() => {
             </div>
 
             <div class="p-4 sm:p-5">
-              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div class="grid grid-cols-2 gap-3">
                 <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
                   <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">กรุ๊ปเลือด</p>
-                  <i v-if="student.blood_group === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="bi bi-lock-fill text-stone-300" aria-hidden="true"></i>
+                  <p v-if="student.blood_group === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-400">
+                    <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
+                  </p>
                   <p v-else class="num font-display text-lg font-bold text-red-600">{{ student.blood_group || '-' }}</p>
                 </div>
 
                 <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
                   <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">ไซส์เสื้อ</p>
-                  <i v-if="student.shirt_size === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="bi bi-lock-fill text-stone-300" aria-hidden="true"></i>
+                  <p v-if="student.shirt_size === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-400">
+                    <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
+                  </p>
                   <p v-else class="num font-display text-lg font-bold text-brand-700">{{ student.shirt_size || '-' }}</p>
                 </div>
               </div>
@@ -297,7 +318,7 @@ onMounted(() => {
 
           <!-- ที่อยู่ตามทะเบียนบ้าน -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
                 <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
               </span>
@@ -312,7 +333,7 @@ onMounted(() => {
               </template>
               <template v-else>
                 <p class="rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700">
-                  {{ student.address_house_no ? `${student.address_house_no} ถ.${student.address_road || '-'} ต.${student.address_sub_district || '-'} อ.${student.address_district || '-'} จ.${student.address_province || '-'} ${student.address_post_code || ''}` : 'ยังไม่มีข้อมูลที่อยู่' }}
+                  {{ addressText || 'ยังไม่มีข้อมูลที่อยู่' }}
                 </p>
               </template>
             </div>
@@ -320,7 +341,7 @@ onMounted(() => {
 
           <!-- วิชาการและผลงาน -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
                 <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>
               </span>
@@ -338,17 +359,17 @@ onMounted(() => {
                 </p>
               </div>
 
-              <div class="grid grid-cols-1 gap-4 border-t border-stone-100 pt-4 md:grid-cols-2">
+              <div class="grid grid-cols-1 gap-3 border-t border-stone-100 pt-3 sm:gap-4 sm:pt-4 md:grid-cols-2">
                 <div>
                   <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">สอวน. / ค่ายวิชาการ</p>
-                  <p class="mt-1.5 min-h-[100px] whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700">
+                  <p class="mt-1.5 whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700 md:min-h-[100px]">
                     {{ student.olympic_camp || '-' }}
                   </p>
                 </div>
 
                 <div>
                   <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">ผลงาน / รางวัล</p>
-                  <p class="mt-1.5 min-h-[100px] whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700">
+                  <p class="mt-1.5 whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700 md:min-h-[100px]">
                     {{ student.portfolio || '-' }}
                   </p>
                 </div>

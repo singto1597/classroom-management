@@ -38,6 +38,14 @@ const taskCount = ref(0);
 const pendingTaskCount = ref(0);
 // แยกสถานะโหลดของตัวเลขออกจากตัวหน้า — ระหว่างรอต้องไม่โชว์ 0 เพราะอ่านผิดความหมาย
 const isTaskCountLoading = ref(true);
+// ดึงไม่สำเร็จต้องไม่โชว์ 0 หลอก ๆ — ตัวเลขที่ไม่รู้แสดงเป็น "—" แทน
+const isTaskCountError = ref(false);
+
+// สีของตัวเลขงานค้าง — เทาเมื่อไม่รู้ค่า, เหลืองเมื่อมีงานค้าง, ดำเมื่อไม่มี
+const pendingCountClass = computed(() => {
+  if (isTaskCountError.value) return 'text-stone-400';
+  return pendingTaskCount.value > 0 ? 'text-amber-600' : 'text-stone-900';
+});
 
 const fetchTaskCount = async () => {
   try {
@@ -46,6 +54,7 @@ const fetchTaskCount = async () => {
     pendingTaskCount.value = result.filter((task) => task.status === 'pending').length;
   } catch {
     // การ์ดยังแสดงได้โดยไม่ต้องมีตัวเลขถ้าดึงไม่สำเร็จ
+    isTaskCountError.value = true;
   } finally {
     isTaskCountLoading.value = false;
   }
@@ -86,15 +95,8 @@ const goToMyProfile = async () => {
     <!-- ========================================== -->
     <!-- 1. หัวหน้าแบบบรรณาธิการ                     -->
     <!-- ========================================== -->
-    <PageHeader
-      eyebrow="Classroom Dashboard"
-      :title="greetingTitle"
-      :description="authStore.currentRoomName || 'ภาพรวมห้องเรียนของคุณ'"
-    >
+    <PageHeader eyebrow="Classroom Dashboard" :title="greetingTitle">
       <template #actions>
-        <span class="chip bg-brand-50 text-brand-700">
-          <i class="bi bi-person-badge" aria-hidden="true"></i>{{ role }}
-        </span>
         <button type="button" class="btn-ghost-ui" title="สลับห้องเรียน" @click="handleChangeRoom">
           <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
           <span class="hidden sm:inline">สลับห้องเรียน</span>
@@ -106,54 +108,48 @@ const goToMyProfile = async () => {
     <!-- ========================================== -->
     <!-- 2. KPI — พื้นขาว ขอบบาง ตัวเลข font-display -->
     <!-- ========================================== -->
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <div class="page-card p-4 sm:p-5">
+    <!-- บทบาทของฉัน ย้ายไปอยู่ที่การ์ด "ภาพรวมห้อง" ที่เดียว ไม่ซ้ำสามที่เหมือนเดิม -->
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div class="page-card p-3.5 sm:p-5">
         <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งานทั้งหมด</p>
         <p
           v-if="isTaskCountLoading"
-          class="mt-2 h-7 w-12 animate-pulse rounded-lg bg-stone-100 sm:h-9 sm:w-16"
-          aria-hidden="true"
-        ></p>
-        <p v-else class="font-display num mt-2 text-2xl font-bold text-stone-900 sm:text-3xl">
-          {{ taskCount }}
-        </p>
-        <p class="mt-1 text-xs font-bold text-stone-400">รายการในห้องนี้</p>
-      </div>
-
-      <div class="page-card p-4 sm:p-5">
-        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งานค้าง</p>
-        <p
-          v-if="isTaskCountLoading"
-          class="mt-2 h-7 w-12 animate-pulse rounded-lg bg-stone-100 sm:h-9 sm:w-16"
+          class="mt-2 h-7 w-12 rounded-lg bg-stone-100 sm:h-9 sm:w-16"
           aria-hidden="true"
         ></p>
         <p
           v-else
           class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
-          :class="pendingTaskCount > 0 ? 'text-amber-600' : 'text-stone-900'"
+          :class="isTaskCountError ? 'text-stone-400' : 'text-stone-900'"
         >
-          {{ pendingTaskCount }}
+          {{ isTaskCountError ? '—' : taskCount }}
+        </p>
+        <p class="mt-1 text-xs font-bold text-stone-400">รายการในห้องนี้</p>
+      </div>
+
+      <div class="page-card p-3.5 sm:p-5">
+        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งานค้าง</p>
+        <p
+          v-if="isTaskCountLoading"
+          class="mt-2 h-7 w-12 rounded-lg bg-stone-100 sm:h-9 sm:w-16"
+          aria-hidden="true"
+        ></p>
+        <p
+          v-else
+          class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
+          :class="pendingCountClass"
+        >
+          {{ isTaskCountError ? '—' : pendingTaskCount }}
         </p>
         <p class="mt-1 text-xs font-bold text-stone-400">ยังไม่ปิดงาน</p>
       </div>
 
-      <div class="page-card p-4 sm:p-5">
+      <div class="page-card col-span-2 p-3.5 sm:col-span-1 sm:p-5">
         <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">รหัสห้องเรียน</p>
         <p class="font-display num mt-2 truncate text-2xl font-bold tracking-widest text-stone-900 sm:text-3xl">
           {{ roomCode }}
         </p>
         <p class="mt-1 text-xs font-bold text-stone-400">แชร์ให้นักเรียนเข้าร่วม</p>
-      </div>
-
-      <div class="page-card p-4 sm:p-5">
-        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">บทบาทของฉัน</p>
-        <p class="font-display mt-2 truncate text-xl font-bold text-stone-900 sm:text-2xl">{{ role }}</p>
-        <p
-          class="mt-1 text-xs font-bold"
-          :class="isAdmin ? 'text-emerald-600' : 'text-stone-400'"
-        >
-          {{ isAdmin ? 'ผู้ดูแลห้องเรียน' : 'สมาชิกในห้อง' }}
-        </p>
       </div>
     </div>
 
@@ -175,19 +171,14 @@ const goToMyProfile = async () => {
           </div>
         </div>
 
-        <div class="mt-4 space-y-2">
+        <div class="mt-3 space-y-2 sm:mt-4">
           <RouterLink
             to="/tasks"
             class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-3 transition-colors hover:border-stone-300 hover:bg-stone-50 active:scale-[0.99]"
           >
             <div class="flex min-w-0 items-center gap-3">
               <i class="bi bi-card-checklist shrink-0 text-lg text-brand-700" aria-hidden="true"></i>
-              <div class="min-w-0">
-                <p class="truncate text-sm font-bold text-stone-900">ดูรายการงานทั้งหมด</p>
-                <p v-if="taskCount > 0" class="num truncate text-xs font-medium text-stone-500">
-                  ยังไม่เสร็จ {{ pendingTaskCount }} / ทั้งหมด {{ taskCount }} ชิ้น
-                </p>
-              </div>
+              <p class="min-w-0 truncate text-sm font-bold text-stone-900">ดูรายการงานทั้งหมด</p>
             </div>
             <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
           </RouterLink>
@@ -212,12 +203,12 @@ const goToMyProfile = async () => {
           </div>
         </div>
 
-        <div class="mt-4 flex flex-col gap-2 border-t border-stone-100 pt-4 sm:flex-row">
-          <RouterLink to="/schedules" class="btn-ghost-ui flex-1">
-            <i class="bi bi-calendar-event" aria-hidden="true"></i> ตารางเรียนยืนพื้น
+        <div class="mt-3 flex gap-2 border-t border-stone-100 pt-3 sm:mt-4 sm:pt-4">
+          <RouterLink to="/schedules" class="btn-ghost-ui min-w-0 flex-1">
+            <i class="bi bi-calendar-event shrink-0" aria-hidden="true"></i> ตารางเรียน
           </RouterLink>
-          <RouterLink v-if="canManageTasks" to="/schedules" class="btn-danger flex-1">
-            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> ข้อยกเว้นฉุกเฉิน
+          <RouterLink v-if="canManageTasks" to="/schedules" class="btn-ghost-ui min-w-0 flex-1">
+            <i class="bi bi-exclamation-triangle shrink-0" aria-hidden="true"></i> ข้อยกเว้น
           </RouterLink>
         </div>
       </div>
@@ -232,20 +223,15 @@ const goToMyProfile = async () => {
           </div>
           <div class="min-w-0">
             <h2 class="section-title truncate">ภาพรวมห้อง</h2>
-            <p class="truncate text-xs text-stone-500">ข้อมูลห้องและการเชื่อมต่อ</p>
           </div>
         </div>
 
-        <dl class="mt-4 space-y-3 border-t border-stone-100 pt-4">
+        <dl class="mt-3 space-y-2.5 border-t border-stone-100 pt-3 sm:mt-4 sm:space-y-3 sm:pt-4">
           <div class="flex items-center justify-between gap-3">
             <dt class="shrink-0 text-xs font-bold text-stone-500">ชื่อห้อง</dt>
             <dd class="min-w-0 truncate text-sm font-bold text-stone-900">
               {{ authStore.currentRoomName || '—' }}
             </dd>
-          </div>
-          <div class="flex items-center justify-between gap-3">
-            <dt class="shrink-0 text-xs font-bold text-stone-500">รหัสห้อง</dt>
-            <dd class="num shrink-0 text-sm font-bold tracking-widest text-stone-900">{{ roomCode }}</dd>
           </div>
           <div class="flex items-center justify-between gap-3">
             <dt class="shrink-0 text-xs font-bold text-stone-500">บทบาท</dt>
@@ -254,15 +240,6 @@ const goToMyProfile = async () => {
             </dd>
           </div>
         </dl>
-
-        <div class="mt-4 flex flex-col gap-2 border-t border-stone-100 pt-4">
-          <RouterLink to="/discord-connect" class="btn-primary">
-            <i class="bi bi-discord" aria-hidden="true"></i> เชื่อมต่อ Discord
-          </RouterLink>
-          <button type="button" class="btn-ghost-ui" @click="handleChangeRoom">
-            <i class="bi bi-arrow-left-right" aria-hidden="true"></i> สลับห้องเรียน
-          </button>
-        </div>
       </div>
     </div>
 
@@ -272,159 +249,120 @@ const goToMyProfile = async () => {
     <section class="space-y-3">
       <h2 class="section-title">ทางลัด</h2>
 
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <!-- นักเรียน -->
-        <div class="page-card p-4 sm:p-5">
-          <div class="flex items-center gap-3">
-            <div
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
-            >
-              <i class="bi bi-people text-lg" aria-hidden="true"></i>
-            </div>
-            <div class="min-w-0">
-              <h3 class="section-title truncate">นักเรียน</h3>
-              <p class="truncate text-xs text-stone-500">รายชื่อและทะเบียนของห้อง</p>
-            </div>
-          </div>
+      <!-- แผงทางลัดแบบแน่น: ไอคอน + ป้ายสั้น อ่านจบใน 2–3 แถวแทนการ์ดสูง ๆ ที่มีลิสต์ซ้อนใน -->
+      <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+        <RouterLink
+          to="/students"
+          class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+        >
+          <i class="bi bi-people text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            รายชื่อนักเรียน
+          </span>
+        </RouterLink>
 
-          <div class="mt-4 space-y-2">
-            <RouterLink
-              to="/students"
-              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-            >
-              <span class="truncate">ดูรายชื่อเพื่อนทั้งห้อง</span>
-              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-            </RouterLink>
+        <button
+          type="button"
+          class="page-card card-hover flex w-full min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+          @click="goToMyProfile"
+        >
+          <i class="bi bi-person-badge text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            โปรไฟล์ของฉัน
+          </span>
+        </button>
 
-            <button
-              type="button"
-              class="flex w-full items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-              @click="goToMyProfile"
-            >
-              <span class="truncate">โปรไฟล์ของฉัน</span>
-              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-            </button>
+        <template v-if="canManageStudents">
+          <RouterLink
+            to="/students/add"
+            class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+          >
+            <i class="bi bi-person-plus text-lg text-brand-700" aria-hidden="true"></i>
+            <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+              เพิ่มนักเรียน
+            </span>
+          </RouterLink>
 
-            <template v-if="canManageStudents">
-              <RouterLink
-                to="/students/add"
-                class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-              >
-                <span class="truncate">เพิ่มนักเรียนใหม่</span>
-                <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-              </RouterLink>
+          <RouterLink
+            to="/students/export"
+            class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+          >
+            <i class="bi bi-file-earmark-excel-fill text-lg text-brand-700" aria-hidden="true"></i>
+            <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+              ไฟล์ Export
+            </span>
+          </RouterLink>
+        </template>
 
-              <RouterLink
-                to="/students/export"
-                class="flex items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-bold text-stone-400 transition-colors hover:bg-stone-50 hover:text-brand-700 active:scale-[0.99]"
-              >
-                <i class="bi bi-file-earmark-excel-fill" aria-hidden="true"></i>
-                สร้างไฟล์ Export (Excel)
-              </RouterLink>
-            </template>
-          </div>
-        </div>
+        <RouterLink
+          to="/finance"
+          class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+        >
+          <i class="bi bi-wallet2 text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            สรุปการเงิน
+          </span>
+        </RouterLink>
 
-        <!-- การเงิน -->
-        <div class="page-card p-4 sm:p-5">
-          <div class="flex items-center gap-3">
-            <div
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
-            >
-              <i class="bi bi-wallet2 text-lg" aria-hidden="true"></i>
-            </div>
-            <div class="min-w-0">
-              <h3 class="section-title truncate">การเงินห้อง</h3>
-              <p class="truncate text-xs text-stone-500">รายรับ-จ่าย โปรเจกต์ และบิล</p>
-            </div>
-          </div>
+        <RouterLink
+          to="/finance/transactions"
+          class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+        >
+          <i class="bi bi-clock-history text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            ประวัติรายการ
+          </span>
+        </RouterLink>
 
-          <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <RouterLink
-              to="/finance"
-              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-            >
-              <span class="truncate">สรุปยอด</span>
-              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-            </RouterLink>
+        <RouterLink
+          to="/finance/collections"
+          class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+        >
+          <i class="bi bi-folder2-open text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            โปรเจกต์เก็บเงิน
+          </span>
+        </RouterLink>
 
-            <RouterLink
-              to="/finance/transactions"
-              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-            >
-              <span class="truncate">ประวัติ</span>
-              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-            </RouterLink>
+        <RouterLink
+          v-if="isAdmin"
+          to="/finance/debtors"
+          class="card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-white p-3 text-center sm:p-4"
+        >
+          <i class="bi bi-exclamation-triangle text-lg text-red-500" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-red-600">
+            ทวงหนี้
+          </span>
+        </RouterLink>
 
-            <RouterLink
-              to="/finance/collections"
-              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-            >
-              <span class="truncate">โปรเจกต์</span>
-              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-            </RouterLink>
+        <RouterLink
+          to="/messages"
+          class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+        >
+          <i class="bi bi-megaphone text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            เขียนประกาศ
+          </span>
+        </RouterLink>
 
-            <RouterLink
-              v-if="isAdmin"
-              to="/finance/debtors"
-              class="flex items-center justify-between gap-3 rounded-xl border border-red-200 px-3.5 py-2.5 text-sm font-bold text-red-600 transition-colors hover:bg-red-50 active:scale-[0.99]"
-            >
-              <span class="truncate">ทวงหนี้</span>
-              <i class="bi bi-chevron-right shrink-0 text-red-300" aria-hidden="true"></i>
-            </RouterLink>
-          </div>
-        </div>
+        <RouterLink
+          to="/discord-connect"
+          class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
+        >
+          <i class="bi bi-discord text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            จัดการบอท
+          </span>
+        </RouterLink>
 
-        <!-- ประกาศ Discord -->
-        <div class="page-card p-4 sm:p-5">
-          <div class="flex items-center gap-3">
-            <div
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
-            >
-              <i class="bi bi-broadcast text-lg" aria-hidden="true"></i>
-            </div>
-            <div class="min-w-0">
-              <h3 class="section-title truncate">ประกาศ Discord</h3>
-              <p class="truncate text-xs text-stone-500">ส่งประกาศตรงเข้าเซิร์ฟเวอร์ห้อง</p>
-            </div>
-          </div>
-
-          <div class="mt-4 space-y-2">
-            <RouterLink
-              to="/messages"
-              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-            >
-              <span class="truncate">เขียนประกาศ</span>
-              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-            </RouterLink>
-
-            <RouterLink
-              to="/discord-connect"
-              class="flex items-center justify-between gap-3 rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm font-bold text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 active:scale-[0.99]"
-            >
-              <span class="truncate">จัดการบอท</span>
-              <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
-            </RouterLink>
-          </div>
-        </div>
-
-        <!-- แผนผังห้องเรียน — กดได้ทั้งใบ -->
         <RouterLink
           to="/roadmap"
-          class="page-card card-hover flex items-center justify-between gap-3 p-4 sm:p-5"
+          class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
         >
-          <div class="flex min-w-0 items-center gap-3">
-            <div
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
-            >
-              <i class="bi bi-map text-lg" aria-hidden="true"></i>
-            </div>
-            <div class="min-w-0">
-              <h3 class="section-title truncate">แผนผังห้องเรียน</h3>
-              <p class="truncate text-xs text-stone-500">โครงสร้างการบริหารและ Roadmap การทำงาน</p>
-            </div>
-          </div>
-          <i class="bi bi-arrow-right shrink-0 text-stone-300" aria-hidden="true"></i>
+          <i class="bi bi-map text-lg text-brand-700" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-stone-600">
+            แผนผังห้องเรียน
+          </span>
         </RouterLink>
       </div>
     </section>

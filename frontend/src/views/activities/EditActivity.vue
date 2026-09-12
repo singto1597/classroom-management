@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import type { Activity } from '@/types/activity'
 import ActivityForm from '@/components/activities/ActivityForm.vue'
+import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
 
@@ -18,7 +19,7 @@ const activityId = Number(route.params.id)
 const isLoading = ref(true)
 const activity = ref<Activity | null>(null)
 
-onMounted(async () => {
+const load = async () => {
   isLoading.value = true
   try {
     activity.value = await ActivityService.getActivity(currentRoomId, activityId)
@@ -34,7 +35,9 @@ onMounted(async () => {
   } finally {
     isLoading.value = false
   }
-})
+}
+
+onMounted(load)
 </script>
 
 <template>
@@ -46,6 +49,13 @@ onMounted(async () => {
       mode="edit"
       :initial-activity="activity"
       @saved="(id: number) => router.push(`/activities/${id || activityId}`)"
+    />
+    <StateBlock
+      v-else
+      variant="error"
+      title="โหลดข้อมูลกิจกรรมไม่สำเร็จ"
+      hint="ตรวจการเชื่อมต่อแล้วลองใหม่อีกครั้ง"
+      @retry="load"
     />
   </div>
 </template>

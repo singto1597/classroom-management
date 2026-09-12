@@ -112,15 +112,7 @@ const handleAddNote = async () => {
     <PageHeader
       eyebrow="New Entry"
       title="สร้างรายการใหม่"
-      description="เพิ่มการบ้าน ชิ้นงาน หรือโน้ตประกาศรายวัน"
-    >
-      <template #actions>
-        <button type="button" class="btn-ghost-ui" @click="router.push('/tasks')">
-          <i class="bi bi-arrow-left" aria-hidden="true" />
-          ย้อนกลับ
-        </button>
-      </template>
-    </PageHeader>
+    />
 
     <div class="page-card overflow-hidden">
       <!-- สลับฟอร์ม: งาน / โน้ต -->
@@ -128,7 +120,8 @@ const handleAddNote = async () => {
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
+            :aria-pressed="activeTab === 'task'"
+            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
             :class="activeTab === 'task' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
             @click="activeTab = 'task'"
           >
@@ -137,7 +130,8 @@ const handleAddNote = async () => {
           </button>
           <button
             type="button"
-            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
+            :aria-pressed="activeTab === 'note'"
+            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
             :class="activeTab === 'note' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
             @click="activeTab = 'note'"
           >
@@ -147,7 +141,7 @@ const handleAddNote = async () => {
         </div>
       </div>
 
-      <div class="p-5 sm:p-6">
+      <div class="p-4 sm:p-6">
         <form v-if="activeTab === 'task'" class="space-y-4" @submit.prevent="handleAddTask">
           <div>
             <label class="field-label" for="taskName">
@@ -189,8 +183,9 @@ const handleAddNote = async () => {
             />
           </div>
 
-          <div class="flex border-t border-stone-100 pt-4 sm:justify-end">
+          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
+              <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
               <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
                 <span
                   v-if="isSubmitting"
@@ -200,12 +195,12 @@ const handleAddNote = async () => {
                 <template v-else><i class="bi bi-plus-lg" aria-hidden="true" /> บันทึกงานใหม่</template>
               </button>
             </template>
-            <div
+            <p
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500"
+              class="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-50 py-2.5 text-sm font-bold text-stone-500"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะแอดมิน
-            </div>
+            </p>
           </div>
         </form>
 
@@ -247,8 +242,9 @@ const handleAddNote = async () => {
             ></textarea>
           </div>
 
-          <div class="flex border-t border-stone-100 pt-4 sm:justify-end">
+          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
+              <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
               <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
                 <span
                   v-if="isSubmitting"
@@ -258,12 +254,12 @@ const handleAddNote = async () => {
                 <template v-else><i class="bi bi-plus-lg" aria-hidden="true" /> บันทึกโน้ต/ประกาศ</template>
               </button>
             </template>
-            <div
+            <p
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500"
+              class="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-50 py-2.5 text-sm font-bold text-stone-500"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะแอดมิน
-            </div>
+            </p>
           </div>
         </form>
       </div>

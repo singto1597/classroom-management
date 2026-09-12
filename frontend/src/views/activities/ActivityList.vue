@@ -172,7 +172,7 @@ onMounted(fetchData)
 
     <!-- แถบกรองแบบเส้นใต้บาง (ไม่ใช่ปุ่ม pill ทึบสี) -->
     <nav
-      class="flex gap-1 overflow-x-auto border-b border-stone-200"
+      class="-mx-4 flex gap-1 overflow-x-auto overscroll-contain border-b border-stone-200 px-4 sm:mx-0 sm:px-0"
       aria-label="กรองตามสถานะกิจกรรม"
     >
       <button
@@ -180,7 +180,7 @@ onMounted(fetchData)
         :key="f"
         type="button"
         @click="filter = f"
-        class="-mb-px shrink-0 border-b-2 px-3 py-2.5 text-sm font-bold transition-colors"
+        class="-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-3 py-2 text-sm font-bold transition-colors"
         :class="
           filter === f
             ? 'border-brand-700 text-brand-700'
@@ -188,11 +188,11 @@ onMounted(fetchData)
         "
       >
         {{ f === 'all' ? 'ทั้งหมด' : ACTIVITY_STATUS_LABELS[f] }}
-        <span class="num ms-1 text-[11px] font-bold text-stone-400">{{ statusCount[f] }}</span>
+        <span class="num ms-1 text-[11px] font-bold opacity-60">{{ statusCount[f] }}</span>
       </button>
     </nav>
 
-    <SkeletonRows v-if="isLoading" :rows="4" height="h-28" />
+    <SkeletonRows v-if="isLoading" :rows="3" height="h-56" />
 
     <StateBlock v-else-if="hasError" variant="error" @retry="fetchData" />
 
@@ -200,15 +200,31 @@ onMounted(fetchData)
       v-else-if="filteredActivities.length === 0"
       variant="empty"
       icon="bi-calendar-x"
-      title="ยังไม่มีกิจกรรมในหมวดนี้"
-      hint="สร้างกิจกรรมแรกของห้องเพื่อเริ่มบันทึกผู้เข้าร่วมและชั่วโมงจิตอาสา"
+      :title="activities.length === 0 ? 'ยังไม่มีกิจกรรม' : 'ไม่มีกิจกรรมในสถานะนี้'"
+      :hint="
+        activities.length === 0
+          ? 'สร้างกิจกรรมแรกของห้องเพื่อเริ่มบันทึกผู้เข้าร่วมและชั่วโมงจิตอาสา'
+          : 'ลองเลือกตัวกรองอื่น หรือสร้างกิจกรรมใหม่'
+      "
     >
-      <router-link v-if="canManageActivities" to="/activities/create" class="btn-primary mt-1.5">
+      <router-link
+        v-if="canManageActivities && activities.length === 0"
+        to="/activities/create"
+        class="btn-primary mt-1.5"
+      >
         <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างกิจกรรมแรก
       </router-link>
+      <button
+        v-else-if="activities.length > 0"
+        type="button"
+        class="btn-ghost-ui mt-1.5"
+        @click="filter = 'all'"
+      >
+        <i class="bi bi-list-ul" aria-hidden="true"></i> ดูทั้งหมด
+      </button>
     </StateBlock>
 
-    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
       <div
         v-for="activity in filteredActivities"
         :key="activity.id"
@@ -251,8 +267,8 @@ onMounted(fetchData)
           </span>
         </div>
 
-        <p class="mt-3 line-clamp-3 flex-1 text-sm leading-relaxed text-stone-600">
-          {{ activity.description || 'ไม่มีรายละเอียดเพิ่มเติม' }}
+        <p class="mt-3 line-clamp-2 flex-1 text-sm leading-relaxed text-stone-600">
+          {{ activity.description || 'ไม่มีรายละเอียด' }}
         </p>
 
         <div class="mt-3 flex items-center justify-between gap-2 border-t border-stone-100 pt-3">
@@ -263,6 +279,7 @@ onMounted(fetchData)
           <div v-if="canManageActivities" class="flex shrink-0 items-center gap-0.5">
             <router-link
               :to="`/activities/${activity.id}/edit`"
+              @click.stop
               class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-brand-50 hover:text-brand-700 active:scale-[0.97]"
               title="แก้ไขกิจกรรม"
               aria-label="แก้ไขกิจกรรม"

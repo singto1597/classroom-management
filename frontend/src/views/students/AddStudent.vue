@@ -167,10 +167,12 @@ const submitBulk = async () => {
 
     <div class="page-card overflow-hidden">
       <!-- แท็บ -->
-      <div class="flex border-b border-stone-200">
+      <div role="tablist" class="flex border-b border-stone-200">
         <button
           type="button"
-          class="flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3.5 text-sm font-bold transition-colors"
+          role="tab"
+          :aria-selected="activeTab === 'single'"
+          class="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-bold transition-colors"
           :class="activeTab === 'single'
             ? 'border-brand-700 text-brand-700'
             : 'border-transparent text-stone-400 hover:text-stone-700'"
@@ -180,31 +182,33 @@ const submitBulk = async () => {
         </button>
         <button
           type="button"
-          class="flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3.5 text-sm font-bold transition-colors"
+          role="tab"
+          :aria-selected="activeTab === 'bulk'"
+          class="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-bold transition-colors"
           :class="activeTab === 'bulk'
             ? 'border-brand-700 text-brand-700'
             : 'border-transparent text-stone-400 hover:text-stone-700'"
           @click="activeTab = 'bulk'"
         >
-          <i class="bi bi-people-fill" aria-hidden="true"></i> เพิ่มรวดเดียว (Bulk)
+          <i class="bi bi-people-fill" aria-hidden="true"></i> เพิ่มรวดเดียว<span class="hidden sm:inline"> (Bulk)</span>
         </button>
       </div>
 
       <!-- ฟอร์ม: เพิ่มทีละคน -->
-      <div v-if="activeTab === 'single'" class="space-y-5 p-4 sm:p-6">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div v-if="activeTab === 'single'" class="space-y-4 p-4 sm:p-6">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           <div>
-            <label class="field-label" for="studentNo">เลขที่</label>
+            <label class="field-label" for="studentNo">เลขที่ <span class="text-red-500">*</span></label>
             <input id="studentNo" v-model="singleForm.student_no" type="number" class="field" placeholder="เช่น 1" />
           </div>
 
           <div>
-            <label class="field-label" for="firstName">ชื่อจริง</label>
+            <label class="field-label" for="firstName">ชื่อจริง <span class="text-red-500">*</span></label>
             <input id="firstName" v-model="singleForm.first_name" type="text" class="field" placeholder="สมชาย" />
           </div>
 
           <div>
-            <label class="field-label" for="lastName">นามสกุล</label>
+            <label class="field-label" for="lastName">นามสกุล <span class="text-red-500">*</span></label>
             <input id="lastName" v-model="singleForm.last_name" type="text" class="field" placeholder="รักเรียน" />
           </div>
 
@@ -237,7 +241,7 @@ const submitBulk = async () => {
           </div>
         </div>
 
-        <div class="border-t border-stone-100 pt-4">
+        <div class="border-t border-stone-100 pt-3 sm:pt-4">
           <button
             v-if="canManageStudents"
             type="button"
@@ -263,13 +267,13 @@ const submitBulk = async () => {
       </div>
 
       <!-- ฟอร์ม: นำเข้ารวดเดียว -->
-      <div v-else class="space-y-5 p-4 sm:p-6">
-        <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p class="flex items-center gap-1.5 text-sm font-bold text-amber-800">
+      <div v-else class="space-y-4 p-4 sm:p-6">
+        <div class="rounded-xl border border-sky-200 bg-sky-50 p-4">
+          <p class="flex items-center gap-1.5 text-sm font-bold text-sky-800">
             <i class="bi bi-info-circle-fill" aria-hidden="true"></i> คำแนะนำการใช้งาน
           </p>
-          <p class="mt-1 text-xs text-amber-700">
-            วางข้อมูลในรูปแบบ: <code class="rounded bg-amber-100 px-1 font-bold">เลขที่,ชื่อ,นามสกุล</code> (หนึ่งคนต่อหนึ่งบรรทัด)
+          <p class="mt-1 text-xs text-sky-700">
+            วางข้อมูลในรูปแบบ: <code class="rounded bg-sky-100 px-1 font-bold">เลขที่,ชื่อ,นามสกุล</code> (หนึ่งคนต่อหนึ่งบรรทัด)
           </p>
         </div>
 
@@ -284,7 +288,7 @@ const submitBulk = async () => {
           ></textarea>
         </div>
 
-        <div class="border-t border-stone-100 pt-4">
+        <div class="border-t border-stone-100 pt-3 sm:pt-4">
           <button
             v-if="canManageStudents"
             type="button"

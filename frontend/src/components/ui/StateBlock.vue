@@ -31,7 +31,7 @@ const emit = defineEmits<{ retry: [] }>();
 
 <template>
   <div
-    class="flex flex-col items-center justify-center gap-2.5 rounded-2xl px-6 py-12 text-center"
+    class="flex flex-col items-center justify-center gap-2 rounded-2xl px-5 py-9 text-center sm:gap-2.5 sm:px-6 sm:py-12"
     :class="
       variant === 'error'
         ? 'border border-dashed border-stone-300 bg-white'

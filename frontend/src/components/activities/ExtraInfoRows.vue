@@ -57,7 +57,7 @@ function removeRow(index: number) {
           :key="index"
           class="flex flex-col gap-x-2 gap-y-0.5 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-sm sm:flex-row sm:items-baseline"
         >
-          <span class="shrink-0 text-xs font-bold text-brand-700">{{ row.label }}:</span>
+          <span v-if="row.label" class="shrink-0 text-xs font-bold text-brand-700">{{ row.label }}:</span>
           <span class="min-w-0 break-words text-stone-600">{{ row.value }}</span>
         </div>
       </div>
@@ -72,7 +72,7 @@ function removeRow(index: number) {
           :key="q.key"
           type="button"
           @click="addRow({ label: q.label, value: '' })"
-          class="chip bg-brand-50 px-3 py-1.5 text-brand-700 transition-colors hover:bg-brand-100 active:scale-[0.97]"
+          class="chip min-h-11 bg-brand-50 px-3.5 text-xs text-brand-700 transition-colors hover:bg-brand-100 active:scale-[0.97]"
         >
           <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ q.label }}
         </button>
@@ -83,33 +83,37 @@ function removeRow(index: number) {
         v-if="rows.length === 0"
         class="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
       >
-        ยังไม่มีข้อมูล — กด <b class="font-bold text-brand-700">เพิ่มข้อมูล</b> ด้านล่างเพื่อเริ่ม
+        ยังไม่มีข้อมูลเพิ่มเติม — กดปุ่มด้านล่างเพื่อเพิ่ม
       </div>
 
-      <div v-else class="space-y-2.5">
+      <div v-else class="space-y-2">
         <div
           v-for="(row, index) in rows"
           :key="index"
-          class="flex flex-col items-stretch gap-2 rounded-xl border border-stone-200 bg-white p-2 sm:flex-row sm:items-center"
+          class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white p-2"
         >
-          <input
-            :value="row.label"
-            type="text"
-            :placeholder="compact ? 'หัวข้อ' : 'หัวข้อ (เช่น อาหารที่แพ้, ไซส์รองเท้า)'"
-            @input="(e: Event) => updateRow(index, { label: (e.target as HTMLInputElement).value })"
-            class="field min-w-0 flex-1"
-          />
-          <input
-            :value="row.value"
-            type="text"
-            :placeholder="placeholder || 'ค่า'"
-            @input="(e: Event) => updateRow(index, { value: (e.target as HTMLInputElement).value })"
-            class="field min-w-0 flex-1"
-          />
+          <div class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              :value="row.label"
+              type="text"
+              :placeholder="compact ? 'หัวข้อ' : 'หัวข้อ (เช่น อาหารที่แพ้, ไซส์รองเท้า)'"
+              aria-label="หัวข้อ"
+              @input="(e: Event) => updateRow(index, { label: (e.target as HTMLInputElement).value })"
+              class="field min-w-0 flex-1"
+            />
+            <input
+              :value="row.value"
+              type="text"
+              :placeholder="placeholder || 'ค่า'"
+              aria-label="ค่า"
+              @input="(e: Event) => updateRow(index, { value: (e.target as HTMLInputElement).value })"
+              class="field min-w-0 flex-1"
+            />
+          </div>
           <button
             type="button"
             @click="removeRow(index)"
-            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:h-8 sm:w-8"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:h-9 sm:w-9"
             title="ลบข้อมูลนี้"
             aria-label="ลบข้อมูลนี้"
           >

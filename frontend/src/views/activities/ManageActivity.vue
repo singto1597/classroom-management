@@ -508,23 +508,19 @@ onMounted(() => {
     <template v-else-if="activity">
       <!-- Header -->
       <div>
-        <router-link
-          :to="`/activities/${activityId}`"
-          class="mb-2 inline-flex items-center gap-1.5 text-sm font-bold text-stone-400 transition-colors hover:text-brand-700"
-        >
-          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ารายละเอียด
-        </router-link>
-
         <PageHeader
           eyebrow="Activity Management"
-          :title="`จัดการผู้เข้าร่วม — ${activity.title}`"
-          description="ติ๊กชื่อเพื่อตั้งค่าแบบกลุ่ม · เพิ่มนักเรียน · เช็คชื่อตามเหตุการณ์ · สร้างฟิลด์เพิ่มเติม"
+          title="จัดการผู้เข้าร่วม"
+          :description="activity.title"
         >
           <template #actions>
-            <router-link :to="`/activities/${activityId}`" class="btn-ghost-ui">
-              <i class="bi bi-eye" aria-hidden="true"></i> ดูรายละเอียด
+            <router-link :to="`/activities/${activityId}`" class="btn-ghost-ui w-full sm:w-auto">
+              <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ารายละเอียด
             </router-link>
-            <router-link :to="`/activities/${activityId}/edit`" class="btn-primary">
+            <router-link
+              :to="`/activities/${activityId}/edit`"
+              class="btn-primary w-full sm:w-auto"
+            >
               <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไขกิจกรรม
             </router-link>
           </template>
@@ -538,15 +534,14 @@ onMounted(() => {
             <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i>
             <span class="truncate">ผู้เข้าร่วม ({{ activity.participants.length }})</span>
           </h2>
-          <div class="flex flex-wrap items-center gap-2">
-            <button type="button" class="btn-ghost-ui" @click="openAddStudents">
-              <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
-            </button>
-            <button v-if="selectedCount > 0" type="button" class="btn-primary" @click="openBatch">
-              <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
-              ตั้งค่าแบบกลุ่ม ({{ selectedCount }})
-            </button>
-          </div>
+          <button
+            v-if="activity.participants.length > 0"
+            type="button"
+            class="btn-ghost-ui"
+            @click="openAddStudents"
+          >
+            <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
+          </button>
         </div>
 
         <div
@@ -554,7 +549,7 @@ onMounted(() => {
           class="mb-3 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700"
         >
           <i class="bi bi-check2-square" aria-hidden="true"></i>
-          เลือกแล้ว {{ selectedCount }} คน — ตั้งค่าแบบกลุ่มจะแก้เฉพาะคนที่ติ๊กเท่านั้น
+          เลือกแล้ว {{ selectedCount }} คน
         </div>
 
         <StateBlock
@@ -601,14 +596,14 @@ onMounted(() => {
             <i class="bi bi-plus-lg" aria-hidden="true"></i> เพิ่มการเช็คชื่อ
           </button>
         </div>
-        <p class="mb-4 text-xs text-stone-400">
+        <p class="mb-3 text-xs text-stone-400 sm:mb-4">
           สร้างแผ่นเช็คชื่อแยกตามเหตุการณ์ เช่น เช็คขึ้นรถ, เช็คเข้าฐาน — กดแผ่นเพื่อเช็คชื่อคน
         </p>
 
         <!-- inline form สร้างแผ่น -->
         <div
           v-if="showAddSheet"
-          class="mb-4 space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-4"
+          class="mb-3 space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-3.5 sm:mb-4 sm:p-4"
         >
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -627,7 +622,7 @@ onMounted(() => {
               <input id="newSheetDate" v-model="newSheetDate" type="date" class="field" />
             </div>
           </div>
-          <div class="flex justify-end gap-2 border-t border-stone-100 pt-3">
+          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end">
             <button type="button" class="btn-ghost-ui" @click="showAddSheet = false">ยกเลิก</button>
             <button type="button" class="btn-primary" @click="addSheet">
               <i class="bi bi-check-lg" aria-hidden="true"></i> สร้างแผ่นเช็คชื่อ
@@ -666,7 +661,7 @@ onMounted(() => {
           <i class="bi bi-puzzle text-brand-700" aria-hidden="true"></i>
           <span class="truncate">ฟิลด์เพิ่มเติม</span>
         </h2>
-        <p class="mb-4 text-xs text-stone-400">
+        <p class="mb-3 text-xs text-stone-400 sm:mb-4">
           สร้างฟิลด์ข้อมูลที่ต้องการเก็บเพิ่มเติม (เช่น หมายเลขกลุ่ม, รถคันที่ลง) — ฟิลด์ใหม่จะ
           ปรากฏกับผู้เข้าร่วมทุกคน และตั้งค่าแบบกลุ่มได้
         </p>

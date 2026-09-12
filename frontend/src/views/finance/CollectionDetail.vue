@@ -191,7 +191,7 @@ onMounted(() => {
           type="button"
           :class="
             isEditMode
-              ? 'inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 transition-colors active:scale-[0.97]'
+              ? 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 transition-colors active:scale-[0.97]'
               : 'btn-ghost-ui'
           "
           @click="isEditMode = !isEditMode"
@@ -202,8 +202,8 @@ onMounted(() => {
       </template>
     </PageHeader>
 
-    <!-- ความคืบหน้าของแคมเปญ -->
-    <div v-if="data" class="page-card p-4 sm:p-5">
+    <!-- ความคืบหน้าของแคมเปญ (การ์ดสรุปตัวเลข → padding มือถือหนึ่งขั้นที่แน่นกว่า) -->
+    <div v-if="data" class="page-card p-3.5 sm:p-5">
       <div class="flex items-center justify-between gap-3">
         <p class="min-w-0 truncate text-sm font-bold text-stone-500">
           ความคืบหน้า (จ่ายแล้ว
