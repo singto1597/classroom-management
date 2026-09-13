@@ -6,6 +6,7 @@ from .categories import CategoriesMixin
 from .transactions import TransactionsMixin
 from .collections import CollectionsMixin
 from .reporting import ReportingMixin
+from .backfill import BackfillMixin
 from .export import ExportMixin
 
 
@@ -16,6 +17,7 @@ class FinanceService(
     TransactionsMixin,
     CategoriesMixin,
     AccountsMixin,
+    BackfillMixin,
     LedgerMixin,
     BaseMixin,
 ):

@@ -144,17 +144,38 @@ class LedgerMixin:
         description: str, recorded_by: Optional[str] = None, slip_image_url: Optional[str] = None,
         metadata: Optional[dict] = None,
         lines: List[dict],  # [{"ledger_id": int, "debit": float, "credit": float}, ...]
+        transaction_date: Optional[datetime] = None,
     ) -> str:
         """[DUAL-WRITE] สร้าง journal_entries (หัวบิล) + journal_lines (เดบิต/เครดิต) ใน transaction เดียวกับ legacy.
         คืน UUID ของ journal entry (สำหรับ revert ตาม reference ภายหลัง).
-        💡 เงินทุกจำนวน cast float() ก่อน (กฎ CLAUDE.md: NUMERIC ต้อง cast ก่อน arithmetic)"""
-        entry_id = await conn.fetchval(
-            """INSERT INTO journal_entries (room_id, reference_type, reference_id, description, slip_image_url, recorded_by, metadata)
-               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-               RETURNING id""",
-            room_id, reference_type, reference_id, description, slip_image_url, recorded_by,
-            json.dumps(metadata or {}, ensure_ascii=False),
-        )
+        💡 เงินทุกจำนวน cast float() ก่อน (กฎ CLAUDE.md: NUMERIC ต้อง cast ก่อน arithmetic)
+
+        `transaction_date` — ระบุเฉพาะตอน **backfill ย้อนหลัง** (ดู `finance/backfill.py`)
+        - ค่าเริ่มต้น (`None`) = ปล่อยให้ DB ใช้ `DEFAULT CURRENT_TIMESTAMP` ซึ่งถูกต้องสำหรับ
+          dual-write ปกติ เพราะรายการถูกบันทึกตอนที่เงินเคลื่อนไหวจริง
+        - backfill ต้องส่ง **เวลาที่เงินเคลื่อนไหวจริง** (จาก `finance_transactions.created_at`)
+          ไม่งั้นรายการย้อนหลังจะไปกองอยู่ที่ "วันนี้" และเดือนที่แล้วก็ยังขาดรายการนั้นอยู่ดี
+        - ⚠️ ต้องเป็น datetime แบบ **tz-aware** เสมอ (ส่ง `_as_utc(row["created_at"])` มา)
+          ห้ามส่ง naive เพราะการตีความของ asyncpg ขึ้นกับ TZ ของเครื่องที่รัน
+        - 💡 `created_at` ของ journal **ไม่**ถูกตั้งตาม — ปล่อยเป็น NOW() เพื่อให้ยังตรวจสอบได้ว่า
+          แถวนี้ถูกสร้างขึ้นเมื่อไหร่ (ไม่มีโค้ดส่วนใดอ่าน `journal_entries.created_at`)
+        """
+        if transaction_date is None:
+            entry_id = await conn.fetchval(
+                """INSERT INTO journal_entries (room_id, reference_type, reference_id, description, slip_image_url, recorded_by, metadata)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+                   RETURNING id""",
+                room_id, reference_type, reference_id, description, slip_image_url, recorded_by,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            )
+        else:
+            entry_id = await conn.fetchval(
+                """INSERT INTO journal_entries (room_id, reference_type, reference_id, description, slip_image_url, recorded_by, metadata, transaction_date)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+                   RETURNING id""",
+                room_id, reference_type, reference_id, description, slip_image_url, recorded_by,
+                json.dumps(metadata or {}, ensure_ascii=False), transaction_date,
+            )
         for line in lines:
             debit = line.get("debit", 0) or 0
             credit = line.get("credit", 0) or 0

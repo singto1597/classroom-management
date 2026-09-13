@@ -884,3 +884,33 @@
 
 ---
 
+### 🩹 Finance — แถว Legacy ที่ "วันที่ไทย" ข้ามเส้นตัดแล้วแต่ไม่มี journal = **แถวที่ไม่มีผู้อ่านฝั่งใดรับ** (หายจากประวัติทั้งที่ข้อมูลอยู่ครบ)
+- **Context/Problem:** หลังแยกผู้อ่านสองฝั่งตาม **วันที่ไทย** (legacy = ก่อน `CUTOFF_DATE = 2026-09-01`, journal = ตั้งแต่วันนั้นเป็นต้นไป + merge cap ที่ 31 ส.ค.) พบว่าแถวที่ถูกบันทึกในช่วง **~7 ชม. แรกของวันที่ 1 ก.ย. ตามเวลาไทย** (ก่อนที่โค้ด dual-write จะขึ้นจริง) มี "วันที่ไทย" อยู่ฝั่ง v2 แล้ว แต่ **ยังไม่มี journal คู่** ⇒ ฝั่ง legacy ถูก cap ออก ฝั่ง v2 ไม่มีอะไรให้อ่าน ⇒ **หายจากหน้าประวัติและไม่โผล่ในงบการเงิน** ทั้งที่แถวยังอยู่ใน DB (อีกกลุ่มคือรอยรั่วของ `_confirm_single_payment` สมัยที่ยัง `pass` ข้าม dual-write เมื่อห้องไม่มี ledger รายได้)
+- **Root Cause:** "วันที่ไทย" ที่ใช้แบ่งยุคคำนวณจาก `T.created_at` (มีการเคลื่อนไหวของเงิน) แต่ **การมีอยู่ของ journal** ขึ้นกับว่า *โค้ด* dual-write ขึ้นหรือยัง — สองเงื่อนไขนี้ไม่ใช่สิ่งเดียวกัน จึงมีหน้าต่างที่สองเงื่อนไขไม่ตรงกัน · ตรรกะสำคัญคือ **`created_at` ของแถว legacy เก็บ UTC (naive)** ⇒ 2026-08-31 18:00 UTC = 1 ก.ย. 01:00 ไทย ⇒ แถวนี้ "วันไทย" ข้ามเส้นไปแล้วทั้งที่ UTC ยังเป็นเดือน 8
+- **Correct Pattern/Solution:** สร้าง journal ย้อนหลัง (backfill) ให้เฉพาะแถวที่ตกหล่น **โดยไม่แตะ endpoint เดิม** — `services/finance/backfill.py` (`BackfillMixin.backfill_missing_journals`) + CLI `scripts/backfill_journals.py` (dry-run เป็นค่าเริ่มต้น). กฎที่ต้องยึด:
+  ```sql
+  -- candidate = แถวที่ (ก) ยังไม่ถูกลบ (ข) วันไทย >= เส้นตัด (ค) ยังไม่มี journal คู่
+  AND T.deleted_at IS NULL
+  AND T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')   -- $2 = _thai_day_start(CUTOFF_DATE)
+  AND NOT EXISTS (SELECT 1 FROM journal_entries JE
+                  WHERE JE.room_id = T.room_id
+                    AND (JE.metadata->>'legacy_transaction_id' = T.id::text
+                         OR (T.transfer_group_id IS NOT NULL
+                             AND JE.metadata->>'transfer_group_id' = T.transfer_group_id::text)))
+  ```
+  - **ห้าม backfill แถวก่อนเส้นตัดเด็ดขาด** — งบการเงิน (trial balance / balance sheet) อ่าน `journal_lines` เป็นแหล่งเดียว *โดยไม่มี date floor* ⇒ journal ที่สร้างให้แถวก่อนเส้นตัด = **เพิ่มข้อมูลที่ไม่มีมาก่อน** แล้ว**ยอดยกมาเพี้ยนถาวร**
+  - **ข้ามแถวที่ `deleted_at IS NOT NULL`** — แถวนั้นถูก revert และคืนยอดแล้ว; สร้าง journal ให้จะได้แถว `status='posted'` ⇒ **รายการผีโผล่กลับมา**
+  - **`NOT EXISTS` ต้องนับ journal ทุกสถานะ** (รวม voided) ⇒ เป็น idempotent โดยโครงสร้าง ⇒ รันซ้ำไม่สร้างซ้ำ
+  - **จับกลุ่ม transfer ก่อน**: 1 การโอน = แถว legacy 2 แถว แต่ journal **ใบเดียว** ⇒ ต้อง group ด้วย `transfer_group_id` ไม่งั้นยอดโอนถูกนับซ้ำ (asset เคลื่อนไหว 2 เท่า)
+  - **metadata ต้องเป็นคีย์ชุดเดียวกับ dual-write สด** (`legacy_transaction_id` / `transfer_group_id` / `student_payment_id`) ไม่งั้น `revert_transaction` (ที่ void journal ด้วย `metadata->>'...'`) จะ**ยกเลิกรายการที่ backfill มาให้ไม่ได้** ⇒ รายการค้างในงบตลอดกาล
+  - **`transaction_date` ต้องเป็นเวลาที่เงินเคลื่อนไหวจริง** (`_as_utc(row["created_at"])`) ไม่ใช่ `NOW()` ไม่งั้นรายการไปกองที่เดือนที่รันสคริปต์ **แล้วเดือนที่ขาดก็ยังขาดอยู่ดี** (บั๊กเดิมไม่หาย แค่ย้ายที่) · `created_at` ของ journal ปล่อยเป็น `NOW()` ได้ เพราะไม่มีโค้ดส่วนใดอ่าน (ยืนยันด้วย grep) และมีประโยชน์ตอนสืบย้อนว่าสร้างเมื่อไหร่
+  - **dry-run ต้องเป็น transaction ที่ `rollback()` ทิ้ง** — ไม่ใช่แค่ "ไม่เรียก INSERT" เพราะการวางแผนเรียก `_resolve_*_ledger` ที่ **auto-provision ledger ได้** ⇒ dry-run ที่ไม่ rollback จะทิ้ง ledger ค้างไว้
+  - **แถวที่วางแผนไม่ได้ = `skipped` + เหตุผล ไม่ใช่ `raise`** (ops tool ต้องไม่หยุดทั้งชุดเพราะแถวเดียวพัง) และครอบ `ValueError` จาก `_resolve_*_ledger` ด้วย เพราะมัน raise เมื่อแถว legacy ต้นทางถูกลบจริง (ไม่ใช่แค่ NULL)
+- **Rule:** (1) เมื่อ **การมีอยู่ของข้อมูล** ขึ้นกับ "โค้ดเวอร์ชันไหนเขียน" แต่ **การมองเห็นข้อมูล** ขึ้นกับ "วันที่ของข้อมูล" ⇒ จะมีหน้าต่างที่ข้อมูลหายเงียบ ๆ เสมอ; การ migrate แบบ dual-write ต้องมี **backfill เป็นขั้นบังคับ** ไม่ใช่ทางเลือก (2) backfill script ที่แตะเงินต้องเป็น **dry-run by default** และ dry-run ต้อง simulate จริงใน transaction ที่ rollback (3) ก่อนเขียน ops script ให้ **grep หาว่ามีโค้ดส่วนใดอ่านคอลัมน์ที่กำลังจะตั้ง** — เจอว่าไม่มีใครอ่าน `journal_entries.created_at` จึงปล่อย `NOW()` ได้อย่างมีหลักฐาน (4) **ห้ามแก้ endpoint ที่ ship แล้วเพื่อกลบปัญหาข้อมูล** — แก้ที่ข้อมูลดีกว่า เพราะการแก้ผู้อ่านข้างเดียวสร้างความไม่สอดคล้องชุดใหม่
+- **Tests:** `backend/tests/test_finance_backfill.py` (18 ตัว) — ที่มีค่าที่สุดคือ `test_straddle_row_is_invisible_before_and_visible_after_backfill` ซึ่งพิสูจน์ **อาการที่ผู้ใช้เห็น** (ก่อน backfill `get_transactions` = 0, หลัง = 1 และ merge ต้องได้ 1 ไม่ใช่ 2) ไม่ใช่แค่ "มี journal ถูกสร้าง" · `test_pre_cutoff_row_is_never_backfilled` ล็อกกฎห้ามแตะ · `test_backfill_is_idempotent_across_runs` · `test_revert_transaction_voids_backfilled_journal` + เวอร์ชัน transfer (พิสูจน์ว่า metadata ใช้ต่อได้จริง) · `test_backfilled_journal_lands_in_the_right_thai_month` (ส.ค. = 0, ก.ย. = 1) · `test_prior_reconcile_adjustment_is_reported` (ดู Gotcha ถัดไป) · E2E รัน CLI จริงกับ Postgres จริง: dry-run → apply → apply ซ้ำ (0 ใบ) → ตรวจ DB ตรง ๆ
+- **Gotcha:** asyncpg ในเทสต์นี้คืน **JSONB เป็น `str`** (ไม่ได้ลง codec) ⇒ `entry["metadata"]["k"]` จะได้ `TypeError: string indices must be integers` — ต้อง `json.loads()` ก่อน (โค้ด producción รอดเพราะอ่านผ่าน SQL `metadata->>'k'` ทั้งหมด; `audit_logs.new_values` ก็เป็น str เช่นกัน)
+- **Gotcha (อันตรายกว่า — ต้องรายงาน ไม่ใช่ปล่อยผ่าน):** ถ้าห้องนั้นเคยรัน `reconcile_finance.py --apply` มาก่อน **การ backfill จะทำให้ยอดสินทรัพย์เบิ้ล** เพราะ `reconcile_balances` แก้ *ผลต่างตัวเดียวกับ* ที่ backfill กำลังจะแก้ (แถวที่ตกหล่นคือสาเหตุที่ยอดบัญชีคู่ขาดไป) ด้วย journal `Dr สินทรัพย์ / Cr ทุน 3001` — และ journal ปรับปรุงยอด **ไม่มี `legacy_transaction_id`** (เป็นค่าระดับ "บัญชี" ไม่ใช่ระดับ "รายการ") ⇒ เงื่อนไข `NOT EXISTS` **มองไม่เห็น** ⇒ หลัง backfill asset ledger = 2 เท่าของ legacy. คำตอบคือ **นับและรายงาน** (`_count_prior_adjustments` → `prior_adjustments` + บล็อกเตือน 🚨 ใน CLI) แล้วให้ผู้ใช้ **รัน `reconcile_finance.py` ซ้ำหลัง backfill** (รอบสองเห็น ledger เกินแล้วออกรายการปรับปรุง "ทางกลับ" ให้เอง; ฝั่งรายได้ไม่ถูกแตะจึงถูกทั้งสองฝั่ง) — บทเรียนทั่วไป: **ก่อนเพิ่มข้อมูลย้อนหลัง ต้องถามว่า "มีกลไกไหนที่เคยชดเชยการขาดข้อมูลนั้นไปแล้วหรือยัง"** การชดเชยกับข้อมูลจริงสองทางจะหักกันไม่สนิทและกลายเป็นเบิ้ล
+- **Date Added:** 2026-09-13
+
+---
+
