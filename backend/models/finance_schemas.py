@@ -222,3 +222,93 @@ class DebtorItem(BaseModel):
 class CategoryUpdate(BaseModel):
     category_name: str = Field(..., max_length=100)
     user_name: Optional[str] = Field(None, max_length=100)
+
+# =============================================================================
+# 📊 งบการเงิน (Financial Statements) — งบทดลอง / งบกำไรขาดทุน / งบดุล
+# =============================================================================
+# ⚠️ ห้ามเพิ่ม `__all__` ในไฟล์นี้ — backend/routers/finance/{reporting,export}.py
+#    ทำ `from models.finance_schemas import *` และพึ่ง `date`/`datetime`/`Query`
+#    ที่ re-export มาจากไฟล์นี้ (ไฟล์นี้ไม่มี __all__ จึงกวาดทุกชื่อสาธารณะ)
+#    เติม __all__ = router ทั้งสอง import ไม่ผ่านตั้งแต่ต้น (NameError: date)
+
+
+class TrialBalanceLedgerRow(BaseModel):
+    """แถวบัญชีในงบทดลอง — ยอดสะสม YTD (≤ as_of) ของ ledger หนึ่งตัว."""
+    ledger_id: int
+    # account_code เป็น NULL ได้ใน DB (query สั่ง `ORDER BY account_code NULLS LAST`)
+    account_code: Optional[str] = None
+    account_name: str
+    account_type: str
+    total_debit: float
+    total_credit: float
+    balance: float
+
+
+class TrialBalanceResponse(BaseModel):
+    """งบทดลอง — total_debit/total_credit เป็นผลรวม "ยอดรวม" (ไม่ใช่สุทธิ) จึงเท่ากันเสมอถ้า journal สมดุล"""
+    ledgers: List[TrialBalanceLedgerRow]
+    total_debit: float
+    total_credit: float
+    is_balanced: bool
+    # ⚠️ ต้องมี default เสมอ — service ใส่ `note` เฉพาะเส้นทางที่ถูก clamp
+    #    ถ้าประกาศเป็น required เส้นทางปกติ (happy path) จะ 500
+    note: Optional[str] = None
+
+
+class StatementLine(BaseModel):
+    """บรรทัดรายได้/ค่าใช้จ่ายในงบกำไรขาดทุน"""
+    account_name: str
+    amount: float
+
+
+class IncomeStatementResponse(BaseModel):
+    """งบกำไรขาดทุนของงวด.
+
+    start_date/end_date เป็น **ISO string** ที่ service echo กลับมา (`.isoformat()`)
+    และเป็น **ค่าที่ผู้ใช้ส่งมา ไม่ใช่ค่าที่ถูก clamp แล้ว** — ตัวเลขอาจครอบช่วงแคบกว่านั้น
+    frontend ต้องแสดง `note` ให้เด่น ไม่งั้นอ่านผิด (ดู docs/skills.md)
+    """
+    start_date: str
+    end_date: str
+    revenues: List[StatementLine]
+    expenses: List[StatementLine]
+    total_revenue: float
+    total_expense: float
+    net_income: float
+    note: Optional[str] = None
+
+
+class BalanceSheetAccountRow(TrialBalanceLedgerRow):
+    """แถวบัญชีในงบดุล — โครงเดียวกับงบทดลองเป๊ะ.
+
+    สืบทอดมาแทนการก๊อปฟิลด์ เพราะ `_compose_balance_sheet` ส่ง ledger dict
+    ชุดเดียวกับ `_fetch_trial_balance_ledgers` มาตรง ๆ — ถ้าอนาคตงบดุลต้องการ
+    ฟิลด์ต่างออกไป ค่อยแตกออกจากกันตอนนั้น (ตอนนี้ยังเหมือนกัน 100%)
+    """
+
+
+class BalanceSheetResponse(BaseModel):
+    """งบแสดงฐานะการเงิน ณ วันที่.
+
+    สมการที่ต้องเป็นจริง: `assets_total == total_liabilities_and_equity`
+    โดย `total_liabilities_and_equity = liability_total + total_equity_side`
+
+    - `total_equity_side` = equity_total + retained_earnings (คงความหมายเดิมจากเวอร์ชันแรก)
+    - `period_net_income` เป็น **memo** ให้ผู้ตรวจเทียบ งบกำไรขาดทุน ↔ งบดุล
+      จึงต้องมาคู่กับ `period_start`/`period_end` เสมอ ไม่งั้นเป็นตัวเลขลอยที่ไม่รู้ที่มา
+    """
+    as_of: str
+    assets: List[BalanceSheetAccountRow]
+    assets_total: float
+    liabilities: List[BalanceSheetAccountRow]
+    liability_total: float
+    equities: List[BalanceSheetAccountRow]
+    equity_total: float
+    retained_earnings: float
+    total_equity_side: float
+    total_liabilities_and_equity: float
+    is_balanced: bool
+    period_net_income: float
+    period_start: str
+    period_end: str
+    note: Optional[str] = None

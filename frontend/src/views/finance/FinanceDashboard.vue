@@ -11,6 +11,7 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
 import { useAuthStore } from '@/stores/auth';
+import { todayThaiYearMonth } from '@/utils/period';
 import Swal from 'sweetalert2';
 
 ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale);
@@ -32,8 +33,12 @@ const isExportMenuOpen = ref(false);
 // 📥 Export แต่ละแบบ: 'summary' = สรุปรายการเดิม, 'journal' = สมุดรายวัน (นักบัญชี)
 type ExportKind = 'summary' | 'journal';
 
-const selectedMonth = ref(new Date().getMonth() + 1);
-const selectedYear = ref(new Date().getFullYear());
+// [TIMEZONE] ค่าเริ่มต้นต้องมาจาก "วันนี้ตามเวลาไทย" ไม่ใช่ปฏิทินของอุปกรณ์ผู้ใช้
+// ไม่งั้นเครื่องที่ TZ ไม่ใช่ UTC+7 จะเปิดหน้ามาผิดเดือน แล้วติดป้ายเดือนไทยทับตัวเลขของอีกเดือน
+// (ดู utils/period.todayThaiYearMonth) — ให้ตรงกับ FinancialStatements.vue ที่ใช้ todayIso()
+const initialPeriod = todayThaiYearMonth();
+const selectedMonth = ref(initialPeriod.month);
+const selectedYear = ref(initialPeriod.year);
 
 const thaiMonths = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -41,8 +46,9 @@ const thaiMonths = [
 ];
 
 // ✨ ปีที่เลือก: ตั้งแต่ปีที่แล้วถึงปีหน้า (รอบปีปัจจุบัน) ไม่ต้องแก้โค้ดทุกปี
+// [TIMEZONE] ใช้ปีไทย (!) ให้เป็นชุดเดียวกับ selectedYear ที่ seed มาจาก todayThaiYearMonth
 const yearOptions = computed(() => {
-  const currentYear = new Date().getFullYear();
+  const currentYear = todayThaiYearMonth().year;
   return [currentYear - 1, currentYear, currentYear + 1];
 });
 
@@ -405,6 +411,25 @@ watch([selectedMonth, selectedYear], () => {
             <span class="text-xs font-bold text-stone-600">ตั้งค่าการเงิน</span>
           </RouterLink>
         </div>
+
+        <!--
+          งบการเงิน — เป็นลิงก์เต็มความกว้าง ไม่ยัดเป็นช่องที่ 5 ในกริด
+          เพราะกริดเป็น grid-cols-2/sm:grid-cols-4 และมีของอยู่ 4 ช่องพอดี
+          ช่องที่ 5 จะลอยโดดคนเดียวทั้งบนมือถือและ desktop
+        -->
+        <RouterLink
+          to="/finance/statements"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+            <i class="bi bi-clipboard-data text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-stone-700">งบการเงิน</span>
+            <span class="block truncate text-xs text-stone-500">งบทดลอง · กำไรขาดทุน · งบดุล</span>
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+        </RouterLink>
       </div>
 
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">

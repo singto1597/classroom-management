@@ -18,7 +18,10 @@ import type {
   FinanceSummary,
   Debtor,
   StudentDebtProfile,
-  BasicStudent // ✨ Import เพิ่มเติม
+  BasicStudent, // ✨ Import เพิ่มเติม
+  TrialBalance, // 📊 งบการเงิน
+  IncomeStatement,
+  BalanceSheet
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -164,6 +167,27 @@ export const FinanceService = {
 
   async getStudentDebts(roomId: number, studentId: number): Promise<StudentDebtProfile> {
     return await api.get(`/api/classroom/${roomId}/finance/students/${studentId}/debts?target_type=room`) as unknown as StudentDebtProfile;
+  },
+
+  // 📊 งบทดลอง (Trial Balance) — ยอดสะสมถึง asOfDate (ไม่ระบุ = ทั้งหมดจนถึงตอนนี้)
+  async getTrialBalance(roomId: number, asOfDate?: string): Promise<TrialBalance> {
+    const params: Record<string, unknown> = { target_type: 'room' };
+    if (asOfDate) params.as_of_date = asOfDate;
+    return await api.get(`/api/classroom/${roomId}/finance/trial-balance`, { params }) as unknown as TrialBalance;
+  },
+
+  // 📊 งบกำไรขาดทุน — backend **บังคับ** ทั้ง start_date และ end_date (ขาดตัวใดตัวหนึ่ง = 422)
+  async getIncomeStatement(roomId: number, startDate: string, endDate: string): Promise<IncomeStatement> {
+    return await api.get(`/api/classroom/${roomId}/finance/income-statement`, {
+      params: { target_type: 'room', start_date: startDate, end_date: endDate }
+    }) as unknown as IncomeStatement;
+  },
+
+  // 📊 งบแสดงฐานะการเงิน ณ วันที่ (ไม่ระบุ = ณ วันนี้)
+  async getBalanceSheet(roomId: number, asOfDate?: string): Promise<BalanceSheet> {
+    const params: Record<string, unknown> = { target_type: 'room' };
+    if (asOfDate) params.as_of_date = asOfDate;
+    return await api.get(`/api/classroom/${roomId}/finance/balance-sheet`, { params }) as unknown as BalanceSheet;
   },
 
   // ✨ ส่งออกประวัติการทำรายการเป็นไฟล์ Excel (รับกลับมาเป็น Blob)

@@ -44,6 +44,15 @@ export const useAuthStore = defineStore('auth', () => {
   // 🚨 เปลี่ยนนิยามของ isAdmin ใหม่ทั้งหมด (เช็คจาก Flag ของ DB ไม่ใช่ป้ายชื่อตำแหน่ง)
   const isAdmin = computed(() => currentIsAdmin.value === true);
 
+  // 🎯 เช็คสิทธิ์รายตัวให้ตรงกับ backend (core/rbac.py: require_permission) — isAdmin เป็น superset
+  //    ⚠️ backend ไม่มี wildcard "all" — `required_permission not in user_permissions` คือเช็คตรงตัว
+  //    ถ้าวันหนึ่งเพิ่ม wildcard ที่นั่น ต้องมาแก้ที่นี่ด้วย ไม่งั้นปุ่มจะถูกซ่อนทั้งที่ API อนุญาต
+  const hasPermission = (permission: string): boolean =>
+    currentIsAdmin.value === true || currentPermissions.value.includes(permission);
+
+  // 🎯 งานการเงิน (เขียน): ตรงกับ require_permission(conn, room_id, user_id, "MANAGE_FINANCE")
+  const canManageFinance = computed(() => hasPermission('MANAGE_FINANCE'));
+
   // 🏷️ แปลง class_role (จาก Backend เป็นภาษาอังกฤษ) → ป้ายภาษาไทยสำหรับ UI
   const ROLE_LABELS: Record<string, string> = {
     student: 'นักเรียน',
@@ -246,6 +255,7 @@ export const useAuthStore = defineStore('auth', () => {
     currentRoomId, currentRoomName, currentRoomCode, currentRole,
     currentIsAdmin, currentPermissions, // 🎯 Expose ไปให้ Component อื่นดึงไปใช้ได้
     isAuthenticated, isAdmin, currentRoleLabel,
+    hasPermission, canManageFinance,
     setToken, setUserId, setRoom, clearRoom, logout, fetchProfile
   };
 });

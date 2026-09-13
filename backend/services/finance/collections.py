@@ -21,7 +21,7 @@ from .constants import (
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
-    _legacy_id_from_journal,
+    _legacy_id_from_journal, _as_utc,
 )
 from .base import service_logger
 
@@ -375,7 +375,15 @@ class CollectionsMixin:
                 rows = await conn.fetch(sql, collection_id, target_room_id)
                 total = len(rows)
                 paid_count = sum(1 for r in rows if r['status'] == 'paid')
-                result = {"collection_id": collection_id, "summary": {"total": total, "paid": paid_count, "pending": total - paid_count}, "students": [dict(r) for r in rows]}
+                # [TIMEZONE] `paid_at` เป็น TIMESTAMP (naive) ที่เก็บเวลา UTC (เขียนด้วย NOW())
+                # ต้องเติม tzinfo ก่อนส่งออก API ไม่งั้น JS จะตีเป็นเวลาเบราว์เซอร์ ⇒ เพี้ยน 7 ชม.
+                # (ดู helpers._as_utc) — เป็นคู่เดียวกับ created_at ของฝั่ง legacy
+                students = []
+                for r in rows:
+                    d = dict(r)
+                    d["paid_at"] = _as_utc(d.get("paid_at"))
+                    students.append(d)
+                result = {"collection_id": collection_id, "summary": {"total": total, "paid": paid_count, "pending": total - paid_count}, "students": students}
 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(

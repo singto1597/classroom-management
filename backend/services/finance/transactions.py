@@ -20,7 +20,7 @@ from .constants import (
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
-    _legacy_id_from_journal,
+    _legacy_id_from_journal, _thai_day_start, _thai_day_end, _as_utc,
 )
 from .base import service_logger
 
@@ -293,20 +293,26 @@ class TransactionsMixin:
     ) -> List[dict]:
         """[ROUTER-LEGACY] ดึงแถว finance_transactions ของห้องแบบไม่จำกัดหน้า (LIMIT) —
         ใช้ร่วมกันโดย legacy worker (แล้ว slice เอง) และ merge (บังคับ cap ก่อนเส้นตัด).
-        max_date_cap: ถ้าตั้ง → บังคับ DATE(T.created_at) <= cap (merge ใช้ cap = วันก่อน CUTOFF_DATE)"""
+        max_date_cap: ถ้าตั้ง → บังคับวันที่ไทยของ T.created_at <= cap
+        (merge ใช้ cap = วันก่อน CUTOFF_DATE)
+
+        [TIMEZONE] `T.created_at` เป็น TIMESTAMP (naive) ที่เก็บ **เวลา UTC** ไม่ใช่เวลาไทย
+        จึงต้อง unwrap ฝั่ง parameter ด้วย `AT TIME ZONE 'UTC'` แล้วเทียบกับขอบเขตเวลาไทย
+        (ห้ามใช้ `DATE(T.created_at)` — จะได้ปฏิทิน UTC ซึ่งไม่ตรงกับงบการเงิน; ดู helpers)
+        """
         where_clause = "WHERE T.room_id = $1 AND T.deleted_at IS NULL"
         params = [room_id]
         param_idx = 2
 
         if start_date:
-            where_clause += f" AND DATE(T.created_at) >= ${param_idx}"
-            params.append(start_date); param_idx += 1
+            where_clause += f" AND T.created_at >= (${param_idx}::timestamptz AT TIME ZONE 'UTC')"
+            params.append(_thai_day_start(start_date)); param_idx += 1
         effective_end = end_date
         if max_date_cap is not None and (effective_end is None or max_date_cap < effective_end):
             effective_end = max_date_cap
         if effective_end is not None:
-            where_clause += f" AND DATE(T.created_at) <= ${param_idx}"
-            params.append(effective_end); param_idx += 1
+            where_clause += f" AND T.created_at <= (${param_idx}::timestamptz AT TIME ZONE 'UTC')"
+            params.append(_thai_day_end(effective_end)); param_idx += 1
         if account_id:
             where_clause += f" AND T.account_id = ${param_idx}"
             params.append(account_id); param_idx += 1
@@ -328,7 +334,15 @@ class TransactionsMixin:
             {where_clause}
             ORDER BY T.created_at DESC, T.id DESC
         """, *params)
-        return [dict(row) for row in rows]
+        # [TIMEZONE] เติม tzinfo=UTC ให้ created_at ก่อนส่งออก API (ดู helpers._as_utc)
+        # ไม่งั้นฝั่ง legacy จะคืน naive (JS ตีเป็นเวลาเบราว์เซอร์ ⇒ เพี้ยน 7 ชม.)
+        # ขณะที่ฝั่ง journal คืน aware → สัญญา API ไม่สม่ำเสมอ
+        items = []
+        for row in rows:
+            d = dict(row)
+            d["created_at"] = _as_utc(d.get("created_at"))
+            items.append(d)
+        return items
 
     @classmethod
     async def _get_transactions_legacy(
@@ -376,10 +390,13 @@ class TransactionsMixin:
         """
         where_cond, params = ["JE.room_id = $1 AND JE.deleted_at IS NULL"], [room_id]
         idx = 2
+        # [TIMEZONE] JE.transaction_date เป็น timestamptz ⇒ ต้องเทียบด้วยขอบเขต tz-aware
+        # เวลาไทย (ดู helpers._thai_day_start) ห้ามใช้ DATE() เพราะจะตัดตาม TimeZone ของ
+        # session (= UTC) ⇒ ได้คนละปฏิทินกับงบการเงิน แล้วรายการเช้ามืดวันที่ 1 จะหายไป
         if start_date:
-            where_cond.append(f"DATE(JE.transaction_date) >= ${idx}"); params.append(start_date); idx += 1
+            where_cond.append(f"JE.transaction_date >= ${idx}"); params.append(_thai_day_start(start_date)); idx += 1
         if end_date:
-            where_cond.append(f"DATE(JE.transaction_date) <= ${idx}"); params.append(end_date); idx += 1
+            where_cond.append(f"JE.transaction_date <= ${idx}"); params.append(_thai_day_end(end_date)); idx += 1
         if account_id:
             # [DOUBLE-ENTRY] กรองด้วยบัญชีสินทรัพย์: journal ใดก็ตามที่ asset ledger นี้มีบทบาท (Dr หรือ Cr)
             where_cond.append(f"""

@@ -140,6 +140,12 @@ const router = createRouter({
           component: () => import('@/views/finance/DebtorList.vue'),
         },
         {
+          // งบการเงิน — อ่านอย่างเดียว ไม่มี RBAC gate (ตรงกับ require_member ฝั่ง backend)
+          path: 'finance/statements',
+          name: 'finance-statements',
+          component: () => import('@/views/finance/FinancialStatements.vue'),
+        },
+        {
           path: 'discord-connect',
           name: 'DiscordConnect',
           component: () => import('@/components/discord/DiscordConnectGuide.vue'),

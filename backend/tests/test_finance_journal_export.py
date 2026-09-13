@@ -2,8 +2,8 @@
 Integration tests for FinanceService.export_journal_excel (สมุดรายวันทั่วไป)
 
 ครอบคลุม:
-  - โครงสร้าง Excel: แผ่นเดียว 'สมุดรายวัน' + คอลัมน์ครบ
-    (วันที่/เวลา/Reference/คำอธิบาย/รหัสบัญชี/ชื่อบัญชี/เดบิต/เครดิต/ผู้บันทึก)
+  - โครงสร้าง Excel: workbook 6 แผ่น โดยแผ่น 'สมุดรายวันทั่วไป (GJ)' มีคอลัมน์ครบ
+    (วันที่/เวลา/อ้างอิง/คำอธิบาย/รหัสบัญชี/ชื่อบัญชี/เดบิต/เครดิต/ผู้บันทึก + Audit Trail)
   - ความสมดุลของบัญชีคู่: ยอดเดบิตรวม = ยอดเครดิตเสมอ (มีแถวรวมท้าย)
   - การจัดกลุ่มหัวบิล: วันที่/Reference/คำอธิบาย/ผู้บันทึก แสดงเฉพาะบรรทัดแรกของบิล
   - การกรองช่วงเวลา (month+year / start_date+end_date)
@@ -105,24 +105,29 @@ async def _add_txn(pool, room_id, owner, account_id, category_id, amount, ttype,
 
 
 def _read_journal(excel_file) -> tuple:
-    """อ่าน Sheet 'สมุดรายวันทั่วไป (General Journal)' จาก workbook 6 แผ่น → (header, data_rows, totals)
+    """อ่าน Sheet 'สมุดรายวันทั่วไป (GJ)' จาก workbook 6 แผ่น → (header, data_rows, totals)
 
     โครงสร้างไฟล์: แถว 1 title, แถว 2 subtitle, แถว 3 = header,
-    แถว 4 ขึ้นไป = data, แถวสุดท้าย 'รวมทั้งสิ้น'
+    แถว 4 ขึ้นไป = data, แถวสุดท้าย 'รวมทั้งสิ้น (Grand Total)'
+
+    ⚠️ ลำดับแผ่น/ชื่อแผ่นคือ **สัญญาของไฟล์ที่ส่งให้นักบัญชี** (แก้ที่ commit 44b5499)
+       และ **ป้ายแถวรวมอยู่คอลัมน์ D (index 3)** ไม่ใช่คอลัมน์ A — ช่อง A ของแถวนั้นว่าง
+       ทั้งสองอย่างนี้คือเหตุที่เทสต์ชุดนี้เคยพัง ดู docs/skills.md
     """
     wb = openpyxl.load_workbook(excel_file)
     assert wb.sheetnames == [
-        "Financial Dashboard", "สมุดรายวัน (General Journal)",
-        "สมุดบัญชีแยกประเภท (GL)", "งบทดลอง (Trial Balance)",
-        "งบกำไรขาดทุน (Income Statement)", "งบแสดงฐานะการเงิน (BS)",
+        "Financial Dashboard", "งบแสดงฐานะการเงิน (BS)",
+        "งบกำไรขาดทุน (Income Statement)", "งบทดลอง (Trial Balance)",
+        "สมุดบัญชีแยกประเภท (GL)", "สมุดรายวันทั่วไป (GJ)",
     ]
-    ws = wb["สมุดรายวัน (General Journal)"]
+    ws = wb["สมุดรายวันทั่วไป (GJ)"]
     all_rows = list(ws.values)
     header = list(all_rows[2])
     data = []
     totals = None
     for row in all_rows[3:]:
-        if row[0] == "รวมทั้งสิ้น":
+        # แถว "(ไม่มีรายการในช่วงนี้)" ก็อยู่คอลัมน์ D เหมือนกัน → เช็คคำขึ้นต้นให้ชัด
+        if isinstance(row[3], str) and row[3].startswith("รวมทั้งสิ้น"):
             totals = row
             break
         data.append(list(row))
@@ -143,12 +148,12 @@ async def test_journal_export_empty_room_returns_valid_workbook(db_pool):
     assert isinstance(excel_file, io.BytesIO)
 
     header, data, totals = _read_journal(excel_file)
-    # คอลัมน์ครบตามสเปค (9 คอลัมน์หลัก + Audit Trail 7 คอลัมน์)
+    # คอลัมน์ครบตามสเปค (9 คอลัมน์หลัก + Audit Trail 6 คอลัมน์)
     assert header == [
-        "วันที่", "เวลา", "Reference", "คำอธิบาย", "รหัสบัญชี",
-        "ชื่อบัญชี", "เดบิต (บาท)", "เครดิต (บาท)", "ผู้บันทึก",
-        "โมดูล (reference_type)", "Doc ID (reference_id)", "Legacy TX ID",
-        "Transfer Group", "Student Payment", "Journal Entry ID", "Journal Line ID",
+        "วันที่", "เวลา", "อ้างอิง (Ref)", "คำอธิบายรายการ", "รหัสบัญชี",
+        "ชื่อบัญชี", "เดบิต (Dr.)", "เครดิต (Cr.)", "ผู้บันทึก",
+        "โมดูลต้นทาง", "Doc ID", "Legacy ID",
+        "Transfer ID", "Payment ID", "Journal ID",
     ]
     # ไม่มีรายการ → มี placeholder + แถวรวม 0
     assert len(data) == 1 and data[0][3] == "(ไม่มีรายการในช่วงนี้)"

@@ -723,3 +723,164 @@
   ```
 - **Rule:** ตัวควบคุมที่เปลี่ยน "ขนาดหน้า" (limit / per_page / page_size) ต้องรีเซ็ตหรือหนีบ page เสมอ และถ้ามี watcher รวมหลาย source ให้ตรวจว่าการเปลี่ยน source หนึ่งไม่ได้ทิ้ง source อื่นไว้ค่าเก่า
 - **Date Added:** 2026-09-12
+
+### 🐛 Timezone — `datetime` แบบ naive เทียบกับคอลัมน์ `timestamptz` = asyncpg ตีความเป็น "เวลาท้องถิ่นของเครื่อง" ไม่ใช่ UTC (งบการเงินกินข้อมูลข้ามวัน)
+- **Context/Problem:** งบการเงินทุกตัว (trial balance / income statement / balance sheet / export) สร้างขอบเขตเวลาด้วย `datetime.combine(d, dtime(23, 59, 59))` แล้วส่งเป็น parameter เทียบกับ `journal_entries.transaction_date` (timestamptz) → **ใน container ที่ `TZ=UTC` (ซึ่งคือภาพ production) งบของวันที่ 1 ก.ย. แอบนับรายการถึง 06:59:59 ของวันที่ 2 ก.ย. ตามเวลาไทย** ⇒ รายการที่บันทึกตี 1:30 ของวันถัดไปโผล่ในงบของเมื่อวาน; รายงานเดียวกันให้ตัวเลขคนละชุดระหว่างเครื่อง dev (TZ=Asia/Bangkok, ถูกโดยบังเอิญ) กับ container (ผิด)
+- **Root Cause:** asyncpg เข้ารหัส `datetime` ที่ **ไม่มี tzinfo** เป็นเวลาท้องถิ่นของโปรเซส (`obj.astimezone(utc)`) **ไม่ใช่** UTC อย่างที่มักเข้าใจ พิสูจน์ด้วย `-e TZ=Etc/GMT-7`: `datetime(2026,9,1,23,59,59)` → `2026-09-01 16:59:59+00:00` (= `naive.astimezone(utc)` เป๊ะ) ส่วนใน container `TZ=UTC` ค่าเดียวกันกลายเป็น `2026-09-01 23:59:59+00:00` = `2026-09-02 06:59:59+07:00` → เกินมา 7 ชั่วโมง. อาการนี้ **ตรวจไม่เจอ** ถ้ารันเทสใน container TZ=UTC ด้วย seed ที่เวลากลางวัน (12:00) เพราะไม่ข้ามเส้นวัน
+- **Correct Pattern/Solution:** สร้างขอบเขตวันเป็น **tz-aware เวลาไทย** เสมอ ผ่าน helper กลางใน `services/finance/helpers.py` — ห้าม `datetime.combine(...)` เปล่า ๆ อีก:
+  ```python
+  def _thai_day_start(d: date) -> datetime:      # 00:00:00+07:00  → ใช้กับ `>= $n`
+      return datetime.combine(d, dtime.min, tzinfo=THAI_TZ)
+  def _thai_day_end(d: date) -> datetime:        # 23:59:59.999999+07:00 → ใช้กับ `<= $n`
+      return datetime.combine(d, dtime.max, tzinfo=THAI_TZ)
+  def _thai_next_day_start(d: date) -> datetime: # (d+1) 00:00:00+07:00 → ใช้กับ `< $n`
+      return datetime.combine(d + timedelta(days=1), dtime.min, tzinfo=THAI_TZ)
+  ```
+  ใช้ `dtime.max` ไม่ใช่ `23:59:59` เพื่อไม่ให้รายการวินาทีสุดท้ายของวันหลุดจากเงื่อนไข `<` (ช่องโหว่ที่ `get_trial_balance` มีอยู่ก่อนแล้ว)
+- **Rule:** (1) **ห้ามส่ง `datetime` naive เป็น parameter ที่เทียบกับคอลัมน์ `timestamptz`** — ต้องมี `tzinfo` เสมอ (สำหรับเวลาไทยใช้ `THAI_TZ`) (2) `_naive_thai_dt()` ยังใช้ได้กับการเทียบ **naive ↔ naive** (เช่น `finance_transactions.created_at` กับ `CUTOFF_DATE`) แต่ห้ามใช้ปนกับ timestamptz (3) ขอบเขตวันของ "รายงาน" ต้องเขียนเป็น helper กลาง **ไม่กระจาย `datetime.combine` ตามไฟล์** — บั๊กนี้อยู่พร้อมกัน 4 จุด (reporting.py ×3, export.py ×1) เพราะต่างคนต่างเขียน (4) ฝั่ง SQL ยังมี `DATE(JE.transaction_date)` ที่แปลงตาม **session TimeZone** ซึ่งเป็นความหมายที่สาม — ระวังอย่านับว่ามันเท่ากับสองแบบข้างบน
+- **Tests:** `test_finance_statements.py` §`[TIMEZONE]` — 6 เทสต์ที่ seed รายการ "ตี 1:30 เวลาไทย" (UTC ยังเป็นวันก่อนหน้า) แล้วยืนยันว่ามันไม่โผล่ในงบของวันก่อน: `test_as_of_window_is_bangkok_scoped` (parametrize 3 วัน × TB+BS), `test_day_boundary_is_exact_at_bangkok_midnight` (23:59:59 นับ / 00:00:00 วันถัดไปไม่นับ), `test_income_statement_end_date_is_bangkok_scoped`, `test_export_balance_sheet_period_is_bangkok_scoped`, `test_thai_day_bound_helpers_are_tz_aware_and_pin_correct_instants` (l็อกค่าที่ถูกต้องไว้โดยไม่ต้องพึ่ง DB — จับได้ทันทีถ้ามีคนถอด `tzinfo` ออก). A/B พิสูจน์แล้ว: **5 ใน 7 พังกับโค้ดเดิม** โดยพังด้วยอาการที่ถูกต้อง (`as_of=2026-09-01 ควรเห็นเงินสด 0.0 แต่ได้ 111.0`)
+- **Date Added:** 2026-09-13
+
+### 🐛 Finance — `_compose_balance_sheet` ฮาร์ดโค้ด `liability_total = 0.0` → `is_balanced` เป็นเท็จหลอก ๆ บนเอกสารที่พิมพ์ออกมา
+- **Context/Problem:** งบแสดงฐานะการเงิน (ทั้งในหน้าเว็บใหม่และแผ่น BS ในไฟล์ Excel) ขึ้นธง **"ไม่สมดุล"** ตลอดกาลทันทีที่ห้องสร้าง liability ledger ตัวแรก ทั้งที่งบทดลอง (trial balance) รายงานว่าสมดุล — เพราะหัวตารางที่พิมพ์ออกมาอ้างสมการ `สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ + กำไรสะสม` แต่โค้ดรวมฝั่งขวาแค่ `equity + retained` โดยไม่บวกหนี้สิน ⇒ **สัญญาณเตือนเท็จบนเอกสารที่นักบัญชีอ่าน** ซึ่งอันตรายกว่าไม่มีสัญญาณเลย
+- **Root Cause:** `_compose_balance_sheet` เดิมเป็นฟังก์ชันที่ถูกเรียกจาก Excel export เท่านั้น จึงไม่มีใครสังเกตว่า `liability_total` ถูกฮาร์ดโค้ดเป็น `0.0` และ `is_balanced` ถูกเทียบกับ `total_equity_side` (ไม่รวมหนี้สิน) — พอมี liability ledger ตัวแรกที่มียอดจริง สมการพังทันที
+- **Correct Pattern/Solution:** คำนวณหนี้สินจริงจาก `tb["ledgers"]` ที่ `account_type == 'liability'` โดยใช้ค่า `balance` ที่ `_fetch_trial_balance_ledgers` ให้มาแล้ว (เป็น `Cr − Dr` ⇒ **หนี้สินมาเป็นบวกอยู่แล้ว ห้ามกลับเครื่องหมายซ้ำ**) แล้วเพิ่มคีย์ `total_liabilities_and_equity = liability_total + equity_total + retained` และเทียบ `is_balanced` กับคีย์นี้ — คง `total_equity_side` ไว้ตามความหมายเดิมเพื่อไม่ให้ผู้ใช้เดิมพัง
+- **Rule:** (1) ตัวเลขที่ **หัวตารางอ้างถึง** ต้องถูกคำนวณจริง ไม่ใช่ฮาร์ดโค้ดเป็น 0 แล้วเขียนคอมเมนต์ว่า "ยังไม่มี" (2) `is_balanced` ต้องเทียบกับ **ทุกองค์ประกอบที่พิมพ์ออกมา** ไม่ใช่ subset (3) `account_type` ของ `accounting_ledgers` **ไม่มี CHECK constraint** (มีแค่คอมเมนต์) → ใส่ `else` ที่ครอบ "ประเภทที่ไม่รู้จัก" ไว้เสมอ; ตัดออกจากทุกฝ่ายโดยเจตนา (ให้ `is_balanced` เป็น False = เห็นสัญญาณ) **ดีกว่า** เงียบ ๆ ไปรวมเป็นค่าใช้จ่ายแล้วได้ True ทั้งที่เงินถูกจัดประเภทผิด
+- **Tests:** `test_finance_statements.py::test_balance_sheet_equation_holds_with_liability_ledger` (สร้าง liability ledger +`Dr expense / Cr liability` → `liability_total > 0` และ `is_balanced is True`) — **A/B พิสูจน์แล้วว่า 5 เทสต์พังกับ `_compose_balance_sheet` เวอร์ชันก่อนแก้** และ `test_export_balance_sheet_sheet_lists_liabilities` (แผ่น BS ต้องมีบรรทัดหนี้สินรายตัว + "รวมหนี้สิน" = 300 ไม่ใช่ 0.0) คู่กับ `test_export_balance_sheet_flags_unbalanced_when_equation_really_breaks` (ธงต้อง**ไม่ได้**เขียวตลอด — สร้างสมการพังจริงด้วยบรรทัดเดี่ยวที่ไม่มีคู่)
+- **Date Added:** 2026-09-13
+
+### 🐛 Routers — `from models.finance_schemas import *` ทำให้การเพิ่ม `__all__` ในไฟล์ schema พังทั้ง router
+- **Context/Problem:** `routers/finance/reporting.py` และ `routers/finance/export.py` import schema แบบ wildcard (`from models.finance_schemas import *`) อยู่ก่อนแล้ว ⇒ พอเพิ่ม F1 schemas แล้วอยากจัดบ้านด้วยการใส่ `__all__` ใน `finance_schemas.py` ทั้งสอง router พังทันทีที่ import ด้วย `NameError: name 'date' is not defined` (wildcard ที่มี `__all__` จะ **ไม่** ดึงชื่อที่ `__all__` ไม่ได้ระบุ ซึ่งรวมถึง helper/stdlib ที่โค้ดเดิมพึ่งพาโดยบังเอิญ เช่น `date`, `datetime` ที่ import ไว้ในไฟล์ schema)
+- **Root Cause:** `import *` เดิมทำหน้าที่เป็น "import ทุกอย่างที่ module นั้นมองเห็น" ซึ่งรวม stdlib ที่ re-export โดยไม่ได้ตั้งใจ → การเพิ่ม `__all__` เปลี่ยนสัญญาแบบ breaking ทันทีโดยไม่มีใครรู้
+- **Correct Pattern/Solution:** **ห้ามเพิ่ม `__all__`** ใน `models/finance_schemas.py` จนกว่าจะเปลี่ยน router ทั้งสองเป็น explicit import ก่อน — เขียนคอมเมนต์เตือนไว้ที่หัวไฟล์ schema (มีอยู่แล้ว) และถ้าจำเป็นต้องจัดบ้านจริง ให้เปลี่ยน router เป็น explicit import **ก่อน** แล้วค่อยใส่ `__all__`
+- **Rule:** เพิ่ม `__all__` ให้ module ที่มีคน `import *` อยู่ = การเปลี่ยนแปลงแบบ breaking; grep `import \*` ก่อนทุกครั้ง
+- **Tests:** เทสต์ HTTP ของ F1 ใน `test_finance_statements.py` (`test_statements_without_explicit_date_return_200` parametrize ครบ 3 path) จะ import router ทั้งสองตัว ⇒ พังทันทีถ้ามีคนใส่ `__all__`
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — เทสต์ export ที่ assert ด้วย **index ของคอลัมน์/แถว** เน่าเงียบ ๆ เมื่อ layout ขยับ (แต่ assert ด้วย **ป้ายชื่อ** ก็ยังเน่าได้ถ้าป้ายถูกเติม suffix)
+- **Context/Problem:** `test_finance_export_enterprise.py` ล้ม 5 เทสต์และ `test_finance_journal_export.py` ล้มอีก 1 เทสต์บน `main` **ก่อน**งาน F1 เริ่ม — ตรวจด้วย `git stash` A/B แล้วว่าเป็นเทสต์เน่ามาจาก commit `44b5499` (Update export.py) ไม่ใช่ regression ของงานเรา
+- **Root Cause:** สองสาเหตุพร้อมกัน — (1) `_find_row(tb_rows, 0, "รวมทั้งสิ้น")` ค้น **คอลัมน์ A** แต่ป้ายย้ายไปอยู่ **คอลัมน์ B** (index 1) ⇒ คอลัมน์ A เป็น `None`; และ (2) ป้ายถูกเติม suffix เป็น `"รวมทั้งสิ้น (Grand Total)"` ⇒ เทียบแบบเป๊ะไม่เจอ; ส่วน `test_finance_journal_export.py` เป็น **ชื่อ sheet drift** (`'สมุดรายวัน (General Journal)'` vs `'สมุดรายวันทั่วไป (GJ)'` ที่ `export.py` ตั้งจริง)
+- **Correct Pattern/Solution:** หาแถวด้วย **ป้ายชื่อแบบ "มีอยู่ข้างใน"** ไม่ใช่เทียบเป๊ะ และค้นให้ครบทุกคอลัมน์ที่ป้ายอาจอยู่ — helper สองตัวใน `test_finance_statements.py`:
+  ```python
+  def _find_row(rows, col, needle):            # เทียบเป๊ะ — ใช้เมื่อป้ายนิ่งแล้ว
+  def _find_row_containing(rows, col, fragment): # "fragment in r[col]" — ทนการเติม suffix
+  ```
+  และเมื่อต้องอ่านค่าจากคอลัมน์ ให้ยืนยัน index ของคอลัมน์นั้นด้วยเทสต์แยก ไม่ใช่เดาจาก `values`
+- **Rule:** (1) เทสต์ที่ผูกกับ index ของเซลล์จะพังทุกครั้งที่ layout ขยับ → ผูกกับ **ป้าย** (2) แต่ป้ายก็ขยับได้ → ใช้ "contains" และ **อย่า assert ทั้งสตริง** (3) เจอเทสต์ล้มบน branch ที่เราไม่ได้แตะ → พิสูจน์ด้วย `git stash` A/B **ก่อน**สรุปว่าเป็น regression ของเรา แล้ว **รายงานให้ผู้ใช้ตัดสิน** ว่าจะแก้ assert ให้ตรงกับโค้ดหรือแก้โค้ด — การเปลี่ยน assert ให้ตรงกับโค้ดเป็นการตัดสินใจเชิงผลิตภัณฑ์ ไม่ใช่ bug fix
+- **Tests:** `test_finance_statements.py::_find_row_containing` ถูกสร้างเพราะเคสนี้โดยตรง; เทสต์ใหม่ `test_export_balance_sheet_sheet_lists_liabilities` / `test_export_balance_sheet_flags_unbalanced_when_equation_really_breaks` เขียนด้วยป้ายชื่อล้วน
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — `clean_database` เป็น autouse + `TRUNCATE ... CASCADE` ⇒ fixture ที่สร้าง room/user ต้อง **function-scoped** และห้าม hardcode id
+- **Context/Problem:** `docs/rules/testing.md` อ้างถึง `admin_headers` (discord 999 = admin) แต่ `backend/tests/conftest.py` **ไม่มี** มาก่อน → ต่างไฟล์ต่างสร้าง user/room เอง ซ้ำ ๆ; พอเพิ่ม fixture จริงแล้วเทสต์ใหม่ยิง 403 `"คุณไม่ได้เป็นสมาชิกที่ใช้งานอยู่ในห้องเรียนนี้"` เพราะสร้าง room ของตัวเองด้วย `_insert_room` แล้วยิงด้วย `admin_headers` (ซึ่งเป็นสมาชิกของ **ห้องอื่น**)
+- **Root Cause:** `require_member(conn, room_id, user_id)` **ไม่ bypass ให้ `is_admin`** (ต่างจาก `require_permission` ที่ bypass ทั้ง `SUPER_ADMIN_ID` และ `is_admin`) ⇒ ต้องมีแถว `students` ที่ `status='active'` ในห้องนั้นจริง ๆ; และ `clean_database` เป็น `autouse=True` + `TRUNCATE TABLE users, rooms, mtn_locations CASCADE` **ก่อนทุกเทสต์** ⇒ fixture ระดับ session/module จะถูกล้างทิ้งกลางทาง
+- **Correct Pattern/Solution:** fixture แบบ function-scoped ที่สร้าง user + room + แถว `students` ของตัวเอง (`_provision_auth_context`) แล้วให้เทสต์ใช้ `admin_headers.room_id` เป็นห้องเป้าหมาย — **ไม่สร้างห้องใหม่แยกจาก header**; `TRUNCATE ... CASCADE` **ไม่ reset sequence** ⇒ ledger/user/room id ไต่ขึ้นเรื่อย ๆ ข้ามเทสต์ **ห้าม hardcode id เด็ดขาด**
+- **Rule:** (1) `require_member` ≠ `require_permission` — ตัวแรกต้องการแถว `students` จริง `is_admin` ไม่ช่วย (มีเทสต์ล็อกไว้: `test_statements_is_admin_does_not_bypass_require_member`) (2) เทสต์ที่ยิง HTTP ด้วย header fixture ต้องใช้ `headers.room_id` เป็นห้อง (3) fixture ที่แตะ DB ต้อง function-scoped เสมอเพราะ `clean_database` เป็น autouse
+- **Tests:** `test_finance_statements.py` — `test_statements_allow_plain_member` / `test_statements_forbid_non_member` / `test_statements_is_admin_does_not_bypass_require_member` (parametrize ครบ 3 path) + `test_statements_unknown_room_returns_404`
+- **Date Added:** 2026-09-13
+
+### 🕐 Dates — แก้ขอบเขตเวลาแบบ **ไม่ครบทุกจุดในไฟล์เดียวกัน** ทำให้ไฟล์ที่เคย "ผิดเหมือนกันทั้งไฟล์" กลายเป็น "ขัดแย้งกันเองในไฟล์เดียว"
+- **Context/Problem:** งาน F1 แก้ขอบเขตวันที่จาก naive datetime → tz-aware เวลาไทย 4 จุด (`reporting.py` ×3, `export.py` ×1 สำหรับ `_fetch_*`) แต่ **เหลืออีกจุดในไฟล์เดียวกัน**: ชีต "สมุดรายวันทั่วไป (GJ)" ใน `export.py` ยังกรองด้วย `DATE(JE.transaction_date) >= $n` ⇒ รายการที่บันทึก 00:00–07:00 น. เวลาไทยของวันหัว/ท้ายช่วง **หลุดจากชีต GJ แต่ยังถูกนับในชีต GL/TB/IS/BS** (เจอด้วย adversarial review หลัง commit แรก ไม่ใช่ด้วยเทสต์)
+- **Root Cause:** `DATE(x)` บนคอลัมน์ **`timestamptz`** จะแปลงเป็น TimeZone ของ **session** ก่อนตัดวัน — DB ตั้ง `TimeZone = UTC` ⇒ ขอบเขตผิดไป 7 ชั่วโมง; ก่อนแก้ทั้ง `_fetch_*` (naive → asyncpg ตีเป็น host-local = UTC) และ `DATE()` (session = UTC) **ตรงกันโดยบังเอิญ** จึงไม่ขัดกันเอง (ผิดพร้อมกันทั้งไฟล์) แต่พอแก้ข้างเดียว ความไม่ตรงกัน 7 ชั่วโมงก็โผล่ **ระหว่างชีตในไฟล์เดียว** — ตรวจจับได้ยากกว่าตอนที่ผิดทั้งไฟล์
+- **Correct Pattern/Solution:** ใช้ขอบเขตชุดเดียวกับ `_fetch_income_statement_rows` (`JE.transaction_date >= lower_dt` / `<= upper_dt` โดย `lower_dt = _thai_day_start(...)`, `upper_dt = _thai_day_end(...)`) — **ห้ามใช้ `DATE()` กับคอลัมน์ timestamptz เด็ดขาด**
+  - ⚠️ **แก้ความเข้าใจเดิม (พบทีหลัง — ดูบทเรียนถัดไป):** ตอนแรกสรุปว่า `DATE(T.created_at)` ของ `finance_transactions` "ถูกต้องแล้ว" เพราะคอลัมน์เป็น `TIMESTAMP` (naive) จึงไม่มีการแปลง TZ — **ครึ่งเดียวถูก**: มันไม่แปลง TZ จริง แต่ค่าที่ *เก็บ* ในคอลัมน์นั้นเป็น **UTC wall clock** ⇒ `DATE()` ได้ **วันตาม UTC** ซึ่งก็ยังไม่ใช่วันไทยอยู่ดี · **"ไม่แปลง TZ" ≠ "ถูกต้อง"** ต้องถามต่อว่า *ค่าที่เก็บเป็นโซนไหน* ไม่ใช่แค่ *ชนิดคอลัมน์คืออะไร*
+- **Rule:** (1) แก้ bug ขอบเขตเวลา ให้ **grep หาทุกจุดที่เทียบวันที่ในไฟล์/โมดูลเดียวกันก่อน** แล้วแก้ให้ครบในรอบเดียว (2) `DATE(col)` บน `TIMESTAMPTZ` ผิดเพราะแปลงตาม session TZ — **ห้ามใช้**; บน `TIMESTAMP` naive ไม่แปลง TZ แต่ **ผลจะถูกหรือไม่ขึ้นกับว่าเก็บค่าอะไรไว้** ⇒ ต้องพิสูจน์ด้วย probe (3) เมื่อไฟล์เดียวประกอบตัวเลขจากหลาย query ที่ใช้ขอบเขตคนละแบบ ให้ **assert ไขว้กัน** ว่ายอดของชีตหนึ่งเท่ากับอีกชีตหนึ่ง (4) การแก้ที่ "ถูกกว่าเดิมแต่ไม่ครบ" อาจ **แย่กว่าเดิม** เพราะเปลี่ยน "ผิดสม่ำเสมอ" เป็น "ขัดแย้งกันเอง"
+- **Tests:** `test_finance_statements.py::test_export_journal_sheet_matches_other_sheets_bangkok_bounds` — ยืนยันสองชั้น: รายการ 03:00 น. ไทยของวันแรกช่วงต้องอยู่ในชีต GJ และยอดรวม GJ ต้องเท่างบทดลองในไฟล์เดียวกัน — **A/B พิสูจน์แล้วว่าเทสต์นี้พังกับโค้ดก่อนแก้ โดยรายงานว่าเจอ `'ทุนตีสามวันที่ 1 ต.ค.'` แทน `'ทุนตีสามวันที่ 1 ก.ย.'`** (รายการถูกย้ายเดือนทั้งเดือน)
+- **Date Added:** 2026-09-13
+
+### 🧭 Timezone — **`TIMESTAMP DEFAULT CURRENT_TIMESTAMP` ไม่ได้แปลว่า "เวลาไทย"** และการแก้ TZ บางส่วนทำให้ **คนละ endpoint ใช้ปฏิทินคนละใบ**
+- **Context/Problem:** หลังแก้งบการเงิน (F1) ให้ใช้เส้นแบ่งวันเวลาไทยแล้ว มาตรวจทั้งโมดูลตามกฎ "grep หาทุกจุด" จึงพบ `_get_transactions_v2()` (`services/finance/transactions.py`) ยังใช้ `DATE(JE.transaction_date)` ⇒ **งบการเงินกับหน้าประวัติรายการใช้ปฏิทินคนละใบ**: รายการที่บันทึก 03:00 น. ไทยวันที่ 1 ก.ย. ไปโผล่ใน **งบกันยายน** แต่ไปอยู่ **ประวัติเดือนสิงหาคม** — ยอดไม่ตรงกันข้ามหน้าจอ
+- **Root Cause:** สองชั้นซ้อนกัน (ก) `DATE()` บน `timestamptz` ตัดวันตาม **session TimeZone** ซึ่งเป็น UTC (ข) ที่ร้ายกว่าคือ `finance_transactions.created_at` เป็น `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` — ค่าที่ `CURRENT_TIMESTAMP` คืนมาเป็น `timestamptz` แล้วถูก **แปลงเป็น session TZ (= UTC)** ก่อนเก็บ ⇒ คอลัมน์นี้เก็บ **UTC wall clock** ไม่ใช่เวลาไทย · คอมเมนต์ในแผนที่เขียนว่า *"ใช้ `T.created_at::date` (naive Bangkok)"* จึง **ไม่ตรงความจริง** และ`_naive_thai_dt()` ก็ตีความ naive นั้นว่าเป็นเวลาไทยทั้งที่เป็น UTC (ส่งผลกับ sort และ `cutoff_dt` ของ merge ด้วย)
+- **Correct Pattern/Solution:** **อย่าเชื่อคอมเมนต์/เอกสาร — พิสูจน์ด้วย probe** ก่อนตัดสินว่าคอลัมน์ naive เก็บโซนไหน:
+  ```sql
+  CREATE TEMP TABLE _probe (c TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+  INSERT INTO _probe DEFAULT VALUES;
+  SELECT c, now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'Asia/Bangkok' FROM _probe;
+  ```
+  เทียบว่าค่าที่เก็บตรงกับตัวไหน · ส่วน `journal_entries.transaction_date` เป็น `timestamptz DEFAULT CURRENT_TIMESTAMP` และ `_insert_journal_entry` (`ledger.py:152`) **ไม่ส่งค่านี้เลย** ⇒ เป็น **instant จริง** ⇒ การเทียบกับเส้นแบ่งวันไทย (`_thai_day_start`/`_thai_day_end`) **ถูกต้อง**
+- **Rule:** (1) **`TIMESTAMP` ไม่ได้หมายถึงเวลาไทย** — `DEFAULT CURRENT_TIMESTAMP` บนคอลัมน์ naive จะเก็บ **UTC** ถ้า session TZ เป็น UTC (2) `DATE(col)` ที่ "ไม่แปลง TZ" ยังอาจให้วันผิดได้ ถ้าค่าที่เก็บเป็น UTC ⇒ **พิสูจน์ด้วย probe ทุกครั้ง** (3) **การแก้ TZ บางส่วนทำให้เกิดความขัดแย้ง *ข้าม endpoint* ไม่ใช่แค่ในไฟล์เดียว** — แก้ที่หนึ่งแล้วต้องถามว่า *หน้าจออื่นที่โชว์ข้อมูลชุดเดียวกันใช้ขอบเขตอะไร* (4) **ห้าม pin พฤติกรรมไว้กับ default ของ image** — ถ้าไม่มีที่ไหนใน repo ตั้ง `TimeZone` ของ Postgres ให้ตั้งให้ชัด ไม่งั้น dev/test/prod อาจได้ตัวเลขต่างกันโดยไม่มีใครรู้ (5) **การเปลี่ยนปฏิทินของ endpoint ที่ ship แล้ว = การตัดสินใจเชิงผลิตภัณฑ์ ไม่ใช่ bug fix** — โดยเฉพาะเมื่อฝั่ง legacy ต้องแก้ที่ *ข้อมูล* ไม่ใช่แค่ query (บวก 7 ชั่วโมง หรือ migrate) ⇒ รายงานให้ผู้ใช้ตัดสิน
+- **Tests:** ยังไม่มีเทสต์ล็อกพฤติกรรมนี้ (เจตนา — รอผู้ใช้ชี้ขาดปฏิทินก่อน) · บันทึกเป็นงานค้าง #11 พร้อมหลักฐาน probe
+- **Date Added:** 2026-09-13
+
+### 🧾 Tests — ก่อนเชื่อว่า "เทสต์ที่ล้มเป็นของเดิม" ต้อง **A/B ด้วย subset** และ **อย่าเชื่อจำนวนที่บันทึกไว้ก่อนหน้า**
+- **Context/Problem:** บันทึกของเซสชันก่อนระบุว่า "มีเทสต์เก่าล้มบน `main` อยู่ 6 ตัว รอผู้ใช้ตัดสิน" ⇒ ผมรัน full suite แล้วได้ **`14 failed, 638 passed`** ไม่ใช่ 6 · ถ้าเชื่อบันทึกเดิมจะสรุปผิดสองทาง: (ก) เข้าใจว่าตัวเองทำ regression 8 ตัว (ข) หรือรายงานผู้ใช้ผิดจำนวน
+- **Root Cause:** **จำนวนที่บันทึกไว้ก่อนหน้าไม่น่าเชื่อถือ** — มันมาจากการวัดที่ไม่ครบ (ไม่ได้รันเต็มชุด) แต่ถูกเขียนลงเอกสารราวกับเป็นข้อเท็จจริง ⇒ ตัวเลขที่ "สืบทอด" ต่อกันมาจะกลายเป็นสมมติฐานที่ไม่มีใครตรวจ; อีกทั้ง full suite ใช้เวลา **23 นาที** (1404 วิ) จึงไม่ควรสตาร์ทใหม่ทั้งชุดเพียงเพื่อตอบว่า "ใครทำให้พัง"
+- **Correct Pattern/Solution:** A/B แบบ **subset** เจาะจงเฉพาะไฟล์ที่ล้ม โดย `git stash push -- <ไฟล์ backend ที่แก้>` (ไม่ stash เทสต์/conftest เพื่อไม่ให้ fixture หาย) → รันเฉพาะไฟล์ที่ล้ม → `git stash pop`:
+  ```bash
+  git diff > /tmp/backup.patch           # สำรองก่อน (กัน stash pop พลาด)
+  git stash push -m ab -- <ไฟล์ที่แก้>
+  docker compose -p classroom-management -f <abs>/docker-compose.test.yml run --rm --no-deps \
+    test_runner sh -c "python -m pytest -q --tb=no /app/tests/<ไฟล์ที่ล้ม>"
+  git stash pop
+  diff -q /tmp/backup.patch <(git diff) && echo OK   # ยืนยันว่างานกลับมาเหมือนเดิม
+  ```
+  **เกณฑ์ตัดสิน:** ชื่อเทสต์ที่ล้มต้อง **ตรงกันเป๊ะทั้งเซ็ต** ไม่ใช่แค่จำนวนเท่ากัน — ถ้าจำนวนเท่ากันแต่ชื่อต่าง = ยังมี regression ซ่อนอยู่
+  **ผลจริงรอบนี้:** baseline ให้ 9 + 5 = **14 ตัว ชื่อตรงกันทั้งหมด** ⇒ งานใหม่ไม่ทำของเดิมแตกเลย · **เสริมหลักฐานอิสระ:** `git diff` ของ `export.py` ไม่มีการเรียก `create_sheet`/`.title`/`remove()` เลย และ sheet ที่เทสต์บ่นถึง **มีอยู่บน HEAD แล้ว**
+- **Rule:** (1) ตัวเลข "เทสต์เก่าล้มอยู่ N ตัว" ที่สืบทอดมา **ต้องวัดใหม่ก่อนใช้** อย่ารายงานต่อโดยไม่ตรวจ (2) ใช้ **subset A/B** เมื่อ full suite แพง — และต้องเทียบ **ชื่อเทสต์** ไม่ใช่แค่จำนวน (3) `git stash push -- <path>` เจาะจงไฟล์ แล้ว **backup เป็น patch ก่อนเสมอ** พร้อม verify หลัง pop (4) "เทสต์ล้มเรื่องชื่อ sheet/index" มักเป็น rot จริง — ตรวจด้วยว่าโค้ดที่เทสต์บ่นถึงมีอยู่บน HEAD หรือไม่ (5) การนับให้ลงตัว: `652 − 49 (เทสต์ใหม่) = 603 เดิม = 589 ผ่าน + 14 ล้ม` — ตรวจเลขแบบนี้จับการนับผิดได้
+- **Tests:** N/A (บทเรียนกระบวนการ) — หลักฐานคือตาราง A/B ใน `~/.claude/plans/finance/02-F1-statements.md`
+- **Date Added:** 2026-09-13
+
+### 🕐 Timezone — หลังตัดสินใจยึด "เวลาไทย" ต้องแก้ **สองทิศทาง**: ขาเข้า (SQL) และขาออก (API) — ขาออกนี่คือตัวที่ผู้ใช้ **เห็น** ผิด
+- **Context/Problem:** หลังย้ายทั้งโมดูลการเงินไปปฏิทินไทยแล้ว รายการ legacy ยังโชว์เวลาเพี้ยน 7 ชั่วโมงบนหน้าจอ ทั้งที่ query กรองถูกแล้ว และแม้ frontend จะระบุ `timeZone: 'Asia/Bangkok'` ไว้ก็ตาม
+- **Root Cause:** **JavaScript ตีความ ISO string ที่ไม่มี offset ว่าเป็นเวลาท้องถิ่นของเบราว์เซอร์** — `new Date("2026-09-01T03:00:00")` = 03:00 น. **ตามเวลาเครื่องผู้ใช้** แล้ว `toLocaleString('th-TH', {timeZone:'Asia/Bangkok'})` ก็ยังได้ 03:00 เพราะค่าที่ parse เข้ามา "ไม่มีโซน" ให้แปลง · ฝั่ง legacy คืน `created_at` เป็น naive (Pydantic serialize เป็น `"…T03:00:00"`) ขณะที่ฝั่ง journal คืน aware (`+00:00`) ⇒ **สัญญา API ไม่สม่ำเสมอ**: รายการจากสองยุคแสดงเวลาต่างกัน 7 ชั่วโมงในลิสต์เดียวกัน
+- **Correct Pattern/Solution:** ตั้งชื่อทิศทางให้ชัดแล้วใช้ helper กลางคู่กันใน `services/finance/helpers.py` (มีบล็อก `[TIMEZONE]` อธิบายกำกับ):
+  - **ขาเข้า (เทียบขอบเขตใน SQL):** *param-unwrap* — บังคับ tz ฝั่ง **parameter** แล้วแปลงกลับเป็น UTC wall-clock
+    `T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')` โดยส่ง `_thai_day_start(d)` (aware) เป็น `$2`
+    ใช้ helper `_thai_day_start`/`_thai_day_end`/`_thai_next_day_start` ชุดเดียวกับคอลัมน์ timestamptz ⇒ **หนึ่งชุดขอบเขตสำหรับทั้งสองชนิดคอลัมน์** · ยัง sargable และไม่พึ่ง session TimeZone
+  - **ขาออก (ส่งออก API):** `_as_utc(v)` ติด `tzinfo=UTC` ให้ค่า naive **ก่อน** ส่งออก ⇒ Pydantic ได้ `+00:00` ⇒ `new Date()` แปลงเป็นเวลาไทยถูก
+  - **ห้าม**เรียก `.astimezone(THAI_TZ)` ตรง ๆ กับค่า naive — Python ตีความเป็น **เวลาท้องถิ่นของเครื่องที่รันโค้ด** ⇒ container TZ=UTC ให้ผล "ถูกโดยบังเอิญ" แต่เครื่อง dev ที่ TZ=Asia/Bangkok เพี้ยน 7 ชม. (บั๊กที่ CI มองไม่เห็น) ต้อง `.replace(tzinfo=timezone.utc)` **ก่อน** เสมอ
+- **Rule:** (1) คอลัมน์ `TIMESTAMP` (naive) ที่เขียนด้วย `NOW()`/`CURRENT_TIMESTAMP` เก็บ **UTC wall-clock** ⇒ ทั้งอ่านและเขียนต้องมีท่าแปลงที่ชัด (2) **การย้ายปฏิทินต้องตรวจ "ขอบเขตของ API" ด้วย ไม่ใช่แค่ query** — ชนิดของ `datetime` ที่ออก JSON คือส่วนหนึ่งของสัญญา: naive กับ aware ให้ผลต่างกัน 7 ชม. บนเบราว์เซอร์ (3) ค่า naive ที่หลุดออก API = บั๊กที่ **เทสต์ backend มองไม่เห็น** (backend เทียบกันเองยังถูก) แต่ผู้ใช้เห็นทันที ⇒ ต้องมีเทสต์ยืนยัน `tzinfo is not None` (4) ตัวเขียนฝั่ง SQL ปลอดภัยอยู่แล้ว: ทุกการเขียนลงคอลัมน์ naive มาจาก `NOW()`/`DEFAULT` **ไม่เคยมาจาก `datetime` ของ Python** ⇒ กับดัก asyncpg (encode naive ตามเวลาท้องถิ่น) ไม่ถูกกระตุ้น
+- **Tests:** `test_finance_v2_read.py::test_router_boundary_aug31_vs_sep01` ล็อกกติกาการเก็บด้วย `assert stored == datetime(2026, 8, 31, 16, 59, 59)` + `assert stored.hour == 16` (ถ้าเก็บเป็นเวลาไทยเลขชั่วโมงต้องเป็น 23) และยืนยันวินาทีสุดท้ายของ 31 ส.ค. ไทย กับวินาทีแรกของ 1 ก.ย. ไทย ถูกคืนมาคนละฝั่งของเส้นตัด
+- **Date Added:** 2026-09-13
+
+### 📊 Finance — เทียบ `date` กับคอลัมน์ `timestamptz` = Postgres แปลงเป็น **เที่ยงคืน UTC (07:00 ไทย)** ⇒ ยอด "เดือนนี้" ของ dashboard ไม่ตรงกับงบกำไรขาดทุน
+- **Context/Problem:** ระหว่างตรวจทั้งโมดูลตามกฎ "grep หาทุกจุด" พบ `_get_summary_v2()` (`services/finance/reporting.py`) ส่ง `date(year, month, 1)` / ต้นเดือนถัดไป เข้าเงื่อนไข `JE.transaction_date >= $2 AND < $3` ตรง ๆ — ไม่มีใครสังเกตเพราะ **ตัวเลขยังออกมาสมเหตุสมผล** แค่ขอบเดือนเพี้ยน
+- **Root Cause:** `JE.transaction_date` เป็น `timestamptz` แต่ parameter เป็น `date` ⇒ Postgres cast เป็น `timestamptz` ที่ **เที่ยงคืน UTC** = **07:00 น. เวลาไทย** ⇒ ช่วงที่ถูกนับจริงคือ 07:00 ของวันที่ 1 ถึง 07:00 ของวันที่ 1 เดือนถัดไป · รายการที่บันทึก **00:00–07:00 น. ไทย** ของวันแรก/วันสุดท้ายของเดือนจะตกไปอยู่เดือนผิด — **และไม่ตรงกับงบกำไรขาดทุนที่ใช้ `_thai_day_start`** ⇒ สองหน้าจอของเดือนเดียวกันรายงานยอดต่างกัน
+- **Correct Pattern/Solution:** แปลงขอบเขตเป็น instant ไทยด้วย helper เดียวกับที่อื่น ก่อนส่งเป็น parameter:
+  ```python
+  start_dt = _thai_day_start(start_d)   # ไม่ใช่ start_d (date) ตรง ๆ
+  end_dt = _thai_day_start(end_d)       # ขอบบนแบบไม่รวม → ต้นเดือนถัดไป
+  ```
+  และ `get_income_statement()` มีกับดักเดียวกันอีกจุด: `query_start` ออกมาจาก `_clamp_to_cutoff()` เป็น **`date` เปล่า ๆ** แล้วถูกใช้เทียบกับ `transaction_date` ขณะที่ `end_bound` ใช้ `_thai_day_end` อย่างถูกต้องแล้ว ⇒ อสมมาตร ซ่อมด้วย `_thai_day_start(query_start)`
+- **Rule:** (1) **`date` vs `timestamptz` ไม่ error — มัน cast ให้ แล้วได้คำตอบผิดแบบเงียบ ๆ** ⇒ ตรวจ "ชนิดของทั้งสองฝั่ง" ทุกครั้งที่เขียนเงื่อนไขช่วงวันที่ (2) เมื่อไฟล์เดียวมีหลาย query ที่กรองช่วงเดียวกัน **ขอบเขตต้องมาจาก helper ตัวเดียวกันทั้งหมด** — จุดที่ลืมมักเป็นจุดที่ตัวแปรผ่าน `_clamp_*` แล้วถูกใช้ต่อโดยไม่แปลง (3) อาการของบั๊กชนิดนี้คือ "ตัวเลขดูสมเหตุสมผลแต่ไม่ตรงกันข้ามหน้าจอ" ⇒ วิธีจับคือ **assert ไขว้** ให้สองเส้นทางรายงานยอดเดียวกัน
+- **Tests:** เทสต์เดิม **จับบั๊กนี้ไม่ได้** เพราะทุกตัวตั้ง `transaction_date` ไว้กลางเดือน (เช่น `'2026-10-10'` = 07:00 น. ไทย) ซึ่งห่างจากขอบเดือนหลายวัน ⇒ ความเพี้ยน 7 ชั่วโมงที่ขอบไม่ปรากฏ · การจะจับได้ต้องมีรายการที่ **00:00–07:00 น. ไทยของวันที่ 1 หรือวันสุดท้ายของเดือน** แล้วเทียบยอดกับอีกเส้นทาง (`test_finance_statements.py` เป็นชุดที่ทำแบบนั้น)
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — เทสต์ Excel export ที่ผูกกับ "ชื่อ/ลำดับแผ่น + index ของแถวรวม" เน่าพร้อมกัน **6 ตัวจาก commit เดียว** และวิธีซ่อมให้ไม่เน่าซ้ำ
+- **Context/Problem:** หลัง `export.py` ถูกแก้ (เพิ่มแผ่น `สรุปรายเดือน (Monthly)` และเปลี่ยนชื่อแผ่นเป็น `สมุดรายวันทั่วไป (GJ)`) เทสต์ **15 ตัว** ล้ม แต่ตัวที่ทำให้สับสนคือ **6 ตัวในไฟล์เดียวล้มที่บรรทัดเดียวกัน** (`_read_journal` helper) ⇒ ดูเหมือนเป็นบั๊กใหญ่ ทั้งที่เป็น rot ของเทสต์ตัวเดียว
+- **Root Cause:** helper กลาง assert **ชื่อ+ลำดับแผ่นแบบทั้งชุด** เป็นด่านแรก ⇒ เทสต์ทุกตัวที่เรียก helper ตายที่จุดเดียวกัน **ก่อน** จะได้ตรวจเนื้อข้อมูล ⇒ และเมื่อแก้ด่านแรกได้ ก็ยังมี mismatch ซ่อนอยู่ข้างหลังอีก 2 ชั้นซึ่งยังไม่มีใครเห็น (ป้ายหัวคอลัมน์ถูกเปลี่ยนชื่อ และ **ป้ายแถวรวมย้ายคอลัมน์**)
+- **Correct Pattern/Solution:** ซ่อมเป็นชั้น ๆ แล้ว **อย่าหยุดที่ assert แรกที่ผ่าน**:
+  1. **ชื่อ/ลำดับแผ่น** — ให้ตรงกับ `wb.create_sheet(...)`/`.title` ในโค้ดจริง
+  2. **ป้ายหัวคอลัมน์** — เทียบกับ `j_headers` ในโค้ดจริง (ป้ายถูก rename: `Reference`→`อ้างอิง (Ref)`, `เดบิต (บาท)`→`เดบิต (Dr.)` ฯลฯ)
+  3. **แถวรวม** — หาด้วย **คำขึ้นต้นของป้าย** ไม่ใช่ `==` และที่ **index ที่ถูกต้อง**: `if isinstance(row[3], str) and row[3].startswith("รวมทั้งสิ้น")` (ป้ายอยู่ **คอลัมน์ D/index 3** ไม่ใช่ A — ช่อง A ของแถวนั้นว่าง) และมี suffix `" (Grand Total)"`
+  4. เพิ่ม helper `_find_row_containing(rows, col, fragment)` คู่กับ `_find_row` สำหรับป้ายที่ถูกเติม suffix
+- **Rule:** (1) helper ที่ assert โครงสร้างทั้งชุด (ชื่อ/ลำดับแผ่น) **กลบความล้มเหลวที่อยู่ลึกกว่า** ⇒ พอผ่านด่านแรก ต้องรันซ้ำและอ่าน failure ถัดไปเสมอ อย่าประกาศว่าจบ (2) assert ป้ายด้วย `startswith`/`in` ไม่ใช่ `==` เมื่อป้ายมีแนวโน้มถูกเติม suffix (3) **`row[0]` ไม่ใช่ที่อยู่ของป้ายเสมอไป** — ตรวจว่าโค้ดเขียนป้ายลง `column=` ใด (4) `list(ws.values)` ของ openpyxl ให้แถวสั้นได้ ⇒ indexing เกินจำนวนคอลัมน์เป็น `IndexError` ไม่ใช่ `AssertionError` — อาการคนละแบบ อย่าสับสน (5) ข้อมูลที่คำนวณแล้วไม่ถูกเขียนลงไฟล์คือ **dead data**: พบ `journal_line_id` ถูกใส่ใน `journal_rows` แต่ตัวเขียนแผ่นไม่เคยเขียนคอลัมน์นั้น ⇒ บรรทัดที่เป็น entry เดียวกันแยกกันไม่ได้ด้วย UUID · **รายงานผู้ใช้ ไม่แก้เอง** เพราะการเพิ่มคอลัมน์กลับ = เปลี่ยนเอกสารที่ ship แล้ว
+- **Tests:** `test_finance_journal_export.py` (6), `test_finance_export_enterprise.py` (4), `test_finance_http.py` (2), `test_finance_export.py` (1), `test_finance_v2_read.py` (2) — ทั้งหมดแก้ให้ตรงโค้ดปัจจุบัน **ไม่แตะ `export.py`** (ตรวจ git แล้วว่า `44b5499` คือ commit ที่ตั้งใจเปลี่ยนชื่อ/เพิ่มแผ่น และ mismatch ของหัวคอลัมน์มีมาก่อนหน้านั้นแล้ว ⇒ ฝั่งเทสต์คือฝั่งที่เน่า)
+- **Date Added:** 2026-09-13
+
+### ⚠️ Finance — **KNOWN GAP**: แถว legacy-only ที่ "วันที่ไทย" ข้ามเส้นตัด มองไม่เห็นจากทั้งสองผู้อ่าน (ช่วงเปลี่ยนผ่าน ~7 ชั่วโมง)
+- **Context/Problem:** หลังย้ายเส้นแบ่งยุคจาก UTC เป็นไทย ผู้อ่านสองฝั่งแบ่งงานกันแบบ **ไม่ทับและไม่มีช่องว่างตาม *วันที่ไทย*** (legacy cap = `_thai_day_end(31 ส.ค. ไทย)`, journal floor = `_thai_day_start(1 ก.ย. ไทย)`) — แต่มีแถวประเภทหนึ่งที่ **ทั้งสองฝั่งไม่รับ**
+- **Root Cause:** แถวที่ถูกเขียนลง `finance_transactions` **ก่อน dual-write เริ่มทำงานจริง** (~7 ชั่วโมงหลังเที่ยงคืน) แต่ **เวลาไทยของมันข้ามเส้นไปแล้ว** ⇒ ไม่มี journal คู่กัน และถูก cap ฝั่ง legacy ตัดออก ⇒ ยอดของรายการนั้น **หายจากประวัติ** (แต่ยังอยู่ใน DB — ไม่ใช่ข้อมูลหายจริง) · ก่อนการย้ายเส้น ระบบใช้เส้น UTC จึงยังเห็นแถวกลุ่มนี้ปนอยู่ในฝั่ง legacy ⇒ **การย้ายเส้นทำให้เกิดการเปลี่ยนแปลงเชิงพฤติกรรม ไม่ใช่แค่จัดหมู่ใหม่**
+- **Correct Pattern/Solution:** **ยังไม่แก้** — ทางเลือกที่มีเหตุผลคือ (ก) backfill journal ให้แถวกลุ่มนี้ หรือ (ข) เปลี่ยนผู้อ่าน legacy จาก "cap ด้วยวันที่" เป็น "ไม่มี journal คู่กัน" (`NOT EXISTS` บน `journal_entries.metadata->>'legacy_transaction_id'`) · ข้อ (ข) **แก้เองไม่ได้** เพราะ (1) กลุ่มโอนเงินใช้ journal เดียวร่วมกันสองขา ⇒ `NOT EXISTS` แบบตรง ๆ จะทำให้ขาหนึ่งหาย (2) เปลี่ยน endpoint ที่ ship แล้วและโปรไฟล์ performance ของมัน ⇒ **ต้องให้ผู้ใช้ตัดสิน**
+- **Rule:** (1) **การย้ายเส้นแบ่งยุคต้องตอบให้ได้ว่า "แถวที่ตกในรอยต่อเป็นของใคร"** ไม่ใช่แค่พิสูจน์ว่าสองฝั่งไม่ทับกัน (2) การ partition ที่ "ไม่ทับและไม่มีช่องว่าง" ตามเกณฑ์ใหม่ **ยังมีรูได้** ถ้าแถวบางประเภทไม่มีคีย์ที่ใช้แบ่งทั้งสองฝั่ง (ที่นี่คือแถวที่ไม่มี journal) (3) เขียนเทสต์ที่ **ล็อกช่องที่รู้อยู่** ไว้ด้วยชื่อที่บอกชัด (`test_known_gap_…`) พร้อมคอมเมนต์ว่า "ถ้ามีการแก้ ค่าที่คาดหวังจะเปลี่ยน → ให้เขียนเทสต์ใหม่ อย่างัดให้กลับ" — ดีกว่าปล่อยให้ช่องนี้ไม่มีร่องรอยในโค้ด
+- **Tests:** `test_finance_v2_read.py::test_known_gap_legacy_only_row_in_thai_september_is_invisible` — deep verify ว่าแถวยังอยู่ใน DB (1 แถว) และห้องนั้นไม่มี `journal_entries` เลย (0 แถว) แต่ `get_transactions` คืน `total_count == 0`
+- **Date Added:** 2026-09-13
+
+### 📅 Frontend — ค่าเริ่มต้นของตัวกรองเดือนจาก `new Date().getMonth()` = **ปฏิทินของอุปกรณ์ผู้ใช้** ไม่ใช่ของไทย (เปิดหน้ามาผิดเดือนทั้งหน้า)
+- **Context/Problem:** หลังย้ายทั้งระบบมาอยู่บนปฏิทินไทย พบว่า `FinanceDashboard.vue` seed ตัวกรองจาก `new Date().getMonth() + 1` / `new Date().getFullYear()` ⇒ เครื่องที่ TZ ไม่ใช่ UTC+7 **เปิดหน้ามาที่เดือนผิด แล้วติดป้ายเดือนไทยทับตัวเลขของอีกเดือน** และขัดกับหน้าพี่น้อง `FinancialStatements.vue` ที่ seed จาก `todayIso()` (ไทย) ⇒ สองหน้าการเงินตอบคำถาม "ตอนนี้เดือนอะไร" ไม่ตรงกัน
+- **Root Cause:** `new Date()` สร้างจากนาฬิกา **ของอุปกรณ์** และ `getMonth()`/`getFullYear()` คืน **ชิ้นส่วนเวลาท้องถิ่น** ของอุปกรณ์นั้น ⇒ ค่าที่ seed ถูกส่งเข้า `getSummary(room, month, year)` ตรง ๆ แล้วคืนตัวเลขของเดือนนั้นออกมา **สอดคล้องกันเองทั้งหน้า** (ป้ายกับตัวเลขตรงกัน) ⇒ **ดูไม่ออกว่าผิด** ถ้าไม่รู้ว่าวันนี้ที่ไทยเป็นเดือนอะไร
+  - เครื่อง **นำหน้าไทย** (UTC+9): ช่วง ~2 ชม. สุดท้ายของเดือนไทย อุปกรณ์เป็นวันที่ 1 ของเดือนถัดไปแล้ว → เปิดมาที่เดือนถัดไป
+  - เครื่อง **ตามหลังไทย** (UTC, US): ช่วงต้นวันที่ 1 ตามไทย อุปกรณ์ยังเป็นเดือนที่แล้ว → เปิดมาที่เดือนก่อน
+- **Correct Pattern/Solution:** รวมคำตอบของ "วันนี้เดือนอะไร" ไว้ **ที่เดียว** ใน `utils/period.ts` แล้วอ่านผ่าน `todayIso()` (ซึ่งใช้ `Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' })` อยู่แล้ว) — ห้ามประกอบ `Date` เอง:
+  ```ts
+  export const todayThaiYearMonth = (): { year: number; month: number } => {
+    const iso = todayIso();                       // 'YYYY-MM-DD' ตามเวลาไทย
+    return { year: Number(iso.slice(0, 4)), month: Number(iso.slice(5, 7)) };
+  };
+  ```
+  ใช้ `slice`+`Number` ไม่ destructure จาก array เพราะ `noUncheckedIndexedAccess: true` ทำให้ได้ `number | undefined` · แก้ **ทุกจุดที่ตอบคำถามเดียวกัน** ไม่ใช่แค่จุดที่ผู้ใช้เจอ: ตัว seed, `yearOptions` (ต้องเป็นปีไทยชุดเดียวกับค่าที่ seed ไม่งั้นปีที่เลือกอาจหลุดออกจาก dropdown), getter/setter fallback ของ `PeriodPicker`, และ fallback ของ `referenceDate` ตอน ISO เพี้ยน
+- **Rule:** (1) **`new Date()` เปล่า ๆ ในโค้ด frontend = ปฏิทินของอุปกรณ์** — ใช้ได้เฉพาะกับสิ่งที่ "เวลาของผู้ใช้" เป็นคำตอบที่ถูก (เช่น แสดง relative time) แต่ **ห้ามเด็ดขาด**กับสิ่งที่ backend จะเอาไปตัดข้อมูล (2) อาการของบั๊กชนิดนี้คือ **หน้าสอดคล้องกันเอง** ⇒ การอ่านโค้ดแบบ "ค่าที่ seed ถูกส่งต่อไปที่ไหน" มองไม่เห็น ต้องถามว่า "ค่านี้หมายถึงปฏิทินของใคร" (3) ตรวจ **ทุกจุดที่ตอบคำถามเดียวกัน** — จุดที่อันตรายกว่าคือ `yearOptions` เพราะมันไม่แสดงอาการจนถึงขอบปี (4) helper ที่ seed ไม่ควรเป็น `new Date()` ซ้ำ ควรอ่านจาก helper กลางตัวเดียว ไม่งั้นแหล่งความจริงแตกเป็นสองที่
+- **Tests:** `frontend/src/utils/__tests__/period.spec.ts` — ล็อกด้วย instant ที่ **วันที่ไทยไม่ตรงกับวันที่ UTC** (`2026-09-30T18:00:00Z` = 1 ต.ค. ไทย) แล้วยืนยันว่าได้เดือน 10 **พร้อม assert ว่าปฏิทิน UTC ยังเป็นเดือน 9** ⇒ เทสต์แยกสองพฤติกรรมออกจากกันได้จริง ไม่ใช่ผ่านเพราะบังเอิญ TZ ของ process ตรง · A/B proof (รันจริง 3 TZ): `TZ=UTC` และ `TZ=America/New_York` ให้ OLD = `2026-09` แต่ NEW = `2026-10-01` ❌ ต่างกัน (ส่วน `TZ=Asia/Tokyo` ตรงกันโดยบังเอิญ) ⇒ **เทสต์ต้องไม่พึ่ง TZ ของเครื่องรัน**
+- **Date Added:** 2026-09-13
+
+---
+

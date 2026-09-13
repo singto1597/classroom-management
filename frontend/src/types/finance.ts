@@ -183,6 +183,101 @@ export interface FeeCollectionUpdate {
   user_name?: string;
 }
 
+// =============================================================================
+// 📊 งบการเงิน (Financial Statements) — งบทดลอง / งบกำไรขาดทุน / งบดุล
+// =============================================================================
+// โครงตรงกับ backend/models/finance_schemas.py (TrialBalanceResponse ฯลฯ) เป๊ะ
+// ⚠️ ทุกงบอ่านจาก **journal อย่างเดียว** และถูก clamp ที่ CUTOFF_DATE (2026-09-01)
+//    ถ้าผู้ใช้เลือกวันก่อนเส้น ระบบจะคืน "ว่าง" + `note` อธิบาย — ต้องแสดง note ให้เด่น
+
+/** แถวบัญชีในงบทดลอง/งบดุล — ยอดสะสม YTD ของ ledger หนึ่งตัว */
+export interface TrialBalanceLedgerRow {
+  ledger_id: number;
+  /** เป็น null ได้จริงใน DB (query สั่ง ORDER BY account_code NULLS LAST) */
+  account_code: string | null;
+  account_name: string;
+  /** asset | liability | equity | revenue | expense */
+  account_type: string;
+  total_debit: number;
+  total_credit: number;
+  /** asset/expense = Dr−Cr, อื่น ๆ = Cr−Dr (ฝั่งที่เพิ่มยอดเป็นบวกเสมอ) */
+  balance: number;
+}
+
+export interface TrialBalance {
+  ledgers: TrialBalanceLedgerRow[];
+  /** ผลรวม "ยอดรวม" ไม่ใช่สุทธิ — เท่ากันเสมอถ้า journal สมดุล */
+  total_debit: number;
+  total_credit: number;
+  is_balanced: boolean;
+  note: string | null;
+}
+
+/** บรรทัดรายได้/ค่าใช้จ่ายในงบกำไรขาดทุน */
+export interface StatementLine {
+  account_name: string;
+  amount: number;
+}
+
+export interface IncomeStatement {
+  /** ค่าที่ **ผู้ใช้ส่งมา** ไม่ใช่ค่าที่ถูก clamp แล้ว — ตัวเลขอาจครอบช่วงแคบกว่านี้ */
+  start_date: string;
+  end_date: string;
+  revenues: StatementLine[];
+  expenses: StatementLine[];
+  total_revenue: number;
+  total_expense: number;
+  net_income: number;
+  note: string | null;
+}
+
+export interface BalanceSheet {
+  as_of: string;
+  assets: TrialBalanceLedgerRow[];
+  assets_total: number;
+  liabilities: TrialBalanceLedgerRow[];
+  liability_total: number;
+  equities: TrialBalanceLedgerRow[];
+  equity_total: number;
+  retained_earnings: number;
+  /** equity_total + retained_earnings */
+  total_equity_side: number;
+  /** liability_total + total_equity_side — ต้องเท่ากับ assets_total */
+  total_liabilities_and_equity: number;
+  is_balanced: boolean;
+  /** memo: กำไรของงวด period_start→period_end ให้ตรวจเทียบกับงบกำไรขาดทุน */
+  period_net_income: number;
+  period_start: string;
+  period_end: string;
+  note: string | null;
+}
+
+// --- ตารางงบการเงิน (StatementTable) ---
+
+/** คอลัมน์ที่ตารางงบแสดงได้ — 'name' คือชื่อบัญชี, ที่เหลือเป็นตัวเลข (ยกเว้น 'code') */
+export type StatementColumnKey = 'code' | 'name' | 'debit' | 'credit' | 'amount';
+
+export interface StatementColumn {
+  key: StatementColumnKey;
+  label: string;
+  /** true = ชิดขวา + ใช้ `.num` (ตัวเลข) */
+  numeric?: boolean;
+}
+
+/** แถวในตารางงบ — รวมแถวหัวกลุ่ม (มี `group`) และแถวรวมยอด (มี `isTotal`) ไว้ในชนิดเดียว */
+export interface StatementRow {
+  /** รหัสบัญชี (อาจเป็น null จาก DB) */
+  code?: string | null;
+  name?: string;
+  debit?: number;
+  credit?: number;
+  amount?: number;
+  /** ถ้ามีค่า = แถวนี้เป็นหัวข้อกลุ่ม (แสดงเป็นแถบหัวข้อ ไม่ใช่ข้อมูล) */
+  group?: string;
+  /** true = แถวรวมยอด (ตัวหนา + เส้นคู่) */
+  isTotal?: boolean;
+}
+
 // --- Query Params ---
 
 // ตัวกรองสำหรับดึงประวัติการทำรายการ

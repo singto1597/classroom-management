@@ -147,10 +147,11 @@ async def test_export_empty_room_returns_valid_workbook(db_pool):
     assert isinstance(excel_file, io.BytesIO)
 
     wb = openpyxl.load_workbook(excel_file)
-    # 5 แผ่นตามโครงสร้าง (Enterprise export)
+    # 6 แผ่นตามโครงสร้าง (Enterprise export)
     assert wb.sheetnames == [
         "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
         "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
+        "สรุปรายเดือน (Monthly)",
     ]
 
     ws_data = wb["ประวัติรายการ"]

@@ -317,14 +317,26 @@ async def test_router_spanning_no_double_count(db_pool):
 
 
 async def test_router_boundary_aug31_vs_sep01(db_pool):
-    """ขอบเขตแม่นยำ: legacy created_at = 31 ส.ค. 23:59:59 vs journal transaction_date = 1 ก.ย. 00:00"""
+    """ขอบเขตแม่นยำระดับวินาที: "วินาทีสุดท้ายของ 31 ส.ค. ไทย" กับ "วินาทีแรกของ 1 ก.ย. ไทย"
+
+    [TIMEZONE] สองฝั่งของเส้นตัดเก็บคนละรูปแบบ (ดู helpers บล็อก [TIMEZONE]):
+      - legacy `finance_transactions.created_at` = TIMESTAMP **naive ที่เก็บเวลา UTC**
+        → 31 ส.ค. 23:59:59 เวลาไทย = `2026-08-31 16:59:59` UTC
+      - journal `journal_entries.transaction_date` = timestamptz
+        → 1 ก.ย. 00:00:00 เวลาไทย = `2026-08-31 17:00:00+00`
+    ขอบเขตของสองผู้อ่านชนกันพอดีที่จุดนี้ (legacy cap = 16:59:59.999999 / journal floor = 17:00:00)
+    ⇒ ต้องเห็น **ทั้งคู่** และเรียงตามเวลาไทย
+
+    (เทสต์นี้เคยตั้ง legacy เป็น `datetime(2026,8,31,23,59,59)` ซึ่งอ่านแบบ naive-UTC
+     → ตรงกับ 1 ก.ย. 06:59:59 เวลาไทย ⇒ ตกไปอยู่ฝั่ง ก.ย. แต่ไม่มี journal ⇒ หายไปทั้งคู่)
+    """
     owner = await _insert_user(db_pool)
     room_id = await _insert_room(db_pool, owner)
     acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
     cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
 
-    await _insert_legacy_only_transaction(
-        db_pool, room_id, acc, cat, 1.0, "income", "สุดท้าย ส.ค.", datetime(2026, 8, 31, 23, 59, 59),
+    legacy_id = await _insert_legacy_only_transaction(
+        db_pool, room_id, acc, cat, 1.0, "income", "สุดท้าย ส.ค.",
     )
     await FinanceService.add_transaction(
         pool=db_pool,
@@ -337,7 +349,23 @@ async def test_router_boundary_aug31_vs_sep01(db_pool):
             """SELECT id FROM journal_entries
                WHERE room_id = $1 AND description = 'เริ่ม ก.ย.'""", room_id
         )
-        await conn.execute("UPDATE journal_entries SET transaction_date = '2026-09-01 00:00:00' WHERE id = $1", jid)
+        # TIMESTAMP literal (naive) → เขียนลงคอลัมน์ TIMESTAMP ตรง ๆ ไม่ผ่าน codec/การแปลง tz
+        # ⇒ ค่าที่เก็บคือ UTC wall-clock ตามที่เขียนไว้ ไม่ขึ้นกับ TimeZone ของเครื่องที่รันเทสต์
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = TIMESTAMP '2026-08-31 16:59:59' WHERE id = $1",
+            legacy_id,
+        )
+        # timestamptz literal ที่มี offset ชัดเจน → วินาทีแรกของ 1 ก.ย. เวลาไทย
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-08-31 17:00:00+00' WHERE id = $1",
+            jid,
+        )
+        # ล็อกกติกาการเก็บ: legacy เก็บ **UTC** ไม่ใช่เวลาไทย (ถ้าเป็นเวลาไทย เลขชั่วโมงต้องเป็น 23)
+        stored = await conn.fetchval(
+            "SELECT created_at FROM finance_transactions WHERE id = $1", legacy_id
+        )
+        assert stored == datetime(2026, 8, 31, 16, 59, 59)
+        assert stored.hour == 16
 
     data = await FinanceService.get_transactions(
         pool=db_pool, client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
@@ -346,7 +374,51 @@ async def test_router_boundary_aug31_vs_sep01(db_pool):
     assert data["total_count"] == 2
     assert descs.count("สุดท้าย ส.ค.") == 1
     assert descs.count("เริ่ม ก.ย.") == 1
-    assert data["items"][0]["description"] == "เริ่ม ก.ย."  # DESC → 1 ก.ย. มาก่อน 31 ส.ค.
+    assert data["items"][0]["description"] == "เริ่ม ก.ย."  # DESC → 1 ก.ย. ไทย มาก่อน 31 ส.ค. ไทย
+
+
+async def test_known_gap_legacy_only_row_in_thai_september_is_invisible(db_pool):
+    """[KNOWN GAP] แถว legacy-only ที่ **วันที่ไทย** ตั้งแต่ 1 ก.ย. เป็นต้นไป มองไม่เห็นจากทั้ง 2 ผู้อ่าน
+
+    ช่องนี้อยู่ในช่วงเปลี่ยนผ่านเท่านั้น (~7 ชั่วโมงก่อน dual-write เริ่มทำงานจริง):
+    แถวที่ถูกเขียนลง `finance_transactions` แต่ **ยังไม่มี journal คู่กัน** และเวลาไทยของมันข้ามเส้นไปแล้ว
+      - ผู้อ่าน legacy ถูก cap ที่ `_thai_day_end(31 ส.ค. ไทย)` → ตัดออก
+      - ผู้อ่าน journal ไม่มีแถวให้อ่าน (แถวนี้ไม่มี journal) → ไม่มีอะไรคืน
+    ⇒ ยอดรวมของรายการนี้หายไปจากประวัติ (แต่ยังอยู่ใน DB)
+
+    ⚠️ เทสต์นี้ **ล็อกพฤติกรรมที่รู้อยู่** ไม่ได้ยืนยันว่าถูกต้อง — ถ้ามีการ backfill journal
+       ให้แถวกลุ่มนี้ หรือเปลี่ยนผู้อ่าน legacy ไปใช้ `NOT EXISTS` บน journal แล้ว
+       ตัวเลข `total_count` จะกลายเป็น 1 → **ให้ลบ/เขียนเทสต์นี้ใหม่** อย่าไปงัดให้กลับเป็น 0
+    """
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+
+    legacy_id = await _insert_legacy_only_transaction(
+        db_pool, room_id, acc, cat, 5.0, "income", "legacy ข้ามเส้น",
+    )
+    async with db_pool.acquire() as conn:
+        # 02:00 UTC = 09:00 เวลาไทย ของวันที่ 1 ก.ย. → "วันที่ไทย" อยู่หลังเส้นตัดแล้ว
+        await conn.execute(
+            "UPDATE finance_transactions SET created_at = TIMESTAMP '2026-09-01 02:00:00' WHERE id = $1",
+            legacy_id,
+        )
+        # ยืนยันเงื่อนไขของช่องนี้: แถวยังอยู่จริง และห้องนี้ไม่มี journal เลย (แถวนี้ legacy-only)
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_transactions WHERE id = $1 AND deleted_at IS NULL",
+            legacy_id,
+        ) == 1
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM journal_entries WHERE room_id = $1", room_id
+        ) == 0
+
+    data = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test", room_id=room_id, user_id=owner,
+    )
+    # 🔴 พฤติกรรมที่ล็อกไว้: หายจากประวัติทั้งสองฝั่ง (ดู docstring ด้านบน)
+    assert data["total_count"] == 0
+    assert data["items"] == []
 
 
 # === [DOUBLE-ENTRY] _get_transactions_v2: ประเภทต่าง ๆ ===
@@ -573,6 +645,7 @@ async def test_export_router_post_cutoff_uses_v2(db_pool):
     assert wb.sheetnames == [
         "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
         "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
+        "สรุปรายเดือน (Monthly)",
     ]
 
     ws_summary = wb["สรุปยอด"]

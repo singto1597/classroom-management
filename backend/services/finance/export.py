@@ -20,7 +20,7 @@ from .constants import (
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
-    _legacy_id_from_journal,
+    _legacy_id_from_journal, _thai_day_start, _thai_day_end, _naive_utc_to_thai,
 )
 from .base import service_logger
 import pandas as pd
@@ -315,7 +315,9 @@ class ExportMixin:
         raw_items = txn_result["items"]
 
         final_rows = cls._format_v2_rows(raw_items)
-        final_rows.sort(key=lambda x: (x["created_at"] or datetime.min, x["id"] or ""))
+        # [TIMEZONE] ใช้ `_naive_thai_dt` ไม่ใช่ `created_at` ดิบ — กันวันที่ผสม naive/aware
+        # แล้ว `TypeError: can't compare offset-naive and offset-aware datetimes`
+        final_rows.sort(key=lambda x: (_naive_thai_dt(x["created_at"]), x["id"] or ""))
 
         balances = await conn.fetch(
             """SELECT AL.account_name,
@@ -363,11 +365,13 @@ class ExportMixin:
         room_name = room["room_name"] if room else f"ห้อง #{room_id}"
 
         legacy_end = CUTOFF_DATE - timedelta(days=1)
-        params: List[Any] = [room_id, legacy_end]
+        # [TIMEZONE] T.created_at เป็น naive UTC ⇒ unwrap ฝั่ง param ด้วย AT TIME ZONE 'UTC'
+        # แล้วเทียบกับขอบเขตเวลาไทย (ดู helpers บล็อก [TIMEZONE]) — ห้ามใช้ DATE()
+        params: List[Any] = [room_id, _thai_day_end(legacy_end)]
         start_cond = ""
         if start_date is not None and start_date < CUTOFF_DATE:
-            start_cond = " AND DATE(T.created_at) >= $3"
-            params.append(start_date)
+            start_cond = " AND T.created_at >= ($3::timestamptz AT TIME ZONE 'UTC')"
+            params.append(_thai_day_start(start_date))
         legacy_rows = await conn.fetch(
             f"""
             SELECT
@@ -378,7 +382,7 @@ class ExportMixin:
             LEFT JOIN finance_accounts A ON T.account_id = A.id
             LEFT JOIN finance_categories C ON T.category_id = C.id
             WHERE T.room_id = $1 AND T.deleted_at IS NULL
-              AND DATE(T.created_at) <= $2 {start_cond}
+              AND T.created_at <= ($2::timestamptz AT TIME ZONE 'UTC') {start_cond}
             ORDER BY T.created_at ASC, T.id ASC
             """,
             *params,
@@ -478,6 +482,17 @@ class ExportMixin:
 
     @staticmethod
     def _resolve_export_period(req) -> tuple:
+        """สร้างเงื่อนไขช่วงเวลาสำหรับ **ฝั่ง legacy** (`finance_transactions.created_at`).
+
+        คืน `(sql_fragment, params, period_label)`
+
+        [TIMEZONE] `T.created_at` เป็น TIMESTAMP (naive) ที่เก็บ **เวลา UTC** ไม่ใช่เวลาไทย
+        (เขียนด้วย NOW() แล้วถูกแปลงเป็น TimeZone ของ session = UTC ก่อนเก็บ)
+        ⇒ ทุกเงื่อนไขต้อง unwrap ฝั่ง parameter ด้วย `AT TIME ZONE 'UTC'`
+        แล้วเทียบกับขอบเขตเวลาไทยที่สร้างจาก `_thai_day_start`/`_thai_day_end`
+        ห้ามใช้ `DATE(T.created_at)` เพราะจะได้ "วันที่แบบ UTC" ซึ่งเป็นคนละปฏิทิน
+        กับงบการเงิน (F1) และกับชีต GJ ในไฟล์เดียวกัน — ดู helpers บล็อก [TIMEZONE]
+        """
         month, year = getattr(req, "month", None), getattr(req, "year", None)
         start_date = getattr(req, "start_date", None)
         end_date = getattr(req, "end_date", None)
@@ -488,20 +503,35 @@ class ExportMixin:
                 end = date(year + 1, 1, 1)
             else:
                 end = date(year, month + 1, 1)
-            return " AND T.created_at >= $2 AND T.created_at < $3", [start, end], f"{year}-{month:02d}"
+            # ขอบบนแบบไม่รวม = ต้นเดือนถัดไปตามเวลาไทย
+            return (
+                " AND T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')"
+                " AND T.created_at < ($3::timestamptz AT TIME ZONE 'UTC')",
+                [_thai_day_start(start), _thai_day_start(end)],
+                f"{year}-{month:02d}",
+            )
 
         if start_date is not None and end_date is not None:
             if start_date > end_date:
                 raise ValueError("วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด")
             return (
-                " AND DATE(T.created_at) >= $2 AND DATE(T.created_at) <= $3",
-                [start_date, end_date],
+                " AND T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')"
+                " AND T.created_at <= ($3::timestamptz AT TIME ZONE 'UTC')",
+                [_thai_day_start(start_date), _thai_day_end(end_date)],
                 f"{start_date.isoformat()} ถึง {end_date.isoformat()}",
             )
         if start_date is not None:
-            return " AND DATE(T.created_at) >= $2", [start_date], f"ตั้งแต่วันที่ {start_date.isoformat()}"
+            return (
+                " AND T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')",
+                [_thai_day_start(start_date)],
+                f"ตั้งแต่วันที่ {start_date.isoformat()}",
+            )
         if end_date is not None:
-            return " AND DATE(T.created_at) <= $2", [end_date], f"จนถึงวันที่ {end_date.isoformat()}"
+            return (
+                " AND T.created_at <= ($2::timestamptz AT TIME ZONE 'UTC')",
+                [_thai_day_end(end_date)],
+                f"จนถึงวันที่ {end_date.isoformat()}",
+            )
         return "", [], "ทั้งหมด"
 
     @staticmethod
@@ -531,7 +561,10 @@ class ExportMixin:
         for group_id in sorted(transfer_groups.keys()):
             leg = transfer_groups[group_id]
             final_rows.append(cls._format_row(leg, is_transfer=True))
-        final_rows.sort(key=lambda x: (x["created_at"], x["id"]))
+        # [TIMEZONE] ใช้ `_naive_thai_dt` ให้เป็นสำนวนเดียวกันทั้งไฟล์ (ค่าชุดนี้เป็น naive
+        # เหมือนกันหมด ลำดับจึงไม่เปลี่ยน แต่กัน landmine ถ้ามีวันหนึ่งปนค่า aware เข้ามา)
+        # [TIMEZONE] เรียงตามเวลาไทย — ดู helpers บล็อก [TIMEZONE]
+        final_rows.sort(key=lambda x: (_naive_thai_dt(x["created_at"]), x["id"]))
         return final_rows
 
     @classmethod
@@ -746,7 +779,10 @@ class ExportMixin:
                 date_str, time_str = "", ""
             else:
                 if isinstance(ts, datetime):
-                    dt_local = ts.astimezone(THAI_TZ)
+                    # [TIMEZONE] `created_at` ของฝั่ง legacy เป็น naive ที่เก็บ **UTC**
+                    # ส่วนฝั่ง journal เป็น timestamptz (aware) → `_naive_utc_to_thai`
+                    # จัดการทั้งสองแบบ (ดู helpers บล็อก [TIMEZONE])
+                    dt_local = _naive_utc_to_thai(ts)
                 else:
                     dt_local = datetime.combine(ts, dtime(0))
                 date_str = dt_local.strftime("%d/%m/%Y")
@@ -1018,10 +1054,11 @@ class ExportMixin:
             if ts is None:
                 continue
             if isinstance(ts, datetime):
-                dt_local = ts.astimezone(THAI_TZ)
+                # [TIMEZONE] naive (legacy, เก็บ UTC) หรือ aware (journal) — ดู helpers [TIMEZONE]
+                dt_local = _naive_utc_to_thai(ts)
             else:
                 dt_local = datetime.combine(ts, dtime(0))
-            
+
             month_key = dt_local.strftime("%Y-%m")
             month_label = dt_local.strftime("%B %Y")
             
@@ -1071,7 +1108,9 @@ class ExportMixin:
         if value is None:
             return ""
         if isinstance(value, datetime):
-            return value.astimezone(THAI_TZ).strftime("%d/%m/%Y")
+            # [TIMEZONE] ใช้ `_naive_utc_to_thai` เพื่อกันค่า naive ที่เก็บเป็น UTC
+            # (ดู helpers บล็อก [TIMEZONE]) — กับค่า aware ให้ผลเท่า `.astimezone(THAI_TZ)`
+            return _naive_utc_to_thai(value).strftime("%d/%m/%Y")
         return value.strftime("%d/%m/%Y")
 
     @staticmethod
@@ -1112,20 +1151,27 @@ class ExportMixin:
                 room = await conn.fetchrow("SELECT room_name FROM rooms WHERE id = $1", target_room_id)
                 room_name = room["room_name"] if room else f"ห้อง #{target_room_id}"
 
-                lower_dt = datetime.combine(start_dt, dtime.min) if start_dt else None
-                upper_dt = datetime.combine(end_dt, dtime(23, 59, 59)) if end_dt else None
-                pl_start = lower_dt or datetime.combine(CUTOFF_DATE, dtime.min)
+                # [TIMEZONE] ขอบเขตที่ส่งเข้า `_fetch_*` ต้องเป็น tz-aware เวลาไทย
+                # (คอลัมน์ JE.transaction_date เป็น timestamptz — ดู helpers._thai_day_start)
+                lower_dt = _thai_day_start(start_dt) if start_dt else None
+                upper_dt = _thai_day_end(end_dt) if end_dt else None
+                pl_start = lower_dt or _thai_day_start(CUTOFF_DATE)
 
                 conditions = ["JE.room_id = $1", "JE.deleted_at IS NULL", "JE.status <> 'voided'"]
                 params: List[Any] = [target_room_id]
                 idx = 2
+                # [TIMEZONE] ห้ามใช้ DATE(JE.transaction_date) — คอลัมน์เป็น timestamptz
+                # DATE() จะตัดตาม TimeZone ของ session (DB ตั้ง UTC) ทำให้รายการที่บันทึก
+                # 00:00–07:00 น. เวลาไทยของวันหัว/ท้ายช่วง หลุดออกจากชีตนี้ แต่ยังถูกนับ
+                # ในชีต GL/TB/IS/BS ที่ใช้ lower_dt/upper_dt → ไฟล์เดียวขัดแย้งกันเอง
+                # จึงต้องใช้ขอบเขต tz-aware ชุดเดียวกับ `_fetch_income_statement_rows`
                 if start_dt is not None:
-                    conditions.append(f"DATE(JE.transaction_date) >= ${idx}")
-                    params.append(start_dt)
+                    conditions.append(f"JE.transaction_date >= ${idx}")
+                    params.append(lower_dt)
                     idx += 1
                 if end_dt is not None:
-                    conditions.append(f"DATE(JE.transaction_date) <= ${idx}")
-                    params.append(end_dt)
+                    conditions.append(f"JE.transaction_date <= ${idx}")
+                    params.append(upper_dt)
                     idx += 1
 
                 lines = await conn.fetch(
@@ -1419,11 +1465,16 @@ class ExportMixin:
 
         _bs_section_row(ws_bs, row_idx, "หนี้สิน (Liabilities)")
         row_idx += 1
-        ws_bs.cell(row=row_idx, column=2, value="  (ระบบยังไม่มีหนี้สิน)")
-        acc_money_cell(ws_bs, row_idx, 3, 0.0)
-        row_idx += 1
+        if not balance_sheet["liabilities"]:
+            # ให้รูปแบบเดียวกับชีตงบทดลองเมื่อไม่มีรายการ — ไม่งั้นส่วนนี้เหลือแต่หัวข้อกับยอดรวม
+            ws_bs.cell(row=row_idx, column=2, value="  (ไม่มีรายการ)")
+            row_idx += 1
+        for lb in balance_sheet["liabilities"]:
+            ws_bs.cell(row=row_idx, column=2, value=f"  {lb['account_name']} ({lb['account_code']})")
+            acc_money_cell(ws_bs, row_idx, 3, lb["balance"])
+            row_idx += 1
         ws_bs.cell(row=row_idx, column=2, value="รวมหนี้สิน").font = Font(bold=True)
-        acc_money_cell(ws_bs, row_idx, 3, 0.0, bold=True, single_underline=True)
+        acc_money_cell(ws_bs, row_idx, 3, balance_sheet["liability_total"], bold=True, single_underline=True)
         fill_row(ws_bs, row_idx, (1, 2, 3), SUBTOTAL_FILL)
         row_idx += 2
 
@@ -1438,6 +1489,12 @@ class ExportMixin:
         row_idx += 1
         ws_bs.cell(row=row_idx, column=2, value="รวมส่วนของเจ้าของ").font = Font(bold=True)
         acc_money_cell(ws_bs, row_idx, 3, balance_sheet["total_equity_side"], bold=True, double_underline=True)
+        fill_row(ws_bs, row_idx, (1, 2, 3), TOTAL_FILL)
+        row_idx += 2
+
+        # ฝั่งขวาของสมการรวม (หนี้สิน + ส่วนของเจ้าของ) — ต้องเท่ากับ "รวมสินทรัพย์"
+        ws_bs.cell(row=row_idx, column=2, value="รวมหนี้สินและส่วนของเจ้าของ").font = Font(bold=True)
+        acc_money_cell(ws_bs, row_idx, 3, balance_sheet["total_liabilities_and_equity"], bold=True, double_underline=True)
         fill_row(ws_bs, row_idx, (1, 2, 3), TOTAL_FILL)
         row_idx += 2
 
@@ -1589,7 +1646,9 @@ class ExportMixin:
         def _fmt_j_datetime(v):
             if v is None:
                 return "", ""
-            dt_local = v.astimezone(THAI_TZ)
+            # [TIMEZONE] `transaction_date` เป็น timestamptz (aware) แต่ใช้ helper กลางตัวเดียวกัน
+            # เพื่อให้ทุกจุดในไฟล์แปลงเวลาเหมือนกันหมด (ดู helpers บล็อก [TIMEZONE])
+            dt_local = _naive_utc_to_thai(v)
             return dt_local.strftime("%d/%m/%Y"), dt_local.strftime("%H:%M")
 
         r = hr + 1

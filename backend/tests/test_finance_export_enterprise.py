@@ -2,9 +2,10 @@
 Integration tests สำหรับ Excel Export ระดับ Enterprise (ERP) ใน finance_service.py
 
 ครอบคลุมโครงสร้างใหม่ (Refactor 2026-09):
-  Management export (export_transactions_excel) → 5 แผ่น
+  Management export (export_transactions_excel) → 6 แผ่น
     - Sheet 4 'สรุปโปรเจคเก็บเงิน (Fee Collections)' ตัวเลขตรงกับ DB (deep verification)
     - Sheet 5 'ทะเบียนลูกหนี้ (Accounts Receivable)' รวมหนี้/ลูกหนี้ตรงกับ DB
+    - Sheet 6 'สรุปรายเดือน (Monthly)' สรุปรายรับ-รายจ่ายรายเดือน
     - Sheet 'สรุปยอด' มีอัตราการเก็บเงิน + ยอดหนี้ AR (Real-time)
   Accounting export (export_journal_excel) → 6 แผ่น Full Audit Report
     - GL: ยอดยกมา/เดบิต/เครดิต/ยอดยกไป ตรงกับผลรวม journal_lines
@@ -42,11 +43,12 @@ pytestmark = pytest.mark.asyncio
 MANAGEMENT_SHEETS = [
     "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
     "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
+    "สรุปรายเดือน (Monthly)",
 ]
 ACCOUNTING_SHEETS = [
-    "Financial Dashboard", "สมุดรายวัน (General Journal)",
-    "สมุดบัญชีแยกประเภท (GL)", "งบทดลอง (Trial Balance)",
-    "งบกำไรขาดทุน (Income Statement)", "งบแสดงฐานะการเงิน (BS)",
+    "Financial Dashboard", "งบแสดงฐานะการเงิน (BS)",
+    "งบกำไรขาดทุน (Income Statement)", "งบทดลอง (Trial Balance)",
+    "สมุดบัญชีแยกประเภท (GL)", "สมุดรายวันทั่วไป (GJ)",
 ]
 
 
@@ -158,6 +160,17 @@ def _find_row(rows: list, col: int, needle) -> tuple:
         if r and r[col] == needle:
             return r
     raise AssertionError(f"ไม่พบแถวที่ col {col} == {needle!r} ใน {rows}")
+
+
+def _find_row_containing(rows: list, col: int, fragment: str) -> tuple:
+    """หาแถวแรกที่ช่อง `col` **มี** `fragment` อยู่ข้างใน — ทนต่อการเติมต่อท้ายป้าย.
+
+    ใช้กับป้ายที่ถูกเติม suffix ไปแล้ว เช่น "รวมทั้งสิ้น" → "รวมทั้งสิ้น (Grand Total)"
+    """
+    for r in rows:
+        if r and isinstance(r[col], str) and fragment in r[col]:
+            return r
+    raise AssertionError(f"ไม่พบแถวที่ col {col} มี {fragment!r} ใน {rows}")
 
 
 # =====================================================================
@@ -410,7 +423,7 @@ async def test_accounting_export_six_sheets_and_matches_db(db_pool):
 
     # ---- Sheet Trial Balance: รวม Dr = Cr + สมดุล ----
     tb_rows = _values(wb, "งบทดลอง (Trial Balance)")[3:]
-    tb_total = _find_row(tb_rows, 0, "รวมทั้งสิ้น")
+    tb_total = _find_row_containing(tb_rows, 1, "รวมทั้งสิ้น")
     assert tb_total[3] == tb_total[4]
     assert tb_total[3] == pytest.approx(1900.0)
     assert tb_total[5] is not None and "สมดุล" in str(tb_total[5])
@@ -434,15 +447,18 @@ async def test_accounting_export_six_sheets_and_matches_db(db_pool):
     assert "สมดุล" in str(balanced[2])
 
     # ---- General Journal: Audit Trail จาก metadata ----
-    j_rows = _values(wb, "สมุดรายวัน (General Journal)")[3:]
+    j_rows = _values(wb, "สมุดรายวันทั่วไป (GJ)")[3:]
     manual = _find_row(j_rows, 9, "manual_transaction")
     assert manual[11] is not None          # Legacy TX ID
     transfer = _find_row(j_rows, 9, "transfer")
     assert transfer[12] is not None        # Transfer Group
     sp = _find_row(j_rows, 9, "student_payment")
     assert sp[13] is not None              # Student Payment ID
+    # แผ่น GJ มี 15 คอลัมน์ (index 0-14) — "Journal ID" (journal_entry_id) คือคอลัมน์สุดท้าย
+    # ⚠️ ไม่มีคอลัมน์ "Journal Line ID" ในไฟล์: `journal_rows` ยังคำนวณ `journal_line_id`
+    #    (export.py) แต่ตัวเขียนแผ่นไม่เคยเขียนคอลัมน์นั้นออกมา → บรรทัดที่เป็น entry
+    #    เดียวกันจึงแยกกันด้วย UUID ไม่ได้ ดูบันทึกใน docs/skills.md
     assert sp[14]                          # Journal Entry ID (UUID)
-    assert sp[15]                          # Journal Line ID
 
 
 async def test_accounting_export_voided_journal_excluded_from_financials(db_pool):
@@ -484,7 +500,7 @@ async def test_accounting_export_voided_journal_excluded_from_financials(db_pool
 
     # Trial Balance รวม Dr = 300 (เฉพาะ asset ฝั่ง Dr 300) → Dr=Cr=300
     tb_rows = _values(wb, "งบทดลอง (Trial Balance)")[3:]
-    tb_total = _find_row(tb_rows, 0, "รวมทั้งสิ้น")
+    tb_total = _find_row_containing(tb_rows, 1, "รวมทั้งสิ้น")
     assert tb_total[3] == pytest.approx(300.0)
     assert tb_total[4] == pytest.approx(300.0)
 
