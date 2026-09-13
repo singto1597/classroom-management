@@ -8,7 +8,10 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import List, Optional, Dict, Any
 
 from core.logger import AuditLogger
-from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError
+from core.exceptions import (
+    RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError,
+    StudentNotFoundError, ForbiddenError,
+)
 from core.rbac import require_permission, require_member
 from services.action_service import ActionService
 
@@ -502,6 +505,61 @@ class CollectionsMixin:
             except Exception:
                 pass
             raise e
+
+    @classmethod
+    async def get_my_debts(cls, pool: asyncpg.Pool, user_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
+        """หนี้ค้างของ **ตัวเอง** — `GET /{target_id}/finance/me/debts` (บอท Discord ใช้)
+
+        ทำไมต้องมีตัวนี้: `get_student_debts` รับ `student_id` ซึ่งบอทไม่รู้ — บอทรู้แค่
+        `X-Discord-Id` ⇒ ต้องมีจุดที่แปลง "ตัวผู้เรียก" เป็น `students.id` ให้ก่อน
+
+        **ทำไมต้องเช็ค 2 ชั้น (ทั้งสองชั้นจำเป็น — ลบชั้นไหนออกจะได้รหัสผิด):**
+
+        1. `require_member` = แหล่งความจริงเดียวของ "เป็นสมาชิกห้องนี้ไหม" → คนนอกห้อง **403**
+        2. ถ้าไม่ผ่าน แต่ผู้ใช้ **ไม่เคยมีแถว `students` เลยไม่ว่าห้องไหน** → แปลว่า "ยังไม่ได้ผูกบัญชี"
+           ไม่ใช่ "ไม่มีสิทธิ์" ⇒ เปลี่ยนเป็น **404** พร้อมบอกให้ไป `/sync_room`
+
+        ถ้าไม่มีชั้นที่ 2: นักเรียนที่ยังไม่รัน `/sync_room` (เคสที่พบบ่อยที่สุดของคำสั่งนี้) จะได้
+        ข้อความ "คุณไม่ได้เป็นสมาชิกของห้องนี้" ซึ่ง **ชี้ทางแก้ผิด** — ทั้งที่ทางแก้คือผูกบัญชี
+        ไม่ใช่ขอสิทธิ์ และถ้าตัดชั้นที่ 1 ออกแล้วหาแถวเองแทน (กรองด้วย room_id) คนนอกห้องจะได้ 404
+        ซึ่งขัดกับพี่น้องของมัน (`get_student_debts` ตอบ 403)
+
+        ⚠️ ชั้นที่ 2 **จงใจไม่กรอง `deleted_at`** — ผู้ใช้ที่เคยมีโปรไฟล์แล้วถูกถอดออกจากห้อง
+        ต้องได้ 403 ("ไม่ใช่สมาชิกแล้ว") ไม่ใช่ 404 ("ยังไม่เคยผูกบัญชี") เพราะการเชิญให้เขา
+        ไป `/sync_room` ซ้ำจะสร้างแถวซ้ำหรือล้มเหลวโดยไม่บอกสาเหตุ
+
+        🛡️ ปลอดภัยเพราะ `student_id` ถูกกรองด้วย `user_id` ของผู้เรียกเอง → ไม่มีเส้นทาง
+        อ่านหนี้คนอื่นผ่าน endpoint นี้เลย
+        """
+        async with pool.acquire() as conn:
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+            try:
+                await require_member(conn, target_room_id, user_id)
+            except ForbiddenError:
+                # แยก "ไม่ใช่สมาชิกห้องนี้" (403) ออกจาก "ยังไม่เคยผูกโปรไฟล์นักเรียน" (404)
+                has_profile = await conn.fetchval(
+                    "SELECT 1 FROM students WHERE user_id = $1 LIMIT 1", int(user_id)
+                )
+                if not has_profile:
+                    raise StudentNotFoundError(
+                        "ไม่พบรายชื่อนักเรียนของคุณในระบบ (ถ้ายังไม่ได้ผูกบัญชี ลองพิมพ์ /sync_room ก่อนนะ)"
+                    )
+                raise
+
+            student_id = await conn.fetchval(
+                """SELECT id FROM students
+                   WHERE room_id = $1 AND user_id = $2 AND status = 'active' AND deleted_at IS NULL
+                   ORDER BY id LIMIT 1""",
+                target_room_id, int(user_id),
+            )
+
+        if student_id is None:
+            raise StudentNotFoundError("ไม่พบรายชื่อนักเรียนของคุณในห้องนี้ (ลองพิมพ์ /sync_room ก่อนนะ)")
+
+        return await cls.get_student_debts(
+            pool, student_id=student_id, client_source=client_source, actor_identifier=actor_identifier,
+            server_id=server_id, room_id=target_room_id, user_id=user_id,
+        )
 
     @classmethod
     async def add_student_to_collection(cls, pool: asyncpg.Pool, collection_id: int, student_id: int, user_id: int, client_source: str, actor_identifier: str, user_name: str = "—", server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:

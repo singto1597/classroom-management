@@ -914,3 +914,55 @@
 
 ---
 
+### 🤖 Discord bot — `get_target` มี default `target_type="room"` ⇒ บอทที่ลืมส่ง `target_type=server` ได้ **404 "ไม่พบห้อง"** ทั้งที่ห้องมีอยู่
+- **Context/Problem:** `GET /{target_id}/finance/summary` รับ `target_id` เดียว แต่ตีความเป็นได้สองอย่าง (room ของเว็บ / server ของบอท) ผ่าน `target_type` ที่ **default = `"room"`** (เพราะเว็บคือผู้ใช้ส่วนใหญ่) ⇒ บอทที่ส่ง `interaction.guild_id` มาลอย ๆ จะถูกตีเป็น `room_id` = ค่า guild id → `resolve_room_id` หาไม่เจอ → 404 · อาการหลอกมาก: ข้อความ "ไม่พบห้องเรียนนี้" ทำให้เข้าใจว่าห้องยังไม่ผูก Discord ทั้งที่ผูกแล้ว
+- **Root Cause:** พารามิเตอร์ที่ **เปลี่ยนความหมายของพารามิเตอร์อื่น** (ไม่ใช่แค่กรอง) และมี default ที่ถูกสำหรับผู้ใช้รายใหญ่ ⇒ ฝั่งที่เหลือลืมได้ง่ายและ**ไม่มี type system จับ**
+- **Correct Pattern/Solution:** บอทต้องส่ง `target_type=server` **ทุกครั้ง** — รวมศูนย์ไว้ที่ `_server_params()` ใน `bot_discord/services/finance_api.py` (ไม่กระจายเป็น kwargs ต่อคำสั่ง) แล้วเทสต์ฝั่ง backend ล็อกไว้ทั้งสองทิศในเทสต์เดียว (`test_my_debts_via_server_target_matches_the_bot_path`: ส่ง `target_type=server` → 200 · guild_id เดียวกัน**ไม่ส่ง** → 404) · **ห้ามพึ่ง type hint** เพราะ `target_type: Literal["server","room"] = Query("room")` ไม่รู้จักความหมายของ `target_id`
+- **Rule:** (1) เมื่อ endpoint รับ "id ที่ตีความได้หลายแบบ" ให้ **ส่งตัวบอกชนิดทุกครั้งจาก client** และรวมไว้ที่จุดเดียว (2) เทสต์ต้องมีเคส **"ลืมส่ง"** ที่ยืนยันว่ามันพัง — ไม่ใช่มีแต่เคสที่ถูก (3) **บอทไม่มี test harness ในโปรเจกต์นี้** (ไม่มี `bot_discord/tests/` และ CI ไม่รัน cog) ⇒ cog ต้อง **โง่ที่สุด** (`defer()` → เรียก wrapper → `followup.send(embed=)` → จับ error) และทุกอย่างที่ "คิด" ได้ (validate, แปลงวันที่, ประกอบ embed, จำกัดความยาว) ต้องอยู่ใน `services/finance_api.py` เพื่อให้อนาคตเขียนเทสต์ได้โดยไม่ต้องมี Discord
+- **Gotcha:** (1) `api_client.request` เรียก `response.json()` **เสมอ** และไม่มี `raise_for_status` ⇒ รับ binary (PDF) ไม่ได้ และพังกับ 204 — ต้องแก้ client กลางก่อนถ้าจะทำ (2) ข้อความ error จาก `APIException` ควรตอบ **ephemeral เสมอ** เพราะอาจมีรายละเอียดภายใน (3) `defer()` ต้องเป็น `defer(ephemeral=True)` **ให้ตรงกับ** `followup.send(ephemeral=...)` ของคำสั่งนั้น ไม่งั้นคำตอบส่วนตัวจะกลายเป็นสาธารณะ (4) attribute access ผิดชื่อบน `discord.Embed`/`app_commands` **ไม่ถูกจับตอน import** — ตรวจด้วย `python -m py_compile` เท่านั้นไม่พอสำหรับ decorator (ต้องรันบอทหรือโหลด cog จริง) — วิธีตรวจจริงโดยไม่ต้องมี token: โหลด cog ใน image ของบอท (มี discord.py ติดตั้งแล้ว) แล้วอ่าน `__cog_app_commands__`:
+  ```bash
+  docker run --rm -v "$PWD/bot_discord:/app:z" -w /app classroom-production-bot:<tag> \
+    python -c "import cogs.finance_cmd as m; print(sorted(c.name for c in m.FinanceCommands.__cog_app_commands__))"
+  ```
+  ⇒ พิสูจน์ได้ทั้ง decorator, `app_commands.Group`, `Choice`/`Range` และ `setup()` โดยไม่ต้องต่อ Discord
+- **Tests:** ยังไม่มี harness ในเรpo แต่พิสูจน์ได้ด้วย **smoke script ที่รันใน image ของบอท** (ไม่ต้องมี token/guild):
+  ```bash
+  docker run --rm -e PYTHONPATH=/app -e TZ=UTC -e DISCORD_TOKEN=x -e API_BASE_URL=http://x -e API_KEY=x \
+    -v "$PWD/bot_discord:/app:z" -v /tmp/bot_smoke:/mnt:z -w /app <bot-image> python /mnt/smoke.py
+  ```
+  ครอบ: `format_baht` · `format_thai_datetime`/`format_thai_date` (naive UTC→ไทย + **พ.ศ.**) · `validate_period` · `_server_params` · embed builder ทั้ง 4 + payload ว่าง · และ **เพดานความยาวของ Discord** (field 1024 / title 256 / desc 4096) ซึ่งเป็นสาเหตุ 400 ที่หาไม่เจอถ้าไม่ทดสอบ
+  - ⚠️ `format_thai_date` รับ **DATE ล้วน** ⇒ ห้ามเข้า timezone conversion (วันที่ 1 ของเดือนจะเลื่อนเป็น 31/08) — มีเคสล็อกไว้
+  - 🔒 รันด้วย `TZ=UTC` / `America/New_York` / `Asia/Bangkok` ให้ผล **เหมือนกันทั้งสาม** ⇒ พิสูจน์ว่าการแปลงไม่พึ่ง TZ ของเครื่อง (กับดักเดิมของโปรเจกต์นี้)
+  - 💡 `PYTHONPATH=/app` จำเป็นเมื่อสคริปต์อยู่นอก `/app` ไม่งั้น `import services` ไม่เจอ
+- **Date Added:** 2026-09-13
+
+---
+
+### 🧪 Tests — ลืม prefix `/api/classroom` ⇒ **ทุกเทสต์ได้ 404 `{"detail":"Not Found"}` ของ FastAPI เอง** และตัวที่ "ผ่าน" คือตัวที่ผ่านด้วยเหตุผลผิด
+- **Context/Problem:** เขียนไฟล์เทสต์ใหม่ (`test_finance_me_endpoints.py`) แล้วเรียก `client.get(f"/{room_id}/finance/me/debts")` — **8 ใน 9 ตัวล้มด้วย 404** ส่วนตัวเดียวที่ผ่านคือ `test_..._unknown_room_is_404` **เพราะมันคาดหวัง 404 อยู่แล้ว** ⇒ ได้สัญญาณ "ผ่าน 1 ล้ม 8" ที่ชี้ผิดทางทั้งหมด (เหมือน router ไม่ถูก mount / พังทั้งโมดูล) · ความจริงคือ router การเงินถูก mount ด้วย `app.include_router(finance_router.router, prefix="/api/classroom")` (`backend/main.py:79`) ⇒ URL ที่ถูกคือ `/api/classroom/{target_id}/finance/...` และที่ได้คือ **404 ของ FastAPI** ไม่ใช่ของโดเมน
+- **Root Cause:** 404 มีสองความหมายที่ **แยกไม่ออกจาก status code** — (ก) "ไม่มี route นี้" (FastAPI) (ข) "มี route แต่ไม่พบข้อมูล" (โดเมน) · เทสต์ที่ assert แค่ `status_code == 404` **ผ่านได้ทั้งสองกรณี** ⇒ เทสต์ครอบเคส 404 กลายเป็นเทสต์ "เขียวเปล่า" ทันทีที่ URL ผิด
+- **Correct Pattern/Solution:** ใช้ **ค่าคงที่ path ระดับโมดูล** แทนการพิมพ์ URL ซ้ำในทุกเทสต์ (แบบเดียวกับ `test_finance_statements.py`) และเมื่อ assert 404 ให้ **assert ข้อความ detail ของโดเมนด้วย**:
+  ```python
+  API_PREFIX = "/api/classroom"                              # ⚠️ มาจาก main.py:79
+  MY_DEBTS_PATH = API_PREFIX + "/{room}/finance/me/debts"
+  ...
+  assert res.status_code == 404, res.text
+  assert res.json()["detail"] == "ไม่พบห้องเรียนนี้"   # ไม่ใช่ {"detail":"Not Found"} ของ FastAPI
+  ```
+- **Rule:** (1) **เทสต์ที่ผ่านด้วยเหตุผลผิดอันตรายกว่าเทสต์ที่ fail** — เคส 404 ต้องผูกกับ *ข้อความ* เสมอ ไม่ใช่แค่รหัส (2) อาการ "ทุกตัว 404 ยกเว้นตัวที่คาดหวัง 404" = **สงสัย prefix/การ mount ก่อน** ไม่ใช่สงสัย service (3) URL ในเทสต์ให้ประกาศเป็นค่าคงที่ต่อโมดูล — พิมพ์ `f"/{room_id}/..."` ซ้ำ 10 ที่ = 10 โอกาสลืม prefix
+- **Date Added:** 2026-09-13
+
+---
+
+### 🐛 Routers — `rooms.id` เป็น SERIAL (int4) ⇒ เอา guild_id ของ Discord (~19 หลัก) ไปหา `WHERE id = $1` ได้ **HTTP 500 `OverflowError`** ไม่ใช่ 404
+- **Context/Problem:** เทสต์กับดัก `target_type` ตั้งใจส่ง guild id ใหญ่ (`4_567_890_123`) แล้ว **ไม่ส่ง** `target_type` เพื่อพิสูจน์ว่าจะถูกตีเป็น room_id → ควรได้ 404 แต่ได้ `asyncpg ... OverflowError: value out of int32 range` ลอยออกมาเป็น **500** (ในเทสต์คือ exception ทะลุออกมาเลย เพราะ `TestClient(raise_server_exceptions=True)` เป็นค่าเริ่มต้น) · เคสจริงคือ **บอทที่ลืมส่ง `target_type=server`** ⇒ guild id จริงเป็น snowflake ~19 หลัก ⇒ **เกิน int32 ทุกตัว** ⇒ ผู้ใช้เห็น 500 แทนข้อความที่วินิจฉัยได้
+- **Root Cause:** `rooms.id` เป็น `SERIAL` (int4) แต่ `target_id` เป็น Python `int` ไม่จำกัดขนาด ⇒ asyncpg พยายามเข้ารหัสเป็น int4 แล้วโยน `OverflowError` **ก่อน** query จะได้รัน ⇒ ไม่มีทางได้ "not found" เพราะพังตอน bind parameter ไม่ใช่ตอน fetch · จุดที่พลาดมีสองที่ที่โค้ดเดียวกันเป๊ะ: `BaseService.resolve_room_id` (`backend/services/finance/base.py:82`) และ `resolve_target_to_room_id` (`backend/core/dependencies.py:122` — ตัวหลังถูกใช้โดย router กลุ่ม activity/action อีก ~30 route)
+- **Correct Pattern/Solution:** **ยังไม่ได้แก้ — บันทึกเป็นงานแยกโดยตั้งใจ** เพราะ (ก) helper เป็นของร่วมที่ router นอกโมดูลการเงินใช้อยู่ ~30 route ⇒ อยู่นอกขอบเขต additive ของ F4 (ข) ทางแก้คือ guard ก่อนยิง query แล้วโยน not-found ตามปกติ:
+  ```python
+  # `rooms.id` เป็น int4 — ค่าที่เกินช่วงไม่มีทางมีอยู่ในตาราง ⇒ "ไม่พบ" ตั้งแต่แรก
+  if not (0 < room_id <= 2_147_483_647):
+      raise RoomNotFoundError("ไม่พบห้องเรียนนี้")
+  ```
+  ระหว่างนี้เทสต์ของ F4 จึงเลือก guild id ที่ **พอดี int32** (`1_234_567_890`) เพื่อให้ assertion สื่อความหมายเดียว (พิสูจน์กับดัก `target_type` ไม่ใช่พิสูจน์ overflow) พร้อมคอมเมนต์กำกับเหตุผลไว้ในตัวเทสต์
+- **Rule:** (1) **id ที่รับจากภายนอก (path param/body) ต้องถูก validate กับชนิดคอลัมน์ปลายทาง** — Python `int` ไม่มีขอบเขต แต่ Postgres `SERIAL`/`INTEGER` มี; พังตอน bind = 500 เสมอ ไม่ใช่ 404/422 (2) อาการ "**ค่าใหญ่พัง แต่ค่าเล็กผ่าน**" ให้สงสัย int4/int8 ก่อน logic (3) เจอบั๊กนอกขอบเขตเฟส → **บันทึก ไฟล์:บรรทัด + ทางแก้ ให้ครบแล้วเดินต่อ** ดีกว่าแอบแก้ helper ร่วมกลางเฟสที่ประกาศว่า additive (แนวเดียวกับที่โปรเจกต์นี้ใช้กับ `delete_category` hard delete)
+- **Date Added:** 2026-09-13

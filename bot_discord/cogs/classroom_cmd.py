@@ -171,6 +171,12 @@ class BotCommands(commands.Cog):
             "`/activities` - ดูรายการกิจกรรมที่กำลังจะมาถึง\n"
             "`/my_roles` - เช็คหน้าที่/เบอร์รถบัสของตัวเองในกิจกรรม", inline=False)
 
+        embed.add_field(name="💰 หมวดการเงิน", value=
+            "`/finance summary` - ภาพรวมรายรับ-รายจ่ายของห้อง (เลือกเดือน/ปีได้)\n"
+            "`/finance debtors` - รายชื่อลูกหนี้ค้างชำระทั้งห้อง\n"
+            "`/finance collection <id>` - สถานะแคมเปญเก็บเงินรายตัว (ใส่รหัสแคมเปญ)\n"
+            "`/finance my-debts` - 🔒 เช็คยอดค้างของตัวเอง (เห็นคนเดียว)", inline=False)
+
         embed.add_field(name="📜 หมวดประวัติระบบ", value=
             "`/view_logs` - (ผู้ดูแล) ดูประวัติการแก้ไขข้อมูลย้อนหลัง 20 รายการ", inline=False)
         
