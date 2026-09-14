@@ -1,0 +1,44 @@
+# /docker-compose.pdf.yml
+#
+# 🖨️ [F3] Stack แยกของ "ตัวเรนเดอร์ PDF" (Gotenberg / headless Chromium)
+#
+# ⚠️ ทำไมต้องแยกออกจาก docker-compose.infra.yml — เหตุผลที่ 1 (ตัวบั๊กจริง):
+#    `pull_all.sh` เดิม deploy เฉพาะ `${ENV_NAME}_app` ⇒ service ที่อยู่ใน infra stack
+#    **ไม่เคยถูกสร้างบนเซิร์ฟเวอร์ที่มีอยู่แล้ว** ทำให้ GOTENBERG_URL ชี้ไปที่โฮสต์ที่ไม่มีจริง
+#    ⇒ PDF ทุกใบ 502 ทั้งที่ deploy รายงานว่าสำเร็จ
+#    แยกออกมาแล้ว `pull_all.sh` จึง deploy stack นี้ได้เอง โดยไม่ต้องไปแตะ infra stack เลย
+#
+# ⚠️ เหตุผลที่ 2 (blast radius):
+#    `docker stack deploy` **ไม่** ลบ service ที่หายไปจากไฟล์ เว้นแต่สั่ง `--prune` เอง
+#    (ยืนยันจาก `docker stack deploy --help`: `--prune  Prune services that are no longer referenced`)
+#    ⇒ ถ้า gotenberg ยังอยู่ใน infra stack แล้ววันหนึ่งมีคนเติม `--prune` ให้ infra
+#      (ซึ่งเป็นสิ่งที่คนมักทำเพื่อไม่ให้ service เก่าค้าง) การ deploy infra รอบนั้น
+#      จะลบทุกอย่างที่ไม่ปรากฏในไฟล์นั้น — และถ้าไฟล์นั้นพลาด service ใดไป
+#      Postgres/Redis จะถูกลบตามไปด้วย ซึ่งเป็นความเสียหายที่กู้ยาก
+#    การแยกไฟล์ทำให้ "stack ที่มี DB" มีขนาดเล็กที่สุด ⇒ ปลอดภัยกว่าเมื่อมีคนใส่ `--prune`
+#
+# ⚠️ ชื่อ stack ถูกใช้เป็นชื่อ DNS ด้วย: service นี้จะเข้าถึงได้ที่
+#    `${ENV_NAME}_pdf_gotenberg:3000` (ไม่ใช่ `..._infra_gotenberg` เหมือนเดิม)
+#    ⇒ ต้องแก้ GOTENBERG_URL ใน docker-compose.app.yml และ .env.example ให้ตรงกัน
+#    ไม่งั้นจะกลับไปเป็น 502 เหมือนเดิม (คนละสาเหตุ แต่หน้าตาเหมือนกันเป๊ะ)
+version: "3.8"
+services:
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    # --api-timeout=30s ให้ตรงกับ timeout ฝั่ง backend (pdf.py: html_to_pdf(timeout=30.0))
+    #   ถ้าฝั่ง Gotenberg สั้นกว่า จะ kill งานก่อนแล้ว backend ได้ 502
+    #   แทนที่จะเป็น timeout ที่อ่านรู้เรื่อง
+    command:
+      - "gotenberg"
+      - "--api-timeout=30s"
+      - "--chromium-auto-start"
+    networks:
+      - shared_network
+    deploy:
+      replicas: 1
+
+# ใช้ Alias ชื่อ shared_network แล้วชี้ name ไปที่ตัวแปร (เหมือน infra/app)
+networks:
+  shared_network:
+    name: app-internal-${ENV_NAME}
+    external: true

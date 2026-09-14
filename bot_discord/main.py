@@ -18,6 +18,7 @@ class MyBot(commands.Bot):
         await self.load_extension('cogs.classroom_cmd')
         await self.load_extension('cogs.student_cmd')
         await self.load_extension('cogs.activity_cmd')
+        await self.load_extension('cogs.finance_cmd')
         await self.load_extension("cogs.redis_listener")
         
         synced = await self.tree.sync()

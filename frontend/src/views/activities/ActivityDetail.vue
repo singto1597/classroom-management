@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
+import { downloadBlob } from '@/utils/download'
 import { displayName } from '@/utils/name'
 import type { Activity, ActivityParticipant, RosterItem } from '@/types/activity'
 import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
@@ -272,13 +273,11 @@ const exportExcel = async () => {
       requiredFields.value,
       currentUserName,
     )
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
+    // ⚠️ ห้ามเขียน anchor เองตรงนี้ — ต้องผ่าน downloadBlob เพราะ revoke ต้องเลื่อนคาบ
+    //    (ของเดิม revoke ในบรรทัดถัดจาก click() และไม่ append เข้า document ด้วย
+    //     ซึ่ง Firefox ไม่เริ่มดาวน์โหลดให้ anchor ที่ลอยอยู่)
     // 🌟 ชื่อไฟล์ใช้ชื่อกิจกรรม (สอดคล้องกับชื่อที่ backend สร้าง) ไม่ใช่ activity_<id>
-    a.download = `${safeFileName(activity.value.title)}_รายชื่อผู้เข้าร่วม.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `${safeFileName(activity.value.title)}_รายชื่อผู้เข้าร่วม.xlsx`)
     Toast.fire({ icon: 'success', title: 'Export Excel เรียบร้อย 📄' })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Export ไม่สำเร็จ'

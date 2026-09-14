@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_title }} {{ receipt_no }}</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════════
+     ฟอนต์ไทยถูกฝังมาเป็น base64 data URI จากฝั่ง backend (pdf.py)
+     Gotenberg เรนเดอร์ใน container ของตัวเอง — อ้างไฟล์ในเครื่อง backend ไม่ได้
+     ⇒ `f.uri` ถูกฉีดเข้ามาทั้งก้อน (ไฟล์ละ ~45KB) ห้ามย่อ/ตัดทอน
+
+     🔴 หนึ่ง @font-face ต่อหนึ่งไฟล์ (static) — **ห้าม** รวมเป็นตัวเดียวแล้วใส่
+        `font-weight: 100 900` กับ variable font: Chromium/Skia embed ลง PDF ไม่ได้
+        จะถอยไปวาด glyph เป็น Type 3 แทน (ไฟล์ใหญ่ 5.5 เท่า + ไม่ใช่ TrueType จริง)
+        รายละเอียดการทดลองอยู่ใน backend/services/finance/constants.py
+     ⚠️ ทุก @font-face ต้องใช้ family name เดียวกัน แล้วแยกด้วย `font-weight`
+        ถ้าไม่มีไฟล์ของน้ำหนักที่ใช้ Chromium จะ synthesize ตัวหนาเอง → สระ/วรรณยุกต์เพี้ยน
+     ══════════════════════════════════════════════════════════════════════ */
+  {% for f in font_faces %}
+  @font-face {
+    font-family: '{{ font_family }}';
+    src: url('{{ f.uri }}') format('truetype');
+    font-weight: {{ f.weight }};
+    font-style: normal;
+    font-display: block;
+  }
+  {% endfor %}
+
+  @page { size: A4; margin: 0; }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: '{{ font_family }}', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1c1917;
+    margin: 0;
+    padding: 14mm 14mm 10mm;
+  }
+
+  .head { display: flex; justify-content: space-between; align-items: flex-start; }
+  .head h1 { font-size: 19px; margin: 0 0 2px; font-weight: 700; }
+  .head .room { font-size: 12px; color: #57534e; }
+  .doc-title { text-align: right; }
+  .doc-title .label { font-size: 17px; font-weight: 700; }
+  .doc-title .no { font-size: 12px; color: #57534e; margin-top: 3px; }
+
+  /* 🚫 เอกสารถูกยกเลิก — ประทับให้เห็นชัดก่อนอ่านรายละเอียดใด ๆ
+     ต้องไม่ใช่สีจาง ๆ เพราะใบเสร็จที่ยกเลิกแล้วแต่ดูเหมือนใบปกติ = หลักฐานที่ทำให้เข้าใจผิด */
+  .void-banner {
+    border: 3px solid #b91c1c; background: #fef2f2; color: #7f1d1d;
+    padding: 7px 12px; margin: 0 0 12px; border-radius: 4px;
+    font-size: 15px; font-weight: 700; text-align: center; letter-spacing: 0.5px;
+  }
+  .void-banner .why { display: block; font-size: 11px; font-weight: 400; margin-top: 3px; }
+
+  hr { border: 0; border-top: 2px solid #1c1917; margin: 10px 0 14px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: 3px 0; vertical-align: top; }
+  /* ⚠️ 160px คือความกว้างของป้ายที่ยาวที่สุด ("ยอดเต็มของรายการ" / "ยอดสะสมที่ชำระแล้ว")
+     ถ้าแคบกว่านี้ `white-space: nowrap` จะดันป้ายไปชนตัวเลขจนอ่านไม่ออก (เคยพลาดมาแล้ว) */
+  .meta .k { color: #57534e; width: 160px; padding-right: 10px; white-space: nowrap; }
+
+  table.items { margin-top: 12px; }
+  table.items th, table.items td { padding: 7px 8px; border: 1px solid #d6d3d1; }
+  table.items th { background: #f5f5f4; font-weight: 700; text-align: left; }
+  table.items td.num, table.items th.num { text-align: right; white-space: nowrap; }
+
+  /* 💰 ยอดเงิน + คำอ่าน คือหัวใจของเอกสารนี้ — เน้นให้เด่นกว่าอย่างอื่น */
+  .amount-box {
+    margin-top: 12px;
+    border: 2px solid #1c1917;
+    padding: 9px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .amount-box .words { font-size: 14px; font-weight: 700; }
+  .amount-box .figures { font-size: 18px; font-weight: 700; white-space: nowrap; }
+
+  .note { margin-top: 10px; color: #57534e; font-size: 11.5px; }
+
+  .sign { margin-top: 42px; display: flex; justify-content: space-between; }
+  .sign .slot { width: 44%; text-align: center; }
+  .sign .line { border-top: 1px dotted #78716c; margin-bottom: 5px; padding-top: 34px; }
+  .sign .who { font-size: 12px; }
+  .sign .role { font-size: 11px; color: #57534e; }
+
+  .foot { margin-top: 26px; font-size: 10.5px; color: #a8a29e; text-align: center; }
+</style>
+</head>
+<body>
+
+  {% if is_voided %}
+  {# 🚫 รายการที่ออกเอกสารนี้ถูกยกเลิกแล้ว ⇒ ใบนี้ไม่ใช่หลักฐานการรับเงินอีกต่อไป
+     ⚠️ ต้องอยู่ **บนสุด** ก่อนหัวเอกสาร ไม่ใช่ท้ายหน้า — คนอ่านต้องรู้ก่อนอ่านตัวเลข #}
+  <div class="void-banner">
+    เอกสารนี้ถูกยกเลิกแล้ว — VOID
+    {% if void_reason %}<span class="why">เหตุผล: {{ void_reason }}</span>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="head">
+    <div>
+      <h1>{{ doc_title }}</h1>
+      <div class="room">
+        {{ room_name }}{% if room_code %} ({{ room_code }}){% endif %}
+      </div>
+    </div>
+    <div class="doc-title">
+      <div class="label">เลขที่ {{ receipt_no }}</div>
+      {# 🗓️ `document_date_text` = วันที่ของ "เหตุการณ์" (event_at) ไม่ใช่วันที่กดพิมพ์
+         ⇒ พิมพ์ซ้ำเมื่อไรก็ได้วันที่เดิม และตรงกับปี พ.ศ. บนเลขที่เอกสารเสมอ #}
+      <div class="no">วันที่ {{ document_date_text or '-' }}</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <table class="meta">
+    <tr>
+      {# ⚠️ ใบแจ้งหนี้ "ยังไม่ได้รับเงิน" — ใช้ป้าย "ได้รับเงินจาก" ไม่ได้ (ความหมายผิด)
+         และผู้ลงชื่อฝั่งซ้ายไม่ใช่ "ผู้ชำระเงิน" แต่เป็น "ผู้รับแจ้ง" #}
+      <td class="k">{% if is_receipt %}ได้รับเงินจาก{% else %}เรียกเก็บจาก{% endif %}</td>
+      <td><strong>{{ payer_name or '-' }}</strong>{% if student_no %} — เลขที่ {{ student_no }}{% endif %}</td>
+    </tr>
+    <tr>
+      <td class="k">รายการ</td>
+      <td>{{ collection_title or '-' }}</td>
+    </tr>
+    {% if collection_due_date %}
+    <tr>
+      <td class="k">กำหนดชำระ</td>
+      <td>{{ collection_due_date }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width: 46px;">ลำดับ</th>
+        <th>รายละเอียด</th>
+        <th class="num" style="width: 130px;">จำนวนเงิน (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>
+          {{ collection_title or 'รายการชำระเงิน' }}
+          {%- if not is_receipt %} (ยอดค้างชำระ){% endif %}
+        </td>
+        <td class="num">{{ "{:,.2f}".format(amount) }}</td>
+      </tr>
+      <tr>
+        <td colspan="2" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
+        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(amount) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="amount-box">
+    <div class="words">({{ amount_text }})</div>
+    <div class="figures">{{ "{:,.2f}".format(amount) }} ฿</div>
+  </div>
+
+  <table class="meta" style="margin-top: 12px;">
+    {% if collection_amount %}
+    <tr>
+      <td class="k">ยอดเต็มของรายการ</td>
+      <td>{{ "{:,.2f}".format(collection_amount) }} บาท</td>
+    </tr>
+    {% endif %}
+    <tr>
+      <td class="k">{% if is_receipt %}ยอดสะสมที่ชำระแล้ว{% else %}ชำระแล้ว{% endif %}</td>
+      <td>{{ "{:,.2f}".format(paid_total_after) }} บาท</td>
+    </tr>
+    {% if remaining is defined %}
+    <tr>
+      <td class="k">{% if is_receipt %}คงเหลือ{% else %}ยอดค้างชำระ{% endif %}</td>
+      <td>{{ "{:,.2f}".format(remaining) }} บาท</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  {% if note %}
+  <div class="note">หมายเหตุ: {{ note }}</div>
+  {% endif %}
+
+  <div class="sign">
+    <div class="slot">
+      <div class="line"></div>
+      <div class="who">{{ payer_name or '' }}</div>
+      <div class="role">{% if is_receipt %}ผู้ชำระเงิน{% else %}ผู้รับแจ้ง{% endif %}</div>
+    </div>
+    <div class="slot">
+      <div class="line"></div>
+      <div class="who">{{ issuer_name or '' }}</div>
+      <div class="role">{% if is_receipt %}ผู้รับเงิน / ผู้ออกเอกสาร{% else %}ผู้ออกเอกสาร{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ receipt_no }}
+  </div>
+
+</body>
+</html>

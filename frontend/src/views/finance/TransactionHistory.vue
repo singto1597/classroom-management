@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue';
+import { createLatestGuard } from '@/utils/latest';
 import { useAuthStore } from '@/stores/auth';
 import { FinanceService } from '@/services/finance';
 import type { Transaction, TransactionQueryParams } from '@/types/finance';
@@ -33,7 +34,15 @@ const filters = ref({
 
 const currentPage = ref(1);
 
+// 🏁 กัน "คำตอบเก่ามาทับคำตอบใหม่" — ตัวช่วยกลางที่มีเทสต์แล้ว (ดู utils/latest.ts)
+//    หน้านี้ยิงคำขอได้จาก 4 ทาง (เปลี่ยนหน้า / เปลี่ยนจำนวนแถว / กรอง / ล้างกรอง)
+//    ⇒ กดเร็ว ๆ จะมีคำขอซ้อนกัน และลำดับที่ตอบกลับไม่รับประกัน (backend มี 3 replica)
+//    ⇒ คำตอบของตัวกรองเก่าจะทับข้อมูลใหม่ **ขณะที่ป้ายบนจอยังบอกตัวกรองใหม่**
+//      = "ตัวเลขถูกแต่ป้ายผิด" ซึ่งอันตรายกว่าโหลดไม่ขึ้นเพราะดูเหมือนถูกต้อง
+const listGuard = createLatestGuard();
+
 const fetchTransactions = async () => {
+  const token = listGuard.begin();
   isLoading.value = true;
   hasError.value = false;
   try {
@@ -50,13 +59,17 @@ const fetchTransactions = async () => {
     if (filters.value.end_date) apiFilters.end_date = filters.value.end_date;
 
     const res = await FinanceService.getTransactions(currentServerId, apiFilters);
+    if (!listGuard.isCurrent(token)) return; // มีคำขอใหม่กว่าแล้ว — ทิ้งคำตอบนี้ทั้งชุด
     transactions.value = res.items;
     totalCount.value = res.total_count;
   } catch (error: unknown) {
+    // error ของคำขอที่ถูกแทนที่แล้วต้องเงียบ — ไม่งั้น Swal เด้งทั้งที่จอโหลดปกติอยู่
+    if (!listGuard.isCurrent(token)) return;
     hasError.value = true;
     Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ', 'error');
   } finally {
-    isLoading.value = false;
+    // ตัวที่เก่ากว่าต้องไม่ปิด spinner ของตัวที่ใหม่กว่า (ไม่งั้นจอว่างทั้งที่ยังโหลดอยู่)
+    if (listGuard.isCurrent(token)) isLoading.value = false;
   }
 };
 

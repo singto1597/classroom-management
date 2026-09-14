@@ -140,6 +140,35 @@ const router = createRouter({
           component: () => import('@/views/finance/DebtorList.vue'),
         },
         {
+          // งบการเงิน — อ่านอย่างเดียว ไม่มี RBAC gate (ตรงกับ require_member ฝั่ง backend)
+          path: 'finance/statements',
+          name: 'finance-statements',
+          component: () => import('@/views/finance/FinancialStatements.vue'),
+        },
+        {
+          // งบประมาณ — อ่านเปิดให้สมาชิก ปุ่มเขียน gate ด้วย canManageFinance ในตัวหน้า
+          // (backend บังคับ MANAGE_FINANCE อยู่แล้ว — gate ที่นี่เป็นแค่การซ่อนปุ่ม)
+          path: 'finance/budgets',
+          name: 'finance-budgets',
+          component: () => import('@/views/finance/BudgetList.vue'),
+        },
+        {
+          // ทะเบียนเอกสาร — อ่านเปิดให้สมาชิก ปุ่มออกเอกสารอยู่ในหน้าที่ยื่นบริบทให้
+          // (CollectionDetail สำหรับใบเสร็จ · DebtorList สำหรับใบแจ้งหนี้) ไม่ใช่ที่นี่
+          path: 'finance/receipts',
+          name: 'finance-receipts',
+          component: () => import('@/views/finance/ReceiptList.vue'),
+        },
+        {
+          // ⚠️ ต้องประกาศ **หลัง** `finance/receipts` — ไม่งั้น vue-router จะพยายาม
+          //    match `receipts` เป็นค่า `:receiptNo` (route แรกที่ตรงกว่าชนะ แต่ลำดับ
+          //    ของ static-before-dynamic คือสิ่งที่อ่านแล้วไม่ต้องเดา)
+          // `receiptNo` เป็น string รูป REC-2569-0042 — backend validate pattern ให้อีกชั้น
+          path: 'finance/receipts/:receiptNo',
+          name: 'finance-receipt-detail',
+          component: () => import('@/views/finance/ReceiptDetail.vue'),
+        },
+        {
           path: 'discord-connect',
           name: 'DiscordConnect',
           component: () => import('@/components/discord/DiscordConnectGuide.vue'),

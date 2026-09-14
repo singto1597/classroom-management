@@ -25,6 +25,87 @@ from .helpers import (
 
 service_logger = AuditLogger(service_name="FINANCE")
 
+# 🔒 namespace ของ **advisory lock ระดับห้อง** ที่ทุกเส้นทางเงินต้องยึดเป็นอย่างแรก
+#
+# ⚠️ ต้องมี namespace เดียวทั้งระบบ — ถ้าสองเส้นทางใช้ namespace ต่างกัน มันจะไม่เห็นกัน
+#    แล้ว protocol ทั้งหมดก็เป็นโมฆะ (เหมือนล็อกคนละดอก)
+#    ค่าเดิมมาจาก receipts.py (`_ISSUE_LOCK_NAMESPACE`) — คงตัวเลขเดิมไว้เพื่อไม่ให้
+#    พฤติกรรมของ advisory lock ที่ deploy อยู่เปลี่ยนความหมายกลางทาง
+#    (0x52454350 = 'RECP' — อ่านออกว่าเป็นของงานเอกสาร/การเงิน)
+#
+# 📐 ลายเซ็น `pg_advisory_xact_lock(key1 int4, key2 int4)`: key1 = namespace, key2 = room_id
+#    ⇒ คนละห้องได้ล็อกคนละดอก ไม่บล็อกกัน (ห้องอื่นทำงานขนานได้ตามปกติ)
+_MONEY_LOCK_NAMESPACE = 0x52454350
+
+
+async def _lock_room_money(conn: asyncpg.Connection, room_id: int) -> None:
+    """🔒 ยึด advisory lock ของห้อง — **ต้องเป็นคำสั่งแรกใน transaction ของทุกเส้นทางที่แตะเงิน**
+
+    ⚠️ เรียกซ้ำใน transaction เดียวกันไม่บล็อก (advisory lock เป็นแบบ re-entrant ต่อ session)
+       ⇒ batch ที่เรียกในลูปจึงได้ล็อกครั้งเดียวที่ item แรก แล้วถือไปจน commit
+
+    ─────────────────────────────────────────────────────────────────────────────
+    🎯 ทำไมต้องมี (deadlock 40P01 → 500 ที่ผู้ใช้เห็น)
+    ─────────────────────────────────────────────────────────────────────────────
+    ก่อนหน้านี้แต่ละเส้นทางยึด "หลายทรัพยากร" ในลำดับของตัวเอง ⇒ เกิดวงรอบรอ ABBA
+    ที่ **พิสูจน์ได้จากโค้ด** 3 วง (ไม่ใช่ทฤษฎี):
+
+      1) `student_payments` ↔ `finance_accounts`
+         - รับเงิน (`_confirm_single_payment`) : SP → ACC
+         - ยกเลิก (`revert_transaction`)        : ACC → SP
+      2) `finance_transactions` ↔ `student_payments`
+         - ออกใบเสร็จ (`_load_payment`) : SP แล้ว INSERT `finance_receipts` ที่อ้าง FK
+           `legacy_transaction_id` ⇒ Postgres ได้ **KEY SHARE บนแถว FT** ⇒ SP → FT
+         - ยกเลิก (`revert_transaction`) : FT (`FOR UPDATE`) → SP ⇒ FT → SP
+      3) `finance_accounts` กับตัวเอง ใน `transfer_money`
+         - ยึด `from` (FOR UPDATE) แล้วค่อยยึด `to` ⇒ ลำดับขึ้นกับ **ทิศทางที่ผู้ใช้ส่ง**
+         - โอนสองรายการทิศตรงข้ามบนบัญชีคู่เดียวกัน = วงรอบรอทันที
+         (และ `revert_transaction` ยังล็อกกลุ่มโอนโดย **ไม่มี ORDER BY** ⇒ ลำดับขึ้นกับ plan)
+
+    วิธีแก้: บังคับให้ทุกเส้นทางยึด **ล็อกของห้องก่อน** แล้วค่อยแตะแถวใด ๆ
+    ⇒ ไม่มีทางเกิดวงรอบ เพราะภายในห้องเดียวจะมี transaction ที่ถือล็อกอยู่ได้ทีละหนึ่ง
+       และมันไม่เคยถือ row lock ค้างไว้ขณะ "รอ" advisory lock (เพราะยึด advisory เป็นอย่างแรก)
+
+    ⚠️ เงื่อนไขที่ทำให้ protocol นี้ใช้ได้จริง: **ทุก** เส้นทางที่แตะเงินต้องเรียกฟังก์ชันนี้
+       ถ้ามีเส้นทางเดียวที่ลืม มันจะยัง interleave กับที่เหลือได้ ⇒ ต้องมีเทสต์กันการถอยกลับ
+       (`test_finance_money_lock.py` มีทั้งเทสต์เชิงพฤติกรรมและเทสต์เชิงโครงสร้าง)
+    """
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock($1, $2)", _MONEY_LOCK_NAMESPACE, room_id
+    )
+
+
+async def _lock_payments_in_order(conn: asyncpg.Connection, payment_ids: List[int]) -> None:
+    """🔒 ล็อกแถว `student_payments` ทั้งชุด **ตามลำดับ id เสมอ** ก่อนเข้าลูปทำงาน
+
+    ⚠️ ปัญหาที่มันแก้ (deadlock 40P01 → 500 + ทั้งชุด rollback):
+       เส้นทางที่ **ล็อกบิลหลายใบ** มีสองทาง — รับเงินรวบยอด (`batch_confirm_payments`)
+       และออกเอกสารรวบยอด (`issue_receipts_batch`) — และทั้งคู่ล็อก **ตามลำดับที่ผู้ใช้ส่งมา**
+       ⇒ สองคำขอของห้องเดียวกันที่ส่งบิลชุดเดียวกัน "สลับลำดับกัน" (A: P1→P2, B: P2→P1)
+         จะวนรอกันทันที: A ยึด P1 รอ P2 ขณะที่ B ยึด P2 รอ P1
+       Postgres ฆ่าฝั่งหนึ่งด้วย DeadlockDetectedError ซึ่ง router ไม่ได้แปลง ⇒ 500
+       และถ้าฝั่งที่แพ้เป็น batch เอกสาร/การรับเงิน **ทั้งชุดถูก rollback**
+
+    🔒 บังคับลำดับอย่างไร: ล็อกให้ครบ **ก่อน** เข้าลูป ⇒ การล็อกซ้ำรายใบในลูป
+       (เช่น `FOR UPDATE OF SP` ใน `_load_payment`) เป็นการล็อกซ้ำใน transaction เดียวกัน
+       ซึ่งไม่บล็อก ⇒ ไม่มีจุด "รอ" กลางลูปที่ทำให้ลำดับขึ้นกับ request อีก
+
+    🧠 ทำไมล็อกทีละแถวในลูป Python ไม่ใช่ `SELECT ... ORDER BY id FOR UPDATE` คำสั่งเดียว:
+       เอกสาร Postgres ระบุว่าเมื่อมี `ORDER BY` คู่กับ locking clause การเรียงเกิดก่อนการล็อก
+       แต่ก็เตือนว่าผลลัพธ์อาจ "ดูสลับที่" ได้ ⇒ พฤติกรรมจริงขึ้นกับ plan
+       การล็อกทีละแถวตาม `sorted()` เป็นลำดับที่ **อ่านโค้ดแล้วพิสูจน์ได้ทันที** ไม่ต้องพึ่ง planner
+       ราคาที่จ่ายคือ round-trip เพิ่มใบละ 1 ครั้ง ซึ่งน้อยมากเทียบกับงานต่อใบในลูป (≥5 query)
+
+    🔗 หน้าที่ของตัวนี้ **เปลี่ยนไปแล้ว** ตั้งแต่มี `_lock_room_money`:
+       การกันวงรอบรอ ABBA ทั้งคลาสเป็นหน้าที่ของ `_lock_room_money` (advisory lock ต่อห้อง
+       ซึ่งเรียกเป็นอย่างแรกในทุกเส้นทางที่แตะเงิน) ส่วนตัวนี้ทำหน้าที่เสริมเฉพาะทาง คือ
+       จัดลำดับการล็อก **หลายบิลในลูปเดียว** ให้อ่านแล้วพิสูจน์ได้ ⇒ ยังต้องคงไว้
+       (ที่ล็อกซ้ำรายใบในลูปเป็นการล็อกซ้ำใน transaction เดียวกัน ซึ่งไม่บล็อก)
+    """
+    ids = sorted({int(p) for p in payment_ids if p is not None})
+    for pid in ids:
+        await conn.fetchval("SELECT id FROM student_payments WHERE id = $1 FOR UPDATE", pid)
+
 
 class BaseMixin:
     @staticmethod

@@ -723,3 +723,697 @@
   ```
 - **Rule:** ตัวควบคุมที่เปลี่ยน "ขนาดหน้า" (limit / per_page / page_size) ต้องรีเซ็ตหรือหนีบ page เสมอ และถ้ามี watcher รวมหลาย source ให้ตรวจว่าการเปลี่ยน source หนึ่งไม่ได้ทิ้ง source อื่นไว้ค่าเก่า
 - **Date Added:** 2026-09-12
+
+### 🐛 Timezone — `datetime` แบบ naive เทียบกับคอลัมน์ `timestamptz` = asyncpg ตีความเป็น "เวลาท้องถิ่นของเครื่อง" ไม่ใช่ UTC (งบการเงินกินข้อมูลข้ามวัน)
+- **Context/Problem:** งบการเงินทุกตัว (trial balance / income statement / balance sheet / export) สร้างขอบเขตเวลาด้วย `datetime.combine(d, dtime(23, 59, 59))` แล้วส่งเป็น parameter เทียบกับ `journal_entries.transaction_date` (timestamptz) → **ใน container ที่ `TZ=UTC` (ซึ่งคือภาพ production) งบของวันที่ 1 ก.ย. แอบนับรายการถึง 06:59:59 ของวันที่ 2 ก.ย. ตามเวลาไทย** ⇒ รายการที่บันทึกตี 1:30 ของวันถัดไปโผล่ในงบของเมื่อวาน; รายงานเดียวกันให้ตัวเลขคนละชุดระหว่างเครื่อง dev (TZ=Asia/Bangkok, ถูกโดยบังเอิญ) กับ container (ผิด)
+- **Root Cause:** asyncpg เข้ารหัส `datetime` ที่ **ไม่มี tzinfo** เป็นเวลาท้องถิ่นของโปรเซส (`obj.astimezone(utc)`) **ไม่ใช่** UTC อย่างที่มักเข้าใจ พิสูจน์ด้วย `-e TZ=Etc/GMT-7`: `datetime(2026,9,1,23,59,59)` → `2026-09-01 16:59:59+00:00` (= `naive.astimezone(utc)` เป๊ะ) ส่วนใน container `TZ=UTC` ค่าเดียวกันกลายเป็น `2026-09-01 23:59:59+00:00` = `2026-09-02 06:59:59+07:00` → เกินมา 7 ชั่วโมง. อาการนี้ **ตรวจไม่เจอ** ถ้ารันเทสใน container TZ=UTC ด้วย seed ที่เวลากลางวัน (12:00) เพราะไม่ข้ามเส้นวัน
+- **Correct Pattern/Solution:** สร้างขอบเขตวันเป็น **tz-aware เวลาไทย** เสมอ ผ่าน helper กลางใน `services/finance/helpers.py` — ห้าม `datetime.combine(...)` เปล่า ๆ อีก:
+  ```python
+  def _thai_day_start(d: date) -> datetime:      # 00:00:00+07:00  → ใช้กับ `>= $n`
+      return datetime.combine(d, dtime.min, tzinfo=THAI_TZ)
+  def _thai_day_end(d: date) -> datetime:        # 23:59:59.999999+07:00 → ใช้กับ `<= $n`
+      return datetime.combine(d, dtime.max, tzinfo=THAI_TZ)
+  def _thai_next_day_start(d: date) -> datetime: # (d+1) 00:00:00+07:00 → ใช้กับ `< $n`
+      return datetime.combine(d + timedelta(days=1), dtime.min, tzinfo=THAI_TZ)
+  ```
+  ใช้ `dtime.max` ไม่ใช่ `23:59:59` เพื่อไม่ให้รายการวินาทีสุดท้ายของวันหลุดจากเงื่อนไข `<` (ช่องโหว่ที่ `get_trial_balance` มีอยู่ก่อนแล้ว)
+- **Rule:** (1) **ห้ามส่ง `datetime` naive เป็น parameter ที่เทียบกับคอลัมน์ `timestamptz`** — ต้องมี `tzinfo` เสมอ (สำหรับเวลาไทยใช้ `THAI_TZ`) (2) `_naive_thai_dt()` ยังใช้ได้กับการเทียบ **naive ↔ naive** (เช่น `finance_transactions.created_at` กับ `CUTOFF_DATE`) แต่ห้ามใช้ปนกับ timestamptz (3) ขอบเขตวันของ "รายงาน" ต้องเขียนเป็น helper กลาง **ไม่กระจาย `datetime.combine` ตามไฟล์** — บั๊กนี้อยู่พร้อมกัน 4 จุด (reporting.py ×3, export.py ×1) เพราะต่างคนต่างเขียน (4) ฝั่ง SQL ยังมี `DATE(JE.transaction_date)` ที่แปลงตาม **session TimeZone** ซึ่งเป็นความหมายที่สาม — ระวังอย่านับว่ามันเท่ากับสองแบบข้างบน
+- **Tests:** `test_finance_statements.py` §`[TIMEZONE]` — 6 เทสต์ที่ seed รายการ "ตี 1:30 เวลาไทย" (UTC ยังเป็นวันก่อนหน้า) แล้วยืนยันว่ามันไม่โผล่ในงบของวันก่อน: `test_as_of_window_is_bangkok_scoped` (parametrize 3 วัน × TB+BS), `test_day_boundary_is_exact_at_bangkok_midnight` (23:59:59 นับ / 00:00:00 วันถัดไปไม่นับ), `test_income_statement_end_date_is_bangkok_scoped`, `test_export_balance_sheet_period_is_bangkok_scoped`, `test_thai_day_bound_helpers_are_tz_aware_and_pin_correct_instants` (l็อกค่าที่ถูกต้องไว้โดยไม่ต้องพึ่ง DB — จับได้ทันทีถ้ามีคนถอด `tzinfo` ออก). A/B พิสูจน์แล้ว: **5 ใน 7 พังกับโค้ดเดิม** โดยพังด้วยอาการที่ถูกต้อง (`as_of=2026-09-01 ควรเห็นเงินสด 0.0 แต่ได้ 111.0`)
+- **Date Added:** 2026-09-13
+
+### 🐛 Finance — `_compose_balance_sheet` ฮาร์ดโค้ด `liability_total = 0.0` → `is_balanced` เป็นเท็จหลอก ๆ บนเอกสารที่พิมพ์ออกมา
+- **Context/Problem:** งบแสดงฐานะการเงิน (ทั้งในหน้าเว็บใหม่และแผ่น BS ในไฟล์ Excel) ขึ้นธง **"ไม่สมดุล"** ตลอดกาลทันทีที่ห้องสร้าง liability ledger ตัวแรก ทั้งที่งบทดลอง (trial balance) รายงานว่าสมดุล — เพราะหัวตารางที่พิมพ์ออกมาอ้างสมการ `สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ + กำไรสะสม` แต่โค้ดรวมฝั่งขวาแค่ `equity + retained` โดยไม่บวกหนี้สิน ⇒ **สัญญาณเตือนเท็จบนเอกสารที่นักบัญชีอ่าน** ซึ่งอันตรายกว่าไม่มีสัญญาณเลย
+- **Root Cause:** `_compose_balance_sheet` เดิมเป็นฟังก์ชันที่ถูกเรียกจาก Excel export เท่านั้น จึงไม่มีใครสังเกตว่า `liability_total` ถูกฮาร์ดโค้ดเป็น `0.0` และ `is_balanced` ถูกเทียบกับ `total_equity_side` (ไม่รวมหนี้สิน) — พอมี liability ledger ตัวแรกที่มียอดจริง สมการพังทันที
+- **Correct Pattern/Solution:** คำนวณหนี้สินจริงจาก `tb["ledgers"]` ที่ `account_type == 'liability'` โดยใช้ค่า `balance` ที่ `_fetch_trial_balance_ledgers` ให้มาแล้ว (เป็น `Cr − Dr` ⇒ **หนี้สินมาเป็นบวกอยู่แล้ว ห้ามกลับเครื่องหมายซ้ำ**) แล้วเพิ่มคีย์ `total_liabilities_and_equity = liability_total + equity_total + retained` และเทียบ `is_balanced` กับคีย์นี้ — คง `total_equity_side` ไว้ตามความหมายเดิมเพื่อไม่ให้ผู้ใช้เดิมพัง
+- **Rule:** (1) ตัวเลขที่ **หัวตารางอ้างถึง** ต้องถูกคำนวณจริง ไม่ใช่ฮาร์ดโค้ดเป็น 0 แล้วเขียนคอมเมนต์ว่า "ยังไม่มี" (2) `is_balanced` ต้องเทียบกับ **ทุกองค์ประกอบที่พิมพ์ออกมา** ไม่ใช่ subset (3) `account_type` ของ `accounting_ledgers` **ไม่มี CHECK constraint** (มีแค่คอมเมนต์) → ใส่ `else` ที่ครอบ "ประเภทที่ไม่รู้จัก" ไว้เสมอ; ตัดออกจากทุกฝ่ายโดยเจตนา (ให้ `is_balanced` เป็น False = เห็นสัญญาณ) **ดีกว่า** เงียบ ๆ ไปรวมเป็นค่าใช้จ่ายแล้วได้ True ทั้งที่เงินถูกจัดประเภทผิด
+- **Tests:** `test_finance_statements.py::test_balance_sheet_equation_holds_with_liability_ledger` (สร้าง liability ledger +`Dr expense / Cr liability` → `liability_total > 0` และ `is_balanced is True`) — **A/B พิสูจน์แล้วว่า 5 เทสต์พังกับ `_compose_balance_sheet` เวอร์ชันก่อนแก้** และ `test_export_balance_sheet_sheet_lists_liabilities` (แผ่น BS ต้องมีบรรทัดหนี้สินรายตัว + "รวมหนี้สิน" = 300 ไม่ใช่ 0.0) คู่กับ `test_export_balance_sheet_flags_unbalanced_when_equation_really_breaks` (ธงต้อง**ไม่ได้**เขียวตลอด — สร้างสมการพังจริงด้วยบรรทัดเดี่ยวที่ไม่มีคู่)
+- **Date Added:** 2026-09-13
+
+### 🐛 Routers — `from models.finance_schemas import *` ทำให้การเพิ่ม `__all__` ในไฟล์ schema พังทั้ง router
+- **Context/Problem:** `routers/finance/reporting.py` และ `routers/finance/export.py` import schema แบบ wildcard (`from models.finance_schemas import *`) อยู่ก่อนแล้ว ⇒ พอเพิ่ม F1 schemas แล้วอยากจัดบ้านด้วยการใส่ `__all__` ใน `finance_schemas.py` ทั้งสอง router พังทันทีที่ import ด้วย `NameError: name 'date' is not defined` (wildcard ที่มี `__all__` จะ **ไม่** ดึงชื่อที่ `__all__` ไม่ได้ระบุ ซึ่งรวมถึง helper/stdlib ที่โค้ดเดิมพึ่งพาโดยบังเอิญ เช่น `date`, `datetime` ที่ import ไว้ในไฟล์ schema)
+- **Root Cause:** `import *` เดิมทำหน้าที่เป็น "import ทุกอย่างที่ module นั้นมองเห็น" ซึ่งรวม stdlib ที่ re-export โดยไม่ได้ตั้งใจ → การเพิ่ม `__all__` เปลี่ยนสัญญาแบบ breaking ทันทีโดยไม่มีใครรู้
+- **Correct Pattern/Solution:** **ห้ามเพิ่ม `__all__`** ใน `models/finance_schemas.py` จนกว่าจะเปลี่ยน router ทั้งสองเป็น explicit import ก่อน — เขียนคอมเมนต์เตือนไว้ที่หัวไฟล์ schema (มีอยู่แล้ว) และถ้าจำเป็นต้องจัดบ้านจริง ให้เปลี่ยน router เป็น explicit import **ก่อน** แล้วค่อยใส่ `__all__`
+- **Rule:** เพิ่ม `__all__` ให้ module ที่มีคน `import *` อยู่ = การเปลี่ยนแปลงแบบ breaking; grep `import \*` ก่อนทุกครั้ง
+- **Tests:** เทสต์ HTTP ของ F1 ใน `test_finance_statements.py` (`test_statements_without_explicit_date_return_200` parametrize ครบ 3 path) จะ import router ทั้งสองตัว ⇒ พังทันทีถ้ามีคนใส่ `__all__`
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — เทสต์ export ที่ assert ด้วย **index ของคอลัมน์/แถว** เน่าเงียบ ๆ เมื่อ layout ขยับ (แต่ assert ด้วย **ป้ายชื่อ** ก็ยังเน่าได้ถ้าป้ายถูกเติม suffix)
+- **Context/Problem:** `test_finance_export_enterprise.py` ล้ม 5 เทสต์และ `test_finance_journal_export.py` ล้มอีก 1 เทสต์บน `main` **ก่อน**งาน F1 เริ่ม — ตรวจด้วย `git stash` A/B แล้วว่าเป็นเทสต์เน่ามาจาก commit `44b5499` (Update export.py) ไม่ใช่ regression ของงานเรา
+- **Root Cause:** สองสาเหตุพร้อมกัน — (1) `_find_row(tb_rows, 0, "รวมทั้งสิ้น")` ค้น **คอลัมน์ A** แต่ป้ายย้ายไปอยู่ **คอลัมน์ B** (index 1) ⇒ คอลัมน์ A เป็น `None`; และ (2) ป้ายถูกเติม suffix เป็น `"รวมทั้งสิ้น (Grand Total)"` ⇒ เทียบแบบเป๊ะไม่เจอ; ส่วน `test_finance_journal_export.py` เป็น **ชื่อ sheet drift** (`'สมุดรายวัน (General Journal)'` vs `'สมุดรายวันทั่วไป (GJ)'` ที่ `export.py` ตั้งจริง)
+- **Correct Pattern/Solution:** หาแถวด้วย **ป้ายชื่อแบบ "มีอยู่ข้างใน"** ไม่ใช่เทียบเป๊ะ และค้นให้ครบทุกคอลัมน์ที่ป้ายอาจอยู่ — helper สองตัวใน `test_finance_statements.py`:
+  ```python
+  def _find_row(rows, col, needle):            # เทียบเป๊ะ — ใช้เมื่อป้ายนิ่งแล้ว
+  def _find_row_containing(rows, col, fragment): # "fragment in r[col]" — ทนการเติม suffix
+  ```
+  และเมื่อต้องอ่านค่าจากคอลัมน์ ให้ยืนยัน index ของคอลัมน์นั้นด้วยเทสต์แยก ไม่ใช่เดาจาก `values`
+- **Rule:** (1) เทสต์ที่ผูกกับ index ของเซลล์จะพังทุกครั้งที่ layout ขยับ → ผูกกับ **ป้าย** (2) แต่ป้ายก็ขยับได้ → ใช้ "contains" และ **อย่า assert ทั้งสตริง** (3) เจอเทสต์ล้มบน branch ที่เราไม่ได้แตะ → พิสูจน์ด้วย `git stash` A/B **ก่อน**สรุปว่าเป็น regression ของเรา แล้ว **รายงานให้ผู้ใช้ตัดสิน** ว่าจะแก้ assert ให้ตรงกับโค้ดหรือแก้โค้ด — การเปลี่ยน assert ให้ตรงกับโค้ดเป็นการตัดสินใจเชิงผลิตภัณฑ์ ไม่ใช่ bug fix
+- **Tests:** `test_finance_statements.py::_find_row_containing` ถูกสร้างเพราะเคสนี้โดยตรง; เทสต์ใหม่ `test_export_balance_sheet_sheet_lists_liabilities` / `test_export_balance_sheet_flags_unbalanced_when_equation_really_breaks` เขียนด้วยป้ายชื่อล้วน
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — `clean_database` เป็น autouse + `TRUNCATE ... CASCADE` ⇒ fixture ที่สร้าง room/user ต้อง **function-scoped** และห้าม hardcode id
+- **Context/Problem:** `docs/rules/testing.md` อ้างถึง `admin_headers` (discord 999 = admin) แต่ `backend/tests/conftest.py` **ไม่มี** มาก่อน → ต่างไฟล์ต่างสร้าง user/room เอง ซ้ำ ๆ; พอเพิ่ม fixture จริงแล้วเทสต์ใหม่ยิง 403 `"คุณไม่ได้เป็นสมาชิกที่ใช้งานอยู่ในห้องเรียนนี้"` เพราะสร้าง room ของตัวเองด้วย `_insert_room` แล้วยิงด้วย `admin_headers` (ซึ่งเป็นสมาชิกของ **ห้องอื่น**)
+- **Root Cause:** `require_member(conn, room_id, user_id)` **ไม่ bypass ให้ `is_admin`** (ต่างจาก `require_permission` ที่ bypass ทั้ง `SUPER_ADMIN_ID` และ `is_admin`) ⇒ ต้องมีแถว `students` ที่ `status='active'` ในห้องนั้นจริง ๆ; และ `clean_database` เป็น `autouse=True` + `TRUNCATE TABLE users, rooms, mtn_locations CASCADE` **ก่อนทุกเทสต์** ⇒ fixture ระดับ session/module จะถูกล้างทิ้งกลางทาง
+- **Correct Pattern/Solution:** fixture แบบ function-scoped ที่สร้าง user + room + แถว `students` ของตัวเอง (`_provision_auth_context`) แล้วให้เทสต์ใช้ `admin_headers.room_id` เป็นห้องเป้าหมาย — **ไม่สร้างห้องใหม่แยกจาก header**; `TRUNCATE ... CASCADE` **ไม่ reset sequence** ⇒ ledger/user/room id ไต่ขึ้นเรื่อย ๆ ข้ามเทสต์ **ห้าม hardcode id เด็ดขาด**
+- **Rule:** (1) `require_member` ≠ `require_permission` — ตัวแรกต้องการแถว `students` จริง `is_admin` ไม่ช่วย (มีเทสต์ล็อกไว้: `test_statements_is_admin_does_not_bypass_require_member`) (2) เทสต์ที่ยิง HTTP ด้วย header fixture ต้องใช้ `headers.room_id` เป็นห้อง (3) fixture ที่แตะ DB ต้อง function-scoped เสมอเพราะ `clean_database` เป็น autouse
+- **Tests:** `test_finance_statements.py` — `test_statements_allow_plain_member` / `test_statements_forbid_non_member` / `test_statements_is_admin_does_not_bypass_require_member` (parametrize ครบ 3 path) + `test_statements_unknown_room_returns_404`
+- **Date Added:** 2026-09-13
+
+### 🕐 Dates — แก้ขอบเขตเวลาแบบ **ไม่ครบทุกจุดในไฟล์เดียวกัน** ทำให้ไฟล์ที่เคย "ผิดเหมือนกันทั้งไฟล์" กลายเป็น "ขัดแย้งกันเองในไฟล์เดียว"
+- **Context/Problem:** งาน F1 แก้ขอบเขตวันที่จาก naive datetime → tz-aware เวลาไทย 4 จุด (`reporting.py` ×3, `export.py` ×1 สำหรับ `_fetch_*`) แต่ **เหลืออีกจุดในไฟล์เดียวกัน**: ชีต "สมุดรายวันทั่วไป (GJ)" ใน `export.py` ยังกรองด้วย `DATE(JE.transaction_date) >= $n` ⇒ รายการที่บันทึก 00:00–07:00 น. เวลาไทยของวันหัว/ท้ายช่วง **หลุดจากชีต GJ แต่ยังถูกนับในชีต GL/TB/IS/BS** (เจอด้วย adversarial review หลัง commit แรก ไม่ใช่ด้วยเทสต์)
+- **Root Cause:** `DATE(x)` บนคอลัมน์ **`timestamptz`** จะแปลงเป็น TimeZone ของ **session** ก่อนตัดวัน — DB ตั้ง `TimeZone = UTC` ⇒ ขอบเขตผิดไป 7 ชั่วโมง; ก่อนแก้ทั้ง `_fetch_*` (naive → asyncpg ตีเป็น host-local = UTC) และ `DATE()` (session = UTC) **ตรงกันโดยบังเอิญ** จึงไม่ขัดกันเอง (ผิดพร้อมกันทั้งไฟล์) แต่พอแก้ข้างเดียว ความไม่ตรงกัน 7 ชั่วโมงก็โผล่ **ระหว่างชีตในไฟล์เดียว** — ตรวจจับได้ยากกว่าตอนที่ผิดทั้งไฟล์
+- **Correct Pattern/Solution:** ใช้ขอบเขตชุดเดียวกับ `_fetch_income_statement_rows` (`JE.transaction_date >= lower_dt` / `<= upper_dt` โดย `lower_dt = _thai_day_start(...)`, `upper_dt = _thai_day_end(...)`) — **ห้ามใช้ `DATE()` กับคอลัมน์ timestamptz เด็ดขาด**
+  - ⚠️ **แก้ความเข้าใจเดิม (พบทีหลัง — ดูบทเรียนถัดไป):** ตอนแรกสรุปว่า `DATE(T.created_at)` ของ `finance_transactions` "ถูกต้องแล้ว" เพราะคอลัมน์เป็น `TIMESTAMP` (naive) จึงไม่มีการแปลง TZ — **ครึ่งเดียวถูก**: มันไม่แปลง TZ จริง แต่ค่าที่ *เก็บ* ในคอลัมน์นั้นเป็น **UTC wall clock** ⇒ `DATE()` ได้ **วันตาม UTC** ซึ่งก็ยังไม่ใช่วันไทยอยู่ดี · **"ไม่แปลง TZ" ≠ "ถูกต้อง"** ต้องถามต่อว่า *ค่าที่เก็บเป็นโซนไหน* ไม่ใช่แค่ *ชนิดคอลัมน์คืออะไร*
+- **Rule:** (1) แก้ bug ขอบเขตเวลา ให้ **grep หาทุกจุดที่เทียบวันที่ในไฟล์/โมดูลเดียวกันก่อน** แล้วแก้ให้ครบในรอบเดียว (2) `DATE(col)` บน `TIMESTAMPTZ` ผิดเพราะแปลงตาม session TZ — **ห้ามใช้**; บน `TIMESTAMP` naive ไม่แปลง TZ แต่ **ผลจะถูกหรือไม่ขึ้นกับว่าเก็บค่าอะไรไว้** ⇒ ต้องพิสูจน์ด้วย probe (3) เมื่อไฟล์เดียวประกอบตัวเลขจากหลาย query ที่ใช้ขอบเขตคนละแบบ ให้ **assert ไขว้กัน** ว่ายอดของชีตหนึ่งเท่ากับอีกชีตหนึ่ง (4) การแก้ที่ "ถูกกว่าเดิมแต่ไม่ครบ" อาจ **แย่กว่าเดิม** เพราะเปลี่ยน "ผิดสม่ำเสมอ" เป็น "ขัดแย้งกันเอง"
+- **Tests:** `test_finance_statements.py::test_export_journal_sheet_matches_other_sheets_bangkok_bounds` — ยืนยันสองชั้น: รายการ 03:00 น. ไทยของวันแรกช่วงต้องอยู่ในชีต GJ และยอดรวม GJ ต้องเท่างบทดลองในไฟล์เดียวกัน — **A/B พิสูจน์แล้วว่าเทสต์นี้พังกับโค้ดก่อนแก้ โดยรายงานว่าเจอ `'ทุนตีสามวันที่ 1 ต.ค.'` แทน `'ทุนตีสามวันที่ 1 ก.ย.'`** (รายการถูกย้ายเดือนทั้งเดือน)
+- **Date Added:** 2026-09-13
+
+### 🧭 Timezone — **`TIMESTAMP DEFAULT CURRENT_TIMESTAMP` ไม่ได้แปลว่า "เวลาไทย"** และการแก้ TZ บางส่วนทำให้ **คนละ endpoint ใช้ปฏิทินคนละใบ**
+- **Context/Problem:** หลังแก้งบการเงิน (F1) ให้ใช้เส้นแบ่งวันเวลาไทยแล้ว มาตรวจทั้งโมดูลตามกฎ "grep หาทุกจุด" จึงพบ `_get_transactions_v2()` (`services/finance/transactions.py`) ยังใช้ `DATE(JE.transaction_date)` ⇒ **งบการเงินกับหน้าประวัติรายการใช้ปฏิทินคนละใบ**: รายการที่บันทึก 03:00 น. ไทยวันที่ 1 ก.ย. ไปโผล่ใน **งบกันยายน** แต่ไปอยู่ **ประวัติเดือนสิงหาคม** — ยอดไม่ตรงกันข้ามหน้าจอ
+- **Root Cause:** สองชั้นซ้อนกัน (ก) `DATE()` บน `timestamptz` ตัดวันตาม **session TimeZone** ซึ่งเป็น UTC (ข) ที่ร้ายกว่าคือ `finance_transactions.created_at` เป็น `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` — ค่าที่ `CURRENT_TIMESTAMP` คืนมาเป็น `timestamptz` แล้วถูก **แปลงเป็น session TZ (= UTC)** ก่อนเก็บ ⇒ คอลัมน์นี้เก็บ **UTC wall clock** ไม่ใช่เวลาไทย · คอมเมนต์ในแผนที่เขียนว่า *"ใช้ `T.created_at::date` (naive Bangkok)"* จึง **ไม่ตรงความจริง** และ`_naive_thai_dt()` ก็ตีความ naive นั้นว่าเป็นเวลาไทยทั้งที่เป็น UTC (ส่งผลกับ sort และ `cutoff_dt` ของ merge ด้วย)
+- **Correct Pattern/Solution:** **อย่าเชื่อคอมเมนต์/เอกสาร — พิสูจน์ด้วย probe** ก่อนตัดสินว่าคอลัมน์ naive เก็บโซนไหน:
+  ```sql
+  CREATE TEMP TABLE _probe (c TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+  INSERT INTO _probe DEFAULT VALUES;
+  SELECT c, now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'Asia/Bangkok' FROM _probe;
+  ```
+  เทียบว่าค่าที่เก็บตรงกับตัวไหน · ส่วน `journal_entries.transaction_date` เป็น `timestamptz DEFAULT CURRENT_TIMESTAMP` และ `_insert_journal_entry` (`ledger.py:152`) **ไม่ส่งค่านี้เลย** ⇒ เป็น **instant จริง** ⇒ การเทียบกับเส้นแบ่งวันไทย (`_thai_day_start`/`_thai_day_end`) **ถูกต้อง**
+- **Rule:** (1) **`TIMESTAMP` ไม่ได้หมายถึงเวลาไทย** — `DEFAULT CURRENT_TIMESTAMP` บนคอลัมน์ naive จะเก็บ **UTC** ถ้า session TZ เป็น UTC (2) `DATE(col)` ที่ "ไม่แปลง TZ" ยังอาจให้วันผิดได้ ถ้าค่าที่เก็บเป็น UTC ⇒ **พิสูจน์ด้วย probe ทุกครั้ง** (3) **การแก้ TZ บางส่วนทำให้เกิดความขัดแย้ง *ข้าม endpoint* ไม่ใช่แค่ในไฟล์เดียว** — แก้ที่หนึ่งแล้วต้องถามว่า *หน้าจออื่นที่โชว์ข้อมูลชุดเดียวกันใช้ขอบเขตอะไร* (4) **ห้าม pin พฤติกรรมไว้กับ default ของ image** — ถ้าไม่มีที่ไหนใน repo ตั้ง `TimeZone` ของ Postgres ให้ตั้งให้ชัด ไม่งั้น dev/test/prod อาจได้ตัวเลขต่างกันโดยไม่มีใครรู้ (5) **การเปลี่ยนปฏิทินของ endpoint ที่ ship แล้ว = การตัดสินใจเชิงผลิตภัณฑ์ ไม่ใช่ bug fix** — โดยเฉพาะเมื่อฝั่ง legacy ต้องแก้ที่ *ข้อมูล* ไม่ใช่แค่ query (บวก 7 ชั่วโมง หรือ migrate) ⇒ รายงานให้ผู้ใช้ตัดสิน
+- **Tests:** ยังไม่มีเทสต์ล็อกพฤติกรรมนี้ (เจตนา — รอผู้ใช้ชี้ขาดปฏิทินก่อน) · บันทึกเป็นงานค้าง #11 พร้อมหลักฐาน probe
+- **Date Added:** 2026-09-13
+
+### 🧾 Tests — ก่อนเชื่อว่า "เทสต์ที่ล้มเป็นของเดิม" ต้อง **A/B ด้วย subset** และ **อย่าเชื่อจำนวนที่บันทึกไว้ก่อนหน้า**
+- **Context/Problem:** บันทึกของเซสชันก่อนระบุว่า "มีเทสต์เก่าล้มบน `main` อยู่ 6 ตัว รอผู้ใช้ตัดสิน" ⇒ ผมรัน full suite แล้วได้ **`14 failed, 638 passed`** ไม่ใช่ 6 · ถ้าเชื่อบันทึกเดิมจะสรุปผิดสองทาง: (ก) เข้าใจว่าตัวเองทำ regression 8 ตัว (ข) หรือรายงานผู้ใช้ผิดจำนวน
+- **Root Cause:** **จำนวนที่บันทึกไว้ก่อนหน้าไม่น่าเชื่อถือ** — มันมาจากการวัดที่ไม่ครบ (ไม่ได้รันเต็มชุด) แต่ถูกเขียนลงเอกสารราวกับเป็นข้อเท็จจริง ⇒ ตัวเลขที่ "สืบทอด" ต่อกันมาจะกลายเป็นสมมติฐานที่ไม่มีใครตรวจ; อีกทั้ง full suite ใช้เวลา **23 นาที** (1404 วิ) จึงไม่ควรสตาร์ทใหม่ทั้งชุดเพียงเพื่อตอบว่า "ใครทำให้พัง"
+- **Correct Pattern/Solution:** A/B แบบ **subset** เจาะจงเฉพาะไฟล์ที่ล้ม โดย `git stash push -- <ไฟล์ backend ที่แก้>` (ไม่ stash เทสต์/conftest เพื่อไม่ให้ fixture หาย) → รันเฉพาะไฟล์ที่ล้ม → `git stash pop`:
+  ```bash
+  git diff > /tmp/backup.patch           # สำรองก่อน (กัน stash pop พลาด)
+  git stash push -m ab -- <ไฟล์ที่แก้>
+  docker compose -p classroom-management -f <abs>/docker-compose.test.yml run --rm --no-deps \
+    test_runner sh -c "python -m pytest -q --tb=no /app/tests/<ไฟล์ที่ล้ม>"
+  git stash pop
+  diff -q /tmp/backup.patch <(git diff) && echo OK   # ยืนยันว่างานกลับมาเหมือนเดิม
+  ```
+  **เกณฑ์ตัดสิน:** ชื่อเทสต์ที่ล้มต้อง **ตรงกันเป๊ะทั้งเซ็ต** ไม่ใช่แค่จำนวนเท่ากัน — ถ้าจำนวนเท่ากันแต่ชื่อต่าง = ยังมี regression ซ่อนอยู่
+  **ผลจริงรอบนี้:** baseline ให้ 9 + 5 = **14 ตัว ชื่อตรงกันทั้งหมด** ⇒ งานใหม่ไม่ทำของเดิมแตกเลย · **เสริมหลักฐานอิสระ:** `git diff` ของ `export.py` ไม่มีการเรียก `create_sheet`/`.title`/`remove()` เลย และ sheet ที่เทสต์บ่นถึง **มีอยู่บน HEAD แล้ว**
+- **Rule:** (1) ตัวเลข "เทสต์เก่าล้มอยู่ N ตัว" ที่สืบทอดมา **ต้องวัดใหม่ก่อนใช้** อย่ารายงานต่อโดยไม่ตรวจ (2) ใช้ **subset A/B** เมื่อ full suite แพง — และต้องเทียบ **ชื่อเทสต์** ไม่ใช่แค่จำนวน (3) `git stash push -- <path>` เจาะจงไฟล์ แล้ว **backup เป็น patch ก่อนเสมอ** พร้อม verify หลัง pop (4) "เทสต์ล้มเรื่องชื่อ sheet/index" มักเป็น rot จริง — ตรวจด้วยว่าโค้ดที่เทสต์บ่นถึงมีอยู่บน HEAD หรือไม่ (5) การนับให้ลงตัว: `652 − 49 (เทสต์ใหม่) = 603 เดิม = 589 ผ่าน + 14 ล้ม` — ตรวจเลขแบบนี้จับการนับผิดได้
+- **Tests:** N/A (บทเรียนกระบวนการ) — หลักฐานคือตาราง A/B ใน `~/.claude/plans/finance/02-F1-statements.md`
+- **Date Added:** 2026-09-13
+
+### 🕐 Timezone — หลังตัดสินใจยึด "เวลาไทย" ต้องแก้ **สองทิศทาง**: ขาเข้า (SQL) และขาออก (API) — ขาออกนี่คือตัวที่ผู้ใช้ **เห็น** ผิด
+- **Context/Problem:** หลังย้ายทั้งโมดูลการเงินไปปฏิทินไทยแล้ว รายการ legacy ยังโชว์เวลาเพี้ยน 7 ชั่วโมงบนหน้าจอ ทั้งที่ query กรองถูกแล้ว และแม้ frontend จะระบุ `timeZone: 'Asia/Bangkok'` ไว้ก็ตาม
+- **Root Cause:** **JavaScript ตีความ ISO string ที่ไม่มี offset ว่าเป็นเวลาท้องถิ่นของเบราว์เซอร์** — `new Date("2026-09-01T03:00:00")` = 03:00 น. **ตามเวลาเครื่องผู้ใช้** แล้ว `toLocaleString('th-TH', {timeZone:'Asia/Bangkok'})` ก็ยังได้ 03:00 เพราะค่าที่ parse เข้ามา "ไม่มีโซน" ให้แปลง · ฝั่ง legacy คืน `created_at` เป็น naive (Pydantic serialize เป็น `"…T03:00:00"`) ขณะที่ฝั่ง journal คืน aware (`+00:00`) ⇒ **สัญญา API ไม่สม่ำเสมอ**: รายการจากสองยุคแสดงเวลาต่างกัน 7 ชั่วโมงในลิสต์เดียวกัน
+- **Correct Pattern/Solution:** ตั้งชื่อทิศทางให้ชัดแล้วใช้ helper กลางคู่กันใน `services/finance/helpers.py` (มีบล็อก `[TIMEZONE]` อธิบายกำกับ):
+  - **ขาเข้า (เทียบขอบเขตใน SQL):** *param-unwrap* — บังคับ tz ฝั่ง **parameter** แล้วแปลงกลับเป็น UTC wall-clock
+    `T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')` โดยส่ง `_thai_day_start(d)` (aware) เป็น `$2`
+    ใช้ helper `_thai_day_start`/`_thai_day_end`/`_thai_next_day_start` ชุดเดียวกับคอลัมน์ timestamptz ⇒ **หนึ่งชุดขอบเขตสำหรับทั้งสองชนิดคอลัมน์** · ยัง sargable และไม่พึ่ง session TimeZone
+  - **ขาออก (ส่งออก API):** `_as_utc(v)` ติด `tzinfo=UTC` ให้ค่า naive **ก่อน** ส่งออก ⇒ Pydantic ได้ `+00:00` ⇒ `new Date()` แปลงเป็นเวลาไทยถูก
+  - **ห้าม**เรียก `.astimezone(THAI_TZ)` ตรง ๆ กับค่า naive — Python ตีความเป็น **เวลาท้องถิ่นของเครื่องที่รันโค้ด** ⇒ container TZ=UTC ให้ผล "ถูกโดยบังเอิญ" แต่เครื่อง dev ที่ TZ=Asia/Bangkok เพี้ยน 7 ชม. (บั๊กที่ CI มองไม่เห็น) ต้อง `.replace(tzinfo=timezone.utc)` **ก่อน** เสมอ
+- **Rule:** (1) คอลัมน์ `TIMESTAMP` (naive) ที่เขียนด้วย `NOW()`/`CURRENT_TIMESTAMP` เก็บ **UTC wall-clock** ⇒ ทั้งอ่านและเขียนต้องมีท่าแปลงที่ชัด (2) **การย้ายปฏิทินต้องตรวจ "ขอบเขตของ API" ด้วย ไม่ใช่แค่ query** — ชนิดของ `datetime` ที่ออก JSON คือส่วนหนึ่งของสัญญา: naive กับ aware ให้ผลต่างกัน 7 ชม. บนเบราว์เซอร์ (3) ค่า naive ที่หลุดออก API = บั๊กที่ **เทสต์ backend มองไม่เห็น** (backend เทียบกันเองยังถูก) แต่ผู้ใช้เห็นทันที ⇒ ต้องมีเทสต์ยืนยัน `tzinfo is not None` (4) ตัวเขียนฝั่ง SQL ปลอดภัยอยู่แล้ว: ทุกการเขียนลงคอลัมน์ naive มาจาก `NOW()`/`DEFAULT` **ไม่เคยมาจาก `datetime` ของ Python** ⇒ กับดัก asyncpg (encode naive ตามเวลาท้องถิ่น) ไม่ถูกกระตุ้น
+- **Tests:** `test_finance_v2_read.py::test_router_boundary_aug31_vs_sep01` ล็อกกติกาการเก็บด้วย `assert stored == datetime(2026, 8, 31, 16, 59, 59)` + `assert stored.hour == 16` (ถ้าเก็บเป็นเวลาไทยเลขชั่วโมงต้องเป็น 23) และยืนยันวินาทีสุดท้ายของ 31 ส.ค. ไทย กับวินาทีแรกของ 1 ก.ย. ไทย ถูกคืนมาคนละฝั่งของเส้นตัด
+- **Date Added:** 2026-09-13
+
+### 📊 Finance — เทียบ `date` กับคอลัมน์ `timestamptz` = Postgres แปลงเป็น **เที่ยงคืน UTC (07:00 ไทย)** ⇒ ยอด "เดือนนี้" ของ dashboard ไม่ตรงกับงบกำไรขาดทุน
+- **Context/Problem:** ระหว่างตรวจทั้งโมดูลตามกฎ "grep หาทุกจุด" พบ `_get_summary_v2()` (`services/finance/reporting.py`) ส่ง `date(year, month, 1)` / ต้นเดือนถัดไป เข้าเงื่อนไข `JE.transaction_date >= $2 AND < $3` ตรง ๆ — ไม่มีใครสังเกตเพราะ **ตัวเลขยังออกมาสมเหตุสมผล** แค่ขอบเดือนเพี้ยน
+- **Root Cause:** `JE.transaction_date` เป็น `timestamptz` แต่ parameter เป็น `date` ⇒ Postgres cast เป็น `timestamptz` ที่ **เที่ยงคืน UTC** = **07:00 น. เวลาไทย** ⇒ ช่วงที่ถูกนับจริงคือ 07:00 ของวันที่ 1 ถึง 07:00 ของวันที่ 1 เดือนถัดไป · รายการที่บันทึก **00:00–07:00 น. ไทย** ของวันแรก/วันสุดท้ายของเดือนจะตกไปอยู่เดือนผิด — **และไม่ตรงกับงบกำไรขาดทุนที่ใช้ `_thai_day_start`** ⇒ สองหน้าจอของเดือนเดียวกันรายงานยอดต่างกัน
+- **Correct Pattern/Solution:** แปลงขอบเขตเป็น instant ไทยด้วย helper เดียวกับที่อื่น ก่อนส่งเป็น parameter:
+  ```python
+  start_dt = _thai_day_start(start_d)   # ไม่ใช่ start_d (date) ตรง ๆ
+  end_dt = _thai_day_start(end_d)       # ขอบบนแบบไม่รวม → ต้นเดือนถัดไป
+  ```
+  และ `get_income_statement()` มีกับดักเดียวกันอีกจุด: `query_start` ออกมาจาก `_clamp_to_cutoff()` เป็น **`date` เปล่า ๆ** แล้วถูกใช้เทียบกับ `transaction_date` ขณะที่ `end_bound` ใช้ `_thai_day_end` อย่างถูกต้องแล้ว ⇒ อสมมาตร ซ่อมด้วย `_thai_day_start(query_start)`
+- **Rule:** (1) **`date` vs `timestamptz` ไม่ error — มัน cast ให้ แล้วได้คำตอบผิดแบบเงียบ ๆ** ⇒ ตรวจ "ชนิดของทั้งสองฝั่ง" ทุกครั้งที่เขียนเงื่อนไขช่วงวันที่ (2) เมื่อไฟล์เดียวมีหลาย query ที่กรองช่วงเดียวกัน **ขอบเขตต้องมาจาก helper ตัวเดียวกันทั้งหมด** — จุดที่ลืมมักเป็นจุดที่ตัวแปรผ่าน `_clamp_*` แล้วถูกใช้ต่อโดยไม่แปลง (3) อาการของบั๊กชนิดนี้คือ "ตัวเลขดูสมเหตุสมผลแต่ไม่ตรงกันข้ามหน้าจอ" ⇒ วิธีจับคือ **assert ไขว้** ให้สองเส้นทางรายงานยอดเดียวกัน
+- **Tests:** เทสต์เดิม **จับบั๊กนี้ไม่ได้** เพราะทุกตัวตั้ง `transaction_date` ไว้กลางเดือน (เช่น `'2026-10-10'` = 07:00 น. ไทย) ซึ่งห่างจากขอบเดือนหลายวัน ⇒ ความเพี้ยน 7 ชั่วโมงที่ขอบไม่ปรากฏ · การจะจับได้ต้องมีรายการที่ **00:00–07:00 น. ไทยของวันที่ 1 หรือวันสุดท้ายของเดือน** แล้วเทียบยอดกับอีกเส้นทาง (`test_finance_statements.py` เป็นชุดที่ทำแบบนั้น)
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — เทสต์ Excel export ที่ผูกกับ "ชื่อ/ลำดับแผ่น + index ของแถวรวม" เน่าพร้อมกัน **6 ตัวจาก commit เดียว** และวิธีซ่อมให้ไม่เน่าซ้ำ
+- **Context/Problem:** หลัง `export.py` ถูกแก้ (เพิ่มแผ่น `สรุปรายเดือน (Monthly)` และเปลี่ยนชื่อแผ่นเป็น `สมุดรายวันทั่วไป (GJ)`) เทสต์ **15 ตัว** ล้ม แต่ตัวที่ทำให้สับสนคือ **6 ตัวในไฟล์เดียวล้มที่บรรทัดเดียวกัน** (`_read_journal` helper) ⇒ ดูเหมือนเป็นบั๊กใหญ่ ทั้งที่เป็น rot ของเทสต์ตัวเดียว
+- **Root Cause:** helper กลาง assert **ชื่อ+ลำดับแผ่นแบบทั้งชุด** เป็นด่านแรก ⇒ เทสต์ทุกตัวที่เรียก helper ตายที่จุดเดียวกัน **ก่อน** จะได้ตรวจเนื้อข้อมูล ⇒ และเมื่อแก้ด่านแรกได้ ก็ยังมี mismatch ซ่อนอยู่ข้างหลังอีก 2 ชั้นซึ่งยังไม่มีใครเห็น (ป้ายหัวคอลัมน์ถูกเปลี่ยนชื่อ และ **ป้ายแถวรวมย้ายคอลัมน์**)
+- **Correct Pattern/Solution:** ซ่อมเป็นชั้น ๆ แล้ว **อย่าหยุดที่ assert แรกที่ผ่าน**:
+  1. **ชื่อ/ลำดับแผ่น** — ให้ตรงกับ `wb.create_sheet(...)`/`.title` ในโค้ดจริง
+  2. **ป้ายหัวคอลัมน์** — เทียบกับ `j_headers` ในโค้ดจริง (ป้ายถูก rename: `Reference`→`อ้างอิง (Ref)`, `เดบิต (บาท)`→`เดบิต (Dr.)` ฯลฯ)
+  3. **แถวรวม** — หาด้วย **คำขึ้นต้นของป้าย** ไม่ใช่ `==` และที่ **index ที่ถูกต้อง**: `if isinstance(row[3], str) and row[3].startswith("รวมทั้งสิ้น")` (ป้ายอยู่ **คอลัมน์ D/index 3** ไม่ใช่ A — ช่อง A ของแถวนั้นว่าง) และมี suffix `" (Grand Total)"`
+  4. เพิ่ม helper `_find_row_containing(rows, col, fragment)` คู่กับ `_find_row` สำหรับป้ายที่ถูกเติม suffix
+- **Rule:** (1) helper ที่ assert โครงสร้างทั้งชุด (ชื่อ/ลำดับแผ่น) **กลบความล้มเหลวที่อยู่ลึกกว่า** ⇒ พอผ่านด่านแรก ต้องรันซ้ำและอ่าน failure ถัดไปเสมอ อย่าประกาศว่าจบ (2) assert ป้ายด้วย `startswith`/`in` ไม่ใช่ `==` เมื่อป้ายมีแนวโน้มถูกเติม suffix (3) **`row[0]` ไม่ใช่ที่อยู่ของป้ายเสมอไป** — ตรวจว่าโค้ดเขียนป้ายลง `column=` ใด (4) `list(ws.values)` ของ openpyxl ให้แถวสั้นได้ ⇒ indexing เกินจำนวนคอลัมน์เป็น `IndexError` ไม่ใช่ `AssertionError` — อาการคนละแบบ อย่าสับสน (5) ข้อมูลที่คำนวณแล้วไม่ถูกเขียนลงไฟล์คือ **dead data**: พบ `journal_line_id` ถูกใส่ใน `journal_rows` แต่ตัวเขียนแผ่นไม่เคยเขียนคอลัมน์นั้น ⇒ บรรทัดที่เป็น entry เดียวกันแยกกันไม่ได้ด้วย UUID · **รายงานผู้ใช้ ไม่แก้เอง** เพราะการเพิ่มคอลัมน์กลับ = เปลี่ยนเอกสารที่ ship แล้ว
+- **Tests:** `test_finance_journal_export.py` (6), `test_finance_export_enterprise.py` (4), `test_finance_http.py` (2), `test_finance_export.py` (1), `test_finance_v2_read.py` (2) — ทั้งหมดแก้ให้ตรงโค้ดปัจจุบัน **ไม่แตะ `export.py`** (ตรวจ git แล้วว่า `44b5499` คือ commit ที่ตั้งใจเปลี่ยนชื่อ/เพิ่มแผ่น และ mismatch ของหัวคอลัมน์มีมาก่อนหน้านั้นแล้ว ⇒ ฝั่งเทสต์คือฝั่งที่เน่า)
+- **Date Added:** 2026-09-13
+
+### ⚠️ Finance — **KNOWN GAP**: แถว legacy-only ที่ "วันที่ไทย" ข้ามเส้นตัด มองไม่เห็นจากทั้งสองผู้อ่าน (ช่วงเปลี่ยนผ่าน ~7 ชั่วโมง)
+- **Context/Problem:** หลังย้ายเส้นแบ่งยุคจาก UTC เป็นไทย ผู้อ่านสองฝั่งแบ่งงานกันแบบ **ไม่ทับและไม่มีช่องว่างตาม *วันที่ไทย*** (legacy cap = `_thai_day_end(31 ส.ค. ไทย)`, journal floor = `_thai_day_start(1 ก.ย. ไทย)`) — แต่มีแถวประเภทหนึ่งที่ **ทั้งสองฝั่งไม่รับ**
+- **Root Cause:** แถวที่ถูกเขียนลง `finance_transactions` **ก่อน dual-write เริ่มทำงานจริง** (~7 ชั่วโมงหลังเที่ยงคืน) แต่ **เวลาไทยของมันข้ามเส้นไปแล้ว** ⇒ ไม่มี journal คู่กัน และถูก cap ฝั่ง legacy ตัดออก ⇒ ยอดของรายการนั้น **หายจากประวัติ** (แต่ยังอยู่ใน DB — ไม่ใช่ข้อมูลหายจริง) · ก่อนการย้ายเส้น ระบบใช้เส้น UTC จึงยังเห็นแถวกลุ่มนี้ปนอยู่ในฝั่ง legacy ⇒ **การย้ายเส้นทำให้เกิดการเปลี่ยนแปลงเชิงพฤติกรรม ไม่ใช่แค่จัดหมู่ใหม่**
+- **Correct Pattern/Solution:** **ยังไม่แก้** — ทางเลือกที่มีเหตุผลคือ (ก) backfill journal ให้แถวกลุ่มนี้ หรือ (ข) เปลี่ยนผู้อ่าน legacy จาก "cap ด้วยวันที่" เป็น "ไม่มี journal คู่กัน" (`NOT EXISTS` บน `journal_entries.metadata->>'legacy_transaction_id'`) · ข้อ (ข) **แก้เองไม่ได้** เพราะ (1) กลุ่มโอนเงินใช้ journal เดียวร่วมกันสองขา ⇒ `NOT EXISTS` แบบตรง ๆ จะทำให้ขาหนึ่งหาย (2) เปลี่ยน endpoint ที่ ship แล้วและโปรไฟล์ performance ของมัน ⇒ **ต้องให้ผู้ใช้ตัดสิน**
+- **Rule:** (1) **การย้ายเส้นแบ่งยุคต้องตอบให้ได้ว่า "แถวที่ตกในรอยต่อเป็นของใคร"** ไม่ใช่แค่พิสูจน์ว่าสองฝั่งไม่ทับกัน (2) การ partition ที่ "ไม่ทับและไม่มีช่องว่าง" ตามเกณฑ์ใหม่ **ยังมีรูได้** ถ้าแถวบางประเภทไม่มีคีย์ที่ใช้แบ่งทั้งสองฝั่ง (ที่นี่คือแถวที่ไม่มี journal) (3) เขียนเทสต์ที่ **ล็อกช่องที่รู้อยู่** ไว้ด้วยชื่อที่บอกชัด (`test_known_gap_…`) พร้อมคอมเมนต์ว่า "ถ้ามีการแก้ ค่าที่คาดหวังจะเปลี่ยน → ให้เขียนเทสต์ใหม่ อย่างัดให้กลับ" — ดีกว่าปล่อยให้ช่องนี้ไม่มีร่องรอยในโค้ด
+- **Tests:** `test_finance_v2_read.py::test_known_gap_legacy_only_row_in_thai_september_is_invisible` — deep verify ว่าแถวยังอยู่ใน DB (1 แถว) และห้องนั้นไม่มี `journal_entries` เลย (0 แถว) แต่ `get_transactions` คืน `total_count == 0`
+- **Date Added:** 2026-09-13
+
+### 📅 Frontend — ค่าเริ่มต้นของตัวกรองเดือนจาก `new Date().getMonth()` = **ปฏิทินของอุปกรณ์ผู้ใช้** ไม่ใช่ของไทย (เปิดหน้ามาผิดเดือนทั้งหน้า)
+- **Context/Problem:** หลังย้ายทั้งระบบมาอยู่บนปฏิทินไทย พบว่า `FinanceDashboard.vue` seed ตัวกรองจาก `new Date().getMonth() + 1` / `new Date().getFullYear()` ⇒ เครื่องที่ TZ ไม่ใช่ UTC+7 **เปิดหน้ามาที่เดือนผิด แล้วติดป้ายเดือนไทยทับตัวเลขของอีกเดือน** และขัดกับหน้าพี่น้อง `FinancialStatements.vue` ที่ seed จาก `todayIso()` (ไทย) ⇒ สองหน้าการเงินตอบคำถาม "ตอนนี้เดือนอะไร" ไม่ตรงกัน
+- **Root Cause:** `new Date()` สร้างจากนาฬิกา **ของอุปกรณ์** และ `getMonth()`/`getFullYear()` คืน **ชิ้นส่วนเวลาท้องถิ่น** ของอุปกรณ์นั้น ⇒ ค่าที่ seed ถูกส่งเข้า `getSummary(room, month, year)` ตรง ๆ แล้วคืนตัวเลขของเดือนนั้นออกมา **สอดคล้องกันเองทั้งหน้า** (ป้ายกับตัวเลขตรงกัน) ⇒ **ดูไม่ออกว่าผิด** ถ้าไม่รู้ว่าวันนี้ที่ไทยเป็นเดือนอะไร
+  - เครื่อง **นำหน้าไทย** (UTC+9): ช่วง ~2 ชม. สุดท้ายของเดือนไทย อุปกรณ์เป็นวันที่ 1 ของเดือนถัดไปแล้ว → เปิดมาที่เดือนถัดไป
+  - เครื่อง **ตามหลังไทย** (UTC, US): ช่วงต้นวันที่ 1 ตามไทย อุปกรณ์ยังเป็นเดือนที่แล้ว → เปิดมาที่เดือนก่อน
+- **Correct Pattern/Solution:** รวมคำตอบของ "วันนี้เดือนอะไร" ไว้ **ที่เดียว** ใน `utils/period.ts` แล้วอ่านผ่าน `todayIso()` (ซึ่งใช้ `Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' })` อยู่แล้ว) — ห้ามประกอบ `Date` เอง:
+  ```ts
+  export const todayThaiYearMonth = (): { year: number; month: number } => {
+    const iso = todayIso();                       // 'YYYY-MM-DD' ตามเวลาไทย
+    return { year: Number(iso.slice(0, 4)), month: Number(iso.slice(5, 7)) };
+  };
+  ```
+  ใช้ `slice`+`Number` ไม่ destructure จาก array เพราะ `noUncheckedIndexedAccess: true` ทำให้ได้ `number | undefined` · แก้ **ทุกจุดที่ตอบคำถามเดียวกัน** ไม่ใช่แค่จุดที่ผู้ใช้เจอ: ตัว seed, `yearOptions` (ต้องเป็นปีไทยชุดเดียวกับค่าที่ seed ไม่งั้นปีที่เลือกอาจหลุดออกจาก dropdown), getter/setter fallback ของ `PeriodPicker`, และ fallback ของ `referenceDate` ตอน ISO เพี้ยน
+- **Rule:** (1) **`new Date()` เปล่า ๆ ในโค้ด frontend = ปฏิทินของอุปกรณ์** — ใช้ได้เฉพาะกับสิ่งที่ "เวลาของผู้ใช้" เป็นคำตอบที่ถูก (เช่น แสดง relative time) แต่ **ห้ามเด็ดขาด**กับสิ่งที่ backend จะเอาไปตัดข้อมูล (2) อาการของบั๊กชนิดนี้คือ **หน้าสอดคล้องกันเอง** ⇒ การอ่านโค้ดแบบ "ค่าที่ seed ถูกส่งต่อไปที่ไหน" มองไม่เห็น ต้องถามว่า "ค่านี้หมายถึงปฏิทินของใคร" (3) ตรวจ **ทุกจุดที่ตอบคำถามเดียวกัน** — จุดที่อันตรายกว่าคือ `yearOptions` เพราะมันไม่แสดงอาการจนถึงขอบปี (4) helper ที่ seed ไม่ควรเป็น `new Date()` ซ้ำ ควรอ่านจาก helper กลางตัวเดียว ไม่งั้นแหล่งความจริงแตกเป็นสองที่
+- **Tests:** `frontend/src/utils/__tests__/period.spec.ts` — ล็อกด้วย instant ที่ **วันที่ไทยไม่ตรงกับวันที่ UTC** (`2026-09-30T18:00:00Z` = 1 ต.ค. ไทย) แล้วยืนยันว่าได้เดือน 10 **พร้อม assert ว่าปฏิทิน UTC ยังเป็นเดือน 9** ⇒ เทสต์แยกสองพฤติกรรมออกจากกันได้จริง ไม่ใช่ผ่านเพราะบังเอิญ TZ ของ process ตรง · A/B proof (รันจริง 3 TZ): `TZ=UTC` และ `TZ=America/New_York` ให้ OLD = `2026-09` แต่ NEW = `2026-10-01` ❌ ต่างกัน (ส่วน `TZ=Asia/Tokyo` ตรงกันโดยบังเอิญ) ⇒ **เทสต์ต้องไม่พึ่ง TZ ของเครื่องรัน**
+- **Date Added:** 2026-09-13
+
+---
+
+### 🩹 Finance — แถว Legacy ที่ "วันที่ไทย" ข้ามเส้นตัดแล้วแต่ไม่มี journal = **แถวที่ไม่มีผู้อ่านฝั่งใดรับ** (หายจากประวัติทั้งที่ข้อมูลอยู่ครบ)
+- **Context/Problem:** หลังแยกผู้อ่านสองฝั่งตาม **วันที่ไทย** (legacy = ก่อน `CUTOFF_DATE = 2026-09-01`, journal = ตั้งแต่วันนั้นเป็นต้นไป + merge cap ที่ 31 ส.ค.) พบว่าแถวที่ถูกบันทึกในช่วง **~7 ชม. แรกของวันที่ 1 ก.ย. ตามเวลาไทย** (ก่อนที่โค้ด dual-write จะขึ้นจริง) มี "วันที่ไทย" อยู่ฝั่ง v2 แล้ว แต่ **ยังไม่มี journal คู่** ⇒ ฝั่ง legacy ถูก cap ออก ฝั่ง v2 ไม่มีอะไรให้อ่าน ⇒ **หายจากหน้าประวัติและไม่โผล่ในงบการเงิน** ทั้งที่แถวยังอยู่ใน DB (อีกกลุ่มคือรอยรั่วของ `_confirm_single_payment` สมัยที่ยัง `pass` ข้าม dual-write เมื่อห้องไม่มี ledger รายได้)
+- **Root Cause:** "วันที่ไทย" ที่ใช้แบ่งยุคคำนวณจาก `T.created_at` (มีการเคลื่อนไหวของเงิน) แต่ **การมีอยู่ของ journal** ขึ้นกับว่า *โค้ด* dual-write ขึ้นหรือยัง — สองเงื่อนไขนี้ไม่ใช่สิ่งเดียวกัน จึงมีหน้าต่างที่สองเงื่อนไขไม่ตรงกัน · ตรรกะสำคัญคือ **`created_at` ของแถว legacy เก็บ UTC (naive)** ⇒ 2026-08-31 18:00 UTC = 1 ก.ย. 01:00 ไทย ⇒ แถวนี้ "วันไทย" ข้ามเส้นไปแล้วทั้งที่ UTC ยังเป็นเดือน 8
+- **Correct Pattern/Solution:** สร้าง journal ย้อนหลัง (backfill) ให้เฉพาะแถวที่ตกหล่น **โดยไม่แตะ endpoint เดิม** — `services/finance/backfill.py` (`BackfillMixin.backfill_missing_journals`) + CLI `scripts/backfill_journals.py` (dry-run เป็นค่าเริ่มต้น). กฎที่ต้องยึด:
+  ```sql
+  -- candidate = แถวที่ (ก) ยังไม่ถูกลบ (ข) วันไทย >= เส้นตัด (ค) ยังไม่มี journal คู่
+  AND T.deleted_at IS NULL
+  AND T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')   -- $2 = _thai_day_start(CUTOFF_DATE)
+  AND NOT EXISTS (SELECT 1 FROM journal_entries JE
+                  WHERE JE.room_id = T.room_id
+                    AND (JE.metadata->>'legacy_transaction_id' = T.id::text
+                         OR (T.transfer_group_id IS NOT NULL
+                             AND JE.metadata->>'transfer_group_id' = T.transfer_group_id::text)))
+  ```
+  - **ห้าม backfill แถวก่อนเส้นตัดเด็ดขาด** — งบการเงิน (trial balance / balance sheet) อ่าน `journal_lines` เป็นแหล่งเดียว *โดยไม่มี date floor* ⇒ journal ที่สร้างให้แถวก่อนเส้นตัด = **เพิ่มข้อมูลที่ไม่มีมาก่อน** แล้ว**ยอดยกมาเพี้ยนถาวร**
+  - **ข้ามแถวที่ `deleted_at IS NOT NULL`** — แถวนั้นถูก revert และคืนยอดแล้ว; สร้าง journal ให้จะได้แถว `status='posted'` ⇒ **รายการผีโผล่กลับมา**
+  - **`NOT EXISTS` ต้องนับ journal ทุกสถานะ** (รวม voided) ⇒ เป็น idempotent โดยโครงสร้าง ⇒ รันซ้ำไม่สร้างซ้ำ
+  - **จับกลุ่ม transfer ก่อน**: 1 การโอน = แถว legacy 2 แถว แต่ journal **ใบเดียว** ⇒ ต้อง group ด้วย `transfer_group_id` ไม่งั้นยอดโอนถูกนับซ้ำ (asset เคลื่อนไหว 2 เท่า)
+  - **metadata ต้องเป็นคีย์ชุดเดียวกับ dual-write สด** (`legacy_transaction_id` / `transfer_group_id` / `student_payment_id`) ไม่งั้น `revert_transaction` (ที่ void journal ด้วย `metadata->>'...'`) จะ**ยกเลิกรายการที่ backfill มาให้ไม่ได้** ⇒ รายการค้างในงบตลอดกาล
+  - **`transaction_date` ต้องเป็นเวลาที่เงินเคลื่อนไหวจริง** (`_as_utc(row["created_at"])`) ไม่ใช่ `NOW()` ไม่งั้นรายการไปกองที่เดือนที่รันสคริปต์ **แล้วเดือนที่ขาดก็ยังขาดอยู่ดี** (บั๊กเดิมไม่หาย แค่ย้ายที่) · `created_at` ของ journal ปล่อยเป็น `NOW()` ได้ เพราะไม่มีโค้ดส่วนใดอ่าน (ยืนยันด้วย grep) และมีประโยชน์ตอนสืบย้อนว่าสร้างเมื่อไหร่
+  - **dry-run ต้องเป็น transaction ที่ `rollback()` ทิ้ง** — ไม่ใช่แค่ "ไม่เรียก INSERT" เพราะการวางแผนเรียก `_resolve_*_ledger` ที่ **auto-provision ledger ได้** ⇒ dry-run ที่ไม่ rollback จะทิ้ง ledger ค้างไว้
+  - **แถวที่วางแผนไม่ได้ = `skipped` + เหตุผล ไม่ใช่ `raise`** (ops tool ต้องไม่หยุดทั้งชุดเพราะแถวเดียวพัง) และครอบ `ValueError` จาก `_resolve_*_ledger` ด้วย เพราะมัน raise เมื่อแถว legacy ต้นทางถูกลบจริง (ไม่ใช่แค่ NULL)
+- **Rule:** (1) เมื่อ **การมีอยู่ของข้อมูล** ขึ้นกับ "โค้ดเวอร์ชันไหนเขียน" แต่ **การมองเห็นข้อมูล** ขึ้นกับ "วันที่ของข้อมูล" ⇒ จะมีหน้าต่างที่ข้อมูลหายเงียบ ๆ เสมอ; การ migrate แบบ dual-write ต้องมี **backfill เป็นขั้นบังคับ** ไม่ใช่ทางเลือก (2) backfill script ที่แตะเงินต้องเป็น **dry-run by default** และ dry-run ต้อง simulate จริงใน transaction ที่ rollback (3) ก่อนเขียน ops script ให้ **grep หาว่ามีโค้ดส่วนใดอ่านคอลัมน์ที่กำลังจะตั้ง** — เจอว่าไม่มีใครอ่าน `journal_entries.created_at` จึงปล่อย `NOW()` ได้อย่างมีหลักฐาน (4) **ห้ามแก้ endpoint ที่ ship แล้วเพื่อกลบปัญหาข้อมูล** — แก้ที่ข้อมูลดีกว่า เพราะการแก้ผู้อ่านข้างเดียวสร้างความไม่สอดคล้องชุดใหม่
+- **Tests:** `backend/tests/test_finance_backfill.py` (18 ตัว) — ที่มีค่าที่สุดคือ `test_straddle_row_is_invisible_before_and_visible_after_backfill` ซึ่งพิสูจน์ **อาการที่ผู้ใช้เห็น** (ก่อน backfill `get_transactions` = 0, หลัง = 1 และ merge ต้องได้ 1 ไม่ใช่ 2) ไม่ใช่แค่ "มี journal ถูกสร้าง" · `test_pre_cutoff_row_is_never_backfilled` ล็อกกฎห้ามแตะ · `test_backfill_is_idempotent_across_runs` · `test_revert_transaction_voids_backfilled_journal` + เวอร์ชัน transfer (พิสูจน์ว่า metadata ใช้ต่อได้จริง) · `test_backfilled_journal_lands_in_the_right_thai_month` (ส.ค. = 0, ก.ย. = 1) · `test_prior_reconcile_adjustment_is_reported` (ดู Gotcha ถัดไป) · E2E รัน CLI จริงกับ Postgres จริง: dry-run → apply → apply ซ้ำ (0 ใบ) → ตรวจ DB ตรง ๆ
+- **Gotcha:** asyncpg ในเทสต์นี้คืน **JSONB เป็น `str`** (ไม่ได้ลง codec) ⇒ `entry["metadata"]["k"]` จะได้ `TypeError: string indices must be integers` — ต้อง `json.loads()` ก่อน (โค้ด producción รอดเพราะอ่านผ่าน SQL `metadata->>'k'` ทั้งหมด; `audit_logs.new_values` ก็เป็น str เช่นกัน)
+- **Gotcha (อันตรายกว่า — ต้องรายงาน ไม่ใช่ปล่อยผ่าน):** ถ้าห้องนั้นเคยรัน `reconcile_finance.py --apply` มาก่อน **การ backfill จะทำให้ยอดสินทรัพย์เบิ้ล** เพราะ `reconcile_balances` แก้ *ผลต่างตัวเดียวกับ* ที่ backfill กำลังจะแก้ (แถวที่ตกหล่นคือสาเหตุที่ยอดบัญชีคู่ขาดไป) ด้วย journal `Dr สินทรัพย์ / Cr ทุน 3001` — และ journal ปรับปรุงยอด **ไม่มี `legacy_transaction_id`** (เป็นค่าระดับ "บัญชี" ไม่ใช่ระดับ "รายการ") ⇒ เงื่อนไข `NOT EXISTS` **มองไม่เห็น** ⇒ หลัง backfill asset ledger = 2 เท่าของ legacy. คำตอบคือ **นับและรายงาน** (`_count_prior_adjustments` → `prior_adjustments` + บล็อกเตือน 🚨 ใน CLI) แล้วให้ผู้ใช้ **รัน `reconcile_finance.py` ซ้ำหลัง backfill** (รอบสองเห็น ledger เกินแล้วออกรายการปรับปรุง "ทางกลับ" ให้เอง; ฝั่งรายได้ไม่ถูกแตะจึงถูกทั้งสองฝั่ง) — บทเรียนทั่วไป: **ก่อนเพิ่มข้อมูลย้อนหลัง ต้องถามว่า "มีกลไกไหนที่เคยชดเชยการขาดข้อมูลนั้นไปแล้วหรือยัง"** การชดเชยกับข้อมูลจริงสองทางจะหักกันไม่สนิทและกลายเป็นเบิ้ล
+- **Date Added:** 2026-09-13
+
+---
+
+### 🤖 Discord bot — `get_target` มี default `target_type="room"` ⇒ บอทที่ลืมส่ง `target_type=server` ได้ **404 "ไม่พบห้อง"** ทั้งที่ห้องมีอยู่
+- **Context/Problem:** `GET /{target_id}/finance/summary` รับ `target_id` เดียว แต่ตีความเป็นได้สองอย่าง (room ของเว็บ / server ของบอท) ผ่าน `target_type` ที่ **default = `"room"`** (เพราะเว็บคือผู้ใช้ส่วนใหญ่) ⇒ บอทที่ส่ง `interaction.guild_id` มาลอย ๆ จะถูกตีเป็น `room_id` = ค่า guild id → `resolve_room_id` หาไม่เจอ → 404 · อาการหลอกมาก: ข้อความ "ไม่พบห้องเรียนนี้" ทำให้เข้าใจว่าห้องยังไม่ผูก Discord ทั้งที่ผูกแล้ว
+- **Root Cause:** พารามิเตอร์ที่ **เปลี่ยนความหมายของพารามิเตอร์อื่น** (ไม่ใช่แค่กรอง) และมี default ที่ถูกสำหรับผู้ใช้รายใหญ่ ⇒ ฝั่งที่เหลือลืมได้ง่ายและ**ไม่มี type system จับ**
+- **Correct Pattern/Solution:** บอทต้องส่ง `target_type=server` **ทุกครั้ง** — รวมศูนย์ไว้ที่ `_server_params()` ใน `bot_discord/services/finance_api.py` (ไม่กระจายเป็น kwargs ต่อคำสั่ง) แล้วเทสต์ฝั่ง backend ล็อกไว้ทั้งสองทิศในเทสต์เดียว (`test_my_debts_via_server_target_matches_the_bot_path`: ส่ง `target_type=server` → 200 · guild_id เดียวกัน**ไม่ส่ง** → 404) · **ห้ามพึ่ง type hint** เพราะ `target_type: Literal["server","room"] = Query("room")` ไม่รู้จักความหมายของ `target_id`
+- **Rule:** (1) เมื่อ endpoint รับ "id ที่ตีความได้หลายแบบ" ให้ **ส่งตัวบอกชนิดทุกครั้งจาก client** และรวมไว้ที่จุดเดียว (2) เทสต์ต้องมีเคส **"ลืมส่ง"** ที่ยืนยันว่ามันพัง — ไม่ใช่มีแต่เคสที่ถูก (3) **บอทไม่มี test harness ในโปรเจกต์นี้** (ไม่มี `bot_discord/tests/` และ CI ไม่รัน cog) ⇒ cog ต้อง **โง่ที่สุด** (`defer()` → เรียก wrapper → `followup.send(embed=)` → จับ error) และทุกอย่างที่ "คิด" ได้ (validate, แปลงวันที่, ประกอบ embed, จำกัดความยาว) ต้องอยู่ใน `services/finance_api.py` เพื่อให้อนาคตเขียนเทสต์ได้โดยไม่ต้องมี Discord
+- **Gotcha:** (1) `api_client.request` เรียก `response.json()` **เสมอ** และไม่มี `raise_for_status` ⇒ รับ binary (PDF) ไม่ได้ และพังกับ 204 — ต้องแก้ client กลางก่อนถ้าจะทำ (2) ข้อความ error จาก `APIException` ควรตอบ **ephemeral เสมอ** เพราะอาจมีรายละเอียดภายใน (3) `defer()` ต้องเป็น `defer(ephemeral=True)` **ให้ตรงกับ** `followup.send(ephemeral=...)` ของคำสั่งนั้น ไม่งั้นคำตอบส่วนตัวจะกลายเป็นสาธารณะ (4) attribute access ผิดชื่อบน `discord.Embed`/`app_commands` **ไม่ถูกจับตอน import** — ตรวจด้วย `python -m py_compile` เท่านั้นไม่พอสำหรับ decorator (ต้องรันบอทหรือโหลด cog จริง) — วิธีตรวจจริงโดยไม่ต้องมี token: โหลด cog ใน image ของบอท (มี discord.py ติดตั้งแล้ว) แล้วอ่าน `__cog_app_commands__`:
+  ```bash
+  docker run --rm -v "$PWD/bot_discord:/app:z" -w /app classroom-production-bot:<tag> \
+    python -c "import cogs.finance_cmd as m; print(sorted(c.name for c in m.FinanceCommands.__cog_app_commands__))"
+  ```
+  ⇒ พิสูจน์ได้ทั้ง decorator, `app_commands.Group`, `Choice`/`Range` และ `setup()` โดยไม่ต้องต่อ Discord
+- **Tests:** ยังไม่มี harness ในเรpo แต่พิสูจน์ได้ด้วย **smoke script ที่รันใน image ของบอท** (ไม่ต้องมี token/guild):
+  ```bash
+  docker run --rm -e PYTHONPATH=/app -e TZ=UTC -e DISCORD_TOKEN=x -e API_BASE_URL=http://x -e API_KEY=x \
+    -v "$PWD/bot_discord:/app:z" -v /tmp/bot_smoke:/mnt:z -w /app <bot-image> python /mnt/smoke.py
+  ```
+  ครอบ: `format_baht` · `format_thai_datetime`/`format_thai_date` (naive UTC→ไทย + **พ.ศ.**) · `validate_period` · `_server_params` · embed builder ทั้ง 4 + payload ว่าง · และ **เพดานความยาวของ Discord** (field 1024 / title 256 / desc 4096) ซึ่งเป็นสาเหตุ 400 ที่หาไม่เจอถ้าไม่ทดสอบ
+  - ⚠️ `format_thai_date` รับ **DATE ล้วน** ⇒ ห้ามเข้า timezone conversion (วันที่ 1 ของเดือนจะเลื่อนเป็น 31/08) — มีเคสล็อกไว้
+  - 🔒 รันด้วย `TZ=UTC` / `America/New_York` / `Asia/Bangkok` ให้ผล **เหมือนกันทั้งสาม** ⇒ พิสูจน์ว่าการแปลงไม่พึ่ง TZ ของเครื่อง (กับดักเดิมของโปรเจกต์นี้)
+  - 💡 `PYTHONPATH=/app` จำเป็นเมื่อสคริปต์อยู่นอก `/app` ไม่งั้น `import services` ไม่เจอ
+- **Date Added:** 2026-09-13
+
+---
+
+### 🧪 Tests — ลืม prefix `/api/classroom` ⇒ **ทุกเทสต์ได้ 404 `{"detail":"Not Found"}` ของ FastAPI เอง** และตัวที่ "ผ่าน" คือตัวที่ผ่านด้วยเหตุผลผิด
+- **Context/Problem:** เขียนไฟล์เทสต์ใหม่ (`test_finance_me_endpoints.py`) แล้วเรียก `client.get(f"/{room_id}/finance/me/debts")` — **8 ใน 9 ตัวล้มด้วย 404** ส่วนตัวเดียวที่ผ่านคือ `test_..._unknown_room_is_404` **เพราะมันคาดหวัง 404 อยู่แล้ว** ⇒ ได้สัญญาณ "ผ่าน 1 ล้ม 8" ที่ชี้ผิดทางทั้งหมด (เหมือน router ไม่ถูก mount / พังทั้งโมดูล) · ความจริงคือ router การเงินถูก mount ด้วย `app.include_router(finance_router.router, prefix="/api/classroom")` (`backend/main.py:79`) ⇒ URL ที่ถูกคือ `/api/classroom/{target_id}/finance/...` และที่ได้คือ **404 ของ FastAPI** ไม่ใช่ของโดเมน
+- **Root Cause:** 404 มีสองความหมายที่ **แยกไม่ออกจาก status code** — (ก) "ไม่มี route นี้" (FastAPI) (ข) "มี route แต่ไม่พบข้อมูล" (โดเมน) · เทสต์ที่ assert แค่ `status_code == 404` **ผ่านได้ทั้งสองกรณี** ⇒ เทสต์ครอบเคส 404 กลายเป็นเทสต์ "เขียวเปล่า" ทันทีที่ URL ผิด
+- **Correct Pattern/Solution:** ใช้ **ค่าคงที่ path ระดับโมดูล** แทนการพิมพ์ URL ซ้ำในทุกเทสต์ (แบบเดียวกับ `test_finance_statements.py`) และเมื่อ assert 404 ให้ **assert ข้อความ detail ของโดเมนด้วย**:
+  ```python
+  API_PREFIX = "/api/classroom"                              # ⚠️ มาจาก main.py:79
+  MY_DEBTS_PATH = API_PREFIX + "/{room}/finance/me/debts"
+  ...
+  assert res.status_code == 404, res.text
+  assert res.json()["detail"] == "ไม่พบห้องเรียนนี้"   # ไม่ใช่ {"detail":"Not Found"} ของ FastAPI
+  ```
+- **Rule:** (1) **เทสต์ที่ผ่านด้วยเหตุผลผิดอันตรายกว่าเทสต์ที่ fail** — เคส 404 ต้องผูกกับ *ข้อความ* เสมอ ไม่ใช่แค่รหัส (2) อาการ "ทุกตัว 404 ยกเว้นตัวที่คาดหวัง 404" = **สงสัย prefix/การ mount ก่อน** ไม่ใช่สงสัย service (3) URL ในเทสต์ให้ประกาศเป็นค่าคงที่ต่อโมดูล — พิมพ์ `f"/{room_id}/..."` ซ้ำ 10 ที่ = 10 โอกาสลืม prefix
+- **Date Added:** 2026-09-13
+
+---
+
+### 🐛 Routers — `rooms.id` เป็น SERIAL (int4) ⇒ เอา guild_id ของ Discord (~19 หลัก) ไปหา `WHERE id = $1` ได้ **HTTP 500 `OverflowError`** ไม่ใช่ 404
+- **Context/Problem:** เทสต์กับดัก `target_type` ตั้งใจส่ง guild id ใหญ่ (`4_567_890_123`) แล้ว **ไม่ส่ง** `target_type` เพื่อพิสูจน์ว่าจะถูกตีเป็น room_id → ควรได้ 404 แต่ได้ `asyncpg ... OverflowError: value out of int32 range` ลอยออกมาเป็น **500** (ในเทสต์คือ exception ทะลุออกมาเลย เพราะ `TestClient(raise_server_exceptions=True)` เป็นค่าเริ่มต้น) · เคสจริงคือ **บอทที่ลืมส่ง `target_type=server`** ⇒ guild id จริงเป็น snowflake ~19 หลัก ⇒ **เกิน int32 ทุกตัว** ⇒ ผู้ใช้เห็น 500 แทนข้อความที่วินิจฉัยได้
+- **Root Cause:** `rooms.id` เป็น `SERIAL` (int4) แต่ `target_id` เป็น Python `int` ไม่จำกัดขนาด ⇒ asyncpg พยายามเข้ารหัสเป็น int4 แล้วโยน `OverflowError` **ก่อน** query จะได้รัน ⇒ ไม่มีทางได้ "not found" เพราะพังตอน bind parameter ไม่ใช่ตอน fetch · จุดที่พลาดมีสองที่ที่โค้ดเดียวกันเป๊ะ: `BaseService.resolve_room_id` (`backend/services/finance/base.py:82`) และ `resolve_target_to_room_id` (`backend/core/dependencies.py:122` — ตัวหลังถูกใช้โดย router กลุ่ม activity/action อีก ~30 route)
+- **Correct Pattern/Solution:** **ยังไม่ได้แก้ — บันทึกเป็นงานแยกโดยตั้งใจ** เพราะ (ก) helper เป็นของร่วมที่ router นอกโมดูลการเงินใช้อยู่ ~30 route ⇒ อยู่นอกขอบเขต additive ของ F4 (ข) ทางแก้คือ guard ก่อนยิง query แล้วโยน not-found ตามปกติ:
+  ```python
+  # `rooms.id` เป็น int4 — ค่าที่เกินช่วงไม่มีทางมีอยู่ในตาราง ⇒ "ไม่พบ" ตั้งแต่แรก
+  if not (0 < room_id <= 2_147_483_647):
+      raise RoomNotFoundError("ไม่พบห้องเรียนนี้")
+  ```
+  ระหว่างนี้เทสต์ของ F4 จึงเลือก guild id ที่ **พอดี int32** (`1_234_567_890`) เพื่อให้ assertion สื่อความหมายเดียว (พิสูจน์กับดัก `target_type` ไม่ใช่พิสูจน์ overflow) พร้อมคอมเมนต์กำกับเหตุผลไว้ในตัวเทสต์
+- **Rule:** (1) **id ที่รับจากภายนอก (path param/body) ต้องถูก validate กับชนิดคอลัมน์ปลายทาง** — Python `int` ไม่มีขอบเขต แต่ Postgres `SERIAL`/`INTEGER` มี; พังตอน bind = 500 เสมอ ไม่ใช่ 404/422 (2) อาการ "**ค่าใหญ่พัง แต่ค่าเล็กผ่าน**" ให้สงสัย int4/int8 ก่อน logic (3) เจอบั๊กนอกขอบเขตเฟส → **บันทึก ไฟล์:บรรทัด + ทางแก้ ให้ครบแล้วเดินต่อ** ดีกว่าแอบแก้ helper ร่วมกลางเฟสที่ประกาศว่า additive (แนวเดียวกับที่โปรเจกต์นี้ใช้กับ `delete_category` hard delete)
+- **Date Added:** 2026-09-13
+
+### 💰 Finance — `finance_transactions` **ไม่ใช่ตาราง legacy** แต่เป็น dual-write mirror ที่ครบทั้งสองยุค ⇒ งบประมาณอ่านตารางนี้ตารางเดียว ห้าม clamp ที่ CUTOFF และห้ามอ่าน journal
+- **Context/Problem:** F1 (งบทดลอง/กำไรขาดทุน/งบดุล) กับ F2 (งบประมาณ) ใช้ "ยอดใช้ไป" เหมือนกันแต่ต้องอ่านคนละตารางโดยสิ้นเชิง — F1 อ่าน `journal_lines` อย่างเดียวและ **clamp ที่ `CUTOFF_DATE = 2026-09-01`** (ก่อนเส้นไม่มี journal เลย) ส่วน F2 อ่าน `finance_transactions` อย่างเดียวและ **ห้าม clamp** ถ้าลอกกฎของ F1 มาใช้กับ F2 จะได้งบประมาณที่มียอด 0 สำหรับทุกงบของเดือนก่อนกันยา; ถ้าให้ F2 อ่านทั้งสองตารางจะได้ **ยอดเบิ้ล**
+- **Root Cause:** `finance_transactions` ถูกเขียนคู่กับ journal **ใน `conn.transaction()` เดียวกัน** ทุกจุดที่มีการเคลื่อนไหวของเงินจริง — มีแค่ 3 จุดใน production: `transactions.py:56` (`add_transaction`), `transactions.py:155`+`:163` (สองขาของ `transfer_money`), `collections.py:152` (`_confirm_single_payment`) ⇒ ตารางนี้ **มีแถวครบทั้งยุคก่อนและหลังเส้นตัด** ขณะที่ `journal_lines` เริ่มมีเฉพาะหลังเส้น · และ `revert_transaction` mark **ทั้งสองฝั่ง** พร้อมกัน (`deleted_at = NOW()` คู่กับ `status='voided'`) ⇒ เงื่อนไข `T.deleted_at IS NULL` ฝั่ง legacy สอดคล้องกับ `JE.status <> 'voided'` ฝั่ง journal อยู่แล้ว **การอ่านทั้งคู่จึงเป็นการนับซ้ำ ไม่ใช่การปิดรู**
+- **Correct Pattern/Solution:** งบประมาณอ่าน `finance_transactions` เท่านั้น **ไม่ clamp** — ช่วงก่อนเส้นมีแถว legacy อยู่แล้ว ช่วงหลัง dual-write ใส่ให้ คร่อมเส้นก็ไม่มีรู · `opening_balance` และ `adjustment` ของ reconcile **ไม่มีแถวในตารางนี้** จึงถูกตัดออกเองโดยธรรมชาติ (ถูกต้อง เพราะไม่ใช่การใช้จ่ายจริง) · ตัดขาโอนเงินด้วย `T.transfer_group_id IS NULL` (ลอกจาก `_get_summary_legacy` — ขาโอนย้ายเงิน ไม่ใช่รายจ่าย)
+  - ⚠️ **เขียนคอมเมนต์กำกับไว้ว่านี่เป็น "ตรงข้าม" กับกฎของ F1 โดยเจตนา — ห้าม refactor ให้สองที่ใช้ helper ร่วมกัน** ความต่างนี้ไม่ใช่ความไม่สม่ำเสมอที่ต้องจัดบ้าน แต่เป็นผลจาก "สองตารางมีประวัติคนละแบบ"
+- **Rule:** (1) ก่อนเลือกว่าจะ clamp ที่ `CUTOFF_DATE` ไหม ให้ถามว่า **ตารางนั้นเริ่มมีข้อมูลตั้งแต่เมื่อไร** ไม่ใช่ถามว่าฟีเจอร์ไหน (2) "dual-write" หมายความว่าตาราง legacy **ครบทั้งสองยุค** ⇒ ห้ามอ่านคู่กับ journal (3) ฟีเจอร์ที่คล้ายกันอาจต้องอ่านคนละแหล่งโดยเจตนา — ถ้าจะรวม helper ต้องพิสูจน์ก่อนว่าไม่มีฟีเจอร์ใดต้อง clamp
+- **Tests:** `backend/tests/test_finance_budgets.py` §1 (era routing / no double count) — pre-cutoff 3 แถว legacy → `used == X`; post-cutoff ผ่าน `add_transaction` → `used == Y` **และยืนยันว่า `journal_entries` มีแถวเกิดขึ้นจริง** แล้วจึงยืนยัน `used == Y` **ไม่ใช่ `2Y`** (บทพิสูจน์ว่าไม่นับซ้ำ ไม่ใช่แค่assert ตัวเลข); คร่อมเส้น → `X + Y` พอดี; `add → revert_transaction → used == 0` พร้อมยืนยัน **ทั้ง** `deleted_at IS NOT NULL` และ `status='voided'`
+- **Date Added:** 2026-09-13
+
+### 🕐 SQL — งบประมาณต้องเทียบ "วันไทย" กับ **สองชนิดคอลัมน์ที่เก็บโซนต่างกัน** ในคำสั่งเดียว ⇒ `LEFT JOIN LATERAL` เดียวมีสองนิพจน์เวลา
+- **Context/Problem:** ยอด "ใช้ไป" ของงบต้องนับจากสองแหล่งที่อยู่คนละตารางและคนละชนิดคอลัมน์ในรอบเดียว: `finance_transactions.created_at` (`TIMESTAMP` naive ที่เก็บ **UTC wall clock**) สำหรับรายการปกติ และ `journal_entries.transaction_date` (`TIMESTAMPTZ`) สำหรับรายรับจาก `student_payment` ที่แถว legacy ไม่มี `category_id` ⇒ ใช้ `T.created_at::date` หรือ `JE.transaction_date::date` ตรง ๆ **ผิดทั้งคู่** เพราะได้วันตาม UTC/session ไม่ใช่วันไทย ⇒ รายการที่บันทึก 00:00–07:00 น. เวลาไทยจะไปโผล่ในงบของ **วันก่อนหน้า**
+- **Root Cause:** คอลัมน์สองชนิดต้องการการแปลงคนละแบบ — `TIMESTAMPTZ` เก็บจุดเวลา จุดเดียวตัดสินว่าเป็นวันไหนได้ด้วย timezone; `TIMESTAMP` naive **ไม่มีโซนให้แปลง** ค่าที่เก็บจึงต้องถูกตีความก่อนว่ามันคือ UTC แล้วค่อยแปลงเป็นไทย · การใช้ `::date` กับทั้งคู่เท่ากับ **ปนความหมายสามแบบ** (UTC calendar / session calendar / Thai calendar)
+- **Correct Pattern/Solution:** สองนิพจน์นี้อยู่ในคำสั่งเดียวกันได้ และต้องเป็นแบบนี้:
+  ```sql
+  -- naive TIMESTAMP ที่เก็บ UTC wall clock → ตีความเป็นเวลาไทยก่อน แล้วค่อยกลับมาเป็น UTC naive
+  ((GREATEST(B.start_date, $2)::timestamp) AT TIME ZONE 'Asia/Bangkok' AT TIME ZONE 'UTC')
+  -- TIMESTAMPTZ → แค่ตีความวันที่เป็นเที่ยงคืนเวลาไทย
+  ((GREATEST(B.start_date, $2)::timestamp) AT TIME ZONE 'Asia/Bangkok')
+  ```
+  และขอบบนเป็น **half-open** เสมอ: `((LEAST(B.end_date, $3) + 1)::timestamp AT TIME ZONE ...)` เทียบด้วย `<` ไม่ใช่ `<= 23:59:59` ⇒ ไม่มีวินาทีสุดท้ายของวันหลุด (ช่องโหว่ที่ `get_trial_balance` เคยมี)
+  - `AT TIME ZONE` ตัวแรกบน `timestamp` **คืน `timestamptz`** ส่วนตัวที่สองบน `timestamptz` **คืน `timestamp`** — ลำดับสลับกันไม่ได้ และจำนวนครั้งที่ใช้คือตัวบอกว่าคอลัมน์ต้นทางเป็นชนิดไหน
+- **Rule:** (1) **ห้ามใช้ `col::date` กับคอลัมน์เวลาไม่ว่าชนิดใด** ในโมดูลนี้ — ต้องเขียนขอบเขตเป็นช่วง half-open (2) `AT TIME ZONE` × 1 = คอลัมน์เป็น `timestamptz`; × 2 = คอลัมน์เป็น naive ที่เก็บ UTC (3) งบที่คิดยอดจาก "ช่วงของตัวเอง" ให้ใส่การ clamp (`GREATEST`/`LEAST`) ไว้ใน SQL ไม่ใช่คำนวณใน Python แล้วส่งเป็นขอบเขต — ไม่งั้นต้องยิง query ต่อแถว
+- **Tests:** `test_finance_budgets.py` §4 (Thai day boundaries) — รายการที่ `created_at` ตรงวัน `start_date`/`end_date` ต้องถูกนับ และห่างออกไป 1 วันต้องไม่ถูก; helper `_thai_day_utc(d, hour=12)` สร้าง naive UTC ที่ตรงกับวันไทยที่ต้องการ (§5 เดิมของไฟล์นี้)
+- **Date Added:** 2026-09-13
+
+### 🐛 Finance — guard `delete_category` ที่กรอง `deleted_at IS NULL` **ไม่ตรงกับ FK `ON DELETE RESTRICT`** ⇒ ลบงบก่อนแล้วลบหมวด = HTTP 500 ดิบ
+- **Context/Problem:** เทสต์ของ F2 ล้มด้วย `asyncpg.ForeignKeyViolationError: update or delete on table "finance_categories" violates foreign key constraint "finance_budgets_category_id_fkey"` ทะลุเป็น **500** — เคสจริง: ผู้ใช้ **soft delete งบ** (หายจากหน้าจอแล้ว) → กดลบหมวด → guard ผ่าน (เพราะงบถูก soft delete ไปแล้ว) → FK ระเบิด · โค้ดที่เขียนไว้ตอนแรกดู "ถูก" และคอมเมนต์ก็อธิบายเหตุผลครบ แต่ **อธิบายคนละความจริงกับที่ DB บังคับ**
+- **Root Cause:** `finance_budgets.category_id` เป็น `NOT NULL REFERENCES finance_categories(id) ON DELETE RESTRICT` ⇒ FK นับ **ทุกแถวไม่ว่า `deleted_at` จะเป็นอะไร** แต่ guard ที่เขียนไว้กรอง `AND deleted_at IS NULL` ⇒ **สองชั้นป้องกันใช้กติกาคนละข้อ** ชั้นที่หลวมกว่าจึงปล่อยผ่านไปชนชั้นที่เข้มกว่า ⇒ ได้ error ของ DB แทนข้อความที่อ่านรู้เรื่อง (และโมดูลนี้ **ไม่มี global exception handler** ⇒ ทุกอย่างที่หลุด = 500)
+- **Correct Pattern/Solution:** ให้ guard สื่อ **ความจริงข้อเดียวกับ FK** — ตัด `deleted_at IS NULL` ออก:
+  ```python
+  if await conn.fetchval("SELECT 1 FROM finance_budgets WHERE category_id = $1 LIMIT 1", category_id):
+      raise ValueError("ไม่สามารถลบได้ เนื่องจากมีงบประมาณผูกอยู่!")
+  ```
+  ⇒ หมวดที่ "เคย" มีงบจะลบไม่ได้เลย ไม่ว่าจะลบงบไปแล้วหรือยัง · **เป็น semantics เดียวกับ guard `finance_transactions` ที่อยู่ข้างกัน** (ซึ่งก็เป็น "เคยใช้" เช่นกัน) · เหตุผลเชิงผลิตภัณฑ์ที่ทำให้ `RESTRICT` ถูก: การ hard delete หมวดจะทิ้งแถวงาน (ที่ soft delete ไว้) ชี้ไปยังหมวดที่ไม่มีอยู่ ⇒ ประวัติอ่านไม่รู้เรื่อง — ส่วน guard มีหน้าที่แค่เปลี่ยน error ของ DB ให้เป็น 400
+- **Rule:** (1) **guard ที่เขียนไว้ "หน้า" constraint ต้องมี semantics เดียวกับ constraint นั้นเป๊ะ ๆ** — ถ้า constraint ไม่สน `deleted_at` guard ก็ต้องไม่สน (2) ทุกครั้งที่เขียน guard กัน FK ให้เปิด DDL มาอ่านจริง **อย่าเดาจากชื่อ** (3) soft delete + FK `RESTRICT` = "ลบไม่ได้ตลอดกาล" ซึ่งมักเป็นสิ่งที่ต้องการ แต่ต้องเขียนให้ตรงกันทั้งสองชั้น (4) เทสต์ที่จับบั๊กนี้ได้คือเทสต์ที่ทำตามลำดับ **ธุรกิจจริง** (ลบงบ → ลบหมวด) ไม่ใช่ยิงตรง ๆ
+- **Tests:** `test_finance_budgets.py` §9 — `test_delete_category_blocked_when_budget_exists` และ **`test_delete_category_still_blocked_after_budget_soft_deleted`** (ตัวหลังคือตัวที่ fail กับโค้ดเวอร์ชันแรก) พร้อมยืนยันว่าหมวด **ยังอยู่** ใน DB หลังได้ 400
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — เทสต์ที่พิสูจน์ว่า SQL clause "มีผลจริง" ต้องหาทรงข้อมูลที่ **clause เดียวเปลี่ยนคำตอบได้** ไม่งั้นเทสต์ผ่านทั้งที่ถอด clause ออก
+- **Context/Problem:** query ยอด "ใช้ไป" มีสอง clause ที่ดูเหมือนจำเป็นแต่ **เทสต์ทั่วไปพิสูจน์ไม่ได้เลยว่าใส่มาแล้วมีผล**: `T.transfer_group_id IS NULL` (ตัดขาโอนเงิน) และ `AL.legacy_category_id = B.category_id` (ผูก journal เข้ากับหมวดของงบ) — เพราะขาโอนเงินจริงมี `category_id = NULL` อยู่แล้ว จึงไม่ถูกนับตั้งแต่ clause ก่อนหน้า ⇒ เทสต์ "โอนเงินแล้วยอดไม่ขยับ" **ผ่านแม้ถอด `transfer_group_id IS NULL` ออก** และ `student_payment` ก็นับเฉพาะงบของหมวดรายรับเริ่มต้น ⇒ เทสต์ผลรวมผ่านได้แม้ถอด join ทิ้ง
+- **Root Cause:** เทสต์ที่ยืนยัน **ผลลัพธ์** ของข้อมูลรูปร่างปกติ ไม่ได้ยืนยัน **การมีอยู่ของเงื่อนไข** — ถ้าข้อมูลจริงล้วนอยู่ในรูปที่ clause ไม่ได้ทำอะไร เทสต์จะเขียวตลอดกาลและ clause จะถูกลบออกอย่างปลอดภัยในสายตาคนอ่าน
+- **Correct Pattern/Solution:** สำหรับแต่ละ clause ให้สร้าง **ทรงข้อมูลเดียวที่ clause นั้นเปลี่ยนคำตอบ** แล้วเขียนเทสต์เฉพาะทรงนั้น:
+  - `transfer_group_id IS NULL` → seed แถว legacy ที่มี **ทั้ง** `category_id` และ `transfer_group_id` (ทรงเดียวที่ clause เปลี่ยนคำตอบจริง — ขาโอนจริงมี `category_id = NULL` จึงพิสูจน์ไม่ได้)
+  - `AL.legacy_category_id = B.category_id` → **leak test**: ตั้งงบของ **อีกหมวดรายรับหนึ่ง** แล้วยืนยัน `used == 0` ทั้งที่มี `student_payment` อยู่ในช่วง (ถ้า join หลวม จะรั่วข้ามหมวดทันที)
+  - `JE.reference_type = 'student_payment'` → reconcile-`adjustment` ที่ **เครดิต ledger ตัวเดียวกับที่ map กับหมวดของงบเป๊ะ ๆ** (ทรงที่แข็งที่สุดของเคสนี้)
+  - และ **assert ข้อตั้งต้น (premise) กับ DB ก่อน assert ผลลัพธ์** — เทสต์ disjointness ของ `student_payment` อ่าน DB ยืนยันว่าแถว legacy มี `category_id IS NULL` **และ** ledger มี `legacy_category_id` ชี้หมวดนั้น ก่อนจะยืนยัน `used == 1000` ⇒ วันที่ dual-write เริ่มใส่ `category_id` ให้แถวนี้ เทสต์จะ **fail ดัง ๆ** ด้วยข้อความที่บอกสาเหตุ แทนที่จะเริ่มนับซ้ำเงียบ ๆ
+- **Rule:** (1) clause ที่ "ดูเหมือนจำเป็น" ต้องมีเทสต์ที่ **ลบ clause แล้วเทสต์ต้องแดง** — ถ้าหาเคสไม่ได้ ให้เขียนคอมเมนต์ว่ายังพิสูจน์ไม่ได้ อย่าปล่อยให้เข้าใจว่าพิสูจน์แล้ว (2) assert **ข้อสมมติ** (ข้อมูลเป็นรูปที่เราคิด) ไม่ใช่แค่ยอดรวม — ยอดรวมที่ถูกด้วยเหตุผลผิดจะเปลี่ยนเป็นผิดในวันที่สมมติฐานพัง (3) เทสต์ boundary ของช่วงเวลาให้ **derive วันที่จาก DB** (`_thai_day_of_latest_tx` อ่าน `created_at` ของแถวล่าสุดจริง) ไม่ใช่ hardcode เดือน ไม่งั้น suite เน่าเองเมื่อข้ามเดือน
+- **Tests:** `test_finance_budgets.py` §2 (`test_transfer_with_category_and_group_is_excluded`), §3 (`test_student_payment_does_not_leak_to_other_category`, `test_student_payment_row_has_no_category_id`), §5 (`test_adjustment_on_same_ledger_is_excluded`)
+- **Date Added:** 2026-09-13
+
+### 🎨 Frontend — `npm run format` **ไม่ปลอดภัยกับ repo นี้**: โค้ดทั้ง repo ไม่เคยถูกจัดฟอร์มด้วย Prettier ภายใต้ config ใดเลย (ไม่ใช่แค่เรื่อง `semi`) ⇒ rewrite 67 ไฟล์เสมอ
+- **Context/Problem:** รัน `npm run format` (= `prettier --write src/`) ตามคำสั่งใน `CLAUDE.md` แล้ว diff ระเบิดเป็น **67 ไฟล์ / +4,098 −2,665 บรรทัด** ทั้งที่งานจริงแตะ 4 ไฟล์ ⇒ ถ้า commit ตามไป จะได้ PR ที่รีวิวไม่ได้เลย และกลบการเปลี่ยนแปลงจริงของฟีเจอร์
+- **Root Cause (วัดใหม่ 2026-09-13 — คำอธิบายเดิมไม่ครบ):** เดิมสรุปว่าเกิดจาก `"semi": false` ใน `.prettierrc.json` ขัดกับโค้ดที่ใช้เซมิโคลอน **ซึ่งจริงแค่บางส่วน** — วัดด้วย `prettier --check` จริงแล้วพบว่า **67 ไฟล์ต่างกันทั้งที่ `semi: false` และ `semi: true`** (และ 72–73 ไฟล์เมื่อสลับ quote / `printWidth`) ⇒ เนื้อแท้คือ **โค้ดทั้ง repo ไม่เคยถูกจัดฟอร์มด้วย Prettier ภายใต้ config ใดเลย**: บรรทัดยาวเกิน `printWidth: 100`, การห่อ `(await api.get(...)) as unknown as T` ถูกเขียนเป็นบรรทัดเดียว ฯลฯ ⇒ **ไม่มีค่า config ไหนที่ทำให้ diff เป็นศูนย์**
+  - และ **ไม่มี CI gate ใดรัน `prettier --check`** (`frontend/.github/workflows/deploy.yml` ไม่แตะ prettier) ⇒ ไม่มีแรงกดดันให้จัดฟอร์ม และไม่มีอะไรพังถ้าไม่จัด
+- **Correct Pattern/Solution (สิ่งที่ทำจริงรอบนี้):**
+  1. **ไม่จัดฟอร์มทั้ง repo** — 4,000 บรรทัดของ churn ล้วน ๆ บน branch ที่มีงานฟีเจอร์ค้างอยู่ = แลกไม่คุ้ม (ถ้าจะทำ ต้องเป็นคอมมิตแยกตอน branch ว่าง)
+  2. แก้ค่าที่ **ผิดข้อเท็จจริง** ข้อเดียว: `frontend/.prettierrc.json` → `"semi": true` (โค้ดจริงใช้เซมิโคลอน 100%) — ลด diff ได้บางส่วน ไม่ได้ทำให้เป็นศูนย์
+  3. เติมคำเตือนที่ **จุดที่คนจะไปเจอ**: `CLAUDE.md` ข้างบรรทัด `npm run format` + `frontend/README.md`
+  4. เติม `node_modules/` ใน `.gitignore` ที่ราก (กัน `npx` ที่รากสร้าง `node_modules/.cache/prettier/` โผล่มาเป็น untracked)
+  - ถ้าจำเป็นต้องจัดฟอร์ม **ไฟล์เดียว** ให้ override flag: `npx prettier --write --semi true <file>` (flag ชนะ config)
+  - ถ้า diff หลุดไปแล้ว ให้ `git stash push -- <path>` (กู้คืนได้ ต่างจาก `git checkout --` ที่ทิ้งถาวร); ⚠️ `git checkout -- <dir>` ถูก permission classifier บล็อกโดยชอบ เพราะทิ้งงานที่ไม่มีที่อื่นเก็บ
+- **Rule:** (1) รัน formatter ทั้งโปรเจกต์ = การเปลี่ยนแปลงที่ต้อง **ขออนุญาตก่อน** ไม่ใช่ขั้นตอนปกติของงานฟีเจอร์ (2) `diff --stat` ที่ใหญ่ผิดปกติคือสัญญาณให้หยุดดู **ก่อน** commit ไม่ใช่หลัง (3) สไตล์ที่ต้องยึดคือ **สไตล์ของโค้ดจริง** ไม่ใช่สไตล์ใน config (4) **ก่อนสรุปว่า config ตัวไหนผิด ให้วัดจริงก่อน** — รัน `npx prettier --check` กับ config ผู้สมัครแต่ละตัวแล้วนับจำนวนไฟล์ อย่าเดาจากการอ่านโค้ดไม่กี่บรรทัด (บทเรียนนี้สรุปผิดมาแล้วรอบหนึ่งเพราะเดา)
+- **Tests:** ไม่มีเทสต์อัตโนมัติ — ตรวจด้วย `npx prettier --check "src/**/*.{ts,vue}"` จาก `frontend/` และ `git diff --stat -- frontend/` ว่าจำนวนไฟล์ตรงกับที่ตั้งใจแตะ
+- **Date Added:** 2026-09-13
+
+### 🔢 Finance — เลขรันเอกสารต้องมาจาก `ON CONFLICT DO UPDATE ... RETURNING` ไม่ใช่ `MAX(seq)+1` และต้อง **เก็บ** ไม่ใช่ **คำนวณ**
+- **Context/Problem:** F3 ต้องออกเลขใบเสร็จ `REC-2569-0001` ต่อห้อง/ต่อปี พ.ศ. แบบไม่ซ้ำแม้มีคำขอพร้อมกัน สองทางที่ดูใช้ได้คือ `SELECT MAX(seq)+1` แล้ว INSERT หรือ `SELECT ... FOR UPDATE` แล้วค่อย INSERT — ทั้งคู่มีช่วงเวลา (read-then-write) ที่คำขออื่นแทรกได้ ⇒ เลขซ้ำ ⇒ `UniqueViolationError` กลายเป็น 500 บนเอกสารการเงิน
+- **Root Cause:** `MAX(seq)+1` เป็น read-modify-write ที่ **ไม่มีอะไรล็อก** ระหว่างสองขั้น — สองทรานแซกชันที่อ่าน `MAX` พร้อมกันจะได้ค่าเดียวกันแล้ว INSERT ชนกัน สิ่งที่ต้องได้คือ "การจอง" ที่อะตอมมิก ซึ่ง PostgreSQL ให้มาฟรีผ่าน `INSERT ... ON CONFLICT DO UPDATE` เพราะ **ตัว `DO UPDATE` ล็อกแถวเป้าหมายให้เอง**
+- **Correct Pattern/Solution:**
+  ```sql
+  INSERT INTO receipt_sequences (room_id, year_be, doc_type, last_seq)
+  VALUES ($1, $2, $3, 1)
+  ON CONFLICT (room_id, year_be, doc_type)
+  DO UPDATE SET last_seq = receipt_sequences.last_seq + 1, updated_at = CURRENT_TIMESTAMP
+  RETURNING last_seq
+  ```
+  ⇒ ไม่ต้อง `SELECT ... FOR UPDATE` นำหน้าเลย (ใส่ซ้ำ = ล็อกซ้อนโดยเปล่าประโยชน์) · PK ผสม `(room_id, year_be, doc_type)` ทำหน้าที่เป็นเป้าของ `ON CONFLICT`
+  - **ทำไมต้องเก็บตารางตัวนับ ไม่ใช่คำนวณ `ROW_NUMBER() OVER (ORDER BY paid_at)` ตอนอ่าน:** เลขที่ derive จะ **เปลี่ยนย้อนหลังทั้งชุด** ทันทีที่มีการ revert รายการก่อนหน้า (`revert_transaction` ล้าง `paid_at`/`paid_amount`/`transaction_id` ของบิล) ⇒ ใบเสร็จที่พิมพ์แจกไปแล้วเปลี่ยนเลข = เอกสารทางบัญชีใช้ไม่ได้
+- **Rule:** (1) ตัวนับที่ต้องไม่ซ้ำและต้อง "จอง" ให้ใช้ upsert-returning หรือ sequence — ห้าม `MAX+1` (2) ตัวนับที่ **ห้ามเปลี่ยนย้อนหลัง** ต้อง persist ไม่ใช่ derive (3) ยอมรับ "เลขที่ถูกใช้ฟรี" เมื่อแพ้การแข่งขันได้ (ไม่ต่อเนื่องแต่ไม่มีผลทางบัญชี) ดีกว่ารอ lock ให้ช้า
+- **Tests:** `backend/tests/test_finance_receipts.py` §3 (`test_five_receipts_get_five_distinct_sequential_numbers` — 5 ใบได้ `0001..0005` และ `last_seq == 5`) และ §5 (`test_year_sequences_are_independent_per_buddhist_year` — คนละปี พ.ศ. เริ่ม `0001` ใหม่แยกกัน)
+- **Date Added:** 2026-09-13
+
+### 🧾 Finance — ใบเสร็จ **idempotent** แต่ใบแจ้งหนี้ **point-in-time** — ความไม่สมมาตรนี้ถูกเข้ารหัสไว้ในรูปทรงของ partial unique index
+- **Context/Problem:** ทั้งสองเป็น "เอกสารที่ออกให้บิลเดียวกัน" จึงดูเหมือนควรมีกฎซ้ำกัน แต่จริง ๆ ตรงข้าม: กดออกใบเสร็จซ้ำต้องได้ **เลขเดิม** (การพิมพ์ซ้ำเป็นเรื่องปกติของงานเอกสาร) ส่วนใบแจ้งหนี้ **ต้องกินเลขใหม่** เพราะยอดค้างของนักเรียนเปลี่ยนได้เมื่อจ่ายเพิ่ม ใบเดิมจึงหมดอายุตามธรรมชาติ ⇒ ถ้าใช้กฎเดียวกันทั้งคู่ จะพังข้างใดข้างหนึ่งเสมอ
+- **Root Cause:** ใบเสร็จผูกกับ **เหตุการณ์รับเงิน** (เกิดแล้วเกิดเลย ไม่เปลี่ยน) ส่วนใบแจ้งหนี้ผูกกับ **ยอดค้าง ณ เวลาหนึ่ง** (เปลี่ยนได้) — สองสิ่งนี้มี cardinality ต่อบิลไม่เท่ากัน (1 ใบต่อ 1 เหตุการณ์ vs หลายใบต่อบิล) การพยายามใช้ unique index เดียวกันจึงเป็นการฝืนความจริงของโดเมน
+- **Correct Pattern/Solution:** เข้ารหัสความต่างไว้ **ใน predicate ของ index** ไม่ใช่ใน `if` ของ service (เพราะ service มี race window):
+  ```sql
+  CREATE UNIQUE INDEX idx_finance_receipts_tx_active
+      ON finance_receipts(student_payment_id, COALESCE(legacy_transaction_id, 0), doc_type)
+      WHERE deleted_at IS NULL AND doc_type = 'receipt';   -- ⬅️ invoice ไม่อยู่ใน predicate
+  ```
+  - service ยังมี idempotency check ของตัวเอง **สองชั้น**: อ่านก่อนเขียน (คืนใบเดิม + `reused: True`, HTTP 200) และ catch `UniqueViolationError` แล้วอ่านซ้ำ (แพ้การแข่งขันเสี้ยววินาที ⇒ คืนใบที่ชนะ ไม่ใช่ error)
+  - 🔴 **กับดักของ `COALESCE(..., 0)`:** ถ้าเขียน predicate เป็น `legacy_transaction_id IS NOT NULL` ใบเสร็จของบิลที่ยืนยัน **ก่อนยุค dual-write** (ไม่มีแถว `finance_transactions` ⇒ `legacy_transaction_id` เป็น NULL) จะ **หลุดออกจาก index ทั้งที่ผูกบิลอยู่** ⇒ สองคำขอพร้อมกันสร้างใบเสร็จซ้ำได้ ต้อง normalize ด้วย `COALESCE(..., 0)` ให้คีย์มีค่าเสมอ
+  - `legacy_transaction_id` **ไม่ใช่** `student_payments.transaction_id` — ตัวหลังถูก **ทับ** ทุกครั้งที่รับงวดใหม่ จึงใช้ระบุ "งวด" ไม่ได้ (บิลผ่อน 2 งวดจะดูเหมือนมีเหตุการณ์เดียว) ⇒ เก็บ id ของแถว `finance_transactions` ของงวดนั้น ๆ
+- **Rule:** (1) ความต่างเชิงโดเมนที่ "ดูเหมือนควรเหมือนกัน" ให้เข้ารหัสใน **schema constraint** ไม่ใช่ใน service logic (2) unique index ที่ใช้กันเอกสารซ้ำต้อง normalize คีย์ให้ไม่มี NULL หลุด — และคิดถึงข้อมูลยุคก่อน migration ด้วย (3) "ออกซ้ำ" ของเอกสารการเงินต้องเป็น **200 + ใบเดิม** ไม่ใช่ 4xx (ผู้ใช้กดพิมพ์ซ้ำด้วยเหตุผลที่ถูกต้อง) (4) เทสต์ต้องยืนยัน **เจตนา** ของความไม่สมมาตร ไม่ใช่แค่พฤติกรรม
+- **Tests:** `test_finance_receipts.py` §2 (`test_reissue_returns_same_receipt_without_burning_a_number`, `test_pre_dualwrite_bill_receipt_is_also_idempotent` — อันหลังคือเคส `COALESCE`), §6 (`test_instalment_payments_produce_one_receipt_per_event` — พิสูจน์ว่า `legacy_transaction_id` อยู่ในคีย์จริง โดยออกใบของงวดแรกซ้ำหลังจ่ายงวดที่สอง), §7 (`test_invoice_is_point_in_time_and_gets_a_new_number_every_time`)
+- **Date Added:** 2026-09-13
+
+### 🗓️ Finance — ปี พ.ศ. ของเลขเอกสารต้องมาจาก **เหตุการณ์รับเงิน** ไม่ใช่ `student_payments.paid_at` (และต้องคิดเป็นเวลาไทย ไม่ใช่ UTC)
+- **Context/Problem:** ใบเสร็จต้องออกย้อนหลังได้ (ผู้ปกครองมาขอทีหลัง) ⇒ พบว่าใบเสร็จของงวดเดือน ธ.ค. 2569 ออกมาเป็นเลขปี **2570** ถ้าออกหลังจากรับงวด ม.ค. 2570 ไปแล้ว — ซึ่งผิด และไปขัดกับรายงานภาษี/สรุปประจำปี
+- **Root Cause:** `_confirm_single_payment` **ทับ** `paid_at`/`paid_amount`/`transaction_id` ของ `student_payments` ทุกครั้งที่รับเงินงวดใหม่ ⇒ `paid_at` คือ "เวลาของงวดล่าสุด" เสมอ ไม่ใช่เวลาของงวดที่กำลังออกใบเสร็จ · ซ้ำร้าย `finance_transactions.created_at` เป็น `TIMESTAMP` **naive ที่เก็บเวลา UTC** (ดูบทเรียน TZ ก่อนหน้า) ⇒ UTC+7 ทำให้รายการช่วง 17:00–24:00 UTC ตกเป็น **วันรุ่งขึ้นของไทย** ซึ่งข้ามปี พ.ศ. ได้จริง
+- **Correct Pattern/Solution:** อ่าน `finance_transactions.created_at` ของ **งวดนั้น ๆ** แล้วแปลงเป็นไทยก่อนคำนวณปี:
+  ```python
+  aware = naive_utc.replace(tzinfo=timezone.utc)      # ✅ naive → ติดป้าย UTC
+  year_be = aware.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+  ```
+  ⚠️ **ห้ามเรียก `.astimezone()` บนค่า naive ตรง ๆ** — Python จะตีเป็นเวลาท้องถิ่นของเครื่อง ⇒ ได้ปีผิดแบบเงียบ ๆ ต้อง `.replace(tzinfo=timezone.utc)` ก่อนเสมอ (รวมไว้ที่ helper เดียว `_thai_year_be`)
+- **Rule:** (1) คอลัมน์ที่ถูก **ทับ** ด้วยเหตุการณ์ใหม่ใช้เป็น "เวลาของเหตุการณ์เดิม" ไม่ได้ — ให้เก็บ id ของเหตุการณ์นั้น ๆ ไว้ต่างหาก (2) ค่าใด ๆ ที่ naive-UTC และมีผล "ข้ามปี/ข้ามวัน" ต้องผ่านการแปลงเป็นไทยก่อนตัดสิน มิฉะนั้นช่วง 7 ชั่วโมงสุดท้ายของทุกวันคือบั๊ก (3) เทสต์ขอบเขตเวลาต้องทดสอบที่ **นาทีที่เส้นแบ่งตกพอดี** ไม่ใช่กลางวัน
+- **Tests:** `test_finance_receipts.py` §5 — `@pytest.mark.parametrize` ที่ `2026-12-31 16:59 UTC` → `2569` และ `2026-12-31 17:00 UTC` → `2570` (นาทีเดียวกันเปลี่ยนปี) พร้อมเคสกลางปี/ต้นปีถัดไปเป็นตัวควบคุม
+- **Date Added:** 2026-09-13
+
+### 🖨️ PDF — ฟอนต์ไทยต้อง **ส่งไปกับ request** และต้องเป็นฟอนต์ **static** (variable font → Chromium ถอยไปวาด glyph เป็น Type 3)
+- **Context/Problem:** F3 ต้องเรนเดอร์ใบเสร็จ/ใบแจ้งหนี้เป็น PDF ที่มีสระ/วรรณยุกต์ไทยถูกตำแหน่ง เลือกสร้างที่ backend ผ่าน **Gotenberg (headless Chromium)** ไม่ใช่ `reportlab`
+- **Root Cause — สองข้อแยกกัน:**
+  1. **ทำไมไม่ `reportlab`:** ภาษาไทยที่มีตัวหาง + ไม้โท/ไม้เอกซ้อน (ญ ฎ ฐ) ต้องอาศัย **OpenType shaping engine** (harfbuzz) ในการจัดตำแหน่ง glyph — `reportlab` ไม่มี harfbuzz ⇒ วรรณยุกต์ลอยผิดตำแหน่งบนเอกสารที่ครูพิมพ์แจกจริง ส่วน Chromium มี harfbuzz ในตัว
+  2. **ทำไมต้องฝังฟอนต์เป็น base64 data URI:** Gotenberg เรนเดอร์ HTML **ใน container ของตัวเอง** ⇒ `url('file:///app/assets/fonts/...')` ไป resolve ที่ filesystem ของ **Gotenberg** ไม่ใช่ของ backend → 404 เงียบ ๆ แล้ว Chromium fallback ไปฟอนต์ที่ไม่มี glyph ไทย = เอกสารออกมาเป็นกล่องสี่เหลี่ยม (การส่งไฟล์ฟอนต์เป็น multipart ก็ได้ผล แต่ผูกกับพฤติกรรมการวางไฟล์ใน working directory ของ Gotenberg ซึ่งต่างกันตามเวอร์ชัน ⇒ data URI ตัดตัวแปรทั้งหมดทิ้ง)
+  3. 🔴 **ตัวที่พลาดง่ายที่สุด (พบจากการวัดด้วย `pdffonts` 13 ก.ย. 2026):** ใช้ `NotoSansThai-Variable.ttf` + `@font-face { font-weight: 100 900 }` แล้ว **Chromium/Skia embed ฟอนต์ตัวแปรลง PDF ไม่ได้** ⇒ ถอยไปวาด glyph เป็น **Type 3** (รูปวาด ไม่ใช่ฟอนต์) — เอกสาร **ดูปกติด้วยตา** แต่ `pdffonts` แสดง `[none] Type 3 emb yes sub no` × 11 ก้อน ไฟล์ **92 KB** และร้านพิมพ์/โปรแกรมอ่านออกเสียงไม่ยอมรับ · เปลี่ยนเป็น static 2 ไฟล์ (400/700) → `AAAAAA+NotoSansThai-Bold  CID TrueType  emb yes sub yes` ไฟล์ **17 KB** ⇒ **ต่างกัน 5.5 เท่า**
+- **Correct Pattern/Solution:** จับคู่ "ไฟล์ ↔ น้ำหนัก" ไว้ที่ constants ที่เดียว แล้วให้เทมเพลตวนสร้าง `@font-face` ต่อไฟล์:
+  ```python
+  RECEIPT_FONT_FILES = {"regular": ("NotoSansThai-Regular.ttf", 400),
+                        "bold":    ("NotoSansThai-Bold.ttf", 700)}
+  ```
+  ```html
+  {% for f in font_faces %}
+  @font-face { font-family: '{{ font_family }}'; src: url('{{ f.uri }}') format('truetype');
+               font-weight: {{ f.weight }}; font-style: normal; font-display: block; }
+  {% endfor %}
+  ```
+  ⇒ **เพิ่ม/ลดน้ำหนักต้องเพิ่มไฟล์** ไม่ใช่ใส่ `font-weight: <ช่วง>` · ทุก `@font-face` ใช้ family name เดียวกันแล้วแยกด้วย `font-weight` (ถ้าไม่มีไฟล์ของน้ำหนักที่ใช้ Chromium จะ **synthesize** ตัวหนาเอง → สระ/วรรณยุกต์เพี้ยน) · ตั้ง `_MARGINS` ของ Gotenberg เป็น `0` ให้ CSS ในเทมเพลตเป็นแหล่งเดียวของระยะขอบ (ไม่งั้นได้ระยะขอบสองชั้น ~26 มม. และแก้ที่เทมเพลตไม่เห็นผล)
+- **Rule:** (1) service ที่เรนเดอร์ HTML ต้องได้ "ทุกอย่างที่ต้องใช้" ไปกับ request — ห้ามพึ่งไฟล์ในเครื่องของ service นั้น (2) ฟอนต์สำหรับ PDF: **static per-weight เท่านั้น** (3) อย่าตัดสินคุณภาพ PDF ด้วยตา — ต้องดู `pdffonts` (4) งานเอกสารที่พิมพ์จริง ให้ rasterize เป็น PNG แล้ว **อ่านภาพ** ด้วย — บั๊ก "ป้ายชนตัวเลข" และ "ใบแจ้งหนี้ใช้ถ้อยคำของใบเสร็จ" เจอด้วยวิธีนี้เท่านั้น ไม่มี assertion ไหนจับได้
+- **Tests:** `test_finance_receipts.py` §11 — mock `html_to_pdf` แล้วตรวจ HTML ที่ส่งออก (มี `data:font/ttf;base64,` ครบ 2 น้ำหนัก + คำอ่านจำนวนเงิน + ไม่เหลือ `{{`) · เทสต์จริง 1 ตัวที่ `skip` เมื่อ `gotenberg_configured()` เป็น `None` (ค่า default คือ `localhost`) และ **assert ว่ามี `/FontFile2` อยู่จริง** เพื่อกันการถอยกลับไปเป็น Type 3
+- **Date Added:** 2026-09-13
+
+### 🧪 PDF — `grep /FontFile2` ในไฟล์ PDF ดิบ ๆ ได้ **false negative** เพราะ PDF 1.5+ บีบอัด dictionary ไว้ใน object stream (และ Skia เขียน ToUnicode เป็น `bfrange`)
+- **Context/Problem:** เขียนสคริปต์ตรวจว่าฟอนต์ไทยถูกฝังจริงหรือไม่ด้วยการค้น `b"/FontFile2"` ในไบต์ของ PDF ⇒ ได้ **0** ทั้งที่ไฟล์มีฟอนต์ฝังอยู่จริง ทำให้เกือบสรุปผิดว่าฟอนต์ไม่ได้ฝัง และเกือบ "แก้" โค้ดที่ถูกอยู่แล้ว
+- **Root Cause:** PDF 1.5+ เก็บ **object dictionary** ไว้ใน *object stream* ที่บีบอัดด้วย FlateDecode ⇒ `/FontFile2`, `/BaseFont` ไม่ปรากฏในไบต์ดิบ · อีกกรณีที่เจอพร้อมกัน: การ parse `ToUnicode` CMap ด้วย regex `<x> <y>` (แบบ `bfchar`) **นับอักษรไทยขาด** เพราะ Skia เขียนช่วง glyph ที่ติดกันเป็น **`bfrange`** (`<0001> <000A> <0E01>`) ไม่ใช่คู่ทีละตัว ⇒ ตัวอักษรอย่าง `ำ` (U+0E33) อยู่ใน range จึง "หาย" จากผลนับ
+- **Correct Pattern/Solution:** คลาย zlib ของทุก stream แล้วค่อยค้น (ดู `_pdf_has_embedded_truetype` ใน `test_finance_receipts.py`) และสำหรับ CMap ให้ parse **ทั้ง** `beginbfchar/endbfchar` และ `beginbfrange/endbfrange` · **ตัวตัดสินสุดท้ายคือ `pdftotext -enc UTF-8`** ไม่ใช่ regex ของเราเอง (ยืนยันว่า U+0E33 ถูกเก็บ และรูป decomposed `U+0E4D U+0E32` ไม่ปรากฏ) · และอย่าตัดสินจาก **ขนาดไฟล์**: Chromium **subset** ฟอนต์ ⇒ PDF เล็ก (17–20 KB) เป็นเรื่องปกติ
+- **Rule:** (1) อย่า grep โครงสร้างไฟล์ที่ระบุว่าบีบอัดได้ — คลายก่อน (2) regex ที่ "นับได้น้อยกว่าจริง" อันตรายกว่า regex ที่ error เพราะมันให้ข้อสรุปที่ผิด (3) ใช้เครื่องมือมาตรฐาน (`pdffonts`/`pdftotext`) เป็นผู้ตัดสินเมื่อมี — เราไม่ต้องเขียน parser ของตัวเอง (4) ขนาดไฟล์ไม่ใช่หลักฐานว่าฟอนต์ฝังหรือไม่
+- **Tests:** `_pdf_has_embedded_truetype()` ใช้ในเทสต์จริงของ §11 · helper `_assert_tz_aware_iso()` ในไฟล์เดียวกันกันอีกกับดักหนึ่ง (Pydantic v2 เขียน UTC เป็น `Z` ไม่ใช่ `+00:00` — ที่ต้องกันคือกรณีหลุดเป็น naive ซึ่ง JS จะตีเป็นเวลาเบราว์เซอร์)
+- **Date Added:** 2026-09-13
+
+### 🧾 ใบเสร็จผูกกับ **งวดรับเงิน** ไม่ใช่ **บิล** — "ออกใบเสร็จทั้งหมด" จึงข้ามใบของงวดก่อนหน้าไป
+- **Context/Problem:** ตอนผูกปุ่มออกใบเสร็จในหน้ารายละเอียดโปรเจกต์ (F3) ต้องเลือกว่า `ReceiptIssueRequest` จะส่ง `transaction_id` ไปด้วยหรือไม่ ถ้าไม่ส่ง backend จะเลือก **งวดรับเงินล่าสุด** ของบิลนั้น (`_resolve_event` คืน `events[-1]`) ⇒ บิลที่ผ่อนจ่าย 500 + 500 แล้วกด "ออกใบเสร็จทั้งหมด" จะได้ **ใบเดียว** (ของงวดที่ 2) ส่วนใบของงวดแรก (500 บาท) จะไม่มีใครออกให้ และ **ไม่มีสัญญาณเตือนใด ๆ** ว่าขาด
+- **Root Cause:** `student_payments` 1 แถว = 1 บิล แต่ 1 บิลมีได้หลาย **เหตุการณ์รับเงิน** (`finance_transactions` แถวละงวด ซึ่งเป็นตัวที่ partial unique index `(student_payment_id, COALESCE(legacy_transaction_id,0), doc_type)` ใช้กันซ้ำ) ⇒ "ใบเสร็จ 1 ใบ : 1 เหตุการณ์รับเงิน" ไม่เท่ากับ "1 บิล" · และ frontend **มองไม่เห็น** ว่าบิลหนึ่งมีกี่งวด เพราะ `CollectionStatus.students[]` ให้มาแค่ `paid_amount` สะสม — นับงวดจาก `paid_amount` ไม่ได้ (บิลที่จ่ายครบครั้งเดียวกับบิลที่ผ่อนสองครั้งมี `paid_amount` เท่ากันได้)
+- **Correct Pattern/Solution:** รอบนี้เลือก **ไม่ส่ง `transaction_id`** (พฤติกรรมที่ต้องการ 90% ของเคส: บิลจ่ายครั้งเดียว) และกันความเสียหายด้วยการที่ใบเสร็จเป็น **idempotent** — กดซ้ำไม่กินเลข ไม่ทำข้อมูลเพี้ยน ⇒ ข้อผิดพลาดที่เป็นไปได้คือ "ขาดใบ" ไม่ใช่ "ใบซ้ำ" ซึ่งกู้คืนได้ · การออกใบของงวดเก่าเป็นการ**เพิ่มความสามารถ** ต้องมี endpoint list งวดรับเงินของบิลก่อน (`GET /finance/payments/{id}/events`) แล้วให้ผู้ใช้เลือก — **ยังไม่ได้ทำ** · ระบุข้อจำกัดนี้ไว้ใน docstring ของ `CollectionDetail.vue` ไม่ใช่ปล่อยเป็นความรู้ในหัว
+- **Rule:** (1) เมื่อ "1 ใบเอกสาร : 1 เหตุการณ์" ให้ตรวจก่อนว่า frontend มองเห็น "เหตุการณ์" หรือเห็นแค่ "ยอดสะสม" — ถ้าเห็นแค่ยอดสะสม แปลว่ายังเลือกเหตุการณ์ไม่ได้ (2) ออกแบบให้ **idempotent ฝั่งที่กดซ้ำได้** เพื่อให้ข้อผิดพลาดที่เหลือเป็นแบบ "ขาด" (กู้คืนได้) ไม่ใช่ "เกิน" (แก้ยาก) (3) ข้อจำกัดที่รู้ตัวต้องเขียนเป็นคอมเมนต์/เอกสารที่จุดที่คนจะไปเจอ ไม่ใช่รอให้มีคนถาม
+- **Tests:** `test_finance_receipts.py` §8 (ผ่อนชำระ 500+500 → ได้ 2 ใบ โดยใบที่ 2 มาจากการส่ง `transaction_id` เอง) และ §2 (ออกซ้ำ → `reused: True` เลขเดิม) — สองเทสต์นี้คือหลักฐานว่า "ขาดใบ" เป็นความจริง ไม่ใช่ความเข้าใจผิด
+- **Date Added:** 2026-09-13
+
+### 🔒 ล็อกสองทรัพยากรคนละระดับ = deadlock ที่กลายเป็น **500** เพราะ asyncpg โยน exception ที่ router ไม่รู้จัก
+- **Context/Problem:** `_issue_one` (F3) ล็อก (ก) แถว `student_payments` ของบิลนั้นผ่าน `FOR UPDATE OF SP` ใน `_load_payment` และ (ข) แถว `receipt_sequences` ของ `(ห้อง, ปี, ชนิด)` ซึ่ง **ใช้ร่วมกันทุกใบของห้อง/ปีนั้น** — ลำดับการล็อก "สลับกันได้" ระหว่างสองคำขอ ทำให้เกิด `DeadlockDetectedError` (40P01) แล้วผู้ใช้เห็น **500** ซึ่งแปลว่า "โค้ดเราพัง" ทั้งที่ระบบทำงานถูก · ที่แย่กว่านั้น: ถ้า `issue_receipts_batch` เป็นผู้แพ้ **ใบทั้ง 20 ใบ rollback หมด** ทั้งที่ผู้ใช้แค่กดปุ่มเดียว
+- **Root Cause:** สองเส้นทางเข้าถึงทรัพยากรคู่เดียวกันในลำดับตรงข้ามกัน — batch ยึดบิล P1 แล้วยึด sequence ไว้จนจบ transaction ขณะที่คำขอเดี่ยวของ P5 ยึดบิล P5 แล้วไปรอ sequence ⇒ batch ไปต่อที่ P5 แล้วไปรอ P5 ที่คำขอเดี่ยวยึดอยู่ = วนกลับมาที่เดิม · และ `DeadlockDetectedError` **ไม่อยู่ในรายการ `except` ของ router** ⇒ หลุดเป็น 500
+- **Correct Pattern/Solution:** บังคับให้ **"ลำดับการล็อก" เป็นลำดับเดียวเสมอ** ด้วย `pg_advisory_xact_lock` บน `room_id` เป็น **การกระทำแรก** ก่อนแตะแถวใด ๆ:
+  ```python
+  _ISSUE_LOCK_NAMESPACE = 0x52454350          # 'RECP' — อ่านออกว่าเป็นของ receipt
+  await conn.execute("SELECT pg_advisory_xact_lock($1, $2)", _ISSUE_LOCK_NAMESPACE, target_room_id)
+  ```
+  ⇒ เอาลำดับที่สลับได้ออกไป **ทั้งคลาส** ไม่ใช่แก้ทีละคู่ · `_xact_` ปล่อยเองเมื่อจบ transaction และ **เรียกซ้ำใน transaction เดียวกันไม่บล็อก** ⇒ batch ที่เรียกในลูปได้ล็อกครั้งเดียวที่ item แรกแล้วถือไปจน commit · namespace เป็นเลขคงที่ของโมดูล ไม่ใช่ค่าที่ derive จากข้อมูล
+- **Rule:** (1) ถ้าโค้ดล็อกมากกว่าหนึ่งแถวใน transaction เดียว **ต้องเขียนลำดับการล็อกให้เป็นลำดับเดียวเสมอ** แล้วใส่คอมเมนต์ "ห้ามย้ายตำแหน่งนี้" กำกับ (2) advisory lock คือเครื่องมือจัดลำดับ **ระดับธุรกิจ** (ต่อห้อง) ไม่ใช่ระดับแถว — ใช้เมื่อทรัพยากรที่แย่งกันเป็น "ตรรกะ" ไม่ใช่แถวเดียว (3) exception ของ DB ที่ไม่อยู่ใน `except` ของ router จะกลายเป็น 500 เสมอ ⇒ ต้องรู้ว่า driver โยนอะไรได้บ้าง (4) ราคาที่จ่ายคือการ serialize การออกเอกสาร "ต่อห้อง" ซึ่งแทบไม่ต่างจากเดิมเพราะแถว sequence serialize อยู่แล้ว — และการออกเอกสารคือคนกด ไม่ใช่ bulk job
+- **Tests:** `test_finance_receipts.py` §1/§6 (batch 20 ใบ + คำขอเดี่ยวปนกัน) · **ยังไม่มีเทสต์ที่ยิงพร้อมกันจริงเพื่อบังคับ deadlock** — เป็นเทสต์ที่ต้องใช้สอง connection และยอมรับความ flaky ⇒ กันด้วยการออกแบบ + คอมเมนต์อธิบายกลไกแทน
+- **Date Added:** 2026-09-13
+
+### 🚧 `f"{seq:04d}"` **ไม่ error** เมื่อเกิน 9999 — มันกว้างขึ้นเอง แต่ path param ที่ผูกกับ pattern 4 หลักจะปฏิเสธตลอดกาล
+- **Context/Problem:** เลขเอกสาร `RECEIPT_NO_TEMPLATE = "{prefix}-{year_be:04d}-{seq:04d}"` และ `RECEIPT_NO_PATTERN = r"^[A-Z]{3}-\d{4}-\d{4}$"` ซึ่งเป็น **path param** ของ `GET /finance/receipts/{receipt_no}` และ `/pdf` ⇒ ใบที่ 10000 จะ INSERT สำเร็จและโผล่ในทะเบียน แต่เปิดดู/พิมพ์ซ้ำ **ไม่ได้ตลอดกาล (422)** — เอกสารที่ออกให้ผู้ปกครองไปแล้วเปิดกลับไม่ได้
+- **Root Cause:** format spec `04d` เป็น **ความกว้างขั้นต่ำ** ไม่ใช่ขีดจำกัด ⇒ 10000 กลายเป็น `"10000"` (5 หลัก) โดยไม่มี exception ใด ๆ · และไม่มีใครตรวจว่าค่าที่จะเก็บลง DB ยัง match กับ pattern ที่ route ใช้อยู่หรือไม่ ⇒ สองที่นี้ **ผูกกันด้วยจำนวนหลัก** แต่ไม่มีอะไรบังคับให้ตรงกัน
+- **Correct Pattern/Solution:** เพดานต้องเป็น **ค่าคงที่ที่มีชื่อ + คอมเมนต์อธิบายว่าใครผูกกับมัน** และต้อง **raise ใน transaction เดียวกับการจองเลข** เพื่อไม่ให้เลขถูกเผา:
+  ```python
+  RECEIPT_SEQ_MAX = 9999
+  RECEIPT_SEQ_OVERFLOW_MSG = ("เลขเอกสารของปีนี้เต็มแล้ว (ครบ 9999 ฉบับ) — กรุณาติดต่อผู้ดูแลระบบ "
+                              "เพื่อขยายรูปแบบเลขเอกสารก่อนออกฉบับต่อไป")
+  ...
+  if seq > RECEIPT_SEQ_MAX:
+      raise ValueError(RECEIPT_SEQ_OVERFLOW_MSG)   # raise ใน txn ⇒ last_seq rollback กลับ
+  ```
+  และ **เทสต์ต้องผูกสองที่นี้เข้าด้วยกัน**: ออกใบที่ seq = `RECEIPT_SEQ_MAX` แล้ว `GET` ด้วยเลขนั้นจริง (ไม่ใช่แค่ `re.fullmatch` กับ pattern) ⇒ ถ้ามีใครขยับเพดานขึ้นโดยไม่แก้ pattern เทสต์จะ fail ทันที
+- **Rule:** (1) format spec ไม่ใช่ validation (2) เมื่อค่าหนึ่งถูกใช้ทั้ง "สร้าง" และ "ตรวจ" ต้องมีเทสต์ที่รัน **เส้นทางจริง** ผ่านทั้งสองทาง (3) `raise` หลังจองเลขต้องอยู่ใน transaction เดียวกันเสมอ ไม่งั้นเลขถูกเผา (4) ข้อความ error ต้องบอก **สิ่งที่ผู้ใช้ทำต่อได้** ("ติดต่อผู้ดูแลระบบ") ไม่ใช่แค่บอกว่าผิด
+- **Tests:** `test_finance_receipts.py` §12 — `test_doc_number_overflow_is_rejected_and_does_not_burn_the_number` (400 + `last_seq` ยังเป็น 9999) คู่กับ `test_the_last_available_seq_is_still_openable_by_its_doc_number` (seq 9999 เปิดผ่าน route จริงได้ 200)
+- **Date Added:** 2026-09-13
+
+### 📄 เอกสาร "point-in-time" ต้องใช้วันที่ **ออกเอกสาร** ไม่ใช่เวลาของเหตุการณ์ล่าสุด (`paid_at` ถูกทับทุกงวด)
+- **Context/Problem:** ใบแจ้งหนี้ (F3) ส่ง `event_at = pay["paid_at"]` เข้าไปคำนวณปี พ.ศ. ของเลขเอกสาร ⇒ บิลที่ผ่อนจ่ายไว้เมื่อปลายปีก่อน แล้วออกใบแจ้งหนี้เมื่อต้นปีนี้ ได้เลข `INV-**2569**-0001` ทั้งที่เอกสารลงวันที่ 2570 · และที่ผู้ใช้สังเกตได้จริงคือ **ความไม่สม่ำเสมอในวันเดียวกัน**: บิลที่ยังไม่จ่ายเลย (`paid_at IS NULL`) ได้เลขของวันนี้ ส่วนบิลที่ผ่อนแล้วได้เลขของปีที่แล้ว ⇒ สองใบที่ออกห่างกันไม่กี่นาทีอยู่คนละชุดเลข ซึ่งอธิบายให้ผู้ตรวจสอบไม่ได้
+- **Root Cause:** `_confirm_single_payment` เขียน `paid_at = NOW()` **ทุกงวด** ⇒ `paid_at` คือ "เวลาของ **งวดล่าสุด**" ไม่ใช่ "เวลาของเหตุการณ์ตั้งต้น" และไม่ใช่ "เวลาของวันนี้" · ใบเสร็จกับใบแจ้งหนี้มีความหมายเชิงเวลาต่างกัน (receipt = ณ เหตุการณ์รับเงิน · invoice = ณ วันออกเอกสาร) แต่โค้ดเดิมใช้ตัวแปรเดียวกันกับทั้งสอง
+- **Correct Pattern/Solution:** แยกให้ชัดด้วย `event_at`:
+  ```python
+  # ใบเสร็จ → ปีของ "งวดที่ออกใบนั้น" (แหล่งความจริง = finance_transactions.created_at)
+  event = await cls._resolve_event(...)          # event["event_at"] = created_at ของงวดนั้น
+  # ใบแจ้งหนี้ → ไม่ผูกกับเหตุการณ์รับเงิน ⇒ event_at = None แล้วใช้ "วันนี้" ตามเวลาไทย
+  event = {"legacy_transaction_id": None, "amount": outstanding,
+           "paid_total_after": paid_amount, "event_at": None}
+  ...
+  year_be = (cls._thai_year_be(event["event_at"]) if event["event_at"] is not None
+             else datetime.now(timezone.utc).astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET)
+  ```
+  และเขียนคอมเมนต์ 🚨 "ห้ามใส่ `pay["paid_at"]`" ตรงจุดที่คนจะไปแก้
+- **Rule:** (1) ก่อนใช้คอลัมน์เวลา ให้ถามว่า "มันถูกทับด้วยอะไรได้อีก" — คอลัมน์ที่ถูก `UPDATE` ทุกครั้งที่เกิดเหตุการณ์ซ้ำ ๆ **ไม่ใช่** เวลาของเหตุการณ์ตั้งต้น (2) เอกสารสองชนิดที่ความหมายเชิงเวลาต่างกัน ต้องมีตัวแปรแยก ไม่ใช่ใช้ร่วมกันเพราะ "ค่าเดียวกันตอนที่เขียนโค้ดครั้งแรก" (3) บั๊กแบบนี้เงียบเพราะเลขยัง "ถูก" ตามรูปแบบ — จับได้ด้วยการเทสต์ **สองเคสเทียบกัน** (จ่ายแล้ว vs ยังไม่จ่าย ในวันเดียวกัน) ไม่ใช่เทสต์เคสเดียว
+- **Tests:** `test_finance_receipts.py` §12 — `test_invoice_year_be_follows_the_issue_date_not_the_last_instalment` (ผ่อนปีก่อน → ต้องได้ปีนี้) และ `test_invoice_year_is_the_same_for_a_paid_and_an_unpaid_bill` (สองบิลวันเดียวกัน → ชุดเลขเดียวกัน 0001/0002) — ทั้งคู่ **fail ถ้าใส่ `pay["paid_at"]` กลับ** (พิสูจน์ด้วย mutation แล้ว)
+- **Date Added:** 2026-09-13
+
+### 🔐 เส้นทางที่เปิดด้วย `require_member` = **สมาชิกทุกคนอ่านได้** ⇒ ข้อความ error ห้ามมี URL/hostname ภายใน
+- **Context/Problem:** เส้นทางดาวน์โหลด PDF เปิดแค่ `require_member` (นักเรียนก็เข้าได้) แต่ตอนต่อ Gotenberg ไม่ติด โค้ดเดิมส่ง `httpx` exception ที่มี `http://classroom-management_infra_gotenberg:3000` ติดขึ้นไปถึงผู้ใช้ ⇒ หลุดชื่อ container และโครงสร้างเครือข่ายภายในให้ทุกคนในห้องอ่าน — และไม่มีประโยชน์กับผู้ใช้เลยเพราะเขาแก้เองไม่ได้
+- **Root Cause:** ข่าวสารสองแบบถูกรวมเป็นข้อความเดียว — "ข้อมูลสำหรับ **สอบสวน**" (URL, status, เนื้อความจาก upstream) กับ "ข้อความสำหรับ **ผู้ใช้**" (ทำอะไรต่อได้) · มองข้ามเพราะสมองคิดถึงคนที่ debug ไม่ใช่คนที่กดปุ่ม
+- **Correct Pattern/Solution:** แยกทางกันที่จุดโยน exception — รายละเอียดจริงไปที่ `logger.error()` ฝั่ง server ส่วนข้อความที่ผู้ใช้เห็นเป็นค่าคงที่ใน constants:
+  ```python
+  logger.error("สร้าง PDF ไม่สำเร็จ: ต่อ Gotenberg ไม่ได้ (url=%s): %s", url, e)
+  raise PdfRenderError(PDF_RENDER_UNAVAILABLE_MSG) from e
+  ```
+  และ **เทสต์ต้องตรวจที่ต้นทาง** (`html_to_pdf` ตรง ๆ) ไม่ใช่ที่ข้อความของ router — ถ้าต้นทางมี URL ต่อให้ router ตัดทิ้งก็ยังหลุดทางอื่นได้ · เทสต์เดิมที่ `assert "Gotenberg" in detail` **ล็อกนโยบายเก่าไว้** ⇒ ต้องแก้ assertion นั้นด้วย ไม่ใช่ปล่อยให้ผ่าน
+- **Rule:** (1) ดู `require_member`/public ทุกครั้งก่อนตัดสินว่าใส่ข้อมูลอะไรใน error ได้ (2) แยก "log ไว้สอบสวน" ออกจาก "ข้อความถึงผู้ใช้" เสมอ — `raise X(...) from e` ไม่ได้แปลว่าห้ามเก็บ `e` ไว้ใน log (3) เทสต์ที่ assert ข้อความ error ต้อง assert **สิ่งที่ต้องไม่มี** ด้วย ไม่ใช่แค่สิ่งที่ต้องมี (4) เมื่อนโยบายเปลี่ยน ต้องตามไปแก้ assertion เก่าที่ล็อกนโยบายเดิม — ไม่งั้นมันจะกลายเป็นเทสต์ที่บังคับให้ทำผิด
+- **Tests:** `test_finance_receipts.py` §12 — `test_pdf_failure_message_carries_no_internal_url` (ตรวจทั้งสองสาขา: ต่อไม่ติด และ upstream ตอบ ≠ 200) และ `test_pdf_render_failure_maps_to_502` ที่แก้ให้ assert ว่า **ไม่มี** `Gotenberg`/`http`/`localhost`/`3000` ใน detail (เดิม assert ว่าต้องมี)
+- **Date Added:** 2026-09-13
+
+### 🏁 การ fetch ที่ผูกกับตัวกรองต้องมี "ตัวนับรุ่น" — ลำดับที่คำตอบกลับมาไม่รับประกัน
+- **Context/Problem:** หน้าจอการเงินที่ `watch(period)` แล้วยิง API (ReceiptList, BudgetList, FinancialStatements, FinanceDashboard) เปิดโอกาสให้ผู้ใช้สลับเดือน/แท็บเร็ว ๆ จนมีคำขอซ้อนกัน ⇒ คำตอบ **ไม่ได้กลับตามลำดับที่ส่ง** (โดยเฉพาะเมื่อ backend รัน 3 replica หลัง Traefik คำขอสองอันถูกคนละ worker รับ) ⇒ `items` ถูกเขียนด้วยข้อมูลของ **ตัวกรองที่ผู้ใช้ไม่ได้เลือกแล้ว** ขณะที่ป้ายบนจอบอกตัวกรองใหม่ = "ตัวเลขถูกแต่ป้ายผิด" ซึ่ง **แย่กว่าโหลดไม่ขึ้น** เพราะดูเหมือนถูก · และ `isLoading` ถูกปิดไปแล้วโดยคำตอบอันแรกที่มาถึง ⇒ ไม่มีสปินเนอร์ให้รู้ว่ายังไม่จบ
+- **Root Cause:** `load()` ถูกเรียกซ้ำได้ แต่ผลลัพธ์ไม่มีตัวระบุว่า "คำตอบนี้มาจากคำขอไหน" ⇒ คำตอบที่มาถึงทีหลังเขียนทับเสมอ ไม่ว่ามันจะเก่ากว่าหรือไม่
+- **Correct Pattern/Solution:** ตัวนับรุ่นแบบ 3 บรรทัด (`frontend/src/utils/latest.ts`) — **ต้องเช็คให้ครบทั้งสามจุด**:
+  ```ts
+  const token = guard.begin();
+  try { const rows = await Svc.get(...);
+        if (!guard.isCurrent(token)) return;      // ① ก่อนเขียนข้อมูล
+        items.value = rows; }
+  catch (e) { if (!guard.isCurrent(token)) return;  // ③ ใน catch
+              hasError.value = true; }
+  finally { if (guard.isCurrent(token)) isLoading.value = false; }  // ② ก่อนปิดสปินเนอร์
+  ```
+  ⚠️ **ห้ามใช้ `guard` ตัวร่วมกันสองตัวโหลดในหน้าเดียว** — `begin()` ของตัวหนึ่งจะทำให้อีกตัวกลายเป็น "เก่า" ทันที แล้วตัวที่ถูกฆ่าจะไม่ปิด `isLoading` ของตัวเอง ⇒ สปินเนอร์ค้างถาวร (FinanceDashboard มี 2 ตัว ⇒ 2 guard)
+  🚫 **ไม่ใช้ `AbortController`** เพราะ axios จะ reject ด้วย `CanceledError` ซึ่งปะปนกับ error จริงใน `catch` และต้องแยกแยะเพิ่ม (`axios.isCancel`) — ของจริงที่ต้องการคือ "รู้ว่าคำตอบนี้ยังเป็นตัวล่าสุดไหม" ซึ่งตัวนับทำได้ตรงกว่าและ **ไม่มี error ปลอมเกิดขึ้นเลย**
+  📌 `Promise.all` ที่เป็นชุดเดียวกัน (overview + budgets + categories) ต้องใช้ token เดียว ⇒ ทิ้งทั้งชุด ไม่ใช่ทีละตัว ไม่งั้นค่าที่เขียนลง ref ต่าง ๆ อาจมาจากคนละช่วงเวลา
+- **Rule:** (1) ทุก `load()` ที่ถูกเรียกจาก `watch` ต้องมี guard (2) เมื่อมีหลายคำขอที่ต้อง "ตรงกัน" ให้รวมเป็นชุดเดียวแล้วใช้ token เดียว (3) legacy view ที่ไม่ได้อยู่ในขอบเขตงาน — **รายงาน ไม่แก้** (4) ตัวช่วยที่ถูกใช้ 4 ที่ต้องมี unit test และ unit test นั้นต้องผ่าน mutation test
+- **Tests:** `frontend/src/utils/__tests__/latest.spec.ts` (7 เทสต์: token โมฆะ, คำขอซ้อนกลับลำดับ, สอง guard อิสระ, token 0 ต้องไม่ถูกตีว่าลัด) — **ยืนยันด้วย mutation test**: เปลี่ยน `++latest` เป็น `latest++` แล้ว **6 ใน 7 fail**
+- **Date Added:** 2026-09-13
+
+### ⏱️ `URL.revokeObjectURL` ต้อง **เลื่อนออกไปหนึ่งคาบ** — revoke ต่อจาก `click()` ทำให้ไฟล์ถูกยกเลิกเงียบ ๆ
+- **Context/Problem:** ตัวช่วย `downloadBlob` เดิม revoke blob URL ทันทีในบรรทัดถัดจาก `link.click()` ⇒ บน Firefox และ iOS Safari ไฟล์ถูกยกเลิก **โดยไม่มี exception ให้จับ** ผู้ใช้เห็น "ดาวน์โหลดสำเร็จ" แต่ไม่มีไฟล์ หรือได้ไฟล์ 0 ไบต์ ซึ่งแยกไม่ออกจาก "ระบบพัง" สำหรับครูที่รอใบเสร็จอยู่
+- **Root Cause:** `click()` แค่ **เข้าคิว** การนำทางไว้ — เบราว์เซอร์ไปอ่าน blob URL จริงแบบ **asynchronous** (FileSaver.js ใช้ `setTimeout` 40 วินาทีด้วยเหตุผลเดียวกัน) ⇒ revoke ในคาบเดียวกันคือแข่งกับเบราว์เซอร์ ซึ่งบางตัวแพ้
+- **Correct Pattern/Solution:**
+  ```ts
+  link.click(); link.remove();
+  // คืนหน่วยความจำในคาบถัดไป — ห้ามย้ายขึ้นมาเป็นบรรทัดถัดจาก click()
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+  ```
+  `setTimeout(..., 0)` ไม่ได้หน่วงให้ผู้ใช้รู้สึก — มันย้าย revoke ไปคนละ task ⇒ เบราว์เซอร์ได้เริ่มโหลดก่อนเสมอ · ยังต้อง revoke ทุกครั้งอยู่ (ไม่ revoke เลย = Blob ทั้งก้อนถูก pin ในหน่วยความจำจนกว่าจะปิดแท็บ และไฟล์การเงินใหญ่ระดับหลายร้อย KB)
+- **Rule:** (1) ทรัพยากรที่ "ปล่อยทันที" ได้ไม่ใช่ทรัพยากรที่ผู้บริโภคยังไม่เริ่มใช้ (2) ถ้า API ทำงานแบบ async แต่หน้าตาเหมือน sync ให้สงสัยว่ามีคิวอยู่เบื้องหลัง (3) บั๊กที่ "ไม่มี exception" ต้องจับด้วยการทดสอบบนเบราว์เซอร์จริง ไม่ใช่ด้วย unit test — เมื่อทำไม่ได้ ให้เขียนเหตุผลไว้ในคอมเมนต์ที่จุดนั้น
+- **Tests:** ไม่มี unit test (jsdom ไม่จำลองพฤติกรรม download ของเบราว์เซอร์) — ป้องกันด้วยคอมเมนต์อธิบายกลไกใน `frontend/src/utils/download.ts`
+- **Date Added:** 2026-09-13
+
+### 🧬 เทสต์ regression ที่ "ผ่านทันที" ไม่ใช่หลักฐาน — ต้อง **mutation test** ก่อนเชื่อ
+- **Context/Problem:** หลังรีวิวแบบ adversarial พบ 12 ประเด็นที่รอดการหักล้างและแก้ไป 8 ข้อ การเขียนเทสต์ปิดบั๊กเหล่านั้นแล้วเห็น "passed" **ไม่ได้พิสูจน์อะไร** — อาจเป็นเพราะเทสต์ไม่ได้แตะโค้ดที่แก้เลย (เช่น setup ไม่ถึงเงื่อนไข) แล้วบั๊กจะกลับมาโดยที่ CI เขียว
+- **Root Cause:** เทสต์ที่เขียนตาม "สิ่งที่โค้ดทำ" (implementation) แทน "สิ่งที่ต้องเป็น" (behavior) จะผ่านทั้งกับโค้ดที่ถูกและผิด · อ่านเทสต์แล้ว "ดูน่าเชื่อ" ไม่ใช่การวัด
+- **Correct Pattern/Solution:** **แก้โค้ดให้เป็นบั๊กเดิมกลับไป แล้วดูว่าเทสต์ fail** — ถ้าไม่ fail แปลว่าเทสต์ไม่มีฟัน:
+  ```bash
+  cp src.py /tmp/orig
+  sed -i 's/^        if seq > RECEIPT_SEQ_MAX:$/        if False:  # MUTANT/' src.py
+  pytest -k "overflow"        # ต้อง FAIL
+  cp /tmp/orig src.py         # คืนค่า แล้ว grep ยืนยันว่าไม่เหลือ MUTANT
+  ```
+  ผลรอบนี้: mutant "invoice ใช้ `pay["paid_at"]`" → **2 fail** · "ถอดเพดาน seq" → **1 fail** · "หลุด URL ใน error" → **1 fail** · ฝั่ง frontend: `++latest` → `latest++` → **6 ใน 7 fail** · (รอบก่อนหน้า: `formatThaiDateTime` ฉบับ UTC → **4 ใน 12 fail**)
+- **Rule:** (1) เทสต์ที่ปิดบั๊กต้องพิสูจน์สองทาง — **fail กับโค้ดเก่า** และ **pass กับโค้ดใหม่** (2) mutation ที่เลือกต้องเป็น **บั๊กจริงที่เคยเกิด** ไม่ใช่การสุ่มแก้โค้ด (3) คืนค่าจาก backup แล้ว `grep` ยืนยันว่าไม่เหลือ mutant ก่อนไปต่อ (4) เขียนผล mutation ไว้ในคอมเมนต์หัวข้อของเทสต์ — คนอ่านจะได้รู้ว่าเทสต์นี้มีฟันโดยไม่ต้องลองเอง
+- **Tests:** เป็น **วิธี** ไม่ใช่เทสต์ — ใช้กับทุกข้อใน `test_finance_receipts.py` §12 และ `latest.spec.ts`
+- **Date Added:** 2026-09-13
+
+### 🧬 mutation test ที่ "NOT-CAUGHT" **ไม่ได้แปลว่าเทสต์ไม่มีฟันเสมอไป** — ต้องแยก equivalent mutant ออกจากช่องโหว่จริงก่อนแก้
+- **Context/Problem:** รัน mutation harness 7 ตัวเพื่อปิดงาน void ใบเสร็จ + เลขปี พ.ศ. แล้ว **M6 ได้ NOT-CAUGHT** — ถอด `AND R.status = 'active'` ออกจาก `get_receipts` (`receipts.py:610`) แล้วเทสต์ทั้งไฟล์ยังเขียว ปฏิกิริยาแรกคือ "ต้องไปเขียนเทสต์เพิ่ม" ซึ่งนำไปสู่เทสต์ที่ seed `status='voided' AND deleted_at IS NULL` ลงตารางตรง ๆ — และมันจะ **ล้มด้วย `CheckViolationError`** เพราะ `chk_receipt_voided_is_deleted` (`init_db.py:459`) ห้ามสถานะนั้นอยู่แล้ว
+- **Root Cause:** `AND R.deleted_at IS NULL` **ลอจิกกลืน** `AND R.status = 'active'` เพราะ CHECK constraint บังคับ `status = 'active' OR deleted_at IS NOT NULL` ⇒ แถวใดที่ `deleted_at IS NULL` **จำเป็นต้อง** เป็น `active` ⇒ ไม่มีทรงข้อมูลใดในโลกที่ทำให้ clause เดียวนั้นเปลี่ยนคำตอบได้ = **equivalent mutant** (mutant ที่พฤติกรรมเหมือนเดิมทุกประการ) การฝืน "ทำให้จับได้" จึงเท่ากับทำลาย constraint ที่เป็นเสาหลักของดีไซน์ (ตัวนั้นกันสถานะ "ตันสองทาง" ที่เอกสาร `init_db.py:448-458` อธิบายไว้)
+- **Correct Pattern/Solution:** เจอ NOT-CAUGHT ให้วินิจฉัยตามลำดับนี้ **ก่อน** แตะเทสต์:
+  1. **หา invariant ที่อาจบังคับอยู่แล้ว** — `grep -n "CHECK" backend/core/init_db.py` + ดู `ALTER TABLE ... ADD CONSTRAINT` (constraint ที่เพิ่มทีหลังมักไม่โผล่ใน `CREATE TABLE`)
+  2. **ถ้ามี** ⇒ พิสูจน์ความสมมูลด้วยเทสต์ที่ **pin invariant ตัวนั้น ไม่ใช่ pin clause** — เช่น `pytest.raises(asyncpg.CheckViolationError)` เมื่อพยายามเขียน `deleted_at = NULL` ทับ `status='voided'` (พร้อมทิศตรงข้ามที่ต้องผ่าน เพื่อกัน `CHECK (false)` ที่ห้ามหมด) เทสต์แบบนี้จะมีค่าก็ในวันที่มีคนถอด constraint ออก ซึ่งเป็นวันเดียวกับที่ clause นั้น **กลายเป็นตัวจริงและห้ามถอด**
+  3. **ถ้าไม่มี** ⇒ เป็นช่องโหว่ของเทสต์จริง เขียนเทสต์เพิ่มตามปกติ
+  - ⚠️ **ห้ามลบ CHECK/constraint เพื่อให้ mutation จับได้** — นั่นคือแก้ตัววัดด้วยการทำลายสิ่งที่มันวัด
+- **Rule:** (1) `NOT-CAUGHT` เป็น **ข้อสังเกต** ไม่ใช่คำตัดสิน — ต้องวินิจฉัยก่อนเสมอ (2) ทุกครั้งที่สรุปว่า "สมมูล" ต้องมีเทสต์ที่ pin **เหตุผล** ไว้ ไม่งั้นวันหน้าจะไม่มีใครรู้ว่าทำไมถึงปล่อยผ่าน (3) รายงาน mutation ต้องแยกสามสถานะให้ชัด — `CAUGHT` / `NOT-CAUGHT (สมมูล · พร้อมหลักฐาน)` / `NOT-CAUGHT (ช่องโหว่จริง)` — สองอย่างหลังห้ามรายงานรวมกัน
+- **Tests:** `test_voided_receipt_can_never_stay_un_soft_deleted` (`test_finance_receipts.py`)
+- **Date Added:** 2026-09-14
+
+### 🔁 "แก้เสร็จแล้ว" ≠ "แก้ครบ" — จุดที่รายงานมายกมา 1 จุด มักมีพี่น้องอีก N จุดที่ไม่มีใครพูดถึง
+- **Context/Problem:** รอบนี้มี **สามงานที่ปิดไปแล้วแต่ยังไม่ครบ** และทั้งสามมีรูปเดียวกัน: รายงานชี้จุดเดียว แต่กลไกเดียวกันปรากฏซ้ำในที่อื่น (ก) งาน "ปิดช่อง leaks URL ของ Gotenberg" แก้ไป **2 จุดจาก 5 จุด** — อีก 3 จุด (`_font_data_uri`, `_get_template` 2 สาขา, `html_to_pdf` กรณีเนื้อหาว่าง) ยังคงส่ง path ไฟล์สัมบูรณ์บนเซิร์ฟเวอร์หรือชื่อ service ภายในถึงสมาชิกห้องทุกคน (ข) งาน "เลื่อน `revokeObjectURL`" แก้ที่ตัวช่วยกลาง แต่ยังเหลือ **2 ที่ที่เขียน anchor เอง** (ExportStudent, ActivityDetail) ซึ่งตัวหนึ่งไม่เคย `appendChild` ด้วยซ้ำ (ค) งาน "จัดลำดับการล็อก" แก้เส้นทางออกเอกสาร แต่ `batch_confirm_payments` เป็น **ตัวล็อกหลายแถวตัวที่สอง** ที่ไม่เคยเอา advisory lock เลย
+- **Root Cause:** รายงาน (จากรีวิว/adversarial verify) คือ **ตัวอย่าง ไม่ใช่สำมะโน** — มันชี้จุดที่คนเขียนรายงานบังเอิญไปเห็น · พอแก้จุดนั้นแล้วเทสต์ผ่าน ก็เกิดความรู้สึกว่า "งานนี้จบ" ทั้งที่กลไกเดียวกันยังทำงานอยู่ที่อื่น · และการสกัดตัวช่วยกลาง (helper) **ไม่ได้ย้ายผู้เรียกเดิมมาที่ตัวช่วยให้เอง** ⇒ ยิ่งอันตรายเพราะดูเหมือนงานเสร็จสมบูรณ์กว่าเดิม
+- **Correct Pattern/Solution:** หลังแก้จุดที่รายงาน ให้ **grep หา "กลไก" ไม่ใช่ "อาการ"** แล้ว enumerate ให้ครบก่อนประกาศจบ:
+  ```bash
+  grep -rn "createObjectURL\|revokeObjectURL" frontend/src/     # ต้องเหลือที่เดียว: utils/download.ts
+  grep -n "PdfRenderError(" backend/services/finance/pdf.py      # ต้องมี guard ทุกจุดที่ raise
+  grep -n "FOR UPDATE" backend/services/finance/*.py             # ทุกฟังก์ชันที่ล็อกหลายแถว
+  ```
+  แล้ว **เทสต์ต้องมีสาขาเท่าจำนวนจุด** ไม่ใช่สาขาเดียว — เทสต์ leaks ตัวนี้จึงมี 4 สาขา (ก/ข/ค/ง) และ **mutation แยกทีละสาขา** ได้ผลล้มที่บรรทัด assertion ต่างกัน (1219 / 1230 / 1243) ซึ่งเป็นหลักฐานว่าทุกสาขามีฟันจริง ไม่ใช่มีสาขาเดียวที่ทำงาน
+- **Rule:** (1) รายงานคือตัวอย่าง — งานคือ enumerate ทั้งคลาส (2) การสกัด helper ยังไม่เสร็จจนกว่า grep จะพิสูจน์ว่าเหลือผู้เรียกจุดเดียว (3) จำนวนสาขาของเทสต์ควรเท่ากับจำนวนจุดที่แก้ — ถ้าน้อยกว่า แปลว่ายังมีจุดที่ไม่มีเทสต์คุ้ม (4) งานที่ "เสร็จแล้ว" ต้องถูก re-audit ด้วยคำถาม "กลไกเดียวกันนี้อยู่ที่อื่นอีกไหม" ไม่ใช่ "เทสต์ผ่านไหม"
+- **Tests:** `test_finance_receipts.py` §12 `test_pdf_failure_message_carries_no_internal_url` (4 สาขา, mutation ผ่านทั้ง 3 สาขาที่เพิ่มใหม่) · `grep -rn "createObjectURL" frontend/src/` = 1 ไฟล์
+- **Date Added:** 2026-09-13
+
+### 💰 `DECIMAL` เปล่า ๆ = **สเกลไม่จำกัด** ⇒ ยอดต่ำกว่าสตางค์ผ่าน guard มาได้ แล้วไปชน CHECK constraint = 500
+- **Context/Problem:** `student_payments.paid_amount` ประกาศเป็น `DECIMAL` **ไม่มี `(15,2)`** (`init_db.py:283`) ⇒ เก็บ `0.004` ได้จริง · ด่านเดิม `if paid_amount <= 0` เช็ค **ค่าดิบ** ⇒ 0.004 ผ่าน · แต่ `round(0.004, 2) = 0.00` ไปชน `chk_receipt_amount_positive CHECK (amount > 0)` ⇒ asyncpg โยน `CheckViolationError` ซึ่ง **ไม่มีชั้นไหนใน router แปลง** ⇒ ผู้ใช้เห็น **500** ("ระบบพัง") ทั้งที่ปัญหาคือยอดที่กรอก และแก้เองได้ · ทิศกลับกันก็เพี้ยนเงียบ ๆ: จ่าย `100.004` → เอกสารพิมพ์ `100.00` แต่บัญชีถือ `100.004` ⇒ **ทศนิยมผีที่ไม่มีวันกระทบยอด**
+- **Root Cause:** validation เช็ค "ค่าที่รับมา" แต่ constraint ตัดสิน "ค่าที่จะถูกเขียน" — สองค่านี้ต่างกันทันทีที่มีการปัด · และ `DECIMAL` ไม่มี argument ใน Postgres **ไม่ใช่** `DECIMAL(15,2)` — มันคือ `numeric` อิสระที่เก็บ 0.004 ได้เต็มที่ (สันนิษฐานว่า "เงินต้องเป็น 2 ตำแหน่ง" แล้วไม่ตรวจ schema จริง)
+- **Correct Pattern/Solution:** ปัด **ก่อน** เช็ค แล้ว **ใช้ตัวแปรที่เช็คแล้วเขียนจริง** (ถ้าเช็คค่าหนึ่งแต่เขียนอีกค่าหนึ่ง = สองความจริงในระบบ):
+  ```python
+  document_amount = round(event["amount"], 2)
+  if document_amount <= 0:
+      raise ValueError("ยอดรับเงินน้อยกว่า 0.01 บาท จึงออกเอกสารไม่ได้ ...")
+  ...
+  INSERT INTO finance_receipts (..., amount, paid_total_after, ...)
+  VALUES (..., document_amount, round(event["paid_total_after"], 2), ...)
+  ```
+- **Rule:** (1) `DECIMAL` เปล่า ≠ `DECIMAL(p,s)` — **อ่าน precision จริงใน `init_db.py` ก่อนสรุปว่าค่าไหนเก็บได้** (2) validate ที่ "ค่าที่ constraint จะเห็น" ไม่ใช่ค่าดิบ (3) ตัวแปรที่ validate แล้วต้องเป็นตัวเดียวกับที่เขียนลง DB (4) `CheckViolationError`/`UniqueViolationError`/`DeadlockDetectedError` ไม่อยู่ใน `except` ของ router ⇒ กลายเป็น 500 ทุกตัว ต้องมี guard ฝั่งแอปเสมอ (5) ยอดที่ปัดทิ้งต้องไม่ถูกกลืนเงียบ ๆ — ถ้าปัดแล้วเปลี่ยนยอด ต้องบอกผู้ใช้ ไม่ใช่พิมพ์เอกสารไม่ตรงกับบัญชี
+- **Tests:** `test_finance_receipts.py` §9 — `test_sub_satang_amount_is_400_not_500` แบบ `@pytest.mark.parametrize` 2 สาขา: ใบเสร็จ (ผ่าน fallback `_resolve_event` ที่คืน `float(paid_amount)` ตรง ๆ) และใบแจ้งหนี้ (ผ่าน `outstanding = 1000.00 − 999.999 = 0.001`) — ยืนยัน **400** + ข้อความไทย + **ไม่มีแถวเอกสารและไม่มีการจองเลข** (ไม่มีเลขถูกเผา)
+- **Date Added:** 2026-09-13
+
+### 🔒 advisory lock ที่ครอบแค่ "เส้นทางที่กำลังดูอยู่" ไม่ได้ปิดคลาส deadlock — และ `ORDER BY` + locking clause เชื่อลำดับไม่ได้
+- **Context/Problem:** ต่อยอดจากหัวข้อ "ล็อกสองทรัพยากรคนละระดับ" ข้างบน — รอบนั้นเพิ่ม `pg_advisory_xact_lock` ในเส้นทาง **ออกเอกสาร** เท่านั้น ⇒ ยังเหลือ **ตัวล็อกหลายแถวตัวที่สอง** คือ `batch_confirm_payments` (รับเงินรวบยอด) ซึ่งล็อก `student_payments` ทีละใบ **ตามลำดับที่ผู้ใช้ส่งมา** กลางลูป และไม่เคยเอา advisory lock ⇒ สองคำขอของห้องเดียวกันที่ส่งบิลชุดเดียวกันสลับลำดับกัน (A: P1→P2, B: P2→P1) ยัง deadlock ได้ และถ้าฝั่งที่แพ้เป็น batch **ทั้งชุด rollback** · แถม `_confirm_single_payment` ต่อใบยังไปแตะ `finance_accounts` ⇒ ลำดับกลายเป็น SP1→ACC→SP2→ACC ซึ่งสลับกับคำขออื่นได้อีกชั้น
+- **Root Cause:** มอง deadlock เป็น "บั๊กของฟังก์ชันที่รายงาน" ไม่ใช่ "คุณสมบัติของ **ทุก** ฟังก์ชันที่ล็อกมากกว่าหนึ่งแถว" ⇒ ปิดช่องที่เห็น แต่ไม่ได้ enumerate ผู้ล็อกหลายแถวทั้งหมด · อีกชั้น: ทางแก้ที่ดูสะอาดคือ `SELECT ... WHERE id = ANY($1) ORDER BY id FOR UPDATE` ซึ่งเอกสาร Postgres ระบุว่า **การเรียงเกิดก่อนการล็อก** แต่ก็เตือนว่าผลลัพธ์ที่คืนอาจดูสลับที่ได้ ⇒ พฤติกรรมจริง **ขึ้นกับ plan** จึงไม่ควรใช้เป็นหลักประกันลำดับ
+- **Correct Pattern/Solution:** รวมเป็นตัวช่วยเดียวใน `base.py` ที่ **เรียงด้วย Python แล้วล็อกทีละแถว** และเรียก **ก่อนเข้าลูป** ทั้งสองเส้นทาง:
+  ```python
+  ids = sorted({int(p) for p in payment_ids if p is not None})   # เรียง + dedupe
+  for pid in ids:
+      await conn.fetchval("SELECT id FROM student_payments WHERE id = $1 FOR UPDATE", pid)
+  ```
+  ล็อกซ้ำรายใบในลูป (`FOR UPDATE OF SP` ใน `_load_payment`) เป็นการล็อกซ้ำใน transaction เดียวกัน ⇒ **ไม่บล็อก** ⇒ ไม่เหลือจุด "รอ" กลางลูปที่ทำให้ลำดับขึ้นกับ request อีก · ราคาที่จ่ายคือ round-trip เพิ่มใบละ 1 ครั้ง ซึ่งน้อยมากเทียบกับงานต่อใบในลูป (≥5 query) · และ **ต้องเขียนส่วนที่ยังไม่ปิดไว้ใน docstring ตรง ๆ**: `revert_transaction` ล็อก FT→SP ขณะที่การออกใบเสร็จล็อก SP→แล้วได้ FK `KEY SHARE` บน FT ⇒ **การกลับทิศนี้ยังไม่ถูกแก้** และการปิดทั้งคลาสต้องมี "advisory lock ต่อห้องเป็นอย่างแรกบนทุกเส้นทางที่แตะเงิน" ซึ่งเป็น **การตัดสินใจเรื่อง lock protocol** ไม่ใช่การแก้โค้ด unilateral
+- **Rule:** (1) deadlock เป็นคุณสมบัติของ **ทุก** ฟังก์ชันที่ล็อก >1 แถว — `grep -n "FOR UPDATE"` แล้ว enumerate ทุกตัว ไม่ใช่แก้ตัวที่รายงาน (2) อย่าพึ่ง `ORDER BY` คู่กับ locking clause — เอกสารเตือนว่าขึ้นกับ planner ⇒ ใช้ `sorted()` ในโค้ดที่อ่านแล้วพิสูจน์ได้ (3) เมื่อแก้ได้แค่บางส่วน **ต้องเขียนส่วนที่เหลือไว้ใน docstring** อย่าให้คนอ่านเข้าใจว่าหมดคลาส (4) เทสต์ที่พิสูจน์ "เรียงจริง" ต้องใช้ **สอง connection จริง** และยิงด้วยลำดับ **ตรงข้ามกัน** — ถ้าใช้ connection เดียวจะไม่มีการแย่งล็อกเลยและเทสต์จะผ่านตลอดกาลโดยไม่ได้พิสูจน์อะไร
+- **Tests:** `test_finance_receipts.py` §10 — `test_lock_helper_locks_in_id_order_regardless_of_caller_order` (บันทึก **ลำดับ id ที่ถูกล็อก** ผ่าน connection ปลอม ⇒ ส่ง `[7,3,9,3,None]` และ `[9,7,3]` ต้องได้ `[3,7,9]` ทั้งคู่ · **ล้มทันทีถ้าถอด `sorted()` ออก — ยืนยันด้วย mutation แล้ว**) · `test_lock_helper_actually_takes_row_locks` (กันถอยกลับเป็น no-op: `FOR UPDATE NOWAIT` จากอีก connection ต้องโยน `LockNotAvailableError`) · `test_batch_confirm_payments_uses_the_same_canonical_lock_order` (ด่านเชิงโครงสร้าง — จงใจอ่านซอร์ส เพราะ "ล็อกก่อนอ่าน" สังเกตจาก HTTP ไม่ได้: `TestClient` เป็น sync และเราแทรก `lock_timeout` เข้า connection ของแอปไม่ได้ · **ล้มเมื่อลบคำสั่งล็อก — ยืนยันด้วย mutation แล้ว**)
+
+  ⚠️ **กับดักที่เจอจริงในรอบนี้ — เทสต์ที่ยิงสอง connection "ดูน่าเชื่อ" แต่ไม่มีฟัน**: เวอร์ชันแรกใช้สอง connection ยิงพร้อมกันด้วยลำดับตรงข้าม แล้วถือว่าถ้าไม่มี `DeadlockDetectedError` แปลว่าเรียงถูก · **mutation เปิดโปงว่ามันผ่านทั้งที่ถอด `sorted()` ออก** เพราะฝั่งแรกยึดล็อกครบทั้งสองใบ *ก่อน* ฝั่งที่สองเริ่ม ⇒ ฝั่งที่สองแค่ "รอ" แล้วไปต่อ ไม่มีทางเกิด deadlock ไม่ว่าโค้ดจะเรียงหรือไม่ · อีกจุด: ด่านที่เช็ค `"sorted(" in inspect.getsource(...)` **ผ่านเพราะไปเจอคำว่า `sorted()` ใน docstring** ไม่ใช่ในโค้ด ⇒ เทสต์เชิงซอร์สต้องจับ **บรรทัดที่เรียกจริง** (regex ผูกกับต้นบรรทัด) ไม่ใช่ค้นสตริงทั้งบล็อก
+- **Date Added:** 2026-09-13
+
+### 🏁 หน้าเดียวอาจต้องมี **หลาย guard** และ guard ต้องครอบ `catch`/`finally` ด้วย ไม่ใช่แค่ทางสำเร็จ
+- **Context/Problem:** ต่อยอดจากหัวข้อ "ตัวนับรุ่น" ข้างบน — รอบนั้นใส่ guard ให้ตัวโหลดหลักของแต่ละหน้า แต่ (ก) `DebtorList` มี **สองการโหลดอิสระ** (รายการลูกหนี้ + หนี้รายคนใน modal) ⇒ ต้องมี **2 guard** (ข) `handleClearDebt` เป็น action ที่ **await แล้วปิด modal** ⇒ ถ้าผู้ใช้ปิด/เปิด modal ใหม่ระหว่างรอ คำตอบเก่าจะเขียน `studentDebts`/`selectedPaymentIds` ทับของคนละคน แล้ว **ปิด modal ที่เพิ่งเปิด** — ซึ่งอ่านไม่ได้ว่าเกิดจากคำขอไหน
+- **Root Cause:** มอง guard เป็นเรื่องของ "การโหลดข้อมูลเข้าหน้า" ทั้งที่มันคือเรื่องของ **"คำตอบนี้ยังเกี่ยวกับสิ่งที่ผู้ใช้กำลังดูอยู่ไหม"** ⇒ ทุก side effect ที่ตามหลัง `await` ต้องถูกถามคำถามเดียวกัน รวมถึงการปิด modal และการขึ้นข้อความ error · และ `catch`/`finally` ถูกละเลยบ่อยเพราะคิดว่า "แค่ error/แค่ปิดสปินเนอร์" — ที่จริง `catch` ที่ไม่ guard จะ **ขึ้นกล่อง error ของการกระทำที่ผู้ใช้เลิกสนใจไปแล้ว** และ `finally` ที่ไม่ guard จะ **ปิดสปินเนอร์ของคำขอใหม่**
+- **Correct Pattern/Solution:** หนึ่งการโหลด = หนึ่ง guard (ห้ามใช้ร่วม — `begin()` ของตัวหนึ่งจะฆ่าอีกตัวทันที) และเช็คให้ครบ **ทั้งสามจุด** รวมถึงก่อน side effect ที่ไม่ใช่การเขียนข้อมูล:
+  ```ts
+  const token = debtGuard.begin();
+  try { const res = await Svc.getStudentDebts(...);
+        if (!debtGuard.isCurrent(token)) return;   // ก่อนเขียน studentDebts/selectedPaymentIds
+        studentDebts.value = res; }
+  catch (e) { if (!debtGuard.isCurrent(token)) return;   // ก่อน Swal.fire + ปิด modal
+              Swal.fire({ icon: 'error', ... }); }
+  finally { if (debtGuard.isCurrent(token)) isLoadingDebts.value = false; }
+  ```
+- **Rule:** (1) หนึ่งการโหลด = หนึ่ง guard เสมอ (2) ทุก side effect ที่ตามหลัง `await` ต้องถูก guard — **รวมการปิด modal และการขึ้น error** ไม่ใช่แค่การเขียนข้อมูล (3) `finally` ที่ไม่ guard จะปิดสปินเนอร์ของคำขอที่ใหม่กว่า (4) view ไม่มี unit test ในโปรเจกต์นี้ ⇒ ช่องนี้กันด้วยการรีวิว + คอมเมนต์ (เขียนไว้ตรง ๆ ว่าเป็นช่องที่ยังไม่มีเทสต์)
+- **Tests:** `frontend/src/utils/__tests__/latest.spec.ts` ครอบตัวช่วย (รวมเคส "สอง guard อิสระ") แต่ **ตัว view เองไม่มีเทสต์** — เป็นช่องที่รู้ตัวและยอมรับ
+- **Date Added:** 2026-09-13
+
+### ⏱️ (แก้คำอธิบายเดิม) `setTimeout(..., 0)` **ไม่ได้** การันตีว่าเบราว์เซอร์อ่าน URL ไปแล้ว — และ 0 ms สั้นเกินไปสำหรับไฟล์ใหญ่
+- **Context/Problem:** หัวข้อ "`URL.revokeObjectURL` ต้องเลื่อนออกไปหนึ่งคาบ" ข้างบนตั้งค่าเป็น `0` ms พร้อมคอมเมนต์ที่อ้างว่า "เบราว์เซอร์ได้เริ่มโหลดก่อนเสมอ" — **ข้ออ้างนั้นพิสูจน์ไม่ได้** · `setTimeout(..., 0)` รับประกันแค่ **ลำดับของ task** (ว่ามันไปคิวถัดไป) ไม่ได้รับประกันว่าเบราว์เซอร์ **dereference URL แล้ว** ⇒ คอมเมนต์ที่อ้างเกินหลักฐานจะถูกอ่านเป็น "ปัญหานี้ปิดแล้ว" แล้วไม่มีใครกลับมาดูอีก · และการอ้าง FileSaver.js ที่ใช้ 40 วินาทีก็เป็นการอ้างที่ผิดบริบท (40 วิของเขาคือกรณี **blob URL ถูกอ่านจากหน่วยความจำในเครื่อง** ซึ่งคนละกลไกกับ "รอให้เบราว์เซอร์เริ่มโหลด")
+- **Root Cause:** เขียนคอมเมนต์เพื่อ **ปิดประเด็น** แทนที่จะเขียนเพื่อ **บอกขอบเขตของสิ่งที่รู้** ⇒ ค่าคงที่ถูกเลือกจากความสวยงาม (0 ดูตั้งใจดี) ไม่ใช่จากการวัด
+- **Correct Pattern/Solution:** เพิ่มเป็น `1000` ms และ **เขียนคอมเมนต์ใหม่ให้ตรงกับสิ่งที่รู้จริง** — ระบุว่า `setTimeout` การันตีแค่ลำดับ task, ระบุว่าการที่เบราว์เซอร์อ่าน URL แล้วหรือยัง **พิสูจน์ตรงนี้ไม่ได้**, และระบุว่า FileSaver.js 40 วิ เป็นคนละกรณี:
+  ```ts
+  link.click(); link.remove();
+  // 1000 ms: setTimeout(0) การันตีแค่ลำดับ task ไม่ได้แปลว่าเบราว์เซอร์ dereference URL แล้ว
+  // (พิสูจน์ ณ จุดนี้ไม่ได้) — เลือก 1 วิให้ไฟล์ใหญ่มีเวลาพอ; การปิดแท็บทำให้ข้าม revoke
+  // ซึ่งไม่ใช่ leak เพราะ Blob ตายพร้อม document
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+  ```
+- **Rule:** (1) อย่าเขียนคอมเมนต์ที่อ้างการันตีซึ่งพิสูจน์ไม่ได้ — เขียนว่า **อะไรรู้ / อะไรไม่รู้** แล้วให้คนอ่านตัดสิน (2) เมื่อยกเหตุผลจากไลบรารีอื่นมา ต้องบอกว่าเป็น **คนละกรณี** ถ้าเป็น (3) ค่าคงที่ที่เลือกจากความรู้สึก ควรมีคอมเมนต์บอกว่า "ทำไมค่านี้" ไม่ใช่ปล่อยให้อ่านเป็นค่าศักดิ์สิทธิ์
+- **Tests:** ไม่มี unit test (jsdom ไม่จำลองพฤติกรรม download) — ป้องกันด้วยคอมเมนต์ที่ `frontend/src/utils/download.ts`
+- **Date Added:** 2026-09-13
+
+### 🗂️ DDL — `IF NOT EXISTS` **ไม่ได้** แปลว่า "ทำให้ตรงกับที่เขียนไว้" — มันแปลว่า "ถ้ามีแล้วก็ผ่านไป"
+- **Context/Problem:** รอบแก้ #60 ต้องเพิ่มคอลัมน์ `status`/`voided_at`/`voided_by`/`void_reason`/`event_at` ให้ `finance_receipts` และต้องเปลี่ยนความหมายของใบที่ถูกยกเลิก · ทุกตารางใน `init_db.py` เขียนด้วย `CREATE TABLE IF NOT EXISTS` และทุก index ด้วย `CREATE UNIQUE INDEX IF NOT EXISTS` ⇒ **บน DB ที่ deploy F3 ไปแล้วทั้งคู่เป็น no-op เงียบ ๆ** ⇒ คอลัมน์ใหม่ไม่ถูกเพิ่ม (`SELECT R.status` → 500 ทุกครั้ง) และ index ที่ predicate เปลี่ยนก็ยังเป็น predicate เก่า
+- **Root Cause:** อ่าน `IF NOT EXISTS` เป็น "idempotent migration" ทั้งที่มันเช็คแค่ **การมีอยู่ของชื่อ** ไม่ได้เช็ค **โครงสร้างข้างใน** · กับดักนี้เงียบสนิท: `init_db` จบด้วยข้อความ "✅ Tables & Smart Constraints Initialized Successfully" เหมือนเดิมทุกครั้ง ⇒ log บอกว่าสำเร็จทั้งที่ schema ไม่ขยับ
+- **Correct Pattern/Solution:**
+  - คอลัมน์ที่เพิ่มทีหลัง → `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` ในบล็อก "Extra Alterations" (คู่กับ `CREATE TABLE` ที่แก้ให้ตรงกัน สำหรับ DB ที่สร้างใหม่)
+  - **constraint** ที่เพิ่ม/แก้ทีหลัง → `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` (idiom เดียวกับ `users_email_key`)
+  - **predicate ของ partial unique index แก้บน DB ที่มีอยู่ไม่ได้เลย** — `CREATE UNIQUE INDEX IF NOT EXISTS` ที่ predicate ต่างจากเดิมจะ **ไม่ error และไม่แก้** ⇒ ถ้าต้องการความหมายใหม่ ต้อง **ออกแบบให้ predicate เดิมใช้ต่อได้** แทนการแก้ index
+    - 🔬 **ยืนยันด้วยการทดลองจริง (13 ก.ย. 2026)**: สร้าง index ด้วย predicate หนึ่ง แล้วรัน `CREATE UNIQUE INDEX IF NOT EXISTS` ชื่อเดิม predicate ใหม่ ⇒ ไม่ error, index ยังเป็น predicate เดิม ⇒ **ทางรอดเดียวคือไม่ต้องแก้**: เลือกตั้ง `deleted_at` คู่กับ `status='voided'` เพื่อให้ predicate เดิม (`WHERE deleted_at IS NULL ...`) กรองใบที่ยกเลิกออกให้เองโดยไม่ต้องแตะ index
+- **Rule:** (1) แก้ schema ของตารางที่ ship แล้ว = ต้องมี `ALTER` เสมอ ไม่ใช่แก้ `CREATE TABLE` (2) อย่าเปลี่ยน predicate ของ index ที่มีอยู่ — ถ้าจำเป็นจริงต้อง `DROP INDEX` แล้วสร้างใหม่ ซึ่งต้องแยกเป็นงาน migration (3) ข้อความ "success" ของ `init_db` **ไม่ได้** ยืนยันว่า schema ตรงกับโค้ด — ต้องมีเทสต์ที่เรียก endpoint จริง (suite สร้าง DB ใหม่ทุกครั้งจึงไม่จับกับดักนี้เลย)
+- **Tests:** `test_finance_receipts.py` ยิงผ่าน HTTP ทั้งไฟล์ ⇒ ถ้าลืม `ALTER` เทสต์จะไม่จับ (DB ทดสอบสร้างใหม่จาก `CREATE TABLE`) — ช่องนี้กันด้วย review + คอมเมนต์ที่ `core/init_db.py`
+- **Date Added:** 2026-09-14
+
+### 💥 `except asyncpg.UniqueViolationError` ใน explicit transaction = **ต้องมี SAVEPOINT** ไม่งั้นคำสั่งถัดไปพังเป็น 500
+- **Context/Problem:** การออกใบเสร็จมี "ด่าน idempotency ชั้นที่ 2" สำหรับกรณีแพ้การแข่งขัน — จับ `UniqueViolationError` จาก `INSERT` แล้ว **อ่านใบที่ชนะกลับมาคืน** เพื่อให้การพิมพ์ซ้ำพร้อมกันได้ใบเดิมแทน error · เทสต์ที่จำลองการแข่งจริงเปิดโปงว่าเส้นทางนี้ **พังทุกครั้ง**: `_find_existing` ในบล็อก `except` โยน `InFailedSQLTransactionError` (25P02) ซึ่ง router ไม่รู้จัก ⇒ **500** แทนที่จะได้ใบเดิมคืน ⇒ ตัวจัดการการแข่งกลายเป็นโค้ดที่ทำให้แย่ลงกว่าไม่มีมัน
+- **Root Cause:** ใน Postgres เมื่อ statement ใดล้มเหลว **transaction ทั้งก้อนถูกทำเครื่องหมาย aborted** และจะปฏิเสธทุกคำสั่งถัดไปจนกว่าจะ `ROLLBACK` — การจับ exception ฝั่ง client ไม่ได้ล้างสถานะนั้นให้ (ข้อยกเว้นเดียวคือ error ที่เกิดใน subtransaction ที่มี SAVEPOINT) ⇒ โค้ดที่ "จับ error แล้วลองอย่างอื่นต่อ" จะทำงานได้เฉพาะเมื่อห่อ statement ที่อาจล้มด้วย savepoint เท่านั้น
+- **Correct Pattern/Solution:** ห่อ **เฉพาะ statement ที่อาจชน** ด้วย `async with conn.transaction():` ซึ่งเมื่ออยู่ใน transaction ที่มีอยู่แล้ว = `SAVEPOINT` ของ asyncpg:
+  ```python
+  try:
+      async with conn.transaction():        # ← SAVEPOINT: ย้อนแค่ INSERT ไม่ใช่ทั้งก้อน
+          row = await conn.fetchrow("INSERT INTO finance_receipts ... RETURNING ...")
+  except asyncpg.UniqueViolationError:
+      raced = await conn._find_existing(...)   # ← ใช้ conn ได้แล้ว (transaction ยัง healthy)
+      if raced: return {"receipt": raced, "reused": True}
+      raise ValueError(...)
+  ```
+- **Rule:** (1) `except <DB error>` แล้ว **แตะ `conn` ต่อ** ⇒ ต้องมี savepoint เสมอ (2) `except` ที่แค่ `raise ValueError` ไม่ต้องมี savepoint เพราะ exception หลุดออกไปทำให้ transaction rollback เอง — ตรวจทั้งสามจุดในโปรเจกต์แล้ว มีเพียงจุดนี้ที่แตะ `conn` ต่อ (3) ทางเลือกที่ไม่ต้องมี savepoint เลยคือ **อ่านจาก connection ใหม่** — แต่ในกรณีนี้จะไม่เห็นแถวที่คำขออื่นยังไม่ commit ⇒ ไม่ใช้ (4) logging ในบล็อก `except` ของ service ต้องใช้ `log_conn` จาก pool ใหม่ **ไม่ใช่ `conn` เดิม** (pattern นี้ถูกต้องอยู่แล้วทุกที่ในโมดูลการเงิน)
+- **Tests:** `test_the_loser_of_the_race_gets_the_winning_receipt_not_a_500` (+ คู่กัน `test_the_room_lock_funnels_the_same_race_into_layer_one`) — **ยืนยันด้วย mutation แล้ว**: เปลี่ยน `async with conn.transaction():` เป็น `if True:` ⇒ ล้มด้วย `InFailedSQLTransactionError` (25P02) ที่ `_find_existing` ในบล็อก `except` และเทสต์คู่กันยังผ่าน (พิสูจน์ว่าสองเทสต์จับคนละเส้นทางจริง)
+- **⚠️ บทเรียนที่แถมมา (สำคัญกว่าตัว fix):** เขียนเทสต์ให้ถึงบรรทัดนี้ได้ยากกว่าที่คิด — และการพยายามเขียนมันเปิดโปงว่า **ภายใต้ lock protocol ปัจจุบัน ตัวจัดการนี้ไม่มีทางถูกเรียกจากเส้นทางในโปรเจกต์เลย**
+  - ลำดับที่ต้องเกิด: คำขอผ่าน `_find_existing` (ยังไม่เห็นแถวคู่แข่ง) → คู่แข่ง INSERT + COMMIT → คำขอ INSERT → ชน unique index
+  - แต่การ INSERT แถวลูกของ `finance_receipts` จะถือ `FOR KEY SHARE` บนแถว `student_payments` ซึ่ง **ชนกับ `FOR UPDATE OF SP`** ที่ `_load_payment` ยึดไว้ ⇒ คู่แข่งที่ยิงพร้อมกันจะไปติดที่ `_load_payment` **ก่อน** แล้วพอ commit ชั้นที่ 1 ก็อ่านเจอเอง (`reused: True` โดยไม่มีการจองเลขฟุ่มเฟือย — ดูเทสต์ `..._funnels_..._into_layer_one`)
+  - และทางที่ "กลับด้าน" (คู่แข่ง INSERT ค้างไว้ก่อน แล้วคำขอค่อยเข้าล็อกบิล) จะทำให้คู่แข่งไปติด FK lock ของคำขอ ⇒ **deadlock** ไม่ใช่ UniqueViolation
+  - ⇒ วิธีที่ deterministic ทางเดียวคือจำลอง **"ผู้เขียนที่ข้าม lock protocol"** ด้วย `SET LOCAL session_replication_role = replica` บนอีก connection (ปิด trigger ของ FK จึงไม่ยึด KEY SHARE — ไม่ได้ปิด CHECK) ซึ่งตรงกับสถานการณ์ที่ตัวจัดการนี้มีไว้กันพอดี
+  - 🔬 และบทเรียนทั่วไป: **เทสต์ที่ "จัดฉาก" ให้ถึงบรรทัดหนึ่งได้ มักเปิดโปงว่าบรรทัดนั้นตายอยู่** — อย่าเพิ่งสรุปว่าจัดฉากไม่เก่ง จนกว่าจะพิสูจน์ว่าไม่มีลำดับการล็อกใดไปถึงได้เลย (ที่นี่พิสูจน์ด้วยเมทริกซ์การชนของ row lock: `FOR KEY SHARE` ชนกับ `FOR UPDATE` เท่านั้น)
+  - ⚠️ เมื่อก่อนหน้านี้มีเทสต์ที่ "ถึงบรรทัดนี้" ได้ (`test_voided_receipt_does_not_count_as_already_issued` เวอร์ชันแรก) มันถึงได้เพราะสร้างสถานะ `status='voided'` + `deleted_at IS NULL` ซึ่ง **ขัดกับตัวกรองของ `_find_existing`** ⇒ พอเติม `chk_receipt_voided_is_deleted` ปิดสถานะนั้น ทางนั้นก็ปิดไปด้วย — คือการแก้ที่ถูกต้องแล้วทำให้โค้ดบรรทัดหนึ่ง "ตาย" อย่างหลีกเลี่ยงได้ และนั่นเป็นเหตุผลที่ต้องเขียนเทสต์ที่จำลองผู้เขียนนอกโปรโตคอลไว้ตรึงพฤติกรรมแทน
+- **Date Added:** 2026-09-14
+
+### 📤 `response_model` ตัดฟิลด์ที่ service คืนมาให้ **เงียบ ๆ** — ฟิลด์ใหม่ต้องประกาศที่โมเดล ไม่ใช่แค่ใน dict
+- **Context/Problem:** #60 ให้ `revert_transaction` คืน `voided_receipts` (เลขใบเสร็จที่ถูกยกเลิกเพราะรายการนั้น) เพื่อให้ผู้ใช้รู้ว่ากระดาษใบไหนโมฆะ ⇒ เทสต์ที่ตรวจ **body** ได้ `KeyError: 'voided_receipts'` ทั้งที่ service ใส่ค่ามาครบและ route ตอบ 200 · สาเหตุคือ route ใช้ `response_model=SuccessResponse` ซึ่งมีแค่ `status`/`message` ⇒ Pydantic **ตัดฟิลด์ส่วนเกินทิ้ง**
+- **Root Cause:** กฎ "router ต้องประกาศ `response_model` เสมอ" (เพื่อกรอง secret) ถูกจำว่าเป็นเรื่องความปลอดภัยฝ่ายเดียว — แต่ผลข้างเคียงคือมันเป็น **allowlist**: ฟิลด์ที่ไม่อยู่ในโมเดลจะหายไปโดยไม่มี warning, ไม่มี log, และ **status ยังเป็น 200** ⇒ เทสต์ที่ตรวจแค่ `status_code == 200` จะเขียวทั้งที่ข้อมูลไม่ถึงผู้ใช้เลย
+- **Correct Pattern/Solution:** สร้างโมเดลที่สืบทอดจากของเดิมแล้วเพิ่มฟิลด์ แทนการแก้โมเดลกลางที่ใช้ร่วมกับ endpoint อื่น:
+  ```python
+  class TransactionRevertResponse(SuccessResponse):
+      voided_receipts: List[str] = []
+  ```
+  แล้วเปลี่ยน `response_model` ของ route นั้น **จุดเดียว**
+- **Rule:** (1) เพิ่มฟิลด์ให้ response ของ service ⇒ **ต้องแก้/สร้าง response model ด้วย** ไม่งั้นเป็น dead payload (2) เทสต์ที่ยืนยันสัญญากับ client ต้องตรวจ **body** ไม่ใช่แค่ status (3) อย่าเติมฟิลด์เฉพาะทางลงโมเดลกลางที่ endpoint อื่นใช้ร่วม — สร้าง subclass
+- **Tests:** `test_revert_report_includes_the_voided_receipt_numbers` (ตรวจ body + audit log) — **ล้มก่อนแก้ด้วย `KeyError`**
+- **Date Added:** 2026-09-14
+
+### 🔒 สถานะที่ "ตันสองทาง" ต้องทำให้ **เกิดไม่ได้ที่ DB** (CHECK) ไม่ใช่พึ่งวินัยของคนเขียนโค้ด
+- **Context/Problem:** ระหว่างเขียนเทสต์ #60 พบว่าถ้ามีแถวที่ `status='voided'` แต่ `deleted_at IS NULL` ระบบจะ **ตันทั้งสองทาง**: partial unique index ยังนับว่ามีใบอยู่ ⇒ ออกใบใหม่ของงวดเดิมไม่ได้ (ได้ 400 "เลขเอกสารซ้ำ" ซึ่ง **โกหก** เพราะไม่มีเลขซ้ำ) และ `_find_existing` ก็ไม่คืนใบเดิมเพราะกรอง `status='active'` ⇒ ข้อความ error ชี้ผิดทางและผู้ใช้แก้เองไม่ได้
+- **Root Cause:** "voided ต้องตั้ง `deleted_at` คู่กัน" ถูกเก็บเป็น **ความเชื่อในหัวคนเขียน** (เขียนไว้ในคอมเมนต์ + docstring) · คอมเมนต์กันไม่ได้: ไม่มีเทสต์ไหนพิสูจน์ได้ว่าทุกเส้นทางเขียนทำจริง และวันหนึ่งจะมีคนเพิ่มเส้นทาง void ใหม่ที่ไม่รู้กฎนี้
+- **Correct Pattern/Solution:** เข้ารหัส invariant เป็น **CHECK constraint บังคับทิศทางเดียว**: `CHECK (status = 'active' OR deleted_at IS NOT NULL)` · ต้องคู่กับ `CHECK (status IN (...))` ตัวเดิม — สองตัวทำคนละหน้าที่ (จำกัดโดเมน vs ผูกสองคอลัมน์เข้าหากัน) · `ADD CONSTRAINT` บน DB ที่ deploy แล้วปลอดภัยเพราะคอลัมน์ `status` เพิ่งถูกเพิ่มด้วย `DEFAULT 'active'` ⇒ ไม่มีแถวเดิมที่ฝ่าฝืน
+- **Rule:** (1) ความสัมพันธ์ระหว่างคอลัมน์ที่เป็น "ต้องเป็นคู่กัน" → CHECK constraint ไม่ใช่คอมเมนต์ (2) ถ้าสถานะหนึ่งทำให้ระบบ **ตัน** และข้อความ error ชี้ผิด → นั่นคือ invariant ที่ต้องบังคับ ไม่ใช่เคสที่ต้องเขียน error message ให้ดีขึ้น (3) ก่อน `ADD CONSTRAINT` บนตารางที่มีข้อมูล ต้องตอบให้ได้ว่า **ไม่มีแถวเดิมฝ่าฝืน** ไม่งั้น deploy ล้มทั้งระบบ
+- **Tests:** `test_voided_status_without_soft_delete_is_rejected_by_the_db` (ยืนยันทั้งขาที่ต้องถูกปฏิเสธ และขาที่ถูกต้องว่าผ่าน)
+- **Date Added:** 2026-09-14
+
+### 🗓️ "วันที่ของเอกสาร" ต้องเป็น **ค่าเดียวกันกับที่มาของปีบนเลขเอกสาร** — ไม่ใช่สองนาฬิกาที่บังเอิญตรงกัน
+- **Context/Problem:** #62 กำหนดว่าใบเสร็จต้องยึด "เวลาไทย ณ วินาทีที่บันทึกการจ่ายเงิน" เป็นตัวตั้งต้นของ **ทั้ง** ปี พ.ศ. บนเลขเอกสาร **และ** วันที่ที่พิมพ์บนกระดาษ · ก่อนหน้านี้ปีมาจาก `finance_transactions.created_at` แต่วันที่พิมพ์มาจาก `issued_at` ⇒ ใบเสร็จของงวด ธ.ค. ที่ออกใน ม.ค. ได้เลข `REC-2569-xxxx` แต่บรรทัดวันที่เป็น "ม.ค. 2570" = **เอกสารขัดแย้งกับตัวเอง** และเป็นบั๊กที่ไม่มีเทสต์ไหนจับได้เพราะ `receipt_no` ยังถูกทุกตัวอักษร
+- **Root Cause:** "วันที่ของเอกสาร" ถูกคิดว่าเป็นเรื่องของ **การแสดงผล** (จึงอ่านจากเวลาที่แสดง/พิมพ์) ทั้งที่เป็นเรื่องของ **ตัวเอกสาร** (ต้องอ่านจากเวลาของเหตุการณ์) ⇒ พอสองแนวคิดนี้อยู่ในโค้ดเดียวกัน ค่าจึงมาจากคนละคอลัมน์โดยไม่มีใครสังเกต
+- **Correct Pattern/Solution:** เก็บ `event_at` เป็นคอลัมน์ และใช้ **นิพจน์เดียว** ทั้งการกรอง การเรียง และการพิมพ์ — `_DOC_DATE = "COALESCE(R.event_at, R.issued_at)"` · และ `event_at` ต้องเป็นค่า **ตัวเดียวกับที่คำนวณ `year_be`**:
+  ```python
+  raw_event_at = event["event_at"]
+  if raw_event_at is not None:
+      event_at = _as_utc(raw_event_at)
+      year_be  = cls._thai_year_be(raw_event_at)      # ← วินาทีเดียวกัน
+  else:                                                # ใบแจ้งหนี้ / ข้อมูลยุคก่อนมีคอลัมน์
+      event_at = issued_at_db
+      year_be  = issued_at_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+  ```
+  - 🔑 `SELECT CURRENT_TIMESTAMP` = `transaction_timestamp()` ⇒ **คงที่ทั้ง transaction** ⇒ อ่านครั้งเดียวต่อ transaction ทำให้ใบแจ้งหนี้มี `event_at == issued_at` **เป๊ะ** และใบทั้งชุดของ batch ได้ `issued_at` เดียวกัน — ห้ามใช้ `datetime.now()` ของแอป (3 replica = 3 นาฬิกา)
+  - ใบที่ยกเลิกต้อง **พิมพ์ได้** พร้อมแบนเนอร์ "ยกเลิก" — ปฏิเสธการพิมพ์จะทำให้ต้นฉบับที่ผู้ปกครองถืออยู่กลายเป็นเอกสารที่ระบบปฏิเสธว่าตัวเองไม่เคยออก
+- **Rule:** (1) ค่าที่ "ต้องตรงกันเสมอ" ต้องมาจาก **นิพจน์เดียวกัน** ไม่ใช่สองคอลัมน์ที่บังเอิญเท่ากัน (2) เวลาที่ต้องการความคงที่ทั้ง transaction ต้องอ่านจาก DB (`CURRENT_TIMESTAMP`) ไม่ใช่ `now()` ของแอป (3) การกรองกับสิ่งที่พิมพ์ **ต้องใช้ตัวเดียวกัน** ไม่งั้นผู้ใช้ค้นใบเสร็จไม่เจอทั้งที่ถืออยู่ในมือ (4) ก่อนย้ายแหล่งความจริง ต้องหาเทสต์ที่เคย "ผ่าน" ด้วยความบังเอิญแล้วทำให้มันแยกแยะได้จริง (ดูหัวข้อถัดไป)
+- **Tests:** `test_printed_date_follows_the_payment_event_not_the_print_time` · `test_doc_year_and_printed_date_cross_the_buddhist_year_together` · `test_date_filter_follows_event_at_not_issued_at` · `test_invoice_event_at_is_exactly_its_own_issued_at` · `test_legacy_receipt_without_event_at_falls_back_to_issued_at`
+- **Date Added:** 2026-09-14
+
+### 🧪 เทสต์ที่ seed สองค่า "เกือบเท่ากัน" **แยกไม่ออก** ว่าโค้ดอ่านคอลัมน์ไหน — ต้องบังคับให้ต่างกันก่อน
+- **Context/Problem:** ตอนย้าย "วันที่ของเอกสาร" จาก `issued_at` → `event_at` มีเทสต์เดิมสองตัวที่อ่านค่าที่คาดหวังจาก `issued_at` (`test_pdf_prints_thai_buddhist_dates...`, `test_get_receipts_filters_by_thai_calendar_day`) · ทั้งคู่ **ผ่านต่อทั้งก่อนและหลังการแก้** เพราะข้อมูลที่ seed (รับเงินแล้วออกใบเสร็จทันที) ทำให้ `event_at ≈ issued_at` ห่างกันไม่กี่มิลลิวินาที ⇒ ถ้าเชื่อสองตัวนี้จะสรุปผิดว่า "ย้ายเสร็จและมีเทสต์คุ้มแล้ว"
+- **Root Cause:** เทสต์ถูกเขียนให้ตอบคำถาม "ผลลัพธ์ถูกไหม" แต่ **ไม่ได้ออกแบบให้คำตอบต่างกันได้** ระหว่างสมมติฐานทั้งสอง ⇒ เป็นเทสต์ที่พิสูจน์ไม่ได้ว่าอะไร (เทสต์ที่ไม่สามารถ fail ได้ด้วย mutation ที่สมเหตุสมผล = ไม่มีฟัน)
+- **Correct Pattern/Solution:** seed ข้อมูลที่ทำให้สองค่าที่เป็นไปได้ **ห่างกันชัดเจน** แล้ว assert ทั้งสองทิศ:
+  ```python
+  event_utc = datetime(2026, 5, 20, 3, 0)    # เหตุการณ์ 20 พ.ค. 2569
+  ft_id = await _seed_payment_event(..., created_at=event_utc)
+  ...
+  assert "20 พ.ค. 2569 10:00 น." in html                       # (ก) ตามค่าที่ถูก
+  assert issued_text not in html                               # (ข) และต้อง **ไม่มี** ค่าที่ผิด
+  assert issued_at.astimezone(THAI_TZ).date() != date(2026,5,20)  # (ค) ยืนยันว่าเทสต์มีฟันจริง
+  ```
+  ข้อ (ค) สำคัญที่สุด: มันคือ **เทสต์ของเทสต์** — ถ้าวันหนึ่งมีคนแก้ข้อมูล seed จนสองค่านี้กลับมาเท่ากัน ตัว assert จะบอกทันทีว่าเทสต์หมดความหมายแล้ว ไม่ใช่ผ่านเงียบ ๆ
+- **Rule:** (1) เทสต์ที่ย้าย "แหล่งความจริง" ต้อง **บังคับให้ค่าทั้งสองต่างกัน** ไม่งั้นเป็นเทสต์ที่ผ่านด้วยความบังเอิญ (2) ใส่ assert ที่ยืนยันว่า **เงื่อนไขของเทสต์เองยังเป็นจริง** (guard กันเทสต์กลายเป็นโมฆะ) (3) ตรวจด้วยว่าเทสต์ **fail ก่อนการแก้** หรือไม่ — ถ้าไม่ fail แปลว่ายังไม่ครอบอะไร
+- **Tests:** ตัวเองเป็นตัวอย่าง — สองตัวเดิมถูกเพิ่มหมายเหตุตรง ๆ ว่า "ตัวที่มีฟันจริงคืออีกตัว" เพื่อไม่ให้คนอ่านเข้าใจผิดว่าคุ้มแล้ว
+- **Date Added:** 2026-09-14
+
+### 🔄 `init_db(pool)` รันใน lifespan ของ **ทุก replica** โดยไม่มี advisory lock ⇒ การ `DROP CONSTRAINT` + `ADD CONSTRAINT` มีช่วงแข่ง
+- **Context/Problem:** ทุก replica (3 ตัวใน `docker-compose.app.yml`) รัน `init_db` ตอน start ⇒ การ deploy หนึ่งครั้งรัน DDL พร้อมกันสามชุด · `CREATE TABLE IF NOT EXISTS` ทนได้ (Postgres จัดการแข่งให้) แต่ **`DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` เป็นสองคำสั่ง** ⇒ replica B อาจ `ADD` สำเร็จแล้ว replica A `DROP` ทิ้งต่อ แล้ว `ADD` ของ A ชนกับของ B = error ตอนบูต (หรือเหลือช่วงที่ constraint หายไป)
+- **Root Cause:** `init_db` ถูกออกแบบตอนที่ยังไม่มีการใช้ constraint ที่ต้อง DROP ก่อน — โมเดลคิดว่า "DDL เป็น idempotent ทั้งหมด" ซึ่งจริงเฉพาะตระกูล `IF NOT EXISTS`
+- **Correct Pattern/Solution:** รอบนี้ **ตาม idiom เดิมของไฟล์** (`users_email_key`) เพราะ (ก) เป็นรูปแบบที่ ship แล้วและมีเทสต์อยู่ (ข) ความกว้างของช่วงแข่งเป็นระดับมิลลิวินาทีและ **self-healing** — replica ที่แพ้แค่ fail ตอนบูตแล้ว restart เข้ามาใหม่ได้ (ค) การเปลี่ยนเป็น `pg_advisory_lock` รอบ `init_db` เป็นการเปลี่ยนพฤติกรรม bootstrap ทั้งระบบ ควรทำเป็นงานแยกที่มีเทสต์ deploy จริง
+- **Rule:** (1) DDL ที่ไม่ใช่ `IF NOT EXISTS` ใน bootstrap = ต้องรู้ตัวว่ามีช่วงแข่งและ **เขียนเหตุผลที่ยอมรับไว้ในโค้ด** (2) อย่าแก้ bootstrap ทั้งระบบเป็นงานแถม (3) ถ้าต้องเพิ่ม constraint ที่ DROP ก่อน ให้ตรวจว่าคำสั่งคู่ `DROP`+`ADD` **อยู่ติดกัน** และรันใน `conn.execute` เดียวกันไม่ได้ (คนละ statement) — ลดช่วงแข่งเท่าที่ทำได้
+- **Tests:** ไม่มี (ต้องมี deploy จริงหลาย replica) — บันทึกเป็นช่องที่รู้ตัว
+- **Date Added:** 2026-09-14

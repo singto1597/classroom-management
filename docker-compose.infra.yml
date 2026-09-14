@@ -22,7 +22,15 @@ services:
       - shared_network
     deploy:
       replicas: 1
-    
+
+  # 🖨️ [F3] gotenberg (headless Chromium สำหรับ PDF) **ย้ายออกไปแล้ว**
+  #    ⇒ ดู docker-compose.pdf.yml (stack `${ENV_NAME}_pdf`)
+  #    ⚠️ เหตุผลที่ต้องแยก: `docker stack deploy` เป็น declarative — มัน **ลบ service
+  #       ที่ไม่อยู่ในไฟล์ที่ deploy** ดังนั้นตัวที่ "ไม่เกี่ยวกับ DB" ต้องไม่ถูกผูกชะตากับ
+  #       stack ที่มี Postgres/Redis อยู่ ไม่งั้น deploy ผิดไฟล์ครั้งเดียวคือลบ DB
+  #    ⚠️ และเพราะ stack name = DNS name ⇒ ย้ายมาเป็น `${ENV_NAME}_pdf_gotenberg:3000`
+  #       (ไม่ใช่ `..._infra_gotenberg` อีกต่อไป) ต้องแก้ GOTENBERG_URL ให้ตรงกันด้วย
+
 
 volumes:
   staging_postgres_data:

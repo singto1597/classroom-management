@@ -28,7 +28,7 @@ let isRedirectingToLogin = false;
 
 api.interceptors.response.use(
   (response) => response.data,
-  (error: AxiosError<{ detail?: unknown }>) => {
+  async (error: AxiosError<{ detail?: unknown }>) => {
     if (error.response) {
       if (error.response.status === 401) {
         // ✅ เคลียร์ Session ทั้งหมด (ไม่ใช่แค่ token) เพื่อป้องกัน redirect วนลูป
@@ -48,7 +48,20 @@ api.interceptors.response.use(
         }
       }
 
-      const rawDetail: unknown = error.response.data?.detail;
+      // 🚨 คำขอที่ส่ง `responseType: 'blob'` (export Excel / ดาวน์โหลด PDF) จะได้ error body
+      //    มาเป็น **Blob** ทั้งที่ backend ตอบ JSON — ถ้าไม่คลี่ออกจะได้ข้อความไร้ค่า "[object Blob]"
+      //    แล้วผู้ใช้ไม่รู้เลยว่าพลาดเพราะอะไร (เช่น Gotenberg ล่ม → 502 "สร้างไฟล์ PDF ไม่สำเร็จ")
+      let payload: unknown = error.response.data;
+      if (payload instanceof Blob) {
+        try {
+          payload = JSON.parse(await payload.text());
+        } catch {
+          // ไม่ใช่ JSON (เช่น HTML error page ของ reverse proxy) — ตกไปใช้ข้อความกลาง
+          payload = undefined;
+        }
+      }
+
+      const rawDetail: unknown = (payload as { detail?: unknown } | undefined)?.detail;
       let detail = rawDetail ? String(rawDetail) : 'เกิดข้อผิดพลาดจาก API';
 
       // ✨ ปลดล็อก Pydantic 422 Error ให้อ่านรู้เรื่อง!

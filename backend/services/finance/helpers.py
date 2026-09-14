@@ -1,5 +1,5 @@
 """Module-level helper functions สำหรับ finance (cutoff / time normalize / period resolve)"""
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Optional
 
 from .constants import THAI_TZ, CUTOFF_DATE
@@ -31,20 +31,109 @@ def _legacy_id_from_journal(metadata: dict, journal_uuid: str) -> int:
         return -1
 
 
+# =====================================================================================
+# [TIMEZONE] คอลัมน์ TIMESTAMP (naive) ในโมดูลการเงิน — เก็บ "เวลา UTC" ไม่ใช่เวลาไทย
+# =====================================================================================
+# คอลัมน์กลุ่มนี้ถูกเขียนด้วย `NOW()` / `CURRENT_TIMESTAMP` ซึ่งคืน `timestamptz`
+# แล้ว **ถูกแปลงเป็น TimeZone ของ session (= UTC) ก่อนเก็บลงคอลัมน์ naive**
+# ⇒ ค่าที่อ่านกลับมาคือ "เวลา UTC แบบไม่มี tzinfo" ไม่ใช่เวลาไทยและไม่ใช่ aware
+#
+# ⚠️ ห้ามเรียก `.astimezone(THAI_TZ)` ตรง ๆ กับค่า naive
+#    เพราะ Python จะตีความว่าเป็น **เวลาท้องถิ่นของเครื่องที่รันโค้ด**
+#    → container ที่ TZ=UTC ให้ผล "ถูกโดยบังเอิญ" แต่เครื่อง dev ที่ TZ=Asia/Bangkok
+#      จะได้ผลผิดไป 7 ชั่วโมง ⇒ บั๊กที่มองไม่เห็นบน CI และโผล่บนเครื่องนักพัฒนา
+#    ✅ ต้อง `.replace(tzinfo=timezone.utc)` **ก่อน** แล้วจึง `.astimezone(THAI_TZ)`
+#
+# ฝั่ง SQL ก็มีกฎคู่กัน: เทียบขอบเขตเวลาไทยกับคอลัมน์ naive ให้ "unwrapp" ฝั่ง parameter
+#    `T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')`
+# โดยส่ง `_thai_day_start(...)` (aware) เข้าไปเป็น $2 — ได้ค่า naive UTC ที่เทียบกันได้
+# วิธีนี้ (ก) ไม่พึ่ง TimeZone ของ session (ข) ยังใช้ index ได้ เพราะเป็นการเทียบช่วงตรง ๆ
+# ทางเลือกที่ห้ามใช้: `DATE(T.created_at) >= $2` — `DATE()` ไม่แปลง tz จริง แต่ค่าที่เก็บ
+# เป็น UTC อยู่แล้ว จึงได้ "วันที่แบบ UTC" ซึ่งเป็นคนละปฏิทินกับเวลาไทย
+# =====================================================================================
+def _naive_utc_to_thai(v: Optional[datetime]) -> Optional[datetime]:
+    """แปลง naive datetime ที่เก็บเป็น UTC wall-clock → tz-aware เวลาไทย."""
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
+    return v.astimezone(THAI_TZ)
+
+
+def _naive_utc_to_thai_naive(v: Optional[datetime]) -> Optional[datetime]:
+    """เหมือน `_naive_utc_to_thai` แต่ถอด tzinfo ออก — สำหรับ sort/เทียบกับค่า naive อื่น."""
+    r = _naive_utc_to_thai(v)
+    return r.replace(tzinfo=None) if r is not None else None
+
+
+def _as_utc(v: Optional[datetime]) -> Optional[datetime]:
+    """ติดป้าย UTC ให้ค่า naive ที่อ่านจากคอลัมน์ TIMESTAMP (เก็บเป็น UTC wall-clock).
+
+    ใช้กับ **ค่า datetime ที่จะส่งออก API** — Pydantic จะ serialize เป็น "+00:00"
+    แล้ว client แปลงเป็นเวลาไทยได้ถูกต้อง
+
+    ⚠️ ถ้าปล่อยค่า naive ออกไป JSON จะเป็น `"2026-09-01T03:00:00"` (ไม่มี offset)
+       และ **JavaScript ตีความ ISO ที่ไม่มี offset เป็นเวลาท้องถิ่นของเบราว์เซอร์**
+       (`new Date(...)`) ⇒ ผู้ใช้ในไทยเห็นเวลาคลาดเคลื่อน 7 ชั่วโมง
+       ทั้งที่ frontend ระบุ `timeZone: 'Asia/Bangkok'` ไว้แล้วก็ตาม
+       (นี่คือเหตุผลที่ `TransactionResponse.created_at` / `StudentPaymentDetail.paid_at`
+        ต้องเป็น tz-aware เสมอ — ฝั่ง journal เป็น aware อยู่แล้ว ฝั่ง legacy ต้องเติมที่นี่)
+    """
+    if isinstance(v, datetime) and v.tzinfo is None:
+        return v.replace(tzinfo=timezone.utc)
+    return v
+
+
 def _naive_thai_dt(v) -> datetime:
     """[DOUBLE-ENTRY] ปรับค่าเวลาให้เป็น datetime "naive" ในโซน Asia/Bangkok ก่อนนำไป sort/เทียบ.
 
-    ฝั่ง legacy เก็บ created_at เป็น naive TIMESTAMP (ไม่มี tz) ขณะที่ฝั่ง journal เก็บ
-    transaction_date เป็น timestamptz (aware) → merge 2 ยุคต้อง normalize ให้เป็นแบบเดียวกัน
-    ไม่งั้น Python เปรียบเทียบ naive กับ aware จะ TypeError.
+    ฝั่ง legacy เก็บ `created_at` เป็น TIMESTAMP (naive) ที่เป็น **เวลา UTC** (ดูคำอธิบาย
+    บล็อกด้านบน) ขณะที่ฝั่ง journal เก็บ `transaction_date` เป็น timestamptz (aware)
+    → merge 2 ยุคต้อง normalize ให้เป็น "เวลาไทยแบบ naive" เหมือนกัน ไม่งั้น
+    (ก) เทียบ naive กับ aware จะ TypeError และ
+    (ข) ถ้าไม่ติดป้าย UTC ก่อน รายการจะถูกเรียงผิดตำแหน่งไป 7 ชั่วโมง
     """
     if v is None:
         return datetime.min
     if isinstance(v, datetime):
-        return v.astimezone(THAI_TZ).replace(tzinfo=None) if v.tzinfo is not None else v
+        if v.tzinfo is None:
+            return _naive_utc_to_thai_naive(v)
+        return v.astimezone(THAI_TZ).replace(tzinfo=None)
     if isinstance(v, date):
         return datetime.combine(v, dtime(0))
     return datetime.min
+
+
+# [TIMEZONE] ขอบเขตวันแบบ tz-aware ในโซนไทย — ใช้ทุกครั้งที่เทียบกับคอลัมน์ timestamptz
+#
+# ⚠️ ห้ามสร้าง datetime แบบ naive (ไม่มี tzinfo) มาเทียบกับ `journal_entries.transaction_date`
+#    เพราะ asyncpg เข้ารหัส naive datetime เป็น **เวลาท้องถิ่นของเครื่องที่รันโค้ด** (ไม่ใช่ UTC)
+#    → ใน container ที่ TZ=UTC ค่า `datetime(2026,9,1,23,59,59)` กลายเป็น 2026-09-02 06:59:59
+#      ตามเวลาไทย ⇒ งบของวันที่ 1 ก.ย. แอบกินข้อมูลถึงเช้าวันที่ 2 ก.ย.
+#    ส่วน TZ=Asia/Bangkok กลับ "ถูกโดยบังเอิญ" → บั๊กนี้จึงไม่โผล่ตอนรันบนเครื่อง dev
+#    ผลคือรายงานเดียวกันให้ตัวเลขต่างกันตาม TZ ของ container ซึ่งเป็นความผิดพลาดที่ตรวจยากที่สุด
+def _thai_day_start(d: date) -> datetime:
+    """ต้นวันของ d ตามเวลาไทย (00:00:00+07:00) — tz-aware.
+
+    ใช้กับเงื่อนไข `>= $n` เพื่อให้ครอบทั้งวันของ d
+    """
+    return datetime.combine(d, dtime.min, tzinfo=THAI_TZ)
+
+
+def _thai_day_end(d: date) -> datetime:
+    """ปลายวันของ d ตามเวลาไทย (23:59:59.999999+07:00) — tz-aware.
+
+    ใช้กับเงื่อนไข `<= $n` เพื่อให้ครอบทั้งวันของ d (ใช้ dtime.max ไม่ใช่ 23:59:59
+    เพื่อไม่ให้รายการที่เกิดวินาทีสุดท้ายของวันหลุดออกจากรายงาน)
+    """
+    return datetime.combine(d, dtime.max, tzinfo=THAI_TZ)
+
+
+def _thai_next_day_start(d: date) -> datetime:
+    """ต้นวันของ d+1 ตามเวลาไทย — ขอบบนแบบ **ไม่รวม** สำหรับเงื่อนไข `< $n`."""
+    return datetime.combine(d + timedelta(days=1), dtime.min, tzinfo=THAI_TZ)
+
+
 def _clamp_to_cutoff(start: Optional[date], end: Optional[date]):
     """[CLAMP] จำกัดช่วงเวลาของงบการเงิน (ที่อ่าน journal ล้วน) ให้ไม่ต่ำกว่า CUTOFF_DATE.
 

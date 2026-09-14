@@ -20,7 +20,7 @@ from .constants import (
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
-    _legacy_id_from_journal,
+    _legacy_id_from_journal, _thai_day_start, _thai_day_end, _thai_next_day_start,
 )
 from .base import service_logger
 
@@ -88,16 +88,30 @@ class ReportingMixin:
         """[ROUTER-LEGACY] Logic เดิมของ get_summary — อ่านจาก finance_accounts + finance_transactions."""
         net_worth = await conn.fetchval("SELECT SUM(balance) FROM finance_accounts WHERE room_id = $1", room_id) or 0.0
 
-        params = [room_id]
+        # [TIMEZONE] `created_at` เป็น TIMESTAMP (naive) ที่เก็บ **เวลา UTC** ไม่ใช่เวลาไทย
+        # ⇒ ต้อง unwrap ฝั่ง param ด้วย `AT TIME ZONE 'UTC'` แล้วเทียบกับขอบเขตเวลาไทย
+        # เดิมใช้ `EXTRACT(MONTH/YEAR FROM created_at)` / `CURRENT_DATE` ⇒ ได้ปฏิทิน UTC
+        # ⇒ ยอด "เดือนนี้" ของแดชบอร์ดไม่ตรงกับงบกำไรขาดทุน (F1) ที่ใช้เวลาไทย
+        # (ดู helpers บล็อก [TIMEZONE])
         if month and year:
-            date_cond = "AND EXTRACT(MONTH FROM created_at) = $2 AND EXTRACT(YEAR FROM created_at) = $3"
-            date_cond_t = "AND EXTRACT(MONTH FROM T.created_at) = $2 AND EXTRACT(YEAR FROM T.created_at) = $3"
-            params.extend([month, year])
+            start_d = date(year, month, 1)
+            end_d = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
             period_str = f"{year}-{month:02d}"
         else:
-            date_cond = "AND date_trunc('month', created_at) = date_trunc('month', CURRENT_DATE)"
-            date_cond_t = "AND date_trunc('month', T.created_at) = date_trunc('month', CURRENT_DATE)"
+            today = datetime.now(THAI_TZ).date()
+            start_d = date(today.year, today.month, 1)
+            end_d = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
             period_str = "current_month"
+
+        params = [room_id, _thai_day_start(start_d), _thai_day_start(end_d)]
+        date_cond = (
+            "AND created_at >= ($2::timestamptz AT TIME ZONE 'UTC')"
+            " AND created_at < ($3::timestamptz AT TIME ZONE 'UTC')"
+        )
+        date_cond_t = (
+            "AND T.created_at >= ($2::timestamptz AT TIME ZONE 'UTC')"
+            " AND T.created_at < ($3::timestamptz AT TIME ZONE 'UTC')"
+        )
 
         stats = await conn.fetchrow(f"""
             SELECT
@@ -150,20 +164,22 @@ class ReportingMixin:
         - ยอดยกมา (opening_balance) ไม่ถูกนับเป็นรายได้ของงวด (มันคือทุน ไม่ใช่รายได้)
         """
         if month is not None and year is not None:
-            start_dt = date(year, month, 1)
-            if month == 12:
-                end_dt = date(year + 1, 1, 1)
-            else:
-                end_dt = date(year, month + 1, 1)
+            start_d = date(year, month, 1)
+            end_d = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
             period_str = f"{year}-{month:02d}"
         else:
             today = datetime.now(THAI_TZ).date()
-            start_dt = date(today.year, today.month, 1)
-            if today.month == 12:
-                end_dt = date(today.year + 1, 1, 1)
-            else:
-                end_dt = date(today.year, today.month + 1, 1)
+            start_d = date(today.year, today.month, 1)
+            end_d = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
             period_str = "current_month"
+
+        # [TIMEZONE] `JE.transaction_date` เป็น timestamptz ⇒ ต้องส่งขอบเขต **tz-aware เวลาไทย**
+        # เดิมส่ง `date` เปล่า ๆ ⇒ Postgres cast เป็น timestamptz ที่เที่ยงคืน **UTC** = 07:00 น. ไทย
+        # ⇒ ยอดของงวดตกหล่นรายการเช้ามืด (00:00–07:00 ไทย) ของวันแรก และไปกินเช้ามืดของ
+        #   วันแรกของเดือนถัดไปแทน — ทำให้ยอด "เดือนนี้" ไม่ตรงกับงบกำไรขาดทุน (F1)
+        # end_d คือวันที่ 1 ของเดือนถัดไปอยู่แล้ว จึงใช้ `_thai_day_start` เป็นขอบบนแบบไม่รวม
+        start_dt = _thai_day_start(start_d)
+        end_dt = _thai_day_start(end_d)
 
         # [DOUBLE-ENTRY] ยอดสินทรัพย์สะสมทั้งห้อง (ไม่จำกัดงวด) — เทียบเท่า SUM(balance)
         # 💡 นับเฉพาะ journal ที่ไม่ได้ void และไม่ได้ลบ (ลบ legacy ที่ delete ไป)
@@ -269,9 +285,11 @@ class ReportingMixin:
                     }
 
                 # [DOUBLE-ENTRY] ขอบเขตเวลา: ถึง as_of_date (ถ้าไม่ระบุ = ทั้งหมดจนถึงตอนนี้)
+                # [TIMEZONE] ขอบบนแบบไม่รวม (ต้นวันถัดไปตามเวลาไทย) — ห้ามใช้ naive datetime
+                # ไม่งั้นจะกินข้อมูลเข้าไปถึงเช้าวันถัดไป (ดูคำอธิบายใน helpers._thai_day_start)
                 if as_of_date is not None:
                     date_filter = "AND JE.transaction_date < $2"
-                    params = [target_room_id, datetime.combine(as_of_date, dtime(23, 59, 59))]
+                    params = [target_room_id, _thai_next_day_start(as_of_date)]
                 else:
                     date_filter = ""
                     params = [target_room_id]
@@ -390,7 +408,12 @@ class ReportingMixin:
                     }
 
                 # [DOUBLE-ENTRY] ขอบเขตปลาย → คร่อมทั้งวันของ end_date (end ยังเป็นค่าเดิม)
-                end_bound = datetime.combine(end_date, dtime(23, 59, 59))
+                # [TIMEZONE] ต้องเป็น tz-aware เวลาไทย **ทั้งสองข้าง** ไม่ใช่ naive
+                # `query_start` ออกมาจาก `_clamp_to_cutoff` เป็น `date` เปล่า ๆ — ถ้าส่งเข้า
+                # `JE.transaction_date >= $2` ตรง ๆ Postgres จะ cast เป็น timestamptz ที่
+                # เที่ยงคืน **UTC** (= 07:00 น. ไทย) ⇒ งวดตกหล่นรายการเช้ามืดของวันแรก
+                end_bound = _thai_day_end(end_date)
+                query_start = _thai_day_start(query_start) if query_start is not None else None
 
                 rev_rows = await conn.fetch(
                     """SELECT AL.account_name,
@@ -460,6 +483,110 @@ class ReportingMixin:
                         conn=log_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
                         room_id=target_room_id, user_id=None, entity_type="INCOME_STATEMENT", status="failed", error_detail=str(e),
                         endpoint_or_command="FinanceService.get_income_statement", execution_time_ms=exec_time
+                    )
+            except Exception:
+                pass
+            raise e
+
+    @classmethod
+    async def get_balance_sheet(
+        cls, pool: asyncpg.Pool, room_id: int,
+        client_source: str = "", actor_identifier: str = "",
+        user_id: Optional[int] = None, as_of_date: Optional[date] = None, server_id: Optional[int] = None,
+    ) -> dict:
+        """งบแสดงฐานะการเงิน (Balance Sheet) ณ วันที่ — journal-native.
+
+        สมการที่ต้องเป็นจริง: สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ + กำไรสะสม
+
+        [CLAMP] งบดุลอ่านจาก journal ล้วน (ไม่มี ledger ของยุค Single-Entry)
+        → ถ้า as_of_date อยู่ก่อนวันที่ตัด กลับค่าว่าง + note **เหมือน get_trial_balance เป๊ะ**
+        ⚠️ เป็นกฎ "ตรงข้าม" กับ F2 (งบประมาณ) ที่อ่าน finance_transactions และ **ห้าม clamp**
+           — ห้าม refactor ให้สองที่ใช้ helper ร่วมกัน (era assumption คนละอัน)
+
+        เรียก `_fetch_trial_balance_ledgers` / `_fetch_income_statement_rows` ที่มีอยู่แล้ว
+        **ไม่เขียน query งบทดลองใหม่** และ **ห้าม await `_compose_balance_sheet`** (เป็น sync)
+        """
+        start_time = time.time()
+        target_room_id = room_id
+
+        # [DOUBLE-ENTRY] ขอบเขตวันที่ — คำนวณก่อน branch การ clamp เพื่อให้ทั้งสองเส้นทาง
+        # รายงาน period เดียวกัน (ไม่งั้น period_net_income ในเส้นทางว่างจะไร้ที่มา)
+        as_of = as_of_date if as_of_date is not None else datetime.now(THAI_TZ).date()
+        as_of_str = cls._fmt_date(as_of)
+        # [สำคัญ] pl_start_date ใช้กับ `period_net_income` (memo ของ "งวดที่ขอ") เท่านั้น
+        #   ⚠️ `retained_earnings` ในงบดุล **ไม่ได้** มาจากค่านี้ — มันคือ Σ(revenue − expense)
+        #      ของ *ทุกงวด* ที่ `_fetch_trial_balance_ledgers` คืนมา (ทั้งหมด ≤ as_of)
+        #   ⇒ ถ้ามีใครแก้โค้ดให้ retained_earnings ใช้ pl_start_date ตามคอมเมนต์นี้
+        #     ยอดสองข้างของสมการจะไม่เท่ากันอีกต่อไป (is_balanced = False ถาวร)
+        pl_start_date = max(CUTOFF_DATE, date(as_of.year, 1, 1))
+        period_start = pl_start_date.isoformat()
+        period_end = as_of.isoformat()
+
+        try:
+            async with pool.acquire() as conn:
+                target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+                # 🛡️ ข้อมูลการเงิน → ต้องเป็นสมาชิกห้องเท่านั้น (อ่านอย่างเดียว, transparency)
+                await require_member(conn, target_room_id, user_id)
+
+                # [CLAMP] เหมือน get_trial_balance — ก่อนวันที่ตัดไม่มีการเคลื่อนไหวในบัญชีคู่
+                if as_of_date is not None and as_of_date < CUTOFF_DATE:
+                    # ⚠️ ในเส้นทางนี้ "ไม่มีงวด" จริง ๆ (ไม่มีข้อมูลให้สรุป) จึงคืน
+                    #    period_start = period_end = as_of แทนค่าที่คำนวณจาก CUTOFF_DATE
+                    #    เพราะค่านั้นจะกลายเป็น period_start (2026-09-01) > period_end (2026-08-31)
+                    #    ซึ่งเป็น payload ที่ขัดแย้งกันเอง → UI จะแสดงช่วงวันที่ย้อนกลับ
+                    #    ความจริงว่า "ทำไมว่าง" สื่อผ่าน `note` อยู่แล้ว
+                    return {
+                        "as_of": as_of_str,
+                        "assets": [],
+                        "assets_total": 0.0,
+                        "liabilities": [],
+                        "liability_total": 0.0,
+                        "equities": [],
+                        "equity_total": 0.0,
+                        "retained_earnings": 0.0,
+                        "total_equity_side": 0.0,
+                        "total_liabilities_and_equity": 0.0,
+                        "is_balanced": True,
+                        "period_net_income": 0.0,
+                        "period_start": period_end,
+                        "period_end": period_end,
+                        "note": _CLAMP_EMPTY_NOTE,
+                    }
+
+                # ใช้ขอบบนเป็น "สิ้นวัน" ให้ตรงกับ `_fetch_trial_balance_ledgers`
+                # ที่เทียบด้วย `<=` — รายการวันที่เท่า as_of ต้องถูกนับ
+                # [TIMEZONE] tz-aware เวลาไทยทั้งคู่ (ดู helpers._thai_day_end / _thai_day_start)
+                as_of_dt = _thai_day_end(as_of)
+                pl_start_dt = _thai_day_start(pl_start_date)
+
+                tb = await cls._fetch_trial_balance_ledgers(
+                    conn, room_id=target_room_id, as_of_dt=as_of_dt,
+                )
+                pl = await cls._fetch_income_statement_rows(
+                    conn, room_id=target_room_id, start_dt=pl_start_dt, end_dt=as_of_dt,
+                )
+
+                # ⚠️ sync @classmethod — ห้าม await (ถ้า await จะได้
+                #    TypeError: object dict can't be used in 'await' expression)
+                result = cls._compose_balance_sheet(tb, pl["net_income"], as_of_str)
+                result["period_start"] = period_start
+                result["period_end"] = period_end
+
+                exec_time = int((time.time() - start_time) * 1000)
+                await service_logger.log(
+                    conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                    room_id=target_room_id, user_id=None, entity_type="BALANCE_SHEET", status="success",
+                    endpoint_or_command="FinanceService.get_balance_sheet", execution_time_ms=exec_time
+                )
+                return result
+        except Exception as e:
+            exec_time = int((time.time() - start_time) * 1000)
+            try:
+                async with pool.acquire() as log_conn:
+                    await service_logger.log(
+                        conn=log_conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
+                        room_id=target_room_id, user_id=None, entity_type="BALANCE_SHEET", status="failed", error_detail=str(e),
+                        endpoint_or_command="FinanceService.get_balance_sheet", execution_time_ms=exec_time
                     )
             except Exception:
                 pass
@@ -640,21 +767,29 @@ class ReportingMixin:
     def _compose_balance_sheet(cls, tb: dict, period_net_income: float, as_of_str: str) -> dict:
         """สร้างโครงงบแสดงฐานะการเงินจากงบทดลอง (YTD ≤ as_of).
 
-        สมการที่พิสูจน์: สินทรัพย์ = หนี้สิน(0) + ส่วนของเจ้าของ + กำไรสะสมถึงวันที่
+        สมการที่พิสูจน์: สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ + กำไรสะสมถึงวันที่
         โดยกำไรสะสม = Σ(revenue) − Σ(expense) สะสมนับจากเริ่มบัญชีคู่ (2026-09-01).
         period_net_income = กำไร/ขาดทุนสุทธิของ *งวดที่ขอ* (จากงบกำไรขาดทุน) — เก็บไว้เป็น memo
         เพื่อให้ผู้ตรวจเทียบ งบกำไรขาดทุน ↔ งบดุล ได้ชัดเจน
+
+        หมายเหตุ sign: `balance` ที่ได้จาก `_fetch_trial_balance_ledgers` เป็น
+        `Dr − Cr` สำหรับ asset/expense และ `Cr − Dr` สำหรับ liability/equity/revenue
+        → ยอดหนี้สินมาเป็นบวกอยู่แล้ว **ห้ามกลับเครื่องหมายซ้ำ**
         """
         assets: List[dict] = []
+        liabilities: List[dict] = []
         equities: List[dict] = []
         retained = 0.0
-        assets_total = equity_total = 0.0
+        assets_total = liability_total = equity_total = 0.0
 
         for lg in tb["ledgers"]:
             typ = lg["account_type"]
             if typ == "asset":
                 assets.append(lg)
                 assets_total += lg["balance"]
+            elif typ == "liability":
+                liabilities.append(lg)
+                liability_total += lg["balance"]   # liability balance = Cr−Dr (หนี้สินเป็นบวก)
             elif typ == "equity":
                 equities.append(lg)
                 equity_total += lg["balance"]
@@ -662,21 +797,36 @@ class ReportingMixin:
                 retained += lg["balance"]      # revenue balance = Cr−Dr (กำไร)
             elif typ == "expense":
                 retained -= lg["balance"]      # expense balance = Dr−Cr → ลบออกจากกำไร
+            else:
+                # [สำคัญ] account_type ที่ไม่รู้จักจะถูก "ตัดออกจากทุกฝ่าย" โดยเจตนา
+                #   ตาราง accounting_ledgers ไม่มี CHECK constraint บน account_type (มีแค่คอมเมนต์)
+                #   → พิมพ์ผิด ('Asset') หรือเพิ่มประเภทใหม่ในอนาคตจะมาถึงตรงนี้
+                #   ผลที่ตั้งใจ: ยอดสองข้างของสมการไม่เท่ากัน → is_balanced = False
+                #   ⇒ ผู้ใช้เห็นสัญญาณเตือนบนเอกสารทันที (ดีกว่าเงียบ ๆ ไปรวมเป็นค่าใช้จ่าย
+                #     แล้วได้ is_balanced = True ทั้งที่เงินถูกจัดประเภทผิด)
+                pass
 
         retained = round(retained, 2)
         assets_total = round(assets_total, 2)
+        liability_total = round(liability_total, 2)
         equity_total = round(equity_total, 2)
         total_equity_side = round(equity_total + retained, 2)
+        total_liabilities_and_equity = round(liability_total + total_equity_side, 2)
 
         return {
             "as_of": as_of_str,
             "assets": assets,
             "assets_total": assets_total,
-            "liability_total": 0.0,
+            "liabilities": liabilities,
+            "liability_total": liability_total,
             "equities": equities,
             "equity_total": equity_total,
             "retained_earnings": retained,
             "total_equity_side": total_equity_side,
-            "is_balanced": abs(assets_total - total_equity_side) < 0.01,
+            "total_liabilities_and_equity": total_liabilities_and_equity,
+            # ⚠️ ต้องเทียบกับ total_liabilities_and_equity (ไม่ใช่ total_equity_side)
+            #    ไม่งั้นพอนักบัญชีสร้าง liability ledger ตัวแรก is_balanced จะเป็น False
+            #    ตลอดกาล กลายเป็นสัญญาณเตือนเท็จบนเอกสารที่พิมพ์ออกมา
+            "is_balanced": abs(assets_total - total_liabilities_and_equity) < 0.01,
             "period_net_income": round(period_net_income, 2),
         }

@@ -955,6 +955,7 @@ async def test_web_export_finance_excel_200(client, db_pool):
     assert wb.sheetnames == [
         "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
         "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
+        "สรุปรายเดือน (Monthly)",
     ]
     ws_data = wb["ประวัติรายการ"]
     rows = list(ws_data.values)
@@ -1078,14 +1079,14 @@ async def test_web_export_journal_excel_200(client, db_pool):
 
     wb = openpyxl.load_workbook(io.BytesIO(resp.content))
     assert wb.sheetnames == [
-        "Financial Dashboard", "สมุดรายวัน (General Journal)",
-        "สมุดบัญชีแยกประเภท (GL)", "งบทดลอง (Trial Balance)",
-        "งบกำไรขาดทุน (Income Statement)", "งบแสดงฐานะการเงิน (BS)",
+        "Financial Dashboard", "งบแสดงฐานะการเงิน (BS)",
+        "งบกำไรขาดทุน (Income Statement)", "งบทดลอง (Trial Balance)",
+        "สมุดบัญชีแยกประเภท (GL)", "สมุดรายวันทั่วไป (GJ)",
     ]
-    rows = list(wb["สมุดรายวัน (General Journal)"].values)
+    rows = list(wb["สมุดรายวันทั่วไป (GJ)"].values)
     # header (แถวที่ 3 — title/subtitle อยู่แถว 1-2) มีคอลัมน์ตามสเปค
     header = rows[2]
-    assert header[0] == "วันที่" and header[6] == "เดบิต (บาท)" and header[7] == "เครดิต (บาท)"
+    assert header[0] == "วันที่" and header[6] == "เดบิต (Dr.)" and header[7] == "เครดิต (Cr.)"
 
 
 async def test_web_export_journal_excel_cross_room_forbidden(client, db_pool):

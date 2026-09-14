@@ -222,3 +222,271 @@ class DebtorItem(BaseModel):
 class CategoryUpdate(BaseModel):
     category_name: str = Field(..., max_length=100)
     user_name: Optional[str] = Field(None, max_length=100)
+
+# =============================================================================
+# 📊 งบการเงิน (Financial Statements) — งบทดลอง / งบกำไรขาดทุน / งบดุล
+# =============================================================================
+# ⚠️ ห้ามเพิ่ม `__all__` ในไฟล์นี้ — backend/routers/finance/{reporting,export}.py
+#    ทำ `from models.finance_schemas import *` และพึ่ง `date`/`datetime`/`Query`
+#    ที่ re-export มาจากไฟล์นี้ (ไฟล์นี้ไม่มี __all__ จึงกวาดทุกชื่อสาธารณะ)
+#    เติม __all__ = router ทั้งสอง import ไม่ผ่านตั้งแต่ต้น (NameError: date)
+
+
+class TrialBalanceLedgerRow(BaseModel):
+    """แถวบัญชีในงบทดลอง — ยอดสะสม YTD (≤ as_of) ของ ledger หนึ่งตัว."""
+    ledger_id: int
+    # account_code เป็น NULL ได้ใน DB (query สั่ง `ORDER BY account_code NULLS LAST`)
+    account_code: Optional[str] = None
+    account_name: str
+    account_type: str
+    total_debit: float
+    total_credit: float
+    balance: float
+
+
+class TrialBalanceResponse(BaseModel):
+    """งบทดลอง — total_debit/total_credit เป็นผลรวม "ยอดรวม" (ไม่ใช่สุทธิ) จึงเท่ากันเสมอถ้า journal สมดุล"""
+    ledgers: List[TrialBalanceLedgerRow]
+    total_debit: float
+    total_credit: float
+    is_balanced: bool
+    # ⚠️ ต้องมี default เสมอ — service ใส่ `note` เฉพาะเส้นทางที่ถูก clamp
+    #    ถ้าประกาศเป็น required เส้นทางปกติ (happy path) จะ 500
+    note: Optional[str] = None
+
+
+class StatementLine(BaseModel):
+    """บรรทัดรายได้/ค่าใช้จ่ายในงบกำไรขาดทุน"""
+    account_name: str
+    amount: float
+
+
+class IncomeStatementResponse(BaseModel):
+    """งบกำไรขาดทุนของงวด.
+
+    start_date/end_date เป็น **ISO string** ที่ service echo กลับมา (`.isoformat()`)
+    และเป็น **ค่าที่ผู้ใช้ส่งมา ไม่ใช่ค่าที่ถูก clamp แล้ว** — ตัวเลขอาจครอบช่วงแคบกว่านั้น
+    frontend ต้องแสดง `note` ให้เด่น ไม่งั้นอ่านผิด (ดู docs/skills.md)
+    """
+    start_date: str
+    end_date: str
+    revenues: List[StatementLine]
+    expenses: List[StatementLine]
+    total_revenue: float
+    total_expense: float
+    net_income: float
+    note: Optional[str] = None
+
+
+class BalanceSheetAccountRow(TrialBalanceLedgerRow):
+    """แถวบัญชีในงบดุล — โครงเดียวกับงบทดลองเป๊ะ.
+
+    สืบทอดมาแทนการก๊อปฟิลด์ เพราะ `_compose_balance_sheet` ส่ง ledger dict
+    ชุดเดียวกับ `_fetch_trial_balance_ledgers` มาตรง ๆ — ถ้าอนาคตงบดุลต้องการ
+    ฟิลด์ต่างออกไป ค่อยแตกออกจากกันตอนนั้น (ตอนนี้ยังเหมือนกัน 100%)
+    """
+
+
+class BalanceSheetResponse(BaseModel):
+    """งบแสดงฐานะการเงิน ณ วันที่.
+
+    สมการที่ต้องเป็นจริง: `assets_total == total_liabilities_and_equity`
+    โดย `total_liabilities_and_equity = liability_total + total_equity_side`
+
+    - `total_equity_side` = equity_total + retained_earnings (คงความหมายเดิมจากเวอร์ชันแรก)
+    - `period_net_income` เป็น **memo** ให้ผู้ตรวจเทียบ งบกำไรขาดทุน ↔ งบดุล
+      จึงต้องมาคู่กับ `period_start`/`period_end` เสมอ ไม่งั้นเป็นตัวเลขลอยที่ไม่รู้ที่มา
+    """
+    as_of: str
+    assets: List[BalanceSheetAccountRow]
+    assets_total: float
+    liabilities: List[BalanceSheetAccountRow]
+    liability_total: float
+    equities: List[BalanceSheetAccountRow]
+    equity_total: float
+    retained_earnings: float
+    total_equity_side: float
+    total_liabilities_and_equity: float
+    is_balanced: bool
+    period_net_income: float
+    period_start: str
+    period_end: str
+    note: Optional[str] = None
+
+
+# =============================================================================
+# 💰 งบประมาณ (Budget) — F2
+# =============================================================================
+# 📌 สัญญาที่สำคัญ: `start_date`/`end_date` คือ **แหล่งความจริงเดียว** ของช่วงที่ใช้คิดยอดจริง
+#    ส่วน `period_type`/`period_year`/`period_month` เป็น **ฟิลด์แสดงผลที่ service derive เอง**
+#    จากช่วงนั้น (ไม่รับจาก client) ⇒ เป็นไปไม่ได้ที่ป้าย "เดือน ก.ย. 2569" จะขัดกับตัวเลข
+#    ที่คิดจากช่วงจริง — ถ้าให้ client ส่งมาเอง มันจะเพี้ยนกันได้ทันทีที่มีคนแก้วันที่ทีหลัง
+class BudgetCreate(BaseModel):
+    category_id: int
+    amount: float = Field(..., gt=0.0, description="วงเงินงบประมาณ (บาท)")
+    start_date: date
+    end_date: date
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+    @model_validator(mode="after")
+    def _validate_period(self):
+        if self.end_date < self.start_date:
+            raise ValueError("วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น")
+        return self
+
+
+class BudgetUpdate(BaseModel):
+    """PATCH — ส่งมาแค่ฟิลด์ที่จะแก้ (service ใช้ `model_dump(exclude_unset=True)`)."""
+    amount: Optional[float] = Field(None, gt=0.0)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+    @model_validator(mode="after")
+    def _validate_period(self):
+        # ตรวจได้เฉพาะเมื่อส่งมาทั้งคู่ — เคสส่งตัวเดียวต้องเทียบกับค่าที่มีอยู่ใน DB
+        # ซึ่ง service ทำอีกชั้น (คืน 400 ไม่ใช่ 422 เพราะต้องอ่าน DB ก่อน)
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น")
+        return self
+
+
+class BudgetResponse(BaseModel):
+    id: int
+    category_id: int
+    category_name: str
+    category_type: str
+    period_type: str
+    period_year: int
+    period_month: Optional[int] = None
+    start_date: date
+    end_date: date
+    amount: float
+    note: Optional[str] = None
+    created_by_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class BudgetItem(BaseModel):
+    """หนึ่งงบ + ยอดใช้จริงในช่วงของ **ตัวมันเอง** (ไม่ใช่ช่วงที่ผู้ใช้กรอง)"""
+    budget_id: int
+    category_id: int
+    category_name: str
+    category_type: str
+    amount: float
+    used: float
+    # ติดลบได้เมื่อใช้เกินงบ — เป็นสัญญาณที่มีประโยชน์ จึงไม่ clamp ที่ 0
+    remaining: float
+    usage_pct: Optional[float] = None
+    is_over: bool
+    is_near: bool
+    period_start: date
+    period_end: date
+    period_type: str
+    note: Optional[str] = None
+
+
+class BudgetOverviewResponse(BaseModel):
+    start_date: date
+    end_date: date
+    items: List[BudgetItem]
+    total_budget: float
+    total_used: float
+    over_count: int
+    warning_count: int
+
+
+# =====================================================================
+# [F3] ใบเสร็จ / ใบแจ้งหนี้
+# =====================================================================
+class ReceiptIssueRequest(BaseModel):
+    """ออกใบเสร็จ/ใบแจ้งหนี้ 1 ใบ"""
+    payment_id: int = Field(..., gt=0, description="student_payments.id ของบิล")
+    # 🎯 ไม่ส่ง = ใช่งวดรับเงินล่าสุดของบิลนั้น (ตรงกับ student_payments.transaction_id)
+    #    ส่ง = ระบุ "งวด" ที่ต้องการออกใบเสร็จ (finance_transactions.id ของงวดนั้น)
+    transaction_id: Optional[int] = Field(None, gt=0)
+    doc_type: str = Field("receipt", pattern="^(receipt|invoice)$")
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class ReceiptBatchIssueRequest(BaseModel):
+    """ออกใบเสร็จหลายบิลพร้อมกัน (all-or-nothing)"""
+    # จำกัด 100 ใบ/ครั้ง — มากกว่านี้ควรเป็นงานเบื้องหลัง ไม่ใช่ HTTP request
+    payment_ids: List[int] = Field(..., min_length=1, max_length=100)
+    doc_type: str = Field("receipt", pattern="^(receipt|invoice)$")
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class ReceiptResponse(BaseModel):
+    id: int
+    receipt_no: str
+    doc_type: str
+    doc_type_label: Optional[str] = None
+    year_be: int
+    seq: int
+    student_payment_id: Optional[int] = None
+    legacy_transaction_id: Optional[int] = None
+    student_id: Optional[int] = None
+    collection_id: Optional[int] = None
+    amount: float
+    amount_text: Optional[str] = None
+    paid_total_after: float
+    issued_to_name: Optional[str] = None
+    issued_by_name: Optional[str] = None
+    note: Optional[str] = None
+    # 🗓️ "วันที่ของเอกสาร" = เวลาของ **เหตุการณ์** (รับเงิน / ออกใบแจ้งหนี้) ไม่ใช่วันที่กดพิมพ์
+    #    ⇒ frontend ต้องแสดงค่านี้ ไม่ใช่ issued_at ไม่งั้นจอกับกระดาษลงคนละวัน
+    #    (ของเดิมที่มีอยู่ก่อนเพิ่มคอลัมน์นี้จะไม่มีค่า → frontend ถอยไปใช้ issued_at)
+    event_at: Optional[datetime] = None
+    # 🚫 active | voided — ใบที่ void แล้วจะไม่ถูกคืนจาก list/detail เว้นแต่ส่ง include_voided=true
+    status: str = "active"
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+    # issued_at เป็น timestamptz → tz-aware เสมอ (กฎเดียวกับ TransactionResponse.created_at)
+    # ⚠️ สำหรับใบแจ้งหนี้ `event_at == issued_at` เป๊ะ (ทั้งคู่อ่านจาก DB เวลาเดียวกัน)
+    issued_at: Optional[datetime] = None
+
+
+class ReceiptListItem(ReceiptResponse):
+    """แถวในหน้ารายการ — แนบชื่อแคมเปญ/เลขที่นักเรียนมาให้ตารางแสดงได้โดยไม่ต้องยิงเพิ่ม"""
+    collection_title: Optional[str] = None
+    student_no: Optional[int] = None
+
+
+class ReceiptDetailResponse(ReceiptListItem):
+    collection_amount: Optional[float] = None
+    collection_due_date: Optional[date] = None
+    room_name: Optional[str] = None
+    room_code: Optional[str] = None
+
+
+class ReceiptIssueResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    receipt: ReceiptResponse
+    # 🔁 True = คืนใบเดิมที่มีอยู่แล้ว (ไม่ใช่ error — การพิมพ์ซ้ำต้องปลอดภัย)
+    reused: bool = False
+
+
+class TransactionRevertResponse(SuccessResponse):
+    """คำตอบของ `DELETE /finance/transactions/{id}`
+
+    🧾 ต้องประกาศ `voided_receipts` ที่นี่ **ไม่ใช่ปล่อยให้ service คืนดิกชันลอย ๆ**:
+    route นี้มี `response_model` ⇒ ฟิลด์ที่ไม่อยู่ในโมเดลจะถูก **ตัดทิ้งเงียบ ๆ**
+    ⇒ ตัวเลขใบเสร็จที่ถูกยกเลิกจะไม่ถึงผู้ใช้เลยทั้งที่ service ใส่มาครบ
+    (และไม่มีเทสต์ไหนจับได้ถ้าไม่ได้ตรวจ body — ตรวจแต่ status 200)
+    """
+    # เลขที่ใบเสร็จทั้งหมดที่ถูกยกเลิกเพราะรายการนี้ (ว่าง = รายการนี้ไม่มีใบเสร็จผูกอยู่)
+    voided_receipts: List[str] = []
+
+
+class ReceiptBatchIssueResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    receipts: List[ReceiptResponse]
+    issued_count: int
+    reused_count: int

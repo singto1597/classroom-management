@@ -6,7 +6,7 @@ from typing import List, Optional, Literal
 
 from models.finance_schemas import *
 from core.dependencies import get_db_pool, get_current_user
-from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError, ForbiddenError
+from core.exceptions import RoomNotFoundError, PaymentNotFoundError, TransactionNotFoundError, ForbiddenError, StudentNotFoundError
 from services.finance_service import FinanceService
 
 from routers._common import TargetResolution, get_target, get_audit_context
@@ -42,7 +42,7 @@ async def get_summary(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{target_id}/finance/trial-balance")
+@router.get("/{target_id}/finance/trial-balance", response_model=TrialBalanceResponse)
 async def get_trial_balance(
     request: Request,
     as_of_date: Optional[date] = Query(None, description="งบ ณ วันที่ (ไม่ระบุ = ทั้งหมดจนถึงตอนนี้)"),
@@ -67,7 +67,7 @@ async def get_trial_balance(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/{target_id}/finance/income-statement")
+@router.get("/{target_id}/finance/income-statement", response_model=IncomeStatementResponse)
 async def get_income_statement(
     request: Request,
     start_date: date = Query(..., description="วันที่เริ่มต้น"),
@@ -94,6 +94,31 @@ async def get_income_statement(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{target_id}/finance/balance-sheet", response_model=BalanceSheetResponse)
+async def get_balance_sheet(
+    request: Request,
+    as_of_date: Optional[date] = Query(None, description="งบ ณ วันที่ (ไม่ระบุ = ณ วันนี้)"),
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.get_balance_sheet(
+            pool=pool,
+            room_id=target.room_id,
+            server_id=target.server_id,
+            client_source=client_source,
+            actor_identifier=actor,
+            user_id=user_ctx["user_id"],
+            as_of_date=as_of_date
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 
 @router.get("/{target_id}/finance/students", response_model=List[StudentBasicInfo])
@@ -142,6 +167,34 @@ async def get_all_debtors(
         raise HTTPException(status_code=403, detail=str(e))
 
 
+@router.get("/{target_id}/finance/me/debts", response_model=StudentDebtProfileResponse)
+async def get_my_debts(
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    """หนี้ค้างของ **ตัวเอง** — บอท Discord ใช้ (บอทรู้แค่ X-Discord-Id ไม่รู้ student_id)
+
+    ⚠️ path นี้ไม่ชนกับ `/{target_id}/finance/students/{student_id}/debts` เพราะ segment
+    ที่สองเป็น literal คนละคำ (`me` vs `students`) — ไม่มี route แบบ catch-all ในโมดูลนี้
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.get_my_debts(
+            pool=pool,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            server_id=target.server_id,
+            room_id=target.room_id
+        )
+    except (StudentNotFoundError, RoomNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+
 @router.get("/{target_id}/finance/students/{student_id}/debts", response_model=StudentDebtProfileResponse)
 async def get_student_debts(
     student_id: int,
@@ -163,3 +216,5 @@ async def get_student_debts(
         )
     except RoomNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))

@@ -3,6 +3,8 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
+import { downloadBlob } from '@/utils/download';
+import { todayIso } from '@/utils/period';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import Swal from 'sweetalert2';
 import draggable from 'vuedraggable'; // 📦 vuedraggable สำหรับ Vue 3
@@ -157,18 +159,13 @@ const handleExport = async () => {
     const blob = await StudentService.exportStudentsExcel(roomId.value, finalFieldsOrder, userName.value);
 
     // เปลี่ยน Blob ให้เป็นลิงก์ดาวน์โหลด
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-
-    // ตั้งชื่อไฟล์สวยๆ
-    const dateStr = new Date().toISOString().split('T')[0];
-    link.setAttribute('download', `Custom_Export_${roomId.value}_${dateStr}.xlsx`);
-
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    // ⚠️ ห้ามเขียน anchor เองตรงนี้ — ต้องผ่าน downloadBlob เพราะการ revoke ต้องเลื่อนคาบ
+    //    (เขียนเองแล้ว revoke ในบรรทัดถัดจาก click() = ไฟล์ถูกยกเลิกเงียบ ๆ บน Firefox/iOS)
+    // 🗓️ `todayIso()` (เวลาไทย) ไม่ใช่ `new Date().toISOString()` (UTC)
+    //    ระหว่าง 00:00–07:00 ไทย ค่า UTC ยังเป็น "เมื่อวาน" ⇒ ชื่อไฟล์ลงวันก่อนหน้า
+    //    ทั้งที่ผู้ใช้เพิ่งกดดาวน์โหลดวันนี้ (และไฟล์จะชนกันเองถ้าโหลดสองวันติดกัน)
+    const dateStr = todayIso();
+    downloadBlob(blob, `Custom_Export_${roomId.value}_${dateStr}.xlsx`);
 
     Swal.fire({
       icon: 'success',
@@ -179,10 +176,14 @@ const handleExport = async () => {
     });
   } catch (error) {
     console.error(error);
+    // แสดงข้อความจาก backend (interceptor แกะ Blob ที่เป็น error body ให้แล้ว)
+    // ⇒ ผู้ใช้แยกออกว่าเป็น "ไม่มีสิทธิ์" หรือ "พลาดชั่วคราว" ซึ่งตัดสินใจได้ว่าควรรอ/ลองใหม่ไหม
     Swal.fire({
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
-      text: 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
+      text: error instanceof Error && error.message
+        ? error.message
+        : 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
       confirmButtonColor: '#1d4ed8'
     });
   }

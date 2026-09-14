@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { Debtor, Account, StudentDebtItem } from '@/types/finance'
+import { createLatestGuard } from '@/utils/latest'
 import Swal from 'sweetalert2'
 
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 
+const router = useRouter()
 const authStore = useAuthStore()
 const currentServerId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -34,7 +37,14 @@ const slipImageUrl = ref('')
 // Memory logic
 const lastSelectedMemory = ref<number[] | null>(null)
 
+// 🔢 ตัวโหลดอิสระ 2 ตัว ⇒ ต้องมี guard คนละตัว (ใช้ร่วมกันแล้ว begin() ของตัวหนึ่ง
+//    จะฆ่า token ของอีกตัว → isLoading ค้าง) — ดู utils/latest.ts
+const listGuard = createLatestGuard()
+const debtGuard = createLatestGuard()
+
 const fetchDebtors = async () => {
+  const token = listGuard.begin()
+
   isLoading.value = true
   hasError.value = false
   try {
@@ -42,6 +52,7 @@ const fetchDebtors = async () => {
       FinanceService.getAllDebtors(currentServerId),
       FinanceService.getAccounts(currentServerId),
     ])
+    if (!listGuard.isCurrent(token)) return
     debtors.value = debtRes
     accounts.value = accRes
 
@@ -50,10 +61,12 @@ const fetchDebtors = async () => {
       paidToAccountId.value = accounts.value[0]?.id.toString() || ''
     }
   } catch {
+    // คำขอเก่าที่ล้มไม่ควรขึ้นจอ ถ้าคำขอใหม่กว่าไปถึงแล้ว
+    if (!listGuard.isCurrent(token)) return
     hasError.value = true
     Swal.fire('เกิดข้อผิดพลาด', 'โหลดข้อมูลลูกหนี้ไม่สำเร็จ', 'error')
   } finally {
-    isLoading.value = false
+    if (listGuard.isCurrent(token)) isLoading.value = false
   }
 }
 
@@ -71,8 +84,16 @@ const handleClearDebt = async (debtor: Debtor) => {
   payAmounts.value = {}
   slipImageUrl.value = ''
 
+  // 🔢 คำขอ "หนี้ของนักเรียนคนนี้" ต้องมี guard เพราะผลลัพธ์มันไป **เขียนทับทั้งชุด**
+  //    ทั้ง studentDebts และ selectedPaymentIds — ถ้าคำตอบของนักเรียนคนก่อนมาถึงทีหลัง
+  //    หัวโมดัลจะบอกชื่อนักเรียน B แต่รายการที่ติ๊กไว้เป็นบิลของนักเรียน A
+  //    🔴 อันตรายกว่าเคสอื่นตรงที่ handleBatchPay ส่งแค่ payment_ids (ไม่มี student_id)
+  //       ⇒ backend ตรวจไม่ได้เลยว่าปนคน และเงินจะถูกบันทึกเข้าผิดคน
+  const token = debtGuard.begin()
+
   try {
     const res = await FinanceService.getStudentDebts(currentServerId, debtor.student_id)
+    if (!debtGuard.isCurrent(token)) return
     studentDebts.value = res.debts
 
     // Logic: Auto-Select ฉลาดจำค่าเดิม
@@ -90,10 +111,12 @@ const handleClearDebt = async (debtor: Debtor) => {
       payAmounts.value[debt.payment_id] = debt.amount
     })
   } catch {
+    // ⚠️ ห้ามปิดโมดัลทิ้งถ้าเป็นคำขอเก่า — ผู้ใช้อาจเปิดโมดัลของคนใหม่ไปแล้ว
+    if (!debtGuard.isCurrent(token)) return
     Swal.fire('เกิดข้อผิดพลาด', 'ดึงรายการค้างชำระไม่สำเร็จ', 'error')
     isModalOpen.value = false
   } finally {
-    isLoadingDebts.value = false
+    if (debtGuard.isCurrent(token)) isLoadingDebts.value = false
   }
 }
 
@@ -102,6 +125,103 @@ const totalSelectedAmount = computed(() => {
     return total + (payAmounts.value[id] || 0)
   }, 0)
 })
+
+// ==========================================
+// 🧾 ออกใบแจ้งหนี้ (F3)
+// ==========================================
+//
+// 🔒 ใช้ `canManageFinance` (ไม่ใช่ `isAdmin`) ตามกฎเดียวกับปุ่มเขียนของ F2/F3
+//    ⇒ ตรงกับ `require_permission(..., "MANAGE_FINANCE")` ฝั่ง backend
+//    (หน้าจอนี้ยัง gate ทั้ง modal ด้วย `isAdmin` อยู่ — เป็นของเดิม ไม่ได้แตะในรอบนี้
+//     ผลคือเหรัญญิกที่ได้สิทธิ์ยังเข้า modal นี้ไม่ได้ การเปิด gate ของ 7 หน้าจอเดิม
+//     เป็นการตัดสินใจเชิงผลิตภัณฑ์ แยกเป็นงานต่างหาก)
+//
+// ⚠️ ยอดบนใบแจ้งหนี้ backend คิดจาก **ยอดค้างชำระของบิลนั้น** ไม่ใช่ `payAmounts`
+//    ที่ผู้ใช้พิมพ์ไว้ (นั่นคือยอดที่จะรับเงิน) ⇒ ตัวเลขที่โชว์ใน confirm ต้องมาจาก
+//    `studentDebts[].amount` เท่านั้น ห้ามใช้ `totalSelectedAmount`
+
+const canManageFinance = computed(() => authStore.canManageFinance)
+
+/** ยอดค้างชำระรวมของบิลที่เลือก — "ยอดที่จะถูกเรียกเก็บ" ไม่ใช่ยอดที่กำลังจะรับ */
+const selectedOutstanding = computed(() =>
+  studentDebts.value
+    .filter((d) => selectedPaymentIds.value.includes(d.payment_id))
+    .reduce((sum, d) => sum + d.amount, 0),
+)
+
+const isIssuingInvoices = ref(false)
+
+const handleIssueInvoices = async () => {
+  if (!canManageFinance.value) {
+    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
+  }
+  if (selectedPaymentIds.value.length === 0) {
+    return Swal.fire('อ๊ะ!', 'กรุณาเลือกรายการที่ต้องการออกใบแจ้งหนี้', 'warning')
+  }
+  // เพดาน backend 100 ใบ/ครั้ง — ต้องบอกให้แคบลง ไม่ใช่ยิงแล้วเงียบ
+  if (selectedPaymentIds.value.length > 100) {
+    return Swal.fire(
+      'เลือกไว้มากเกินไป',
+      `เลือก ${selectedPaymentIds.value.length} รายการ แต่ระบบออกได้ครั้งละไม่เกิน 100 ใบ`,
+      'warning',
+    )
+  }
+
+  const result = await Swal.fire({
+    title: 'ออกใบแจ้งหนี้?',
+    html:
+      `จะออกใบแจ้งหนี้ <b>${selectedPaymentIds.value.length}</b> ฉบับ ` +
+      `ยอดค้างชำระรวม <b>${formatNumber(selectedOutstanding.value)}</b> บาท<br><br>` +
+      '<span style="font-size:0.85em;color:#78716c">' +
+      'ใบแจ้งหนี้เป็นเอกสาร <b>ณ จุดเวลา</b> — ยอดค้างเปลี่ยนเมื่อนักเรียนจ่ายเพิ่ม ' +
+      'การออกซ้ำจึงได้ <b>เลขใหม่ทุกครั้ง</b> (ต่างจากใบเสร็จที่ได้เลขเดิม)' +
+      '</span>',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#1d4ed8',
+    cancelButtonColor: '#78716c',
+    confirmButtonText: 'ออกใบแจ้งหนี้',
+    cancelButtonText: 'ยกเลิก',
+  })
+  if (!result.isConfirmed) return
+
+  isIssuingInvoices.value = true
+  Swal.fire({
+    title: 'กำลังออกใบแจ้งหนี้...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading(),
+  })
+  try {
+    const res = await FinanceService.issueReceiptsBatch(currentServerId, {
+      payment_ids: [...selectedPaymentIds.value],
+      doc_type: 'invoice',
+      user_name: currentUserName,
+    })
+    await Swal.fire({
+      icon: 'success',
+      title: 'ออกใบแจ้งหนี้เรียบร้อย',
+      html:
+        `ออกใหม่ <b>${res.issued_count}</b> ฉบับ<br>` +
+        `เลขที่ล่าสุด <b class="num">${res.receipts[res.receipts.length - 1]?.receipt_no ?? '—'}</b>`,
+      showCancelButton: true,
+      confirmButtonText: 'ดูทะเบียนเอกสาร',
+      cancelButtonText: 'ปิด',
+      confirmButtonColor: '#1d4ed8',
+      cancelButtonColor: '#78716c',
+    }).then((r) => {
+      if (r.isConfirmed) router.push('/finance/receipts')
+    })
+    isModalOpen.value = false
+  } catch (error: unknown) {
+    Swal.fire(
+      'ออกใบแจ้งหนี้ไม่สำเร็จ',
+      error instanceof Error ? error.message : 'ไม่มีเอกสารใดถูกออก (ยกเลิกทั้งชุด)',
+      'error',
+    )
+  } finally {
+    isIssuingInvoices.value = false
+  }
+}
 
 const handleBatchPay = async () => {
   // ดักอีกชั้นตอนกดยืนยันจ่ายเงิน
@@ -428,10 +548,27 @@ onMounted(() => {
               ฿{{ formatNumber(totalSelectedAmount) }}
             </p>
           </div>
-          <button type="button" class="btn-primary w-full sm:w-auto" @click="handleBatchPay">
-            <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
-            ยืนยันการรับเงิน
-          </button>
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <!-- 🧾 ออกใบแจ้งหนี้สำหรับบิลที่เลือก — ยอดมาจาก "ยอดค้างชำระ" ไม่ใช่ยอดที่จะรับเงิน -->
+            <button
+              v-if="canManageFinance"
+              type="button"
+              class="btn-ghost-ui w-full sm:w-auto"
+              :disabled="isIssuingInvoices"
+              @click="handleIssueInvoices"
+            >
+              <i
+                class="bi"
+                :class="isIssuingInvoices ? 'bi-hourglass-split' : 'bi-file-earmark-text'"
+                aria-hidden="true"
+              ></i>
+              ออกใบแจ้งหนี้
+            </button>
+            <button type="button" class="btn-primary w-full sm:w-auto" @click="handleBatchPay">
+              <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+              ยืนยันการรับเงิน
+            </button>
+          </div>
         </div>
       </div>
     </div>
