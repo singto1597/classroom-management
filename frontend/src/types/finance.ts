@@ -70,7 +70,17 @@ export interface Debtor {
   student_no: number;
   student_name: string;
   overdue_count: number;
+  /** 💰 ยอดค้าง **ดิบ** — ยังไม่หักเครดิตล่วงหน้าที่นักเรียนมีอยู่ */
   total_pending_amount: number;
+  /**
+   * 💰 [F4] เครดิตคงเหลือ (เงินรับล่วงหน้าที่ถูกหักใช้ไปบางส่วนแล้ว)
+   * ⚠️ **ห้ามเอาไปลบจาก `total_pending_amount` เองที่หน้าจอ** — backend ส่ง
+   *    `net_pending_amount` ที่หักแล้วมาให้แล้ว และเป็นตัวเดียวกับที่ระบบจะหักจริง
+   *    (สองที่คำนวณเอง = วันหนึ่งจอกับการหักจริงไม่ตรงกันโดยไม่มีอะไรฟ้อง)
+   */
+  credit_balance: number;
+  /** 💰 [F4] ยอดที่ต้องเก็บจริงหลังหักเครดิต — `max(total_pending_amount - credit_balance, 0)` */
+  net_pending_amount: number;
 }
 
 export interface StudentDebtItem {
@@ -379,8 +389,17 @@ export interface BudgetUpdatePayload {
 //        โดยธรรมชาติ ⇒ ออกซ้ำได้ **เลขใหม่ทุกครั้ง** และการกินเลขเพิ่มคือพฤติกรรมที่ถูกต้อง
 //    ⇒ ปุ่มออกใบแจ้งหนี้ต้องมี confirm ก่อนเสมอ (ต่างจากใบเสร็จที่กดซ้ำได้ไม่เสียหาย)
 
-/** ชนิดเอกสาร — ตรงกับ `DOC_TYPE_*` ใน `backend/services/finance/constants.py` */
-export type ReceiptDocType = 'receipt' | 'invoice';
+/**
+ * ชนิดเอกสาร — ตรงกับ `DOC_TYPE_*` ใน `backend/services/finance/constants.py`
+ *
+ * 💰 [F4] `'deposit'` = **ใบรับเงินล่วงหน้า** (`DEP-2569-0001`) — หลักฐานการรับเงิน
+ *    ก้อนที่ยังไม่มีบิลรองรับ
+ * ⚠️ `'deposit'` **ไม่นับเป็นใบเสร็จ** (ดู `ReceiptList.vue` ที่นับ `receiptCount`) —
+ *    คนละชนิดเอกสารกัน · แต่**ต้อง**นับเป็น "เอกสารที่รับเงินแล้ว" ทุกที่ที่เทมเพลต
+ *    หรือหน้าจอ branch ด้วย `is_receipt` (ไม่งั้นจะถูกพิมพ์ด้วยถ้อยคำใบแจ้งหนี้:
+ *    "เรียกเก็บจาก" / "ยอดค้างชำระ" ซึ่งผิดทั้งใบ)
+ */
+export type ReceiptDocType = 'receipt' | 'invoice' | 'deposit';
 
 /**
  * 📋 หนึ่งบรรทัดในตารางแจกแจงของใบแจ้งหนี้ **ยอดค้างรวมต่อคน**
@@ -532,4 +551,191 @@ export interface InvoiceBatchIssueResult {
   /** = `receipts.length` — **ไม่นับ** คนที่ถูกข้าม (คนละความหมายกับ `skipped`) */
   issued_count: number;
   skipped: InvoiceSkipItem[];
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 💰 [F4] เงินรับล่วงหน้า — เครดิตคงเหลือรายนักเรียน
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔑 แนวคิดที่ต้องเข้าใจก่อนแตะหน้าจอพวกนี้ (ตรงกับ `backend/services/finance/credits.py`):
+//
+//    เติมเครดิต (top-up)  = รับเงินก้อนเข้ามาพัก  → Dr สินทรัพย์ / Cr **หนี้สิน**
+//                           ⇒ ⚠️ **ยังไม่ใช่รายได้** ของห้อง
+//    หักเครดิต (apply)    = เอาเงินพักไปปิดบิล    → Dr หนี้สิน / Cr รายได้
+//                           ⇒ รายได้เกิด **ตรงนี้** จังหวะเดียว
+//
+// ⇒ หน้าจอต้องไม่พูดว่า "รายได้" ตอนเติมเงิน และต้องไม่พูดว่า "จ่ายเงิน" ตอนหักเครดิต
+//    (เงินเข้ามาตั้งแต่ตอนเติมแล้ว — ตอนหักไม่มีเงินเคลื่อนไหวเลย)
+//
+// ⚙️ กติกาที่ล็อกไว้ (ผู้ใช้เลือก): **ระบบเสนอ → ครูยืนยัน** ไม่หักเองเงียบ ๆ
+//    ⇒ ต้องมีขั้น "ดูข้อเสนอ" (`CreditApplyPlan`) คั่นก่อน `applyCredit` เสมอ
+//    และข้อเสนอต้องมาจาก `getCreditPlan` ตัวเดียวกับที่ `applyCredit` ใช้จริง
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** ประเภทของแถวในบัญชีเครดิต (append-only) — ตรงกับ `CREDIT_ENTRY_*` ฝั่ง backend */
+export type CreditEntryType = 'topup' | 'apply' | 'reverse';
+
+/** แถวในหน้า "เงินรับล่วงหน้า" — นักเรียนทุกคนในห้อง (คนไม่มีเครดิตก็อยู่ ยอด 0) */
+export interface StudentCreditBalance {
+  student_id: number;
+  student_no: number;
+  student_name: string;
+  /** เครดิตคงเหลือปัจจุบัน = `balance_after` ของแถวล่าสุด */
+  credit_balance: number;
+  /** ยอดค้างดิบ (ยังไม่หักเครดิต) */
+  total_pending_amount: number;
+  /** ยอดที่ต้องเก็บจริงหลังหักเครดิต — ใช้ตัวนี้เป็นตัวเลขหลักบนจอ */
+  net_pending_amount: number;
+}
+
+/** 1 แถวในประวัติเครดิตของนักเรียน */
+export interface StudentCreditEntry {
+  id: number;
+  entry_type: CreditEntryType;
+  /** ฉลากไทย เช่น "เติมเงินล่วงหน้า" — มาจาก backend ที่เดียว อย่าเขียนซ้ำที่หน้าจอ */
+  entry_type_label: string | null;
+  /** บวกเสมอ — ทิศทางมาจาก `entry_type` */
+  amount: number;
+  /** ยอดคงเหลือ **หลัง** รายการนี้ (snapshot ไม่ใช่ผลรวม) */
+  balance_after: number;
+  finance_transaction_id: number | null;
+  student_payment_id: number | null;
+  collection_id: number | null;
+  note: string | null;
+  recorded_by: string | null;
+  /** ISO 8601 (มี timezone) — backend ส่ง timestamptz มาจากตารางที่ใช้ `WITH TIME ZONE` */
+  created_at: string | null;
+  /** เลขใบรับเงินล่วงหน้า (DEP-…) ที่ผูกกับรายการเติมนี้ — `null` สำหรับรายการหัก */
+  receipt_no: string | null;
+  receipt_event_at: string | null;
+  /** ชื่อบิล/แคมเปญที่รายการหักนี้ไปปิด */
+  collection_title: string | null;
+}
+
+/** บิลที่ยังค้างของนักเรียน 1 คน (ยอดดิบ ยังไม่หักเครดิต) */
+export interface CreditOpenBill {
+  payment_id: number;
+  collection_id: number;
+  title: string | null;
+  due_date: string | null;
+  total_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+}
+
+/** หนึ่งบิลที่จะถูกหัก (หรือถูกหักไปแล้ว) — บรรทัดในข้อเสนอการหัก */
+export interface CreditAllocationItem {
+  payment_id: number;
+  collection_id: number;
+  title: string | null;
+  due_date: string | null;
+  bill_total: number;
+  bill_paid_before: number;
+  bill_remaining_before: number;
+  /** ยอดที่เครดิตจะจ่ายให้บิลนี้ในรอบนี้ */
+  apply_amount: number;
+  bill_paid_after: number;
+  bill_status_after: string;
+  /** เครดิตที่ยังเหลือหลังจ่ายบิลนี้ */
+  remaining_after: number;
+}
+
+/**
+ * ข้อเสนอการหักของนักเรียน 1 คน
+ * ⚠️ ชนิดเดียวกันนี้ถูกใช้ **ทั้งตอนดูตัวอย่างและตอนลงมือ** โดยเจตนา — สิ่งที่ครูเห็น
+ *    ก่อนกดกับสิ่งที่ระบบทำต้องเป็นตัวเลขชุดเดียวกันเป๊ะ
+ */
+export interface CreditPlanItem {
+  student_id: number;
+  student_no: number | null;
+  student_name: string | null;
+  balance_before: number;
+  allocations: CreditAllocationItem[];
+  total_applied: number;
+  balance_after: number;
+}
+
+/** คำตอบของทั้ง `GET …/credits/plan` และ `POST …/credits/apply` */
+export interface CreditApplyPlan {
+  status: string;
+  message: string | null;
+  items: CreditPlanItem[];
+  total_applied: number;
+  total_balance_after: number;
+  /** จำนวนบิลที่ถูกปิด (มีค่าเฉพาะตอน apply จริง) */
+  bills_paid?: number | null;
+}
+
+/** รายละเอียดเครดิตของนักเรียน 1 คน (หน้าประวัติ) */
+export interface StudentCreditDetail {
+  student_id: number;
+  student_no: number;
+  student_name: string;
+  credit_balance: number;
+  /** เรียงใหม่ → เก่า (แถวล่าสุดอยู่บน) */
+  entries: StudentCreditEntry[];
+  open_bills: CreditOpenBill[];
+  plan: CreditPlanItem;
+}
+
+export interface CreditTopUpRequest {
+  student_id: number;
+  amount: number;
+  /** กระเป๋าที่เงินเข้าจริง — ต้องเลือกเสมอ (ขา Dr ของ journal) */
+  paid_to_account_id: number;
+  slip_image_url?: string | null;
+  note?: string | null;
+  user_name?: string | null;
+  /**
+   * 🔑 รหัสกันบันทึกซ้ำ **บังคับ** (8–64 ตัวอักษร) — สร้างใหม่ต่อการกดหนึ่งครั้ง
+   * ⚠️ ห้ามสร้างใหม่ตอน retry ไม่งั้นจะได้เครดิตสองรอบจากการกดครั้งเดียว
+   *    (สร้างด้วย `newIdempotencyKey()` ใน `utils/money.ts` แล้วเก็บไว้ทั้งรอบการกด)
+   */
+  idempotency_key: string;
+}
+
+export interface CreditTopUpResponse {
+  status: string;
+  message: string | null;
+  credit_entry_id: number;
+  student_id: number;
+  student_name: string;
+  amount: number;
+  balance_after: number;
+  finance_transaction_id: number | null;
+  journal_entry_id: string | null;
+  /** ใบรับเงินล่วงหน้า (DEP) ที่ออกให้ทันที — เป็นหลักฐานเดียวของรายการนี้ */
+  receipt: Receipt | null;
+  /** `true` = ใบ DEP ใบเดิมถูกนำกลับมาใช้ (ไม่กินเลขใหม่) */
+  receipt_reused: boolean;
+  /** `true` = ทั้งรายการถูกกันซ้ำ (idempotency key เดิม) ไม่ได้เติมเงินรอบสอง */
+  reused: boolean;
+}
+
+export interface CreditApplyRequest {
+  /** 1–100 คน — ทั้งชุด all-or-nothing */
+  student_ids: number[];
+  user_name?: string | null;
+}
+
+export interface CreditUndoRequest {
+  credit_entry_id: number;
+  reason?: string | null;
+  user_name?: string | null;
+}
+
+/**
+ * ⚠️ ไม่ใช่ `StudentCreditEntry`: การยกเลิก **สร้างแถวใหม่** (reverse) และ **ลบแถวเดิม**
+ * ⇒ คำตอบอธิบาย "ผลลัพธ์ที่เกิดขึ้น" ไม่ใช่รูปร่างของแถวใดแถวหนึ่ง
+ */
+export interface CreditUndoResponse {
+  status: string;
+  message: string | null;
+  credit_entry_id: number;
+  reverse_entry_id: number;
+  student_id: number;
+  student_payment_id: number | null;
+  reverted_amount: number;
+  bill_paid_amount: number;
+  bill_status: string;
+  credit_balance_after: number;
 }

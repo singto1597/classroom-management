@@ -130,6 +130,10 @@ _MONEY_PATHS = [
     # 🧾 ใบแจ้งหนี้ "ยอดค้างรวมต่อคน" — คนละเส้นทางกับใบเสร็จ (F3 รอบสอง)
     ("receipts", "ReceiptsMixin", "issue_invoices"),
     ("receipts", "ReceiptsMixin", "issue_invoices_for_room"),
+    # 💰 [F4] เงินรับล่วงหน้า / เครดิตคงเหลือรายนักเรียน
+    ("credits", "CreditsMixin", "top_up_credit"),
+    ("credits", "CreditsMixin", "apply_credit"),
+    ("credits", "CreditsMixin", "undo_credit_application"),
     ("accounts", "AccountsMixin", "create_account"),
     ("accounts", "AccountsMixin", "update_account"),
     ("accounts", "AccountsMixin", "delete_account"),
@@ -152,6 +156,9 @@ _MONEY_WRITE_MARKERS = [
     "UPDATE fee_collections",
     "INSERT INTO finance_receipts", "INSERT INTO receipt_sequences",
     "INSERT INTO journal_entries",
+    # 💰 [F4] บัญชีแยกประเภทเครดิต **รายคน** — ยอดเงินจริง ไม่ใช่บันทึกประกอบ
+    #    ⇒ ต้องอยู่ใต้ล็อกห้องเหมือนตารางเงินอื่น (เพิ่มพร้อมงาน F4)
+    "INSERT INTO student_credits", "UPDATE student_credits", "DELETE FROM student_credits",
     "INSERT INTO accounting_ledgers",
     "INSERT INTO finance_categories", "UPDATE finance_categories",
     "INSERT INTO finance_budgets", "UPDATE finance_budgets",

@@ -1542,3 +1542,138 @@
 - **Rule:** (1) เทสต์ที่นับ substring วัดทั้งไฟล์ **รวมคอมเมนต์** — คอมเมนต์ที่พูดถึงสิ่งที่ถูกนับจะถูกนับเองด้วย (2) ถ้าต้องนับ ให้เลือกตัวนับที่โผล่ในคอมเมนต์ได้ยาก และเขียนคำเตือนไว้ข้าง ๆ ของจริง (3) อาการ "นับได้ N+1" ให้สงสัยคอมเมนต์ก่อนสงสัยโค้ด
 - **Tests:** `test_receipt_pdf_streams_with_mocked_gotenberg` (ตัวที่จับบั๊กนี้ได้จริง)
 - **Date Added:** 2026-09-14
+
+### 💰 เงินรับล่วงหน้า = **หนี้สิน** ไม่ใช่รายได้ — และระบบนี้เพิ่งมี liability ledger ตัวแรก
+- **Context/Problem:** ทำฟีเจอร์ "จ่ายล่วงหน้า" (F4) — รับเงินก้อนเข้ามาพักไว้รายคนก่อนที่จะมีบิล แล้วค่อยหักไปปิดบิลในอนาคต · ทางที่ลัดที่สุดคือลง journal ขา Cr เป็นรายได้ตั้งแต่วันที่รับเงิน (เพราะ "เงินเข้าแล้ว") ซึ่งจะทำให้ **รายได้ของห้องพองตั้งแต่ยังไม่มีบิล** และไม่มีอะไรฟ้องเลย: ยอด Dr=Cr ยังครบทุกใบ งบดุลยังดูปกติ ตัวเลขทุกหน้าจอยัง "ดูสมเหตุสมผล"
+- **Root Cause:** การรับเงินกับการเกิดรายได้เป็น **คนละเหตุการณ์** ทางบัญชี · เงินที่ยังไม่ผูกกับบริการที่ส่งมอบคือ **ภาระผูกพันที่จะต้องคืนหรือให้บริการในอนาคต** = หนี้สิน (`liability`) ⇒ การลง revenue ตรง ๆ คือการ **รับรู้รายได้ก่อนเกิด** ซึ่งผิดทั้งทางบัญชีและทำให้งบประมาณเห็นตัวเลขที่ไม่มีอยู่จริง
+- **Correct Pattern/Solution:** แยกสองจังหวะให้ชัด
+  ```
+  เติมเครดิต (รับเงิน)  → Dr สินทรัพย์ / Cr หนี้สิน 2099   ⇒ รายได้ +0
+  หักปิดบิล (ใช้เครดิต) → Dr หนี้สิน 2099 / Cr รายได้      ⇒ รายได้เกิด "ตรงนี้" จังหวะเดียว
+  ```
+  - ⚠️ **บัญชี 2099 ต้องมี `legacy_account_id IS NULL`** ⇒ `_scan_account_diffs` (ที่วนจาก `finance_accounts` แล้วเทียบ asset ledger **ของบัญชีนั้น**) มองไม่เห็น ⇒ ไม่สร้าง diff ปลอมให้ `reconcile` · แต่เพราะเหตุเดียวกัน **ขา Dr ต้องลง asset ledger ของกระเป๋าจริงเสมอ** ไม่งั้นยอดกระเป๋ากับ ledger จะไม่ตรงแล้ว reconcile จะรายงาน diff ที่เราสร้างเอง
+  - ⚠️ **ห้ามใช้ `_resolve_category_ledger` กับขา "เงินพัก"** — ตัวนั้นคืน ledger ประเภท revenue/expense เสมอ ⇒ กับดักข้อนี้จะกลับมาทันทีโดยที่โค้ดยัง "ดูถูกรูป"
+  - 🧪 **วิธีพิสูจน์ว่าถูก** (ไม่ใช่ดูว่า "ผ่าน"): เติม 1000 → `SUM(credit−debit)` บน ledger `revenue` **ต้องไม่เปลี่ยน** และบน `liability` ต้อง +1000 · แล้วหัก 500 → revenue +500, liability −500 · ปิดท้ายด้วย `สินทรัพย์ = หนี้สิน + ส่วนของเจ้าของ + กำไรสะสม`
+  - ℹ️ ก่อนงานนี้ **ไม่เคยมี liability ledger ในระบบเลย** — reporting layer รองรับอยู่แล้ว (`ACCOUNT_TYPE_LABELS`, `liability_total` ในงบดุล) แต่ไม่มีใครเป็นผู้ใช้รายแรก ⇒ เจอโค้ดที่ "รองรับไว้แล้วแต่ไม่เคยถูกรัน" ให้สงสัยว่ามันยังไม่เคยถูกทดสอบ
+- **Rule:** (1) เงินที่ยังไม่ผูกกับสิ่งที่ส่งมอบ = หนี้สิน **ห้ามเป็นรายได้** (2) รายได้รับรู้ ณ วันที่ "ใช้" เงินพักนั้น ไม่ใช่วันที่รับเงิน (3) ขา Dr ของเงินพักต้องลง asset ledger ของกระเป๋าจริงเสมอ ไม่งั้นสร้าง diff ปลอมให้ reconcile (4) พิสูจน์ความถูกต้องด้วย **ตัวเลขสามตัว** (สินทรัพย์/หนี้สิน/รายได้) ไม่ใช่ด้วยสถานะ HTTP 200
+- **Tests:** `test_top_up_is_a_liability_and_never_revenue` · `test_revenue_arises_once_when_credit_is_applied` · `test_reconcile_does_not_see_the_advance_liability_as_a_diff`
+- **Date Added:** 2026-09-14
+
+### 🔇 งบประมาณ (หลัง CUTOFF) อ่าน journal ตาม `reference_type` ⇒ เพิ่ม `reference_type` ใหม่ต้องแก้ `budgets.py` ด้วย ไม่งั้น **ยอดหายเงียบ**
+- **Context/Problem:** F4 เพิ่ม `reference_type` ใหม่ 2 ตัว (`student_credit_topup`, `student_credit_apply`) · ตัวที่สองคือ **รายได้จริงที่ต้องเข้างบ** แต่ถ้าลืมเติมชื่อมันลงใน filter ของงบประมาณ รายได้ก้อนนั้นจะ **ไม่ถูกนับเข้างบเลย** และ **ไม่มีอะไรฟ้อง** — ไม่ error ไม่มี 500 ไม่มี warning งบแค่โชว์ตัวเลขต่ำกว่าความจริง ซึ่งเป็นบั๊กที่ผู้ใช้จะเจอตอนปิดงบแล้ว และหาสาเหตุยากมาก
+- **Root Cause:** หลัง `CUTOFF_DATE` งบประมาณ **อ่านจาก `journal_entries` เท่านั้น** (ไม่ได้อ่าน `finance_transactions` — ตารางนั้นถูกอ่านเฉพาะช่วง legacy ที่ cap ด้วย `_LEGACY_LO/_LEGACY_HI`) และกรองด้วย **รายชื่อ `reference_type` ที่ฮาร์ดโค้ดไว้** ⇒ `reference_type` ที่ไม่อยู่ในรายชื่อ = มองไม่เห็นทั้งที่มีแถวอยู่ใน DB ครบถ้วน · เป็นกับดักตระกูลเดียวกับ "แก้ที่เดียวแต่ต้องแก้สองที่พร้อมกัน"
+- **Correct Pattern/Solution:** ทุกครั้งที่เพิ่ม `reference_type` ให้ **กวาดหา** ทุกที่ที่กรองด้วยรายชื่อนี้แล้วแก้พร้อมกันในคอมมิตเดียว
+  ```bash
+  grep -rn "reference_type" backend/services/finance/ --include=*.py | grep -i "in (\|== \|ANY"
+  ```
+  และปิดด้วยเทสต์ที่ **ยิงเข้า endpoint ของงบจริง** ไม่ใช่เทสต์ที่อ่าน journal เอง (เทสต์แบบหลังจะเขียวทั้งที่ผู้ใช้มองไม่เห็นยอด):
+  ```python
+  # GET /finance/budgets/overview ต้องนับยอดที่หักจากเครดิตเข้าหมวดรายได้
+  # ← เทสต์นี้จะ "ล้มถ้าลืมแก้ budgets.py" ซึ่งเป็นเหตุผลที่มันต้องมี
+  ```
+  💡 และการเลือก `category_id` ของแถว mirror ก็สำคัญพอกัน: **ต้องเป็น NULL** สำหรับเงินรับล่วงหน้า ไม่งั้น clause ที่นับจาก `finance_transactions` (ช่วง legacy) จะนับเงินรับล่วงหน้าเป็น "รายรับของงบ" ทันทีที่รับเงิน = **รายได้เกิดสองรอบ** ต่างกันคนละ clause
+- **Rule:** (1) `reference_type` เป็น **รายการที่ฮาร์ดโค้ด** ⇒ เพิ่มค่าใหม่ต้องตามแก้ทุกตัวกรอง (2) รายได้ใหม่ต้องมีเทสต์ที่ยิงผ่าน endpoint ของรายงาน/งบจริง ไม่ใช่เทสต์ที่อ่าน DB เอง (3) ตัวเลขที่ "หายเงียบ" อันตรายกว่าตัวเลขที่ "พังดัง" — ถ้าเพิ่มเส้นทางเงินใหม่แล้วไม่มีเทสต์ที่ยิงผ่านรายงาน ให้ถือว่ายังไม่เสร็จ
+- **Tests:** `test_budget_overview_counts_revenue_from_credit_application` (mutation M6: ถอด `'student_credit_apply'` ออกจาก filter แล้วเทสต์นี้ล้มจริง)
+- **Date Added:** 2026-09-14
+
+### 🕳️ เอกสารที่ `student_payment_id IS NULL` **ไม่ถูกกันซ้ำ** โดย `idx_finance_receipts_tx_active`
+- **Context/Problem:** ออกเอกสารชนิดใหม่ (`doc_type='deposit'` = ใบรับเงินล่วงหน้า) ที่ **ไม่มีบิลรองรับ** ⇒ `student_payment_id = NULL` · ตอนแรกคิดว่าได้ idempotency "มาฟรี" จาก unique index เดิมของตาราง `finance_receipts` แต่กดออกซ้ำแล้วได้ **เอกสาร 2 ใบ**
+- **Root Cause:** index เดิมคือ `UNIQUE (student_payment_id, legacy_transaction_id) WHERE deleted_at IS NULL` และ **Postgres ถือว่า `NULL` ไม่ซ้ำกับ `NULL`** ⇒ แถวที่ `student_payment_id IS NULL` ทุกแถว "ไม่ชนกัน" ตามนิยาม ⇒ index ที่ดูเหมือนครอบทุกแถวจริง ๆ แล้ว **ไม่ป้องกันอะไรเลย** สำหรับเอกสารที่ไม่มีบิล และจะไม่มี error ให้เห็นด้วย — แค่ได้เอกสารซ้ำสองใบซึ่งเป็นปัญหาการเงิน/หลักฐานทันที
+- **Correct Pattern/Solution:** เอกสารที่ไม่มีบิลต้องมี **unique index ของตัวเอง** ที่คีย์ด้วยสิ่งที่มันมีจริง (`legacy_transaction_id` ซึ่งไม่เป็น NULL เสมอ) และต้องเป็น **ชื่อใหม่** เพราะ `CREATE UNIQUE INDEX IF NOT EXISTS` **เปลี่ยน predicate ของ index ชื่อเดิมไม่ได้**
+  ```sql
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_receipts_deposit_active
+      ON finance_receipts(legacy_transaction_id, doc_type)
+      WHERE deleted_at IS NULL AND doc_type = 'deposit';
+  ```
+  🪆 และต้องมี **สองชั้น** เหมือนเส้นทางเดิม: อ่านก่อนเขียน (`_find_existing_deposit`) + ดัก `UniqueViolationError` ตอน INSERT แล้วอ่านซ้ำ (กันการแข่งกันจริง) — ชั้นเดียวไม่พอ เพราะสอง request ที่พร้อมกันจะผ่าน "อ่านก่อนเขียน" ทั้งคู่
+- **Rule:** (1) `UNIQUE` index ที่มีคอลัมน์ nullable เป็นสมาชิก **ไม่กันซ้ำ** สำหรับแถวที่ค่านั้นเป็น NULL — ต้องมี partial index ของตัวเอง (2) เมื่อเพิ่ม `doc_type` ใหม่ ต้องถามทุกครั้งว่า "เอกสารชนิดนี้มี `student_payment_id` ไหม" ถ้าไม่มี ต้องสร้าง index ใหม่ (3) `CREATE UNIQUE INDEX IF NOT EXISTS` ใช้ชื่อเดิมเพื่อเปลี่ยน predicate ไม่ได้ — ต้องตั้งชื่อใหม่ (4) idempotency ต้องมีทั้ง "อ่านก่อนเขียน" และ "ดัก UniqueViolation" ไม่ใช่เลือกอย่างใดอย่างหนึ่ง
+- **Tests:** `test_top_up_with_same_idempotency_key_is_not_a_second_payment` · `test_deposit_sequence_is_separate_from_receipt_sequence`
+- **Date Added:** 2026-09-14
+
+### 🧩 Pydantic `response_model` บังคับฟิลด์ที่ **ตัวสร้าง dict ไม่ได้ใส่** ⇒ 500 ทุกครั้ง (และตัวเลขใน error ชี้ผิดที่)
+- **Context/Problem:** `GET /finance/credits/{student_id}` ตอบ **500 ทุกครั้งที่เรียก** ทั้งที่ตัวเลขคำนวณถูกต้องครบถ้วน · error คือ `ResponseValidationError: {'type': 'missing', 'loc': ('response','plan','student_id'), 'input': {'balance_before': 100.0, 'allocations': [], ...}}`
+- **Root Cause:** มีสองทางที่สร้าง "แผนการหัก" — `_build_plan(balance=, bills=)` (รับแค่ยอดกับบิล ⇒ **ไม่รู้จักนักเรียน จึงไม่มี `student_id`**) และ `_build_plan_for_students(...)` (เติม `student_id`/`student_no`/`student_name` ต่อจาก `_build_plan`) · `get_student_credit` เรียกตัวแรกตรง ๆ ⇒ dict ที่ได้มีคีย์ไม่ครบตามที่ `CreditPlanItem` **บังคับ** ⇒ FastAPI โยน error **หลัง** service ทำงานเสร็จแล้ว (ข้อมูลใน DB ถูกต้องทั้งหมด — พังที่ชั้น serialization เท่านั้น)
+  ⚠️ และ `input` ใน error ไม่ได้บอกว่าขาดอะไรจากที่ไหน มันโชว์ dict ที่ "ดูครบดี" ⇒ อ่าน error แล้วนึกว่าเป็นปัญหาที่ DB หรือที่ `student_id` ของ request ซึ่งไม่ใช่
+- **Correct Pattern/Solution:** จุดที่ประกอบ dict สำหรับ response ต้องเติมตัวตนของเจ้าของข้อมูลให้ครบ **ชุดเดียวกับที่อีกเส้นทางเติม** (ก๊อปบรรทัดเดียวกัน ไม่คิดใหม่) — และถ้ามีสองทางสร้าง dict ชนิดเดียวกัน ควรมีเทสต์ที่ยิง **ทั้งสองทาง** แล้วเทียบว่าคีย์ชุดเดียวกัน
+  ```python
+  plan = cls._build_plan(balance=balance, bills=bills)
+  plan["student_id"] = student_id          # ← ขาดสามบรรทัดนี้ = 500 ทุก call
+  plan["student_no"] = stu["student_no"]
+  plan["student_name"] = stu["display_name"]
+  ```
+- **Rule:** (1) `response_model` ที่บังคับฟิลด์ = สัญญาที่ dict ต้นทางต้องมีคีย์ครบ — ฟิลด์ที่ "จะเติมทีหลัง" ต้องเติมจริงก่อน return (2) ถ้ามีสองทางสร้าง dict ชนิดเดียวกัน ต้องมีเทสต์ยิงทั้งคู่ (3) `ResponseValidationError` = ข้อมูลใน DB ถูกแล้ว พังที่ชั้น serialization — อย่าไปแก้ที่ SQL (4) เพิ่ม endpoint ใหม่แล้วได้ **500 ทุกครั้ง** ให้สงสัย response_model ก่อน logic
+- **Tests:** `test_balance_after_is_a_snapshot_chain_not_a_sum` · `test_member_can_read_credits_but_every_write_is_forbidden` (mutation M8: ถอด `plan["student_id"]` แล้วล้มจริง)
+- **Date Added:** 2026-09-14
+
+### 🗑️ อ่าน "ยอดคงเหลือแบบ snapshot" **หลัง** soft delete แถวที่เป็น snapshot ⇒ คืนเงินสองรอบ
+- **Context/Problem:** ยกเลิกการหักเครดิต (คืนเครดิตกลับเข้ากระเป๋านักเรียน) · เติม 800 → หักปิดบิล 800 → ยกเลิก แล้วได้ `credit_balance_after = 1600` แทนที่จะเป็น 800 ⇒ **คืนเครดิตสองรอบ** โดยที่ทุกค่าที่เกี่ยวข้อง "ดูสมเหตุสมผล" หมด (1600 ก็เป็นตัวเลขที่อ่านได้ ไม่มี error ไม่มี constraint ฟ้อง)
+- **Root Cause:** ตาราง `student_credits` เก็บ **snapshot** (`balance_after`) ไม่ใช่ผลรวม ⇒ "ยอดปัจจุบัน = `balance_after` ของแถวล่าสุดที่ยังไม่ถูกลบ" · ลำดับในโค้ดคือ **(1) soft delete แถวที่ถูกยกเลิก → (2) อ่านยอด → (3) `balance_after = ยอดที่อ่านได้ + ยอดที่หักไป`** · แต่พอ soft delete ไปแล้ว การอ่านในข้อ (2) คืน **ยอดที่คืนแล้ว** (เพราะแถวล่าสุดตอนนี้คือแถวเติมเงิน) ⇒ บวกซ้ำอีกครั้ง = สองเท่า
+- **Correct Pattern/Solution:** **อ่านก่อนลบ** แล้วจึงลบ:
+  ```python
+  balance_before = await cls._load_credit_balance(conn, ...)   # ← ต้องมาก่อน
+  balance_after = round(balance_before + applied, 2)
+  await conn.execute("UPDATE student_credits SET deleted_at = NOW() WHERE id = $1", credit_entry_id)
+  ```
+  ✅ และท่านี้ถูกต้อง **ทุกกรณี** รวมถึงการยกเลิกแถวที่ **ไม่ใช่แถวล่าสุด**: ยอดที่อ่านได้คือยอดจริง ณ ปัจจุบัน และแถว reverse ที่ต่อท้ายจะกลายเป็นแถวล่าสุดตัวใหม่ที่พายอดไปต่อได้ถูกต้อง (800→500→300 แล้ว +300 = 600)
+- **Rule:** (1) กับตารางที่เก็บ snapshot การอ่านยอดต้องเกิด **ก่อน** การลบ/แก้แถวที่มันอ่าน — ลำดับบรรทัดคือส่วนหนึ่งของความถูกต้อง ไม่ใช่เรื่องสไตล์ (2) อ่านโค้ดที่มีทั้ง "อ่านยอด" และ "ลบแถว" ให้ถามทุกครั้งว่าลำดับสลับกันได้ไหม (3) บั๊กชนิดนี้ไม่พัง ไม่ error — ต้องจับด้วยเทสต์ที่ assert **ตัวเลข** เท่านั้น (4) เทสต์ที่จับได้คือเทสต์ที่ assert ค่าจริง (`== 800.0`) ไม่ใช่แค่ `is not None`
+- **Tests:** `test_undo_application_returns_credit_and_reopens_the_bill` (mutation M7: ทำให้เป็น `applied * 2` แล้วล้มจริง) · `test_revert_top_up_voids_the_deposit_and_the_credit_row`
+- **Date Added:** 2026-09-14
+
+
+### 🖨️ Jinja: `{% if d.x is not none %}` บนคีย์ที่ **หายไป** = `True` ⇒ `format(Undefined)` ระเบิด (ใบรับเงินล่วงหน้าดาวน์โหลดไม่ได้ 500)
+- **Context/Problem:** ใบรับเงินล่วงหน้า (DEP) — เอกสารชนิดแรกที่ **ไม่มีบิล** — เรนเดอร์ PDF ไม่ผ่านเลย (`TypeError: unsupported format string passed to Undefined.__format__` ที่ `receipt.html` บรรทัดแถว "คงเหลือ") ทั้งที่ข้อมูลใน DB ครบถูกต้อง และ **เทสต์ 64 ตัวที่เพิ่งเขียนก็เขียวหมด**
+- **Root Cause:** `_document_context` ตั้งคีย์ `"remaining"` **เฉพาะเมื่อมี `collection_amount`** (คือเฉพาะเอกสารที่ผูกกับบิล) ⇒ ใบ DEP ไม่มีคีย์นี้เลย · แต่เทมเพลตกันด้วย `{% if d.remaining is not none %}` ซึ่ง **`Undefined is not none` เป็น `True`** ⇒ เข้าสาขา ⇒ `.format(Undefined)` โยน `TypeError` ⇒ **ล้มทั้งการเรนเดอร์** (HTTP 500 ที่ปลายทาง Gotenberg)
+  🕳️ **ทำไมเทสต์เดิมมองไม่เห็น:** (ก) ใบเสร็จ/ใบแจ้งหนี้ทุกใบผูกกับบิล ⇒ มี `collection_amount` เสมอ ⇒ ไม่เคยเดินผ่านเส้นทางที่คีย์หาย (ข) เทสต์เทมเพลตเดิมส่ง `remaining` เข้าไป **เอง** ครบทั้ง 4 ฟิลด์ตัวเลข ⇒ ยิ่งตอกย้ำว่าคีย์จะมาครบ (ค) คอมเมนต์ในเทมเพลต **เขียนสัญญาไว้ถูกแล้ว** ว่า *"บิลเดอร์ตั้งคีย์นี้เป็น None เสมอ เมื่อไม่มีแนวคิดนี้ และ `is defined` บนคีย์ที่เป็น None จะเป็น True"* — แต่ **โค้ดไม่ทำตามสัญญาที่คอมเมนต์เขียนไว้** และไม่มีเทสต์ไหนบังคับ
+- **Correct Pattern/Solution:** ตั้งคีย์ให้ **ครบเสมอ** ตั้งแต่ dict ตั้งต้น แล้วค่อยทับด้วยค่าจริง:
+  ```python
+  context = {
+      ...
+      "collection_amount": None,   # ← สามบรรทัดนี้ต้องมี
+      "remaining": None,
+      "remaining_text": None,
+  }
+  if collection_amount:            # ทับเมื่อมีความหมายจริง
+      context["remaining"] = float(collection_amount) - paid_total
+  ```
+  และให้ **ชื่อแถวรายการ** มีสาขาของตัวเอง — `{{ d.collection_title or 'รายการชำระเงิน' }}` บนเอกสารที่ไม่มีบิลจะกลายเป็นคำที่สื่อผิด (เหมือนมีบิลให้ชำระ)
+- **Rule:** (1) dict ที่ป้อนเทมเพลตต้องมีคีย์ครบตามที่เทมเพลตอ้างถึง — "ไม่ตั้งคีย์" ≠ "ตั้งเป็น None" ในสายตาของ Jinja (2) เอกสาร/ชนิดข้อมูลใหม่ที่ **ไม่มีแนวคิดเดิม** (ไม่มีบิล ไม่มีงวด) คือจุดที่กับดักชนิดนี้ออกเสมอ ⇒ เพิ่มชนิดใหม่ต้อง **เรนเดอร์จริงดูด้วยตา** ไม่ใช่แค่เทสต์ผ่าน (3) เทสต์ที่ **ป้อน context เองครบทุกคีย์** พิสูจน์ได้แค่ CSS/layout — ไม่พิสูจน์ว่าบิลเดอร์จริงผลิตคีย์ครบ ⇒ ต้องมีเทสต์ที่เรียก **บิลเดอร์จริง** (`_document_context`) แล้วเรนเดอร์ (4) คอมเมนต์ที่เขียน "สัญญา" ไว้ต้องมีเทสต์บังคับ ไม่งั้นมันจะกลายเป็นคำโกหกที่คนอ่านเชื่อ
+- **Tests:** `test_deposit_context_pins_bill_only_keys_to_none` · `test_deposit_document_renders_and_speaks_as_a_receipt` · `test_deposit_document_omits_the_remaining_row_entirely` · `test_receipt_context_still_computes_remaining_from_the_bill` (mutation M13: ถอน `"remaining": None` แล้วล้มจริง · M14: ถอยชื่อแถวรายการแล้วล้มจริง) · ตรวจด้วยตา: `/tmp/f4_pdf/deposit.png`
+- **Date Added:** 2026-09-14
+
+### 🧾 เอกสารที่ "ไม่มีบิล" ต้องมีถ้อยคำของตัวเอง — `is_receipt`/`doc_type` ที่ไม่ครบจะพิมพ์ด้วยคำของใบแจ้งหนี้ทั้งใบ
+- **Context/Problem:** ใบรับเงินล่วงหน้าไม่มีบิล ⇒ `collection_title` เป็น None ⇒ แถวรายการตกไปที่คำ fallback `'รายการชำระเงิน'` ซึ่ง **สื่อว่ามีบิลให้ชำระ** (ไม่จริง — เงินก้อนนี้ยังไม่ผูกกับอะไร) · และถ้าลืมเพิ่ม `doc_type` ใหม่เข้า `is_receipt` เอกสารจะพิมพ์ว่า "เรียกเก็บจาก" / "ยอดค้างชำระ" / "ผู้รับแจ้ง" **ผิดทั้งใบโดยไม่มีอะไรฟ้อง** เพราะทั้ง DB และเทสต์ยังถูกต้อง
+  ⚠️ กับดักเดียวกันนี้มี **3 ที่** ที่ต้องแก้พร้อมกัน: `receipt.html` (branch ด้วย `d.is_receipt`) · `_document_context` (`is_receipt = doc_type in (...)`) · `ReceiptDetail.vue` (สำเนาที่คำนวณเองว่า `doc_type === 'receipt'`)
+- **Correct Pattern/Solution:** ให้เอกสารชนิดใหม่มี **สาขาของตัวเอง** ในทุกจุดที่พูดถึง "บิล" และตั้งคำที่ตรงความจริง:
+  ```jinja
+  {%- if d.collection_title -%}{{ d.collection_title }}
+  {%- elif d.doc_type == 'deposit' -%}รับเงินล่วงหน้า (ยังไม่หักปิดบิลใด)
+  {%- else -%}รายการชำระเงิน{%- endif -%}
+  ```
+- **Rule:** (1) เพิ่ม `doc_type` ใหม่ = กวาดหาทุกที่ที่ branch ด้วย `doc_type`/`is_receipt` **ทั้ง backend และ frontend** (รวมสำเนาที่คำนวณเองใน view) (2) คำ fallback กลาง ๆ บนเอกสารการเงินคือคำโกหกที่ดูดี — ให้สาขาใหม่แทน (3) **หน่วยวัด:** เปิด PDF/หน้าจอจริงอ่านออกเสียง ถ้าประโยคใดไม่จริงสำหรับเอกสารชนิดนั้น ให้แก้ที่เทมเพลต ไม่ใช่ผ่อนที่เทสต์
+- **Tests:** `test_deposit_document_renders_and_speaks_as_a_receipt` (ยืนยันว่าไม่มี `เรียกเก็บจาก`/`ยอดค้างชำระ`/`ผู้รับแจ้ง` และต้องมี `ยังไม่หักปิดบิลใด`) · `test_receipt_context_still_computes_remaining_from_the_bill`
+- **Date Added:** 2026-09-14
+
+### 🔗 อาร์เรย์ใน query string: axios ส่ง `student_ids[]=1` แต่ FastAPI ต้องการ `student_ids=1` ⇒ **422 ที่มองไม่เห็นจากฝั่ง backend เลย**
+- **Context/Problem:** ปุ่ม "ดูข้อเสนอการหัก" (หัวใจของ flow "ระบบเสนอ → ครูยืนยัน" ของ F4) **กดแล้วพังทุกครั้ง** ด้วย 422 ทั้งที่ฝั่ง backend เทสต์ผ่านครบ 895 ตัว และ mutation 14/14 ถูกจับ
+  ```
+  HTTP 422 {"detail":[{"type":"missing","loc":["query","student_ids"],"msg":"Field required","input":null}]}
+  ```
+- **Root Cause:** `FinanceService.getCreditPlan` ส่ง `params: { student_ids: [1, 2] }` ให้ axios · **axios 1.x serialize อาร์เรย์เป็นวงเล็บเหลี่ยม** `student_ids[]=1&student_ids[]=2` (ยืนยันด้วยการดักดู URL จริงในเบราว์เซอร์) แต่ FastAPI ประกาศ `student_ids: List[int] = Query(...)` ซึ่งต้องการ **คีย์ซ้ำ** `student_ids=1&student_ids=2`
+  ⇒ FastAPI มองชื่อพารามิเตอร์ว่าเป็นคนละตัว (`student_ids[]`) แล้วไม่พบ `student_ids` ที่บังคับไว้ ⇒ 422 "Field required"
+  🔴 **ทำไมเทสต์ทั้ง 895 ตัวจับไม่ได้ — และจะจับไม่ได้ตลอดไป:** `TestClient`/httpx ส่ง `params={"student_ids": [1, 2]}` ซึ่ง serialize เป็นคีย์ซ้ำให้เองอยู่แล้ว ⇒ ฝั่ง Python **ไม่มีทางเห็นความต่างนี้** ความผิดพลาดอยู่ในไคลเอนต์เท่านั้น · และคอมเมนต์เดิมในโค้ดก็ **อ้างผิด** ว่า "axios แปลง array เป็น `student_ids=1&student_ids=2`" ⇒ ความเชื่อผิดที่เขียนกำกับไว้ ทำให้ไม่มีใครสงสัย
+- **Correct Pattern/Solution:** อย่าส่งอาร์เรย์ผ่าน `params:` ของ axios ให้สร้าง query string เองด้วย `URLSearchParams` — เป็นท่าที่ **มีอยู่แล้วในรีโป** (`ActivityService.getActivities`)
+  ```ts
+  const query = new URLSearchParams({ target_type: 'room' });
+  studentIds.forEach((id) => query.append('student_ids', String(id)));
+  return await api.get(`/api/classroom/${roomId}/finance/credits/plan?${query}`) as unknown as CreditApplyPlan;
+  ```
+- **Rule:** (1) **ทุกครั้งที่ส่งอาร์เรย์ลง query string ให้ใช้ `URLSearchParams` — ห้ามฝาก `params:` ของ axios** (2) เทสต์ที่พิสูจน์เรื่องนี้ต้องผูกกับ **ไคลเอนต์จริง** (adapter ปลอม + `api.getUri(config)`) ไม่ใช่ mock `api.get` — เพราะ mock แล้วจะเห็นแค่ argument ที่เราส่ง ไม่เห็น URL สุดท้าย (3) ⚠️ `config.url` **ใน adapter ไม่มี** query string — axios ประกอบให้ *ใน* adapter ⇒ ต้องใช้ `api.getUri(config)` (4) `Query(List[...])` ทั้ง repo มีตัวเดียว — ตรวจด้วย `grep -rn "Query(" backend/routers/ | grep "List\["` ก่อนเพิ่มตัวใหม่ (5) คอมเมนต์ที่อธิบายพฤติกรรมของไลบรารี **ต้องมาจากการวัด** ไม่ใช่จากความจำ
+- **Tests:** `src/services/__tests__/finance.spec.ts` — 5 เทสต์ รวมเทสต์ที่พิสูจน์ว่ากับดักยังมีจริง (`params:` ให้ `student_ids[]=7`) · ยืนยันแล้วว่า **ย้อนโค้ดกลับ ⇒ ล้ม 2 เทสต์**
+- **Date Added:** 2026-09-14
+
+### ✂️ `truncate` บนบรรทัดที่มี **ตัวเลขเงิน** = ตัวเลขโกหก (฿1,500.00 อ่านเป็น ฿1,50…)
+- **Context/Problem:** ที่ 375px หัวโมดัล "เติมเงินล่วงหน้า" พิมพ์ `นายกิตติพงษ์ ศรีสุวรรณ · เครดิตปัจจุบัน ฿1,50…` — ตัวเลขถูกตัดกลางคันด้วย `truncate` ⇒ อ่านแล้วเหมือน **฿1.50 หรือ ฿1,50** ซึ่งเป็นคนละจำนวนกับความจริง
+- **Root Cause:** `<p class="page-lede truncate">` ครอบทั้งชื่อนักเรียนและจำนวนเงิน · ชื่อไทยยาวได้ไม่จำกัด ⇒ ที่จอแคบ `truncate` ตัดที่ **ปลายข้อความ** ซึ่งบังเอิญตกกลางตัวเลขเงิน
+- **Correct Pattern/Solution:** เอา `truncate` ออกให้ข้อความ **ขึ้นบรรทัดใหม่** (พาเนลโมดัลมี `overflow-y-auto` อยู่แล้ว) · `truncate` ยังใช้ได้กับข้อความ **คงที่** (`<h2>` ชื่อโมดัล) เพราะความยาวไม่แปรตามข้อมูล
+- **Rule:** (1) ห้าม `truncate` กับอะไรก็ตามที่ **มีความยาวแปรตามข้อมูลและปลายข้อความเป็นตัวเลข** (เงิน/วันที่/เลขที่เอกสาร) — ให้ตัดบรรทัดแทน (2) ตรวจด้วยการ **เรนเดอร์จริงที่ 375px** แล้วอ่านตัวเลขบนภาพออกเสียง ว่ายังเป็นจำนวนเดิมไหม
+- **Date Added:** 2026-09-14

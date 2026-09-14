@@ -140,6 +140,15 @@ const router = createRouter({
           component: () => import('@/views/finance/DebtorList.vue'),
         },
         {
+          // 💰 [F4] เงินรับล่วงหน้า — อ่านเปิดให้สมาชิก (ตรงกับ require_member ฝั่ง backend)
+          // ส่วนปุ่มเขียน (เติม/หัก/ยกเลิก) gate ด้วย `canManageFinance` ในตัวหน้า
+          // ⚠️ ห้าม gate ที่นี่ด้วย `isAdmin` — เหรัญญิกที่มี MANAGE_FINANCE จะเข้าหน้าไม่ได้
+          //    (กับดักเดียวกับที่ DebtorList.vue อธิบายไว้เรื่องโมดัลรับเงิน)
+          path: 'finance/credits',
+          name: 'finance-credits',
+          component: () => import('@/views/finance/CreditList.vue'),
+        },
+        {
           // งบการเงิน — อ่านอย่างเดียว ไม่มี RBAC gate (ตรงกับ require_member ฝั่ง backend)
           path: 'finance/statements',
           name: 'finance-statements',

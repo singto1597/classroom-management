@@ -37,7 +37,31 @@ const detail = ref<ReceiptDetail | null>(null);
 const isLoading = ref(true);
 const errorMessage = ref('');
 
-const isReceipt = computed(() => detail.value?.doc_type === 'receipt');
+/**
+ * 🧾 เอกสารนี้พูดด้วยถ้อยคำของ "ใบเสร็จ" (เงินเข้าแล้ว) หรือ "ใบแจ้งหนี้" (ยังไม่ได้รับเงิน)?
+ *
+ * 🔴 ต้องนับ `'deposit'` (ใบรับเงินล่วงหน้า) เป็น **ใบเสร็จ** ด้วย — เงินเข้ามาจริงแล้ว
+ *    ⚠️ สำเนากับดักเดียวกับ `receipt.html` ที่ branch ด้วย `d.is_receipt` ไม่ใช่ `doc_type`:
+ *       ถ้าปล่อยเป็น false ใบรับเงินล่วงหน้าจะถูกแสดงด้วยถ้อยคำใบแจ้งหนี้ทั้งหน้า
+ *       ("เรียกเก็บจาก" / "ยอดค้างชำระ") ⇒ **อ่านผิดทั้งใบโดยไม่มีอะไรฟ้อง**
+ *    💡 ฝั่ง backend ส่ง `is_receipt: true` มาให้แล้ว แต่หน้านี้คำนวณเองจาก `doc_type`
+ *       ⇒ ต้องแก้ให้ตรงกัน ไม่งั้นสองที่จะพูดไม่ตรงกัน
+ */
+const isReceipt = computed(() => ['receipt', 'deposit'].includes(detail.value?.doc_type ?? ''));
+
+/** 💰 ใบรับเงินล่วงหน้าโดยเฉพาะ — ถ้อยคำต่างจากใบเสร็จ/ใบแจ้งหนี้ทั้งใบ */
+const isDeposit = computed(() => detail.value?.doc_type === 'deposit');
+
+/**
+ * 🏷️ ป้ายของ `paid_total_after`
+ * ⚠️ ของเดิมเป็น 2 ทาง (`isReceipt ? 'ยอดสะสมที่ชำระแล้ว' : 'ชำระแล้ว'`) ⇒ ใบรับเงินล่วงหน้า
+ *    จะได้คำว่า "ยอดสะสมที่ชำระแล้ว" ซึ่ง **ผิดบริบท**: เงินก้อนนี้ไม่ได้ "ชำระ" บิลใบไหน
+ *    มันคือเครดิตที่ห้องรับมาถือไว้ ⇒ ต้องมีสาขาที่สาม
+ */
+const paidTotalLabel = computed(() => {
+  if (isDeposit.value) return 'ยอดที่รับไว้เป็นเครดิต';
+  return isReceipt.value ? 'ยอดสะสมที่ชำระแล้ว' : 'ชำระแล้ว';
+});
 
 /** คงเหลือ ณ วันที่ออกเอกสาร — ต้องมีทั้งสองยอดถึงจะคำนวณได้ (มิฉะนั้นซ่อนแถวไปเลย) */
 const remaining = computed<number | null>(() => {
@@ -274,7 +298,7 @@ onMounted(() => {
 
           <div>
             <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
-              {{ isReceipt ? 'ยอดสะสมที่ชำระแล้ว' : 'ชำระแล้ว' }}
+              {{ paidTotalLabel }}
             </dt>
             <dd class="num mt-0.5 text-stone-700">{{ formatMoney(detail.paid_total_after) }}</dd>
           </div>
@@ -306,7 +330,14 @@ onMounted(() => {
           aria-hidden="true"
         ></i>
         <p class="text-sm leading-relaxed text-stone-600">
-          <template v-if="isReceipt">
+          <template v-if="isDeposit">
+            ใบรับเงินล่วงหน้าเป็นหลักฐานว่า <b>ได้รับเงินเข้ามาแล้ว</b> แต่เงินก้อนนี้ยัง
+            <b>ไม่นับเป็นรายได้</b> ของห้อง — ระบบถือไว้เป็น <b>เครดิตคงเหลือ</b> ของนักเรียน
+            และจะนับเป็นรายได้ก็ต่อเมื่อถูกหักไปปิดบิลเท่านั้น
+            <br />⚠️ ใบนี้ <b>ไม่ผูกกับบิลใบใด</b> — จึงไม่มียอดค้างชำระ และไม่ออกใหม่
+            ตราบใดที่รายการเดิมยังอยู่ (แก้ไขให้ถูกต้องได้โดยยกเลิกรายการนั้น)
+          </template>
+          <template v-else-if="isReceipt">
             ใบเสร็จผูกกับ <b>เหตุการณ์รับเงิน</b> หนึ่งครั้ง — ออกซ้ำจะได้เลขเดิมเสมอ
             (พิมพ์กี่ครั้งก็ปลอดภัย ไม่กินเลขใหม่)
           </template>

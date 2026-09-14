@@ -17,7 +17,8 @@ from .constants import (
     COLLECTION_STATUS_LABELS, REFERENCE_TYPE_LABELS, MANAGEMENT_TAB_COLORS,
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
-    DOC_TYPE_RECEIPT, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
+    DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
+    CREDIT_ENTRY_TOPUP, CREDIT_ENTRY_REVERSE,
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
@@ -590,6 +591,58 @@ class TransactionsMixin:
 
                     old_values = dict(t)
 
+                    # ─────────────────────────────── 💰 [F4] guard: รายการนี้เป็น "เงินรับล่วงหน้า" ไหม
+                    # เติมเครดิต = รับเงินเข้ามาพัก ⇒ การยกเลิกคือ "คืนเงินให้ผู้ปกครอง"
+                    # ซึ่งทำได้ **ก็ต่อเมื่อเงินก้อนนั้นยังไม่ถูกใช้ไปปิดบิล**
+                    #
+                    # 🔴 ถ้าปล่อยให้ยกเลิกทั้งที่เครดิตถูกหักใช้ไปแล้ว:
+                    #    เงินในกระเป๋าถูกหักคืนเต็มจำนวน แต่รายได้ที่เกิดจากการหักบิล
+                    #    **ยังอยู่ใน P&L** ⇒ งบดุลพัง (สินทรัพย์หาย แต่กำไรยังอยู่)
+                    #    และไม่มีอะไรฟ้อง เพราะยอด Dr=Cr ของแต่ละใบยังครบ
+                    #
+                    # 🎯 เกณฑ์ที่ใช้: **ต้องไม่มีแถวเครดิตใด ๆ ของนักเรียนคนนี้ที่ id มากกว่าแถวเติมนี้**
+                    #    (เข้มกว่านั้นคือ "ยอดคงเหลือ ≥ ยอดเติม" แต่สองเกณฑ์ให้คำตอบเดียวกันในทุก
+                    #     กรณีที่เกิดจริง และเกณฑ์นี้ **พิสูจน์ได้ทันทีว่า chain ของ `balance_after`
+                    #     ยังต่อกันถูก** หลังเติมแถว reverse กลับไป — ซึ่งเป็นสิ่งที่เราต้องการจริง ๆ)
+                    #
+                    # 💡 รายการที่ไม่ใช่การเติมเครดิตจะไม่พบแถวใน `student_credits` เลย
+                    #    ⇒ guard นี้เป็น no-op กับทุกเส้นทางเดิม (รับเงิน / รายจ่าย / โอน)
+                    credit_row = await conn.fetchrow(
+                        """SELECT id, student_id, amount, balance_after
+                           FROM student_credits
+                           WHERE room_id = $1 AND finance_transaction_id = $2
+                             AND entry_type = $3 AND deleted_at IS NULL
+                           ORDER BY id LIMIT 1""",
+                        target_room_id, transaction_id, CREDIT_ENTRY_TOPUP,
+                    )
+                    credit_reversal = None
+                    if credit_row:
+                        # 🔁 ยกเลิกซ้ำไม่ได้ — แถว reverse ที่ผูก transaction เดียวกันคือร่องรอย
+                        #    (ไม่ใช้การลบแถว topup ทิ้ง เพราะต้องการให้ประวัติยังตรวจสอบได้)
+                        already = await conn.fetchval(
+                            """SELECT id FROM student_credits
+                               WHERE room_id = $1 AND finance_transaction_id = $2
+                                 AND entry_type = $3 AND deleted_at IS NULL
+                               ORDER BY id LIMIT 1""",
+                            target_room_id, transaction_id, CREDIT_ENTRY_REVERSE,
+                        )
+                        if already is not None:
+                            raise ValueError("รายการเติมเงินล่วงหน้านี้ถูกยกเลิกไปแล้ว")
+                        later_id = await conn.fetchval(
+                            """SELECT id FROM student_credits
+                               WHERE room_id = $1 AND student_id = $2 AND id > $3
+                                 AND deleted_at IS NULL
+                               ORDER BY id LIMIT 1""",
+                            target_room_id, credit_row["student_id"], credit_row["id"],
+                        )
+                        if later_id is not None:
+                            raise ValueError(
+                                "ยกเลิกไม่ได้: เครดิตของนักเรียนคนนี้ถูกหักใช้ไปแล้ว (หรือถูกเติมเพิ่ม) "
+                                "หลังรายการนี้ — กรุณายกเลิก 'การหักปิดบิล' ที่เกี่ยวข้องก่อน "
+                                "แล้วจึงยกเลิกรายการรับเงินนี้"
+                            )
+                        credit_reversal = credit_row
+
                     # 🧾 เก็บ id ของ "ทุกแถวที่กำลังจะถูกยกเลิก" ไว้ void ใบเสร็จทีหลัง
                     #    (โอนเงิน 1 ครั้ง = หลายแถวในกลุ่ม ⇒ ต้องเก็บทั้งกลุ่ม ไม่ใช่แค่แถวที่รับมา)
                     voided_tx_ids = [transaction_id]
@@ -666,19 +719,59 @@ class TransactionsMixin:
                     #      predicate ของ index** ซึ่งแก้บน DB ที่ deploy แล้วไม่ได้จริง
                     #      (`CREATE UNIQUE INDEX IF NOT EXISTS` ที่ predicate เปลี่ยน = no-op เงียบ)
                     #    ส่วน `status` เก็บไว้เพื่อ "บอกความตั้งใจ" และเป็นด่านของมุมมองตรวจสอบ
+                    # ⚠️ `doc_type = ANY($5::text[])` **ไม่ใช่** `doc_type = $5` เดี่ยว ๆ:
+                    #    ต้องยกเลิก **ทั้งใบเสร็จและใบรับเงินล่วงหน้า** ที่ผูกกับรายการนี้
+                    #    (เติมเครดิต ⇒ ออกใบ DEP ⇒ ถ้ายกเลิกรายการแล้วไม่ void ใบ DEP
+                    #     เอกสารจะค้าง `active` ตลอดกาล ทั้งที่เงินถูกคืนไปแล้ว —
+                    #     คือ "เอกสารขัดกับฐานข้อมูล" ตรงตามเหตุผลที่คอมเมนต์ด้านบนอธิบาย)
                     voided_receipts = await conn.fetch(
                         """UPDATE finance_receipts
                            SET status = $7, voided_at = CURRENT_TIMESTAMP,
                                voided_by = $3, void_reason = $4, deleted_at = NOW()
                            WHERE room_id = $1 AND legacy_transaction_id = ANY($2::int[])
-                             AND doc_type = $5
+                             AND doc_type = ANY($5::text[])
                              AND status = $6 AND deleted_at IS NULL
                            RETURNING receipt_no""",
                         target_room_id, voided_tx_ids, user_id,
                         f"ยกเลิกรายการธุรกรรม #{transaction_id}",
-                        DOC_TYPE_RECEIPT, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
+                        [DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT],
+                        DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
                     )
                     voided_nos = [r["receipt_no"] for r in voided_receipts]
+
+                    # ───────────────────────── 💰 [F4] คืนเครดิตในบัญชีแยกประเภทรายคน
+                    # 🔴 **ไม่ลบแถว topup ทิ้ง** แต่ **เติมแถว `reverse`** ต่อท้าย ⇒
+                    #    (ก) ประวัติยังตรวจสอบได้ว่าเคยเติมเท่าไรแล้วถูกยกเลิก
+                    #    (ข) แถว reverse เป็น "แถวล่าสุด" ⇒ ยอดคงเหลือที่อ่านจาก
+                    #        `balance_after` กลับไปเป็นยอดก่อนเติมโดยอัตโนมัติ
+                    #        โดยไม่ต้องไล่แก้อดีต (ตารางนี้เป็น append-only โดยเจตนา)
+                    # 💡 `finance_transaction_id` ของแถว reverse ชี้ไปที่ **เหตุการณ์รับเงินเดิม**
+                    #    ไม่ใช่แถวใหม่ — เพราะไม่มีแถวใหม่ (การยกเลิกไม่สร้าง transaction)
+                    #    และค่านี้เองที่ทำให้ "ยกเลิกซ้ำ" ถูกจับได้ใน guard ด้านบน
+                    if credit_reversal is not None:
+                        current_balance = await conn.fetchval(
+                            """SELECT balance_after FROM student_credits
+                               WHERE room_id = $1 AND student_id = $2 AND deleted_at IS NULL
+                               ORDER BY id DESC LIMIT 1""",
+                            target_room_id, credit_reversal["student_id"],
+                        )
+                        restored = round(float(current_balance) - float(credit_reversal["amount"]), 2)
+                        if restored < 0:
+                            # ควรเป็นไปไม่ได้หลัง guard ข้างบน — ถ้าเกิด แปลว่ามีคนแก้ DB ตรง
+                            # ⇒ หยุดดีกว่าเขียนยอดติดลบลงไปแล้วปล่อยให้เพี้ยนกว่านี้
+                            raise ValueError(
+                                "ยอดเครดิตคงเหลือน้อยกว่ายอดที่จะคืน — ข้อมูลไม่สอดคล้อง "
+                                "กรุณาตรวจสอบก่อนยกเลิกรายการ"
+                            )
+                        await conn.execute(
+                            """INSERT INTO student_credits
+                                   (room_id, student_id, entry_type, amount, balance_after,
+                                    finance_transaction_id, note, recorded_by)
+                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                            target_room_id, credit_reversal["student_id"], CREDIT_ENTRY_REVERSE,
+                            float(credit_reversal["amount"]), restored, transaction_id,
+                            f"ยกเลิกรายการรับเงินล่วงหน้า #{transaction_id}", actor_identifier,
+                        )
 
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(

@@ -454,6 +454,18 @@ onMounted(() => {
           <i class="bi bi-collection" aria-hidden="true"></i>
           ออกใบแจ้งหนี้ทั้งห้อง
         </button>
+        <!--
+          💰 [F4] ทางเข้าหน้า "เงินรับล่วงหน้า" — **ห้าม gate ด้วย `isAdmin`**
+          🔴 เพราะการ์ดทางเข้าอีกทางอยู่ที่ `FinanceDashboard.vue` ซึ่ง gate ด้วย `isAdmin`
+             ⇒ ถ้ามีแต่ที่นั่น เหรัญญิกที่มี `MANAGE_FINANCE` แต่ไม่ใช่แอดมินจะเข้าหน้า
+             เงินรับล่วงหน้าไม่ได้เลย (กับดักเดียวกับที่คอมเมนต์หัวไฟล์นี้อธิบายไว้)
+          ✅ หน้านี้เปิดให้สมาชิกอ่านอยู่แล้ว ⇒ ลิงก์นี้จึงไม่ต้อง gate อะไรทั้งสิ้น
+             (ปุ่มเขียนในหน้านั้น gate ด้วย `canManageFinance` เองอีกชั้น)
+        -->
+        <RouterLink to="/finance/credits" class="btn-ghost-ui" title="เงินรับล่วงหน้า / เครดิตคงเหลือ">
+          <i class="bi bi-piggy-bank" aria-hidden="true"></i>
+          เงินรับล่วงหน้า
+        </RouterLink>
         <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
           <i class="bi bi-arrow-left" aria-hidden="true"></i>
           กลับหน้าภาพรวม
@@ -514,8 +526,24 @@ onMounted(() => {
             </div>
 
             <div class="shrink-0 text-right">
-              <p class="text-[11px] font-bold text-stone-500">ยอดค้างชำระ</p>
-              <p class="font-display num mt-0.5 whitespace-nowrap text-lg font-bold text-red-600">
+              <p class="text-[11px] font-bold text-stone-500">ต้องเก็บจริง</p>
+              <!--
+                💰 [F4] ตัวเลขหลัก = `net_pending_amount` (หักเครดิตแล้ว) — เป็นยอดที่ครู
+                ต้องไปเก็บจริง ⇒ ไม่ต้องให้ครูคิดเลขเองบนจอ
+                ⚠️ `total_pending_amount` ยังโชว์คู่กัน (ขีดฆ่า) เมื่อมีเครดิต เพื่อให้เห็นที่มา
+                🔴 ห้ามลบเครดิตเองที่หน้าจอ (`total - credit`) — backend ส่งค่าที่หักแล้วมาให้
+                   และเป็นตัวเดียวกับที่ระบบจะหักจริง ถ้าคำนวณซ้ำที่จอมีโอกาสไม่ตรงกัน
+              -->
+              <p
+                class="font-display num mt-0.5 whitespace-nowrap text-lg font-bold"
+                :class="d.net_pending_amount > 0 ? 'text-red-600' : 'text-emerald-600'"
+              >
+                ฿{{ formatNumber(d.net_pending_amount) }}
+              </p>
+              <p
+                v-if="d.credit_balance > 0"
+                class="num mt-0.5 whitespace-nowrap text-[11px] text-stone-400 line-through"
+              >
                 ฿{{ formatNumber(d.total_pending_amount) }}
               </p>
             </div>
@@ -524,10 +552,22 @@ onMounted(() => {
           <div
             class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
           >
-            <span class="chip shrink-0 bg-amber-50 text-amber-700">
-              <i class="bi bi-receipt" aria-hidden="true"></i>
-              ค้าง {{ d.overdue_count }} รายการ
-            </span>
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <span class="chip shrink-0 bg-amber-50 text-amber-700">
+                <i class="bi bi-receipt" aria-hidden="true"></i>
+                ค้าง {{ d.overdue_count }} รายการ
+              </span>
+              <!-- 💰 chip เครดิต — ทำให้ "ยอดที่ลดลง" อธิบายตัวเองได้ ไม่ต้องเดา -->
+              <RouterLink
+                v-if="d.credit_balance > 0"
+                to="/finance/credits"
+                class="chip shrink-0 bg-emerald-50 text-emerald-700"
+                :title="`ดูเงินรับล่วงหน้าของ ${d.student_name}`"
+              >
+                <i class="bi bi-piggy-bank" aria-hidden="true"></i>
+                มีเครดิต ฿{{ formatNumber(d.credit_balance) }}
+              </RouterLink>
+            </div>
             <button
               v-if="isAdmin"
               type="button"
@@ -575,7 +615,7 @@ onMounted(() => {
                 <th class="w-24">เลขที่</th>
                 <th>ชื่อนักเรียน</th>
                 <th class="text-center">จำนวนที่ค้าง (บิล)</th>
-                <th class="text-right">ยอดค้างชำระ (฿)</th>
+                <th class="text-right">ต้องเก็บจริง (฿)</th>
                 <th class="text-right">จัดการ</th>
               </tr>
             </thead>
@@ -609,15 +649,37 @@ onMounted(() => {
                 <td class="num font-bold text-stone-400">#{{ d.student_no }}</td>
                 <td class="font-bold text-stone-900">{{ d.student_name }}</td>
                 <td class="text-center">
-                  <span class="chip bg-amber-50 text-amber-700">
-                    <i class="bi bi-receipt" aria-hidden="true"></i>
-                    ค้าง {{ d.overdue_count }} รายการ
-                  </span>
+                  <div class="flex flex-wrap items-center justify-center gap-1.5">
+                    <span class="chip bg-amber-50 text-amber-700">
+                      <i class="bi bi-receipt" aria-hidden="true"></i>
+                      ค้าง {{ d.overdue_count }} รายการ
+                    </span>
+                    <!-- 💰 chip เครดิต — อธิบายว่าทำไม "ต้องเก็บจริง" ต่ำกว่า "ยอดค้างดิบ" -->
+                    <RouterLink
+                      v-if="d.credit_balance > 0"
+                      to="/finance/credits"
+                      class="chip bg-emerald-50 text-emerald-700"
+                      :title="`ดูเงินรับล่วงหน้าของ ${d.student_name}`"
+                    >
+                      <i class="bi bi-piggy-bank" aria-hidden="true"></i>
+                      มีเครดิต ฿{{ formatNumber(d.credit_balance) }}
+                    </RouterLink>
+                  </div>
                 </td>
-                <td
-                  class="font-display num whitespace-nowrap text-right text-base font-bold text-red-600"
-                >
-                  ฿{{ formatNumber(d.total_pending_amount) }}
+                <td class="whitespace-nowrap text-right">
+                  <!-- 💰 ตัวเลขหลัก = ยอดที่ต้องเก็บจริงหลังหักเครดิต (ดูเหตุผลที่การ์ดมือถือ) -->
+                  <span
+                    class="font-display num text-base font-bold"
+                    :class="d.net_pending_amount > 0 ? 'text-red-600' : 'text-emerald-600'"
+                  >
+                    ฿{{ formatNumber(d.net_pending_amount) }}
+                  </span>
+                  <span
+                    v-if="d.credit_balance > 0"
+                    class="num mt-0.5 block text-[11px] font-normal text-stone-400 line-through"
+                  >
+                    ฿{{ formatNumber(d.total_pending_amount) }}
+                  </span>
                 </td>
                 <td>
                   <div class="flex justify-end">

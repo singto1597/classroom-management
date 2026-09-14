@@ -18,6 +18,7 @@ from .constants import (
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
     DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES, DEFAULT_FINANCE_ACCOUNTS,
+    ADVANCE_LIABILITY_CODE, ADVANCE_LIABILITY_NAME, REFERENCE_TYPE_CREDIT_APPLY,
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
@@ -148,6 +149,41 @@ class LedgerMixin:
                 room_id, DEFAULT_INCOME_CATEGORIES[0],
             )
         return cat_id
+
+    @classmethod
+    async def _resolve_default_income_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        """[F4] หา/สร้าง revenue ledger "รายได้ค่าเริ่มต้น" ของห้อง แล้ว **คืน id หรือ raise**
+
+        🔴 ใช้ร่วมกันโดย `_confirm_single_payment` (รับเงินสด) และ `_apply_plan_locked`
+        (หักเครดิตปิดบิล) — **ต้องเป็นตัวเดียวกันจริง ๆ** ไม่ใช่โค้ดท่าคล้ายกัน 2 ชุด
+        เพราะทั้งคู่ต้องได้ ledger **ตัวเดียวกัน** ไม่งั้นรายได้ของบิลเดียวกันจะไปอยู่คนละ
+        บัญชีขึ้นกับว่าจ่ายด้วยเงินสดหรือเครดิต แล้วรายงานแยกตามหมวดจะเพี้ยนแบบหาสาเหตุยาก
+
+        ⚠️ ต้องเป็น ledger ที่มี `legacy_category_id` ชี้ไปหมวดจริง (ไม่ใช่ ledger ลอย ๆ)
+           เพราะ `budgets.py` นับการใช้/รับของงบประมาณด้วย `AL.legacy_category_id = B.category_id`
+           ⇒ ledger ที่ไม่ผูกหมวดจะทำให้ "งบประมาณไม่เห็นรายได้ก้อนนี้" เงียบ ๆ
+           ขั้นตอนที่ (2) จึงต้องผ่าน `_resolve_category_ledger` (ซึ่งใส่ legacy_category_id ให้)
+           ไม่ใช่ INSERT ledger เอง
+
+        ลำดับ: (1) หา ledger รายได้ชื่อ '📥 เก็บเงินห้องปกติ' → (2) สร้างหมวดนั้นแล้ว
+        resolve ledger ตามหมวด → (3) ถ้ายังไม่ได้ = raise (rollback ทั้งชุด)
+        """
+        revenue_ledger_id = await cls._find_revenue_ledger_by_name(
+            conn, room_id, account_name=DEFAULT_INCOME_CATEGORIES[0]
+        )
+        if revenue_ledger_id is None:
+            # [FIX A] ปิดรอยรั่วข้าม dual-write: ห้องที่ยังไม่มี ledger รายได้/หมวดหมู่ค่าเริ่มต้น
+            # → สร้างหมวด '📥 เก็บเงินห้องปกติ' (ถ้ายังไม่มี) + revenue ledger ให้อัตโนมัติ
+            # เพื่อให้ journal ครบฝั่ง (กัน "legacy ได้เงิน แต่บัญชีคู่ไม่มีบิล")
+            legacy_cat_id = await cls._find_or_create_default_income_category(conn, room_id)
+            if legacy_cat_id:
+                revenue_ledger_id = await cls._resolve_category_ledger(
+                    conn, room_id, legacy_cat_id, 'income'
+                )
+        # ห้ามข้าม dual-write: ถ้าหา/สร้าง ledger รายได้ไม่ได้ → error (rollback ทั้งชุด) แทนที่จะเงียบ
+        if revenue_ledger_id is None:
+            raise ValueError("ไม่สามารถหา/สร้าง ledger รายได้ '📥 เก็บเงินห้องปกติ' เพื่อบันทึกบัญชีคู่ได้")
+        return revenue_ledger_id
 
     @classmethod
     async def _insert_journal_entry(
@@ -285,6 +321,39 @@ class LedgerMixin:
         )
 
     @classmethod
+    async def _resolve_advance_ledger(cls, conn: asyncpg.Connection, *, room_id: int) -> int:
+        """[F4] หา/สร้าง ledger **หนี้สิน** '2099' (เงินรับล่วงหน้า) ให้ห้อง — ใช้เป็นขา Cr
+        ของการรับเงินล่วงหน้า และขา Dr ของการหักเครดิตไปปิดบิล
+
+        🔴 นี่คือ liability ledger **ตัวแรกของระบบ** — ก่อนหน้านี้ไม่มีใครสร้างเลย
+        (ACCOUNT_TYPE_LABELS มี 'liability' และงบดุลก็รวม liability_total อยู่แล้ว
+        ⇒ ชั้นรายงานไม่ต้องแก้อะไร งานนี้แค่ทำให้มีข้อมูลจริง ๆ สักที)
+
+        ⚠️ ต่างจาก `_resolve_asset_ledger`/`_resolve_category_ledger` ตรงที่ **ไม่มี
+        `legacy_account_id`/`legacy_category_id`** — ไม่ได้ map กับตาราง legacy ใดเลย
+        ⇒ `_scan_account_diffs` (reconcile) ซึ่งวนจาก `finance_accounts` และกรอง
+        `account_type = 'asset'` จะ **มองไม่เห็น ledger นี้** ⇒ สร้าง diff ปลอมไม่ได้
+
+        ⚠️ ใช้ `(room_id, account_code, account_type)` เป็นคีย์ค้น — ไม่ใช่ `account_code`
+        เดี่ยว ๆ เพราะเลขรหัสบัญชีไม่ unique ข้ามห้อง
+        """
+        ledger_id = await conn.fetchval(
+            """SELECT id FROM accounting_ledgers
+               WHERE room_id = $1 AND account_code = $2 AND account_type = 'liability'
+               ORDER BY id LIMIT 1""",
+            room_id, ADVANCE_LIABILITY_CODE,
+        )
+        if ledger_id:
+            return ledger_id
+        return await conn.fetchval(
+            """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, description)
+               VALUES ($1, $2, $3, 'liability', $4)
+               RETURNING id""",
+            room_id, ADVANCE_LIABILITY_CODE, ADVANCE_LIABILITY_NAME,
+            "เงินที่รับมาก่อนที่จะมีบิล — ยังไม่ใช่รายได้จนกว่าจะหักปิดบิล (สร้างอัตโนมัติโดย credits)",
+        )
+
+    @classmethod
     async def reconcile_balances(
         cls,
         pool: asyncpg.Pool,
@@ -395,14 +464,36 @@ class LedgerMixin:
         คืน None ถ้าบิลไม่ตรง transaction_type ที่กรอง (คล้าย WHERE ใน legacy).
         """
         lines = entry["lines"]
+
+        # [F4] 🔴 การหักเครดิตปิดบิล **ต้องไม่โผล่ในประวัติเงินเคลื่อนไหว** — คืน None ทิ้งไป
+        #
+        # เหตุผล: ตารางที่ hàm นี้ป้อนคือ **"เงินเข้าออกของกระเป๋า"** (ระบบเดิมนับจาก
+        # `finance_transactions`) และการหักเครดิต **ไม่มีแถว legacy เลยโดยเจตนา** —
+        # เงินเข้ามาตั้งแต่ตอน "เติมเครดิต" แล้ว (ดู `CreditsMixin.top_up_credit`)
+        #
+        # ⚠️ ถ้าไม่กรอง รายการนี้จะถูกจัดเป็น `income` (เพราะมี Cr ฝั่ง revenue) แล้ว
+        #    ประวัติจะโชว์เงินเข้า 2 ครั้งจากการรับเงินจริงครั้งเดียว (1000 ตอนเติม + 700 ตอนหัก)
+        #    ⇒ "รายรับ" ในชีตเดินบัญชีสูงกว่ากระเป๋าจริง ⇒ ผู้ใช้เชื่อตัวเลขไม่ได้ทั้งหน้า
+        #
+        # 💡 รายได้ก้อนนี้ **ไม่หายไปไหน** — ยังอยู่ในงบกำไรขาดทุน / `_get_summary_v2` /
+        #    งบประมาณ / GL / Trial Balance ทั้งหมด เพราะพวกนั้นอ่าน `journal_lines` ตรง ๆ
+        #    โดยไม่ผ่าน hàmนี้ (มีเทสต์ปิดไว้)
+        if entry["reference_type"] == REFERENCE_TYPE_CREDIT_APPLY:
+            return None
+
         asset_lines = [ln for ln in lines if ln["account_type"] == "asset"]
         revenue_lines = [ln for ln in lines if ln["account_type"] == "revenue"]
         expense_lines = [ln for ln in lines if ln["account_type"] == "expense"]
-        # กันพวก liability/equity (เช่น ขา equity ของ opening balance) เข้ามารบกวน
+        # [F4] ขา liability — จำเป็นสำหรับ "เงินรับล่วงหน้า" (Dr สินทรัพย์ / Cr หนี้สิน)
+        #      ⚠️ **ไม่ใช่** รายได้ ⇒ ไม่มีทางถูกนับใน `revenue_cr` (คนละ account_type)
+        #      ⇒ งบกำไรขาดทุน/`_get_summary_v2` ที่กรอง `account_type = 'revenue'`
+        #        ไม่เห็นรายการนี้เลยโดยอัตโนมัติ (ไม่ต้องแก้อะไรฝั่งนั้น)
+        liability_lines = [ln for ln in lines if ln["account_type"] == "liability"]
         asset_dr = sum(float(ln["debit"]) for ln in asset_lines)
         asset_cr = sum(float(ln["credit"]) for ln in asset_lines)
         revenue_cr = sum(float(ln["credit"]) for ln in revenue_lines)
         expense_dr = sum(float(ln["debit"]) for ln in expense_lines)
+        liability_cr = sum(float(ln["credit"]) for ln in liability_lines)
 
         description = entry["description"] or ""
         recorded_by = entry["recorded_by"]
@@ -456,7 +547,32 @@ class LedgerMixin:
                 category_name = expense_lines[0]["account_name"]
             description = description or "รายจ่าย"
 
-        # [DOUBLE-ENTRY] 5) กรณีโครงสร้างอื่น (ไม่มี asset) → พยายามเดาจากฝั่งที่มี
+        # [F4] 5) เงินรับล่วงหน้า: Asset เดบิต + Liability เครดิต (รับเงินเข้ามาพัก)
+        #     🔴 ถ้าไม่มีสาขานี้ เงินที่เข้าจริงในกระเป๋าจะ **หายจากประวัติธุรกรรมทั้งหน้า**
+        #        เพราะ Dr asset / Cr liability ตกลงไปที่ `else` แล้ว `return None` (บรรทัดล่าง)
+        #        อาการที่เห็น: `finance_accounts.balance` เพิ่มขึ้น แต่ประวัติไม่แสดงอะไรเลย
+        #        ⇒ "ยอดในกระเป๋า อธิบายจากรายการไม่ได้" ซึ่งเป็นอาการที่ repo นี้เฝ้าระวังที่สุด
+        #
+        #     ⚠️ จัดเป็น `income` โดยเจตนา — **ไม่ใช่** การบอกว่ามันเป็น "รายได้":
+        #        ช่องนี้คือ "กระแสเงินเข้า/ออก" ของกระเป๋า ไม่ใช่รายได้ทางบัญชี
+        #        มีแบบอย่างอยู่แล้วในสาขา 1) (ยอดยกมา = Dr asset / Cr equity → `income`)
+        #        ซึ่ง **ไม่ถูกนับเป็นรายได้ในงบกำไรขาดทุน** เช่นเดียวกัน
+        #        (`_get_income_statement` กรอง `reference_type <> 'opening_balance'`
+        #         และนับเฉพาะ `account_type = 'revenue'` ⇒ ไม่มีทางนับ top-up เป็นรายได้)
+        #        ⇒ ตัวเลขคอลัมน์ "รายรับ" ของชีตเดินบัญชี ≠ `total_revenue` ของงบ P&L ได้
+        #          อยู่แล้วโดยการออกแบบ ไม่ใช่ความไม่สอดคล้องที่เกิดจากงานนี้
+        #     💡 `category_name` ใช้ชื่อ ledger หนี้สิน ("เงินรับล่วงหน้า (เครดิตนักเรียน)")
+        #        ⇒ คอลัมน์ "หมวด" บอกความจริงว่าไม่ใช่หมวดรายได้
+        elif asset_dr > 0 and liability_cr > 0:
+            txn_type = "income"
+            amount = asset_dr
+            if asset_lines:
+                account_name = asset_lines[0]["account_name"]
+            if liability_lines:
+                category_name = liability_lines[0]["account_name"]
+            description = description or "รับเงินล่วงหน้า"
+
+        # [DOUBLE-ENTRY] 6) กรณีโครงสร้างอื่น (ไม่มี asset) → พยายามเดาจากฝั่งที่มี
         else:
             if revenue_cr > 0:
                 txn_type = "income"

@@ -188,8 +188,18 @@ async def html_to_pdf(html: str, *, timeout: float = 30.0) -> bytes:
 
 
 def pdf_filename(receipt_no: str, doc_type: str) -> str:
-    """ชื่อไฟล์ดาวน์โหลด — ใช้ receipt_no ตรง ๆ เพื่อให้ตรงกับเลขบนเอกสาร"""
-    prefix = "receipt" if doc_type == "receipt" else "invoice"
+    """ชื่อไฟล์ดาวน์โหลด — ใช้ receipt_no ตรง ๆ เพื่อให้ตรงกับเลขบนเอกสาร
+
+    ⚠️ ต้องเป็น dict ที่มี default **ไม่ใช่ if/else สองทาง**: เดิมเขียน
+    `"receipt" if doc_type == "receipt" else "invoice"` ⇒ ชนิดเอกสารที่สาม
+    (deposit) จะถูกตั้งชื่อว่า `invoice-DEP-2569-0001.pdf` = **ชื่อไฟล์โกหก**
+    โดยไม่มีอะไรฟ้อง (ต่างจาก `DOC_TYPE_PREFIXES[doc_type]` ที่ `KeyError` ให้เห็น)
+    """
+    prefix = {
+        "receipt": "receipt",
+        "invoice": "invoice",
+        "deposit": "deposit",
+    }.get(doc_type, "document")
     safe = receipt_no.replace("/", "-")
     return f"{prefix}-{safe}.pdf"
 
