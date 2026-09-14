@@ -36,6 +36,8 @@ import {
   type PeriodMode,
   type PeriodValue,
 } from '@/utils/period';
+import { downloadBlob } from '@/utils/download';
+import { createLatestGuard } from '@/utils/latest';
 import type {
   BalanceSheet,
   IncomeStatement,
@@ -74,6 +76,8 @@ const period = ref<PeriodValue>({ mode: 'asof', asOfDate: todayIso() });
 
 const isLoading = ref(true);
 const hasError = ref(false);
+// 🏁 กันคำตอบของคำขอเก่ามาทับคำตอบของคำขอใหม่ (ดู utils/latest.ts)
+const guard = createLatestGuard();
 
 const trialBalance = ref<TrialBalance | null>(null);
 const incomeStatement = ref<IncomeStatement | null>(null);
@@ -226,32 +230,47 @@ const load = async () => {
   // ช่วงวันที่กลับด้าน — PeriodPicker แสดง error  inline อยู่แล้ว ไม่ต้องยิง API (backend จะ 400)
   if (isRangeReversed(period.value)) return;
 
+  // 🏁 หน้านี้มีสองแกนที่ทำให้เกิดคำขอซ้อน: สลับแท็บ (activeTab) และเลื่อนช่วงเวลา
+  //    `selectTab` เปลี่ยนทั้งคู่พร้อมกันจึงยิงครั้งเดียว แต่ผู้ใช้ยังกดแท็บรัวได้
+  //    ⇒ คำตอบของ "งบกำไรขาดทุนของเดือนที่แล้ว" อาจมาถึงหลังคำตอบของ "งบดุลของเดือนนี้"
+  //    แล้วถูกเขียนลง `incomeStatement` ทั้งที่จอกำลังโชว์แท็บงบดุล — พอกลับไปแท็บเดิม
+  //    จะเห็นตัวเลขของเดือนที่ไม่ได้เลือกแล้วโดยไม่มีสปินเนอร์ (isLoading ถูกปิดไปก่อนหน้า)
+  const token = guard.begin();
+
   isLoading.value = true;
   hasError.value = false;
   try {
     if (activeTab.value === 'trial-balance') {
       const p = asOfPeriod(period.value);
       if (!p) return;
-      trialBalance.value = await FinanceService.getTrialBalance(currentRoomId, toAsOf(p));
+      const res = await FinanceService.getTrialBalance(currentRoomId, toAsOf(p));
+      if (!guard.isCurrent(token)) return;
+      trialBalance.value = res;
     } else if (activeTab.value === 'income-statement') {
       const p = rangePeriod(period.value);
       if (!p) return;
       const range = toRange(p);
-      incomeStatement.value = await FinanceService.getIncomeStatement(
+      const res = await FinanceService.getIncomeStatement(
         currentRoomId,
         range.startDate,
         range.endDate,
       );
+      if (!guard.isCurrent(token)) return;
+      incomeStatement.value = res;
     } else {
       const p = asOfPeriod(period.value);
       if (!p) return;
-      balanceSheet.value = await FinanceService.getBalanceSheet(currentRoomId, toAsOf(p));
+      const res = await FinanceService.getBalanceSheet(currentRoomId, toAsOf(p));
+      if (!guard.isCurrent(token)) return;
+      balanceSheet.value = res;
     }
   } catch (error) {
+    // error ของคำขอเก่าไม่ควรขึ้นจอ ถ้าคำขอใหม่กว่าไปถึงแล้ว
+    if (!guard.isCurrent(token)) return;
     console.error('Failed to load financial statements:', error);
     hasError.value = true;
   } finally {
-    isLoading.value = false;
+    if (guard.isCurrent(token)) isLoading.value = false;
   }
 };
 
@@ -274,17 +293,6 @@ onMounted(() => {
 
 // 📥 ส่งออกเป็น Excel — reuse สมุดรายวันเดิม (workbook 6 แผ่นมี GL/TB/IS/BS อยู่แล้ว)
 const isExporting = ref(false);
-
-const downloadBlob = (blob: Blob, filename: string) => {
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
-};
 
 const exportExcel = async () => {
   if (isExporting.value) return;
@@ -324,10 +332,14 @@ const exportExcel = async () => {
     });
   } catch (error) {
     console.error('Export failed:', error);
+    // ใช้ข้อความจริงจาก backend — `services/api.ts` คลี่ Blob error body ให้แล้ว
+    // (คำขอนี้เป็น `responseType: 'blob'`) ข้อความกลาง ๆ จะกลบสาเหตุจริง เช่น 403 ติดสิทธิ์
     Swal.fire({
       icon: 'error',
       title: 'ส่งออกไม่สำเร็จ',
-      text: 'ไม่สามารถสร้างไฟล์ Excel ได้ กรุณาลองใหม่อีกครั้ง',
+      text: error instanceof Error && error.message
+        ? error.message
+        : 'ไม่สามารถสร้างไฟล์ Excel ได้ กรุณาลองใหม่อีกครั้ง',
       confirmButtonColor: '#1d4ed8',
     });
   } finally {

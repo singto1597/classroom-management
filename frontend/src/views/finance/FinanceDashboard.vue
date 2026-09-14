@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { FinanceService } from '@/services/finance';
-import type { FinanceSummary, Account } from '@/types/finance';
+import type { FinanceSummary, Account, BudgetOverview } from '@/types/finance';
 import { Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, ArcElement, CategoryScale } from 'chart.js';
 import type { ChartOptions } from 'chart.js';
@@ -11,7 +11,9 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
 import { useAuthStore } from '@/stores/auth';
-import { todayThaiYearMonth } from '@/utils/period';
+import { monthToRange, todayThaiYearMonth } from '@/utils/period';
+import { downloadBlob } from '@/utils/download';
+import { createLatestGuard } from '@/utils/latest';
 import Swal from 'sweetalert2';
 
 ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale);
@@ -52,7 +54,19 @@ const yearOptions = computed(() => {
   return [currentYear - 1, currentYear, currentYear + 1];
 });
 
+// 🏁 กันคำตอบของคำขอเก่ามาทับคำตอบของคำขอใหม่ (ดู utils/latest.ts)
+//    หน้านี้มี **สองตัวโหลดอิสระ** (สรุปหลัก กับแบนเนอร์งบประมาณ) ⇒ ต้องมี guard คนละตัว
+//    ใช้ตัวร่วมกันไม่ได้ เพราะ `begin()` ของตัวหนึ่งจะทำให้อีกตัวกลายเป็น "เก่า" ทันที
+//    แล้วตัวที่ถูกฆ่าจะไม่ปิด `isLoading` ของตัวเอง → สปินเนอร์ค้างถาวร
+const summaryGuard = createLatestGuard();
+const budgetGuard = createLatestGuard();
+
 const fetchDashboardData = async () => {
+  // 🏁 ผู้ใช้กวาดเดือน/ปีรัว ๆ ได้ ⇒ คำขอซ้อนกัน และคำตอบไม่ได้กลับตามลำดับที่ส่ง
+  //    `summary` กับ `accounts` เป็น `Promise.all` ชุดเดียวกัน ⇒ ทิ้งทั้งชุดพร้อมกัน
+  //    ไม่งั้นตัวเลขสรุปกับยอดในบัญชีจะมาจากเดือนคนละเดือนในจอเดียวกัน
+  const token = summaryGuard.begin();
+
   isLoading.value = true;
   hasError.value = false;
   try {
@@ -60,13 +74,16 @@ const fetchDashboardData = async () => {
       FinanceService.getSummary(currentServerId, selectedMonth.value, selectedYear.value),
       FinanceService.getAccounts(currentServerId)
     ]);
+    if (!summaryGuard.isCurrent(token)) return;
     summary.value = summaryRes;
     accounts.value = accountsRes;
   } catch (error) {
+    // error ของคำขอเก่าไม่ควรขึ้นจอ ถ้าคำขอใหม่กว่าไปถึงแล้ว
+    if (!summaryGuard.isCurrent(token)) return;
     console.error('Failed to fetch dashboard data:', error);
     hasError.value = true;
   } finally {
-    isLoading.value = false;
+    if (summaryGuard.isCurrent(token)) isLoading.value = false;
   }
 };
 
@@ -136,18 +153,46 @@ const formatNumber = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num);
 };
 
-// 📥 สร้างลิงก์ดาวน์โหลดจาก Blob แล้วคลิกให้เบราว์เซอร์โหลดไฟล์
-const downloadBlob = (blob: Blob, filename: string) => {
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', filename);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+// ==========================================
+// 💰 งบประมาณ (F2) — แบนเนอร์เตือนเกินงบ
+// ==========================================
+//
+// ⚠️ แยกสถานะโหลดของตัวเองออกจาก `isLoading` ของหน้าอย่างจงใจ
+//    ถ้าเอาไปรวมกับ skeleton หลัก ผู้ใช้จะเสียเวลารอหน้าโหลดทั้งหน้าเพราะ "ของแถม"
+//    ที่แค่เป็นคำเตือน — ยิงไม่สำเร็จก็แค่ไม่ต้องมีแบนเนอร์ ไม่ใช่หน้าที่พัง
+const budgetOverview = ref<BudgetOverview | null>(null);
+const isLoadingBudget = ref(true);
+const isBudgetError = ref(false);
+
+const fetchBudgetOverview = async () => {
+  // 🏁 เป็นตัวโหลดที่สองของหน้า ⇒ ต้องมี token ของตัวเอง (ดูคำอธิบายที่ `summaryGuard`)
+  //    เบากว่าตัวหลักแต่ไม่ใช่ของประดับ: `budgetOverview` เป็นค่าที่ **ซ่อนแบนเนอร์เตือนเกินงบ**
+  //    ⇒ ถ้าคำตอบเก่ามาทับ = แบนเนอร์หายไปทั้งที่เดือนที่กำลังดูอยู่มีการใช้งบเกิน
+  const token = budgetGuard.begin();
+
+  isLoadingBudget.value = true;
+  isBudgetError.value = false;
+  try {
+    // ใช้เดือน/ปีที่ผู้ใช้เลือกอยู่ ไม่ใช่เดือนนี้เสมอ — แบนเนอร์ต้องพูดถึงช่วงที่กำลังดู
+    const range = monthToRange(selectedYear.value, selectedMonth.value);
+    const res = await FinanceService.getBudgetOverview(
+      currentServerId,
+      range.startDate,
+      range.endDate
+    );
+    if (!budgetGuard.isCurrent(token)) return;
+    budgetOverview.value = res;
+  } catch (error) {
+    if (!budgetGuard.isCurrent(token)) return;
+    // 403 (ไม่ใช่สมาชิกห้อง) หรือ 404 (resolve ห้องไม่ได้) เป็นเรื่องปกติ — ไม่ต้องรบกวนผู้ใช้
+    console.error('Failed to fetch budget overview:', error);
+    isBudgetError.value = true;
+  } finally {
+    if (budgetGuard.isCurrent(token)) isLoadingBudget.value = false;
+  }
 };
 
+// 📥 สร้างลิงก์ดาวน์โหลดจาก Blob แล้วคลิกให้เบราว์เซอร์โหลดไฟล์ — ตัวช่วยกลางดู utils/download.ts
 // 📥 ส่งออกของเดือนที่เลือกเป็นไฟล์ Excel ตามชนิดที่เลือก
 //   'summary' = สรุปรายการแบบเดิม (POST /finance/export)
 //   'journal' = สมุดรายวันทั่วไปสำหรับนักบัญชี (GET /finance/export/journal)
@@ -195,10 +240,15 @@ const runExport = async (kind: ExportKind) => {
     });
   } catch (error) {
     console.error(error);
+    // แสดงข้อความจริงจาก backend ก่อน — interceptor ใน `services/api.ts` คลี่ Blob error body
+    // ออกมาเป็นภาษาไทยแล้ว (คำขอนี้เป็น `responseType: 'blob'` จึงเข้าเส้นทางนั้น)
+    // ถ้าทับด้วยข้อความกลาง ๆ ผู้ใช้จะไม่รู้ว่าติดสิทธิ์ (403) หรือแค่ลองใหม่ก็หาย
     Swal.fire({
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
-      text: 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
+      text: error instanceof Error && error.message
+        ? error.message
+        : 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
       confirmButtonColor: '#1d4ed8'
     });
   } finally {
@@ -208,10 +258,13 @@ const runExport = async (kind: ExportKind) => {
 
 onMounted(() => {
   fetchDashboardData();
+  // ไม่ await — แบนเนอร์งบประมาณต้องไม่ถ่วง skeleton หลัก
+  void fetchBudgetOverview();
 });
 
 watch([selectedMonth, selectedYear], () => {
   fetchDashboardData();
+  void fetchBudgetOverview();
 });
 </script>
 
@@ -310,6 +363,30 @@ watch([selectedMonth, selectedYear], () => {
         </div>
       </template>
     </PageHeader>
+
+    <!--
+      🚨 แบนเนอร์เตือนเกินงบ — อยู่นอก skeleton หลักโดยเจตนา
+      โผล่ทันทีที่ข้อมูลงบมาถึง ไม่ต้องรอให้หน้าโหลดครบ (และเงียบ ๆ ถ้ายิงไม่สำเร็จ)
+    -->
+    <RouterLink
+      v-if="!isLoadingBudget && !isBudgetError && (budgetOverview?.over_count ?? 0) > 0"
+      to="/finance/budgets"
+      class="page-card flex items-center gap-3 border-s-4 border-s-red-500 p-3.5 transition-colors hover:bg-red-50/40 active:scale-[0.99] sm:p-4"
+    >
+      <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
+        <i class="bi bi-exclamation-octagon-fill text-xl" aria-hidden="true"></i>
+      </span>
+      <span class="min-w-0 flex-1">
+        <span class="block text-sm font-bold text-red-700">
+          มี {{ budgetOverview?.over_count }} หมวดที่ใช้เกินงบเดือนนี้
+        </span>
+        <span class="block truncate text-xs text-stone-500">
+          ใช้ไป {{ formatNumber(budgetOverview?.total_used ?? 0) }} จากงบ
+          {{ formatNumber(budgetOverview?.total_budget ?? 0) }} บาท — กดเพื่อดูรายละเอียด
+        </span>
+      </span>
+      <i class="bi bi-chevron-right shrink-0 text-red-400" aria-hidden="true"></i>
+    </RouterLink>
 
     <!-- สถานะโหลด / ผิดพลาด -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
@@ -427,6 +504,47 @@ watch([selectedMonth, selectedYear], () => {
           <span class="min-w-0 flex-1">
             <span class="block truncate text-sm font-bold text-stone-700">งบการเงิน</span>
             <span class="block truncate text-xs text-stone-500">งบทดลอง · กำไรขาดทุน · งบดุล</span>
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+        </RouterLink>
+
+        <!-- งบประมาณ — ลิงก์เต็มความกว้างเหมือนงบการเงิน (กริด 4 ช่องเดิมเต็มพอดี) -->
+        <RouterLink
+          to="/finance/budgets"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+            <i class="bi bi-piggy-bank text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-stone-700">งบประมาณ</span>
+            <span class="block truncate text-xs text-stone-500">
+              วงเงินต่อหมวด · ยอดใช้จริง · เตือนก่อนเกิน
+            </span>
+          </span>
+          <!-- ตัวเลขเกินงบเป็นสัญญาณ ไม่ใช่ป้ายตกแต่ง — โชว์เฉพาะเมื่อมีของจริง -->
+          <span
+            v-if="!isLoadingBudget && !isBudgetError && (budgetOverview?.over_count ?? 0) > 0"
+            class="chip shrink-0 bg-red-50 text-red-700"
+          >
+            เกิน {{ budgetOverview?.over_count }}
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+        </RouterLink>
+
+        <!-- ใบเสร็จ / ใบแจ้งหนี้ — ลิงก์เต็มความกว้างแบบเดียวกัน (F3) -->
+        <RouterLink
+          to="/finance/receipts"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+            <i class="bi bi-receipt-cutoff text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-stone-700">ใบเสร็จ / ใบแจ้งหนี้</span>
+            <span class="block truncate text-xs text-stone-500">
+              ทะเบียนเอกสาร · พิมพ์ซ้ำได้ · ดาวน์โหลด PDF
+            </span>
           </span>
           <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
         </RouterLink>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { CollectionStatus, Account, StudentPaymentDetail } from '@/types/finance'
@@ -12,6 +12,7 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 
 const currentServerId = authStore.currentRoomId!
@@ -154,6 +155,135 @@ const formatNumber = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num)
 }
 
+// ==========================================
+// 🧾 ออกใบเสร็จ (F3)
+// ==========================================
+//
+// 🔒 gate ด้วย `canManageFinance` (ไม่ใช่ isAdmin) เพราะ backend บังคับ
+//    `require_permission(..., "MANAGE_FINANCE")` — เหรัญญิกที่ได้สิทธิ์ต้องออกเอกสารได้จริง
+//
+// ⚠️ `issueReceipt` **idempotent** — กดซ้ำได้เลขเดิม ไม่กินเลขใหม่ ⇒ ไม่ต้อง confirm ก่อน
+//    (ต่างจากใบแจ้งหนี้ใน DebtorList ที่กินเลขใหม่ทุกครั้ง)
+//
+// ⚠️ ไม่ส่ง `transaction_id` ⇒ backend เลือก **งวดรับเงินล่าสุด** ของบิลนั้น
+//    บิลที่ผ่อนจ่าย 500+500 จะได้ใบเสร็จของงวดที่ 2 — ใบของงวดแรกออกได้เฉพาะเมื่อระบุ
+//    `transaction_id` ซึ่งยังไม่มี UI ให้เลือกในรอบนี้ (ตั้งใจ — ต้องมี endpoint
+//    list งวดรับเงินของบิลก่อน)
+
+const canManageFinance = computed(() => authStore.canManageFinance)
+
+/** `payment_id` ที่กำลังออกเอกสาร — กันกดรัวและให้ spinner หมุนเฉพาะแถวนั้น */
+const issuingPaymentId = ref<number | null>(null)
+const isIssuingBatch = ref(false)
+
+/** จำนวนบิลที่มีเงินเข้าแล้ว (= บิลที่ออกใบเสร็จได้) — ใช้โชว์บนปุ่มรวบยอด */
+const issuableCount = computed(
+  () => data.value?.students.filter((s) => s.paid_amount > 0).length ?? 0,
+)
+
+const handleIssueReceipt = async (student: StudentPaymentDetail) => {
+  if (!canManageFinance.value) {
+    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกใบเสร็จได้', 'error')
+  }
+  if (issuingPaymentId.value !== null) return
+
+  issuingPaymentId.value = student.payment_id
+  try {
+    const res = await FinanceService.issueReceipt(currentServerId, {
+      payment_id: student.payment_id,
+      doc_type: 'receipt',
+      user_name: currentUserName,
+    })
+    showIssued(res.receipt.receipt_no, res.reused, true)
+  } catch (error: unknown) {
+    Swal.fire(
+      'ออกใบเสร็จไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    )
+  } finally {
+    issuingPaymentId.value = null
+  }
+}
+
+/** ออกรวบยอดให้ทุกบิลที่มีเงินเข้าแล้ว — backend ทำใน transaction เดียว (all-or-nothing) */
+const handleIssueAllReceipts = async () => {
+  if (!canManageFinance.value) {
+    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกใบเสร็จได้', 'error')
+  }
+  const paymentIds = (data.value?.students ?? [])
+    .filter((s) => s.paid_amount > 0)
+    .map((s) => s.payment_id)
+  if (!paymentIds.length) return
+
+  // เพดานของ backend คือ 100 ใบ/ครั้ง — เกินกว่านั้นต้องบอกให้แคบลง ไม่ใช่ยิงแล้วเงียบ
+  if (paymentIds.length > 100) {
+    return Swal.fire(
+      'ออกทีละมากเกินไป',
+      `เลือกไว้ ${paymentIds.length} บิล แต่ระบบออกได้ครั้งละไม่เกิน 100 ใบ กรุณาแยกโปรเจกต์หรือออกทีละส่วน`,
+      'warning',
+    )
+  }
+
+  const result = await Swal.fire({
+    title: 'ออกใบเสร็จทั้งหมด?',
+    html: `จะออกใบเสร็จให้ <b>${paymentIds.length}</b> รายการที่มีเงินเข้าแล้ว<br>
+           ใบที่เคยออกไปแล้วจะได้ <b>เลขเดิม</b> (ไม่กินเลขใหม่)`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#1d4ed8',
+    cancelButtonColor: '#78716c',
+    confirmButtonText: 'ออกใบเสร็จ',
+    cancelButtonText: 'ยกเลิก',
+  })
+  if (!result.isConfirmed) return
+
+  isIssuingBatch.value = true
+  Swal.fire({ title: 'กำลังออกใบเสร็จ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() })
+  try {
+    const res = await FinanceService.issueReceiptsBatch(currentServerId, {
+      payment_ids: paymentIds,
+      doc_type: 'receipt',
+      user_name: currentUserName,
+    })
+    Swal.fire({
+      icon: 'success',
+      title: 'ออกใบเสร็จเรียบร้อย',
+      text: `ออกใหม่ ${res.issued_count} ใบ · ใช้เลขเดิม ${res.reused_count} ใบ`,
+      timer: 2000,
+      showConfirmButton: false,
+    })
+  } catch (error: unknown) {
+    Swal.fire(
+      'ออกใบเสร็จไม่สำเร็จ',
+      error instanceof Error ? error.message : 'ไม่มีใบใดถูกออก (ยกเลิกทั้งชุด)',
+      'error',
+    )
+  } finally {
+    isIssuingBatch.value = false
+  }
+}
+
+/** แจ้งผล + ทางไปดูเอกสาร — ใบที่เคยออกแล้วใช้ถ้อยคำต่างจากใบใหม่ (ไม่ใช่ error) */
+const showIssued = (receiptNo: string, reused: boolean, allowOpen: boolean) => {
+  void Swal.fire({
+    icon: reused ? 'info' : 'success',
+    title: reused ? 'ใบเสร็จนี้เคยออกแล้ว' : 'ออกใบเสร็จเรียบร้อย',
+    html: `เลขที่เอกสาร <b class="num">${receiptNo}</b>${
+      reused ? '<br>ระบบคืนใบเดิมให้ — เลขที่เอกสารไม่เปลี่ยน' : ''
+    }`,
+    showCancelButton: allowOpen,
+    confirmButtonText: allowOpen ? 'ดูเอกสาร' : 'ตกลง',
+    cancelButtonText: 'ปิด',
+    confirmButtonColor: '#1d4ed8',
+    cancelButtonColor: '#78716c',
+  }).then((r) => {
+    if (allowOpen && r.isConfirmed) {
+      router.push(`/finance/receipts/${receiptNo}`)
+    }
+  })
+}
+
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -235,6 +365,31 @@ onMounted(() => {
     />
 
     <template v-else>
+      <!-- 🧾 ออกรวบยอด — โผล่เฉพาะเมื่อมีบิลที่เงินเข้าแล้วจริง ๆ (ไม่มี = ไม่มีอะไรให้ออก) -->
+      <div
+        v-if="canManageFinance && issuableCount > 0"
+        class="page-card flex flex-col gap-2 p-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+      >
+        <p class="text-sm text-stone-500">
+          มี
+          <span class="num font-bold text-stone-700">{{ issuableCount }}</span>
+          รายการที่รับเงินแล้ว — ออกใบเสร็จได้
+        </p>
+        <button
+          type="button"
+          class="btn-primary w-full shrink-0 sm:w-auto"
+          :disabled="isIssuingBatch"
+          @click="handleIssueAllReceipts"
+        >
+          <i
+            class="bi"
+            :class="isIssuingBatch ? 'bi-hourglass-split' : 'bi-receipt-cutoff'"
+            aria-hidden="true"
+          ></i>
+          ออกใบเสร็จทั้งหมด
+        </button>
+      </div>
+
       <!-- 📱 มือถือ: การ์ด -->
       <div class="space-y-2.5 lg:hidden">
         <div
@@ -287,8 +442,23 @@ onMounted(() => {
           </div>
 
           <!-- ปุ่มจัดการ -->
-          <div class="mt-3 flex justify-end border-t border-stone-100 pt-3">
+          <div class="mt-3 flex justify-end gap-2 border-t border-stone-100 pt-3">
             <template v-if="!isEditMode">
+              <!-- 🧾 ออกใบเสร็จได้เมื่อ "มีเงินเข้าแล้ว" — บิลที่ยังไม่จ่าย backend ตอบ 400 -->
+              <button
+                v-if="s.paid_amount > 0 && canManageFinance"
+                type="button"
+                class="btn-ghost-ui"
+                :disabled="issuingPaymentId !== null"
+                @click="handleIssueReceipt(s)"
+              >
+                <i
+                  class="bi"
+                  :class="issuingPaymentId === s.payment_id ? 'bi-hourglass-split' : 'bi-receipt'"
+                  aria-hidden="true"
+                ></i>
+                ใบเสร็จ
+              </button>
               <button
                 v-if="s.status === 'pending' && isAdmin"
                 type="button"
@@ -299,7 +469,7 @@ onMounted(() => {
                 รับเงิน
               </button>
               <span
-                v-else-if="s.status === 'pending' && !isAdmin"
+                v-else-if="s.status === 'pending'"
                 class="chip bg-stone-100 text-stone-500"
               >
                 รอแอดมินรับยอด
@@ -378,6 +548,23 @@ onMounted(() => {
                 <td>
                   <div class="flex justify-end gap-2">
                     <template v-if="!isEditMode">
+                      <!-- 🧾 ออกใบเสร็จได้เมื่อ "มีเงินเข้าแล้ว" — บิลที่ยังไม่จ่าย backend ตอบ 400 -->
+                      <button
+                        v-if="s.paid_amount > 0 && canManageFinance"
+                        type="button"
+                        class="btn-ghost-ui"
+                        :disabled="issuingPaymentId !== null"
+                        @click="handleIssueReceipt(s)"
+                      >
+                        <i
+                          class="bi"
+                          :class="
+                            issuingPaymentId === s.payment_id ? 'bi-hourglass-split' : 'bi-receipt'
+                          "
+                          aria-hidden="true"
+                        ></i>
+                        ใบเสร็จ
+                      </button>
                       <button
                         v-if="s.status === 'pending' && isAdmin"
                         type="button"
@@ -388,7 +575,7 @@ onMounted(() => {
                         รับเงิน
                       </button>
                       <span
-                        v-else-if="s.status === 'pending' && !isAdmin"
+                        v-else-if="s.status === 'pending'"
                         class="chip bg-stone-100 text-stone-500"
                       >
                         รอแอดมินรับยอด

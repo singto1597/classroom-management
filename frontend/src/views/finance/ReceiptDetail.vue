@@ -1,0 +1,267 @@
+<script setup lang="ts">
+/**
+ * ReceiptDetail — รายละเอียดเอกสาร 1 ใบ + ปุ่มดาวน์โหลด PDF — F3
+ *
+ * 🔓 อ่านเปิดให้สมาชิกทุกคน (ตรงกับ `require_member` ฝั่ง backend)
+ *
+ * 📌 เลือกแสดงข้อมูล **ชุดเดียวกับที่เทมเพลต PDF ใช้** (`backend/templates/finance/receipt.html`)
+ *    โดยตั้งใจ — จอต้องไม่บอกอย่าง เอกสารบอกอีกอย่าง ไม่งั้นครูจะเถียงกับผู้ปกครองไม่ได้
+ *    ถ้าแก้เลย์เอาต์ที่นี่ ต้องไปดูเทมเพลตนั้นด้วย
+ *
+ * ⚠️ `receipt_no` เป็น **string** (`REC-2569-0042`) ไม่ใช่ id — และ backend บังคับ pattern
+ *    ด้วย `Path(..., pattern=...)` ⇒ เลขที่มั่วจะได้ 422 ไม่ใช่ 404
+ *
+ * ⚠️ ห้ามใช้ `formatThaiDate` กับ `issued_at` — ดูเหตุผลใน `formatThaiDateTime` (utils/period.ts)
+ */
+import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
+import Swal from 'sweetalert2';
+
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StateBlock from '@/components/ui/StateBlock.vue';
+import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+
+import { FinanceService } from '@/services/finance';
+import { useAuthStore } from '@/stores/auth';
+import { downloadBlob } from '@/utils/download';
+import { formatThaiDate, formatThaiDateTime } from '@/utils/period';
+import type { ReceiptDetail } from '@/types/finance';
+
+const route = useRoute();
+const authStore = useAuthStore();
+const currentRoomId = authStore.currentRoomId!;
+
+const receiptNo = String(route.params.receiptNo ?? '');
+
+const detail = ref<ReceiptDetail | null>(null);
+const isLoading = ref(true);
+const errorMessage = ref('');
+
+const isReceipt = computed(() => detail.value?.doc_type === 'receipt');
+
+/** คงเหลือ ณ วันที่ออกเอกสาร — ต้องมีทั้งสองยอดถึงจะคำนวณได้ (มิฉะนั้นซ่อนแถวไปเลย) */
+const remaining = computed<number | null>(() => {
+  const d = detail.value;
+  if (!d || d.collection_amount === null) return null;
+  return d.collection_amount - d.paid_total_after;
+});
+
+const formatMoney = (value: number): string =>
+  `${value < 0 ? '−' : ''}฿${Math.abs(value).toLocaleString('th-TH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+const load = async () => {
+  isLoading.value = true;
+  errorMessage.value = '';
+  try {
+    detail.value = await FinanceService.getReceipt(currentRoomId, receiptNo);
+  } catch (error: unknown) {
+    // 404 (ไม่พบ/ต่างห้อง) กับ 422 (เลขที่รูปไม่ตรง) ต่างกันที่ข้อความ — ส่งต่อทั้งดุ้น
+    errorMessage.value = error instanceof Error ? error.message : 'โหลดเอกสารไม่สำเร็จ';
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const isDownloading = ref(false);
+
+const downloadPdf = async () => {
+  if (isDownloading.value || !detail.value) return;
+  isDownloading.value = true;
+  try {
+    const blob = await FinanceService.downloadReceiptPdf(currentRoomId, detail.value.receipt_no);
+    downloadBlob(blob, `${detail.value.doc_type}-${detail.value.receipt_no}.pdf`);
+  } catch (error: unknown) {
+    // 502 = Gotenberg ล่ม/เรนเดอร์ไม่ผ่าน (ไม่ใช่ 500 ของโค้ดเรา) — service แปลงเป็นไทยให้แล้ว
+    Swal.fire(
+      'สร้างไฟล์ PDF ไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    );
+  } finally {
+    isDownloading.value = false;
+  }
+};
+
+onMounted(() => {
+  void load();
+});
+</script>
+
+<template>
+  <div class="space-y-4 sm:space-y-5">
+    <PageHeader
+      eyebrow="Finance Document"
+      :title="detail?.receipt_no || 'รายละเอียดเอกสาร'"
+      :description="detail?.doc_type_label || 'ใบเสร็จรับเงิน / ใบแจ้งหนี้'"
+    >
+      <template #actions>
+        <RouterLink to="/finance/receipts" class="btn-ghost-ui" title="กลับทะเบียนเอกสาร">
+          <i class="bi bi-arrow-left" aria-hidden="true"></i>
+          กลับทะเบียนเอกสาร
+        </RouterLink>
+      </template>
+    </PageHeader>
+
+    <SkeletonRows v-if="isLoading" :rows="4" height="h-20" />
+
+    <StateBlock
+      v-else-if="!detail"
+      variant="error"
+      icon="bi-file-earmark-x"
+      title="ไม่พบเอกสารนี้"
+      :hint="errorMessage"
+      @retry="load"
+    />
+
+    <template v-else>
+      <!-- 🧾 เนื้อเอกสาร — โครงเดียวกับเทมเพลต PDF เพื่อให้จอกับกระดาษตรงกัน -->
+      <div class="page-card p-4 sm:p-6">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="min-w-0">
+            <h2 class="font-display text-lg font-bold text-stone-900">
+              {{ detail.doc_type_label || detail.doc_type }}
+            </h2>
+            <p class="text-sm text-stone-500">
+              {{ detail.room_name || '—' }}
+              <span v-if="detail.room_code" class="num">({{ detail.room_code }})</span>
+            </p>
+          </div>
+          <div class="shrink-0 sm:text-right">
+            <p class="num font-display text-base font-bold text-stone-900">
+              เลขที่ {{ detail.receipt_no }}
+            </p>
+            <p class="num text-xs text-stone-500">
+              วันที่ {{ formatThaiDateTime(detail.issued_at) }}
+            </p>
+          </div>
+        </div>
+
+        <hr class="my-4 border-t-2 border-stone-900" />
+
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          <div>
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+              <!-- ⚠️ ใบแจ้งหนี้ "ยังไม่ได้รับเงิน" — ใช้ "ได้รับเงินจาก" ไม่ได้ (ความหมายผิด) -->
+              {{ isReceipt ? 'ได้รับเงินจาก' : 'เรียกเก็บจาก' }}
+            </dt>
+            <dd class="mt-0.5 font-bold text-stone-900">
+              {{ detail.issued_to_name || '—' }}
+              <span v-if="detail.student_no" class="num text-sm font-normal text-stone-500">
+                — เลขที่ {{ detail.student_no }}
+              </span>
+            </dd>
+          </div>
+
+          <div>
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">รายการ</dt>
+            <dd class="mt-0.5 text-stone-700">
+              <RouterLink
+                v-if="detail.collection_id"
+                :to="`/finance/collections/${detail.collection_id}`"
+                class="font-bold text-brand-700 hover:underline"
+              >
+                {{ detail.collection_title || `โปรเจกต์ #${detail.collection_id}` }}
+              </RouterLink>
+              <span v-else>{{ detail.collection_title || '—' }}</span>
+            </dd>
+          </div>
+
+          <div v-if="detail.collection_due_date">
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">กำหนดชำระ</dt>
+            <dd class="num mt-0.5 text-stone-700">
+              {{ formatThaiDate(detail.collection_due_date) }}
+            </dd>
+          </div>
+
+          <div>
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">ผู้ออกเอกสาร</dt>
+            <dd class="mt-0.5 text-stone-700">{{ detail.issued_by_name || '—' }}</dd>
+          </div>
+        </dl>
+
+        <!-- 💰 กล่องยอดเงิน + คำอ่าน — หัวใจของเอกสาร ใช้ดีไซน์เดียวกับ .amount-box ใน PDF -->
+        <div
+          class="mt-4 flex flex-col gap-1.5 rounded-2xl border-2 border-stone-900 px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
+        >
+          <span class="font-display text-base font-bold text-stone-900">
+            ({{ detail.amount_text || '—' }})
+          </span>
+          <span class="font-display num text-xl font-bold text-stone-900">
+            {{ formatMoney(detail.amount) }}
+          </span>
+        </div>
+
+        <dl class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          <div v-if="detail.collection_amount !== null">
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+              ยอดเต็มของรายการ
+            </dt>
+            <dd class="num mt-0.5 text-stone-700">{{ formatMoney(detail.collection_amount) }}</dd>
+          </div>
+
+          <div>
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+              {{ isReceipt ? 'ยอดสะสมที่ชำระแล้ว' : 'ชำระแล้ว' }}
+            </dt>
+            <dd class="num mt-0.5 text-stone-700">{{ formatMoney(detail.paid_total_after) }}</dd>
+          </div>
+
+          <div v-if="remaining !== null">
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+              {{ isReceipt ? 'คงเหลือ' : 'ยอดค้างชำระ' }}
+            </dt>
+            <dd
+              class="num mt-0.5 font-bold"
+              :class="remaining > 0 ? 'text-red-600' : 'text-emerald-700'"
+            >
+              {{ formatMoney(remaining) }}
+            </dd>
+          </div>
+        </dl>
+
+        <p v-if="detail.note" class="mt-4 text-sm text-stone-500">หมายเหตุ: {{ detail.note }}</p>
+
+        <p class="num mt-5 text-center text-[11px] text-stone-400">
+          เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ detail.receipt_no }}
+        </p>
+      </div>
+
+      <!-- 🔁 คำอธิบายความไม่สมมาตร — ครูต้องรู้ว่ากดซ้ำได้หรือไม่ก่อนกด -->
+      <div class="page-card flex items-start gap-3 p-4">
+        <i
+          class="bi bi-info-circle mt-0.5 shrink-0 text-lg text-brand-700"
+          aria-hidden="true"
+        ></i>
+        <p class="text-sm leading-relaxed text-stone-600">
+          <template v-if="isReceipt">
+            ใบเสร็จผูกกับ <b>เหตุการณ์รับเงิน</b> หนึ่งครั้ง — ออกซ้ำจะได้เลขเดิมเสมอ
+            (พิมพ์กี่ครั้งก็ปลอดภัย ไม่กินเลขใหม่)
+          </template>
+          <template v-else>
+            ใบแจ้งหนี้เป็นเอกสาร <b>ณ จุดเวลา</b> — ยอดค้างเปลี่ยนเมื่อนักเรียนจ่ายเพิ่ม
+            การออกใหม่จึงได้เลขใหม่ทุกครั้ง และฉบับนี้จะยังคงยอดเดิมไว้เป็นหลักฐาน
+          </template>
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="btn-primary w-full sm:w-auto"
+          :disabled="isDownloading"
+          @click="downloadPdf"
+        >
+          <i
+            class="bi"
+            :class="isDownloading ? 'bi-hourglass-split' : 'bi-file-earmark-pdf'"
+            aria-hidden="true"
+          ></i>
+          {{ isDownloading ? 'กำลังสร้างไฟล์...' : 'ดาวน์โหลด PDF' }}
+        </button>
+      </div>
+    </template>
+  </div>
+</template>

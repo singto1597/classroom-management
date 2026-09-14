@@ -112,6 +112,31 @@ export const formatThaiDate = (iso?: string | null): string => {
   });
 };
 
+/**
+ * วัน **และเวลา** แบบไทย — ใช้กับ timestamp จริง (เช่น `issued_at` ของใบเสร็จ)
+ *
+ * ⚠️ ห้ามใช้ `formatThaiDate` กับ timestamp: มันตัดเอาแค่ส่วนวันที่ของสตริง ISO
+ *    ซึ่งเป็น **วันที่แบบ UTC** — ใบเสร็จที่ออก 18:30 UTC คือ 01:30 ของ **วันรุ่งขึ้น** ในไทย
+ *    แล้วผู้ใช้จะเห็นวันที่ไม่ตรงกับวันที่บนเอกสาร และไม่ตรงกับตัวกรองช่วงวันที่ของตัวเอง
+ *    (backend กรองด้วยวันไทย ⇒ เอกสารโผล่ในวันที่ 14 แต่จอแสดงว่า 13)
+ *
+ * ทำงานถูกเพราะ `new Date(iso)` บนสตริงที่มี offset/Z ได้ "จุดเวลาสัมบูรณ์"
+ * แล้วค่อยจัดรูปในโซนไทย — ค่าที่ backend ส่งมาเป็น tz-aware เสมอ (Pydantic v2 เขียน UTC เป็น `Z`)
+ */
+export const formatThaiDateTime = (iso?: string | null): string => {
+  if (!iso) return '—';
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return `${parsed.toLocaleString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: BANGKOK_TZ,
+  })} น.`;
+};
+
 /** เดือน + ปี พ.ศ. เช่น "กันยายน 2569" */
 export const formatThaiMonthYear = (year: number, month: number): string =>
   `${THAI_MONTHS[month - 1] ?? month} ${year + 543}`;

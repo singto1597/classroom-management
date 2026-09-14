@@ -293,3 +293,183 @@ export interface TransactionQueryParams {
   account_id?: number;
   category_id?: number;
 }
+
+// --- 💰 งบประมาณ (Budget) — F2 ---
+//
+// 📌 สัญญาที่ backend ล็อกไว้: `start_date`/`end_date` คือ **แหล่งความจริงเดียว** ของช่วงที่คิดยอด
+//    ส่วน `period_type`/`period_year`/`period_month` เป็นฟิลด์ที่ service derive มาจากช่วงนั้นเอง
+//    ⇒ ห้ามเอา period_* ไปใช้คำนวณหรือไปกรองอะไรที่หน้าจอ ให้ใช้ start_date/end_date เสมอ
+//    (ป้าย "รายเดือน" กับตัวเลขจะไม่มีวันขัดกันก็เพราะข้อนี้)
+
+/** งบประมาณ 1 รายการ — ยังไม่มียอดใช้ (ได้จาก `getBudgets`) */
+export interface Budget {
+  id: number;
+  category_id: number;
+  category_name: string;
+  category_type: 'income' | 'expense';
+  /** 'monthly' | 'yearly' | 'custom' — derive จากช่วงวันที่ ไม่ได้รับจาก client */
+  period_type: string;
+  period_year: number;
+  /** 1–12 และเป็น null เมื่อไม่ใช่รายเดือน */
+  period_month: number | null;
+  start_date: string;
+  end_date: string;
+  amount: number;
+  note: string | null;
+  created_by_name: string | null;
+  created_at: string | null;
+}
+
+/** งบ 1 รายการ + ยอดใช้จริงในช่วงของ **ตัวมันเอง** (ไม่ใช่ช่วงที่ผู้ใช้กรอง) */
+export interface BudgetItem {
+  budget_id: number;
+  category_id: number;
+  category_name: string;
+  category_type: 'income' | 'expense';
+  amount: number;
+  used: number;
+  /** ติดลบได้เมื่อใช้เกินงบ — backend จงใจไม่ clamp ที่ 0 เพราะ "เกินไปเท่าไร" มีความหมาย */
+  remaining: number;
+  usage_pct: number | null;
+  is_over: boolean;
+  /** ใช้ไป 80–100% — เตือนก่อนแตก */
+  is_near: boolean;
+  period_start: string;
+  period_end: string;
+  period_type: string;
+  note: string | null;
+}
+
+/** ภาพรวมงบประมาณในช่วงวันที่ที่เลือก (เฉพาะงบที่คาบเกี่ยวช่วงนั้น) */
+export interface BudgetOverview {
+  start_date: string;
+  end_date: string;
+  items: BudgetItem[];
+  total_budget: number;
+  total_used: number;
+  over_count: number;
+  warning_count: number;
+}
+
+export interface BudgetCreatePayload {
+  category_id: number;
+  amount: number;
+  start_date: string;
+  end_date: string;
+  note?: string;
+  user_name?: string;
+}
+
+/** PATCH — ส่งเฉพาะฟิลด์ที่จะแก้ ฟิลด์ที่ไม่ส่ง backend ไม่แตะ (model_dump(exclude_unset=True)) */
+export interface BudgetUpdatePayload {
+  amount?: number;
+  start_date?: string;
+  end_date?: string;
+  note?: string;
+  user_name?: string;
+}
+
+// --- 🧾 ใบเสร็จ / ใบแจ้งหนี้ (Receipt / Invoice) — F3 ---
+//
+// 📌 ความไม่สมมาตรที่ backend ล็อกไว้ด้วยรูปทรงของ partial unique index — **ห้าม "แก้" ให้เหมือนกัน**
+//    เพราะมันถูกเข้ารหัสไว้ในระดับ DDL แล้ว (แก้ที่หน้าจอไม่ได้ และไม่ควรแก้):
+//      • `receipt` = **idempotent** — 1 ใบต่อ 1 เหตุการณ์รับเงิน ออกซ้ำได้เลขเดิม
+//        และ response จะบอกว่า `reused: true` (ไม่ใช่ error — การพิมพ์ซ้ำต้องปลอดภัย)
+//      • `invoice` = **point-in-time** — ยอดค้างของนักเรียนเปลี่ยนเมื่อจ่ายเพิ่ม ใบเดิมจึงล้าสมัย
+//        โดยธรรมชาติ ⇒ ออกซ้ำได้ **เลขใหม่ทุกครั้ง** และการกินเลขเพิ่มคือพฤติกรรมที่ถูกต้อง
+//    ⇒ ปุ่มออกใบแจ้งหนี้ต้องมี confirm ก่อนเสมอ (ต่างจากใบเสร็จที่กดซ้ำได้ไม่เสียหาย)
+
+/** ชนิดเอกสาร — ตรงกับ `DOC_TYPE_*` ใน `backend/services/finance/constants.py` */
+export type ReceiptDocType = 'receipt' | 'invoice';
+
+export interface Receipt {
+  id: number;
+  /** เลขที่เอกสารรูป `REC-2569-0042` / `INV-2569-0007` (ฝั่ง backend บังคับ pattern นี้ใน path param) */
+  receipt_no: string;
+  doc_type: ReceiptDocType;
+  /** ฉลากไทย เช่น "ใบเสร็จรับเงิน" — มาจาก backend ที่เดียว อย่าเขียนซ้ำที่หน้าจอ */
+  doc_type_label: string | null;
+  /** ปี พ.ศ. ของ **เหตุการณ์รับเงิน** (ไม่ใช่ปีที่กดพิมพ์) — คิดตามเวลาไทย */
+  year_be: number;
+  seq: number;
+  student_payment_id: number | null;
+  /** `finance_transactions.id` ของ "งวดรับเงิน" ที่เอกสารนี้ผูกอยู่ (null = บิลยุคก่อน dual-write) */
+  legacy_transaction_id: number | null;
+  student_id: number | null;
+  collection_id: number | null;
+  /** ยอดที่ออกเอกสาร **ครั้งนี้** — ไม่ใช่ยอดสะสมของบิล (ผลัดจ่าย 500/500 → ได้ 2 ใบ ใบละ 500) */
+  amount: number;
+  /** คำอ่านจำนวนเงินเป็นตัวอักษรไทย เช่น "หนึ่งพันบาทถ้วน" — backend เป็นคนคิด */
+  amount_text: string | null;
+  /** ยอดสะสมที่ชำระแล้ว ณ วันเวลาที่ออกเอกสาร */
+  paid_total_after: number;
+  /** snapshot ชื่อผู้ชำระ — ชื่อที่แก้ทีหลังต้องไม่ย้อนไปเปลี่ยนประวัติ */
+  issued_to_name: string | null;
+  issued_by_name: string | null;
+  note: string | null;
+  /**
+   * tz-aware ISO เสมอ — Pydantic v2 เขียน UTC เป็น `Z` ไม่ใช่ `+00:00`
+   * ⚠️ ถ้าวันไหนหลุดเป็น naive ให้ถือเป็นบั๊ก: JS จะตีความเป็นเวลา **ของเบราว์เซอร์**
+   *    แล้วครูในไทยเห็นเวลาคลาดเคลื่อน 7 ชั่วโมง (มีเทสต์กันไว้ฝั่ง backend)
+   */
+  issued_at: string | null;
+}
+
+/** แถวในหน้ารายการ — backend แนบชื่อแคมเปญ/เลขที่นักเรียนมาให้ตารางแสดงได้โดยไม่ต้องยิงเพิ่ม */
+export interface ReceiptListItem extends Receipt {
+  collection_title: string | null;
+  student_no: number | null;
+}
+
+/** หน้ารายละเอียด — ได้ข้อมูลระดับแคมเปญ/ห้องเพิ่ม สำหรับหัวเอกสารบนหน้าจอ */
+export interface ReceiptDetail extends ReceiptListItem {
+  collection_amount: number | null;
+  collection_due_date: string | null;
+  room_name: string | null;
+  room_code: string | null;
+}
+
+export interface ReceiptIssuePayload {
+  payment_id: number;
+  /**
+   * ไม่ส่ง = ใช่งวดรับเงิน **ล่าสุด** ของบิลนั้น
+   * ส่ง = ระบุ "งวด" ที่ต้องการออกเอกสาร (`finance_transactions.id` ของงวดนั้น)
+   */
+  transaction_id?: number;
+  doc_type: ReceiptDocType;
+  note?: string;
+  user_name?: string;
+}
+
+/** ตัวกรองของ `getReceipts` — ทุกตัวเป็น optional ฝั่ง backend */
+export interface ReceiptQueryParams {
+  /** ช่วงวันที่กรองตาม **วันตามปฏิทินไทย** ไม่ใช่ UTC (บิลช่วง 17:00–24:00 UTC ตกเป็นวันรุ่งขึ้นของไทย) */
+  startDate?: string;
+  endDate?: string;
+  docType?: ReceiptDocType;
+  studentId?: number;
+}
+
+export interface ReceiptBatchIssuePayload {
+  /** 1–100 ใบต่อครั้ง — เกินกว่านี้ backend ตอบ 422 */
+  payment_ids: number[];
+  doc_type: ReceiptDocType;
+  note?: string;
+  user_name?: string;
+}
+
+export interface ReceiptIssueResult {
+  status: string;
+  message: string | null;
+  receipt: Receipt;
+  /** `true` = คืนใบเดิมที่มีอยู่แล้ว ไม่ได้ออกใหม่ (ไม่ใช่ error) */
+  reused: boolean;
+}
+
+export interface ReceiptBatchIssueResult {
+  status: string;
+  message: string | null;
+  receipts: Receipt[];
+  issued_count: number;
+  reused_count: number;
+}
