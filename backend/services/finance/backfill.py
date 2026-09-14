@@ -499,11 +499,20 @@ class BackfillMixin:
                         endpoint_or_command="FinanceService.backfill_missing_journals",
                     )
 
-                await tx.commit()
+                # 🛡️ แยกสองทางให้ชัด — ห้ามยุบเป็น `tx.commit()` ลอย ๆ
+                #    `_plan_backfill_journals` **เขียนได้** (auto-provision ledger ผ่าน
+                #    `_resolve_*_ledger` เมื่อห้องนั้นยังไม่มี ledger ของบัญชี/หมวดนั้น)
+                #    ⇒ ถ้า commit ในโหมด dry-run ledger จะค้างใน DB จริง ทั้งที่สคริปต์
+                #    รายงานผู้ใช้ว่า "ตรวจแล้วไม่มีการเขียนลงฐานข้อมูล" — ผู้ใช้ที่เชื่อ
+                #    คำรายงานจะเข้าใจผิดว่าการซ้อมรบไม่แตะ DB แล้วรันบน production ได้
+                if apply:
+                    await tx.commit()
+                else:
+                    await tx.rollback()
                 committed = True
                 return report
             finally:
-                # dry-run (และกรณี error) ตกลงมาที่นี่ ⇒ ไม่มีอะไรถูกเขียนค้าง
+                # error ระหว่างทางตกลงมาที่นี่ ⇒ ไม่มีอะไรถูกเขียนค้าง
                 if not committed:
                     try:
                         await tx.rollback()
