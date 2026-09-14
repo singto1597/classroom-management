@@ -32,7 +32,10 @@ import type {
   ReceiptIssuePayload,
   ReceiptBatchIssuePayload,
   ReceiptIssueResult,
-  ReceiptBatchIssueResult
+  ReceiptBatchIssueResult,
+  ReceiptInvoiceIssuePayload,
+  ReceiptRoomInvoicePayload,
+  InvoiceBatchIssueResult
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -344,6 +347,44 @@ export const FinanceService = {
     const response = await api.get(
       `/api/classroom/${roomId}/finance/receipts/${encodeURIComponent(receiptNo)}/pdf`,
       { params: { target_type: 'room' }, responseType: 'blob' }
+    );
+
+    return response as unknown as Blob;
+  },
+
+  // ✍️ ใบแจ้งหนี้ "ยอดค้างรวมต่อคน" — 1 คน = 1 ใบ (all-or-nothing ทั้งชุด)
+  //    ⚠️ ต่างจากใบเสร็จ: **กดซ้ำไม่ได้เลขเดิม** (point-in-time) ⇒ UI ต้อง confirm ก่อนยิงเสมอ
+  async issueInvoices(
+    roomId: number,
+    payload: ReceiptInvoiceIssuePayload
+  ): Promise<InvoiceBatchIssueResult> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/receipts/invoices?target_type=room`,
+      payload
+    ) as unknown as InvoiceBatchIssueResult;
+  },
+
+  // ✍️ ออกใบแจ้งหนี้ทั้งห้อง — ระบบเป็นคนหาว่าใครค้าง (ไม่ส่งรายชื่อไปจากหน้าจอ)
+  //    ⚠️ เป็น **การเขียนจริงทุกคน**: กดซ้ำ = กินเลข INV ชุดใหม่ ⇒ ต้อง confirm ที่ UI
+  async issueRoomInvoices(
+    roomId: number,
+    payload: ReceiptRoomInvoicePayload = {}
+  ): Promise<InvoiceBatchIssueResult> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/receipts/invoices/room?target_type=room`,
+      payload
+    ) as unknown as InvoiceBatchIssueResult;
+  },
+
+  // 🖨️ รวมเอกสารหลายใบเป็น PDF **ไฟล์เดียว หน้าละใบ**
+  //    ⚠️ `POST` (ไม่ใช่ GET) เพราะเลข 100 ใบใส่ query string ไม่ได้
+  //    ⚠️ เพดาน 100 ฉบับบังคับที่ backend ⇒ เกินได้ **400 พร้อมข้อความไทยที่บอกทางออก**
+  //       (ไม่ใช่ 422 ของ Pydantic) — เช็คที่ UI ก่อนยิงเพื่อไม่ให้เสียรอบเปล่า
+  async downloadCombinedPdf(roomId: number, receiptNos: string[]): Promise<Blob> {
+    const response = await api.post(
+      `/api/classroom/${roomId}/finance/receipts/pdf?target_type=room`,
+      { receipt_nos: receiptNos },
+      { responseType: 'blob' }
     );
 
     return response as unknown as Blob;

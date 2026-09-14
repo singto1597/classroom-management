@@ -127,6 +127,9 @@ _MONEY_PATHS = [
     ("transactions", "TransactionsMixin", "revert_transaction"),
     ("receipts", "ReceiptsMixin", "issue_receipt"),
     ("receipts", "ReceiptsMixin", "issue_receipts_batch"),
+    # 🧾 ใบแจ้งหนี้ "ยอดค้างรวมต่อคน" — คนละเส้นทางกับใบเสร็จ (F3 รอบสอง)
+    ("receipts", "ReceiptsMixin", "issue_invoices"),
+    ("receipts", "ReceiptsMixin", "issue_invoices_for_room"),
     ("accounts", "AccountsMixin", "create_account"),
     ("accounts", "AccountsMixin", "update_account"),
     ("accounts", "AccountsMixin", "delete_account"),
@@ -162,7 +165,9 @@ _MONEY_WRITE_MARKERS = [
 #       ข้างล่าง ไม่งั้นมันจะเป็นรูรั่ว: ใครก็อ้างว่า "delegate ไป helper ที่ล็อก" แล้วรอด
 #    ⚠️ ใส่ได้เฉพาะ helper ที่ยึดล็อกจริงเท่านั้น — `_confirm_single_payment` **ไม่เข้าเกณฑ์**
 #       (มันเป็นผู้รับล็อกต่อจาก `confirm_payment`/`batch_confirm_payments` ไม่ใช่ผู้ยึด)
-_LOCKING_HELPERS = ["_issue_one"]
+#    ⚠️ ชื่อ helper ถูกหาแบบ **substring** (`f"{helper}("`) ⇒ ห้ามตั้งชื่อใหม่ที่ขึ้นต้นด้วย
+#       ชื่อเดิม (เช่น `_issue_one_invoice`) เพราะมันจะไปแมตช์จุดของ `_issue_one` ของเดิม
+_LOCKING_HELPERS = ["_issue_one", "_issue_invoice_aggregate"]
 
 
 def _first_line_with(lines: list[str], needle: str):

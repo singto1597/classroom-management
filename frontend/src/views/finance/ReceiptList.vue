@@ -24,7 +24,7 @@ import PeriodPicker from '@/components/finance/PeriodPicker.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
-import { downloadBlob } from '@/utils/download';
+import { downloadBlob, combinedPdfFilename } from '@/utils/download';
 import { createLatestGuard } from '@/utils/latest';
 import {
   describePeriod,
@@ -95,6 +95,13 @@ const load = async () => {
     });
     if (!guard.isCurrent(token)) return;
     items.value = rows;
+
+    // 🧹 ตัดเลขที่หลุดจากมุมมองปัจจุบันทิ้งจากที่ติ๊กไว้ — เกิดได้จริงเมื่อผู้ใช้สลับเดือน
+    //    หรือสลับ pill ใบเสร็จ↔ใบแจ้งหนี้ หลังจากติ๊กไว้แล้ว ⇒ ถ้าไม่กรอง ปุ่มจะบอก
+    //    "เลือก 12 ใบ" ทั้งที่บนจอเหลือ 3 ใบ และไฟล์ที่ได้จะมีเอกสารของตัวกรองเก่าปนมา
+    //    ซึ่งผู้ใช้ตรวจไม่ได้เลยเพราะมันไม่อยู่บนจอแล้ว
+    const shown = new Set(items.value.map((r) => r.receipt_no));
+    selectedNos.value = selectedNos.value.filter((no) => shown.has(no));
   } catch (error) {
     // error ของคำขอเก่าไม่ควรขึ้นจอ ถ้าคำขอใหม่กว่าไปถึงแล้ว
     if (!guard.isCurrent(token)) return;
@@ -120,6 +127,78 @@ onMounted(() => {
 const totalAmount = computed(() => items.value.reduce((sum, r) => sum + r.amount, 0));
 const receiptCount = computed(() => items.value.filter((r) => r.doc_type === 'receipt').length);
 const invoiceCount = computed(() => items.value.filter((r) => r.doc_type === 'invoice').length);
+
+// ==========================================
+// ☑️ เลือกหลายใบ → รวมเป็น PDF ไฟล์เดียว (หน้าละใบ)
+// ==========================================
+//
+// 🔓 หน้านี้ยัง **ไม่มีปุ่มเขียน** — การติ๊กเลือกเป็นการอ่านล้วน (ไม่กินเลข ไม่เขียนแถว)
+//    ตรงกับ `require_member` ที่ครอบ `POST /finance/receipts/pdf` ฝั่ง backend
+//
+// 🔴 เก็บ **เลขที่เอกสาร** ไม่ใช่ `id` — endpoint รวมรับ `receipt_no` เพราะเลขที่คือ
+//    สิ่งเดียวที่ผู้ใช้เห็นบนกระดาษและอ้างถึงได้ (id เป็นรายละเอียดภายใน)
+//
+// 🚫 ไม่มี "เลือกทั้งหมดทุกช่วงวันที่" โดยเจตนา — `items` ถูกจำกัดที่ 500 แถวและถูกกรอง
+//    ด้วยช่วงวันที่อยู่ ⇒ "ทั้งหมด" ที่สื่อความหมายได้มีแค่ "ทั้งหมดที่เห็นบนจอ" เท่านั้น
+
+const selectedNos = ref<string[]>([]);
+
+/** 🔒 เพดานเดียวกับ `RECEIPTS_PER_PDF_MAX` ฝั่ง backend — เกินแล้วได้ 400 (พร้อมข้อความไทย) */
+const COMBINED_PDF_MAX = 100;
+
+const isDownloadingCombined = ref(false);
+
+const selectedAmount = computed(() =>
+  items.value.filter((r) => selectedNos.value.includes(r.receipt_no)).reduce((s, r) => s + r.amount, 0),
+);
+
+const allSelected = computed(
+  () => items.value.length > 0 && selectedNos.value.length === items.value.length,
+);
+
+const toggleSelectAll = () => {
+  selectedNos.value = allSelected.value ? [] : items.value.map((r) => r.receipt_no);
+};
+
+/**
+ * 🖨️ รวมเอกสารที่เลือกเป็น PDF ไฟล์เดียว — **หน้าละใบ** ตามลำดับที่เลือก
+ *
+ * ⚠️ backend ตอบ 404 ทั้งคำขอถ้ามีเลขใดไม่พบ (ไม่ข้ามเงียบ ๆ) ⇒ เลขที่ค้างอยู่ใน
+ *    `selectedNos` หลังตัวกรองเปลี่ยนจะถูกตัดออกตั้งแต่ใน `load()` แล้ว
+ */
+const downloadCombined = async () => {
+  if (isDownloadingCombined.value || selectedNos.value.length === 0) return;
+  if (selectedNos.value.length > COMBINED_PDF_MAX) {
+    return Swal.fire(
+      'รวมไฟล์ไม่ได้ในครั้งเดียว',
+      `เลือกไว้ ${selectedNos.value.length} ฉบับ แต่รวมได้ครั้งละไม่เกิน ${COMBINED_PDF_MAX} ฉบับ ` +
+        '— กรุณาแคบช่วงวันที่ลงหรือเลือกน้อยลง',
+      'warning',
+    );
+  }
+  isDownloadingCombined.value = true;
+  Swal.fire({
+    title: 'กำลังสร้างไฟล์ PDF...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading(),
+  });
+  try {
+    const nos = [...selectedNos.value];
+    const blob = await FinanceService.downloadCombinedPdf(currentRoomId, nos);
+    // 🏷️ 'documents' เพราะในทะเบียนนี้เลือกปนกันได้ทั้งใบเสร็จและใบแจ้งหนี้
+    //    ⇒ ชื่อไฟล์ต้องไม่แอบอ้างว่าเป็นชนิดใดชนิดหนึ่ง
+    downloadBlob(blob, combinedPdfFilename(nos, 'documents'));
+    Swal.close();
+  } catch (error: unknown) {
+    Swal.fire(
+      'สร้างไฟล์ PDF ไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    );
+  } finally {
+    isDownloadingCombined.value = false;
+  }
+};
 
 // ==========================================
 // 🖨️ ดาวน์โหลด PDF (backend เรนเดอร์ผ่าน Gotenberg)
@@ -236,12 +315,66 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
           แสดง {{ LIST_LIMIT }} รายการล่าสุด — มีเอกสารมากกว่านี้ในช่วงที่เลือก กรุณาแคบช่วงวันที่ลง
         </p>
 
+        <!-- ☑️ แถบรวมเอกสาร: ทำงานกับ "ที่เห็นบนจอ" เท่านั้น (ดูเหตุผลในสคริปต์) -->
+        <div class="page-card flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4">
+          <div class="flex min-w-0 items-center gap-2">
+            <button type="button" class="btn-ghost-ui" @click="toggleSelectAll">
+              <i class="bi" :class="allSelected ? 'bi-x-square' : 'bi-check2-square'" aria-hidden="true"></i>
+              {{ allSelected ? 'ล้างที่เลือก' : 'เลือกทั้งหมดในหน้านี้' }}
+            </button>
+            <p class="min-w-0 truncate text-xs font-bold text-stone-500">
+              <template v-if="selectedNos.length">
+                เลือก <span class="num text-brand-700">{{ selectedNos.length }}</span> ฉบับ —
+                รวม {{ formatMoney(selectedAmount) }}
+              </template>
+              <template v-else>ติ๊กเลือกเอกสารเพื่อรวมเป็นไฟล์เดียว (หน้าละใบ)</template>
+            </p>
+          </div>
+          <button
+            v-if="selectedNos.length"
+            type="button"
+            class="btn-primary shrink-0"
+            :disabled="isDownloadingCombined"
+            @click="downloadCombined"
+          >
+            <i
+              class="bi"
+              :class="isDownloadingCombined ? 'bi-hourglass-split' : 'bi-file-earmark-zip'"
+              aria-hidden="true"
+            ></i>
+            ดาวน์โหลดรวมเป็นไฟล์เดียว
+          </button>
+        </div>
+
         <!-- 📱 มือถือ -->
         <div class="space-y-2.5 lg:hidden">
           <div v-for="r in items" :key="r.id" class="page-card p-4">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <p class="num truncate text-sm font-bold text-stone-900">{{ r.receipt_no }}</p>
+                <label class="flex cursor-pointer items-center gap-2">
+                  <input
+                    v-model="selectedNos"
+                    type="checkbox"
+                    :value="r.receipt_no"
+                    :aria-label="`เลือกเอกสาร ${r.receipt_no} เพื่อรวมไฟล์`"
+                    class="peer sr-only"
+                  />
+                  <span
+                    class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                    :class="
+                      selectedNos.includes(r.receipt_no)
+                        ? 'border-brand-700 bg-brand-700'
+                        : 'border-stone-300 bg-white'
+                    "
+                  >
+                    <i
+                      v-if="selectedNos.includes(r.receipt_no)"
+                      class="bi bi-check-lg text-xs font-bold text-white"
+                      aria-hidden="true"
+                    ></i>
+                  </span>
+                  <span class="num truncate text-sm font-bold text-stone-900">{{ r.receipt_no }}</span>
+                </label>
                 <p class="mt-0.5 truncate text-xs text-stone-500">
                   {{ r.issued_to_name || '—' }}
                   <span v-if="r.student_no" class="num">— เลขที่ {{ r.student_no }}</span>
@@ -306,6 +439,29 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
             <table class="data-table">
               <thead>
                 <tr>
+                  <th class="w-10">
+                    <label class="flex cursor-pointer items-center" title="เลือกทั้งหมดในหน้านี้">
+                      <input
+                        type="checkbox"
+                        class="peer sr-only"
+                        :checked="allSelected"
+                        aria-label="เลือกเอกสารทั้งหมดในหน้านี้"
+                        @change="toggleSelectAll"
+                      />
+                      <span
+                        class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                        :class="
+                          allSelected ? 'border-brand-700 bg-brand-700' : 'border-stone-300 bg-white'
+                        "
+                      >
+                        <i
+                          v-if="allSelected"
+                          class="bi bi-check-lg text-xs font-bold text-white"
+                          aria-hidden="true"
+                        ></i>
+                      </span>
+                    </label>
+                  </th>
                   <th>เลขที่เอกสาร</th>
                   <th>วันที่ออก</th>
                   <th>ชนิด</th>
@@ -317,6 +473,31 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
               </thead>
               <tbody>
                 <tr v-for="r in items" :key="r.id">
+                  <td>
+                    <label class="flex cursor-pointer items-center">
+                      <input
+                        v-model="selectedNos"
+                        type="checkbox"
+                        :value="r.receipt_no"
+                        :aria-label="`เลือกเอกสาร ${r.receipt_no} เพื่อรวมไฟล์`"
+                        class="peer sr-only"
+                      />
+                      <span
+                        class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                        :class="
+                          selectedNos.includes(r.receipt_no)
+                            ? 'border-brand-700 bg-brand-700'
+                            : 'border-stone-300 bg-white'
+                        "
+                      >
+                        <i
+                          v-if="selectedNos.includes(r.receipt_no)"
+                          class="bi bi-check-lg text-xs font-bold text-white"
+                          aria-hidden="true"
+                        ></i>
+                      </span>
+                    </label>
+                  </td>
                   <td class="num font-bold text-stone-900">{{ r.receipt_no }}</td>
                   <td class="num whitespace-nowrap text-stone-500">
                     {{ formatThaiDateTime(r.issued_at) }}

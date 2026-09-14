@@ -47,6 +47,10 @@ pytestmark = pytest.mark.asyncio
 API_PREFIX = "/api/classroom"
 RECEIPTS_PATH = API_PREFIX + "/{room}/finance/receipts"
 BATCH_PATH = API_PREFIX + "/{room}/finance/receipts/batch"
+# 🧾 ใบแจ้งหนี้ "ยอดค้างรวมต่อคน" — คนละเส้นทางกับใบเสร็จ (F3 รอบสอง)
+INVOICES_PATH = API_PREFIX + "/{room}/finance/receipts/invoices"
+ROOM_INVOICES_PATH = API_PREFIX + "/{room}/finance/receipts/invoices/room"
+COMBINED_PDF_PATH = API_PREFIX + "/{room}/finance/receipts/pdf"
 RECEIPT_PATH = API_PREFIX + "/{room}/finance/receipts/{receipt_no}"
 PDF_PATH = API_PREFIX + "/{room}/finance/receipts/{receipt_no}/pdf"
 PAY_PATH = API_PREFIX + "/{room}/finance/payments/{payment_id}/pay"
@@ -162,6 +166,32 @@ def _issue(client, headers, payment_id: int, *, doc_type: str = "receipt",
         body["note"] = note
     return client.post(
         _url(RECEIPTS_PATH, room_id if room_id is not None else headers.room_id),
+        json=body, headers=headers,
+    )
+
+
+def _issue_invoices(client, headers, student_ids, *, note=None, room_id=None):
+    """ออกใบแจ้งหนี้ "ยอดค้างรวมต่อคน" — ส่ง **student_id** ไม่ใช่ payment_id
+
+    ⚠️ อย่าสับสนกับ `_issue`: ตัวนั้นคือเส้นทางใบเสร็จที่รับ `payment_id`
+       (และใบแจ้งหนี้ถูกย้ายออกจากที่นั่นแล้ว — ส่ง `doc_type='invoice'` ไปจะได้ 400)
+    """
+    body = {"student_ids": student_ids}
+    if note is not None:
+        body["note"] = note
+    return client.post(
+        _url(INVOICES_PATH, room_id if room_id is not None else headers.room_id),
+        json=body, headers=headers,
+    )
+
+
+def _issue_room_invoices(client, headers, *, note=None, room_id=None):
+    """ออกใบแจ้งหนี้ทั้งห้อง — ไม่ส่งรายชื่อไป ระบบหาเจ้าหนี้เอง"""
+    body = {}
+    if note is not None:
+        body["note"] = note
+    return client.post(
+        _url(ROOM_INVOICES_PATH, room_id if room_id is not None else headers.room_id),
         json=body, headers=headers,
     )
 
@@ -589,19 +619,30 @@ async def test_invoice_is_point_in_time_and_gets_a_new_number_every_time(
     student_id = await _make_debtor(db_pool, room_id)
     _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=1200.0)
 
-    first = _issue(client, admin_headers, payment_id, doc_type="invoice")
+    first = _issue_invoices(client, admin_headers, [student_id])
     assert first.status_code == 200, first.text
-    assert first.json()["reused"] is False
-    assert first.json()["receipt"]["amount"] == 1200.0, "ใบแจ้งหนี้ = ยอดค้างทั้งก้อน"
-    assert first.json()["receipt"]["paid_total_after"] == 0.0
-    assert first.json()["receipt"]["legacy_transaction_id"] is None
-    assert first.json()["receipt"]["receipt_no"].startswith("INV-")
-    assert first.json()["receipt"]["doc_type_label"] == "ใบแจ้งหนี้"
+    assert first.json()["issued_count"] == 1
+    doc = first.json()["receipts"][0]
+    # ℹ️ ไม่มีฟิลด์ `reused` ในเส้นทางนี้ (ต่างจาก `_issue`) — "ไม่อยู่ใน idempotency index"
+    #    พิสูจน์ด้วยเลขที่ต่างกันข้างล่างแทน ซึ่งเป็นสิ่งที่ผู้ใช้เห็นจริง
+    assert doc["amount"] == 1200.0, "ใบแจ้งหนี้ = ยอดค้างทั้งก้อน"
+    assert doc["paid_total_after"] == 0.0
+    assert doc["legacy_transaction_id"] is None
+    assert doc["receipt_no"].startswith("INV-")
+    assert doc["doc_type_label"] == "ใบแจ้งหนี้"
+    # 🔴 ใบนี้ไม่ผูกกับ "บิลเดียว" — ถ้ามีค่าติดมาแปลว่ายังใช้เส้นทางใบละบิลอยู่
+    assert doc["student_payment_id"] is None
+    assert doc["collection_id"] is None
+    assert doc["student_id"] == student_id
 
-    second = _issue(client, admin_headers, payment_id, doc_type="invoice")
+    second = _issue_invoices(client, admin_headers, [student_id])
     assert second.status_code == 200, second.text
-    assert second.json()["reused"] is False, "ใบแจ้งหนี้ต้องไม่อยู่ใน idempotency index"
-    assert second.json()["receipt"]["receipt_no"] != first.json()["receipt"]["receipt_no"]
+    again = second.json()["receipts"][0]
+    assert again["receipt_no"] != doc["receipt_no"], (
+        "ใบแจ้งหนี้ต้องได้เลขใหม่ทุกครั้ง (point-in-time) — เลขเดิมแปลว่าไปเข้า "
+        "idempotency index ของใบเสร็จเข้าแล้ว"
+    )
+    assert again["amount"] == 1200.0
 
     rows = await _db_receipts(db_pool, room_id, doc_type="invoice")
     assert len(rows) == 2
@@ -619,8 +660,33 @@ async def test_invoice_for_fully_paid_bill_is_rejected(client, db_pool, admin_he
     _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=400.0)
     assert _pay(client, admin_headers, payment_id, account_id, 400.0).status_code == 200
 
+    res = _issue_invoices(client, admin_headers, [student_id])
+    assert res.status_code == 400, res.text
+    assert "ไม่มีบิลค้างชำระ" in res.json()["detail"], (
+        "ต้องเป็น 400 ของ 'ไม่มีอะไรให้แจ้งหนี้' ไม่ใช่ 400 ของเส้นทางที่ถูกย้ายไปแล้ว"
+    )
+    assert await _db_receipt_count(db_pool, room_id) == 0
+
+
+async def test_stale_invoice_path_returns_400_pointing_at_the_new_endpoint(
+    client, db_pool, admin_headers
+):
+    """หน้าจอที่ค้างเปิดอยู่ (deploy ใหม่ทับ) ยังยิง `doc_type='invoice'` มาที่เดิมได้
+
+    ⇒ ต้องได้ **400 พร้อมข้อความไทยที่บอกว่าปุ่มย้ายไปไหน** ไม่ใช่ 422 ดิบของ Pydantic
+      และไม่ใช่ 200 ที่ออกเอกสารผิดรูปแบบให้
+    ⚠️ ยังไม่ปิดที่ pattern ของ Pydantic โดยเจตนา — ดูเหตุผลใน `issue_receipt`
+    """
+    room_id = admin_headers.room_id
+    student_id = await _make_debtor(db_pool, room_id)
+    _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=500.0)
+
     res = _issue(client, admin_headers, payment_id, doc_type="invoice")
     assert res.status_code == 400, res.text
+    assert "receipts/invoices" in res.json()["detail"], (
+        "ข้อความต้องชี้ไปที่เส้นทางใหม่ ไม่งั้นครูจะไม่รู้ว่าต้องกดตรงไหน"
+    )
+    # และต้องไม่ยิงเอกสารออกมาให้
     assert await _db_receipt_count(db_pool, room_id) == 0
 
 
@@ -666,10 +732,29 @@ async def test_sub_satang_amount_is_400_not_500(
     room_id = admin_headers.room_id
     student_id = await _make_debtor(db_pool, room_id)
     _, payment_id = await _make_bill(
-        db_pool, room_id, student_id, amount=collection_amount, paid_amount=paid_amount,
+        db_pool, room_id, student_id, amount=collection_amount,
+        # ⚠️ ใบแจ้งหนี้ต้องสร้างบิลแบบ **ยัง pending** ก่อน (ดูเหตุผลข้างล่าง) แล้วค่อย
+        #    ยัด `paid_amount` เข้าไปตรง ๆ — ส่วนใบเสร็จใช้ค่าที่ `_make_bill` ตั้งให้เลย
+        paid_amount=0.0 if doc_type == "invoice" else paid_amount,
     )
 
-    res = _issue(client, admin_headers, payment_id, doc_type=doc_type)
+    if doc_type == "invoice":
+        # 🔴 ต้องเซ็ตผ่าน SQL ตรง ๆ ไม่ผ่าน `_pay`: เส้นทางรับเงินจะตั้ง `status='paid'`
+        #    ทันทีที่จ่ายครบ ⇒ บิลนั้นจะ **หลุดออกจาก predicate `SP.status='pending'`**
+        #    ของ `_load_student_outstanding` แล้วเราไม่ได้ทดสอบด่าน `round()` เลย
+        #    (ได้ 400 คนละเหตุผล = เทสต์ผ่านโดยไม่ได้กันอะไร)
+        #    สภาพที่ต้องการคือ "ยัง pending แต่จ่ายมาแล้ว 999.999 จาก 1000" ซึ่งเกิดได้จริง
+        #    เมื่อมีคนแก้ `paid_amount` ด้วยมือ/ข้อมูลนำเข้า — เป็นสภาพที่ด่านนี้มีไว้กัน
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE student_payments SET paid_amount = $2 WHERE id = $1",
+                payment_id, paid_amount,
+            )
+        res = _issue_invoices(client, admin_headers, [student_id])
+    else:
+        # ⚠️ สองเส้นทางรับ "ตัวชี้เป้า" คนละแบบ: ใบเสร็จชี้ที่ **บิล** (`payment_id`)
+        #    ส่วนใบแจ้งหนี้ชี้ที่ **คน** (`student_id`)
+        res = _issue(client, admin_headers, payment_id, doc_type=doc_type)
     assert res.status_code == 400, res.text
 
     # ข้อความต้องบอกผู้ใช้ว่าปัญหาคือ "ยอด" ไม่ใช่ปล่อยให้เดา
@@ -976,9 +1061,9 @@ async def test_get_receipt_detail_and_list_filters(client, db_pool, admin_header
     _, pay_a = await _make_bill(db_pool, room_id, student_a, amount=700.0)
     _, pay_b = await _make_bill(db_pool, room_id, student_b, amount=900.0)
     assert _pay(client, admin_headers, pay_a, account_id, 700.0).status_code == 200
-    # pay_b ยังไม่จ่าย → ใช้ออกใบแจ้งหนี้ได้อย่างเดียว
+    # pay_b ยังไม่จ่าย → ใช้ออกใบแจ้งหนี้ได้อย่างเดียว (เส้นทางรับ `student_id`)
     rec_a = _issue(client, admin_headers, pay_a).json()["receipt"]
-    inv_b = _issue(client, admin_headers, pay_b, doc_type="invoice").json()["receipt"]
+    inv_b = _issue_invoices(client, admin_headers, [student_b]).json()["receipts"][0]
 
     detail = client.get(_url(RECEIPT_PATH, room_id, receipt_no=rec_a["receipt_no"]),
                         headers=admin_headers)
@@ -1006,6 +1091,22 @@ async def test_get_receipt_detail_and_list_filters(client, db_pool, admin_header
     by_student = client.get(_url(RECEIPTS_PATH, room_id),
                             params={"student_id": student_a}, headers=admin_headers)
     assert [r["receipt_no"] for r in by_student.json()] == [rec_a["receipt_no"]]
+
+    # 🧾 ใบแจ้งหนี้รวมยอดไม่มีแคมเปญให้ JOIN ⇒ ชื่อรายการต้องถูก **derive จาก snapshot**
+    #    ไม่ใช่ '-' และไม่ใช่ NULL — ครูต้องอ่านทะเบียนแล้วรู้ว่าใบนี้อ้างถึงอะไร
+    invoice_row = only_invoices.json()[0]
+    assert invoice_row["collection_title"] == "ยอดค้างชำระรวม 1 โครงการ"
+    assert invoice_row["collection_id"] is None, "ใบรวมไม่ผูกกับแคมเปญเดียว"
+
+    inv_detail = client.get(_url(RECEIPT_PATH, room_id, receipt_no=inv_b["receipt_no"]),
+                            headers=admin_headers)
+    assert inv_detail.status_code == 200, inv_detail.text
+    di = inv_detail.json()
+    # ยอดเต็ม = ยอดค้าง + ที่จ่ายแล้ว ⇒ `collection_amount - paid_total_after` = `amount`
+    # ตรงกับ "รวมทั้งสิ้น" บนกระดาษ และกับ `remaining` ที่ frontend คำนวณเอง
+    assert di["collection_amount"] == 900.0, "ยอดเต็ม = ยอดค้าง + ที่จ่ายแล้ว"
+    assert di["collection_amount"] - di["paid_total_after"] == di["amount"]
+    assert [it["title"] for it in di["line_items"]] == ["ค่าเทอม"]
 
     # doc_type นอกเหนือจาก receipt|invoice → 422
     assert client.get(_url(RECEIPTS_PATH, room_id),
@@ -1083,8 +1184,12 @@ async def test_invoice_pdf_uses_billing_wording_not_receipt_wording(client, db_p
     """ใบแจ้งหนี้ต้องไม่พูดว่า "ได้รับเงินจาก" (ยังไม่ได้รับ) และไม่เหลือ "None" บนเอกสาร"""
     room_id = admin_headers.room_id
     student_id = await _make_debtor(db_pool, room_id)
-    _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=1200.0)
-    receipt_no = _issue(client, admin_headers, payment_id, doc_type="invoice").json()["receipt"]["receipt_no"]
+    # สองบิลที่ยังไม่จ่าย ⇒ ใบเดียวต้องแจกแจง **สองบรรทัด** และยอดพาดหัว = 700 + 500
+    await _make_bill(db_pool, room_id, student_id, amount=1200.0)
+    await _make_bill(db_pool, room_id, student_id, amount=500.0)
+    receipt_no = _issue_invoices(
+        client, admin_headers, [student_id]
+    ).json()["receipts"][0]["receipt_no"]
 
     mock_render = AsyncMock(return_value=b"%PDF-1.4\n")
     with patch("services.finance.pdf.html_to_pdf", new=mock_render):
@@ -1097,6 +1202,14 @@ async def test_invoice_pdf_uses_billing_wording_not_receipt_wording(client, db_p
     assert "ได้รับเงินจาก" not in html
     assert "ผู้รับแจ้ง" in html
     assert ">None<" not in html and " None " not in html
+
+    # 📋 ตารางแจกแจงต้องโผล่ พร้อมบรรทัด "รวมทั้งสิ้น" ที่เท่ากับยอดพาดหัว
+    assert "ยอดค้างชำระรวม 2 โครงการ" in html
+    assert html.count("ค่าเทอม") == 2, "ต้องมีสองบรรทัด (บิลละบรรทัด) จาก snapshot"
+    assert "รวมทั้งสิ้น" in html
+    assert "1,700.00" in html, "ยอดพาดหัวต้องเป็นผลรวมของทุกบิลที่ค้าง"
+    # 🔴 snapshot ต้องเป็นสำเนา ไม่ใช่การอ้างถึงบิล — พิมพ์ซ้ำหลังจ่ายบางส่วนต้องได้เลขเดิม
+    assert "1,200.00" in html and "500.00" in html
 
 
 async def test_pdf_render_failure_maps_to_502(client, db_pool, admin_headers):
@@ -1192,9 +1305,14 @@ async def test_invoice_year_be_follows_the_issue_date_not_the_last_instalment(
     อยู่คนละชุดเลข ซึ่งอธิบายให้ผู้ตรวจสอบไม่ได้ (เทสต์คู่อยู่ในข้อถัดไป)
     """
     room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
     student_id = await _make_debtor(db_pool, room_id)
-    _, payment_id = await _make_bill(db_pool, room_id, student_id,
-                                     amount=1000.0, paid_amount=300.0)
+    _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=1000.0)
+    # 🔴 ผ่อนผ่าน **เส้นทางรับเงินจริง** ไม่ใช่ `_make_bill(paid_amount=...)`:
+    #    ตัวนั้นตั้ง `status='paid'` ทันทีที่มียอดจ่าย ⇒ บิลจะหลุด predicate `SP.status='pending'`
+    #    ของใบแจ้งหนี้ แล้วเทสต์จะได้ 400 แทนที่จะได้ใบ (ผ่านโดยไม่ได้ทดสอบปี พ.ศ. เลย)
+    #    การจ่ายบางส่วนผ่าน `_confirm_single_payment` เท่านั้นที่คง `status='pending'` ไว้
+    assert _pay(client, admin_headers, payment_id, account_id, 300.0).status_code == 200
 
     # จำลองสภาพจริงหลัง "ผ่อนงวดแรกเมื่อปลายปีที่แล้ว"
     # `paid_at` เป็น TIMESTAMP naive ที่เก็บ UTC (core/init_db.py) → ส่ง naive เข้าไปตรง ๆ
@@ -1211,9 +1329,9 @@ async def test_invoice_year_be_follows_the_issue_date_not_the_last_instalment(
         f"เทสต์นี้ต้องรันในปี พ.ศ. ที่ไม่ใช่ {previous_year_be} (ปีนี้คือ {today_be})"
     )
 
-    res = _issue(client, admin_headers, payment_id, doc_type="invoice")
+    res = _issue_invoices(client, admin_headers, [student_id])
     assert res.status_code == 200, res.text
-    doc = res.json()["receipt"]
+    doc = res.json()["receipts"][0]
 
     assert doc["year_be"] == today_be, (
         f"ใบแจ้งหนี้ได้ปี {doc['year_be']} แต่ปีของวันออกเอกสารคือ {today_be} "
@@ -1235,6 +1353,7 @@ async def test_invoice_year_is_the_same_for_a_paid_and_an_unpaid_bill(
     ถ้าปีมาจาก `paid_at` สองใบนี้จะอยู่คนละชุดเลขทั้งที่ออกวันเดียวกัน
     """
     room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
     today_be = datetime.now(timezone.utc).astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
 
     # (ก) บิลที่ยังไม่เคยจ่ายเลย → paid_at IS NULL
@@ -1242,27 +1361,29 @@ async def test_invoice_year_is_the_same_for_a_paid_and_an_unpaid_bill(
     _, unpaid_payment = await _make_bill(db_pool, room_id, unpaid_student, amount=500.0)
 
     # (ข) บิลที่ผ่อนไว้เมื่อปีที่แล้ว → paid_at เป็นของปีก่อน
+    #    ⚠️ ผ่อนผ่านเส้นทางรับเงินจริงเท่านั้น — `_make_bill(paid_amount=...)` ตั้ง
+    #       `status='paid'` ซึ่งทำให้บิลหายไปจาก predicate ของใบแจ้งหนี้ (เหตุผลเดียวกับข้อ 12.1)
     paid_student = await _make_debtor(db_pool, room_id, student_no=95)
-    _, paid_payment = await _make_bill(db_pool, room_id, paid_student,
-                                       amount=1000.0, paid_amount=400.0)
+    _, paid_payment = await _make_bill(db_pool, room_id, paid_student, amount=1000.0)
+    assert _pay(client, admin_headers, paid_payment, account_id, 400.0).status_code == 200
     async with db_pool.acquire() as conn:
         await conn.execute(
             "UPDATE student_payments SET paid_at = $2 WHERE id = $1",
             paid_payment, datetime(2025, 3, 2, 4, 0),
         )
 
-    first = _issue(client, admin_headers, unpaid_payment, doc_type="invoice")
-    second = _issue(client, admin_headers, paid_payment, doc_type="invoice")
+    first = _issue_invoices(client, admin_headers, [unpaid_student])
+    second = _issue_invoices(client, admin_headers, [paid_student])
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
 
-    years = {first.json()["receipt"]["year_be"], second.json()["receipt"]["year_be"]}
+    years = {first.json()["receipts"][0]["year_be"], second.json()["receipts"][0]["year_be"]}
     assert years == {today_be}, (
         f"ใบแจ้งหนี้สองใบที่ออกวันเดียวกันได้ปี {years} — ต้องเป็นชุดเลข {today_be} ทั้งคู่"
     )
     # ต่อเนื่องกันจริง: 0001 แล้ว 0002 ในชุดเดียว (ไม่ใช่คนละชุดแล้วซ้ำเลขกัน)
-    assert first.json()["receipt"]["receipt_no"] == f"INV-{today_be}-0001"
-    assert second.json()["receipt"]["receipt_no"] == f"INV-{today_be}-0002"
+    assert first.json()["receipts"][0]["receipt_no"] == f"INV-{today_be}-0001"
+    assert second.json()["receipts"][0]["receipt_no"] == f"INV-{today_be}-0002"
     assert await _db_last_seq(db_pool, room_id, today_be, "invoice") == 2
 
 
@@ -1791,9 +1912,9 @@ async def test_invoice_event_at_is_exactly_its_own_issued_at(client, db_pool, ad
     student_id = await _make_debtor(db_pool, room_id)
     _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=1000.0)
 
-    issued = _issue(client, admin_headers, payment_id, doc_type="invoice")
+    issued = _issue_invoices(client, admin_headers, [student_id])
     assert issued.status_code == 200, issued.text
-    receipt_no = issued.json()["receipt"]["receipt_no"]
+    receipt_no = issued.json()["receipts"][0]["receipt_no"]
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(

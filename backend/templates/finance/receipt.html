@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<title>{{ doc_title }} {{ receipt_no }}</title>
+<title>{{ page_title }}</title>
 <style>
   /* ══════════════════════════════════════════════════════════════════════
      ฟอนต์ไทยถูกฝังมาเป็น base64 data URI จากฝั่ง backend (pdf.py)
@@ -30,14 +30,31 @@
 
   * { box-sizing: border-box; }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     📄 หนึ่งไฟล์มีได้หลายเอกสาร (หน้าละใบ) — `.doc` คือ "หนึ่งใบ"
+     🔴 padding ของระยะขอบต้องอยู่ที่ `.doc` **ไม่ใช่ `body`**:
+        padding ของ `body` มีผลเฉพาะหน้าแรกและหน้าสุดท้ายของ flow ที่แบ่งหน้า
+        ⇒ หน้า 2..N ของไฟล์รวมจะไม่มีขอบเลย (ยื่นชิดขอบกระดาษ)
+     🔴 `<style>` ต้องอยู่นอกลูป `documents` — ถ้าย้ายเข้าไป ฟอนต์ (data URI ~61,000
+        ตัวอักษร/ไฟล์) จะถูกฝังซ้ำ N เท่า
+     ⚠️ และคอมเมนต์นี้ **ห้ามเขียนตัวคำนำหน้า data URI ของฟอนต์ออกมาตรง ๆ** — เทสต์นับ
+        จำนวนครั้งของคำนำหน้านั้นใน HTML ทั้งไฟล์ (ต้องได้ 2 = Regular + Bold) ⇒ คอมเมนต์
+        ที่เผลอเขียนคำนำหน้าลงไปจะถูกนับเป็นฟอนต์อันที่สาม แล้วเทสต์ล้มทั้งที่โค้ดถูก
+     ══════════════════════════════════════════════════════════════════════ */
   body {
     font-family: '{{ font_family }}', sans-serif;
     font-size: 13px;
     line-height: 1.5;
     color: #1c1917;
     margin: 0;
-    padding: 14mm 14mm 10mm;
+    padding: 0;
   }
+
+  .doc { padding: 14mm 14mm 10mm; }
+
+  /* ขึ้นหน้าใหม่ก่อนเอกสารใบถัดไป — `break-after` คือมาตรฐานปัจจุบัน
+     ส่วน `page-break-after` เป็นชื่อเก่าที่ Chromium ยังรองรับ (ใส่ทั้งคู่เพื่อความแน่นอน) */
+  .doc-break { break-after: page; page-break-after: always; }
 
   .head { display: flex; justify-content: space-between; align-items: flex-start; }
   .head h1 { font-size: 19px; margin: 0 0 2px; font-weight: 700; }
@@ -67,6 +84,9 @@
   table.items th, table.items td { padding: 7px 8px; border: 1px solid #d6d3d1; }
   table.items th { background: #f5f5f4; font-weight: 700; text-align: left; }
   table.items td.num, table.items th.num { text-align: right; white-space: nowrap; }
+  /* 📋 ใบแจ้งหนี้รวมยอด: วันที่ของแต่ละโครงการ และบรรทัดสรุปที่ถูกตัดออก */
+  table.items .due { color: #57534e; font-size: 11px; }
+  table.items .more { color: #57534e; font-size: 11px; font-style: italic; }
 
   /* 💰 ยอดเงิน + คำอ่าน คือหัวใจของเอกสารนี้ — เน้นให้เด่นกว่าอย่างอื่น */
   .amount-box {
@@ -92,28 +112,31 @@
 </style>
 </head>
 <body>
+{% for d in documents %}
+<div class="doc{% if not loop.last %} doc-break{% endif %}">
 
-  {% if is_voided %}
+  {% if d.is_voided %}
   {# 🚫 รายการที่ออกเอกสารนี้ถูกยกเลิกแล้ว ⇒ ใบนี้ไม่ใช่หลักฐานการรับเงินอีกต่อไป
-     ⚠️ ต้องอยู่ **บนสุด** ก่อนหัวเอกสาร ไม่ใช่ท้ายหน้า — คนอ่านต้องรู้ก่อนอ่านตัวเลข #}
+     ⚠️ ต้องอยู่ **บนสุดของใบนั้น** ก่อนหัวเอกสาร ไม่ใช่ท้ายหน้า — คนอ่านต้องรู้ก่อนอ่านตัวเลข
+     ⚠️ และต้องอยู่ **ใน** `.doc` — ถ้าไว้บอกบล็อก มันจะไปโผล่บนหน้าของคนอื่นในไฟล์รวม #}
   <div class="void-banner">
     เอกสารนี้ถูกยกเลิกแล้ว — VOID
-    {% if void_reason %}<span class="why">เหตุผล: {{ void_reason }}</span>{% endif %}
+    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
   </div>
   {% endif %}
 
   <div class="head">
     <div>
-      <h1>{{ doc_title }}</h1>
+      <h1>{{ d.doc_title }}</h1>
       <div class="room">
-        {{ room_name }}{% if room_code %} ({{ room_code }}){% endif %}
+        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
       </div>
     </div>
     <div class="doc-title">
-      <div class="label">เลขที่ {{ receipt_no }}</div>
+      <div class="label">เลขที่ {{ d.receipt_no }}</div>
       {# 🗓️ `document_date_text` = วันที่ของ "เหตุการณ์" (event_at) ไม่ใช่วันที่กดพิมพ์
          ⇒ พิมพ์ซ้ำเมื่อไรก็ได้วันที่เดิม และตรงกับปี พ.ศ. บนเลขที่เอกสารเสมอ #}
-      <div class="no">วันที่ {{ document_date_text or '-' }}</div>
+      <div class="no">วันที่ {{ d.document_date_text or '-' }}</div>
     </div>
   </div>
 
@@ -123,17 +146,17 @@
     <tr>
       {# ⚠️ ใบแจ้งหนี้ "ยังไม่ได้รับเงิน" — ใช้ป้าย "ได้รับเงินจาก" ไม่ได้ (ความหมายผิด)
          และผู้ลงชื่อฝั่งซ้ายไม่ใช่ "ผู้ชำระเงิน" แต่เป็น "ผู้รับแจ้ง" #}
-      <td class="k">{% if is_receipt %}ได้รับเงินจาก{% else %}เรียกเก็บจาก{% endif %}</td>
-      <td><strong>{{ payer_name or '-' }}</strong>{% if student_no %} — เลขที่ {{ student_no }}{% endif %}</td>
+      <td class="k">{% if d.is_receipt %}ได้รับเงินจาก{% else %}เรียกเก็บจาก{% endif %}</td>
+      <td><strong>{{ d.payer_name or '-' }}</strong>{% if d.student_no %} — เลขที่ {{ d.student_no }}{% endif %}</td>
     </tr>
     <tr>
       <td class="k">รายการ</td>
-      <td>{{ collection_title or '-' }}</td>
+      <td>{{ d.collection_title or '-' }}</td>
     </tr>
-    {% if collection_due_date %}
+    {% if d.collection_due_date %}
     <tr>
       <td class="k">กำหนดชำระ</td>
-      <td>{{ collection_due_date }}</td>
+      <td>{{ d.collection_due_date }}</td>
     </tr>
     {% endif %}
   </table>
@@ -147,65 +170,94 @@
       </tr>
     </thead>
     <tbody>
+      {% if d.line_items %}
+      {# 📋 ใบแจ้งหนี้รวมยอด — แจกแจงทุกโครงการที่ค้าง (snapshot ณ วันออกเอกสาร)
+         ⚠️ ผลรวมของบรรทัดเหล่านี้ = `d.amount` ที่พาดหัวเสมอ เพราะทั้งคู่มาจาก
+            snapshot ชุดเดียวกัน ห้ามคำนวณใหม่จากยอดปัจจุบัน ณ ตอนพิมพ์ #}
+      {% for it in d.line_items %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>
+          {{ it.title }}
+          {%- if it.due_date_text %} <span class="due">(กำหนดชำระ {{ it.due_date_text }})</span>{% endif %}
+        </td>
+        <td class="num">{{ "{:,.2f}".format(it.amount) }}</td>
+      </tr>
+      {% endfor %}
+      {% if d.line_items_hidden %}
+      {# ตัดบรรทัดที่เกินเพดานเพื่อรักษาสัญญา "หน้าละคน" — ยอดรวมยังครบถ้วน #}
+      <tr>
+        <td colspan="3" class="more">
+          และอีก {{ d.line_items_hidden }} โครงการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+        </td>
+      </tr>
+      {% endif %}
+      {% else %}
       <tr>
         <td>1</td>
         <td>
-          {{ collection_title or 'รายการชำระเงิน' }}
-          {%- if not is_receipt %} (ยอดค้างชำระ){% endif %}
+          {{ d.collection_title or 'รายการชำระเงิน' }}
+          {%- if not d.is_receipt %} (ยอดค้างชำระ){% endif %}
         </td>
-        <td class="num">{{ "{:,.2f}".format(amount) }}</td>
+        <td class="num">{{ "{:,.2f}".format(d.amount) }}</td>
       </tr>
+      {% endif %}
       <tr>
         <td colspan="2" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(amount) }}</td>
+        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.amount) }}</td>
       </tr>
     </tbody>
   </table>
 
   <div class="amount-box">
-    <div class="words">({{ amount_text }})</div>
-    <div class="figures">{{ "{:,.2f}".format(amount) }} ฿</div>
+    <div class="words">({{ d.amount_text }})</div>
+    <div class="figures">{{ "{:,.2f}".format(d.amount) }} ฿</div>
   </div>
 
   <table class="meta" style="margin-top: 12px;">
-    {% if collection_amount %}
+    {% if d.collection_amount %}
     <tr>
       <td class="k">ยอดเต็มของรายการ</td>
-      <td>{{ "{:,.2f}".format(collection_amount) }} บาท</td>
+      <td>{{ "{:,.2f}".format(d.collection_amount) }} บาท</td>
     </tr>
     {% endif %}
     <tr>
-      <td class="k">{% if is_receipt %}ยอดสะสมที่ชำระแล้ว{% else %}ชำระแล้ว{% endif %}</td>
-      <td>{{ "{:,.2f}".format(paid_total_after) }} บาท</td>
+      <td class="k">{% if d.is_receipt %}ยอดสะสมที่ชำระแล้ว{% else %}ชำระแล้ว{% endif %}</td>
+      <td>{{ "{:,.2f}".format(d.paid_total_after) }} บาท</td>
     </tr>
-    {% if remaining is defined %}
+    {# 🔴 ต้องเช็ค `is not none` **ไม่ใช่** `is defined` — บิลเดอร์ตั้งคีย์นี้เป็น None เสมอ
+       เมื่อไม่มีแนวคิดนี้ (ใบเสร็จของบิลที่ไม่รู้ยอดเต็ม) และ `is defined` บนคีย์ที่เป็น
+       None จะเป็น True ⇒ พิมพ์แถว "ยอดค้างชำระ 0.00" บนเอกสารที่มันไม่มีความหมาย #}
+    {% if d.remaining is not none %}
     <tr>
-      <td class="k">{% if is_receipt %}คงเหลือ{% else %}ยอดค้างชำระ{% endif %}</td>
-      <td>{{ "{:,.2f}".format(remaining) }} บาท</td>
+      <td class="k">{% if d.is_receipt %}คงเหลือ{% else %}ยอดค้างชำระ{% endif %}</td>
+      <td>{{ "{:,.2f}".format(d.remaining) }} บาท</td>
     </tr>
     {% endif %}
   </table>
 
-  {% if note %}
-  <div class="note">หมายเหตุ: {{ note }}</div>
+  {% if d.note %}
+  <div class="note">หมายเหตุ: {{ d.note }}</div>
   {% endif %}
 
   <div class="sign">
     <div class="slot">
       <div class="line"></div>
-      <div class="who">{{ payer_name or '' }}</div>
-      <div class="role">{% if is_receipt %}ผู้ชำระเงิน{% else %}ผู้รับแจ้ง{% endif %}</div>
+      <div class="who">{{ d.payer_name or '' }}</div>
+      <div class="role">{% if d.is_receipt %}ผู้ชำระเงิน{% else %}ผู้รับแจ้ง{% endif %}</div>
     </div>
     <div class="slot">
       <div class="line"></div>
-      <div class="who">{{ issuer_name or '' }}</div>
-      <div class="role">{% if is_receipt %}ผู้รับเงิน / ผู้ออกเอกสาร{% else %}ผู้ออกเอกสาร{% endif %}</div>
+      <div class="who">{{ d.issuer_name or '' }}</div>
+      <div class="role">{% if d.is_receipt %}ผู้รับเงิน / ผู้ออกเอกสาร{% else %}ผู้ออกเอกสาร{% endif %}</div>
     </div>
   </div>
 
   <div class="foot">
-    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ receipt_no }}
+    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.receipt_no }}
   </div>
 
+</div>
+{% endfor %}
 </body>
 </html>

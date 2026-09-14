@@ -38,3 +38,28 @@ export const downloadBlob = (blob: Blob, filename: string): void => {
   // คืนหน่วยความจำหลังจากนั้น — ห้ามย้ายขึ้นมาเป็นบรรทัดถัดจาก click()
   window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 };
+
+/**
+ * 🏷️ ชื่อไฟล์ของ **PDF รวมหลายใบ** (ไฟล์เดียว หน้าละใบ)
+ *
+ * 🔴 รูปเดียวกับ `pdf_filename_batch` ฝั่ง backend — ถ้าแก้ที่นั่นต้องแก้ที่นี่
+ *    (backend ส่งชื่อมาใน `Content-Disposition` ด้วย แต่ `downloadBlob` ต้องได้ชื่อ
+ *     **ตอนเรียก** ⇒ จะอ่าน header ก็ต้องพึ่ง CORS `expose_headers` ซึ่งพังเงียบ
+ *     และแยกไม่ออกจาก "ระบบพัง" สำหรับครูที่รอไฟล์อยู่)
+ *
+ * 📌 ตั้งชื่อตาม **ช่วงเลขที่เอกสาร** ไม่ใช่ số lượngหรือวันที่:
+ *    - บอกได้ว่าเป็นชุดไหน และตรงกับเลขที่พิมพ์อยู่บนเอกสารข้างใน
+ *    - ไฟล์ที่ชื่อเป็นวันที่จะแยกไม่ออกเมื่อมีหลายชุดในวันเดียว
+ *    - ไม่ผูกกับจำนวนหน้า ⇒ ไฟล์เก่าที่โหลดซ้ำยังชื่อเดิม (หาเจอง่าย)
+ *
+ * @param receiptNos เลขที่เอกสาร **ตามลำดับที่จะพิมพ์** (ตัวแรก/สุดท้ายคือสิ่งที่ขึ้นชื่อไฟล์)
+ * @param kind       คำนำหน้าชนิดเอกสาร — 'documents' เมื่อในชุดมีปนกันมากกว่าหนึ่งชนิด
+ */
+export const combinedPdfFilename = (
+  receiptNos: string[],
+  kind: 'receipts' | 'invoices' | 'documents' = 'documents',
+): string => {
+  const first = (receiptNos[0] ?? 'documents').replace(/\//g, '-');
+  const last = (receiptNos[receiptNos.length - 1] ?? first).replace(/\//g, '-');
+  return first === last ? `${kind}-${first}.pdf` : `${kind}-${first}-to-${last}.pdf`;
+};
