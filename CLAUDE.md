@@ -34,10 +34,20 @@ npm run dev          # Vite dev server (default http://localhost:5173)
 npm run type-check   # vue-tsc --build (required — TypeScript is strict, no `any`)
 npm run build        # type-check + build
 npm run lint         # oxlint --fix + eslint --fix (both auto-fix)
-npm run format       # prettier --write src/
+npm run format       # ⚠️ ห้ามรันทั้ง repo — ดูหมายเหตุข้างล่าง
 npm run test:unit    # vitest (jsdom environment)
 npm run test:e2e     # playwright (browsers must be installed first: npx playwright install)
 ```
+
+> ⚠️ **`npm run format` ใช้ไม่ได้กับ repo นี้** — `src/` ทั้งหมด**ไม่เคยถูกจัดฟอร์มด้วย Prettier**
+> ภายใต้ config ใดเลย ⇒ รันแล้วจะ rewrite **67 ไฟล์ / ~4,000 บรรทัด** ที่ไม่เกี่ยวกับงานที่ทำ
+> (ไม่ใช่แค่เรื่อง `semi` — วัดแล้วทั้ง `semi: true` และ `semi: false` ต่างกัน 67 ไฟล์เท่ากัน)
+> และ **ไม่มี CI gate** ตรวจ `prettier --check` ⇒ ไม่มีอะไรพังถ้าไม่จัดฟอร์ม
+>
+> - ต้องจัดฟอร์ม**ไฟล์เดียว** → `npx prettier --write <file>` แล้ว **override flag ให้ตรงสไตล์ repo** เช่น `--semi true`
+> - ยึด **สไตล์ของโค้ดข้าง ๆ** เป็นหลัก (repo นี้ใช้เซมิโคลอน)
+> - ถ้าจำเป็นต้องจัดฟอร์มทั้ง repo จริง ๆ ให้ทำเป็น **คอมมิตแยก** ตอนไม่มีงานค้าง และขออนุญาตก่อน
+> - รายละเอียดเต็ม: `docs/skills.md` → หัวข้อ "`npm run format` ไม่ปลอดภัยกับ repo นี้"
 
 ### Discord bot (from `bot_discord/`)
 ```bash

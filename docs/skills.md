@@ -966,3 +966,454 @@
   ระหว่างนี้เทสต์ของ F4 จึงเลือก guild id ที่ **พอดี int32** (`1_234_567_890`) เพื่อให้ assertion สื่อความหมายเดียว (พิสูจน์กับดัก `target_type` ไม่ใช่พิสูจน์ overflow) พร้อมคอมเมนต์กำกับเหตุผลไว้ในตัวเทสต์
 - **Rule:** (1) **id ที่รับจากภายนอก (path param/body) ต้องถูก validate กับชนิดคอลัมน์ปลายทาง** — Python `int` ไม่มีขอบเขต แต่ Postgres `SERIAL`/`INTEGER` มี; พังตอน bind = 500 เสมอ ไม่ใช่ 404/422 (2) อาการ "**ค่าใหญ่พัง แต่ค่าเล็กผ่าน**" ให้สงสัย int4/int8 ก่อน logic (3) เจอบั๊กนอกขอบเขตเฟส → **บันทึก ไฟล์:บรรทัด + ทางแก้ ให้ครบแล้วเดินต่อ** ดีกว่าแอบแก้ helper ร่วมกลางเฟสที่ประกาศว่า additive (แนวเดียวกับที่โปรเจกต์นี้ใช้กับ `delete_category` hard delete)
 - **Date Added:** 2026-09-13
+
+### 💰 Finance — `finance_transactions` **ไม่ใช่ตาราง legacy** แต่เป็น dual-write mirror ที่ครบทั้งสองยุค ⇒ งบประมาณอ่านตารางนี้ตารางเดียว ห้าม clamp ที่ CUTOFF และห้ามอ่าน journal
+- **Context/Problem:** F1 (งบทดลอง/กำไรขาดทุน/งบดุล) กับ F2 (งบประมาณ) ใช้ "ยอดใช้ไป" เหมือนกันแต่ต้องอ่านคนละตารางโดยสิ้นเชิง — F1 อ่าน `journal_lines` อย่างเดียวและ **clamp ที่ `CUTOFF_DATE = 2026-09-01`** (ก่อนเส้นไม่มี journal เลย) ส่วน F2 อ่าน `finance_transactions` อย่างเดียวและ **ห้าม clamp** ถ้าลอกกฎของ F1 มาใช้กับ F2 จะได้งบประมาณที่มียอด 0 สำหรับทุกงบของเดือนก่อนกันยา; ถ้าให้ F2 อ่านทั้งสองตารางจะได้ **ยอดเบิ้ล**
+- **Root Cause:** `finance_transactions` ถูกเขียนคู่กับ journal **ใน `conn.transaction()` เดียวกัน** ทุกจุดที่มีการเคลื่อนไหวของเงินจริง — มีแค่ 3 จุดใน production: `transactions.py:56` (`add_transaction`), `transactions.py:155`+`:163` (สองขาของ `transfer_money`), `collections.py:152` (`_confirm_single_payment`) ⇒ ตารางนี้ **มีแถวครบทั้งยุคก่อนและหลังเส้นตัด** ขณะที่ `journal_lines` เริ่มมีเฉพาะหลังเส้น · และ `revert_transaction` mark **ทั้งสองฝั่ง** พร้อมกัน (`deleted_at = NOW()` คู่กับ `status='voided'`) ⇒ เงื่อนไข `T.deleted_at IS NULL` ฝั่ง legacy สอดคล้องกับ `JE.status <> 'voided'` ฝั่ง journal อยู่แล้ว **การอ่านทั้งคู่จึงเป็นการนับซ้ำ ไม่ใช่การปิดรู**
+- **Correct Pattern/Solution:** งบประมาณอ่าน `finance_transactions` เท่านั้น **ไม่ clamp** — ช่วงก่อนเส้นมีแถว legacy อยู่แล้ว ช่วงหลัง dual-write ใส่ให้ คร่อมเส้นก็ไม่มีรู · `opening_balance` และ `adjustment` ของ reconcile **ไม่มีแถวในตารางนี้** จึงถูกตัดออกเองโดยธรรมชาติ (ถูกต้อง เพราะไม่ใช่การใช้จ่ายจริง) · ตัดขาโอนเงินด้วย `T.transfer_group_id IS NULL` (ลอกจาก `_get_summary_legacy` — ขาโอนย้ายเงิน ไม่ใช่รายจ่าย)
+  - ⚠️ **เขียนคอมเมนต์กำกับไว้ว่านี่เป็น "ตรงข้าม" กับกฎของ F1 โดยเจตนา — ห้าม refactor ให้สองที่ใช้ helper ร่วมกัน** ความต่างนี้ไม่ใช่ความไม่สม่ำเสมอที่ต้องจัดบ้าน แต่เป็นผลจาก "สองตารางมีประวัติคนละแบบ"
+- **Rule:** (1) ก่อนเลือกว่าจะ clamp ที่ `CUTOFF_DATE` ไหม ให้ถามว่า **ตารางนั้นเริ่มมีข้อมูลตั้งแต่เมื่อไร** ไม่ใช่ถามว่าฟีเจอร์ไหน (2) "dual-write" หมายความว่าตาราง legacy **ครบทั้งสองยุค** ⇒ ห้ามอ่านคู่กับ journal (3) ฟีเจอร์ที่คล้ายกันอาจต้องอ่านคนละแหล่งโดยเจตนา — ถ้าจะรวม helper ต้องพิสูจน์ก่อนว่าไม่มีฟีเจอร์ใดต้อง clamp
+- **Tests:** `backend/tests/test_finance_budgets.py` §1 (era routing / no double count) — pre-cutoff 3 แถว legacy → `used == X`; post-cutoff ผ่าน `add_transaction` → `used == Y` **และยืนยันว่า `journal_entries` มีแถวเกิดขึ้นจริง** แล้วจึงยืนยัน `used == Y` **ไม่ใช่ `2Y`** (บทพิสูจน์ว่าไม่นับซ้ำ ไม่ใช่แค่assert ตัวเลข); คร่อมเส้น → `X + Y` พอดี; `add → revert_transaction → used == 0` พร้อมยืนยัน **ทั้ง** `deleted_at IS NOT NULL` และ `status='voided'`
+- **Date Added:** 2026-09-13
+
+### 🕐 SQL — งบประมาณต้องเทียบ "วันไทย" กับ **สองชนิดคอลัมน์ที่เก็บโซนต่างกัน** ในคำสั่งเดียว ⇒ `LEFT JOIN LATERAL` เดียวมีสองนิพจน์เวลา
+- **Context/Problem:** ยอด "ใช้ไป" ของงบต้องนับจากสองแหล่งที่อยู่คนละตารางและคนละชนิดคอลัมน์ในรอบเดียว: `finance_transactions.created_at` (`TIMESTAMP` naive ที่เก็บ **UTC wall clock**) สำหรับรายการปกติ และ `journal_entries.transaction_date` (`TIMESTAMPTZ`) สำหรับรายรับจาก `student_payment` ที่แถว legacy ไม่มี `category_id` ⇒ ใช้ `T.created_at::date` หรือ `JE.transaction_date::date` ตรง ๆ **ผิดทั้งคู่** เพราะได้วันตาม UTC/session ไม่ใช่วันไทย ⇒ รายการที่บันทึก 00:00–07:00 น. เวลาไทยจะไปโผล่ในงบของ **วันก่อนหน้า**
+- **Root Cause:** คอลัมน์สองชนิดต้องการการแปลงคนละแบบ — `TIMESTAMPTZ` เก็บจุดเวลา จุดเดียวตัดสินว่าเป็นวันไหนได้ด้วย timezone; `TIMESTAMP` naive **ไม่มีโซนให้แปลง** ค่าที่เก็บจึงต้องถูกตีความก่อนว่ามันคือ UTC แล้วค่อยแปลงเป็นไทย · การใช้ `::date` กับทั้งคู่เท่ากับ **ปนความหมายสามแบบ** (UTC calendar / session calendar / Thai calendar)
+- **Correct Pattern/Solution:** สองนิพจน์นี้อยู่ในคำสั่งเดียวกันได้ และต้องเป็นแบบนี้:
+  ```sql
+  -- naive TIMESTAMP ที่เก็บ UTC wall clock → ตีความเป็นเวลาไทยก่อน แล้วค่อยกลับมาเป็น UTC naive
+  ((GREATEST(B.start_date, $2)::timestamp) AT TIME ZONE 'Asia/Bangkok' AT TIME ZONE 'UTC')
+  -- TIMESTAMPTZ → แค่ตีความวันที่เป็นเที่ยงคืนเวลาไทย
+  ((GREATEST(B.start_date, $2)::timestamp) AT TIME ZONE 'Asia/Bangkok')
+  ```
+  และขอบบนเป็น **half-open** เสมอ: `((LEAST(B.end_date, $3) + 1)::timestamp AT TIME ZONE ...)` เทียบด้วย `<` ไม่ใช่ `<= 23:59:59` ⇒ ไม่มีวินาทีสุดท้ายของวันหลุด (ช่องโหว่ที่ `get_trial_balance` เคยมี)
+  - `AT TIME ZONE` ตัวแรกบน `timestamp` **คืน `timestamptz`** ส่วนตัวที่สองบน `timestamptz` **คืน `timestamp`** — ลำดับสลับกันไม่ได้ และจำนวนครั้งที่ใช้คือตัวบอกว่าคอลัมน์ต้นทางเป็นชนิดไหน
+- **Rule:** (1) **ห้ามใช้ `col::date` กับคอลัมน์เวลาไม่ว่าชนิดใด** ในโมดูลนี้ — ต้องเขียนขอบเขตเป็นช่วง half-open (2) `AT TIME ZONE` × 1 = คอลัมน์เป็น `timestamptz`; × 2 = คอลัมน์เป็น naive ที่เก็บ UTC (3) งบที่คิดยอดจาก "ช่วงของตัวเอง" ให้ใส่การ clamp (`GREATEST`/`LEAST`) ไว้ใน SQL ไม่ใช่คำนวณใน Python แล้วส่งเป็นขอบเขต — ไม่งั้นต้องยิง query ต่อแถว
+- **Tests:** `test_finance_budgets.py` §4 (Thai day boundaries) — รายการที่ `created_at` ตรงวัน `start_date`/`end_date` ต้องถูกนับ และห่างออกไป 1 วันต้องไม่ถูก; helper `_thai_day_utc(d, hour=12)` สร้าง naive UTC ที่ตรงกับวันไทยที่ต้องการ (§5 เดิมของไฟล์นี้)
+- **Date Added:** 2026-09-13
+
+### 🐛 Finance — guard `delete_category` ที่กรอง `deleted_at IS NULL` **ไม่ตรงกับ FK `ON DELETE RESTRICT`** ⇒ ลบงบก่อนแล้วลบหมวด = HTTP 500 ดิบ
+- **Context/Problem:** เทสต์ของ F2 ล้มด้วย `asyncpg.ForeignKeyViolationError: update or delete on table "finance_categories" violates foreign key constraint "finance_budgets_category_id_fkey"` ทะลุเป็น **500** — เคสจริง: ผู้ใช้ **soft delete งบ** (หายจากหน้าจอแล้ว) → กดลบหมวด → guard ผ่าน (เพราะงบถูก soft delete ไปแล้ว) → FK ระเบิด · โค้ดที่เขียนไว้ตอนแรกดู "ถูก" และคอมเมนต์ก็อธิบายเหตุผลครบ แต่ **อธิบายคนละความจริงกับที่ DB บังคับ**
+- **Root Cause:** `finance_budgets.category_id` เป็น `NOT NULL REFERENCES finance_categories(id) ON DELETE RESTRICT` ⇒ FK นับ **ทุกแถวไม่ว่า `deleted_at` จะเป็นอะไร** แต่ guard ที่เขียนไว้กรอง `AND deleted_at IS NULL` ⇒ **สองชั้นป้องกันใช้กติกาคนละข้อ** ชั้นที่หลวมกว่าจึงปล่อยผ่านไปชนชั้นที่เข้มกว่า ⇒ ได้ error ของ DB แทนข้อความที่อ่านรู้เรื่อง (และโมดูลนี้ **ไม่มี global exception handler** ⇒ ทุกอย่างที่หลุด = 500)
+- **Correct Pattern/Solution:** ให้ guard สื่อ **ความจริงข้อเดียวกับ FK** — ตัด `deleted_at IS NULL` ออก:
+  ```python
+  if await conn.fetchval("SELECT 1 FROM finance_budgets WHERE category_id = $1 LIMIT 1", category_id):
+      raise ValueError("ไม่สามารถลบได้ เนื่องจากมีงบประมาณผูกอยู่!")
+  ```
+  ⇒ หมวดที่ "เคย" มีงบจะลบไม่ได้เลย ไม่ว่าจะลบงบไปแล้วหรือยัง · **เป็น semantics เดียวกับ guard `finance_transactions` ที่อยู่ข้างกัน** (ซึ่งก็เป็น "เคยใช้" เช่นกัน) · เหตุผลเชิงผลิตภัณฑ์ที่ทำให้ `RESTRICT` ถูก: การ hard delete หมวดจะทิ้งแถวงาน (ที่ soft delete ไว้) ชี้ไปยังหมวดที่ไม่มีอยู่ ⇒ ประวัติอ่านไม่รู้เรื่อง — ส่วน guard มีหน้าที่แค่เปลี่ยน error ของ DB ให้เป็น 400
+- **Rule:** (1) **guard ที่เขียนไว้ "หน้า" constraint ต้องมี semantics เดียวกับ constraint นั้นเป๊ะ ๆ** — ถ้า constraint ไม่สน `deleted_at` guard ก็ต้องไม่สน (2) ทุกครั้งที่เขียน guard กัน FK ให้เปิด DDL มาอ่านจริง **อย่าเดาจากชื่อ** (3) soft delete + FK `RESTRICT` = "ลบไม่ได้ตลอดกาล" ซึ่งมักเป็นสิ่งที่ต้องการ แต่ต้องเขียนให้ตรงกันทั้งสองชั้น (4) เทสต์ที่จับบั๊กนี้ได้คือเทสต์ที่ทำตามลำดับ **ธุรกิจจริง** (ลบงบ → ลบหมวด) ไม่ใช่ยิงตรง ๆ
+- **Tests:** `test_finance_budgets.py` §9 — `test_delete_category_blocked_when_budget_exists` และ **`test_delete_category_still_blocked_after_budget_soft_deleted`** (ตัวหลังคือตัวที่ fail กับโค้ดเวอร์ชันแรก) พร้อมยืนยันว่าหมวด **ยังอยู่** ใน DB หลังได้ 400
+- **Date Added:** 2026-09-13
+
+### 🧪 Tests — เทสต์ที่พิสูจน์ว่า SQL clause "มีผลจริง" ต้องหาทรงข้อมูลที่ **clause เดียวเปลี่ยนคำตอบได้** ไม่งั้นเทสต์ผ่านทั้งที่ถอด clause ออก
+- **Context/Problem:** query ยอด "ใช้ไป" มีสอง clause ที่ดูเหมือนจำเป็นแต่ **เทสต์ทั่วไปพิสูจน์ไม่ได้เลยว่าใส่มาแล้วมีผล**: `T.transfer_group_id IS NULL` (ตัดขาโอนเงิน) และ `AL.legacy_category_id = B.category_id` (ผูก journal เข้ากับหมวดของงบ) — เพราะขาโอนเงินจริงมี `category_id = NULL` อยู่แล้ว จึงไม่ถูกนับตั้งแต่ clause ก่อนหน้า ⇒ เทสต์ "โอนเงินแล้วยอดไม่ขยับ" **ผ่านแม้ถอด `transfer_group_id IS NULL` ออก** และ `student_payment` ก็นับเฉพาะงบของหมวดรายรับเริ่มต้น ⇒ เทสต์ผลรวมผ่านได้แม้ถอด join ทิ้ง
+- **Root Cause:** เทสต์ที่ยืนยัน **ผลลัพธ์** ของข้อมูลรูปร่างปกติ ไม่ได้ยืนยัน **การมีอยู่ของเงื่อนไข** — ถ้าข้อมูลจริงล้วนอยู่ในรูปที่ clause ไม่ได้ทำอะไร เทสต์จะเขียวตลอดกาลและ clause จะถูกลบออกอย่างปลอดภัยในสายตาคนอ่าน
+- **Correct Pattern/Solution:** สำหรับแต่ละ clause ให้สร้าง **ทรงข้อมูลเดียวที่ clause นั้นเปลี่ยนคำตอบ** แล้วเขียนเทสต์เฉพาะทรงนั้น:
+  - `transfer_group_id IS NULL` → seed แถว legacy ที่มี **ทั้ง** `category_id` และ `transfer_group_id` (ทรงเดียวที่ clause เปลี่ยนคำตอบจริง — ขาโอนจริงมี `category_id = NULL` จึงพิสูจน์ไม่ได้)
+  - `AL.legacy_category_id = B.category_id` → **leak test**: ตั้งงบของ **อีกหมวดรายรับหนึ่ง** แล้วยืนยัน `used == 0` ทั้งที่มี `student_payment` อยู่ในช่วง (ถ้า join หลวม จะรั่วข้ามหมวดทันที)
+  - `JE.reference_type = 'student_payment'` → reconcile-`adjustment` ที่ **เครดิต ledger ตัวเดียวกับที่ map กับหมวดของงบเป๊ะ ๆ** (ทรงที่แข็งที่สุดของเคสนี้)
+  - และ **assert ข้อตั้งต้น (premise) กับ DB ก่อน assert ผลลัพธ์** — เทสต์ disjointness ของ `student_payment` อ่าน DB ยืนยันว่าแถว legacy มี `category_id IS NULL` **และ** ledger มี `legacy_category_id` ชี้หมวดนั้น ก่อนจะยืนยัน `used == 1000` ⇒ วันที่ dual-write เริ่มใส่ `category_id` ให้แถวนี้ เทสต์จะ **fail ดัง ๆ** ด้วยข้อความที่บอกสาเหตุ แทนที่จะเริ่มนับซ้ำเงียบ ๆ
+- **Rule:** (1) clause ที่ "ดูเหมือนจำเป็น" ต้องมีเทสต์ที่ **ลบ clause แล้วเทสต์ต้องแดง** — ถ้าหาเคสไม่ได้ ให้เขียนคอมเมนต์ว่ายังพิสูจน์ไม่ได้ อย่าปล่อยให้เข้าใจว่าพิสูจน์แล้ว (2) assert **ข้อสมมติ** (ข้อมูลเป็นรูปที่เราคิด) ไม่ใช่แค่ยอดรวม — ยอดรวมที่ถูกด้วยเหตุผลผิดจะเปลี่ยนเป็นผิดในวันที่สมมติฐานพัง (3) เทสต์ boundary ของช่วงเวลาให้ **derive วันที่จาก DB** (`_thai_day_of_latest_tx` อ่าน `created_at` ของแถวล่าสุดจริง) ไม่ใช่ hardcode เดือน ไม่งั้น suite เน่าเองเมื่อข้ามเดือน
+- **Tests:** `test_finance_budgets.py` §2 (`test_transfer_with_category_and_group_is_excluded`), §3 (`test_student_payment_does_not_leak_to_other_category`, `test_student_payment_row_has_no_category_id`), §5 (`test_adjustment_on_same_ledger_is_excluded`)
+- **Date Added:** 2026-09-13
+
+### 🎨 Frontend — `npm run format` **ไม่ปลอดภัยกับ repo นี้**: โค้ดทั้ง repo ไม่เคยถูกจัดฟอร์มด้วย Prettier ภายใต้ config ใดเลย (ไม่ใช่แค่เรื่อง `semi`) ⇒ rewrite 67 ไฟล์เสมอ
+- **Context/Problem:** รัน `npm run format` (= `prettier --write src/`) ตามคำสั่งใน `CLAUDE.md` แล้ว diff ระเบิดเป็น **67 ไฟล์ / +4,098 −2,665 บรรทัด** ทั้งที่งานจริงแตะ 4 ไฟล์ ⇒ ถ้า commit ตามไป จะได้ PR ที่รีวิวไม่ได้เลย และกลบการเปลี่ยนแปลงจริงของฟีเจอร์
+- **Root Cause (วัดใหม่ 2026-09-13 — คำอธิบายเดิมไม่ครบ):** เดิมสรุปว่าเกิดจาก `"semi": false` ใน `.prettierrc.json` ขัดกับโค้ดที่ใช้เซมิโคลอน **ซึ่งจริงแค่บางส่วน** — วัดด้วย `prettier --check` จริงแล้วพบว่า **67 ไฟล์ต่างกันทั้งที่ `semi: false` และ `semi: true`** (และ 72–73 ไฟล์เมื่อสลับ quote / `printWidth`) ⇒ เนื้อแท้คือ **โค้ดทั้ง repo ไม่เคยถูกจัดฟอร์มด้วย Prettier ภายใต้ config ใดเลย**: บรรทัดยาวเกิน `printWidth: 100`, การห่อ `(await api.get(...)) as unknown as T` ถูกเขียนเป็นบรรทัดเดียว ฯลฯ ⇒ **ไม่มีค่า config ไหนที่ทำให้ diff เป็นศูนย์**
+  - และ **ไม่มี CI gate ใดรัน `prettier --check`** (`frontend/.github/workflows/deploy.yml` ไม่แตะ prettier) ⇒ ไม่มีแรงกดดันให้จัดฟอร์ม และไม่มีอะไรพังถ้าไม่จัด
+- **Correct Pattern/Solution (สิ่งที่ทำจริงรอบนี้):**
+  1. **ไม่จัดฟอร์มทั้ง repo** — 4,000 บรรทัดของ churn ล้วน ๆ บน branch ที่มีงานฟีเจอร์ค้างอยู่ = แลกไม่คุ้ม (ถ้าจะทำ ต้องเป็นคอมมิตแยกตอน branch ว่าง)
+  2. แก้ค่าที่ **ผิดข้อเท็จจริง** ข้อเดียว: `frontend/.prettierrc.json` → `"semi": true` (โค้ดจริงใช้เซมิโคลอน 100%) — ลด diff ได้บางส่วน ไม่ได้ทำให้เป็นศูนย์
+  3. เติมคำเตือนที่ **จุดที่คนจะไปเจอ**: `CLAUDE.md` ข้างบรรทัด `npm run format` + `frontend/README.md`
+  4. เติม `node_modules/` ใน `.gitignore` ที่ราก (กัน `npx` ที่รากสร้าง `node_modules/.cache/prettier/` โผล่มาเป็น untracked)
+  - ถ้าจำเป็นต้องจัดฟอร์ม **ไฟล์เดียว** ให้ override flag: `npx prettier --write --semi true <file>` (flag ชนะ config)
+  - ถ้า diff หลุดไปแล้ว ให้ `git stash push -- <path>` (กู้คืนได้ ต่างจาก `git checkout --` ที่ทิ้งถาวร); ⚠️ `git checkout -- <dir>` ถูก permission classifier บล็อกโดยชอบ เพราะทิ้งงานที่ไม่มีที่อื่นเก็บ
+- **Rule:** (1) รัน formatter ทั้งโปรเจกต์ = การเปลี่ยนแปลงที่ต้อง **ขออนุญาตก่อน** ไม่ใช่ขั้นตอนปกติของงานฟีเจอร์ (2) `diff --stat` ที่ใหญ่ผิดปกติคือสัญญาณให้หยุดดู **ก่อน** commit ไม่ใช่หลัง (3) สไตล์ที่ต้องยึดคือ **สไตล์ของโค้ดจริง** ไม่ใช่สไตล์ใน config (4) **ก่อนสรุปว่า config ตัวไหนผิด ให้วัดจริงก่อน** — รัน `npx prettier --check` กับ config ผู้สมัครแต่ละตัวแล้วนับจำนวนไฟล์ อย่าเดาจากการอ่านโค้ดไม่กี่บรรทัด (บทเรียนนี้สรุปผิดมาแล้วรอบหนึ่งเพราะเดา)
+- **Tests:** ไม่มีเทสต์อัตโนมัติ — ตรวจด้วย `npx prettier --check "src/**/*.{ts,vue}"` จาก `frontend/` และ `git diff --stat -- frontend/` ว่าจำนวนไฟล์ตรงกับที่ตั้งใจแตะ
+- **Date Added:** 2026-09-13
+
+### 🔢 Finance — เลขรันเอกสารต้องมาจาก `ON CONFLICT DO UPDATE ... RETURNING` ไม่ใช่ `MAX(seq)+1` และต้อง **เก็บ** ไม่ใช่ **คำนวณ**
+- **Context/Problem:** F3 ต้องออกเลขใบเสร็จ `REC-2569-0001` ต่อห้อง/ต่อปี พ.ศ. แบบไม่ซ้ำแม้มีคำขอพร้อมกัน สองทางที่ดูใช้ได้คือ `SELECT MAX(seq)+1` แล้ว INSERT หรือ `SELECT ... FOR UPDATE` แล้วค่อย INSERT — ทั้งคู่มีช่วงเวลา (read-then-write) ที่คำขออื่นแทรกได้ ⇒ เลขซ้ำ ⇒ `UniqueViolationError` กลายเป็น 500 บนเอกสารการเงิน
+- **Root Cause:** `MAX(seq)+1` เป็น read-modify-write ที่ **ไม่มีอะไรล็อก** ระหว่างสองขั้น — สองทรานแซกชันที่อ่าน `MAX` พร้อมกันจะได้ค่าเดียวกันแล้ว INSERT ชนกัน สิ่งที่ต้องได้คือ "การจอง" ที่อะตอมมิก ซึ่ง PostgreSQL ให้มาฟรีผ่าน `INSERT ... ON CONFLICT DO UPDATE` เพราะ **ตัว `DO UPDATE` ล็อกแถวเป้าหมายให้เอง**
+- **Correct Pattern/Solution:**
+  ```sql
+  INSERT INTO receipt_sequences (room_id, year_be, doc_type, last_seq)
+  VALUES ($1, $2, $3, 1)
+  ON CONFLICT (room_id, year_be, doc_type)
+  DO UPDATE SET last_seq = receipt_sequences.last_seq + 1, updated_at = CURRENT_TIMESTAMP
+  RETURNING last_seq
+  ```
+  ⇒ ไม่ต้อง `SELECT ... FOR UPDATE` นำหน้าเลย (ใส่ซ้ำ = ล็อกซ้อนโดยเปล่าประโยชน์) · PK ผสม `(room_id, year_be, doc_type)` ทำหน้าที่เป็นเป้าของ `ON CONFLICT`
+  - **ทำไมต้องเก็บตารางตัวนับ ไม่ใช่คำนวณ `ROW_NUMBER() OVER (ORDER BY paid_at)` ตอนอ่าน:** เลขที่ derive จะ **เปลี่ยนย้อนหลังทั้งชุด** ทันทีที่มีการ revert รายการก่อนหน้า (`revert_transaction` ล้าง `paid_at`/`paid_amount`/`transaction_id` ของบิล) ⇒ ใบเสร็จที่พิมพ์แจกไปแล้วเปลี่ยนเลข = เอกสารทางบัญชีใช้ไม่ได้
+- **Rule:** (1) ตัวนับที่ต้องไม่ซ้ำและต้อง "จอง" ให้ใช้ upsert-returning หรือ sequence — ห้าม `MAX+1` (2) ตัวนับที่ **ห้ามเปลี่ยนย้อนหลัง** ต้อง persist ไม่ใช่ derive (3) ยอมรับ "เลขที่ถูกใช้ฟรี" เมื่อแพ้การแข่งขันได้ (ไม่ต่อเนื่องแต่ไม่มีผลทางบัญชี) ดีกว่ารอ lock ให้ช้า
+- **Tests:** `backend/tests/test_finance_receipts.py` §3 (`test_five_receipts_get_five_distinct_sequential_numbers` — 5 ใบได้ `0001..0005` และ `last_seq == 5`) และ §5 (`test_year_sequences_are_independent_per_buddhist_year` — คนละปี พ.ศ. เริ่ม `0001` ใหม่แยกกัน)
+- **Date Added:** 2026-09-13
+
+### 🧾 Finance — ใบเสร็จ **idempotent** แต่ใบแจ้งหนี้ **point-in-time** — ความไม่สมมาตรนี้ถูกเข้ารหัสไว้ในรูปทรงของ partial unique index
+- **Context/Problem:** ทั้งสองเป็น "เอกสารที่ออกให้บิลเดียวกัน" จึงดูเหมือนควรมีกฎซ้ำกัน แต่จริง ๆ ตรงข้าม: กดออกใบเสร็จซ้ำต้องได้ **เลขเดิม** (การพิมพ์ซ้ำเป็นเรื่องปกติของงานเอกสาร) ส่วนใบแจ้งหนี้ **ต้องกินเลขใหม่** เพราะยอดค้างของนักเรียนเปลี่ยนได้เมื่อจ่ายเพิ่ม ใบเดิมจึงหมดอายุตามธรรมชาติ ⇒ ถ้าใช้กฎเดียวกันทั้งคู่ จะพังข้างใดข้างหนึ่งเสมอ
+- **Root Cause:** ใบเสร็จผูกกับ **เหตุการณ์รับเงิน** (เกิดแล้วเกิดเลย ไม่เปลี่ยน) ส่วนใบแจ้งหนี้ผูกกับ **ยอดค้าง ณ เวลาหนึ่ง** (เปลี่ยนได้) — สองสิ่งนี้มี cardinality ต่อบิลไม่เท่ากัน (1 ใบต่อ 1 เหตุการณ์ vs หลายใบต่อบิล) การพยายามใช้ unique index เดียวกันจึงเป็นการฝืนความจริงของโดเมน
+- **Correct Pattern/Solution:** เข้ารหัสความต่างไว้ **ใน predicate ของ index** ไม่ใช่ใน `if` ของ service (เพราะ service มี race window):
+  ```sql
+  CREATE UNIQUE INDEX idx_finance_receipts_tx_active
+      ON finance_receipts(student_payment_id, COALESCE(legacy_transaction_id, 0), doc_type)
+      WHERE deleted_at IS NULL AND doc_type = 'receipt';   -- ⬅️ invoice ไม่อยู่ใน predicate
+  ```
+  - service ยังมี idempotency check ของตัวเอง **สองชั้น**: อ่านก่อนเขียน (คืนใบเดิม + `reused: True`, HTTP 200) และ catch `UniqueViolationError` แล้วอ่านซ้ำ (แพ้การแข่งขันเสี้ยววินาที ⇒ คืนใบที่ชนะ ไม่ใช่ error)
+  - 🔴 **กับดักของ `COALESCE(..., 0)`:** ถ้าเขียน predicate เป็น `legacy_transaction_id IS NOT NULL` ใบเสร็จของบิลที่ยืนยัน **ก่อนยุค dual-write** (ไม่มีแถว `finance_transactions` ⇒ `legacy_transaction_id` เป็น NULL) จะ **หลุดออกจาก index ทั้งที่ผูกบิลอยู่** ⇒ สองคำขอพร้อมกันสร้างใบเสร็จซ้ำได้ ต้อง normalize ด้วย `COALESCE(..., 0)` ให้คีย์มีค่าเสมอ
+  - `legacy_transaction_id` **ไม่ใช่** `student_payments.transaction_id` — ตัวหลังถูก **ทับ** ทุกครั้งที่รับงวดใหม่ จึงใช้ระบุ "งวด" ไม่ได้ (บิลผ่อน 2 งวดจะดูเหมือนมีเหตุการณ์เดียว) ⇒ เก็บ id ของแถว `finance_transactions` ของงวดนั้น ๆ
+- **Rule:** (1) ความต่างเชิงโดเมนที่ "ดูเหมือนควรเหมือนกัน" ให้เข้ารหัสใน **schema constraint** ไม่ใช่ใน service logic (2) unique index ที่ใช้กันเอกสารซ้ำต้อง normalize คีย์ให้ไม่มี NULL หลุด — และคิดถึงข้อมูลยุคก่อน migration ด้วย (3) "ออกซ้ำ" ของเอกสารการเงินต้องเป็น **200 + ใบเดิม** ไม่ใช่ 4xx (ผู้ใช้กดพิมพ์ซ้ำด้วยเหตุผลที่ถูกต้อง) (4) เทสต์ต้องยืนยัน **เจตนา** ของความไม่สมมาตร ไม่ใช่แค่พฤติกรรม
+- **Tests:** `test_finance_receipts.py` §2 (`test_reissue_returns_same_receipt_without_burning_a_number`, `test_pre_dualwrite_bill_receipt_is_also_idempotent` — อันหลังคือเคส `COALESCE`), §6 (`test_instalment_payments_produce_one_receipt_per_event` — พิสูจน์ว่า `legacy_transaction_id` อยู่ในคีย์จริง โดยออกใบของงวดแรกซ้ำหลังจ่ายงวดที่สอง), §7 (`test_invoice_is_point_in_time_and_gets_a_new_number_every_time`)
+- **Date Added:** 2026-09-13
+
+### 🗓️ Finance — ปี พ.ศ. ของเลขเอกสารต้องมาจาก **เหตุการณ์รับเงิน** ไม่ใช่ `student_payments.paid_at` (และต้องคิดเป็นเวลาไทย ไม่ใช่ UTC)
+- **Context/Problem:** ใบเสร็จต้องออกย้อนหลังได้ (ผู้ปกครองมาขอทีหลัง) ⇒ พบว่าใบเสร็จของงวดเดือน ธ.ค. 2569 ออกมาเป็นเลขปี **2570** ถ้าออกหลังจากรับงวด ม.ค. 2570 ไปแล้ว — ซึ่งผิด และไปขัดกับรายงานภาษี/สรุปประจำปี
+- **Root Cause:** `_confirm_single_payment` **ทับ** `paid_at`/`paid_amount`/`transaction_id` ของ `student_payments` ทุกครั้งที่รับเงินงวดใหม่ ⇒ `paid_at` คือ "เวลาของงวดล่าสุด" เสมอ ไม่ใช่เวลาของงวดที่กำลังออกใบเสร็จ · ซ้ำร้าย `finance_transactions.created_at` เป็น `TIMESTAMP` **naive ที่เก็บเวลา UTC** (ดูบทเรียน TZ ก่อนหน้า) ⇒ UTC+7 ทำให้รายการช่วง 17:00–24:00 UTC ตกเป็น **วันรุ่งขึ้นของไทย** ซึ่งข้ามปี พ.ศ. ได้จริง
+- **Correct Pattern/Solution:** อ่าน `finance_transactions.created_at` ของ **งวดนั้น ๆ** แล้วแปลงเป็นไทยก่อนคำนวณปี:
+  ```python
+  aware = naive_utc.replace(tzinfo=timezone.utc)      # ✅ naive → ติดป้าย UTC
+  year_be = aware.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+  ```
+  ⚠️ **ห้ามเรียก `.astimezone()` บนค่า naive ตรง ๆ** — Python จะตีเป็นเวลาท้องถิ่นของเครื่อง ⇒ ได้ปีผิดแบบเงียบ ๆ ต้อง `.replace(tzinfo=timezone.utc)` ก่อนเสมอ (รวมไว้ที่ helper เดียว `_thai_year_be`)
+- **Rule:** (1) คอลัมน์ที่ถูก **ทับ** ด้วยเหตุการณ์ใหม่ใช้เป็น "เวลาของเหตุการณ์เดิม" ไม่ได้ — ให้เก็บ id ของเหตุการณ์นั้น ๆ ไว้ต่างหาก (2) ค่าใด ๆ ที่ naive-UTC และมีผล "ข้ามปี/ข้ามวัน" ต้องผ่านการแปลงเป็นไทยก่อนตัดสิน มิฉะนั้นช่วง 7 ชั่วโมงสุดท้ายของทุกวันคือบั๊ก (3) เทสต์ขอบเขตเวลาต้องทดสอบที่ **นาทีที่เส้นแบ่งตกพอดี** ไม่ใช่กลางวัน
+- **Tests:** `test_finance_receipts.py` §5 — `@pytest.mark.parametrize` ที่ `2026-12-31 16:59 UTC` → `2569` และ `2026-12-31 17:00 UTC` → `2570` (นาทีเดียวกันเปลี่ยนปี) พร้อมเคสกลางปี/ต้นปีถัดไปเป็นตัวควบคุม
+- **Date Added:** 2026-09-13
+
+### 🖨️ PDF — ฟอนต์ไทยต้อง **ส่งไปกับ request** และต้องเป็นฟอนต์ **static** (variable font → Chromium ถอยไปวาด glyph เป็น Type 3)
+- **Context/Problem:** F3 ต้องเรนเดอร์ใบเสร็จ/ใบแจ้งหนี้เป็น PDF ที่มีสระ/วรรณยุกต์ไทยถูกตำแหน่ง เลือกสร้างที่ backend ผ่าน **Gotenberg (headless Chromium)** ไม่ใช่ `reportlab`
+- **Root Cause — สองข้อแยกกัน:**
+  1. **ทำไมไม่ `reportlab`:** ภาษาไทยที่มีตัวหาง + ไม้โท/ไม้เอกซ้อน (ญ ฎ ฐ) ต้องอาศัย **OpenType shaping engine** (harfbuzz) ในการจัดตำแหน่ง glyph — `reportlab` ไม่มี harfbuzz ⇒ วรรณยุกต์ลอยผิดตำแหน่งบนเอกสารที่ครูพิมพ์แจกจริง ส่วน Chromium มี harfbuzz ในตัว
+  2. **ทำไมต้องฝังฟอนต์เป็น base64 data URI:** Gotenberg เรนเดอร์ HTML **ใน container ของตัวเอง** ⇒ `url('file:///app/assets/fonts/...')` ไป resolve ที่ filesystem ของ **Gotenberg** ไม่ใช่ของ backend → 404 เงียบ ๆ แล้ว Chromium fallback ไปฟอนต์ที่ไม่มี glyph ไทย = เอกสารออกมาเป็นกล่องสี่เหลี่ยม (การส่งไฟล์ฟอนต์เป็น multipart ก็ได้ผล แต่ผูกกับพฤติกรรมการวางไฟล์ใน working directory ของ Gotenberg ซึ่งต่างกันตามเวอร์ชัน ⇒ data URI ตัดตัวแปรทั้งหมดทิ้ง)
+  3. 🔴 **ตัวที่พลาดง่ายที่สุด (พบจากการวัดด้วย `pdffonts` 13 ก.ย. 2026):** ใช้ `NotoSansThai-Variable.ttf` + `@font-face { font-weight: 100 900 }` แล้ว **Chromium/Skia embed ฟอนต์ตัวแปรลง PDF ไม่ได้** ⇒ ถอยไปวาด glyph เป็น **Type 3** (รูปวาด ไม่ใช่ฟอนต์) — เอกสาร **ดูปกติด้วยตา** แต่ `pdffonts` แสดง `[none] Type 3 emb yes sub no` × 11 ก้อน ไฟล์ **92 KB** และร้านพิมพ์/โปรแกรมอ่านออกเสียงไม่ยอมรับ · เปลี่ยนเป็น static 2 ไฟล์ (400/700) → `AAAAAA+NotoSansThai-Bold  CID TrueType  emb yes sub yes` ไฟล์ **17 KB** ⇒ **ต่างกัน 5.5 เท่า**
+- **Correct Pattern/Solution:** จับคู่ "ไฟล์ ↔ น้ำหนัก" ไว้ที่ constants ที่เดียว แล้วให้เทมเพลตวนสร้าง `@font-face` ต่อไฟล์:
+  ```python
+  RECEIPT_FONT_FILES = {"regular": ("NotoSansThai-Regular.ttf", 400),
+                        "bold":    ("NotoSansThai-Bold.ttf", 700)}
+  ```
+  ```html
+  {% for f in font_faces %}
+  @font-face { font-family: '{{ font_family }}'; src: url('{{ f.uri }}') format('truetype');
+               font-weight: {{ f.weight }}; font-style: normal; font-display: block; }
+  {% endfor %}
+  ```
+  ⇒ **เพิ่ม/ลดน้ำหนักต้องเพิ่มไฟล์** ไม่ใช่ใส่ `font-weight: <ช่วง>` · ทุก `@font-face` ใช้ family name เดียวกันแล้วแยกด้วย `font-weight` (ถ้าไม่มีไฟล์ของน้ำหนักที่ใช้ Chromium จะ **synthesize** ตัวหนาเอง → สระ/วรรณยุกต์เพี้ยน) · ตั้ง `_MARGINS` ของ Gotenberg เป็น `0` ให้ CSS ในเทมเพลตเป็นแหล่งเดียวของระยะขอบ (ไม่งั้นได้ระยะขอบสองชั้น ~26 มม. และแก้ที่เทมเพลตไม่เห็นผล)
+- **Rule:** (1) service ที่เรนเดอร์ HTML ต้องได้ "ทุกอย่างที่ต้องใช้" ไปกับ request — ห้ามพึ่งไฟล์ในเครื่องของ service นั้น (2) ฟอนต์สำหรับ PDF: **static per-weight เท่านั้น** (3) อย่าตัดสินคุณภาพ PDF ด้วยตา — ต้องดู `pdffonts` (4) งานเอกสารที่พิมพ์จริง ให้ rasterize เป็น PNG แล้ว **อ่านภาพ** ด้วย — บั๊ก "ป้ายชนตัวเลข" และ "ใบแจ้งหนี้ใช้ถ้อยคำของใบเสร็จ" เจอด้วยวิธีนี้เท่านั้น ไม่มี assertion ไหนจับได้
+- **Tests:** `test_finance_receipts.py` §11 — mock `html_to_pdf` แล้วตรวจ HTML ที่ส่งออก (มี `data:font/ttf;base64,` ครบ 2 น้ำหนัก + คำอ่านจำนวนเงิน + ไม่เหลือ `{{`) · เทสต์จริง 1 ตัวที่ `skip` เมื่อ `gotenberg_configured()` เป็น `None` (ค่า default คือ `localhost`) และ **assert ว่ามี `/FontFile2` อยู่จริง** เพื่อกันการถอยกลับไปเป็น Type 3
+- **Date Added:** 2026-09-13
+
+### 🧪 PDF — `grep /FontFile2` ในไฟล์ PDF ดิบ ๆ ได้ **false negative** เพราะ PDF 1.5+ บีบอัด dictionary ไว้ใน object stream (และ Skia เขียน ToUnicode เป็น `bfrange`)
+- **Context/Problem:** เขียนสคริปต์ตรวจว่าฟอนต์ไทยถูกฝังจริงหรือไม่ด้วยการค้น `b"/FontFile2"` ในไบต์ของ PDF ⇒ ได้ **0** ทั้งที่ไฟล์มีฟอนต์ฝังอยู่จริง ทำให้เกือบสรุปผิดว่าฟอนต์ไม่ได้ฝัง และเกือบ "แก้" โค้ดที่ถูกอยู่แล้ว
+- **Root Cause:** PDF 1.5+ เก็บ **object dictionary** ไว้ใน *object stream* ที่บีบอัดด้วย FlateDecode ⇒ `/FontFile2`, `/BaseFont` ไม่ปรากฏในไบต์ดิบ · อีกกรณีที่เจอพร้อมกัน: การ parse `ToUnicode` CMap ด้วย regex `<x> <y>` (แบบ `bfchar`) **นับอักษรไทยขาด** เพราะ Skia เขียนช่วง glyph ที่ติดกันเป็น **`bfrange`** (`<0001> <000A> <0E01>`) ไม่ใช่คู่ทีละตัว ⇒ ตัวอักษรอย่าง `ำ` (U+0E33) อยู่ใน range จึง "หาย" จากผลนับ
+- **Correct Pattern/Solution:** คลาย zlib ของทุก stream แล้วค่อยค้น (ดู `_pdf_has_embedded_truetype` ใน `test_finance_receipts.py`) และสำหรับ CMap ให้ parse **ทั้ง** `beginbfchar/endbfchar` และ `beginbfrange/endbfrange` · **ตัวตัดสินสุดท้ายคือ `pdftotext -enc UTF-8`** ไม่ใช่ regex ของเราเอง (ยืนยันว่า U+0E33 ถูกเก็บ และรูป decomposed `U+0E4D U+0E32` ไม่ปรากฏ) · และอย่าตัดสินจาก **ขนาดไฟล์**: Chromium **subset** ฟอนต์ ⇒ PDF เล็ก (17–20 KB) เป็นเรื่องปกติ
+- **Rule:** (1) อย่า grep โครงสร้างไฟล์ที่ระบุว่าบีบอัดได้ — คลายก่อน (2) regex ที่ "นับได้น้อยกว่าจริง" อันตรายกว่า regex ที่ error เพราะมันให้ข้อสรุปที่ผิด (3) ใช้เครื่องมือมาตรฐาน (`pdffonts`/`pdftotext`) เป็นผู้ตัดสินเมื่อมี — เราไม่ต้องเขียน parser ของตัวเอง (4) ขนาดไฟล์ไม่ใช่หลักฐานว่าฟอนต์ฝังหรือไม่
+- **Tests:** `_pdf_has_embedded_truetype()` ใช้ในเทสต์จริงของ §11 · helper `_assert_tz_aware_iso()` ในไฟล์เดียวกันกันอีกกับดักหนึ่ง (Pydantic v2 เขียน UTC เป็น `Z` ไม่ใช่ `+00:00` — ที่ต้องกันคือกรณีหลุดเป็น naive ซึ่ง JS จะตีเป็นเวลาเบราว์เซอร์)
+- **Date Added:** 2026-09-13
+
+### 🧾 ใบเสร็จผูกกับ **งวดรับเงิน** ไม่ใช่ **บิล** — "ออกใบเสร็จทั้งหมด" จึงข้ามใบของงวดก่อนหน้าไป
+- **Context/Problem:** ตอนผูกปุ่มออกใบเสร็จในหน้ารายละเอียดโปรเจกต์ (F3) ต้องเลือกว่า `ReceiptIssueRequest` จะส่ง `transaction_id` ไปด้วยหรือไม่ ถ้าไม่ส่ง backend จะเลือก **งวดรับเงินล่าสุด** ของบิลนั้น (`_resolve_event` คืน `events[-1]`) ⇒ บิลที่ผ่อนจ่าย 500 + 500 แล้วกด "ออกใบเสร็จทั้งหมด" จะได้ **ใบเดียว** (ของงวดที่ 2) ส่วนใบของงวดแรก (500 บาท) จะไม่มีใครออกให้ และ **ไม่มีสัญญาณเตือนใด ๆ** ว่าขาด
+- **Root Cause:** `student_payments` 1 แถว = 1 บิล แต่ 1 บิลมีได้หลาย **เหตุการณ์รับเงิน** (`finance_transactions` แถวละงวด ซึ่งเป็นตัวที่ partial unique index `(student_payment_id, COALESCE(legacy_transaction_id,0), doc_type)` ใช้กันซ้ำ) ⇒ "ใบเสร็จ 1 ใบ : 1 เหตุการณ์รับเงิน" ไม่เท่ากับ "1 บิล" · และ frontend **มองไม่เห็น** ว่าบิลหนึ่งมีกี่งวด เพราะ `CollectionStatus.students[]` ให้มาแค่ `paid_amount` สะสม — นับงวดจาก `paid_amount` ไม่ได้ (บิลที่จ่ายครบครั้งเดียวกับบิลที่ผ่อนสองครั้งมี `paid_amount` เท่ากันได้)
+- **Correct Pattern/Solution:** รอบนี้เลือก **ไม่ส่ง `transaction_id`** (พฤติกรรมที่ต้องการ 90% ของเคส: บิลจ่ายครั้งเดียว) และกันความเสียหายด้วยการที่ใบเสร็จเป็น **idempotent** — กดซ้ำไม่กินเลข ไม่ทำข้อมูลเพี้ยน ⇒ ข้อผิดพลาดที่เป็นไปได้คือ "ขาดใบ" ไม่ใช่ "ใบซ้ำ" ซึ่งกู้คืนได้ · การออกใบของงวดเก่าเป็นการ**เพิ่มความสามารถ** ต้องมี endpoint list งวดรับเงินของบิลก่อน (`GET /finance/payments/{id}/events`) แล้วให้ผู้ใช้เลือก — **ยังไม่ได้ทำ** · ระบุข้อจำกัดนี้ไว้ใน docstring ของ `CollectionDetail.vue` ไม่ใช่ปล่อยเป็นความรู้ในหัว
+- **Rule:** (1) เมื่อ "1 ใบเอกสาร : 1 เหตุการณ์" ให้ตรวจก่อนว่า frontend มองเห็น "เหตุการณ์" หรือเห็นแค่ "ยอดสะสม" — ถ้าเห็นแค่ยอดสะสม แปลว่ายังเลือกเหตุการณ์ไม่ได้ (2) ออกแบบให้ **idempotent ฝั่งที่กดซ้ำได้** เพื่อให้ข้อผิดพลาดที่เหลือเป็นแบบ "ขาด" (กู้คืนได้) ไม่ใช่ "เกิน" (แก้ยาก) (3) ข้อจำกัดที่รู้ตัวต้องเขียนเป็นคอมเมนต์/เอกสารที่จุดที่คนจะไปเจอ ไม่ใช่รอให้มีคนถาม
+- **Tests:** `test_finance_receipts.py` §8 (ผ่อนชำระ 500+500 → ได้ 2 ใบ โดยใบที่ 2 มาจากการส่ง `transaction_id` เอง) และ §2 (ออกซ้ำ → `reused: True` เลขเดิม) — สองเทสต์นี้คือหลักฐานว่า "ขาดใบ" เป็นความจริง ไม่ใช่ความเข้าใจผิด
+- **Date Added:** 2026-09-13
+
+### 🔒 ล็อกสองทรัพยากรคนละระดับ = deadlock ที่กลายเป็น **500** เพราะ asyncpg โยน exception ที่ router ไม่รู้จัก
+- **Context/Problem:** `_issue_one` (F3) ล็อก (ก) แถว `student_payments` ของบิลนั้นผ่าน `FOR UPDATE OF SP` ใน `_load_payment` และ (ข) แถว `receipt_sequences` ของ `(ห้อง, ปี, ชนิด)` ซึ่ง **ใช้ร่วมกันทุกใบของห้อง/ปีนั้น** — ลำดับการล็อก "สลับกันได้" ระหว่างสองคำขอ ทำให้เกิด `DeadlockDetectedError` (40P01) แล้วผู้ใช้เห็น **500** ซึ่งแปลว่า "โค้ดเราพัง" ทั้งที่ระบบทำงานถูก · ที่แย่กว่านั้น: ถ้า `issue_receipts_batch` เป็นผู้แพ้ **ใบทั้ง 20 ใบ rollback หมด** ทั้งที่ผู้ใช้แค่กดปุ่มเดียว
+- **Root Cause:** สองเส้นทางเข้าถึงทรัพยากรคู่เดียวกันในลำดับตรงข้ามกัน — batch ยึดบิล P1 แล้วยึด sequence ไว้จนจบ transaction ขณะที่คำขอเดี่ยวของ P5 ยึดบิล P5 แล้วไปรอ sequence ⇒ batch ไปต่อที่ P5 แล้วไปรอ P5 ที่คำขอเดี่ยวยึดอยู่ = วนกลับมาที่เดิม · และ `DeadlockDetectedError` **ไม่อยู่ในรายการ `except` ของ router** ⇒ หลุดเป็น 500
+- **Correct Pattern/Solution:** บังคับให้ **"ลำดับการล็อก" เป็นลำดับเดียวเสมอ** ด้วย `pg_advisory_xact_lock` บน `room_id` เป็น **การกระทำแรก** ก่อนแตะแถวใด ๆ:
+  ```python
+  _ISSUE_LOCK_NAMESPACE = 0x52454350          # 'RECP' — อ่านออกว่าเป็นของ receipt
+  await conn.execute("SELECT pg_advisory_xact_lock($1, $2)", _ISSUE_LOCK_NAMESPACE, target_room_id)
+  ```
+  ⇒ เอาลำดับที่สลับได้ออกไป **ทั้งคลาส** ไม่ใช่แก้ทีละคู่ · `_xact_` ปล่อยเองเมื่อจบ transaction และ **เรียกซ้ำใน transaction เดียวกันไม่บล็อก** ⇒ batch ที่เรียกในลูปได้ล็อกครั้งเดียวที่ item แรกแล้วถือไปจน commit · namespace เป็นเลขคงที่ของโมดูล ไม่ใช่ค่าที่ derive จากข้อมูล
+- **Rule:** (1) ถ้าโค้ดล็อกมากกว่าหนึ่งแถวใน transaction เดียว **ต้องเขียนลำดับการล็อกให้เป็นลำดับเดียวเสมอ** แล้วใส่คอมเมนต์ "ห้ามย้ายตำแหน่งนี้" กำกับ (2) advisory lock คือเครื่องมือจัดลำดับ **ระดับธุรกิจ** (ต่อห้อง) ไม่ใช่ระดับแถว — ใช้เมื่อทรัพยากรที่แย่งกันเป็น "ตรรกะ" ไม่ใช่แถวเดียว (3) exception ของ DB ที่ไม่อยู่ใน `except` ของ router จะกลายเป็น 500 เสมอ ⇒ ต้องรู้ว่า driver โยนอะไรได้บ้าง (4) ราคาที่จ่ายคือการ serialize การออกเอกสาร "ต่อห้อง" ซึ่งแทบไม่ต่างจากเดิมเพราะแถว sequence serialize อยู่แล้ว — และการออกเอกสารคือคนกด ไม่ใช่ bulk job
+- **Tests:** `test_finance_receipts.py` §1/§6 (batch 20 ใบ + คำขอเดี่ยวปนกัน) · **ยังไม่มีเทสต์ที่ยิงพร้อมกันจริงเพื่อบังคับ deadlock** — เป็นเทสต์ที่ต้องใช้สอง connection และยอมรับความ flaky ⇒ กันด้วยการออกแบบ + คอมเมนต์อธิบายกลไกแทน
+- **Date Added:** 2026-09-13
+
+### 🚧 `f"{seq:04d}"` **ไม่ error** เมื่อเกิน 9999 — มันกว้างขึ้นเอง แต่ path param ที่ผูกกับ pattern 4 หลักจะปฏิเสธตลอดกาล
+- **Context/Problem:** เลขเอกสาร `RECEIPT_NO_TEMPLATE = "{prefix}-{year_be:04d}-{seq:04d}"` และ `RECEIPT_NO_PATTERN = r"^[A-Z]{3}-\d{4}-\d{4}$"` ซึ่งเป็น **path param** ของ `GET /finance/receipts/{receipt_no}` และ `/pdf` ⇒ ใบที่ 10000 จะ INSERT สำเร็จและโผล่ในทะเบียน แต่เปิดดู/พิมพ์ซ้ำ **ไม่ได้ตลอดกาล (422)** — เอกสารที่ออกให้ผู้ปกครองไปแล้วเปิดกลับไม่ได้
+- **Root Cause:** format spec `04d` เป็น **ความกว้างขั้นต่ำ** ไม่ใช่ขีดจำกัด ⇒ 10000 กลายเป็น `"10000"` (5 หลัก) โดยไม่มี exception ใด ๆ · และไม่มีใครตรวจว่าค่าที่จะเก็บลง DB ยัง match กับ pattern ที่ route ใช้อยู่หรือไม่ ⇒ สองที่นี้ **ผูกกันด้วยจำนวนหลัก** แต่ไม่มีอะไรบังคับให้ตรงกัน
+- **Correct Pattern/Solution:** เพดานต้องเป็น **ค่าคงที่ที่มีชื่อ + คอมเมนต์อธิบายว่าใครผูกกับมัน** และต้อง **raise ใน transaction เดียวกับการจองเลข** เพื่อไม่ให้เลขถูกเผา:
+  ```python
+  RECEIPT_SEQ_MAX = 9999
+  RECEIPT_SEQ_OVERFLOW_MSG = ("เลขเอกสารของปีนี้เต็มแล้ว (ครบ 9999 ฉบับ) — กรุณาติดต่อผู้ดูแลระบบ "
+                              "เพื่อขยายรูปแบบเลขเอกสารก่อนออกฉบับต่อไป")
+  ...
+  if seq > RECEIPT_SEQ_MAX:
+      raise ValueError(RECEIPT_SEQ_OVERFLOW_MSG)   # raise ใน txn ⇒ last_seq rollback กลับ
+  ```
+  และ **เทสต์ต้องผูกสองที่นี้เข้าด้วยกัน**: ออกใบที่ seq = `RECEIPT_SEQ_MAX` แล้ว `GET` ด้วยเลขนั้นจริง (ไม่ใช่แค่ `re.fullmatch` กับ pattern) ⇒ ถ้ามีใครขยับเพดานขึ้นโดยไม่แก้ pattern เทสต์จะ fail ทันที
+- **Rule:** (1) format spec ไม่ใช่ validation (2) เมื่อค่าหนึ่งถูกใช้ทั้ง "สร้าง" และ "ตรวจ" ต้องมีเทสต์ที่รัน **เส้นทางจริง** ผ่านทั้งสองทาง (3) `raise` หลังจองเลขต้องอยู่ใน transaction เดียวกันเสมอ ไม่งั้นเลขถูกเผา (4) ข้อความ error ต้องบอก **สิ่งที่ผู้ใช้ทำต่อได้** ("ติดต่อผู้ดูแลระบบ") ไม่ใช่แค่บอกว่าผิด
+- **Tests:** `test_finance_receipts.py` §12 — `test_doc_number_overflow_is_rejected_and_does_not_burn_the_number` (400 + `last_seq` ยังเป็น 9999) คู่กับ `test_the_last_available_seq_is_still_openable_by_its_doc_number` (seq 9999 เปิดผ่าน route จริงได้ 200)
+- **Date Added:** 2026-09-13
+
+### 📄 เอกสาร "point-in-time" ต้องใช้วันที่ **ออกเอกสาร** ไม่ใช่เวลาของเหตุการณ์ล่าสุด (`paid_at` ถูกทับทุกงวด)
+- **Context/Problem:** ใบแจ้งหนี้ (F3) ส่ง `event_at = pay["paid_at"]` เข้าไปคำนวณปี พ.ศ. ของเลขเอกสาร ⇒ บิลที่ผ่อนจ่ายไว้เมื่อปลายปีก่อน แล้วออกใบแจ้งหนี้เมื่อต้นปีนี้ ได้เลข `INV-**2569**-0001` ทั้งที่เอกสารลงวันที่ 2570 · และที่ผู้ใช้สังเกตได้จริงคือ **ความไม่สม่ำเสมอในวันเดียวกัน**: บิลที่ยังไม่จ่ายเลย (`paid_at IS NULL`) ได้เลขของวันนี้ ส่วนบิลที่ผ่อนแล้วได้เลขของปีที่แล้ว ⇒ สองใบที่ออกห่างกันไม่กี่นาทีอยู่คนละชุดเลข ซึ่งอธิบายให้ผู้ตรวจสอบไม่ได้
+- **Root Cause:** `_confirm_single_payment` เขียน `paid_at = NOW()` **ทุกงวด** ⇒ `paid_at` คือ "เวลาของ **งวดล่าสุด**" ไม่ใช่ "เวลาของเหตุการณ์ตั้งต้น" และไม่ใช่ "เวลาของวันนี้" · ใบเสร็จกับใบแจ้งหนี้มีความหมายเชิงเวลาต่างกัน (receipt = ณ เหตุการณ์รับเงิน · invoice = ณ วันออกเอกสาร) แต่โค้ดเดิมใช้ตัวแปรเดียวกันกับทั้งสอง
+- **Correct Pattern/Solution:** แยกให้ชัดด้วย `event_at`:
+  ```python
+  # ใบเสร็จ → ปีของ "งวดที่ออกใบนั้น" (แหล่งความจริง = finance_transactions.created_at)
+  event = await cls._resolve_event(...)          # event["event_at"] = created_at ของงวดนั้น
+  # ใบแจ้งหนี้ → ไม่ผูกกับเหตุการณ์รับเงิน ⇒ event_at = None แล้วใช้ "วันนี้" ตามเวลาไทย
+  event = {"legacy_transaction_id": None, "amount": outstanding,
+           "paid_total_after": paid_amount, "event_at": None}
+  ...
+  year_be = (cls._thai_year_be(event["event_at"]) if event["event_at"] is not None
+             else datetime.now(timezone.utc).astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET)
+  ```
+  และเขียนคอมเมนต์ 🚨 "ห้ามใส่ `pay["paid_at"]`" ตรงจุดที่คนจะไปแก้
+- **Rule:** (1) ก่อนใช้คอลัมน์เวลา ให้ถามว่า "มันถูกทับด้วยอะไรได้อีก" — คอลัมน์ที่ถูก `UPDATE` ทุกครั้งที่เกิดเหตุการณ์ซ้ำ ๆ **ไม่ใช่** เวลาของเหตุการณ์ตั้งต้น (2) เอกสารสองชนิดที่ความหมายเชิงเวลาต่างกัน ต้องมีตัวแปรแยก ไม่ใช่ใช้ร่วมกันเพราะ "ค่าเดียวกันตอนที่เขียนโค้ดครั้งแรก" (3) บั๊กแบบนี้เงียบเพราะเลขยัง "ถูก" ตามรูปแบบ — จับได้ด้วยการเทสต์ **สองเคสเทียบกัน** (จ่ายแล้ว vs ยังไม่จ่าย ในวันเดียวกัน) ไม่ใช่เทสต์เคสเดียว
+- **Tests:** `test_finance_receipts.py` §12 — `test_invoice_year_be_follows_the_issue_date_not_the_last_instalment` (ผ่อนปีก่อน → ต้องได้ปีนี้) และ `test_invoice_year_is_the_same_for_a_paid_and_an_unpaid_bill` (สองบิลวันเดียวกัน → ชุดเลขเดียวกัน 0001/0002) — ทั้งคู่ **fail ถ้าใส่ `pay["paid_at"]` กลับ** (พิสูจน์ด้วย mutation แล้ว)
+- **Date Added:** 2026-09-13
+
+### 🔐 เส้นทางที่เปิดด้วย `require_member` = **สมาชิกทุกคนอ่านได้** ⇒ ข้อความ error ห้ามมี URL/hostname ภายใน
+- **Context/Problem:** เส้นทางดาวน์โหลด PDF เปิดแค่ `require_member` (นักเรียนก็เข้าได้) แต่ตอนต่อ Gotenberg ไม่ติด โค้ดเดิมส่ง `httpx` exception ที่มี `http://classroom-management_infra_gotenberg:3000` ติดขึ้นไปถึงผู้ใช้ ⇒ หลุดชื่อ container และโครงสร้างเครือข่ายภายในให้ทุกคนในห้องอ่าน — และไม่มีประโยชน์กับผู้ใช้เลยเพราะเขาแก้เองไม่ได้
+- **Root Cause:** ข่าวสารสองแบบถูกรวมเป็นข้อความเดียว — "ข้อมูลสำหรับ **สอบสวน**" (URL, status, เนื้อความจาก upstream) กับ "ข้อความสำหรับ **ผู้ใช้**" (ทำอะไรต่อได้) · มองข้ามเพราะสมองคิดถึงคนที่ debug ไม่ใช่คนที่กดปุ่ม
+- **Correct Pattern/Solution:** แยกทางกันที่จุดโยน exception — รายละเอียดจริงไปที่ `logger.error()` ฝั่ง server ส่วนข้อความที่ผู้ใช้เห็นเป็นค่าคงที่ใน constants:
+  ```python
+  logger.error("สร้าง PDF ไม่สำเร็จ: ต่อ Gotenberg ไม่ได้ (url=%s): %s", url, e)
+  raise PdfRenderError(PDF_RENDER_UNAVAILABLE_MSG) from e
+  ```
+  และ **เทสต์ต้องตรวจที่ต้นทาง** (`html_to_pdf` ตรง ๆ) ไม่ใช่ที่ข้อความของ router — ถ้าต้นทางมี URL ต่อให้ router ตัดทิ้งก็ยังหลุดทางอื่นได้ · เทสต์เดิมที่ `assert "Gotenberg" in detail` **ล็อกนโยบายเก่าไว้** ⇒ ต้องแก้ assertion นั้นด้วย ไม่ใช่ปล่อยให้ผ่าน
+- **Rule:** (1) ดู `require_member`/public ทุกครั้งก่อนตัดสินว่าใส่ข้อมูลอะไรใน error ได้ (2) แยก "log ไว้สอบสวน" ออกจาก "ข้อความถึงผู้ใช้" เสมอ — `raise X(...) from e` ไม่ได้แปลว่าห้ามเก็บ `e` ไว้ใน log (3) เทสต์ที่ assert ข้อความ error ต้อง assert **สิ่งที่ต้องไม่มี** ด้วย ไม่ใช่แค่สิ่งที่ต้องมี (4) เมื่อนโยบายเปลี่ยน ต้องตามไปแก้ assertion เก่าที่ล็อกนโยบายเดิม — ไม่งั้นมันจะกลายเป็นเทสต์ที่บังคับให้ทำผิด
+- **Tests:** `test_finance_receipts.py` §12 — `test_pdf_failure_message_carries_no_internal_url` (ตรวจทั้งสองสาขา: ต่อไม่ติด และ upstream ตอบ ≠ 200) และ `test_pdf_render_failure_maps_to_502` ที่แก้ให้ assert ว่า **ไม่มี** `Gotenberg`/`http`/`localhost`/`3000` ใน detail (เดิม assert ว่าต้องมี)
+- **Date Added:** 2026-09-13
+
+### 🏁 การ fetch ที่ผูกกับตัวกรองต้องมี "ตัวนับรุ่น" — ลำดับที่คำตอบกลับมาไม่รับประกัน
+- **Context/Problem:** หน้าจอการเงินที่ `watch(period)` แล้วยิง API (ReceiptList, BudgetList, FinancialStatements, FinanceDashboard) เปิดโอกาสให้ผู้ใช้สลับเดือน/แท็บเร็ว ๆ จนมีคำขอซ้อนกัน ⇒ คำตอบ **ไม่ได้กลับตามลำดับที่ส่ง** (โดยเฉพาะเมื่อ backend รัน 3 replica หลัง Traefik คำขอสองอันถูกคนละ worker รับ) ⇒ `items` ถูกเขียนด้วยข้อมูลของ **ตัวกรองที่ผู้ใช้ไม่ได้เลือกแล้ว** ขณะที่ป้ายบนจอบอกตัวกรองใหม่ = "ตัวเลขถูกแต่ป้ายผิด" ซึ่ง **แย่กว่าโหลดไม่ขึ้น** เพราะดูเหมือนถูก · และ `isLoading` ถูกปิดไปแล้วโดยคำตอบอันแรกที่มาถึง ⇒ ไม่มีสปินเนอร์ให้รู้ว่ายังไม่จบ
+- **Root Cause:** `load()` ถูกเรียกซ้ำได้ แต่ผลลัพธ์ไม่มีตัวระบุว่า "คำตอบนี้มาจากคำขอไหน" ⇒ คำตอบที่มาถึงทีหลังเขียนทับเสมอ ไม่ว่ามันจะเก่ากว่าหรือไม่
+- **Correct Pattern/Solution:** ตัวนับรุ่นแบบ 3 บรรทัด (`frontend/src/utils/latest.ts`) — **ต้องเช็คให้ครบทั้งสามจุด**:
+  ```ts
+  const token = guard.begin();
+  try { const rows = await Svc.get(...);
+        if (!guard.isCurrent(token)) return;      // ① ก่อนเขียนข้อมูล
+        items.value = rows; }
+  catch (e) { if (!guard.isCurrent(token)) return;  // ③ ใน catch
+              hasError.value = true; }
+  finally { if (guard.isCurrent(token)) isLoading.value = false; }  // ② ก่อนปิดสปินเนอร์
+  ```
+  ⚠️ **ห้ามใช้ `guard` ตัวร่วมกันสองตัวโหลดในหน้าเดียว** — `begin()` ของตัวหนึ่งจะทำให้อีกตัวกลายเป็น "เก่า" ทันที แล้วตัวที่ถูกฆ่าจะไม่ปิด `isLoading` ของตัวเอง ⇒ สปินเนอร์ค้างถาวร (FinanceDashboard มี 2 ตัว ⇒ 2 guard)
+  🚫 **ไม่ใช้ `AbortController`** เพราะ axios จะ reject ด้วย `CanceledError` ซึ่งปะปนกับ error จริงใน `catch` และต้องแยกแยะเพิ่ม (`axios.isCancel`) — ของจริงที่ต้องการคือ "รู้ว่าคำตอบนี้ยังเป็นตัวล่าสุดไหม" ซึ่งตัวนับทำได้ตรงกว่าและ **ไม่มี error ปลอมเกิดขึ้นเลย**
+  📌 `Promise.all` ที่เป็นชุดเดียวกัน (overview + budgets + categories) ต้องใช้ token เดียว ⇒ ทิ้งทั้งชุด ไม่ใช่ทีละตัว ไม่งั้นค่าที่เขียนลง ref ต่าง ๆ อาจมาจากคนละช่วงเวลา
+- **Rule:** (1) ทุก `load()` ที่ถูกเรียกจาก `watch` ต้องมี guard (2) เมื่อมีหลายคำขอที่ต้อง "ตรงกัน" ให้รวมเป็นชุดเดียวแล้วใช้ token เดียว (3) legacy view ที่ไม่ได้อยู่ในขอบเขตงาน — **รายงาน ไม่แก้** (4) ตัวช่วยที่ถูกใช้ 4 ที่ต้องมี unit test และ unit test นั้นต้องผ่าน mutation test
+- **Tests:** `frontend/src/utils/__tests__/latest.spec.ts` (7 เทสต์: token โมฆะ, คำขอซ้อนกลับลำดับ, สอง guard อิสระ, token 0 ต้องไม่ถูกตีว่าลัด) — **ยืนยันด้วย mutation test**: เปลี่ยน `++latest` เป็น `latest++` แล้ว **6 ใน 7 fail**
+- **Date Added:** 2026-09-13
+
+### ⏱️ `URL.revokeObjectURL` ต้อง **เลื่อนออกไปหนึ่งคาบ** — revoke ต่อจาก `click()` ทำให้ไฟล์ถูกยกเลิกเงียบ ๆ
+- **Context/Problem:** ตัวช่วย `downloadBlob` เดิม revoke blob URL ทันทีในบรรทัดถัดจาก `link.click()` ⇒ บน Firefox และ iOS Safari ไฟล์ถูกยกเลิก **โดยไม่มี exception ให้จับ** ผู้ใช้เห็น "ดาวน์โหลดสำเร็จ" แต่ไม่มีไฟล์ หรือได้ไฟล์ 0 ไบต์ ซึ่งแยกไม่ออกจาก "ระบบพัง" สำหรับครูที่รอใบเสร็จอยู่
+- **Root Cause:** `click()` แค่ **เข้าคิว** การนำทางไว้ — เบราว์เซอร์ไปอ่าน blob URL จริงแบบ **asynchronous** (FileSaver.js ใช้ `setTimeout` 40 วินาทีด้วยเหตุผลเดียวกัน) ⇒ revoke ในคาบเดียวกันคือแข่งกับเบราว์เซอร์ ซึ่งบางตัวแพ้
+- **Correct Pattern/Solution:**
+  ```ts
+  link.click(); link.remove();
+  // คืนหน่วยความจำในคาบถัดไป — ห้ามย้ายขึ้นมาเป็นบรรทัดถัดจาก click()
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+  ```
+  `setTimeout(..., 0)` ไม่ได้หน่วงให้ผู้ใช้รู้สึก — มันย้าย revoke ไปคนละ task ⇒ เบราว์เซอร์ได้เริ่มโหลดก่อนเสมอ · ยังต้อง revoke ทุกครั้งอยู่ (ไม่ revoke เลย = Blob ทั้งก้อนถูก pin ในหน่วยความจำจนกว่าจะปิดแท็บ และไฟล์การเงินใหญ่ระดับหลายร้อย KB)
+- **Rule:** (1) ทรัพยากรที่ "ปล่อยทันที" ได้ไม่ใช่ทรัพยากรที่ผู้บริโภคยังไม่เริ่มใช้ (2) ถ้า API ทำงานแบบ async แต่หน้าตาเหมือน sync ให้สงสัยว่ามีคิวอยู่เบื้องหลัง (3) บั๊กที่ "ไม่มี exception" ต้องจับด้วยการทดสอบบนเบราว์เซอร์จริง ไม่ใช่ด้วย unit test — เมื่อทำไม่ได้ ให้เขียนเหตุผลไว้ในคอมเมนต์ที่จุดนั้น
+- **Tests:** ไม่มี unit test (jsdom ไม่จำลองพฤติกรรม download ของเบราว์เซอร์) — ป้องกันด้วยคอมเมนต์อธิบายกลไกใน `frontend/src/utils/download.ts`
+- **Date Added:** 2026-09-13
+
+### 🧬 เทสต์ regression ที่ "ผ่านทันที" ไม่ใช่หลักฐาน — ต้อง **mutation test** ก่อนเชื่อ
+- **Context/Problem:** หลังรีวิวแบบ adversarial พบ 12 ประเด็นที่รอดการหักล้างและแก้ไป 8 ข้อ การเขียนเทสต์ปิดบั๊กเหล่านั้นแล้วเห็น "passed" **ไม่ได้พิสูจน์อะไร** — อาจเป็นเพราะเทสต์ไม่ได้แตะโค้ดที่แก้เลย (เช่น setup ไม่ถึงเงื่อนไข) แล้วบั๊กจะกลับมาโดยที่ CI เขียว
+- **Root Cause:** เทสต์ที่เขียนตาม "สิ่งที่โค้ดทำ" (implementation) แทน "สิ่งที่ต้องเป็น" (behavior) จะผ่านทั้งกับโค้ดที่ถูกและผิด · อ่านเทสต์แล้ว "ดูน่าเชื่อ" ไม่ใช่การวัด
+- **Correct Pattern/Solution:** **แก้โค้ดให้เป็นบั๊กเดิมกลับไป แล้วดูว่าเทสต์ fail** — ถ้าไม่ fail แปลว่าเทสต์ไม่มีฟัน:
+  ```bash
+  cp src.py /tmp/orig
+  sed -i 's/^        if seq > RECEIPT_SEQ_MAX:$/        if False:  # MUTANT/' src.py
+  pytest -k "overflow"        # ต้อง FAIL
+  cp /tmp/orig src.py         # คืนค่า แล้ว grep ยืนยันว่าไม่เหลือ MUTANT
+  ```
+  ผลรอบนี้: mutant "invoice ใช้ `pay["paid_at"]`" → **2 fail** · "ถอดเพดาน seq" → **1 fail** · "หลุด URL ใน error" → **1 fail** · ฝั่ง frontend: `++latest` → `latest++` → **6 ใน 7 fail** · (รอบก่อนหน้า: `formatThaiDateTime` ฉบับ UTC → **4 ใน 12 fail**)
+- **Rule:** (1) เทสต์ที่ปิดบั๊กต้องพิสูจน์สองทาง — **fail กับโค้ดเก่า** และ **pass กับโค้ดใหม่** (2) mutation ที่เลือกต้องเป็น **บั๊กจริงที่เคยเกิด** ไม่ใช่การสุ่มแก้โค้ด (3) คืนค่าจาก backup แล้ว `grep` ยืนยันว่าไม่เหลือ mutant ก่อนไปต่อ (4) เขียนผล mutation ไว้ในคอมเมนต์หัวข้อของเทสต์ — คนอ่านจะได้รู้ว่าเทสต์นี้มีฟันโดยไม่ต้องลองเอง
+- **Tests:** เป็น **วิธี** ไม่ใช่เทสต์ — ใช้กับทุกข้อใน `test_finance_receipts.py` §12 และ `latest.spec.ts`
+- **Date Added:** 2026-09-13
+
+### 🧬 mutation test ที่ "NOT-CAUGHT" **ไม่ได้แปลว่าเทสต์ไม่มีฟันเสมอไป** — ต้องแยก equivalent mutant ออกจากช่องโหว่จริงก่อนแก้
+- **Context/Problem:** รัน mutation harness 7 ตัวเพื่อปิดงาน void ใบเสร็จ + เลขปี พ.ศ. แล้ว **M6 ได้ NOT-CAUGHT** — ถอด `AND R.status = 'active'` ออกจาก `get_receipts` (`receipts.py:610`) แล้วเทสต์ทั้งไฟล์ยังเขียว ปฏิกิริยาแรกคือ "ต้องไปเขียนเทสต์เพิ่ม" ซึ่งนำไปสู่เทสต์ที่ seed `status='voided' AND deleted_at IS NULL` ลงตารางตรง ๆ — และมันจะ **ล้มด้วย `CheckViolationError`** เพราะ `chk_receipt_voided_is_deleted` (`init_db.py:459`) ห้ามสถานะนั้นอยู่แล้ว
+- **Root Cause:** `AND R.deleted_at IS NULL` **ลอจิกกลืน** `AND R.status = 'active'` เพราะ CHECK constraint บังคับ `status = 'active' OR deleted_at IS NOT NULL` ⇒ แถวใดที่ `deleted_at IS NULL` **จำเป็นต้อง** เป็น `active` ⇒ ไม่มีทรงข้อมูลใดในโลกที่ทำให้ clause เดียวนั้นเปลี่ยนคำตอบได้ = **equivalent mutant** (mutant ที่พฤติกรรมเหมือนเดิมทุกประการ) การฝืน "ทำให้จับได้" จึงเท่ากับทำลาย constraint ที่เป็นเสาหลักของดีไซน์ (ตัวนั้นกันสถานะ "ตันสองทาง" ที่เอกสาร `init_db.py:448-458` อธิบายไว้)
+- **Correct Pattern/Solution:** เจอ NOT-CAUGHT ให้วินิจฉัยตามลำดับนี้ **ก่อน** แตะเทสต์:
+  1. **หา invariant ที่อาจบังคับอยู่แล้ว** — `grep -n "CHECK" backend/core/init_db.py` + ดู `ALTER TABLE ... ADD CONSTRAINT` (constraint ที่เพิ่มทีหลังมักไม่โผล่ใน `CREATE TABLE`)
+  2. **ถ้ามี** ⇒ พิสูจน์ความสมมูลด้วยเทสต์ที่ **pin invariant ตัวนั้น ไม่ใช่ pin clause** — เช่น `pytest.raises(asyncpg.CheckViolationError)` เมื่อพยายามเขียน `deleted_at = NULL` ทับ `status='voided'` (พร้อมทิศตรงข้ามที่ต้องผ่าน เพื่อกัน `CHECK (false)` ที่ห้ามหมด) เทสต์แบบนี้จะมีค่าก็ในวันที่มีคนถอด constraint ออก ซึ่งเป็นวันเดียวกับที่ clause นั้น **กลายเป็นตัวจริงและห้ามถอด**
+  3. **ถ้าไม่มี** ⇒ เป็นช่องโหว่ของเทสต์จริง เขียนเทสต์เพิ่มตามปกติ
+  - ⚠️ **ห้ามลบ CHECK/constraint เพื่อให้ mutation จับได้** — นั่นคือแก้ตัววัดด้วยการทำลายสิ่งที่มันวัด
+- **Rule:** (1) `NOT-CAUGHT` เป็น **ข้อสังเกต** ไม่ใช่คำตัดสิน — ต้องวินิจฉัยก่อนเสมอ (2) ทุกครั้งที่สรุปว่า "สมมูล" ต้องมีเทสต์ที่ pin **เหตุผล** ไว้ ไม่งั้นวันหน้าจะไม่มีใครรู้ว่าทำไมถึงปล่อยผ่าน (3) รายงาน mutation ต้องแยกสามสถานะให้ชัด — `CAUGHT` / `NOT-CAUGHT (สมมูล · พร้อมหลักฐาน)` / `NOT-CAUGHT (ช่องโหว่จริง)` — สองอย่างหลังห้ามรายงานรวมกัน
+- **Tests:** `test_voided_receipt_can_never_stay_un_soft_deleted` (`test_finance_receipts.py`)
+- **Date Added:** 2026-09-14
+
+### 🔁 "แก้เสร็จแล้ว" ≠ "แก้ครบ" — จุดที่รายงานมายกมา 1 จุด มักมีพี่น้องอีก N จุดที่ไม่มีใครพูดถึง
+- **Context/Problem:** รอบนี้มี **สามงานที่ปิดไปแล้วแต่ยังไม่ครบ** และทั้งสามมีรูปเดียวกัน: รายงานชี้จุดเดียว แต่กลไกเดียวกันปรากฏซ้ำในที่อื่น (ก) งาน "ปิดช่อง leaks URL ของ Gotenberg" แก้ไป **2 จุดจาก 5 จุด** — อีก 3 จุด (`_font_data_uri`, `_get_template` 2 สาขา, `html_to_pdf` กรณีเนื้อหาว่าง) ยังคงส่ง path ไฟล์สัมบูรณ์บนเซิร์ฟเวอร์หรือชื่อ service ภายในถึงสมาชิกห้องทุกคน (ข) งาน "เลื่อน `revokeObjectURL`" แก้ที่ตัวช่วยกลาง แต่ยังเหลือ **2 ที่ที่เขียน anchor เอง** (ExportStudent, ActivityDetail) ซึ่งตัวหนึ่งไม่เคย `appendChild` ด้วยซ้ำ (ค) งาน "จัดลำดับการล็อก" แก้เส้นทางออกเอกสาร แต่ `batch_confirm_payments` เป็น **ตัวล็อกหลายแถวตัวที่สอง** ที่ไม่เคยเอา advisory lock เลย
+- **Root Cause:** รายงาน (จากรีวิว/adversarial verify) คือ **ตัวอย่าง ไม่ใช่สำมะโน** — มันชี้จุดที่คนเขียนรายงานบังเอิญไปเห็น · พอแก้จุดนั้นแล้วเทสต์ผ่าน ก็เกิดความรู้สึกว่า "งานนี้จบ" ทั้งที่กลไกเดียวกันยังทำงานอยู่ที่อื่น · และการสกัดตัวช่วยกลาง (helper) **ไม่ได้ย้ายผู้เรียกเดิมมาที่ตัวช่วยให้เอง** ⇒ ยิ่งอันตรายเพราะดูเหมือนงานเสร็จสมบูรณ์กว่าเดิม
+- **Correct Pattern/Solution:** หลังแก้จุดที่รายงาน ให้ **grep หา "กลไก" ไม่ใช่ "อาการ"** แล้ว enumerate ให้ครบก่อนประกาศจบ:
+  ```bash
+  grep -rn "createObjectURL\|revokeObjectURL" frontend/src/     # ต้องเหลือที่เดียว: utils/download.ts
+  grep -n "PdfRenderError(" backend/services/finance/pdf.py      # ต้องมี guard ทุกจุดที่ raise
+  grep -n "FOR UPDATE" backend/services/finance/*.py             # ทุกฟังก์ชันที่ล็อกหลายแถว
+  ```
+  แล้ว **เทสต์ต้องมีสาขาเท่าจำนวนจุด** ไม่ใช่สาขาเดียว — เทสต์ leaks ตัวนี้จึงมี 4 สาขา (ก/ข/ค/ง) และ **mutation แยกทีละสาขา** ได้ผลล้มที่บรรทัด assertion ต่างกัน (1219 / 1230 / 1243) ซึ่งเป็นหลักฐานว่าทุกสาขามีฟันจริง ไม่ใช่มีสาขาเดียวที่ทำงาน
+- **Rule:** (1) รายงานคือตัวอย่าง — งานคือ enumerate ทั้งคลาส (2) การสกัด helper ยังไม่เสร็จจนกว่า grep จะพิสูจน์ว่าเหลือผู้เรียกจุดเดียว (3) จำนวนสาขาของเทสต์ควรเท่ากับจำนวนจุดที่แก้ — ถ้าน้อยกว่า แปลว่ายังมีจุดที่ไม่มีเทสต์คุ้ม (4) งานที่ "เสร็จแล้ว" ต้องถูก re-audit ด้วยคำถาม "กลไกเดียวกันนี้อยู่ที่อื่นอีกไหม" ไม่ใช่ "เทสต์ผ่านไหม"
+- **Tests:** `test_finance_receipts.py` §12 `test_pdf_failure_message_carries_no_internal_url` (4 สาขา, mutation ผ่านทั้ง 3 สาขาที่เพิ่มใหม่) · `grep -rn "createObjectURL" frontend/src/` = 1 ไฟล์
+- **Date Added:** 2026-09-13
+
+### 💰 `DECIMAL` เปล่า ๆ = **สเกลไม่จำกัด** ⇒ ยอดต่ำกว่าสตางค์ผ่าน guard มาได้ แล้วไปชน CHECK constraint = 500
+- **Context/Problem:** `student_payments.paid_amount` ประกาศเป็น `DECIMAL` **ไม่มี `(15,2)`** (`init_db.py:283`) ⇒ เก็บ `0.004` ได้จริง · ด่านเดิม `if paid_amount <= 0` เช็ค **ค่าดิบ** ⇒ 0.004 ผ่าน · แต่ `round(0.004, 2) = 0.00` ไปชน `chk_receipt_amount_positive CHECK (amount > 0)` ⇒ asyncpg โยน `CheckViolationError` ซึ่ง **ไม่มีชั้นไหนใน router แปลง** ⇒ ผู้ใช้เห็น **500** ("ระบบพัง") ทั้งที่ปัญหาคือยอดที่กรอก และแก้เองได้ · ทิศกลับกันก็เพี้ยนเงียบ ๆ: จ่าย `100.004` → เอกสารพิมพ์ `100.00` แต่บัญชีถือ `100.004` ⇒ **ทศนิยมผีที่ไม่มีวันกระทบยอด**
+- **Root Cause:** validation เช็ค "ค่าที่รับมา" แต่ constraint ตัดสิน "ค่าที่จะถูกเขียน" — สองค่านี้ต่างกันทันทีที่มีการปัด · และ `DECIMAL` ไม่มี argument ใน Postgres **ไม่ใช่** `DECIMAL(15,2)` — มันคือ `numeric` อิสระที่เก็บ 0.004 ได้เต็มที่ (สันนิษฐานว่า "เงินต้องเป็น 2 ตำแหน่ง" แล้วไม่ตรวจ schema จริง)
+- **Correct Pattern/Solution:** ปัด **ก่อน** เช็ค แล้ว **ใช้ตัวแปรที่เช็คแล้วเขียนจริง** (ถ้าเช็คค่าหนึ่งแต่เขียนอีกค่าหนึ่ง = สองความจริงในระบบ):
+  ```python
+  document_amount = round(event["amount"], 2)
+  if document_amount <= 0:
+      raise ValueError("ยอดรับเงินน้อยกว่า 0.01 บาท จึงออกเอกสารไม่ได้ ...")
+  ...
+  INSERT INTO finance_receipts (..., amount, paid_total_after, ...)
+  VALUES (..., document_amount, round(event["paid_total_after"], 2), ...)
+  ```
+- **Rule:** (1) `DECIMAL` เปล่า ≠ `DECIMAL(p,s)` — **อ่าน precision จริงใน `init_db.py` ก่อนสรุปว่าค่าไหนเก็บได้** (2) validate ที่ "ค่าที่ constraint จะเห็น" ไม่ใช่ค่าดิบ (3) ตัวแปรที่ validate แล้วต้องเป็นตัวเดียวกับที่เขียนลง DB (4) `CheckViolationError`/`UniqueViolationError`/`DeadlockDetectedError` ไม่อยู่ใน `except` ของ router ⇒ กลายเป็น 500 ทุกตัว ต้องมี guard ฝั่งแอปเสมอ (5) ยอดที่ปัดทิ้งต้องไม่ถูกกลืนเงียบ ๆ — ถ้าปัดแล้วเปลี่ยนยอด ต้องบอกผู้ใช้ ไม่ใช่พิมพ์เอกสารไม่ตรงกับบัญชี
+- **Tests:** `test_finance_receipts.py` §9 — `test_sub_satang_amount_is_400_not_500` แบบ `@pytest.mark.parametrize` 2 สาขา: ใบเสร็จ (ผ่าน fallback `_resolve_event` ที่คืน `float(paid_amount)` ตรง ๆ) และใบแจ้งหนี้ (ผ่าน `outstanding = 1000.00 − 999.999 = 0.001`) — ยืนยัน **400** + ข้อความไทย + **ไม่มีแถวเอกสารและไม่มีการจองเลข** (ไม่มีเลขถูกเผา)
+- **Date Added:** 2026-09-13
+
+### 🔒 advisory lock ที่ครอบแค่ "เส้นทางที่กำลังดูอยู่" ไม่ได้ปิดคลาส deadlock — และ `ORDER BY` + locking clause เชื่อลำดับไม่ได้
+- **Context/Problem:** ต่อยอดจากหัวข้อ "ล็อกสองทรัพยากรคนละระดับ" ข้างบน — รอบนั้นเพิ่ม `pg_advisory_xact_lock` ในเส้นทาง **ออกเอกสาร** เท่านั้น ⇒ ยังเหลือ **ตัวล็อกหลายแถวตัวที่สอง** คือ `batch_confirm_payments` (รับเงินรวบยอด) ซึ่งล็อก `student_payments` ทีละใบ **ตามลำดับที่ผู้ใช้ส่งมา** กลางลูป และไม่เคยเอา advisory lock ⇒ สองคำขอของห้องเดียวกันที่ส่งบิลชุดเดียวกันสลับลำดับกัน (A: P1→P2, B: P2→P1) ยัง deadlock ได้ และถ้าฝั่งที่แพ้เป็น batch **ทั้งชุด rollback** · แถม `_confirm_single_payment` ต่อใบยังไปแตะ `finance_accounts` ⇒ ลำดับกลายเป็น SP1→ACC→SP2→ACC ซึ่งสลับกับคำขออื่นได้อีกชั้น
+- **Root Cause:** มอง deadlock เป็น "บั๊กของฟังก์ชันที่รายงาน" ไม่ใช่ "คุณสมบัติของ **ทุก** ฟังก์ชันที่ล็อกมากกว่าหนึ่งแถว" ⇒ ปิดช่องที่เห็น แต่ไม่ได้ enumerate ผู้ล็อกหลายแถวทั้งหมด · อีกชั้น: ทางแก้ที่ดูสะอาดคือ `SELECT ... WHERE id = ANY($1) ORDER BY id FOR UPDATE` ซึ่งเอกสาร Postgres ระบุว่า **การเรียงเกิดก่อนการล็อก** แต่ก็เตือนว่าผลลัพธ์ที่คืนอาจดูสลับที่ได้ ⇒ พฤติกรรมจริง **ขึ้นกับ plan** จึงไม่ควรใช้เป็นหลักประกันลำดับ
+- **Correct Pattern/Solution:** รวมเป็นตัวช่วยเดียวใน `base.py` ที่ **เรียงด้วย Python แล้วล็อกทีละแถว** และเรียก **ก่อนเข้าลูป** ทั้งสองเส้นทาง:
+  ```python
+  ids = sorted({int(p) for p in payment_ids if p is not None})   # เรียง + dedupe
+  for pid in ids:
+      await conn.fetchval("SELECT id FROM student_payments WHERE id = $1 FOR UPDATE", pid)
+  ```
+  ล็อกซ้ำรายใบในลูป (`FOR UPDATE OF SP` ใน `_load_payment`) เป็นการล็อกซ้ำใน transaction เดียวกัน ⇒ **ไม่บล็อก** ⇒ ไม่เหลือจุด "รอ" กลางลูปที่ทำให้ลำดับขึ้นกับ request อีก · ราคาที่จ่ายคือ round-trip เพิ่มใบละ 1 ครั้ง ซึ่งน้อยมากเทียบกับงานต่อใบในลูป (≥5 query) · และ **ต้องเขียนส่วนที่ยังไม่ปิดไว้ใน docstring ตรง ๆ**: `revert_transaction` ล็อก FT→SP ขณะที่การออกใบเสร็จล็อก SP→แล้วได้ FK `KEY SHARE` บน FT ⇒ **การกลับทิศนี้ยังไม่ถูกแก้** และการปิดทั้งคลาสต้องมี "advisory lock ต่อห้องเป็นอย่างแรกบนทุกเส้นทางที่แตะเงิน" ซึ่งเป็น **การตัดสินใจเรื่อง lock protocol** ไม่ใช่การแก้โค้ด unilateral
+- **Rule:** (1) deadlock เป็นคุณสมบัติของ **ทุก** ฟังก์ชันที่ล็อก >1 แถว — `grep -n "FOR UPDATE"` แล้ว enumerate ทุกตัว ไม่ใช่แก้ตัวที่รายงาน (2) อย่าพึ่ง `ORDER BY` คู่กับ locking clause — เอกสารเตือนว่าขึ้นกับ planner ⇒ ใช้ `sorted()` ในโค้ดที่อ่านแล้วพิสูจน์ได้ (3) เมื่อแก้ได้แค่บางส่วน **ต้องเขียนส่วนที่เหลือไว้ใน docstring** อย่าให้คนอ่านเข้าใจว่าหมดคลาส (4) เทสต์ที่พิสูจน์ "เรียงจริง" ต้องใช้ **สอง connection จริง** และยิงด้วยลำดับ **ตรงข้ามกัน** — ถ้าใช้ connection เดียวจะไม่มีการแย่งล็อกเลยและเทสต์จะผ่านตลอดกาลโดยไม่ได้พิสูจน์อะไร
+- **Tests:** `test_finance_receipts.py` §10 — `test_lock_helper_locks_in_id_order_regardless_of_caller_order` (บันทึก **ลำดับ id ที่ถูกล็อก** ผ่าน connection ปลอม ⇒ ส่ง `[7,3,9,3,None]` และ `[9,7,3]` ต้องได้ `[3,7,9]` ทั้งคู่ · **ล้มทันทีถ้าถอด `sorted()` ออก — ยืนยันด้วย mutation แล้ว**) · `test_lock_helper_actually_takes_row_locks` (กันถอยกลับเป็น no-op: `FOR UPDATE NOWAIT` จากอีก connection ต้องโยน `LockNotAvailableError`) · `test_batch_confirm_payments_uses_the_same_canonical_lock_order` (ด่านเชิงโครงสร้าง — จงใจอ่านซอร์ส เพราะ "ล็อกก่อนอ่าน" สังเกตจาก HTTP ไม่ได้: `TestClient` เป็น sync และเราแทรก `lock_timeout` เข้า connection ของแอปไม่ได้ · **ล้มเมื่อลบคำสั่งล็อก — ยืนยันด้วย mutation แล้ว**)
+
+  ⚠️ **กับดักที่เจอจริงในรอบนี้ — เทสต์ที่ยิงสอง connection "ดูน่าเชื่อ" แต่ไม่มีฟัน**: เวอร์ชันแรกใช้สอง connection ยิงพร้อมกันด้วยลำดับตรงข้าม แล้วถือว่าถ้าไม่มี `DeadlockDetectedError` แปลว่าเรียงถูก · **mutation เปิดโปงว่ามันผ่านทั้งที่ถอด `sorted()` ออก** เพราะฝั่งแรกยึดล็อกครบทั้งสองใบ *ก่อน* ฝั่งที่สองเริ่ม ⇒ ฝั่งที่สองแค่ "รอ" แล้วไปต่อ ไม่มีทางเกิด deadlock ไม่ว่าโค้ดจะเรียงหรือไม่ · อีกจุด: ด่านที่เช็ค `"sorted(" in inspect.getsource(...)` **ผ่านเพราะไปเจอคำว่า `sorted()` ใน docstring** ไม่ใช่ในโค้ด ⇒ เทสต์เชิงซอร์สต้องจับ **บรรทัดที่เรียกจริง** (regex ผูกกับต้นบรรทัด) ไม่ใช่ค้นสตริงทั้งบล็อก
+- **Date Added:** 2026-09-13
+
+### 🏁 หน้าเดียวอาจต้องมี **หลาย guard** และ guard ต้องครอบ `catch`/`finally` ด้วย ไม่ใช่แค่ทางสำเร็จ
+- **Context/Problem:** ต่อยอดจากหัวข้อ "ตัวนับรุ่น" ข้างบน — รอบนั้นใส่ guard ให้ตัวโหลดหลักของแต่ละหน้า แต่ (ก) `DebtorList` มี **สองการโหลดอิสระ** (รายการลูกหนี้ + หนี้รายคนใน modal) ⇒ ต้องมี **2 guard** (ข) `handleClearDebt` เป็น action ที่ **await แล้วปิด modal** ⇒ ถ้าผู้ใช้ปิด/เปิด modal ใหม่ระหว่างรอ คำตอบเก่าจะเขียน `studentDebts`/`selectedPaymentIds` ทับของคนละคน แล้ว **ปิด modal ที่เพิ่งเปิด** — ซึ่งอ่านไม่ได้ว่าเกิดจากคำขอไหน
+- **Root Cause:** มอง guard เป็นเรื่องของ "การโหลดข้อมูลเข้าหน้า" ทั้งที่มันคือเรื่องของ **"คำตอบนี้ยังเกี่ยวกับสิ่งที่ผู้ใช้กำลังดูอยู่ไหม"** ⇒ ทุก side effect ที่ตามหลัง `await` ต้องถูกถามคำถามเดียวกัน รวมถึงการปิด modal และการขึ้นข้อความ error · และ `catch`/`finally` ถูกละเลยบ่อยเพราะคิดว่า "แค่ error/แค่ปิดสปินเนอร์" — ที่จริง `catch` ที่ไม่ guard จะ **ขึ้นกล่อง error ของการกระทำที่ผู้ใช้เลิกสนใจไปแล้ว** และ `finally` ที่ไม่ guard จะ **ปิดสปินเนอร์ของคำขอใหม่**
+- **Correct Pattern/Solution:** หนึ่งการโหลด = หนึ่ง guard (ห้ามใช้ร่วม — `begin()` ของตัวหนึ่งจะฆ่าอีกตัวทันที) และเช็คให้ครบ **ทั้งสามจุด** รวมถึงก่อน side effect ที่ไม่ใช่การเขียนข้อมูล:
+  ```ts
+  const token = debtGuard.begin();
+  try { const res = await Svc.getStudentDebts(...);
+        if (!debtGuard.isCurrent(token)) return;   // ก่อนเขียน studentDebts/selectedPaymentIds
+        studentDebts.value = res; }
+  catch (e) { if (!debtGuard.isCurrent(token)) return;   // ก่อน Swal.fire + ปิด modal
+              Swal.fire({ icon: 'error', ... }); }
+  finally { if (debtGuard.isCurrent(token)) isLoadingDebts.value = false; }
+  ```
+- **Rule:** (1) หนึ่งการโหลด = หนึ่ง guard เสมอ (2) ทุก side effect ที่ตามหลัง `await` ต้องถูก guard — **รวมการปิด modal และการขึ้น error** ไม่ใช่แค่การเขียนข้อมูล (3) `finally` ที่ไม่ guard จะปิดสปินเนอร์ของคำขอที่ใหม่กว่า (4) view ไม่มี unit test ในโปรเจกต์นี้ ⇒ ช่องนี้กันด้วยการรีวิว + คอมเมนต์ (เขียนไว้ตรง ๆ ว่าเป็นช่องที่ยังไม่มีเทสต์)
+- **Tests:** `frontend/src/utils/__tests__/latest.spec.ts` ครอบตัวช่วย (รวมเคส "สอง guard อิสระ") แต่ **ตัว view เองไม่มีเทสต์** — เป็นช่องที่รู้ตัวและยอมรับ
+- **Date Added:** 2026-09-13
+
+### ⏱️ (แก้คำอธิบายเดิม) `setTimeout(..., 0)` **ไม่ได้** การันตีว่าเบราว์เซอร์อ่าน URL ไปแล้ว — และ 0 ms สั้นเกินไปสำหรับไฟล์ใหญ่
+- **Context/Problem:** หัวข้อ "`URL.revokeObjectURL` ต้องเลื่อนออกไปหนึ่งคาบ" ข้างบนตั้งค่าเป็น `0` ms พร้อมคอมเมนต์ที่อ้างว่า "เบราว์เซอร์ได้เริ่มโหลดก่อนเสมอ" — **ข้ออ้างนั้นพิสูจน์ไม่ได้** · `setTimeout(..., 0)` รับประกันแค่ **ลำดับของ task** (ว่ามันไปคิวถัดไป) ไม่ได้รับประกันว่าเบราว์เซอร์ **dereference URL แล้ว** ⇒ คอมเมนต์ที่อ้างเกินหลักฐานจะถูกอ่านเป็น "ปัญหานี้ปิดแล้ว" แล้วไม่มีใครกลับมาดูอีก · และการอ้าง FileSaver.js ที่ใช้ 40 วินาทีก็เป็นการอ้างที่ผิดบริบท (40 วิของเขาคือกรณี **blob URL ถูกอ่านจากหน่วยความจำในเครื่อง** ซึ่งคนละกลไกกับ "รอให้เบราว์เซอร์เริ่มโหลด")
+- **Root Cause:** เขียนคอมเมนต์เพื่อ **ปิดประเด็น** แทนที่จะเขียนเพื่อ **บอกขอบเขตของสิ่งที่รู้** ⇒ ค่าคงที่ถูกเลือกจากความสวยงาม (0 ดูตั้งใจดี) ไม่ใช่จากการวัด
+- **Correct Pattern/Solution:** เพิ่มเป็น `1000` ms และ **เขียนคอมเมนต์ใหม่ให้ตรงกับสิ่งที่รู้จริง** — ระบุว่า `setTimeout` การันตีแค่ลำดับ task, ระบุว่าการที่เบราว์เซอร์อ่าน URL แล้วหรือยัง **พิสูจน์ตรงนี้ไม่ได้**, และระบุว่า FileSaver.js 40 วิ เป็นคนละกรณี:
+  ```ts
+  link.click(); link.remove();
+  // 1000 ms: setTimeout(0) การันตีแค่ลำดับ task ไม่ได้แปลว่าเบราว์เซอร์ dereference URL แล้ว
+  // (พิสูจน์ ณ จุดนี้ไม่ได้) — เลือก 1 วิให้ไฟล์ใหญ่มีเวลาพอ; การปิดแท็บทำให้ข้าม revoke
+  // ซึ่งไม่ใช่ leak เพราะ Blob ตายพร้อม document
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+  ```
+- **Rule:** (1) อย่าเขียนคอมเมนต์ที่อ้างการันตีซึ่งพิสูจน์ไม่ได้ — เขียนว่า **อะไรรู้ / อะไรไม่รู้** แล้วให้คนอ่านตัดสิน (2) เมื่อยกเหตุผลจากไลบรารีอื่นมา ต้องบอกว่าเป็น **คนละกรณี** ถ้าเป็น (3) ค่าคงที่ที่เลือกจากความรู้สึก ควรมีคอมเมนต์บอกว่า "ทำไมค่านี้" ไม่ใช่ปล่อยให้อ่านเป็นค่าศักดิ์สิทธิ์
+- **Tests:** ไม่มี unit test (jsdom ไม่จำลองพฤติกรรม download) — ป้องกันด้วยคอมเมนต์ที่ `frontend/src/utils/download.ts`
+- **Date Added:** 2026-09-13
+
+### 🗂️ DDL — `IF NOT EXISTS` **ไม่ได้** แปลว่า "ทำให้ตรงกับที่เขียนไว้" — มันแปลว่า "ถ้ามีแล้วก็ผ่านไป"
+- **Context/Problem:** รอบแก้ #60 ต้องเพิ่มคอลัมน์ `status`/`voided_at`/`voided_by`/`void_reason`/`event_at` ให้ `finance_receipts` และต้องเปลี่ยนความหมายของใบที่ถูกยกเลิก · ทุกตารางใน `init_db.py` เขียนด้วย `CREATE TABLE IF NOT EXISTS` และทุก index ด้วย `CREATE UNIQUE INDEX IF NOT EXISTS` ⇒ **บน DB ที่ deploy F3 ไปแล้วทั้งคู่เป็น no-op เงียบ ๆ** ⇒ คอลัมน์ใหม่ไม่ถูกเพิ่ม (`SELECT R.status` → 500 ทุกครั้ง) และ index ที่ predicate เปลี่ยนก็ยังเป็น predicate เก่า
+- **Root Cause:** อ่าน `IF NOT EXISTS` เป็น "idempotent migration" ทั้งที่มันเช็คแค่ **การมีอยู่ของชื่อ** ไม่ได้เช็ค **โครงสร้างข้างใน** · กับดักนี้เงียบสนิท: `init_db` จบด้วยข้อความ "✅ Tables & Smart Constraints Initialized Successfully" เหมือนเดิมทุกครั้ง ⇒ log บอกว่าสำเร็จทั้งที่ schema ไม่ขยับ
+- **Correct Pattern/Solution:**
+  - คอลัมน์ที่เพิ่มทีหลัง → `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` ในบล็อก "Extra Alterations" (คู่กับ `CREATE TABLE` ที่แก้ให้ตรงกัน สำหรับ DB ที่สร้างใหม่)
+  - **constraint** ที่เพิ่ม/แก้ทีหลัง → `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` (idiom เดียวกับ `users_email_key`)
+  - **predicate ของ partial unique index แก้บน DB ที่มีอยู่ไม่ได้เลย** — `CREATE UNIQUE INDEX IF NOT EXISTS` ที่ predicate ต่างจากเดิมจะ **ไม่ error และไม่แก้** ⇒ ถ้าต้องการความหมายใหม่ ต้อง **ออกแบบให้ predicate เดิมใช้ต่อได้** แทนการแก้ index
+    - 🔬 **ยืนยันด้วยการทดลองจริง (13 ก.ย. 2026)**: สร้าง index ด้วย predicate หนึ่ง แล้วรัน `CREATE UNIQUE INDEX IF NOT EXISTS` ชื่อเดิม predicate ใหม่ ⇒ ไม่ error, index ยังเป็น predicate เดิม ⇒ **ทางรอดเดียวคือไม่ต้องแก้**: เลือกตั้ง `deleted_at` คู่กับ `status='voided'` เพื่อให้ predicate เดิม (`WHERE deleted_at IS NULL ...`) กรองใบที่ยกเลิกออกให้เองโดยไม่ต้องแตะ index
+- **Rule:** (1) แก้ schema ของตารางที่ ship แล้ว = ต้องมี `ALTER` เสมอ ไม่ใช่แก้ `CREATE TABLE` (2) อย่าเปลี่ยน predicate ของ index ที่มีอยู่ — ถ้าจำเป็นจริงต้อง `DROP INDEX` แล้วสร้างใหม่ ซึ่งต้องแยกเป็นงาน migration (3) ข้อความ "success" ของ `init_db` **ไม่ได้** ยืนยันว่า schema ตรงกับโค้ด — ต้องมีเทสต์ที่เรียก endpoint จริง (suite สร้าง DB ใหม่ทุกครั้งจึงไม่จับกับดักนี้เลย)
+- **Tests:** `test_finance_receipts.py` ยิงผ่าน HTTP ทั้งไฟล์ ⇒ ถ้าลืม `ALTER` เทสต์จะไม่จับ (DB ทดสอบสร้างใหม่จาก `CREATE TABLE`) — ช่องนี้กันด้วย review + คอมเมนต์ที่ `core/init_db.py`
+- **Date Added:** 2026-09-14
+
+### 💥 `except asyncpg.UniqueViolationError` ใน explicit transaction = **ต้องมี SAVEPOINT** ไม่งั้นคำสั่งถัดไปพังเป็น 500
+- **Context/Problem:** การออกใบเสร็จมี "ด่าน idempotency ชั้นที่ 2" สำหรับกรณีแพ้การแข่งขัน — จับ `UniqueViolationError` จาก `INSERT` แล้ว **อ่านใบที่ชนะกลับมาคืน** เพื่อให้การพิมพ์ซ้ำพร้อมกันได้ใบเดิมแทน error · เทสต์ที่จำลองการแข่งจริงเปิดโปงว่าเส้นทางนี้ **พังทุกครั้ง**: `_find_existing` ในบล็อก `except` โยน `InFailedSQLTransactionError` (25P02) ซึ่ง router ไม่รู้จัก ⇒ **500** แทนที่จะได้ใบเดิมคืน ⇒ ตัวจัดการการแข่งกลายเป็นโค้ดที่ทำให้แย่ลงกว่าไม่มีมัน
+- **Root Cause:** ใน Postgres เมื่อ statement ใดล้มเหลว **transaction ทั้งก้อนถูกทำเครื่องหมาย aborted** และจะปฏิเสธทุกคำสั่งถัดไปจนกว่าจะ `ROLLBACK` — การจับ exception ฝั่ง client ไม่ได้ล้างสถานะนั้นให้ (ข้อยกเว้นเดียวคือ error ที่เกิดใน subtransaction ที่มี SAVEPOINT) ⇒ โค้ดที่ "จับ error แล้วลองอย่างอื่นต่อ" จะทำงานได้เฉพาะเมื่อห่อ statement ที่อาจล้มด้วย savepoint เท่านั้น
+- **Correct Pattern/Solution:** ห่อ **เฉพาะ statement ที่อาจชน** ด้วย `async with conn.transaction():` ซึ่งเมื่ออยู่ใน transaction ที่มีอยู่แล้ว = `SAVEPOINT` ของ asyncpg:
+  ```python
+  try:
+      async with conn.transaction():        # ← SAVEPOINT: ย้อนแค่ INSERT ไม่ใช่ทั้งก้อน
+          row = await conn.fetchrow("INSERT INTO finance_receipts ... RETURNING ...")
+  except asyncpg.UniqueViolationError:
+      raced = await conn._find_existing(...)   # ← ใช้ conn ได้แล้ว (transaction ยัง healthy)
+      if raced: return {"receipt": raced, "reused": True}
+      raise ValueError(...)
+  ```
+- **Rule:** (1) `except <DB error>` แล้ว **แตะ `conn` ต่อ** ⇒ ต้องมี savepoint เสมอ (2) `except` ที่แค่ `raise ValueError` ไม่ต้องมี savepoint เพราะ exception หลุดออกไปทำให้ transaction rollback เอง — ตรวจทั้งสามจุดในโปรเจกต์แล้ว มีเพียงจุดนี้ที่แตะ `conn` ต่อ (3) ทางเลือกที่ไม่ต้องมี savepoint เลยคือ **อ่านจาก connection ใหม่** — แต่ในกรณีนี้จะไม่เห็นแถวที่คำขออื่นยังไม่ commit ⇒ ไม่ใช้ (4) logging ในบล็อก `except` ของ service ต้องใช้ `log_conn` จาก pool ใหม่ **ไม่ใช่ `conn` เดิม** (pattern นี้ถูกต้องอยู่แล้วทุกที่ในโมดูลการเงิน)
+- **Tests:** `test_the_loser_of_the_race_gets_the_winning_receipt_not_a_500` (+ คู่กัน `test_the_room_lock_funnels_the_same_race_into_layer_one`) — **ยืนยันด้วย mutation แล้ว**: เปลี่ยน `async with conn.transaction():` เป็น `if True:` ⇒ ล้มด้วย `InFailedSQLTransactionError` (25P02) ที่ `_find_existing` ในบล็อก `except` และเทสต์คู่กันยังผ่าน (พิสูจน์ว่าสองเทสต์จับคนละเส้นทางจริง)
+- **⚠️ บทเรียนที่แถมมา (สำคัญกว่าตัว fix):** เขียนเทสต์ให้ถึงบรรทัดนี้ได้ยากกว่าที่คิด — และการพยายามเขียนมันเปิดโปงว่า **ภายใต้ lock protocol ปัจจุบัน ตัวจัดการนี้ไม่มีทางถูกเรียกจากเส้นทางในโปรเจกต์เลย**
+  - ลำดับที่ต้องเกิด: คำขอผ่าน `_find_existing` (ยังไม่เห็นแถวคู่แข่ง) → คู่แข่ง INSERT + COMMIT → คำขอ INSERT → ชน unique index
+  - แต่การ INSERT แถวลูกของ `finance_receipts` จะถือ `FOR KEY SHARE` บนแถว `student_payments` ซึ่ง **ชนกับ `FOR UPDATE OF SP`** ที่ `_load_payment` ยึดไว้ ⇒ คู่แข่งที่ยิงพร้อมกันจะไปติดที่ `_load_payment` **ก่อน** แล้วพอ commit ชั้นที่ 1 ก็อ่านเจอเอง (`reused: True` โดยไม่มีการจองเลขฟุ่มเฟือย — ดูเทสต์ `..._funnels_..._into_layer_one`)
+  - และทางที่ "กลับด้าน" (คู่แข่ง INSERT ค้างไว้ก่อน แล้วคำขอค่อยเข้าล็อกบิล) จะทำให้คู่แข่งไปติด FK lock ของคำขอ ⇒ **deadlock** ไม่ใช่ UniqueViolation
+  - ⇒ วิธีที่ deterministic ทางเดียวคือจำลอง **"ผู้เขียนที่ข้าม lock protocol"** ด้วย `SET LOCAL session_replication_role = replica` บนอีก connection (ปิด trigger ของ FK จึงไม่ยึด KEY SHARE — ไม่ได้ปิด CHECK) ซึ่งตรงกับสถานการณ์ที่ตัวจัดการนี้มีไว้กันพอดี
+  - 🔬 และบทเรียนทั่วไป: **เทสต์ที่ "จัดฉาก" ให้ถึงบรรทัดหนึ่งได้ มักเปิดโปงว่าบรรทัดนั้นตายอยู่** — อย่าเพิ่งสรุปว่าจัดฉากไม่เก่ง จนกว่าจะพิสูจน์ว่าไม่มีลำดับการล็อกใดไปถึงได้เลย (ที่นี่พิสูจน์ด้วยเมทริกซ์การชนของ row lock: `FOR KEY SHARE` ชนกับ `FOR UPDATE` เท่านั้น)
+  - ⚠️ เมื่อก่อนหน้านี้มีเทสต์ที่ "ถึงบรรทัดนี้" ได้ (`test_voided_receipt_does_not_count_as_already_issued` เวอร์ชันแรก) มันถึงได้เพราะสร้างสถานะ `status='voided'` + `deleted_at IS NULL` ซึ่ง **ขัดกับตัวกรองของ `_find_existing`** ⇒ พอเติม `chk_receipt_voided_is_deleted` ปิดสถานะนั้น ทางนั้นก็ปิดไปด้วย — คือการแก้ที่ถูกต้องแล้วทำให้โค้ดบรรทัดหนึ่ง "ตาย" อย่างหลีกเลี่ยงได้ และนั่นเป็นเหตุผลที่ต้องเขียนเทสต์ที่จำลองผู้เขียนนอกโปรโตคอลไว้ตรึงพฤติกรรมแทน
+- **Date Added:** 2026-09-14
+
+### 📤 `response_model` ตัดฟิลด์ที่ service คืนมาให้ **เงียบ ๆ** — ฟิลด์ใหม่ต้องประกาศที่โมเดล ไม่ใช่แค่ใน dict
+- **Context/Problem:** #60 ให้ `revert_transaction` คืน `voided_receipts` (เลขใบเสร็จที่ถูกยกเลิกเพราะรายการนั้น) เพื่อให้ผู้ใช้รู้ว่ากระดาษใบไหนโมฆะ ⇒ เทสต์ที่ตรวจ **body** ได้ `KeyError: 'voided_receipts'` ทั้งที่ service ใส่ค่ามาครบและ route ตอบ 200 · สาเหตุคือ route ใช้ `response_model=SuccessResponse` ซึ่งมีแค่ `status`/`message` ⇒ Pydantic **ตัดฟิลด์ส่วนเกินทิ้ง**
+- **Root Cause:** กฎ "router ต้องประกาศ `response_model` เสมอ" (เพื่อกรอง secret) ถูกจำว่าเป็นเรื่องความปลอดภัยฝ่ายเดียว — แต่ผลข้างเคียงคือมันเป็น **allowlist**: ฟิลด์ที่ไม่อยู่ในโมเดลจะหายไปโดยไม่มี warning, ไม่มี log, และ **status ยังเป็น 200** ⇒ เทสต์ที่ตรวจแค่ `status_code == 200` จะเขียวทั้งที่ข้อมูลไม่ถึงผู้ใช้เลย
+- **Correct Pattern/Solution:** สร้างโมเดลที่สืบทอดจากของเดิมแล้วเพิ่มฟิลด์ แทนการแก้โมเดลกลางที่ใช้ร่วมกับ endpoint อื่น:
+  ```python
+  class TransactionRevertResponse(SuccessResponse):
+      voided_receipts: List[str] = []
+  ```
+  แล้วเปลี่ยน `response_model` ของ route นั้น **จุดเดียว**
+- **Rule:** (1) เพิ่มฟิลด์ให้ response ของ service ⇒ **ต้องแก้/สร้าง response model ด้วย** ไม่งั้นเป็น dead payload (2) เทสต์ที่ยืนยันสัญญากับ client ต้องตรวจ **body** ไม่ใช่แค่ status (3) อย่าเติมฟิลด์เฉพาะทางลงโมเดลกลางที่ endpoint อื่นใช้ร่วม — สร้าง subclass
+- **Tests:** `test_revert_report_includes_the_voided_receipt_numbers` (ตรวจ body + audit log) — **ล้มก่อนแก้ด้วย `KeyError`**
+- **Date Added:** 2026-09-14
+
+### 🔒 สถานะที่ "ตันสองทาง" ต้องทำให้ **เกิดไม่ได้ที่ DB** (CHECK) ไม่ใช่พึ่งวินัยของคนเขียนโค้ด
+- **Context/Problem:** ระหว่างเขียนเทสต์ #60 พบว่าถ้ามีแถวที่ `status='voided'` แต่ `deleted_at IS NULL` ระบบจะ **ตันทั้งสองทาง**: partial unique index ยังนับว่ามีใบอยู่ ⇒ ออกใบใหม่ของงวดเดิมไม่ได้ (ได้ 400 "เลขเอกสารซ้ำ" ซึ่ง **โกหก** เพราะไม่มีเลขซ้ำ) และ `_find_existing` ก็ไม่คืนใบเดิมเพราะกรอง `status='active'` ⇒ ข้อความ error ชี้ผิดทางและผู้ใช้แก้เองไม่ได้
+- **Root Cause:** "voided ต้องตั้ง `deleted_at` คู่กัน" ถูกเก็บเป็น **ความเชื่อในหัวคนเขียน** (เขียนไว้ในคอมเมนต์ + docstring) · คอมเมนต์กันไม่ได้: ไม่มีเทสต์ไหนพิสูจน์ได้ว่าทุกเส้นทางเขียนทำจริง และวันหนึ่งจะมีคนเพิ่มเส้นทาง void ใหม่ที่ไม่รู้กฎนี้
+- **Correct Pattern/Solution:** เข้ารหัส invariant เป็น **CHECK constraint บังคับทิศทางเดียว**: `CHECK (status = 'active' OR deleted_at IS NOT NULL)` · ต้องคู่กับ `CHECK (status IN (...))` ตัวเดิม — สองตัวทำคนละหน้าที่ (จำกัดโดเมน vs ผูกสองคอลัมน์เข้าหากัน) · `ADD CONSTRAINT` บน DB ที่ deploy แล้วปลอดภัยเพราะคอลัมน์ `status` เพิ่งถูกเพิ่มด้วย `DEFAULT 'active'` ⇒ ไม่มีแถวเดิมที่ฝ่าฝืน
+- **Rule:** (1) ความสัมพันธ์ระหว่างคอลัมน์ที่เป็น "ต้องเป็นคู่กัน" → CHECK constraint ไม่ใช่คอมเมนต์ (2) ถ้าสถานะหนึ่งทำให้ระบบ **ตัน** และข้อความ error ชี้ผิด → นั่นคือ invariant ที่ต้องบังคับ ไม่ใช่เคสที่ต้องเขียน error message ให้ดีขึ้น (3) ก่อน `ADD CONSTRAINT` บนตารางที่มีข้อมูล ต้องตอบให้ได้ว่า **ไม่มีแถวเดิมฝ่าฝืน** ไม่งั้น deploy ล้มทั้งระบบ
+- **Tests:** `test_voided_status_without_soft_delete_is_rejected_by_the_db` (ยืนยันทั้งขาที่ต้องถูกปฏิเสธ และขาที่ถูกต้องว่าผ่าน)
+- **Date Added:** 2026-09-14
+
+### 🗓️ "วันที่ของเอกสาร" ต้องเป็น **ค่าเดียวกันกับที่มาของปีบนเลขเอกสาร** — ไม่ใช่สองนาฬิกาที่บังเอิญตรงกัน
+- **Context/Problem:** #62 กำหนดว่าใบเสร็จต้องยึด "เวลาไทย ณ วินาทีที่บันทึกการจ่ายเงิน" เป็นตัวตั้งต้นของ **ทั้ง** ปี พ.ศ. บนเลขเอกสาร **และ** วันที่ที่พิมพ์บนกระดาษ · ก่อนหน้านี้ปีมาจาก `finance_transactions.created_at` แต่วันที่พิมพ์มาจาก `issued_at` ⇒ ใบเสร็จของงวด ธ.ค. ที่ออกใน ม.ค. ได้เลข `REC-2569-xxxx` แต่บรรทัดวันที่เป็น "ม.ค. 2570" = **เอกสารขัดแย้งกับตัวเอง** และเป็นบั๊กที่ไม่มีเทสต์ไหนจับได้เพราะ `receipt_no` ยังถูกทุกตัวอักษร
+- **Root Cause:** "วันที่ของเอกสาร" ถูกคิดว่าเป็นเรื่องของ **การแสดงผล** (จึงอ่านจากเวลาที่แสดง/พิมพ์) ทั้งที่เป็นเรื่องของ **ตัวเอกสาร** (ต้องอ่านจากเวลาของเหตุการณ์) ⇒ พอสองแนวคิดนี้อยู่ในโค้ดเดียวกัน ค่าจึงมาจากคนละคอลัมน์โดยไม่มีใครสังเกต
+- **Correct Pattern/Solution:** เก็บ `event_at` เป็นคอลัมน์ และใช้ **นิพจน์เดียว** ทั้งการกรอง การเรียง และการพิมพ์ — `_DOC_DATE = "COALESCE(R.event_at, R.issued_at)"` · และ `event_at` ต้องเป็นค่า **ตัวเดียวกับที่คำนวณ `year_be`**:
+  ```python
+  raw_event_at = event["event_at"]
+  if raw_event_at is not None:
+      event_at = _as_utc(raw_event_at)
+      year_be  = cls._thai_year_be(raw_event_at)      # ← วินาทีเดียวกัน
+  else:                                                # ใบแจ้งหนี้ / ข้อมูลยุคก่อนมีคอลัมน์
+      event_at = issued_at_db
+      year_be  = issued_at_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+  ```
+  - 🔑 `SELECT CURRENT_TIMESTAMP` = `transaction_timestamp()` ⇒ **คงที่ทั้ง transaction** ⇒ อ่านครั้งเดียวต่อ transaction ทำให้ใบแจ้งหนี้มี `event_at == issued_at` **เป๊ะ** และใบทั้งชุดของ batch ได้ `issued_at` เดียวกัน — ห้ามใช้ `datetime.now()` ของแอป (3 replica = 3 นาฬิกา)
+  - ใบที่ยกเลิกต้อง **พิมพ์ได้** พร้อมแบนเนอร์ "ยกเลิก" — ปฏิเสธการพิมพ์จะทำให้ต้นฉบับที่ผู้ปกครองถืออยู่กลายเป็นเอกสารที่ระบบปฏิเสธว่าตัวเองไม่เคยออก
+- **Rule:** (1) ค่าที่ "ต้องตรงกันเสมอ" ต้องมาจาก **นิพจน์เดียวกัน** ไม่ใช่สองคอลัมน์ที่บังเอิญเท่ากัน (2) เวลาที่ต้องการความคงที่ทั้ง transaction ต้องอ่านจาก DB (`CURRENT_TIMESTAMP`) ไม่ใช่ `now()` ของแอป (3) การกรองกับสิ่งที่พิมพ์ **ต้องใช้ตัวเดียวกัน** ไม่งั้นผู้ใช้ค้นใบเสร็จไม่เจอทั้งที่ถืออยู่ในมือ (4) ก่อนย้ายแหล่งความจริง ต้องหาเทสต์ที่เคย "ผ่าน" ด้วยความบังเอิญแล้วทำให้มันแยกแยะได้จริง (ดูหัวข้อถัดไป)
+- **Tests:** `test_printed_date_follows_the_payment_event_not_the_print_time` · `test_doc_year_and_printed_date_cross_the_buddhist_year_together` · `test_date_filter_follows_event_at_not_issued_at` · `test_invoice_event_at_is_exactly_its_own_issued_at` · `test_legacy_receipt_without_event_at_falls_back_to_issued_at`
+- **Date Added:** 2026-09-14
+
+### 🧪 เทสต์ที่ seed สองค่า "เกือบเท่ากัน" **แยกไม่ออก** ว่าโค้ดอ่านคอลัมน์ไหน — ต้องบังคับให้ต่างกันก่อน
+- **Context/Problem:** ตอนย้าย "วันที่ของเอกสาร" จาก `issued_at` → `event_at` มีเทสต์เดิมสองตัวที่อ่านค่าที่คาดหวังจาก `issued_at` (`test_pdf_prints_thai_buddhist_dates...`, `test_get_receipts_filters_by_thai_calendar_day`) · ทั้งคู่ **ผ่านต่อทั้งก่อนและหลังการแก้** เพราะข้อมูลที่ seed (รับเงินแล้วออกใบเสร็จทันที) ทำให้ `event_at ≈ issued_at` ห่างกันไม่กี่มิลลิวินาที ⇒ ถ้าเชื่อสองตัวนี้จะสรุปผิดว่า "ย้ายเสร็จและมีเทสต์คุ้มแล้ว"
+- **Root Cause:** เทสต์ถูกเขียนให้ตอบคำถาม "ผลลัพธ์ถูกไหม" แต่ **ไม่ได้ออกแบบให้คำตอบต่างกันได้** ระหว่างสมมติฐานทั้งสอง ⇒ เป็นเทสต์ที่พิสูจน์ไม่ได้ว่าอะไร (เทสต์ที่ไม่สามารถ fail ได้ด้วย mutation ที่สมเหตุสมผล = ไม่มีฟัน)
+- **Correct Pattern/Solution:** seed ข้อมูลที่ทำให้สองค่าที่เป็นไปได้ **ห่างกันชัดเจน** แล้ว assert ทั้งสองทิศ:
+  ```python
+  event_utc = datetime(2026, 5, 20, 3, 0)    # เหตุการณ์ 20 พ.ค. 2569
+  ft_id = await _seed_payment_event(..., created_at=event_utc)
+  ...
+  assert "20 พ.ค. 2569 10:00 น." in html                       # (ก) ตามค่าที่ถูก
+  assert issued_text not in html                               # (ข) และต้อง **ไม่มี** ค่าที่ผิด
+  assert issued_at.astimezone(THAI_TZ).date() != date(2026,5,20)  # (ค) ยืนยันว่าเทสต์มีฟันจริง
+  ```
+  ข้อ (ค) สำคัญที่สุด: มันคือ **เทสต์ของเทสต์** — ถ้าวันหนึ่งมีคนแก้ข้อมูล seed จนสองค่านี้กลับมาเท่ากัน ตัว assert จะบอกทันทีว่าเทสต์หมดความหมายแล้ว ไม่ใช่ผ่านเงียบ ๆ
+- **Rule:** (1) เทสต์ที่ย้าย "แหล่งความจริง" ต้อง **บังคับให้ค่าทั้งสองต่างกัน** ไม่งั้นเป็นเทสต์ที่ผ่านด้วยความบังเอิญ (2) ใส่ assert ที่ยืนยันว่า **เงื่อนไขของเทสต์เองยังเป็นจริง** (guard กันเทสต์กลายเป็นโมฆะ) (3) ตรวจด้วยว่าเทสต์ **fail ก่อนการแก้** หรือไม่ — ถ้าไม่ fail แปลว่ายังไม่ครอบอะไร
+- **Tests:** ตัวเองเป็นตัวอย่าง — สองตัวเดิมถูกเพิ่มหมายเหตุตรง ๆ ว่า "ตัวที่มีฟันจริงคืออีกตัว" เพื่อไม่ให้คนอ่านเข้าใจผิดว่าคุ้มแล้ว
+- **Date Added:** 2026-09-14
+
+### 🔄 `init_db(pool)` รันใน lifespan ของ **ทุก replica** โดยไม่มี advisory lock ⇒ การ `DROP CONSTRAINT` + `ADD CONSTRAINT` มีช่วงแข่ง
+- **Context/Problem:** ทุก replica (3 ตัวใน `docker-compose.app.yml`) รัน `init_db` ตอน start ⇒ การ deploy หนึ่งครั้งรัน DDL พร้อมกันสามชุด · `CREATE TABLE IF NOT EXISTS` ทนได้ (Postgres จัดการแข่งให้) แต่ **`DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` เป็นสองคำสั่ง** ⇒ replica B อาจ `ADD` สำเร็จแล้ว replica A `DROP` ทิ้งต่อ แล้ว `ADD` ของ A ชนกับของ B = error ตอนบูต (หรือเหลือช่วงที่ constraint หายไป)
+- **Root Cause:** `init_db` ถูกออกแบบตอนที่ยังไม่มีการใช้ constraint ที่ต้อง DROP ก่อน — โมเดลคิดว่า "DDL เป็น idempotent ทั้งหมด" ซึ่งจริงเฉพาะตระกูล `IF NOT EXISTS`
+- **Correct Pattern/Solution:** รอบนี้ **ตาม idiom เดิมของไฟล์** (`users_email_key`) เพราะ (ก) เป็นรูปแบบที่ ship แล้วและมีเทสต์อยู่ (ข) ความกว้างของช่วงแข่งเป็นระดับมิลลิวินาทีและ **self-healing** — replica ที่แพ้แค่ fail ตอนบูตแล้ว restart เข้ามาใหม่ได้ (ค) การเปลี่ยนเป็น `pg_advisory_lock` รอบ `init_db` เป็นการเปลี่ยนพฤติกรรม bootstrap ทั้งระบบ ควรทำเป็นงานแยกที่มีเทสต์ deploy จริง
+- **Rule:** (1) DDL ที่ไม่ใช่ `IF NOT EXISTS` ใน bootstrap = ต้องรู้ตัวว่ามีช่วงแข่งและ **เขียนเหตุผลที่ยอมรับไว้ในโค้ด** (2) อย่าแก้ bootstrap ทั้งระบบเป็นงานแถม (3) ถ้าต้องเพิ่ม constraint ที่ DROP ก่อน ให้ตรวจว่าคำสั่งคู่ `DROP`+`ADD` **อยู่ติดกัน** และรันใน `conn.execute` เดียวกันไม่ได้ (คนละ statement) — ลดช่วงแข่งเท่าที่ทำได้
+- **Tests:** ไม่มี (ต้องมี deploy จริงหลาย replica) — บันทึกเป็นช่องที่รู้ตัว
+- **Date Added:** 2026-09-14
