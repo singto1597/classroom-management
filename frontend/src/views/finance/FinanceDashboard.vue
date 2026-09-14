@@ -548,6 +548,28 @@ watch([selectedMonth, selectedYear], () => {
           </span>
           <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
         </RouterLink>
+
+        <!--
+          💰 เงินรับล่วงหน้า (F4) — ลิงก์เต็มความกว้างแบบเดียวกัน
+          ⚠️ ลิงก์นี้อยู่ในหน้าที่ gate ด้วย `isAdmin` ⇒ **ไม่ใช่ทางเข้าเดียว**
+             ทางเข้าที่ไม่ผ่าน `isAdmin` อยู่ที่หัวหน้า `DebtorList.vue` (ดูคอมเมนต์ที่นั่น)
+             เพราะหน้านั้นเปิดให้สมาชิกอยู่แล้ว ⇒ เหรัญญิกที่มี MANAGE_FINANCE เข้าได้แน่นอน
+        -->
+        <RouterLink
+          to="/finance/credits"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+            <i class="bi bi-piggy-bank text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-stone-700">เงินรับล่วงหน้า</span>
+            <span class="block truncate text-xs text-stone-500">
+              เครดิตคงเหลือรายคน · หักปิดบิล · ยังไม่นับเป็นรายได้จนกว่าจะหัก
+            </span>
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+        </RouterLink>
       </div>
 
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">

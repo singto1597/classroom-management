@@ -12,6 +12,14 @@ THAI_TZ = ZoneInfo("Asia/Bangkok")
 #   เพื่อไม่ให้รายการเก่า/ยอดยกมา เบิ้ลหรือตกหล่น
 CUTOFF_DATE = date(2026, 9, 1)
 
+# [F4] `reference_type` ของเงินรับล่วงหน้า — **ต้องใช้ค่าคงที่ ไม่พิมพ์สตริงเอง**
+# ⚠️ เหตุผลเดียวกับ `DOC_STATUS_*`: `reference_type` ถูกใช้เป็น **เงื่อนไขกรอง** ใน
+#    `budgets.py` (รายได้จากการหักเครดิตต้องถูกนับเข้างบ) และใน
+#    `_classify_journal_entry` (ต้องไม่โผล่ในประวัติเงินเคลื่อนไหว) ⇒ พิมพ์ผิด
+#    แล้วไม่มี error ให้เห็น มีแต่ "ยอดหายเงียบ ๆ" ซึ่งเป็นความผิดพลาดที่แพงที่สุด
+REFERENCE_TYPE_CREDIT_TOPUP = "student_credit_topup"
+REFERENCE_TYPE_CREDIT_APPLY = "student_credit_apply"
+
 # 📚 ฉลากไทยของ reference_type สำหรับคอลัมน์ Reference ใน export สมุดรายวัน
 # (reference_id ที่เก็บไว้ = id ของเอกสารต้นทาง เช่น legacy_transaction_id / transfer_group_id)
 REFERENCE_TYPE_LABELS = {
@@ -20,7 +28,35 @@ REFERENCE_TYPE_LABELS = {
     "student_payment": "ชำระเงิน",
     "opening_balance": "ยอดยกมา",
     "adjustment": "ปรับปรุงยอด",
+    # [F4] เงินรับล่วงหน้า (เครดิตคงเหลือรายนักเรียน) — ดู services/finance/credits.py
+    # 🔴 สองตัวนี้ **ไม่ใช่** รายได้/รายจ่ายทั้งคู่ในตัวเอง:
+    #    topup = รับเงินเข้ามาพัก (สินทรัพย์ ↔ หนี้สิน) / apply = ปล่อยรายได้ (หนี้สิน ↔ รายได้)
+    REFERENCE_TYPE_CREDIT_TOPUP: "รับเงินล่วงหน้า",
+    REFERENCE_TYPE_CREDIT_APPLY: "หักเงินรับล่วงหน้าปิดบิล",
 }
+
+# =====================================================================
+# [F4] เงินรับล่วงหน้า — เครดิตคงเหลือรายนักเรียน
+# =====================================================================
+
+# =====================================================================
+# [F4] เงินรับล่วงหน้า — เครดิตคงเหลือรายนักเรียน
+# =====================================================================
+# 🔴 รหัสบัญชี "เงินรับล่วงหน้า" — **หนี้สิน ไม่ใช่รายได้**
+#    เงินที่รับมาก่อนที่จะมีบิลยังไม่ใช่รายได้ของห้อง (ยังไม่มีสิ่งที่ส่งมอบให้)
+#    ⇒ รับเงิน = Dr สินทรัพย์ / Cr หนี้สิน, และรายได้เกิดตอน **หักปิดบิล** เท่านั้น
+#    ดู docs/skills.md หัวข้อ "ขาเงินพักต้องเป็น liability/equity"
+#
+# ⚠️ รหัสนี้อยู่ใน "ชุดที่ระบบ provision เอง" ไม่ใช่ 1xxxx/4xxxx/5xxxx/3000/3001 ที่ผูกกับ
+#    ตาราง legacy — เป็น ledger ที่ไม่มี `legacy_account_id` (ดูกติกาใน `_resolve_advance_ledger`)
+ADVANCE_LIABILITY_CODE = "2099"
+ADVANCE_LIABILITY_NAME = "เงินรับล่วงหน้า (เครดิตนักเรียน)"
+
+# ประเภทของรายการใน `student_credits` — ต้องตรงกับ `chk_student_credit_entry_type`
+# (ใช้ค่าคงที่ ไม่พิมพ์สตริงเอง ด้วยเหตุผลเดียวกับ DOC_STATUS_* ข้างบน)
+CREDIT_ENTRY_TOPUP = "topup"      # รับเงินเข้ามาพัก → เครดิตเพิ่ม
+CREDIT_ENTRY_APPLY = "apply"      # หักไปปิดบิล → เครดิตลด + เกิดรายได้
+CREDIT_ENTRY_REVERSE = "reverse"  # ยกเลิกการหัก → เครดิตคืน
 
 # [RECONCILE] ค่าคงที่สำหรับรายการกระทบยอด (Reconciliation) ระหว่างระบบ Legacy กับบัญชีคู่
 # - reference_type 'adjustment' = รายการปรับปรุงยอด (สร้างโดย script reconcile_finance เท่านั้น)
@@ -113,6 +149,9 @@ DEFAULT_FINANCE_ACCOUNTS = [
 # =====================================================================
 DOC_TYPE_RECEIPT = "receipt"
 DOC_TYPE_INVOICE = "invoice"
+# [F4] ใบรับเงินล่วงหน้า — เอกสารที่ **ไม่มีบิลรองรับ** (คนละรูปร่างกับ receipt/invoice)
+# ใช้แทนหลักฐานการรับเงินตอนเติมเครดิต ⇒ ต้องมี `_issue_deposit` แยก (reuse `_issue_one` ไม่ได้)
+DOC_TYPE_DEPOSIT = "deposit"
 # 🚫 สถานะเอกสาร — ต้องตรงกับ `chk_receipt_status` ใน init_db.py
 # ⚠️ ใช้ค่าคงที่ ไม่พิมพ์สตริงเอง เพราะ **พิมพ์ผิดใน "เงื่อนไขกรอง" ไม่มี error ให้เห็น**:
 #    `WHERE status = 'actve'` แค่คืนศูนย์แถวเงียบ ๆ ⇒ ใบเสร็จทั้งห้องหายจากหน้าจอโดยไม่มีใครรู้
@@ -122,12 +161,23 @@ DOC_STATUS_VOIDED = "voided"
 DOC_TYPE_LABELS = {
     DOC_TYPE_RECEIPT: "ใบเสร็จรับเงิน",
     DOC_TYPE_INVOICE: "ใบแจ้งหนี้",
+    DOC_TYPE_DEPOSIT: "ใบรับเงินล่วงหน้า",
 }
 # คำนำหน้าเลขเอกสารต่อชนิด — ความยาว 3 ตัวอักษรเพื่อให้ตรงกับ regex ของ path param
+# ⚠️ `RECEIPT_NO_PATTERN` บังคับ `[A-Z]{3}` ⇒ เพิ่มชนิดใหม่ต้องเป็น 3 ตัวอักษรเท่านั้น
 DOC_TYPE_PREFIXES = {
     DOC_TYPE_RECEIPT: "REC",
     DOC_TYPE_INVOICE: "INV",
+    DOC_TYPE_DEPOSIT: "DEP",
 }
+
+# 🔁 ชนิดเอกสารที่ "ออกซ้ำได้เลขเดิม" (idempotent) — ยึด "เหตุการณ์ต้นทาง" เป็นคีย์
+#    ต่างจาก invoice ที่เป็น point-in-time ⇒ กดซ้ำได้เลขใหม่ทุกครั้งโดยเจตนา
+#
+# ℹ️ `receipt` และ `deposit` ต่างก็ idempotent แต่ **คนละคีย์กัน** จึงไม่ใช้คอนสแตนต์
+#    ร่วมกัน: receipt คีย์ที่ `(student_payment_id, legacy_transaction_id)` และ
+#    deposit คีย์ที่ `legacy_transaction_id` เดี่ยว ๆ (ไม่มีบิล) ⇒ คนละ index
+#    ⇒ การรวมเป็นทูเพิลเดียวจะทำให้อ่านแล้วเข้าใจว่าคีย์เดียวกัน ซึ่งไม่จริง
 # 🔒 รูปแบบเลขเอกสาร: PREFIX-ปี พ.ศ. 4 หลัก-ลำดับ 4 หลัก เช่น REC-2569-0042
 # router ใช้ pattern นี้กับ Path(...) โดยตรง — แก้ที่เดียวต้องแก้ทั้งสองที่
 RECEIPT_NO_TEMPLATE = "{prefix}-{year_be:04d}-{seq:04d}"

@@ -60,10 +60,27 @@ const DOC_TYPE_FILTERS: { value: 'all' | ReceiptDocType; label: string; icon: st
   { value: 'all', label: 'ทั้งหมด', icon: 'bi-collection' },
   { value: 'receipt', label: 'ใบเสร็จ', icon: 'bi-receipt' },
   { value: 'invoice', label: 'ใบแจ้งหนี้', icon: 'bi-file-earmark-text' },
+  // 💰 [F4] ใบรับเงินล่วงหน้า — เอกสารคนละชนิดกับใบเสร็จโดยเจตนา (เงินยังไม่ใช่รายได้)
+  //    ⚠️ service ส่งค่านี้เป็น query param ⇒ backend ต้องรับ 'deposit' ด้วย ไม่งั้น 422
+  { value: 'deposit', label: 'ใบรับเงินล่วงหน้า', icon: 'bi-piggy-bank' },
 ];
 
 const rangeOf = (p: PeriodValue): { startDate: string; endDate: string } | null =>
   p.mode === 'asof' ? null : toRange(p);
+
+/**
+ * 🎨 สีของ chip ตามชนิดเอกสาร — **ต้องแยก 3 ทาง ไม่ใช่ 2**
+ * ⚠️ เดิมเป็น `doc_type === 'receipt' ? เขียว : เหลือง` ⇒ ใบรับเงินล่วงหน้าจะได้สีเหลือง
+ *    เท่ากับใบแจ้งหนี้ ⇒ ผู้ใช้แยกไม่ออกว่าอันไหนคือ "เงินเข้าแล้ว" กับ "ยังไม่ได้รับเงิน"
+ *    ซึ่งเป็นความต่างที่สำคัญที่สุดของสองเอกสารนี้
+ *    🔴 ห้ามยุบกลับเป็น 2 ทาง — "ใบเสร็จ" (เงินเข้า+เป็นรายได้) กับ "ใบรับเงินล่วงหน้า"
+ *       (เงินเข้าแต่ **ยังไม่ใช่รายได้**) ต้องดูต่างกันด้วยตาเปล่า
+ */
+const docChipClass = (docType: string): string => {
+  if (docType === 'receipt') return 'bg-emerald-50 text-emerald-700';
+  if (docType === 'deposit') return 'bg-sky-50 text-sky-700';
+  return 'bg-amber-50 text-amber-700';
+};
 
 /** เงินทุกตัวในหน้านี้ผ่านฟังก์ชันเดียว — เติม `฿` เสมอ (แบบเดียวกับ BudgetList/FinancialStatements) */
 const formatMoney = (value: number): string =>
@@ -387,14 +404,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                 <p class="font-display num text-base font-bold text-stone-900">
                   {{ formatMoney(r.amount) }}
                 </p>
-                <span
-                  class="chip mt-1"
-                  :class="
-                    r.doc_type === 'receipt'
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-amber-50 text-amber-700'
-                  "
-                >
+                <span class="chip mt-1" :class="docChipClass(r.doc_type)">
                   {{ r.doc_type_label || r.doc_type }}
                 </span>
               </div>
@@ -503,14 +513,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                     {{ formatThaiDateTime(r.issued_at) }}
                   </td>
                   <td>
-                    <span
-                      class="chip"
-                      :class="
-                        r.doc_type === 'receipt'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : 'bg-amber-50 text-amber-700'
-                      "
-                    >
+                    <span class="chip" :class="docChipClass(r.doc_type)">
                       {{ r.doc_type_label || r.doc_type }}
                     </span>
                   </td>

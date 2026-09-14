@@ -47,9 +47,9 @@ from core.rbac import require_permission, require_member
 from .base import _lock_payments_in_order, _lock_room_money, service_logger
 from .baht_text import baht_text
 from .constants import (
-    BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_INVOICE,
-    DOC_TYPE_LABELS, DOC_TYPE_PREFIXES, DOC_TYPE_RECEIPT, PDF_BATCH_TIMEOUT,
-    RECEIPTS_PER_PDF_MAX, RECEIPT_NO_TEMPLATE,
+    BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_DEPOSIT,
+    DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES, DOC_TYPE_RECEIPT,
+    PDF_BATCH_TIMEOUT, RECEIPTS_PER_PDF_MAX, RECEIPT_NO_TEMPLATE,
     RECEIPT_SEQ_MAX, RECEIPT_SEQ_OVERFLOW_MSG, THAI_MONTHS_SHORT, THAI_TZ,
 )
 from .helpers import _as_utc
@@ -683,6 +683,130 @@ class ReceiptsMixin:
             json.dumps(line_items, ensure_ascii=False),
         )
 
+    @classmethod
+    async def _issue_deposit(
+        cls, conn: asyncpg.Connection, target_room_id: int, student_id: int,
+        transaction_id: int, amount: float, user_id: int, user_name: str,
+        note: Optional[str], event_at_db: datetime, issued_at_db: datetime,
+    ) -> dict:
+        """[F4] ออก **ใบรับเงินล่วงหน้า** (`doc_type='deposit'`) — caller เป็นเจ้าของ transaction
+
+        คืน dict: {"receipt": <row dict>, "reused": bool}
+
+        🔴 ทำไม **ห้าม** พยายาม reuse `_issue_one`: ฟังก์ชันนั้นถูกสร้างขึ้นรอบ **บิล** —
+           เรียก `_load_payment` แล้ว `_resolve_event(conn, payment_id, ...)` ซึ่งอ่าน
+           `student_payments`/`finance_transactions` ของบิลนั้น ใบรับเงินล่วงหน้า
+           **ไม่มีบิล** ⇒ ใช้ไม่ได้จริง (เหตุผลเดียวกับที่ `_issue_invoice_aggregate`
+           ต้องแยกออกมา — ดู docstring ของตัวนั้น)
+
+        🔑 idempotency มาจาก `idx_finance_receipts_deposit_active` ซึ่งเป็น index **ของตัวเอง**
+           เพราะ `idx_finance_receipts_tx_active` ใช้ไม่ได้กับใบนี้: มันมี
+           `student_payment_id` เป็นคอลัมน์แรก และใบนี้มีค่าเป็น NULL ⇒ Postgres ถือว่า
+           NULL แต่ละตัวไม่ซ้ำกัน ⇒ **ไม่มีการกันซ้ำเลย** ถ้าไปพึ่ง index นั้น
+
+        🗓️ `event_at_db` = `created_at` ของแถว `finance_transactions` ที่เพิ่งเขียน
+           (ไม่ใช่ `issued_at_db`) ⇒ **ปี พ.ศ. บนเลขเอกสารมาจากเหตุการณ์รับเงิน**
+           ตรงกับกฎของใบเสร็จ ไม่ใช่ของใบแจ้งหนี้
+        """
+        await _lock_room_money(conn, target_room_id)
+
+        # 💰 ยอดต้อง > 0 **หลังปัดเป็นสตางค์** — ด่านเดียวกับ `_issue_one`/`_issue_invoice_aggregate`
+        #    และต้องอยู่ **ก่อน** การจองเลข ไม่งั้นเลขถูกกินไปฟรี
+        document_amount = round(float(amount), 2)
+        if document_amount <= 0:
+            raise ValueError(
+                "ยอดรับเงินล่วงหน้าน้อยกว่า 0.01 บาท จึงออกเอกสารไม่ได้ "
+                "(ปัดเป็นสตางค์แล้วเหลือ 0) — กรุณาตรวจสอบยอดที่บันทึกไว้"
+            )
+
+        # 🔁 idempotency ชั้นที่ 1 (อ่านก่อนเขียน) — คีย์คือ "เหตุการณ์รับเงิน" ตรง ๆ
+        existing = await cls._find_existing_deposit(conn, transaction_id)
+        if existing:
+            return {"receipt": cls._shape_receipt(existing), "reused": True}
+
+        # 👤 snapshot ชื่อผู้ฝาก ณ เวลาที่ออก (เอกสารที่พิมพ์แล้วต้องไม่ย้อนเปลี่ยนตามชื่อในอนาคต)
+        payer = await conn.fetchrow(
+            """SELECT U.first_name, U.nickname, U.first_name_en
+               FROM students S LEFT JOIN users U ON S.user_id = U.id
+               WHERE S.id = $1 AND S.room_id = $2""",
+            student_id, target_room_id,
+        )
+        if not payer:
+            raise RoomNotFoundError("ไม่พบนักเรียนคนนี้ในห้องของคุณ")
+
+        year_be = event_at_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+
+        # 🎫 จองเลข — แยกตัวนับจาก receipt/invoice เองเพราะ PK คือ (room, year_be, doc_type)
+        seq = await conn.fetchval(
+            """INSERT INTO receipt_sequences (room_id, year_be, doc_type, last_seq)
+               VALUES ($1, $2, $3, 1)
+               ON CONFLICT (room_id, year_be, doc_type)
+               DO UPDATE SET last_seq = receipt_sequences.last_seq + 1,
+                             updated_at = CURRENT_TIMESTAMP
+               RETURNING last_seq""",
+            target_room_id, year_be, DOC_TYPE_DEPOSIT,
+        )
+        if seq > RECEIPT_SEQ_MAX:
+            raise ValueError(RECEIPT_SEQ_OVERFLOW_MSG)
+        receipt_no = RECEIPT_NO_TEMPLATE.format(
+            prefix=DOC_TYPE_PREFIXES[DOC_TYPE_DEPOSIT], year_be=year_be, seq=seq,
+        )
+
+        try:
+            row = await conn.fetchrow(
+                """INSERT INTO finance_receipts
+                       (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
+                        legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
+                        issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
+                        line_items)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL)
+                   RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
+                             student_payment_id, legacy_transaction_id, student_id, collection_id,
+                             amount, paid_total_after, issued_to_name, issued_by_name, note,
+                             event_at, status, voided_at, voided_by, void_reason, issued_at,
+                             line_items""",
+                target_room_id, receipt_no, DOC_TYPE_DEPOSIT, year_be, seq,
+                # 🔴 NULL สองตัวอย่างเจตนา: ใบนี้ไม่ผูกกับบิลและไม่ผูกกับแคมเปญ
+                #    ⇒ `_shape_receipt_detail` จะ **ไม่** แต่ง `collection_amount` ขึ้นมา
+                #      (มันเข้าเงื่อนไข `collection_id IS NULL and items` ก็ต่อเมื่อมี
+                #       `line_items` ด้วย — ซึ่งเราตั้ง NULL ⇒ บรรทัดนั้นไม่ทำงาน)
+                None, transaction_id, student_id, None,
+                # 💰 `paid_total_after` = ยอดที่รับเข้ามาพักเท่านั้น — ไม่ใช่ "ยอดสะสมของบิล"
+                #    ความหมายจึงต่างจากใบเสร็จ (ซึ่งสะสมข้ามงวดของบิลเดียวกัน)
+                document_amount, document_amount,
+                cls._display_name(payer), user_id, user_name, note,
+                event_at_db, issued_at_db,
+            )
+        except asyncpg.UniqueViolationError:
+            # 🔁 idempotency ชั้นที่ 2 — แพ้การแข่งขัน: คืนใบที่ชนะ ไม่ใช่ error
+            raced = await cls._find_existing_deposit(conn, transaction_id)
+            if raced:
+                return {"receipt": cls._shape_receipt(raced), "reused": True}
+            # ชน `idx_finance_receipts_doc_active` (เลขซ้ำ) — ไม่ควรเกิดเพราะ seq ถูก serialize
+            raise ValueError("เลขเอกสารซ้ำ กรุณาลองใหม่อีกครั้ง")
+
+        return {"receipt": cls._shape_receipt(row), "reused": False}
+
+    @classmethod
+    async def _find_existing_deposit(cls, conn: asyncpg.Connection, transaction_id: int):
+        """ใบรับเงินล่วงหน้าที่ออกไปแล้วของเหตุการณ์รับเงินนี้ (idempotency ของ deposit)
+
+        🚫 กรอง `status = 'active'` ด้วยเหตุผลเดียวกับ `_find_existing`: ใบที่ถูก void
+           แล้ว (เพราะรายการถูกรับคืน) ไม่นับว่า "ออกไปแล้ว" มิฉะนั้นการเติมเครดิตใหม่
+           หลัง revert จะได้ใบที่ถูกยกเลิกไปแล้วกลับมา
+
+        ⚠️ **คีย์คือ `legacy_transaction_id` อย่างเดียว** ไม่มี `student_payment_id`
+           (ใบนี้ไม่มีบิล) ⇒ ต้องมี index ของตัวเอง — ดู `idx_finance_receipts_deposit_active`
+        """
+        return await conn.fetchrow(
+            f"""SELECT {_RECEIPT_COLUMNS} FROM finance_receipts R
+                WHERE COALESCE(R.legacy_transaction_id, 0) = $1
+                  AND R.doc_type = $2 AND R.deleted_at IS NULL
+                  AND R.status = '{DOC_STATUS_ACTIVE}'
+                LIMIT 1""",
+            transaction_id or 0, DOC_TYPE_DEPOSIT,
+        )
+
     # ============================================================== public API
     @classmethod
     async def issue_receipt(
@@ -1236,7 +1360,11 @@ class ReceiptsMixin:
         context = {
             "doc_title": d["doc_type_label"],
             "doc_type": d["doc_type"],
-            "is_receipt": d["doc_type"] == DOC_TYPE_RECEIPT,
+            # 🔴 เทมเพลต branch ด้วย **ค่านี้** ไม่ใช่ `doc_type` (receipt.html หลายสิบจุด)
+            #    ⇒ ชนิดเอกสารใหม่ที่ลืมใส่ที่นี่จะถูกพิมพ์ด้วยถ้อยคำของ **ใบแจ้งหนี้**
+            #      ("เรียกเก็บจาก" / "ยอดค้างชำระ" / "ผู้รับแจ้ง") ผิดทั้งใบโดยไม่มีอะไรฟ้อง
+            #    ⇒ ใบรับเงินล่วงหน้าเป็น "หลักฐานว่ารับเงินมาแล้ว" เหมือนใบเสร็จ ⇒ True
+            "is_receipt": d["doc_type"] in (DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT),
             "receipt_no": d["receipt_no"],
             # 🗓️ "วันที่" บนกระดาษ = วันของ **เหตุการณ์** ไม่ใช่วันที่กดพิมพ์
             #    ⇒ พิมพ์ซ้ำอีกกี่ครั้งก็ได้วันที่เดิม ตรงกับปี พ.ศ. บนเลขเอกสารเสมอ
@@ -1266,6 +1394,21 @@ class ReceiptsMixin:
             #    ⇒ เทมเพลตถอยไปใช้แถวเดียวตามเดิม ⇒ คำบนใบเสร็จไม่เปลี่ยน)
             "line_items": line_items,
             "line_items_hidden": line_items_hidden,
+            # 🔴 สองคีย์นี้ **ต้องถูกตั้งเสมอ** แม้เอกสารชนิดนั้นไม่มีความหมายนี้
+            #    เทมเพลตกันด้วย `{% if d.remaining is not none %}` (receipt.html:253)
+            #    ซึ่งบรรทัดบนนั้นเขียนสัญญาไว้เองว่า *"บิลเดอร์ตั้งคีย์นี้เป็น None เสมอ
+            #    เมื่อไม่มีแนวคิดนี้ และ `is defined` บนคีย์ที่เป็น None จะเป็น True"*
+            #    ⚠️ แต่โค้ดเดิม **ไม่ตั้งคีย์เลย** เมื่อไม่มี `collection_amount`
+            #       ⇒ Jinja ได้ `Undefined` ซึ่ง `is not none` ตอบ **True**
+            #       ⇒ เข้าสาขาแล้วระเบิดที่ `"{:,.2f}".format(Undefined)`
+            #       ⇒ **TypeError ทั้งการเรนเดอร์** (ดาวน์โหลด PDF ได้ 500)
+            #    🕳️ กับดักนี้ซ่อนอยู่ได้นานเพราะใบเสร็จ/ใบแจ้งหนี้ทุกใบผูกกับบิล ⇒
+            #       มี `collection_amount` เสมอ · **ใบรับเงินล่วงหน้า (deposit) เป็น
+            #       เอกสารชนิดแรกที่ไม่มีบิล** จึงเป็นใบแรกที่ตกหลุมนี้
+            #    ⇒ ตั้งเป็น None ที่นี่เพื่อให้ตรงกับสัญญาที่เทมเพลตเขียนไว้
+            "collection_amount": None,
+            "remaining": None,
+            "remaining_text": None,
         }
         collection_amount = d.get("collection_amount")
         if collection_amount:

@@ -35,7 +35,15 @@ import type {
   ReceiptBatchIssueResult,
   ReceiptInvoiceIssuePayload,
   ReceiptRoomInvoicePayload,
-  InvoiceBatchIssueResult
+  InvoiceBatchIssueResult,
+  StudentCreditBalance, // 💰 [F4] เงินรับล่วงหน้า / เครดิตคงเหลือรายนักเรียน
+  StudentCreditDetail,
+  CreditApplyPlan,
+  CreditTopUpRequest,
+  CreditTopUpResponse,
+  CreditApplyRequest,
+  CreditUndoRequest,
+  CreditUndoResponse
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -388,5 +396,80 @@ export const FinanceService = {
     );
 
     return response as unknown as Blob;
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // 💰 [F4] เงินรับล่วงหน้า — เครดิตคงเหลือรายนักเรียน
+  // ════════════════════════════════════════════════════════════════════════════
+  // 🔑 อ่าน 3 ตัว (`getCredits` / `getCreditPlan` / `getStudentCredit`) เปิดให้ **สมาชิกห้อง**
+  //    ทุกคน — เขียน 3 ตัว (เติม/หัก/ยกเลิกการหัก) ต้อง `MANAGE_FINANCE`
+  //    ⇒ หน้าจอต้อง gate ปุ่มเขียนด้วย `canManageFinance` **ไม่ใช่ `isAdmin`**
+  //    (บทเรียนจาก `DebtorList.vue`: เหรัญญิกที่มี MANAGE_FINANCE แต่ไม่ใช่แอดมิน
+  //     ต้องใช้ได้ — ถ้า gate ด้วย `isAdmin` ฟีเจอร์นี้จะใช้ไม่ได้กับคนที่ควรใช้ที่สุด)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 📋 นักเรียนทุกคนของห้อง + เครดิตคงเหลือ + ยอดค้างสุทธิ (คนไม่มีเครดิตก็อยู่ ยอด 0)
+  async getCredits(roomId: number): Promise<StudentCreditBalance[]> {
+    return await api.get(`/api/classroom/${roomId}/finance/credits`, {
+      params: { target_type: 'room' }
+    }) as unknown as StudentCreditBalance[];
+  },
+
+  // 🔎 ข้อเสนอการหักของนักเรียนที่เลือก — **อ่านล้วน ไม่เขียนอะไร**
+  //    ⚠️ ต้องเรียกตัวนี้ก่อน `applyCredit` เสมอ เพื่อให้ครูเห็นตัวเลขจริงก่อนยืนยัน
+  //    ⚠️ `studentIds` ว่างไม่ได้ (backend บังคับ 1–100) ⇒ ให้ผู้เรียกกันเองที่ UI
+  async getCreditPlan(roomId: number, studentIds: number[]): Promise<CreditApplyPlan> {
+    // 🔴 ห้ามส่ง array ผ่าน `params:` ของ axios — axios 1.x serialize เป็น **`student_ids[]=1`**
+    //    (วงเล็บเหลี่ยม) แต่ FastAPI `Query(List[int])` ต้องการ **คีย์ซ้ำ** `student_ids=1&student_ids=2`
+    //    ⇒ ของเดิมได้ **422 `{"loc":["query","student_ids"],"type":"missing"}`** เพราะ FastAPI
+    //    มองชื่อพารามิเตอร์ว่าเป็น `student_ids[]` ไม่ใช่ `student_ids` แล้วหา `student_ids` ไม่เจอ
+    //    ⚠️ กับดักนี้ **เทสต์ฝั่ง backend จับไม่ได้เลย** เพราะ TestClient ส่งคีย์ซ้ำให้เองอยู่แล้ว
+    //       (เจอจากการเรนเดอร์หน้าจริงในเบราว์เซอร์แล้วดักดู URL ที่ออกไป — ดู docs/skills.md)
+    //    ⇒ ใช้ `URLSearchParams` สร้างสตริงเอง แบบเดียวกับ `ActivityService.getActivities`
+    const query = new URLSearchParams({ target_type: 'room' });
+    studentIds.forEach((id) => query.append('student_ids', String(id)));
+
+    return await api.get(
+      `/api/classroom/${roomId}/finance/credits/plan?${query}`
+    ) as unknown as CreditApplyPlan;
+  },
+
+  // 🔎 ประวัติเครดิตของนักเรียน 1 คน + บิลค้าง + ข้อเสนอการหัก
+  async getStudentCredit(roomId: number, studentId: number): Promise<StudentCreditDetail> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/credits/${studentId}`,
+      { params: { target_type: 'room' } }
+    ) as unknown as StudentCreditDetail;
+  },
+
+  // 💵 เติมเงินล่วงหน้า (รับเงินจริง) — ออกใบ DEP ให้ทันที
+  //    ⚠️ `idempotency_key` **บังคับ** และต้องคงค่าเดิมตลอดการกดหนึ่งครั้ง (ดู `utils/money.ts`)
+  async topUpCredit(roomId: number, payload: CreditTopUpRequest): Promise<CreditTopUpResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/credits?target_type=room`,
+      payload
+    ) as unknown as CreditTopUpResponse;
+  },
+
+  // ✂️ หักเครดิตไปปิดบิลของนักเรียนที่เลือก — ทั้งชุด all-or-nothing
+  //    ⚠️ ไม่มีเงินเคลื่อนไหวในจังหวะนี้ (เงินเข้ามาตั้งแต่ตอนเติม) ⇒ ไม่มีใบเสร็จใหม่
+  //       หลักฐานคือใบ DEP ต้นทาง + ประวัติเครดิต
+  async applyCredit(roomId: number, payload: CreditApplyRequest): Promise<CreditApplyPlan> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/credits/apply?target_type=room`,
+      payload
+    ) as unknown as CreditApplyPlan;
+  },
+
+  // ↩️ ยกเลิก "การหัก" 1 รายการ (คืนเครดิตเข้ากระเป๋านักเรียน + เปิดบิลกลับเป็นค้าง)
+  //    ⚠️ ใช้ยกเลิก **การเติม** ไม่ได้ — การเติมต้อง `revertTransaction` (ซึ่ง void ใบ DEP ด้วย)
+  async undoCreditApplication(
+    roomId: number,
+    payload: CreditUndoRequest
+  ): Promise<CreditUndoResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/credits/undo?target_type=room`,
+      payload
+    ) as unknown as CreditUndoResponse;
   }
 };

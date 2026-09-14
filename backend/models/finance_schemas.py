@@ -217,7 +217,14 @@ class DebtorItem(BaseModel):
     student_no: int
     student_name: str
     overdue_count: int
+    # 💵 ยอดค้าง **ดิบ** (ไม่หักเครดิต) — ความหมายเดิม ไม่เปลี่ยน
     total_pending_amount: float
+    # 🎯 [F4] ยอดที่ต้องเก็บจริงหลังหักเครดิตคงเหลือ + ยอดเครดิตที่หักได้
+    #    ⚠️ ต้องประกาศในนี้ ไม่งั้น route ที่มี `response_model` จะ **ตัดทิ้งเงียบ ๆ**
+    #    (กับดักเดียวกับที่ `TransactionRevertResponse` เตือนไว้ — service ส่งมาครบ
+    #     แต่ผู้ใช้ไม่เห็น แล้วจะไม่มีเทสต์ไหนจับได้ถ้าตรวจแค่ status code)
+    credit_balance: float = 0.0
+    net_pending_amount: float = 0.0
 
 class CategoryUpdate(BaseModel):
     category_name: str = Field(..., max_length=100)
@@ -572,3 +579,171 @@ class InvoiceBatchIssueResponse(BaseModel):
     receipts: List[ReceiptResponse]
     issued_count: int
     skipped: List[InvoiceSkipItem] = []
+
+# =====================================================================
+# [F4] เงินรับล่วงหน้า / เครดิตคงเหลือรายนักเรียน
+# =====================================================================
+class CreditTopUpRequest(BaseModel):
+    """เติมเงินล่วงหน้าให้นักเรียน 1 คน (รับเงินจริง → เก็บพักเป็นเครดิต)"""
+    student_id: int = Field(..., gt=0)
+    # 💰 `gt=0` ที่ชั้น schema เป็นด่านแรก (422 อ่านรู้เรื่องกว่า 400) ส่วนด่าน "ปัดเป็น
+    #    สตางค์แล้วเหลือ 0" (0.004) อยู่ที่ service เพราะต้อง round ก่อนจึงจะรู้
+    amount: float = Field(..., gt=0, description="ยอดที่รับเข้ามาพัก (บาท)")
+    paid_to_account_id: int = Field(..., gt=0, description="กระเป๋าที่เงินเข้าจริง")
+    slip_image_url: Optional[str] = Field(None, max_length=500)
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+    # 🔑 บังคับ — ดูเหตุผลเต็มที่ `_normalize_idempotency_key` ใน services/finance/credits.py
+    #    (ไม่มีค่านี้ = กันกดซ้ำให้ไม่ได้เลย เพราะการเติมเครดิตสร้าง transaction ใหม่ทุกครั้ง)
+    idempotency_key: str = Field(
+        ..., min_length=8, max_length=64,
+        description="รหัสกันบันทึกซ้ำ สร้างฝั่ง client ต่อการกดหนึ่งครั้ง (UUID)",
+    )
+
+
+class CreditApplyRequest(BaseModel):
+    """หักเครดิตไปปิดบิลของนักเรียนที่เลือก — ทั้งชุด all-or-nothing"""
+    student_ids: List[int] = Field(..., min_length=1, max_length=100)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class CreditUndoRequest(BaseModel):
+    """ยกเลิก 'การหักเครดิต' 1 รายการ (ไม่ใช่การเติม — การเติมต้องยกเลิกรายการธุรกรรม)"""
+    credit_entry_id: int = Field(..., gt=0)
+    reason: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class StudentCreditBalanceResponse(BaseModel):
+    """แถวในหน้า "เงินรับล่วงหน้า" — นักเรียนทุกคนของห้อง (คนไม่มีเครดิตก็อยู่ ยอด 0)"""
+    student_id: int
+    student_no: int
+    student_name: str
+    credit_balance: float
+    # 💵 ยอดค้าง **ดิบ** (ไม่หักเครดิต) — ชื่อบอกตัวเองว่าดิบ ไม่ใช่ยอดที่ต้องเก็บจริง
+    total_pending_amount: float
+    # 🎯 ยอดที่ต้องเก็บจริงหลังหักเครดิต — ตัวเลขที่ผู้ใช้ใช้ตัดสินใจ
+    net_pending_amount: float
+
+
+class StudentCreditEntryResponse(BaseModel):
+    """1 แถวในประวัติเครดิต (append-only ledger)"""
+    id: int
+    # topup | apply | reverse
+    entry_type: str
+    entry_type_label: Optional[str] = None
+    amount: float
+    balance_after: float
+    finance_transaction_id: Optional[int] = None
+    student_payment_id: Optional[int] = None
+    collection_id: Optional[int] = None
+    note: Optional[str] = None
+    recorded_by: Optional[str] = None
+    # created_at เป็น timestamptz ⇒ tz-aware เสมอ (กฎเดียวกับ TransactionResponse.created_at)
+    created_at: Optional[datetime] = None
+    # 🧾 เลขใบรับเงินล่วงหน้า (DEP) ที่ผูกกับรายการเติมนี้ — None สำหรับรายการหัก
+    receipt_no: Optional[str] = None
+    receipt_event_at: Optional[datetime] = None
+    collection_title: Optional[str] = None
+
+
+class CreditTopUpResponse(BaseModel):
+    """คำตอบของการเติมเครดิต — แนบ `receipt` ที่ออกให้ทันที"""
+    status: str = "success"
+    message: Optional[str] = None
+    credit_entry_id: int
+    student_id: int
+    student_name: str
+    amount: float
+    balance_after: float
+    finance_transaction_id: Optional[int] = None
+    journal_entry_id: Optional[str] = None
+    # 🧾 ใบรับเงินล่วงหน้า (DEP) ที่ออกให้ — แนบทั้งใบเพื่อให้ frontend พิมพ์ PDF /
+    #    เปิดหน้ารายละเอียดได้ทันทีโดยไม่ต้องยิงไปถามเลขที่เอกสารอีกครั้ง
+    receipt: Optional[ReceiptResponse] = None
+    # 🔁 True = ใบ DEP นี้มีอยู่ก่อนแล้ว (กดซ้ำด้วยคีย์เดิม) — แยกจาก `reused` ข้างล่าง
+    #    เพราะ "ซ้ำที่ใบเอกสาร" กับ "ซ้ำที่การรับเงิน" เป็นคนละคำถาม
+    receipt_reused: bool = False
+    # 🔁 True = คีย์นี้เคยบันทึกสำเร็จแล้ว (กดซ้ำ) — ไม่ใช่ error และ **ไม่ใช่การรับเงินรอบที่สอง**
+    reused: bool = False
+
+
+class CreditAllocationItem(BaseModel):
+    """หนึ่งบิลที่จะถูกหัก (หรือถูกหักไปแล้ว)"""
+    payment_id: int
+    collection_id: int
+    title: Optional[str] = None
+    due_date: Optional[date] = None
+    bill_total: float
+    bill_paid_before: float
+    bill_remaining_before: float
+    apply_amount: float
+    bill_paid_after: float
+    bill_status_after: str
+    remaining_after: float
+
+
+class CreditPlanItem(BaseModel):
+    """ข้อเสนอการหักของนักเรียน 1 คน"""
+    student_id: int
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    balance_before: float
+    allocations: List[CreditAllocationItem] = []
+    total_applied: float
+    balance_after: float
+
+
+class CreditApplyPlanResponse(BaseModel):
+    """ข้อเสนอการหักทั้งชุด — ใช้ทั้งตอน **ดูตัวอย่าง** (`GET .../plan`) และตอน **ลงมือ**
+    (`POST .../apply`) ⇒ สิ่งที่ครูเห็นก่อนกดกับสิ่งที่ระบบทำต้องหน้าตาเหมือนกันเป๊ะ"""
+    status: str = "success"
+    message: Optional[str] = None
+    items: List[CreditPlanItem]
+    total_applied: float
+    total_balance_after: float
+    # 📊 สรุปผลหลังลงมือ (0/None สำหรับเส้นทางดูตัวอย่าง)
+    bills_paid: Optional[int] = None
+    student_ids: Optional[List[int]] = None
+
+
+class CreditOpenBillItem(BaseModel):
+    """บิลที่ยังค้างของนักเรียน 1 คน (ยอดดิบ ยังไม่หักเครดิต)"""
+    payment_id: int
+    collection_id: int
+    title: Optional[str] = None
+    due_date: Optional[date] = None
+    total_amount: float
+    paid_amount: float
+    remaining_amount: float
+
+
+class CreditUndoResponse(BaseModel):
+    """คำตอบของ `POST /finance/credits/undo`
+
+    ⚠️ ไม่ใช่ `StudentCreditEntryResponse`: การยกเลิก **สร้างแถวใหม่** (reverse) และ
+       **ลบแถวเดิม** (soft delete) ⇒ แถวที่ควรอธิบายให้ผู้ใช้เห็นคือ "ผลลัพธ์ที่เกิดขึ้น"
+       ไม่ใช่รูปร่างของแถวใดแถวหนึ่ง (ถ้าฝืนใช้โมเดลนั้น ฟิลด์จะหายแล้วได้ 500
+       ResponseValidationError แทนที่จะเป็นข้อความที่อ่านรู้เรื่อง)
+    """
+    status: str = "success"
+    message: Optional[str] = None
+    credit_entry_id: int
+    reverse_entry_id: int
+    student_id: int
+    student_payment_id: Optional[int] = None
+    reverted_amount: float
+    bill_paid_amount: float
+    bill_status: str
+    credit_balance_after: float
+
+
+class StudentCreditDetailResponse(BaseModel):
+    """รายละเอียดเครดิตของนักเรียน 1 คน"""
+    student_id: int
+    student_no: int
+    student_name: str
+    credit_balance: float
+    entries: List[StudentCreditEntryResponse]
+    open_bills: List[CreditOpenBillItem]
+    plan: CreditPlanItem

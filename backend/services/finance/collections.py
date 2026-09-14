@@ -20,7 +20,6 @@ from .constants import (
     COLLECTION_STATUS_LABELS, REFERENCE_TYPE_LABELS, MANAGEMENT_TAB_COLORS,
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
-    DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES, DEFAULT_FINANCE_ACCOUNTS,
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
@@ -168,35 +167,24 @@ class CollectionsMixin:
 
         # [DUAL-WRITE] เขียนฝั่ง Double-Entry: รับชำระเงินจากนักเรียน (Dr สินทรัพย์ / Cr รายได้เก็บเงินห้อง)
         asset_ledger_id = await cls._resolve_asset_ledger(conn, target_room_id, paid_to_account_id)
-        # Credit ขาเป็นรายได้ "เก็บเงินห้องปกติ" — ถ้าไม่มี mapping ให้หา ledger ตามชื่อ
-        # (seed ค่าเริ่มต้น DEFAULT_INCOME_CATEGORIES[0] = '📥 เก็บเงินห้องปกติ')
-        revenue_ledger_id = await cls._find_revenue_ledger_by_name(
-            conn, target_room_id, account_name=DEFAULT_INCOME_CATEGORIES[0]
+        # Credit ขาเป็นรายได้ "เก็บเงินห้องปกติ" — ตัวช่วยกลางที่ **ใช้ร่วมกับการหักเครดิตปิดบิล**
+        # (หาโดยชื่อ → สร้างหมวด+ledger ถ้ายังไม่มี → raise ถ้ายังไม่ได้ ⇒ ห้ามข้าม dual-write)
+        # 🔴 ต้องเรียกตัวช่วยตัวนี้เท่านั้น ห้าม inline กลับมา — มิฉะนั้นสองเส้นทางเงิน
+        #    (เงินสด / เครดิต) จะค่อย ๆ drift ออกจากกันโดยไม่มีอะไรฟ้อง
+        revenue_ledger_id = await cls._resolve_default_income_ledger(conn, target_room_id)
+        await cls._insert_journal_entry(
+            conn, target_room_id,
+            reference_type="student_payment",
+            reference_id=str(payment_id),
+            description=dynamic_desc,
+            slip_image_url=slip_image_url,
+            recorded_by=user_name,
+            metadata={"student_payment_id": payment_id, "legacy_transaction_id": trans_id},
+            lines=[
+                {"ledger_id": asset_ledger_id, "debit": paid_amount, "credit": 0, "line_description": f"รับเงินจากนักเรียน (student_payment #{payment_id})"},
+                {"ledger_id": revenue_ledger_id, "debit": 0, "credit": paid_amount, "line_description": f"รายได้: {payment_info['title']}"},
+            ],
         )
-        if revenue_ledger_id is None:
-            # [FIX A] ปิดรอยรั่วข้าม dual-write: ห้องที่ยังไม่มี ledger รายได้/หมวดหมู่ค่าเริ่มต้น
-            # → สร้างหมวด '📥 เก็บเงินห้องปกติ' (ถ้ายังไม่มี) + revenue ledger ให้อัตโนมัติ
-            # เพื่อให้ journal ครบฝั่ง (กัน "legacy ได้เงิน แต่บัญชีคู่ไม่มีบิล")
-            legacy_cat_id = await cls._find_or_create_default_income_category(conn, target_room_id)
-            if legacy_cat_id:
-                revenue_ledger_id = await cls._resolve_category_ledger(conn, target_room_id, legacy_cat_id, 'income')
-        # ห้ามข้าม dual-write: ถ้าหา/สร้าง ledger รายได้ไม่ได้ → error (rollback ทั้งชุด) แทนที่จะเงียบ
-        if revenue_ledger_id is None:
-            raise ValueError("ไม่สามารถหา/สร้าง ledger รายได้ '📥 เก็บเงินห้องปกติ' เพื่อบันทึกบัญชีคู่ได้")
-        else:
-            await cls._insert_journal_entry(
-                conn, target_room_id,
-                reference_type="student_payment",
-                reference_id=str(payment_id),
-                description=dynamic_desc,
-                slip_image_url=slip_image_url,
-                recorded_by=user_name,
-                metadata={"student_payment_id": payment_id, "legacy_transaction_id": trans_id},
-                lines=[
-                    {"ledger_id": asset_ledger_id, "debit": paid_amount, "credit": 0, "line_description": f"รับเงินจากนักเรียน (student_payment #{payment_id})"},
-                    {"ledger_id": revenue_ledger_id, "debit": 0, "credit": paid_amount, "line_description": f"รายได้: {payment_info['title']}"},
-                ],
-            )
 
         return {
             "payment_id": payment_id,
@@ -727,19 +715,44 @@ class CollectionsMixin:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
+                # 💳 [F4] `credit_balance` มาจาก LATERAL บนแถวล่าสุดของ `student_credits`
+                #    ⚠️ **ห้ามใช้ `JOIN student_credits` ตรง ๆ** — จะกลายเป็น join กับ
+                #    *ทุกแถว* ของเครดิต (topup/apply/reverse) ⇒ ยอดค้างถูกคูณตามจำนวนรายการ
+                #    และบิลที่ `SP.status='pending'` ของคนเดียวกันจะถูกนับซ้ำหลายรอบ
+                #    (และจะทำให้ `overdue_count` เพี้ยนไปด้วย ซึ่งเป็นฟิลด์เดิมที่มีเทสต์อยู่)
                 rows = await conn.fetch("""
                     SELECT S.id as student_id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en,
-                           COUNT(SP.id) as overdue_count, SUM(FC.amount - SP.paid_amount) as total_pending_amount
+                           COUNT(SP.id) as overdue_count, SUM(FC.amount - SP.paid_amount) as total_pending_amount,
+                           COALESCE(CR.balance_after, 0) as credit_balance
                     FROM students S LEFT JOIN users U ON S.user_id = U.id
                     JOIN student_payments SP ON S.id = SP.student_id JOIN fee_collections FC ON SP.collection_id = FC.id
+                    LEFT JOIN LATERAL (
+                        SELECT balance_after FROM student_credits
+                        WHERE room_id = S.room_id AND student_id = S.id AND deleted_at IS NULL
+                        ORDER BY id DESC LIMIT 1
+                    ) CR ON TRUE
                     WHERE S.room_id = $1 AND SP.status = 'pending'
-                    GROUP BY S.id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en ORDER BY S.student_no ASC
+                    GROUP BY S.id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en, CR.balance_after ORDER BY S.student_no ASC
                 """, target_room_id)
                 debtors = []
                 for r in rows:
                     name = r['first_name'] or r.get('first_name_en') or "Unknown"
                     if r['nickname']: name += f" ({r['nickname']})"
-                    debtors.append({"student_id": r['student_id'], "student_no": r['student_no'], "student_name": name, "overdue_count": r['overdue_count'], "total_pending_amount": float(r['total_pending_amount'])})
+                    # 💰 `total_pending_amount` = ยอด **ดิบ** คงความหมายเดิมไว้เป๊ะ
+                    #    (`DebtorList.vue` และบอท `finance_api.py` อ่านฟิลด์นี้อยู่)
+                    #    ส่วนยอดที่ต้องเก็บจริงส่งมาเป็นฟิลด์ใหม่ `net_pending_amount`
+                    pending = float(r['total_pending_amount'])
+                    credit = float(r['credit_balance'])
+                    debtors.append({
+                        "student_id": r['student_id'], "student_no": r['student_no'],
+                        "student_name": name, "overdue_count": r['overdue_count'],
+                        "total_pending_amount": pending,
+                        "credit_balance": round(credit, 2),
+                        # 🎯 ชื่อฟิลด์บอกเองว่าหักเครดิตแล้ว — ไม่ต้องให้ผู้ใช้ไปเดา
+                        #    ว่า "pending" อันไหนหักแล้ว (และ max(...,0) กันยอดติดลบ
+                        #    ในกรณีที่เครดิตเหลือมากกว่ายอดค้าง ซึ่งเป็นเรื่องปกติ)
+                        "net_pending_amount": round(max(pending - credit, 0.0), 2),
+                    })
                 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(

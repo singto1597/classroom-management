@@ -492,6 +492,104 @@ async def init_db(pool: asyncpg.Pool):
                 -- หน้าลูกหนี้/รายละเอียดนักเรียนใช้บ่อยที่สุดของการอ่านเอกสาร
                 CREATE INDEX IF NOT EXISTS idx_finance_receipts_room_student
                     ON finance_receipts(room_id, student_id, doc_type) WHERE deleted_at IS NULL;
+
+                -- 🔒 ใบรับเงินล่วงหน้า (doc_type = 'deposit') — กันซ้ำด้วย index ของตัวเอง
+                --
+                -- ⚠️ **ทำไมใช้ `idx_finance_receipts_tx_active` ไม่ได้**: index นั้นมี
+                --    `student_payment_id` เป็นคอลัมน์แรก และใบรับเงินล่วงหน้า **ไม่มีบิล**
+                --    ⇒ `student_payment_id IS NULL`
+                --    ⇒ Postgres ถือว่า NULL แต่ละตัว "ไม่ซ้ำกัน" (NULLs are distinct) ⇒
+                --      **ไม่มีการกันซ้ำเกิดขึ้นเลย** ยิงพร้อมกันได้เอกสารซ้ำโดยที่ index
+                --      ดูเหมือนครอบอยู่แล้ว — อันตรายเพราะอ่านโค้ดแล้วเข้าใจผิดได้ง่าย
+                --
+                -- ⇒ ใช้คีย์ที่ normalize แล้ว (COALESCE) เหมือนบทเรียนเดียวกับ index ข้างบน
+                --   และเป็น **ชื่อใหม่** ⇒ `IF NOT EXISTS` ซื่อสัตย์ที่นี่
+                --   (index เก่าที่มีอยู่แล้วเปลี่ยน predicate ไม่ได้ — IF NOT EXISTS จะข้ามเงียบ ๆ)
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_receipts_deposit_active
+                    ON finance_receipts(COALESCE(legacy_transaction_id, 0), doc_type)
+                    WHERE deleted_at IS NULL AND doc_type = 'deposit';
+
+                -- 💰 เครดิตคงเหลือรายนักเรียน (เงินรับล่วงหน้า) — F4
+                --    append-only ledger: ทุกรายการเป็น "เหตุการณ์" ห้าม UPDATE ยอดเดิม
+                --    ⇒ ยอดปัจจุบัน = `balance_after` ของแถวล่าสุด (ดู index ข้างล่าง)
+                --
+                -- 🔴 ทำไมต้องมีตารางนี้แทนการใช้ `journal_lines` ตรง ๆ:
+                --    ขา liability ของเงินรับล่วงหน้าต้องแยกได้ **รายคน** แต่
+                --    `journal_lines` ไม่มี `student_id` (มีแต่ ledger_id) และการยัด
+                --    student_id ลง `metadata` (JSONB) ก็อ่านยอดด้วย GIN scan ไม่ได้จริง
+                --    ⇒ repo นี้หลีกเลี่ยงการใช้ JSONB กับ "เงิน" ⇒ ตารางของตัวเอง
+                CREATE TABLE IF NOT EXISTS student_credits (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                    -- topup = รับเงินเข้ามาพัก / apply = หักไปปิดบิล / reverse = ยกเลิกการหัก
+                    entry_type VARCHAR(15) NOT NULL,
+                    -- 🔑 เก็บเป็น **ค่าบวกเสมอ** — ทิศทางมาจาก `entry_type` ไม่ใช่เครื่องหมาย
+                    --    ⇒ `chk_student_credit_amount_positive` จับ "ลบ" ได้ทุกกรณี
+                    amount DECIMAL(15,2) NOT NULL,
+                    -- 📸 ยอดคงเหลือ **หลัง** รายการนี้ — snapshot ตามสไตล์ `paid_total_after`
+                    --    และ `receipt_sequences.last_seq`: repo นี้เก็บ snapshot ไม่คำนวณย้อนหลัง
+                    --    ⇒ อ่านยอดปัจจุบัน = แถวล่าสุด (indexed) ไม่ใช่ SUM() ที่เพี้ยนได้เมื่อมี reverse
+                    --    ⚠️ เก็บ snapshot เพราะยอด "ที่ถูกต้อง ณ ตอนนั้น" เป็นข้อเท็จจริงทางบัญชี
+                    --       ส่วน SUM() ตอนอ่านจะให้ยอดที่ "คำนวณใหม่ตามความเชื่อปัจจุบัน"
+                    balance_after DECIMAL(15,2) NOT NULL,
+                    -- เหตุการณ์รับเงินที่ทำให้เกิดรายการนี้ (มีค่าเฉพาะ entry_type = 'topup')
+                    finance_transaction_id INTEGER REFERENCES finance_transactions(id) ON DELETE SET NULL,
+                    -- 🔗 journal entry ที่รายการนี้ลงไว้ — **มีค่าเฉพาะ 'apply'/'reverse'**
+                    --
+                    -- ⚠️ ทำไมต้องมีคอลัมน์นี้แทนการค้นด้วย `metadata->>'student_credit_id'`:
+                    --    (ก) เส้นทาง `undo_credit_application` ต้อง "ตามกลับไป void journal ให้ได้"
+                    --        ซึ่งเป็นการเขียน — การพึ่ง JSONB ที่ไม่มีดัชนีตรง ๆ เปิดช่องให้ช้ากัง
+                    --        โดยไม่มีใครรู้ และ repo นี้เลี่ยงใช้ JSONB กับ "เงิน" อยู่แล้ว
+                    --        (ดูเหตุผลเดียวกับที่ตารางนี้มีอยู่แทนที่จะยัด student_id ลง metadata)
+                    --    (ข) `finance_transaction_id` ใช้กับการเติมเครดิต (มีแถว legacy)
+                    --        ส่วนการหักเครดิต **ไม่มีแถว legacy เลย** ⇒ คอลัมน์เดิมเป็น NULL
+                    --        ⇒ ถ้าไม่มีคอลัมน์นี้ รายการหักจะไม่เหลือร่องรอยว่าไปลง journal ใบไหน
+                    journal_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL,
+                    -- บิลที่ถูกหักปิด (มีค่าเฉพาะ 'apply' / 'reverse' ของ apply)
+                    student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL,
+                    collection_id INTEGER REFERENCES fee_collections(id) ON DELETE SET NULL,
+                    note TEXT,
+                    recorded_by TEXT,
+                    -- 🔑 คีย์กันส่งซ้ำจากฝั่งผู้ใช้ (client-generated UUID ต่อ "หนึ่งการกดบันทึก")
+                    --    ดูเหตุผลว่าทำไมต้องมีที่ index `idx_student_credits_idem` ด้านล่าง
+                    idempotency_key VARCHAR(64),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL,
+                    CONSTRAINT chk_student_credit_amount_positive CHECK (amount > 0),
+                    CONSTRAINT chk_student_credit_balance_not_negative CHECK (balance_after >= 0),
+                    CONSTRAINT chk_student_credit_entry_type
+                        CHECK (entry_type IN ('topup', 'apply', 'reverse'))
+                );
+
+                -- ครอบ "ยอดคงเหลือของนักเรียนคนนี้" — query ที่วิ่งบ่อยที่สุดของตารางนี้
+                -- เรียง `id DESC` ให้ตรงกับท่า "เอาแถวล่าสุด" ⇒ ไม่ต้อง sort
+                CREATE INDEX IF NOT EXISTS idx_student_credits_student
+                    ON student_credits(room_id, student_id, id DESC) WHERE deleted_at IS NULL;
+
+                -- ครอบเส้นทาง "รายการนี้มาจากเหตุการณ์รับเงินไหน" (revert ต้องตามกลับมาเจอ)
+                CREATE INDEX IF NOT EXISTS idx_student_credits_tx
+                    ON student_credits(finance_transaction_id);
+
+                -- 🔑 กัน "เติมเครดิตซ้ำ" จากกดบันทึกสองครั้ง (double-click / retry หลัง timeout)
+                --
+                -- 🔴 ทำไม `idx_finance_receipts_deposit_active` กันให้ไม่ได้:
+                --    index นั้นคีย์ที่ `legacy_transaction_id` ซึ่ง **ถูกสร้างใหม่ทุกครั้งที่กด**
+                --    (การเติมเครดิต 1 ครั้ง = INSERT แถวใหม่ใน `finance_transactions` 1 แถว)
+                --    ⇒ กด 2 ครั้ง = 2 transaction = 2 เลข DEP = เครดิตเพิ่ม 2 เท่า = **เงินใน
+                --      กระเป๋าเกินจริง 2 เท่า** โดยที่ทุก index/constraint ดูเหมือนครอบอยู่หมด
+                --    ต่างจากใบเสร็จที่ anchor ด้วย `student_payment_id` (บิลเป็นตัวระบุเหตุการณ์
+                --    ที่ client ส่งมา) — การเติมเครดิต **ไม่มีเหตุการณ์ต้นทางให้ยึด** เพราะเงิน
+                --    มาก่อนบิล ⇒ ต้องให้ client เป็นคนระบุ "นี่คือการกดครั้งเดียวกัน" เอง
+                --
+                -- ⇒ `WHERE idempotency_key IS NOT NULL` กัน NULL หลายแถวในห้องเดียวกัน
+                --   (Postgres ถือ NULL แต่ละตัวไม่ซ้ำกัน ⇒ ถ้าไม่กรอง แถวที่ไม่มีคีย์จะไม่ถูกกันเลย
+                --    ซึ่งเป็นกับดักตัวเดียวกับที่เขียนเตือนไว้ที่ `idx_finance_receipts_deposit_active`)
+                --   ⚠️ ช่องโหว่ที่เหลือ: ถ้า client **ไม่ส่ง** `idempotency_key` มา จะไม่มีอะไรกัน
+                --      ⇒ schema บังคับส่ง (required) และ service raise ถ้าว่าง — ดู `CreditsMixin`
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_student_credits_idem
+                    ON student_credits(room_id, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL AND deleted_at IS NULL;
             """)
 
             # --- 6. Activity & Role Management Module ---
@@ -600,6 +698,14 @@ async def init_db(pool: asyncpg.Pool):
                 "ALTER TABLE finance_receipts ADD CONSTRAINT chk_receipt_voided_is_deleted"
                 " CHECK (status = 'active' OR deleted_at IS NOT NULL);"
             )
+
+            # 💰 F4 — `student_credits` เป็นตารางใหม่ ⇒ `CREATE TABLE IF NOT EXISTS` สร้างให้ครบ
+            #    รวม `idempotency_key` อยู่แล้วบน DB ที่ยังไม่เคยมีตารางนี้
+            #    ⚠️ ALTER บรรทัดนี้มีไว้เพื่อ DB ที่ **รัน init_db ของ branch นี้ไปแล้วรอบหนึ่ง**
+            #       (ก่อนคอลัมน์นี้ถูกเพิ่ม) — ณ จุดนั้นคอลัมน์ยังไม่มี. กฎของ repo คือ
+            #       "คอลัมน์ใหม่ทุกตัวต้องมี ALTER คู่เสมอ" เพราะ CREATE TABLE ที่มีอยู่แล้ว = no-op
+            await conn.execute("ALTER TABLE student_credits ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64);")
+            await conn.execute("ALTER TABLE student_credits ADD COLUMN IF NOT EXISTS journal_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL;")
 
             # 🎂 ห้องแฮปปี้เบิร์ดเดย์ + 🔔 ห้องแจ้งเตือนงานเล็กๆน้อยๆ
             # (เพิ่มคอลัมน์ให้ตาราง rooms ที่สร้างไว้แล้ว — บังคับใช้กับ DB ที่ deploy ไปแล้วด้วย)
