@@ -182,6 +182,76 @@ onMounted(() => {
           </div>
         </dl>
 
+        <!-- 📋 ตารางโครงการ — ใบแจ้งหนี้รวมยอดต้องบอกได้ว่ายอดพาดหัวมาจากโครงการใดบ้าง
+             🔴 ตัวเลขทุกบรรทัดมาจาก **snapshot ณ วันออกเอกสาร** (คอลัมน์ `line_items`)
+                ไม่ใช่ยอดค้างปัจจุบัน ⇒ เปิดใบเดิมอีกกี่เดือนก็เห็นชุดเดิม และผลรวมของ
+                บรรทัดเหล่านี้เท่ากับ `detail.amount` เสมอ (ทั้งคู่มาจาก snapshot ก้อนเดียวกัน)
+             ℹ️ กระดาษตัดที่ 12 บรรทัด (รักษาสัญญา "หน้าละคน") แล้วปิดท้ายด้วย "และอีก N โครงการ"
+                ส่วนจอนี้ **ไม่ตัด** เพราะเลื่อนดูได้ ⇒ จอนี้คือ "รายละเอียดทั้งหมด"
+                ที่กระดาษอ้างถึง — ข้อมูลชุดเดียวกัน แค่กระดาษเห็นไม่ครบทุกบรรทัด -->
+        <section v-if="detail.line_items?.length" class="mt-4">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-stone-400">
+            รายการที่ค้างชำระ ({{ detail.line_items.length }} โครงการ)
+          </h3>
+
+          <!-- 📱 มือถือ -->
+          <ul class="mt-2 space-y-2 lg:hidden">
+            <li
+              v-for="(item, index) in detail.line_items"
+              :key="`${index}-${item.title}`"
+              class="flex items-start justify-between gap-3 rounded-xl border border-stone-200 px-3 py-2"
+            >
+              <div class="min-w-0">
+                <p class="text-sm font-bold text-stone-900">
+                  {{ item.title || 'รายการชำระเงิน' }}
+                </p>
+                <p v-if="item.due_date" class="num text-xs text-stone-500">
+                  กำหนดชำระ {{ formatThaiDate(item.due_date) }}
+                </p>
+              </div>
+              <span class="num shrink-0 text-sm text-stone-900">{{ formatMoney(item.amount) }}</span>
+            </li>
+          </ul>
+
+          <!-- 🖥️ เดสก์ท็อป -->
+          <div class="mt-2 hidden overflow-x-auto lg:block">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th class="w-16">ลำดับ</th>
+                  <th>รายละเอียด</th>
+                  <th class="text-right">จำนวนเงิน</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, index) in detail.line_items" :key="`${index}-${item.title}`">
+                  <td class="num">{{ index + 1 }}</td>
+                  <td>
+                    {{ item.title || 'รายการชำระเงิน' }}
+                    <span v-if="item.due_date" class="num text-xs text-stone-500">
+                      (กำหนดชำระ {{ formatThaiDate(item.due_date) }})
+                    </span>
+                  </td>
+                  <td class="num text-right">{{ formatMoney(item.amount) }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="2" class="text-right font-bold">รวมทั้งสิ้น</td>
+                  <td class="num text-right font-bold">{{ formatMoney(detail.amount) }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <p
+            class="num mt-2 flex items-center justify-between gap-3 rounded-xl bg-stone-50 px-3 py-2 text-sm font-bold text-stone-900 lg:hidden"
+          >
+            <span>รวมทั้งสิ้น</span>
+            <span>{{ formatMoney(detail.amount) }}</span>
+          </p>
+        </section>
+
         <!-- 💰 กล่องยอดเงิน + คำอ่าน — หัวใจของเอกสาร ใช้ดีไซน์เดียวกับ .amount-box ใน PDF -->
         <div
           class="mt-4 flex flex-col gap-1.5 rounded-2xl border-2 border-stone-900 px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"

@@ -25,12 +25,19 @@ version: "3.8"
 services:
   gotenberg:
     image: gotenberg/gotenberg:8
-    # --api-timeout=30s ให้ตรงกับ timeout ฝั่ง backend (pdf.py: html_to_pdf(timeout=30.0))
-    #   ถ้าฝั่ง Gotenberg สั้นกว่า จะ kill งานก่อนแล้ว backend ได้ 502
-    #   แทนที่จะเป็น timeout ที่อ่านรู้เรื่อง
+    # 🖨️ --api-timeout=120s ให้ตรงกับ timeout ฝั่ง backend **สองค่า** ที่ไม่เท่ากันโดยเจตนา:
+    #      - ใบเดียว      : pdf.py: html_to_pdf(timeout=30.0)   (ค่า default)
+    #      - ไฟล์รวม N ใบ : pdf.py: html_to_pdf(timeout=PDF_BATCH_TIMEOUT = 120.0)
+    #    ⇒ เพดานของ Gotenberg ต้องเป็น **ตัวที่ยาวที่สุด** ไม่ใช่ตัว default
+    #      ถ้าตั้ง 30s ไว้ ไฟล์รวม 100 ใบที่เรนเดอร์นานกว่า 30 วิ จะถูก kill ที่ฝั่ง Gotenberg
+    #      แล้ว backend ได้ **502 ที่อ่านไม่ออก** แทนที่จะเป็น timeout ที่พอไล่ได้
+    #    🔴 สองค่านี้ต้องแก้ **พร้อมกัน** — เปลี่ยน PDF_BATCH_TIMEOUT ที่ pdf.py/constants.py
+    #       แล้วต้องกลับมาแก้ที่นี่ด้วย ไม่งั้นจะกลับไปเป็น 502 เงียบ ๆ อีก
+    #       (ทำไม 120: Chromium ต้องวาง layout 100 หน้า + ฝังฟอนต์ไทย ~90KB ต่อไฟล์
+    #        วัดจากการเรนเดอร์จริง — ไม่ใช่ตัวเลขที่เดา)
     command:
       - "gotenberg"
-      - "--api-timeout=30s"
+      - "--api-timeout=120s"
       - "--chromium-auto-start"
     networks:
       - shared_network

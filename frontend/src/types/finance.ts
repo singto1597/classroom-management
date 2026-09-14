@@ -382,6 +382,21 @@ export interface BudgetUpdatePayload {
 /** ชนิดเอกสาร — ตรงกับ `DOC_TYPE_*` ใน `backend/services/finance/constants.py` */
 export type ReceiptDocType = 'receipt' | 'invoice';
 
+/**
+ * 📋 หนึ่งบรรทัดในตารางแจกแจงของใบแจ้งหนี้ **ยอดค้างรวมต่อคน**
+ *
+ * 🔴 นี่คือ **snapshot ณ วันออกเอกสาร** ไม่ใช่ยอดปัจจุบัน — backend เก็บไว้ใน
+ *    `finance_receipts.line_items` แล้วอ่านกลับมาตรง ๆ ⇒ ใบที่พิมพ์ซ้ำหลังนักเรียน
+ *    จ่ายบางส่วนจะได้บรรทัดเดิมเป๊ะ และ `sum(line_items) === amount` เสมอ
+ *    ⛔ ห้ามคำนวณบรรทัดเหล่านี้ใหม่จากยอดค้างปัจจุบันที่หน้าจอ
+ */
+export interface ReceiptLineItem {
+  title: string | null;
+  amount: number;
+  /** ISO `YYYY-MM-DD` — จัดรูปเป็นไทยด้วย `formatThaiDate` ที่เดียวกับวันที่อื่นในระบบ */
+  due_date: string | null;
+}
+
 export interface Receipt {
   id: number;
   /** เลขที่เอกสารรูป `REC-2569-0042` / `INV-2569-0007` (ฝั่ง backend บังคับ pattern นี้ใน path param) */
@@ -413,6 +428,15 @@ export interface Receipt {
    *    แล้วครูในไทยเห็นเวลาคลาดเคลื่อน 7 ชั่วโมง (มีเทสต์กันไว้ฝั่ง backend)
    */
   issued_at: string | null;
+  /**
+   * 📋 ตารางแจกแจงรายโครงการ — มีค่าเฉพาะใบแจ้งหนี้ **ยอดค้างรวมต่อคน** เท่านั้น
+   *
+   * `null` = เอกสารใบเดียวต่อหนึ่งบิล (ใบเสร็จทุกใบ + ใบแจ้งหนี้แบบเก่า)
+   * ⚠️ ใน **ทะเบียนเอกสาร** (`getReceipts`) ค่านี้เป็น `null` เสมอโดยเจตนา — คิวรีนั้น
+   *    ไม่ดึง jsonb มาด้วยเพราะโหลดได้ถึง 500 แถว ⇒ อย่าตีความว่า "ใบนี้ไม่มีตาราง"
+   *    ให้เปิดหน้ารายละเอียด (`getReceipt`) จึงจะเห็นค่าจริง
+   */
+  line_items: ReceiptLineItem[] | null;
 }
 
 /** แถวในหน้ารายการ — backend แนบชื่อแคมเปญ/เลขที่นักเรียนมาให้ตารางแสดงได้โดยไม่ต้องยิงเพิ่ม */
@@ -472,4 +496,40 @@ export interface ReceiptBatchIssueResult {
   receipts: Receipt[];
   issued_count: number;
   reused_count: number;
+}
+
+/**
+ * ✍️ ออกใบแจ้งหนี้ "ยอดค้างรวมต่อคน" ให้กลุ่มนักเรียนที่เลือก — 1 คน = 1 ใบ
+ *
+ * 🎯 เลือก **"คน"** ไม่ใช่ "บิล": ยอดบนใบคือยอดค้างรวมทุกบิลที่ยัง pending ของคนนั้น
+ *    ⇒ ไม่มี `payment_id` ในเพย์โหลดนี้โดยเจตนา
+ */
+export interface ReceiptInvoiceIssuePayload {
+  /** 1–100 คนต่อครั้ง — เกินกว่านี้ backend ตอบ 422 */
+  student_ids: number[];
+  note?: string;
+  user_name?: string;
+}
+
+/** ✍️ ออกใบแจ้งหนี้ให้ **ทุกคนที่มียอดค้าง** ในห้อง — ไม่ส่งรายชื่อไป (ระบบหาเอง) */
+export interface ReceiptRoomInvoicePayload {
+  note?: string;
+  user_name?: string;
+}
+
+/** คนที่ถูก **ข้าม** ในการออกทั้งห้อง พร้อมเหตุผล — ผู้ใช้ต้องรู้ว่าทำไมได้ไม่ครบ */
+export interface InvoiceSkipItem {
+  student_id: number;
+  student_no: number | null;
+  student_name: string | null;
+  reason: string;
+}
+
+export interface InvoiceBatchIssueResult {
+  status: string;
+  message: string | null;
+  receipts: Receipt[];
+  /** = `receipts.length` — **ไม่นับ** คนที่ถูกข้าม (คนละความหมายกับ `skipped`) */
+  issued_count: number;
+  skipped: InvoiceSkipItem[];
 }

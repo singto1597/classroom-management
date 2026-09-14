@@ -421,6 +421,57 @@ class ReceiptBatchIssueRequest(BaseModel):
     user_name: Optional[str] = Field(None, max_length=100)
 
 
+class ReceiptInvoiceIssueRequest(BaseModel):
+    """ออกใบแจ้งหนี้ **ยอดค้างรวมต่อคน** ให้กลุ่มนักเรียนที่เลือก — 1 คน = 1 ใบ
+
+    🎯 ไม่รับ `payment_id` โดยเจตนา: ยอดบนใบคือยอดค้างรวม **ทุกบิลที่ยัง pending**
+       ของคนนั้น ⇒ "จะแจ้งหนี้บิลไหน" ไม่ใช่คำถามที่มีความหมายอีกต่อไป
+       สิ่งที่ผู้ใช้เลือกคือ **"คน"** ไม่ใช่ "บิล"
+    """
+    # 🚧 เพดาน 100 คน/ครั้ง: คำขอเดียว = การเขียน 100 แถว + 100 เลข INV
+    #    (เท่ากับเพดานของ `ReceiptBatchIssueRequest` โดยเจตนา — "หนึ่ง HTTP request"
+    #     ของระบบนี้มีขนาดเท่ากันไม่ว่าจะเป็นเส้นทางไหน)
+    student_ids: List[int] = Field(..., min_length=1, max_length=100)
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class ReceiptRoomInvoiceRequest(BaseModel):
+    """ออกใบแจ้งหนี้ให้ **ทุกคนที่มียอดค้าง** ในห้อง — ระบบเป็นคนหาว่าใครค้างเอง
+
+    ⇒ ไม่รับ `student_ids` เลยโดยเจตนา: ถ้ารับ ผู้เรียกจะกลายเป็นคนตัดสินว่าใครควรได้ใบ
+      ซึ่งเป็นสิ่งที่ผู้ใช้เลือกไม่ถูก (เขาไม่รู้ว่าใครค้างเท่าไร ณ วินาทีที่กด)
+    """
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class ReceiptCombinedPdfRequest(BaseModel):
+    """รวมเอกสารหลายใบเป็น PDF ไฟล์เดียว (หน้าละใบ)
+
+    ⚠️ **ไม่** ใส่ `max_length` ที่นี่โดยเจตนา: เพดาน 100 ฉบับถูกบังคับใน service
+       ซึ่งตอบเป็นข้อความไทยที่บอกทางออก ("แบ่งดาวน์โหลดเป็นรอบละไม่เกิน 100 ฉบับ")
+       ส่วน `max_length` ของ Pydantic จะกลายเป็น 422 ที่ frontend แปลงได้แค่
+       "ข้อมูลไม่ถูกต้อง" ⇒ ผู้ใช้ที่เลือก 101 ใบจะไม่รู้ว่าต้องทำอย่างไรต่อ
+       (ต่างจาก `student_ids` ข้างบนที่เพดานเป็นเรื่อง "ขนาดงานที่ยอมรับ" ไม่ใช่ "วิธีแก้")
+    """
+    receipt_nos: List[str] = Field(..., min_length=1)
+
+
+class ReceiptLineItem(BaseModel):
+    """หนึ่งบรรทัดในตารางแจกแจงของใบแจ้งหนี้รวมยอด (**snapshot** ณ วันออกเอกสาร)
+
+    🔴 ค่าชุดนี้ถูกอ่านจาก `finance_receipts.line_items` ตรง ๆ **ไม่คำนวณใหม่** —
+       ใบที่พิมพ์ซ้ำหลังนักเรียนจ่ายบางส่วนต้องได้บรรทัดเดิมเป๊ะ ไม่งั้นผลรวมของบรรทัด
+       จะไม่เท่ากับยอดพาดหัว (ที่เก็บไว้ตอนออก) = เอกสารขัดแย้งตัวเอง
+    """
+    title: Optional[str] = None
+    amount: float
+    # 📅 ISO `YYYY-MM-DD` (JSON ไม่มีชนิด DATE) — frontend จัดรูปเป็นไทยเองที่เดียวกับ
+    #    วันที่อื่น ๆ ในระบบ ⇒ จอกับกระดาษได้สตริงเดียวกันจาก `THAI_MONTHS_SHORT`
+    due_date: Optional[str] = None
+
+
 class ReceiptResponse(BaseModel):
     id: int
     receipt_no: str
@@ -438,6 +489,10 @@ class ReceiptResponse(BaseModel):
     issued_to_name: Optional[str] = None
     issued_by_name: Optional[str] = None
     note: Optional[str] = None
+    # 📋 ตารางแจกแจงของใบแจ้งหนี้รวมยอด — `None` = เอกสารใบเดียวต่อหนึ่งบิล (ใบเสร็จทุกใบ)
+    #    ⚠️ ใน **ทะเบียนเอกสาร** (`GET /finance/receipts`) ค่านี้เป็น None เสมอโดยเจตนา
+    #       (คิวรีนั้นไม่ดึง jsonb มาด้วย — โหลดได้ถึง 500 แถว) ⇒ ไม่ใช่บั๊ก
+    line_items: Optional[List[ReceiptLineItem]] = None
     # 🗓️ "วันที่ของเอกสาร" = เวลาของ **เหตุการณ์** (รับเงิน / ออกใบแจ้งหนี้) ไม่ใช่วันที่กดพิมพ์
     #    ⇒ frontend ต้องแสดงค่านี้ ไม่ใช่ issued_at ไม่งั้นจอกับกระดาษลงคนละวัน
     #    (ของเดิมที่มีอยู่ก่อนเพิ่มคอลัมน์นี้จะไม่มีค่า → frontend ถอยไปใช้ issued_at)
@@ -490,3 +545,30 @@ class ReceiptBatchIssueResponse(BaseModel):
     receipts: List[ReceiptResponse]
     issued_count: int
     reused_count: int
+
+
+class InvoiceSkipItem(BaseModel):
+    """นักเรียนที่ **ถูกข้าม** ในการออกใบแจ้งหนี้ทั้งห้อง พร้อมเหตุผลที่ข้าม
+
+    🎯 มีไว้เพื่อให้ผู้ใช้ตอบได้ว่า "ทำไมออกได้ 38 ใบทั้งที่มี 40 คน" โดยไม่ต้องไล่เปิด
+       หน้าลูกหนี้ทีละคน — ถ้าไม่มีเหตุผลกำกับ ผู้ใช้จะเห็นเป็นความผิดพลาดของระบบ
+    """
+    student_id: int
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    reason: str
+
+
+class InvoiceBatchIssueResponse(BaseModel):
+    """คำตอบของเส้นทางออกใบแจ้งหนี้ (เลือกเป็นรายคน / ทั้งห้อง)
+
+    🔴 `skipped` **ต้อง** ประกาศที่นี่: route มี `response_model` ⇒ ฟิลด์ที่ไม่อยู่ในโมเดล
+       ถูกตัดทิ้งเงียบ ๆ ⇒ ผู้ใช้จะเห็น "ออก 38 ฉบับ" โดยไม่มีทางรู้ว่ามี 2 คนถูกข้าม
+       (กับดักเดียวกับที่ `TransactionRevertResponse` เตือนไว้ — อ่านคอมเมนต์ที่นั่น)
+    ⚠️ `issued_count` = `len(receipts)` **ไม่นับ** คนที่ถูกข้าม (คนละความหมายกับ `skipped`)
+    """
+    status: str = "success"
+    message: Optional[str] = None
+    receipts: List[ReceiptResponse]
+    issued_count: int
+    skipped: List[InvoiceSkipItem] = []

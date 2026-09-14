@@ -4,6 +4,10 @@
    ในตำแหน่งเดียวกัน (ตอนนี้ยังไม่มี `POST /finance/receipts/{...}` จึงยังไม่ชนกัน
    แต่กันไว้เพราะเป็นกับดักเดียวกับที่เตือนไว้ใน budgets.py — แก้ยากตอนเจอ)
 
+   ⇒ `invoices`, `invoices/room`, `pdf` (สามเส้นทางใหม่) ถูกประกาศ **ก่อน** `POST /finance/receipts`
+     ด้วยเหตุผลเดียวกัน: วันหนึ่งถ้ามีคนเพิ่ม `POST /finance/receipts/{receipt_no}` การประกาศ
+     เส้นทาง static ไว้ก่อนคือสิ่งเดียวที่กันไม่ให้คำว่า "invoices" ถูกตีความเป็นเลขที่เอกสาร
+
 ⚠️ `receipt_no` เป็น **`str`** ไม่ใช่ `int` — เลขที่เอกสารมีรูปเป็น `REC-2569-0042`
    และถ้าประกาศเป็น int ตัว path จะ match ไม่ได้เลย (ได้ 422 ทุกครั้ง)
 
@@ -54,6 +58,113 @@ async def issue_receipts_batch(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{target_id}/finance/receipts/invoices", response_model=InvoiceBatchIssueResponse)
+async def issue_invoices(
+    req: ReceiptInvoiceIssueRequest,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """ออกใบแจ้งหนี้ **ยอดค้างรวมต่อคน** ให้กลุ่มนักเรียนที่เลือก (1 คน = 1 ใบ)
+
+    🎯 ต่างจาก `POST /finance/receipts` (ใบเสร็จ): ที่นี่เลือก **"คน"** ไม่ใช่ "บิล"
+       ⇒ ไม่รับ `payment_id` เลย (ดูเหตุผลใน `ReceiptInvoiceIssueRequest`)
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.issue_invoices(
+            pool=pool, student_ids=req.student_ids, note=req.note,
+            user_name=req.user_name or "—",
+            user_id=user_ctx["user_id"], client_source=client_source, actor_identifier=actor,
+            server_id=target.server_id, room_id=target.room_id,
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PaymentNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/{target_id}/finance/receipts/invoices/room", response_model=InvoiceBatchIssueResponse
+)
+async def issue_room_invoices(
+    req: ReceiptRoomInvoiceRequest,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """ออกใบแจ้งหนี้ **ทุกคนที่มียอดค้าง** ในห้อง — 1 คน = 1 ใบ
+
+    ⚠️ เป็น **การเขียนจริงทุกคน** ไม่ใช่การแสดงตัวอย่าง: กดซ้ำ = กินเลข INV ชุดใหม่
+       (ใบแจ้งหนี้เป็น point-in-time ⇒ พฤติกรรมนี้ถูกต้อง แต่ frontend ต้องเตือนก่อนยิง)
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.issue_invoices_for_room(
+            pool=pool, note=req.note, user_name=req.user_name or "—",
+            user_id=user_ctx["user_id"], client_source=client_source, actor_identifier=actor,
+            server_id=target.server_id, room_id=target.room_id,
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PaymentNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{target_id}/finance/receipts/pdf")
+async def download_combined_pdf(
+    req: ReceiptCombinedPdfRequest,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """ดาวน์โหลดเอกสารหลายใบเป็น PDF **ไฟล์เดียว หน้าละใบ**
+
+    ⚠️ `POST` ไม่ใช่ `GET` โดยเจตนา: เลขเอกสาร 100 ใบใส่ใน query string ไม่ได้ (URL ยาวเกิน)
+       และการเลือกเอกสารเป็นการกระทำที่ผู้ใช้ประกอบขึ้น ไม่ใช่การอ่าน resource เดียว
+    ⚠️ ไม่ประกาศ `response_model` — response เป็น binary stream (ดูหมายเหตุใน
+       `download_receipt_pdf` ด้านล่าง)
+    ⚠️ ใช้ `require_member` ไม่ใช่ `MANAGE_FINANCE` (เหมือน PDF ใบเดียว): การพิมพ์เอกสาร
+       ที่มีอยู่แล้วคือการอ่าน — คนที่เปิดดูในหน้าจอได้ ก็พิมพ์ออกกระดาษได้
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        pdf_bytes, filename = await FinanceService.render_documents_pdf(
+            pool=pool, receipt_nos=req.receipt_nos, client_source=client_source,
+            actor_identifier=actor, server_id=target.server_id, room_id=target.room_id,
+            user_id=user_ctx["user_id"],
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        # 400 = คำขอที่ผู้ใช้แก้เองได้ (เกินเพดาน 100 ฉบับ / ไม่ได้เลือกอะไรเลย)
+        raise HTTPException(status_code=400, detail=str(e))
+    except PdfRenderError as e:
+        raise HTTPException(status_code=502, detail=f"สร้างไฟล์ PDF ไม่สำเร็จ: {e}")
+
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
 
 
 @router.post("/{target_id}/finance/receipts", response_model=ReceiptIssueResponse)

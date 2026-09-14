@@ -3,8 +3,9 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
-import type { Debtor, Account, StudentDebtItem } from '@/types/finance'
+import type { Debtor, Account, StudentDebtItem, InvoiceBatchIssueResult } from '@/types/finance'
 import { createLatestGuard } from '@/utils/latest'
+import { downloadBlob, combinedPdfFilename } from '@/utils/download'
 import Swal from 'sweetalert2'
 
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -55,6 +56,13 @@ const fetchDebtors = async () => {
     if (!listGuard.isCurrent(token)) return
     debtors.value = debtRes
     accounts.value = accRes
+
+    // 🧹 ตัดคนที่หลุดจากรายการทิ้งจากที่ติ๊กไว้ — เกิดได้จริง: ระหว่างที่ติ๊กอยู่ นักเรียน
+    //    คนหนึ่งจ่ายครบ (จากเครื่องอื่น) แล้วหายจาก `getAllDebtors` ⇒ ถ้าไม่กรอง รายชื่อ
+    //    ที่ส่งไปออกใบแจ้งหนี้จะมี id ที่ backend ไม่รู้จัก ⇒ 404 ทั้งชุด (all-or-nothing)
+    //    ทั้งที่ผู้ใช้แค่กด "ออกใบแจ้งหนี้ที่เลือก" ตามปกติ
+    const stillListed = new Set(debtors.value.map((d) => d.student_id))
+    selectedStudentIds.value = selectedStudentIds.value.filter((id) => stillListed.has(id))
 
     // Auto-select first account
     if (accounts.value.length > 0) {
@@ -130,52 +138,114 @@ const totalSelectedAmount = computed(() => {
 // 🧾 ออกใบแจ้งหนี้ (F3)
 // ==========================================
 //
+// 🔄 เปลี่ยนแกน (ก.ย. 2026): **ติ๊ก "คน" ไม่ใช่ "บิล"**
+//    ยอดบนใบแจ้งหนี้คือ "ยอดค้างรวมทุกบิลที่ยัง pending ของคนนั้น" ⇒ การให้ผู้ใช้เลือกบิล
+//    เป็นการถามคำถามที่ระบบไม่สนใจคำตอบ (ติ๊ก 2 จาก 3 บิล ก็ยังได้ยอดรวมเท่าเดิม)
+//    ⇒ ช่องติ๊กย้ายออกจากโมดัลรับเงิน (ที่นั่นคือ "บิลที่จะรับเงิน") มาอยู่ที่แถวรายชื่อ
+//
 // 🔒 ใช้ `canManageFinance` (ไม่ใช่ `isAdmin`) ตามกฎเดียวกับปุ่มเขียนของ F2/F3
 //    ⇒ ตรงกับ `require_permission(..., "MANAGE_FINANCE")` ฝั่ง backend
-//    (หน้าจอนี้ยัง gate ทั้ง modal ด้วย `isAdmin` อยู่ — เป็นของเดิม ไม่ได้แตะในรอบนี้
-//     ผลคือเหรัญญิกที่ได้สิทธิ์ยังเข้า modal นี้ไม่ได้ การเปิด gate ของ 7 หน้าจอเดิม
-//     เป็นการตัดสินใจเชิงผลิตภัณฑ์ แยกเป็นงานต่างหาก)
+//    ✅ นี่คือเหตุผลที่ปุ่ม **ต้อง** ย้ายออกจากโมดัล: โมดัลถูก gate ด้วย `isAdmin` มาแต่เดิม
+//       (ของเก่า ไม่ได้แตะในรอบนี้) ⇒ ถ้าปุ่มยังอยู่ในนั้น เหรัญญิกที่ได้สิทธิ์
+//       จะออกใบแจ้งหนี้ไม่ได้เลยทั้งที่มี MANAGE_FINANCE
 //
-// ⚠️ ยอดบนใบแจ้งหนี้ backend คิดจาก **ยอดค้างชำระของบิลนั้น** ไม่ใช่ `payAmounts`
-//    ที่ผู้ใช้พิมพ์ไว้ (นั่นคือยอดที่จะรับเงิน) ⇒ ตัวเลขที่โชว์ใน confirm ต้องมาจาก
-//    `studentDebts[].amount` เท่านั้น ห้ามใช้ `totalSelectedAmount`
+// ⚠️ ยอดที่โชว์ใน confirm ต้องมาจาก `total_pending_amount` ของนักเรียนที่เลือก
+//    (ค่าที่หน้าจอโชว์อยู่) ห้ามใช้ `totalSelectedAmount` ซึ่งคือ "ยอดที่จะรับเงิน"
+//    จากช่องกรอกในโมดัล — คนละความหมายกันโดยสิ้นเชิง
+//
+// 📌 เอกสารที่ได้เป็น **1 ใบต่อ 1 คน** โดยมีตารางแจกแจงรายโครงการอยู่ข้างใน
+//    ⇒ "นักเรียนคนนี้ค้างเท่าไร" ตอบได้ด้วยกระดาษแผ่นเดียว
 
 const canManageFinance = computed(() => authStore.canManageFinance)
 
-/** ยอดค้างชำระรวมของบิลที่เลือก — "ยอดที่จะถูกเรียกเก็บ" ไม่ใช่ยอดที่กำลังจะรับ */
-const selectedOutstanding = computed(() =>
-  studentDebts.value
-    .filter((d) => selectedPaymentIds.value.includes(d.payment_id))
-    .reduce((sum, d) => sum + d.amount, 0),
+/** 🧾 นักเรียนที่ติ๊กไว้ที่แถวรายชื่อ — คนละชุดกับ `selectedPaymentIds` ของโมดัลรับเงิน */
+const selectedStudentIds = ref<number[]>([])
+
+/** ยอดที่ใบแจ้งหนี้จะเรียกเก็บ = ยอดค้างรวมของนักเรียนที่เลือก (ตรงกับที่หน้าจอโชว์) */
+const selectedInvoiceAmount = computed(() =>
+  debtors.value
+    .filter((d) => selectedStudentIds.value.includes(d.student_id))
+    .reduce((sum, d) => sum + d.total_pending_amount, 0),
 )
 
-const isIssuingInvoices = ref(false)
+/** ยอดค้างรวมทั้งห้อง — ใช้ยืนยันก่อนออกใบแจ้งหนี้ทั้งห้อง */
+const totalOutstanding = computed(() =>
+  debtors.value.reduce((sum, d) => sum + d.total_pending_amount, 0),
+)
 
-const handleIssueInvoices = async () => {
-  if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
-  }
-  if (selectedPaymentIds.value.length === 0) {
-    return Swal.fire('อ๊ะ!', 'กรุณาเลือกรายการที่ต้องการออกใบแจ้งหนี้', 'warning')
-  }
-  // เพดาน backend 100 ใบ/ครั้ง — ต้องบอกให้แคบลง ไม่ใช่ยิงแล้วเงียบ
-  if (selectedPaymentIds.value.length > 100) {
+const allSelected = computed(
+  () => debtors.value.length > 0 && selectedStudentIds.value.length === debtors.value.length,
+)
+
+const toggleSelectAll = () => {
+  selectedStudentIds.value = allSelected.value ? [] : debtors.value.map((d) => d.student_id)
+}
+
+/**
+ * 🚧 เพดานเดียวกับ backend (`ReceiptInvoiceIssueRequest.student_ids` และ batch ของใบเสร็จ)
+ *    ⇒ เช็คที่นี่เพื่อไม่ให้ผู้ใช้เสียรอบเปล่า แต่ backend ยังบังคับซ้ำ (ไม่พึ่ง UI)
+ */
+const ISSUE_PER_REQUEST_MAX = 100
+
+/**
+ * 🚧 เพดานของ **PDF รวม** (`RECEIPTS_PER_PDF_MAX` ฝั่ง backend) — คนละตัวกับข้างบน
+ *    backend ตอบ 400 พร้อมข้อความไทยที่บอกให้แบ่งรอบ ⇒ เช็คก่อนยิงเพื่อไม่ให้เสียเวลา
+ */
+const COMBINED_PDF_MAX = 100
+
+/** คำเตือนที่ต้องมีทุกครั้งก่อนออกใบแจ้งหนี้ — พฤติกรรมนี้ต่างจากใบเสร็จโดยสิ้นเชิง */
+const POINT_IN_TIME_HINT =
+  '<span style="font-size:0.85em;color:#78716c">' +
+  'ใบแจ้งหนี้เป็นเอกสาร <b>ณ จุดเวลา</b> — ยอดค้างเปลี่ยนเมื่อนักเรียนจ่ายเพิ่ม ' +
+  'การออกซ้ำจึงได้ <b>เลขใหม่ทุกครั้ง</b> (ต่างจากใบเสร็จที่ได้เลขเดิม)' +
+  '</span>'
+
+const isIssuingInvoices = ref(false)
+const isDownloadingCombined = ref(false)
+
+/** 🖨️ ดาวน์โหลดหลายใบเป็น PDF ไฟล์เดียว (หน้าละใบ) — ทางเดียวที่เรียก `downloadBlob` ที่นี่ */
+const downloadCombined = async (kind: 'receipts' | 'invoices', nos: string[]) => {
+  if (isDownloadingCombined.value || nos.length === 0) return
+  if (nos.length > COMBINED_PDF_MAX) {
     return Swal.fire(
-      'เลือกไว้มากเกินไป',
-      `เลือก ${selectedPaymentIds.value.length} รายการ แต่ระบบออกได้ครั้งละไม่เกิน 100 ใบ`,
+      'รวมไฟล์ไม่ได้ในครั้งเดียว',
+      `เลือกไว้ ${nos.length} ฉบับ แต่รวมได้ครั้งละไม่เกิน ${COMBINED_PDF_MAX} ฉบับ ` +
+        '— กรุณาแบ่งดาวน์โหลดเป็นรอบ',
       'warning',
     )
   }
+  isDownloadingCombined.value = true
+  Swal.fire({ title: 'กำลังสร้างไฟล์ PDF...', allowOutsideClick: false, didOpen: () => Swal.showLoading() })
+  try {
+    const blob = await FinanceService.downloadCombinedPdf(currentServerId, nos)
+    downloadBlob(blob, combinedPdfFilename(nos, kind))
+    Swal.close()
+  } catch (error: unknown) {
+    // 502 = Gotenberg ต่อไม่ได้/เรนเดอร์ไม่ผ่าน — service แปลงเป็นข้อความไทยให้แล้ว
+    Swal.fire(
+      'สร้างไฟล์ PDF ไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    )
+  } finally {
+    isDownloadingCombined.value = false
+  }
+}
 
-  const result = await Swal.fire({
-    title: 'ออกใบแจ้งหนี้?',
-    html:
-      `จะออกใบแจ้งหนี้ <b>${selectedPaymentIds.value.length}</b> ฉบับ ` +
-      `ยอดค้างชำระรวม <b>${formatNumber(selectedOutstanding.value)}</b> บาท<br><br>` +
-      '<span style="font-size:0.85em;color:#78716c">' +
-      'ใบแจ้งหนี้เป็นเอกสาร <b>ณ จุดเวลา</b> — ยอดค้างเปลี่ยนเมื่อนักเรียนจ่ายเพิ่ม ' +
-      'การออกซ้ำจึงได้ <b>เลขใหม่ทุกครั้ง</b> (ต่างจากใบเสร็จที่ได้เลขเดิม)' +
-      '</span>',
+/**
+ * ทางเดียวที่ยิง API ออกใบแจ้งหนี้ของทั้งสองปุ่ม — สิ่งที่ต่างกันมีแค่ "จะออกให้ใคร"
+ *
+ * 🔴 ทั้งสองเส้นทางเป็น **การเขียนจริง**: ใบแจ้งหนี้เป็น point-in-time ⇒ กดซ้ำได้เลขใหม่
+ *    ทุกครั้ง (กินเลข INV จริง) ⇒ ต้องมี confirm เสมอ ไม่มีปุ่มไหนยิงตรง
+ */
+const runInvoiceIssue = async (
+  action: () => Promise<InvoiceBatchIssueResult>,
+  description: string,
+  title: string,
+) => {
+  const confirmed = await Swal.fire({
+    title,
+    html: `${description}<br><br>${POINT_IN_TIME_HINT}`,
     icon: 'question',
     showCancelButton: true,
     confirmButtonColor: '#1d4ed8',
@@ -183,7 +253,7 @@ const handleIssueInvoices = async () => {
     confirmButtonText: 'ออกใบแจ้งหนี้',
     cancelButtonText: 'ยกเลิก',
   })
-  if (!result.isConfirmed) return
+  if (!confirmed.isConfirmed) return
 
   isIssuingInvoices.value = true
   Swal.fire({
@@ -192,26 +262,37 @@ const handleIssueInvoices = async () => {
     didOpen: () => Swal.showLoading(),
   })
   try {
-    const res = await FinanceService.issueReceiptsBatch(currentServerId, {
-      payment_ids: [...selectedPaymentIds.value],
-      doc_type: 'invoice',
-      user_name: currentUserName,
-    })
-    await Swal.fire({
+    const res = await action()
+    const nos = res.receipts.map((r) => r.receipt_no)
+    const canDownload = nos.length > 0 && nos.length <= COMBINED_PDF_MAX
+    // 📋 ข้อความต้องรายงาน **คนที่ถูกข้าม** ด้วย ไม่งั้นผู้ใช้ที่เห็น "ออก 38 ฉบับ"
+    //    ทั้งที่มี 40 คน จะไม่รู้เลยว่าอีก 2 คนเป็นใครและเพราะอะไร (backend ส่ง `skipped` มาให้)
+    const skippedNote = res.skipped.length
+      ? `<br><span style="font-size:0.85em;color:#a16207">ข้าม ${res.skipped.length} คน ` +
+        `ที่มียอดค้างน้อยกว่า 0.01 บาท: ${res.skipped
+          .map((s) => s.student_name || `#${s.student_no ?? s.student_id}`)
+          .join(', ')}</span>`
+      : ''
+
+    const after = await Swal.fire({
       icon: 'success',
       title: 'ออกใบแจ้งหนี้เรียบร้อย',
       html:
-        `ออกใหม่ <b>${res.issued_count}</b> ฉบับ<br>` +
-        `เลขที่ล่าสุด <b class="num">${res.receipts[res.receipts.length - 1]?.receipt_no ?? '—'}</b>`,
-      showCancelButton: true,
-      confirmButtonText: 'ดูทะเบียนเอกสาร',
+        `ออกใหม่ <b>${res.issued_count}</b> ฉบับ (1 คน = 1 ใบ)<br>` +
+        `เลขที่ล่าสุด <b class="num">${nos[nos.length - 1] ?? '—'}</b>` +
+        skippedNote +
+        (canDownload
+          ? `<br><br><span style="font-size:0.85em;color:#78716c">รวมเป็นไฟล์เดียวได้ ` +
+            `(${nos.length} หน้า — หน้าละคน) เหมาะสำหรับพิมพ์แจก</span>`
+          : ''),
+      showCancelButton: canDownload,
+      confirmButtonText: 'ดาวน์โหลด PDF รวม',
       cancelButtonText: 'ปิด',
       confirmButtonColor: '#1d4ed8',
       cancelButtonColor: '#78716c',
-    }).then((r) => {
-      if (r.isConfirmed) router.push('/finance/receipts')
     })
-    isModalOpen.value = false
+    if (canDownload && after.isConfirmed) await downloadCombined('invoices', nos)
+    selectedStudentIds.value = []
   } catch (error: unknown) {
     Swal.fire(
       'ออกใบแจ้งหนี้ไม่สำเร็จ',
@@ -221,6 +302,57 @@ const handleIssueInvoices = async () => {
   } finally {
     isIssuingInvoices.value = false
   }
+}
+
+/** ออกใบแจ้งหนี้ให้ **นักเรียนที่ติ๊กไว้** (1 คน = 1 ใบ — ยอดค้างรวมของคนนั้น) */
+const handleIssueSelectedInvoices = () => {
+  if (!canManageFinance.value) {
+    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
+  }
+  if (selectedStudentIds.value.length === 0) {
+    return Swal.fire('อ๊ะ!', 'กรุณาติ๊กเลือกนักเรียนที่ต้องการออกใบแจ้งหนี้', 'warning')
+  }
+  if (selectedStudentIds.value.length > ISSUE_PER_REQUEST_MAX) {
+    return Swal.fire(
+      'เลือกไว้มากเกินไป',
+      `เลือก ${selectedStudentIds.value.length} คน แต่ระบบออกได้ครั้งละไม่เกิน ` +
+        `${ISSUE_PER_REQUEST_MAX} ใบ`,
+      'warning',
+    )
+  }
+  return runInvoiceIssue(
+    () =>
+      FinanceService.issueInvoices(currentServerId, {
+        student_ids: [...selectedStudentIds.value],
+        user_name: currentUserName,
+      }),
+    `จะออกใบแจ้งหนี้ <b>${selectedStudentIds.value.length}</b> ฉบับ (1 คน = 1 ใบ)<br>` +
+      `ยอดค้างชำระรวมที่จะเรียกเก็บ <b>${formatNumber(selectedInvoiceAmount.value)}</b> บาท`,
+    'ออกใบแจ้งหนี้ที่เลือก?',
+  )
+}
+
+/**
+ * ออกใบแจ้งหนี้ให้ **ทุกคนที่มียอดค้างในห้อง** — ระบบเป็นคนหาว่าใครค้าง
+ *
+ * ⚠️ จำนวนคนในข้อความมาจากรายการที่โหลดไว้ **ไม่ใช่ยอดสด** — ระหว่างที่เปิดหน้าอยู่
+ *    อาจมีคนจ่ายครบไปแล้ว ⇒ backend จะ "ข้าม" คนนั้นและรายงานกลับมาใน `skipped`
+ *    (ข้อความใน confirm จึงต้องเขียนว่า "ขณะนี้" ไม่ใช่รับประกันตัวเลข)
+ */
+const handleIssueRoomInvoices = () => {
+  if (!canManageFinance.value) {
+    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
+  }
+  if (!debtors.value.length) {
+    return Swal.fire('ไม่มีใครค้างชำระ', 'ห้องนี้ไม่มีนักเรียนที่มียอดค้างชำระในขณะนี้', 'info')
+  }
+  return runInvoiceIssue(
+    () => FinanceService.issueRoomInvoices(currentServerId, { user_name: currentUserName }),
+    `จะออกใบแจ้งหนี้ให้ <b>${debtors.value.length}</b> คนที่มียอดค้างชำระ <b>ขณะนี้</b> ` +
+      `(1 คน = 1 ใบ)<br>ยอดค้างชำระรวมทั้งห้อง ` +
+      `<b>${formatNumber(totalOutstanding.value)}</b> บาท`,
+    'ออกใบแจ้งหนี้ทั้งห้อง?',
+  )
 }
 
 const handleBatchPay = async () => {
@@ -293,6 +425,35 @@ onMounted(() => {
       description="รายชื่อผู้ค้างจ่ายเงินจากทุกโปรเจกต์ (รวมโปรเจกต์ที่ปิดไปแล้ว)"
     >
       <template #actions>
+        <!--
+          🧾 ปุ่มใบแจ้งหนี้อยู่ **ที่นี่** ไม่ใช่ในโมดัลรับเงิน (โมดัลถูก gate ด้วย `isAdmin`
+          มาแต่เดิม ⇒ ปุ่มที่ซ่อนอยู่ในนั้นจะใช้ได้แค่แอดมิน) — และการเลือก "คน" ก็ไม่เกี่ยวกับ
+          การเลือกบิลที่จะรับเงิน ⇒ คนละงานกัน จึงอยู่คนละที่
+          ⚠️ ห้าม `:disabled` ตอนยังไม่เลือกอะไร: ปุ่มตายไม่บอกอะไรเลยว่าต้องทำอย่างไร
+             ⇒ ปล่อยให้กดได้แล้ว handler ตอบเป็นข้อความไทย ("กรุณาติ๊กเลือกนักเรียน...")
+        -->
+        <button
+          v-if="canManageFinance"
+          type="button"
+          class="btn-ghost-ui"
+          :disabled="isIssuingInvoices"
+          @click="handleIssueSelectedInvoices"
+        >
+          <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+          ออกใบแจ้งหนี้ที่เลือก<span v-if="selectedStudentIds.length"
+            >({{ selectedStudentIds.length }})</span
+          >
+        </button>
+        <button
+          v-if="canManageFinance"
+          type="button"
+          class="btn-ghost-ui"
+          :disabled="isIssuingInvoices"
+          @click="handleIssueRoomInvoices"
+        >
+          <i class="bi bi-collection" aria-hidden="true"></i>
+          ออกใบแจ้งหนี้ทั้งห้อง
+        </button>
         <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
           <i class="bi bi-arrow-left" aria-hidden="true"></i>
           กลับหน้าภาพรวม
@@ -322,6 +483,30 @@ onMounted(() => {
         >
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-2">
+              <!-- 🧾 ติ๊ก "คน" เพื่อออกใบแจ้งหนี้ (คนละช่องกับ "บิลที่จะรับเงิน" ในโมดัล) -->
+              <label v-if="canManageFinance" class="flex shrink-0 cursor-pointer items-center">
+                <input
+                  v-model="selectedStudentIds"
+                  type="checkbox"
+                  :value="d.student_id"
+                  :aria-label="`เลือก ${d.student_name} เพื่อออกใบแจ้งหนี้`"
+                  class="peer sr-only"
+                />
+                <span
+                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                  :class="
+                    selectedStudentIds.includes(d.student_id)
+                      ? 'border-brand-700 bg-brand-700'
+                      : 'border-stone-300 bg-white'
+                  "
+                >
+                  <i
+                    v-if="selectedStudentIds.includes(d.student_id)"
+                    class="bi bi-check-lg text-sm font-bold text-white"
+                    aria-hidden="true"
+                  ></i>
+                </span>
+              </label>
               <span class="chip num shrink-0 bg-stone-100 text-stone-500">#{{ d.student_no }}</span>
               <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
                 {{ d.student_name }}
@@ -366,6 +551,27 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
+                <th v-if="canManageFinance" class="w-10">
+                  <label class="flex cursor-pointer items-center" title="เลือกทั้งหมดในหน้านี้">
+                    <input
+                      type="checkbox"
+                      class="peer sr-only"
+                      :checked="allSelected"
+                      aria-label="เลือกนักเรียนทั้งหมดเพื่อออกใบแจ้งหนี้"
+                      @change="toggleSelectAll"
+                    />
+                    <span
+                      class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                      :class="allSelected ? 'border-brand-700 bg-brand-700' : 'border-stone-300 bg-white'"
+                    >
+                      <i
+                        v-if="allSelected"
+                        class="bi bi-check-lg text-xs font-bold text-white"
+                        aria-hidden="true"
+                      ></i>
+                    </span>
+                  </label>
+                </th>
                 <th class="w-24">เลขที่</th>
                 <th>ชื่อนักเรียน</th>
                 <th class="text-center">จำนวนที่ค้าง (บิล)</th>
@@ -375,6 +581,31 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-for="d in debtors" :key="d.student_id">
+                <td v-if="canManageFinance">
+                  <label class="flex cursor-pointer items-center">
+                    <input
+                      v-model="selectedStudentIds"
+                      type="checkbox"
+                      :value="d.student_id"
+                      :aria-label="`เลือก ${d.student_name} เพื่อออกใบแจ้งหนี้`"
+                      class="peer sr-only"
+                    />
+                    <span
+                      class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                      :class="
+                        selectedStudentIds.includes(d.student_id)
+                          ? 'border-brand-700 bg-brand-700'
+                          : 'border-stone-300 bg-white'
+                      "
+                    >
+                      <i
+                        v-if="selectedStudentIds.includes(d.student_id)"
+                        class="bi bi-check-lg text-xs font-bold text-white"
+                        aria-hidden="true"
+                      ></i>
+                    </span>
+                  </label>
+                </td>
                 <td class="num font-bold text-stone-400">#{{ d.student_no }}</td>
                 <td class="font-bold text-stone-900">{{ d.student_name }}</td>
                 <td class="text-center">
@@ -549,21 +780,13 @@ onMounted(() => {
             </p>
           </div>
           <div class="flex flex-col gap-2 sm:flex-row">
-            <!-- 🧾 ออกใบแจ้งหนี้สำหรับบิลที่เลือก — ยอดมาจาก "ยอดค้างชำระ" ไม่ใช่ยอดที่จะรับเงิน -->
-            <button
-              v-if="canManageFinance"
-              type="button"
-              class="btn-ghost-ui w-full sm:w-auto"
-              :disabled="isIssuingInvoices"
-              @click="handleIssueInvoices"
-            >
-              <i
-                class="bi"
-                :class="isIssuingInvoices ? 'bi-hourglass-split' : 'bi-file-earmark-text'"
-                aria-hidden="true"
-              ></i>
-              ออกใบแจ้งหนี้
-            </button>
+            <!--
+              🚫 ปุ่ม "ออกใบแจ้งหนี้" ถูก **ย้ายออกจากที่นี่** ไปอยู่ที่หัวหน้า (PageHeader #actions)
+              เหตุผล: (ก) ยอดบนใบคือยอดค้างรวมทุกบิลของคนนั้น ⇒ การติ๊กบิลในโมดัลนี้ไม่ได้
+              มีผลกับยอดบนใบเลย (ข) โมดัลนี้ gate ด้วย `isAdmin` ⇒ เหรัญญิกที่มี
+              MANAGE_FINANCE จะกดไม่ได้
+              ⇒ ในโมดัลนี้เหลือเฉพาะ "บันทึกรับเงิน" ซึ่งเป็นหน้าที่เดียวของมัน
+            -->
             <button type="button" class="btn-primary w-full sm:w-auto" @click="handleBatchPay">
               <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
               ยืนยันการรับเงิน

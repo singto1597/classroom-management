@@ -48,9 +48,12 @@ FONT_DIR = BACKEND_ROOT / RECEIPT_FONT_DIR
 GOTENBERG_CONVERT_PATH = "/forms/chromium/convert/html"
 # A4 (นิ้ว) — เอกสารการเงินควรเป็น A4 มาตรฐาน ไม่ใช่ Letter (8.27×11.69 in = 210×297 mm)
 _PAPER = {"paperWidth": "8.27", "paperHeight": "11.69"}
-# 🎯 ขอบกระดาษ = 0 **โดยเจตนา** — ให้ CSS ในเทมเพลต (`body { padding: 14mm ... }`) เป็น
+# 🎯 ขอบกระดาษ = 0 **โดยเจตนา** — ให้ CSS ในเทมเพลต (`.doc { padding: 14mm ... }`) เป็น
 #    แหล่งเดียวที่กำหนดระยะขอบ ถ้าตั้งที่นี่ด้วยจะกลายเป็นระยะขอบสองชั้นซ้อนกัน (26 มม.)
 #    แล้วแก้ที่เทมเพลตไม่เห็นผล ทำให้จูนเลย์เอาต์ไม่ได้
+#    ⚠️ padding ต้องอยู่ที่ **`.doc` (บล็อกต่อใบ) ไม่ใช่ `body`** — padding ของ `body`
+#       มีผลเฉพาะหน้าแรกกับหน้าสุดท้ายของ flow ที่แบ่งหน้า ⇒ ในไฟล์รวม หน้า 2..N
+#       จะไม่มีขอบเลย (ทดสอบด้วยตากับ Gotenberg จริงแล้ว)
 _MARGINS = {"marginTop": "0", "marginBottom": "0", "marginLeft": "0", "marginRight": "0"}
 # เรนเดอร์ฟอนต์/สีพื้นหลังให้ครบ (default ของ Chromium ตัด background ทิ้ง)
 _OPTS = {"printBackground": "true", "preferCssPageSize": "false"}
@@ -93,8 +96,36 @@ def _get_template():
     return env.get_template(TEMPLATE_PATH.name)
 
 
+def render_receipts_html(contexts: list) -> str:
+    """เรนเดอร์เอกสาร **N ใบ** เป็น HTML ไฟล์เดียว (PDF รวม = หน้าละใบ)
+
+    `contexts` = ลิสต์ของ context ต่อใบ (โครงเดียวกับที่ `render_receipt_html` รับ)
+    เทมเพลตวนสร้าง `<div class="doc">` ต่อหนึ่งใบ — **`<style>` อยู่นอกลูป**
+    ⇒ `@font-face` ยังมี 2 อันเท่าเดิมไม่ว่าจะกี่ใบ (ฟอนต์ฝังครั้งเดียว ไม่บวมตาม N)
+
+    ⚠️ ฟอนต์เป็น data URI ~61,000 ตัวอักษรต่อไฟล์ ⇒ ถ้าเผลอย้าย `<style>` เข้าไปในลูป
+       ไฟล์ HTML จะโตเป็น N เท่าโดยไม่จำเป็นและเทสต์นับ `data:font/ttf;base64,` จะพัง
+    """
+    if not contexts:
+        raise ValueError("ต้องมีอย่างน้อย 1 เอกสารในการเรนเดอร์")
+
+    ctx = {
+        "documents": contexts,
+        # 🏷️ `<title>` ของไฟล์รวม — เอกสารหลายใบไม่มี "เลขที่" เดียวให้ใช้
+        #    (ต้องส่งค่านี้เสมอ ไม่งั้น `<title>` ว่าง)
+        "page_title": (
+            f"{contexts[0].get('doc_title') or ''} {contexts[0].get('receipt_no') or ''}".strip()
+            if len(contexts) == 1
+            else f"เอกสารการเงิน {len(contexts)} ฉบับ"
+        ),
+        "font_family": RECEIPT_FONT_FAMILY,
+        "font_faces": _font_faces(),
+    }
+    return _get_template().render(**ctx)
+
+
 def render_receipt_html(context: dict) -> str:
-    """เรนเดอร์เทมเพลตเป็น HTML พร้อมฝังฟอนต์ไทยเป็น data URI
+    """เรนเดอร์เอกสาร **1 ใบ** — shim บาง ๆ เหนือ `render_receipts_html`
 
     `context` ถูกส่งเข้าเทมเพลตทั้งก้อน — เทมเพลตเป็นคนเลือกใช้ (ไม่ทำ whitelist
     เพราะ context ประกอบจาก service ที่อ่าน DB เอง ไม่ได้มาจาก client)
@@ -103,14 +134,19 @@ def render_receipt_html(context: dict) -> str:
        ⇒ จับคู่ "ไฟล์ ↔ น้ำหนัก" ไว้ที่ `constants.RECEIPT_FONT_FILES` ที่เดียว
        เทมเพลตไม่ต้องรู้จักชื่อไฟล์ และเพิ่มน้ำหนักใหม่ไม่ต้องแก้ HTML
        ⚠️ ห้ามเปลี่ยนไปใช้ `font-weight: 100 900` กับฟอนต์ตัวแปร — ดูเหตุผลใน constants.py
+
+    ⚠️ **คงชื่อนี้ไว้ public** แม้จะเป็น shim: เทสต์เรียกตรงโดยไม่ต้องมี DB
+       (`test_receipt_template_declares_one_font_face_per_weight`) ⇒ เปลี่ยนชื่อ = เทสต์พัง
     """
-    ctx = dict(context)
-    ctx["font_family"] = RECEIPT_FONT_FAMILY
-    ctx["font_faces"] = [
+    return render_receipts_html([context])
+
+
+def _font_faces() -> list:
+    """[{uri, weight}] สำหรับเทมเพลต — มาจาก `RECEIPT_FONT_FILES` ที่เดียว"""
+    return [
         {"uri": _font_data_uri(key), "weight": weight}
         for key, (_, weight) in RECEIPT_FONT_FILES.items()
     ]
-    return _get_template().render(**ctx)
 
 
 async def html_to_pdf(html: str, *, timeout: float = 30.0) -> bytes:
@@ -156,6 +192,20 @@ def pdf_filename(receipt_no: str, doc_type: str) -> str:
     prefix = "receipt" if doc_type == "receipt" else "invoice"
     safe = receipt_no.replace("/", "-")
     return f"{prefix}-{safe}.pdf"
+
+
+def pdf_filename_batch(receipt_nos: list, doc_type: str = "receipt") -> str:
+    """ชื่อไฟล์ของ **PDF รวมหลายใบ** — บอกช่วงเลขที่ไว้ในชื่อเพื่อให้แยกออกจากไฟล์ใบเดียว
+
+    ⚠️ ตั้งชื่อตาม "ช่วง" ไม่ใช่ "วันที่ที่กดโหลด": ไฟล์ที่ชื่อเป็นวันที่จะแยกไม่ออกว่า
+       เป็นชุดไหนเมื่อมีหลายชุดในวันเดียวกัน และไม่ตรงกับเลขบนเอกสารข้างใน
+    """
+    prefix = {"receipt": "receipts", "invoice": "invoices"}.get(doc_type, "documents")
+    first = str(receipt_nos[0]).replace("/", "-")
+    last = str(receipt_nos[-1]).replace("/", "-")
+    if first == last:
+        return f"{prefix}-{first}.pdf"
+    return f"{prefix}-{first}-to-{last}.pdf"
 
 
 def gotenberg_configured() -> Optional[str]:

@@ -435,6 +435,12 @@ async def init_db(pool: asyncpg.Pool):
                     --    ใบเสร็จ → เวลาที่รับเงินงวดนั้น / ใบแจ้งหนี้ → เวลาที่ออกเอกสาร
                     --    ⇒ พิมพ์ซ้ำหรือเปิดดูเมื่อไรก็ได้วันที่เดิมเสมอ ไม่ขึ้นกับว่าดูตอนไหน
                     event_at TIMESTAMP WITH TIME ZONE,
+                    -- 📋 รายการย่อยที่เอกสารนี้แจกแจง (ใบแจ้งหนี้รวมยอดหลายโครงการ)
+                    --    🔴 **snapshot** ไม่ใช่คำนวณใหม่ตอนพิมพ์: ยอดบรรทัดต้องรวมได้เท่ากับ
+                    --    `amount` ที่พาดหัวเสมอ ⇒ ถ้า recompute ตอนพิมพ์ ใบที่พิมพ์ซ้ำหลังนักเรียน
+                    --    จ่ายบางส่วนจะได้บรรทัดรวม ≠ ยอดพาดหัว = เอกสารขัดแย้งตัวเอง
+                    --    NULL = เอกสารใบเดียวต่อหนึ่งบิล (ใบเสร็จทุกใบ / ใบแจ้งหนี้แบบเก่า)
+                    line_items JSONB,
                     -- 🚫 active | voided — รายการที่ถูกยกเลิกต้องไม่ทิ้งใบเสร็จค้างเป็น active
                     --    (void ตั้ง `deleted_at` คู่กัน ⇒ ทุกจุดอ่านเดิมกรองออกให้เอง — ดู transactions.py)
                     status VARCHAR(20) NOT NULL DEFAULT 'active',
@@ -480,6 +486,12 @@ async def init_db(pool: asyncpg.Pool):
                 -- ครอบ query หลักของ get_receipts: WHERE room_id = $1 AND deleted_at IS NULL ...
                 CREATE INDEX IF NOT EXISTS idx_finance_receipts_room_year
                     ON finance_receipts(room_id, year_be, doc_type);
+
+                -- ครอบเส้นทาง "เอกสารของนักเรียนคนนี้" (กรองรายคน + กรองชนิดเอกสาร)
+                -- เดิมไม่มี index บน student_id เลย — รับได้ตอนข้อมูลน้อย แต่เป็นคีย์ที่
+                -- หน้าลูกหนี้/รายละเอียดนักเรียนใช้บ่อยที่สุดของการอ่านเอกสาร
+                CREATE INDEX IF NOT EXISTS idx_finance_receipts_room_student
+                    ON finance_receipts(room_id, student_id, doc_type) WHERE deleted_at IS NULL;
             """)
 
             # --- 6. Activity & Role Management Module ---
@@ -571,6 +583,12 @@ async def init_db(pool: asyncpg.Pool):
             await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP WITH TIME ZONE;")
             await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS voided_by INTEGER REFERENCES users(id) ON DELETE SET NULL;")
             await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS void_reason TEXT;")
+            # 📋 F3.1 — รายการย่อยของใบแจ้งหนี้รวมยอด (ดูเหตุผลว่า "snapshot" ไม่ใช่ recompute
+            #    ในคอมเมนต์ของ CREATE TABLE ด้านบน) — ALTER ตัวนี้คือตัวที่ทำให้ DB ที่ deploy
+            #    ไปแล้วได้คอลัมน์จริง ส่วน CREATE TABLE ด้านบนเป็น no-op กับ DB นั้น
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS line_items JSONB;")
+            # (index `idx_finance_receipts_room_student` สร้างในบล็อก DDL ด้านบนแล้ว — บล็อกนั้น
+            #  รันทุกครั้งที่ start เช่นกัน และคอลัมน์ที่ index อ้างมีอยู่บน DB เก่าครบ ⇒ ไม่ต้องซ้ำที่นี่)
             # Constraint ที่เพิ่มทีหลังใช้รูปแบบเดียวกับ `users_email_key` ด้านล่าง (DROP IF EXISTS + ADD)
             await conn.execute("ALTER TABLE finance_receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;")
             await conn.execute("ALTER TABLE finance_receipts ADD CONSTRAINT chk_receipt_status CHECK (status IN ('active', 'voided'));")

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { CollectionStatus, Account, StudentPaymentDetail } from '@/types/finance'
 import { displayName } from '@/utils/name'
+import { downloadBlob, combinedPdfFilename } from '@/utils/download'
 import Swal from 'sweetalert2'
 
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -176,6 +177,14 @@ const canManageFinance = computed(() => authStore.canManageFinance)
 const issuingPaymentId = ref<number | null>(null)
 const isIssuingBatch = ref(false)
 
+/**
+ * 🚧 เพดานของ **PDF รวม** — `RECEIPTS_PER_PDF_MAX` ฝั่ง backend (ไม่ใช่เพดานของ batch
+ * รับเงินซึ่งเป็น 100 เท่ากันโดยบังเอิญ ไม่ใช่โดยสัญญา)
+ * ⚠️ ทั้งสองค่าเป็น 100 แต่มันผูกกับคนละข้อจำกัด ⇒ ถ้าวันหนึ่งเพดานรวมขยับ (เพราะ
+ *    Chromium เร็วขึ้น) ตัวเลขนี้ต้องขยับตาม ส่วนเพดาน batch ไม่เกี่ยว
+ */
+const COMBINED_PDF_MAX = 100
+
 /** จำนวนบิลที่มีเงินเข้าแล้ว (= บิลที่ออกใบเสร็จได้) — ใช้โชว์บนปุ่มรวบยอด */
 const issuableCount = computed(
   () => data.value?.students.filter((s) => s.paid_amount > 0).length ?? 0,
@@ -246,13 +255,28 @@ const handleIssueAllReceipts = async () => {
       doc_type: 'receipt',
       user_name: currentUserName,
     })
-    Swal.fire({
+    const nos = res.receipts.map((r) => r.receipt_no)
+    // 🖨️ เสนอ "ดาวน์โหลดรวมเป็น PDF" แทนการปิดเองใน 2 วินาที
+    //    ⚠️ ของเดิมใช้ `timer: 2000, showConfirmButton: false` ⇒ ครูที่ออกใบเสร็จ 40 ใบ
+    //       ต้องไปกดโหลดทีละใบจากทะเบียน 40 ครั้ง (ซึ่งคือปัญหาที่งานนี้มาแก้)
+    //    ⚠️ เพดาน 100 ฉบับบังคับที่ backend ⇒ เช็คก่อนไม่ให้เสนอปุ่มที่กดแล้วได้ 400
+    const canDownload = nos.length > 0 && nos.length <= COMBINED_PDF_MAX
+    const after = await Swal.fire({
       icon: 'success',
       title: 'ออกใบเสร็จเรียบร้อย',
-      text: `ออกใหม่ ${res.issued_count} ใบ · ใช้เลขเดิม ${res.reused_count} ใบ`,
-      timer: 2000,
-      showConfirmButton: false,
+      html:
+        `ออกใหม่ <b>${res.issued_count}</b> ใบ · ใช้เลขเดิม <b>${res.reused_count}</b> ใบ` +
+        (canDownload
+          ? `<br><br><span style="font-size:0.85em;color:#78716c">รวมเป็นไฟล์เดียวได้ ` +
+            `(${nos.length} หน้า — หน้าละบิล) เหมาะสำหรับพิมพ์แจก</span>`
+          : ''),
+      showCancelButton: canDownload,
+      confirmButtonText: 'ดาวน์โหลด PDF รวม',
+      cancelButtonText: 'ปิด',
+      confirmButtonColor: '#1d4ed8',
+      cancelButtonColor: '#78716c',
     })
+    if (canDownload && after.isConfirmed) await downloadCombined(nos)
   } catch (error: unknown) {
     Swal.fire(
       'ออกใบเสร็จไม่สำเร็จ',
@@ -261,6 +285,43 @@ const handleIssueAllReceipts = async () => {
     )
   } finally {
     isIssuingBatch.value = false
+    // 🔄 โหลดใหม่ **หลัง** ออกเอกสารเสร็จ — ของเดิมลืมบรรทัดนี้ ทำให้ `issuableCount`
+    //    และสถานะ "ออกแล้ว/ยังไม่ออก" ของทุกแถวค้างค่าเก่าจนกว่าจะรีเฟรชหน้าเอง
+    //    ⇒ ครูเห็นปุ่ม "ออกใบเสร็จทั้งหมด (40)" อยู่ทั้งที่ออกไปแล้ว
+    //    ⚠️ อยู่ใน `finally` (ไม่ใช่หลัง `try`) เพราะต้องรีเฟรชแม้บางใบล้ม — สถานะจริง
+    //       อาจเปลี่ยนไปบางส่วนแล้ว และปุ่มที่โชว์จำนวนผิดคือสิ่งที่ทำให้กดซ้ำโดยไม่รู้ตัว
+    void fetchDetail()
+  }
+}
+
+/**
+ * 🖨️ ดาวน์โหลดใบเสร็จที่เพิ่งออกทั้งหมดเป็น PDF ไฟล์เดียว (หน้าละบิล)
+ * ⚠️ ไม่ได้ออกเอกสารใหม่ — รับเฉพาะเลขที่ที่มีอยู่แล้ว (การอ่าน ไม่กินเลข)
+ */
+const downloadCombined = async (nos: string[]) => {
+  if (nos.length > COMBINED_PDF_MAX) {
+    return Swal.fire(
+      'รวมไฟล์ไม่ได้ในครั้งเดียว',
+      `มี ${nos.length} ใบ แต่รวมได้ครั้งละไม่เกิน ${COMBINED_PDF_MAX} ใบ ` +
+        '— กรุณาดาวน์โหลดจากทะเบียนเอกสารโดยแบ่งเป็นรอบ',
+      'warning',
+    )
+  }
+  Swal.fire({
+    title: 'กำลังสร้างไฟล์ PDF...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading(),
+  })
+  try {
+    const blob = await FinanceService.downloadCombinedPdf(currentServerId, nos)
+    downloadBlob(blob, combinedPdfFilename(nos, 'receipts'))
+    Swal.close()
+  } catch (error: unknown) {
+    Swal.fire(
+      'สร้างไฟล์ PDF ไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    )
   }
 }
 
