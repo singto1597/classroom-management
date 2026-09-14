@@ -139,6 +139,13 @@ async def _count_journals(pool, room_id: int) -> int:
         )
 
 
+async def _count_ledgers(pool, room_id: int) -> int:
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM accounting_ledgers WHERE room_id = $1", room_id
+        )
+
+
 async def _fetch_journal_by_legacy(pool, room_id: int, legacy_tx_id: int):
     """ดึง journal ที่ metadata ชี้ไปที่แถว legacy นี้ (ท่าเดียวกับที่ revert_transaction ใช้หา)."""
     async with pool.acquire() as conn:
@@ -201,7 +208,12 @@ async def test_pre_cutoff_row_is_never_backfilled(db_pool):
 async def test_straddle_row_detected_but_dry_run_writes_nothing(db_pool):
     """แถวเช้ามืดวันที่ 1 ก.ย. ไทย (UTC ยังเป็น 31 ส.ค.) = เคสจริงที่ต้อง backfill.
 
-    dry-run ต้องเห็นแผนครบ แต่ **ไม่เขียนอะไรลง DB เลย** (ไม่แม้แต่ ledger ที่ auto-provision)
+    dry-run ต้องเห็นแผนครบ แต่ **ไม่เขียน journal/journal_lines ลง DB เลย**
+
+    ⚠️ เทสต์นี้ **ไม่ได้** ครอบเส้นทาง auto-provision ledger — helper ที่ใช้สร้างบัญชี/หมวด
+    สร้าง ledger คู่ให้ครบตั้งแต่ต้น ⇒ `_resolve_*_ledger` หาเจอทันทีและไม่ต้อง INSERT
+    เส้นทางนั้นถูกคุมโดย `test_dry_run_does_not_commit_auto_provisioned_ledgers` แทน
+    (ห้ามเติม assert เรื่อง ledger ที่นี่แล้วคิดว่าครอบ — ต้องใช้เทสต์ตัวนั้น)
     """
     owner = await _insert_user(db_pool)
     room_id = await _insert_room(db_pool, owner)
@@ -219,13 +231,61 @@ async def test_straddle_row_detected_but_dry_run_writes_nothing(db_pool):
     assert rep["total_amount"] == pytest.approx(750.0)
     assert rep["plans"][0]["legacy_ids"] == [tx_id]
 
-    # 🛡️ dry-run ต้อง rollback: ไม่มี journal, ไม่มี line, และ ledger ที่ auto-provision ก็ต้องไม่ค้าง
+    # 🛡️ dry-run ต้อง rollback: ไม่มี journal และไม่มี line
     assert await _count_journals(db_pool, room_id) == 0
     async with db_pool.acquire() as conn:
         assert await conn.fetchval(
             "SELECT COUNT(*) FROM journal_lines L JOIN journal_entries JE ON L.journal_entry_id = JE.id "
             "WHERE JE.room_id = $1", room_id
         ) == 0
+
+
+async def test_dry_run_does_not_commit_auto_provisioned_ledgers(db_pool):
+    """dry-run ต้อง rollback แม้ในกรณีที่การวางแผน **ต้องสร้าง ledger ใหม่ขึ้นเอง**.
+
+    ⚠️ ทำไมต้องมีเทสต์นี้อีกตัว: `test_straddle_row_detected_but_dry_run_writes_nothing`
+    ผ่านแบบ **กลวง** — helper `_insert_finance_account` / `_insert_category` สร้าง ledger
+    คู่ให้ครบทุกตัวตั้งแต่ต้น ⇒ `_resolve_*_ledger` หาเจอทันทีและไม่ต้อง INSERT อะไรเลย
+    และเทสต์นั้นก็ไม่ได้ assert เรื่อง `accounting_ledgers` เลยสักบรรทัด (มีแต่คอมเมนต์)
+
+    เทสต์นี้จึงจงใจ **ไม่สร้าง ledger** ให้บัญชี/หมวด เพื่อบังคับให้เกิด auto-provision จริง
+    ⇒ ถ้า `backfill_missing_journals` commit ในโหมด dry-run (บั๊กที่พบจริงบน staging:
+    ledger ค้าง 1 แถวทั้งที่สคริปต์พิมพ์ว่า "ไม่มีการเขียนลงฐานข้อมูล") เทสต์นี้จะล้ม
+    """
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+
+    # ⚠️ จงใจสร้าง **โดยไม่มี** ledger คู่ (ต่างจาก helper มาตรฐาน) — ห้ามเปลี่ยนไปใช้ helper
+    async with db_pool.acquire() as conn:
+        account_id = await conn.fetchval(
+            "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, $3) RETURNING id",
+            room_id, "บัญชีที่ยังไม่มี ledger", 0.0,
+        )
+        cat_id = await conn.fetchval(
+            "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3) RETURNING id",
+            room_id, "หมวดที่ยังไม่มี ledger", "expense",
+        )
+    await _insert_legacy_tx(
+        db_pool, room_id, amount=321.0, transaction_type="expense",
+        account_id=account_id, category_id=cat_id, created_at=STRADDLE_UTC,
+    )
+
+    ledgers_before = await _count_ledgers(db_pool, room_id)
+
+    rep = await FinanceService.backfill_missing_journals(pool=db_pool, room_id=room_id, apply=False)
+
+    # แผนต้องครบ (พิสูจน์ว่าเส้นทาง provision ถูกเดินจริง ไม่ใช่ข้ามไปเพราะ error)
+    assert rep["candidates"] == 1
+    assert rep["journals_planned"] == 1
+    assert rep["journals_created"] == 0
+    assert rep["skipped"] == []
+
+    ledgers_after = await _count_ledgers(db_pool, room_id)
+    assert ledgers_after == ledgers_before, (
+        f"dry-run ต้องไม่ทิ้ง ledger ที่ auto-provision ไว้ — ก่อน {ledgers_before} "
+        f"หลัง {ledgers_after} (ledger ที่ค้าง = การเขียน DB จริงที่ผู้ใช้ไม่ได้รับอนุญาต)"
+    )
+    assert await _count_journals(db_pool, room_id) == 0
 
 
 # === 3. apply: เขียน journal ด้วยเวลาที่เงินเคลื่อนไหวจริง ==================
