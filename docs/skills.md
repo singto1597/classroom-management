@@ -1677,3 +1677,17 @@
 - **Correct Pattern/Solution:** เอา `truncate` ออกให้ข้อความ **ขึ้นบรรทัดใหม่** (พาเนลโมดัลมี `overflow-y-auto` อยู่แล้ว) · `truncate` ยังใช้ได้กับข้อความ **คงที่** (`<h2>` ชื่อโมดัล) เพราะความยาวไม่แปรตามข้อมูล
 - **Rule:** (1) ห้าม `truncate` กับอะไรก็ตามที่ **มีความยาวแปรตามข้อมูลและปลายข้อความเป็นตัวเลข** (เงิน/วันที่/เลขที่เอกสาร) — ให้ตัดบรรทัดแทน (2) ตรวจด้วยการ **เรนเดอร์จริงที่ 375px** แล้วอ่านตัวเลขบนภาพออกเสียง ว่ายังเป็นจำนวนเดิมไหม
 - **Date Added:** 2026-09-14
+
+### 🔀 `origin/main` ที่ยังไม่ `git fetch` ⇒ สรุปผิดว่า PR จะมีกี่เรื่อง (และเนื้อหาอะไร)
+- **Context/Problem:** จะเปิด PR จาก branch `feat/student-credit-prepay` · `git rev-list --count origin/main..HEAD` = **1** และ `git log origin/main --oneline` ไม่มีงานใบแจ้งหนี้ ⇒ สรุปว่า branch สะสม **2 เรื่อง** (ใบแจ้งหนี้ที่ยังไม่ push + F4) แล้วเขียนคำเตือนนั้นลงหัว PR · **ผิดทั้งย่อหน้า** — หลัง `git fetch` ปรากฏว่า `origin/main` = `3d9b393` ซึ่ง **merge งานใบแจ้งหนี้ไปแล้วทาง PR #54** ⇒ PR มีเรื่องเดียว
+- **Root Cause:** `origin/main` เป็น **ref ท้องถิ่น** ที่ขยับเฉพาะตอน fetch · การอ่าน `git log origin/main` / `--count` จึงตอบคำถาม "ตอนที่ fetch ครั้งล่าสุด" ไม่ใช่ "ตอนนี้" — และ **ไม่มีการเตือนใด ๆ** ว่าค้าง (ต่างจาก `git status` ที่บอก ahead/behind ให้)
+- **Correct Pattern/Solution:** `git fetch origin` **ก่อน** ทุกครั้งที่จะสรุปเรื่อง base/จำนวนคอมมิต/ขอบเขต PR · ทางที่ดีคือยืนยันด้วยคำถามที่ตอบได้ตรง ๆ ว่า *"คอมมิตนี้ถูก merge แล้วหรือยัง"*: `git merge-base --is-ancestor <sha> origin/main` และ `git diff --shortstat <sha> origin/main` (ว่าง = เนื้อหาตรงกันแล้ว) · ตัวเลขที่เชื่อได้จริงคือ **`gh pr view <n> --json changedFiles,additions,deletions,commits`** เพราะ GitHub คำนวณจาก base จริง
+- **Rule:** (1) ห้ามสรุปขอบเขตของ PR จาก ref ท้องถิ่นที่ยังไม่ fetch (2) ถ้า commit hash ที่รันบน production/staging ตรงกับ merge commit ของ PR ที่เพิ่ง merge ⇒ งานนั้น deploy ไปแล้ว **ไม่ใช่งานค้าง** — เช็คให้ชัดก่อนเขียนคำเตือน (3) ตรวจคำเตือนใน PR/คอมมิตกับ **ความจริงหลัง fetch** เสมอ ถ้าข้อความไหนกลายเป็นเท็จให้แก้ทันที อย่าปล่อยให้ PR พูดผิด
+- **Date Added:** 2026-09-14
+
+### 🚫 `gh pr edit` ล้มด้วย GraphQL "Projects (classic) is being deprecated" — และการกลบ stderr ทำให้ดูเหมือนสำเร็จ
+- **Context/Problem:** แก้ body ของ PR #55 ด้วย `gh pr edit 55 --body-file /tmp/f4_pr_body.md >/dev/null 2>&1` ⇒ ขึ้น `exit=1` แต่ **ไม่รู้สาเหตุ** เพราะกลบ stderr ไว้ · รันใหม่โดยไม่กลบจึงเห็น: `GraphQL: Projects (classic) is being deprecated ... (repository.pullRequest.projectCards)` ⇒ **body ไม่ถูกแก้เลย** แต่ถ้ากลบ stderr จะดูเหมือนผ่าน
+- **Root Cause:** `gh pr edit` ยิง GraphQL ที่ขอ field `projectCards` ซึ่งถูก sunset ⇒ query ทั้งก้อนล้ม แม้ผู้ใช้ไม่ได้แตะ Projects เลย · เป็นบั๊กของ `gh` ไม่ใช่ของ repo
+- **Correct Pattern/Solution:** เลี่ยงผ่าน REST API: `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@/tmp/body.md` (`-F` ที่ตามด้วย `@ไฟล์` อ่านเนื้อหาจากไฟล์) · **ยืนยันผลด้วยการอ่านกลับ** `gh api repos/.../pulls/<n> --jq '.body' | head`
+- **Rule:** (1) **ห้ามกลบ stderr ของคำสั่งที่แก้ state ภายนอก** (`gh`, `git push`, `curl`) — นี่เป็นครั้งที่สองของรูปแบบนี้ในงานชุดนี้ (ครั้งแรก: `cmd | tail` แล้วต่อ `&& echo "✅"` ทำให้รายงานว่าสำเร็จทั้งที่ exit ไม่ใช่ 0) ⇒ ให้เขียนไฟล์ log แล้วอ่าน `echo "exit=$?"` แยก (2) คำสั่งที่ "แก้ของที่อยู่ข้างนอก" ต้อง **อ่านกลับมายืนยัน** ไม่ใช่เชื่อ exit code อย่างเดียว
+- **Date Added:** 2026-09-14
