@@ -22,7 +22,7 @@ from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
     _legacy_id_from_journal,
 )
-from .base import service_logger
+from .base import _lock_room_money, service_logger
 
 
 class AccountsMixin:
@@ -35,6 +35,9 @@ class AccountsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
                     
                     # [DUAL-WRITE] ดึง id ของแถว legacy เพื่อ map ลง accounting_ledgers
                     new_account_id = await conn.fetchval(
@@ -112,6 +115,9 @@ class AccountsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
                     
                     old_data = await conn.fetchrow("SELECT * FROM finance_accounts WHERE id = $1 AND room_id = $2", account_id, target_room_id)
                     if not old_data: raise RoomNotFoundError("ไม่พบบัญชีนี้")
@@ -156,6 +162,9 @@ class AccountsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
                     
                     old_data = await conn.fetchrow("SELECT * FROM finance_accounts WHERE id = $1 AND room_id = $2", account_id, target_room_id)
                     if not old_data: raise RoomNotFoundError("ไม่พบบัญชีนี้")

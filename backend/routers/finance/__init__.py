@@ -6,6 +6,8 @@ from .categories import router as categories_router
 from .transactions import router as transactions_router
 from .collections import router as collections_router
 from .reporting import router as reporting_router
+from .budgets import router as budgets_router
+from .receipts import router as receipts_router
 from .export import router as export_router
 
 router = APIRouter()
@@ -15,5 +17,7 @@ router.include_router(transactions_router)
 router.include_router(export_router)
 router.include_router(collections_router)
 router.include_router(categories_router)
+router.include_router(budgets_router)
+router.include_router(receipts_router)
 
 __all__ = ["router"]

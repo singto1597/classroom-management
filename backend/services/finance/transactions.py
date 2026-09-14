@@ -17,12 +17,13 @@ from .constants import (
     COLLECTION_STATUS_LABELS, REFERENCE_TYPE_LABELS, MANAGEMENT_TAB_COLORS,
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
+    DOC_TYPE_RECEIPT, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
     _legacy_id_from_journal, _thai_day_start, _thai_day_end, _as_utc,
 )
-from .base import service_logger
+from .base import _lock_room_money, service_logger
 
 
 class TransactionsMixin:
@@ -35,7 +36,10 @@ class TransactionsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
-                    
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
+
                     current_balance = await conn.fetchval(
                         "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
                         req.account_id, target_room_id
@@ -131,7 +135,12 @@ class TransactionsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
-                    
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    #    ⚠️ เส้นทางนี้ยึด `from` แล้วค่อยยึด `to` ⇒ ลำดับขึ้นกับ **ทิศทางที่ผู้ใช้ส่ง**
+                    #    ⇒ โอนสองรายการทิศตรงข้ามบนบัญชีคู่เดียวกันจะวนรอกันเอง ถ้าไม่มีล็อกห้อง
+                    await _lock_room_money(conn, target_room_id)
+
                     current_balance = await conn.fetchval(
                         "SELECT balance FROM finance_accounts WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
                         req.from_account_id, target_room_id
@@ -546,6 +555,16 @@ class TransactionsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    #    ⚠️ เส้นทางนี้คือ **ครึ่งหนึ่งของวงรอบรอ ABBA ทั้งสามวง**:
+                    #      (1) ยึด `finance_accounts` ก่อน `student_payments` — กลับทางกับ `_confirm_single_payment`
+                    #      (2) ยึด `finance_transactions` ก่อน `student_payments` — กลับทางกับ `_load_payment`
+                    #          ที่ INSERT `finance_receipts` แล้วได้ KEY SHARE บนแถว FT
+                    #      (3) ล็อกกลุ่มโอนโดยไม่มี ORDER BY ⇒ ลำดับแถว/บัญชีขึ้นกับ plan
+                    #    ล็อกห้องเป็นอย่างแรกทำให้ทั้งสามวงหายไปพร้อมกัน
+                    await _lock_room_money(conn, target_room_id)
+
                     t = await conn.fetchrow(
                         "SELECT * FROM finance_transactions WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE",
                         transaction_id, target_room_id
@@ -571,6 +590,10 @@ class TransactionsMixin:
 
                     old_values = dict(t)
 
+                    # 🧾 เก็บ id ของ "ทุกแถวที่กำลังจะถูกยกเลิก" ไว้ void ใบเสร็จทีหลัง
+                    #    (โอนเงิน 1 ครั้ง = หลายแถวในกลุ่ม ⇒ ต้องเก็บทั้งกลุ่ม ไม่ใช่แค่แถวที่รับมา)
+                    voided_tx_ids = [transaction_id]
+
                     if t['transfer_group_id']:
                         group_trans = await conn.fetch("SELECT * FROM finance_transactions WHERE transfer_group_id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE", t['transfer_group_id'], target_room_id)
                         for gt in group_trans:
@@ -591,6 +614,7 @@ class TransactionsMixin:
                             target_room_id, str(t['transfer_group_id']),
                         )
                         action_detail = "ยกเลิกรายการโอนเงิน"
+                        voided_tx_ids = [gt['id'] for gt in group_trans]
                     else:
                         if t['transaction_type'] == 'income':
                             curr_bal = await conn.fetchval("SELECT balance FROM finance_accounts WHERE id = $1 FOR UPDATE", t['account_id'])
@@ -629,13 +653,45 @@ class TransactionsMixin:
                         )
                         action_detail = f"ยกเลิกรายการ {t['transaction_type']}"
 
+                    # ─────────────────────────────────────────── 🧾 ยกเลิกใบเสร็จที่เกี่ยวข้อง
+                    # 🚨 ใบเสร็จที่ผูกกับรายการนี้ **ต้องไม่ค้างสถานะ active** เด็ดขาด
+                    #    ถ้าปล่อยไว้ ฐานข้อมูลบอก "บิลนี้ยังไม่ถูกจ่าย" แต่กระดาษที่ผู้ปกครอง
+                    #    ถืออยู่ยังอ้างว่ารับเงินแล้ว ⇒ สองหลักฐานขัดกันเองในระบบบัญชี
+                    #    และตรวจสอบย้อนหลังไม่ได้ว่าอันไหนถูก
+                    #
+                    # ⚠️ ตั้ง `deleted_at` **คู่กับ** `status = 'voided'` โดยเจตนา:
+                    #    ทุกจุดอ่านที่มีอยู่เดิม (get_receipt / get_receipts / _find_existing /
+                    #    idx_finance_receipts_tx_active) กรอง `deleted_at IS NULL` อยู่แล้ว
+                    #    ⇒ ใบที่ void แล้วหลุดออกจากทุกเส้นทางโดยอัตโนมัติ **โดยไม่ต้องแก้
+                    #      predicate ของ index** ซึ่งแก้บน DB ที่ deploy แล้วไม่ได้จริง
+                    #      (`CREATE UNIQUE INDEX IF NOT EXISTS` ที่ predicate เปลี่ยน = no-op เงียบ)
+                    #    ส่วน `status` เก็บไว้เพื่อ "บอกความตั้งใจ" และเป็นด่านของมุมมองตรวจสอบ
+                    voided_receipts = await conn.fetch(
+                        """UPDATE finance_receipts
+                           SET status = $7, voided_at = CURRENT_TIMESTAMP,
+                               voided_by = $3, void_reason = $4, deleted_at = NOW()
+                           WHERE room_id = $1 AND legacy_transaction_id = ANY($2::int[])
+                             AND doc_type = $5
+                             AND status = $6 AND deleted_at IS NULL
+                           RETURNING receipt_no""",
+                        target_room_id, voided_tx_ids, user_id,
+                        f"ยกเลิกรายการธุรกรรม #{transaction_id}",
+                        DOC_TYPE_RECEIPT, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
+                    )
+                    voided_nos = [r["receipt_no"] for r in voided_receipts]
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
                         room_id=target_room_id, user_id=user_id, entity_type="FINANCE_TRANSACTION", entity_id=str(transaction_id), status="success",
-                        old_values=old_values, new_values={"action": action_detail}, endpoint_or_command="FinanceService.revert_transaction", execution_time_ms=exec_time
+                        old_values=old_values,
+                        new_values={"action": action_detail, "voided_receipts": voided_nos},
+                        endpoint_or_command="FinanceService.revert_transaction", execution_time_ms=exec_time
                     )
-                    return {"status": "success", "message": action_detail}
+                    if voided_nos:
+                        action_detail += f" (ยกเลิกใบเสร็จ {len(voided_nos)} ใบ: {', '.join(voided_nos)})"
+                    return {"status": "success", "message": action_detail,
+                            "voided_receipts": voided_nos}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:

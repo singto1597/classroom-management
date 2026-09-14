@@ -1432,8 +1432,16 @@ async def test_delete_category_success(db_pool):
     )
     assert result["status"] == "success"
     async with db_pool.acquire() as conn:
+        # 🗑️ [SOFT DELETE] แถวต้อง **ยังอยู่** แต่มี `deleted_at` กำกับ (เปลี่ยนเมื่อ 2026-09-13)
+        # เหตุผล: `accounting_ledgers.legacy_category_id` / `finance_transactions.category_id`
+        # เป็น FK `ON DELETE SET NULL` ⇒ hard delete "ตัดสาย mapping" ทิ้งโดยไม่ได้ลบประวัติ
+        # พอสร้างหมวดชื่อเดิมใหม่จะได้ ledger รหัสใหม่ → ผังบัญชีคู่มี ledger ชื่อซ้ำแบบ orphan
         row = await conn.fetchrow("SELECT * FROM finance_categories WHERE id = $1", cat_id)
-        assert row is None
+        assert row is not None
+        assert row["deleted_at"] is not None
+        # ยืนยันว่าไม่ใช่การไปแก้แถวอื่น: ข้อมูลเดิมยังครบ
+        assert row["category_name"] == "ค่าอาหาร"
+        assert row["category_type"] == "expense"
     assert await _count_audit_logs(db_pool, "FINANCE_CATEGORY", "DELETE") == 1
 
 

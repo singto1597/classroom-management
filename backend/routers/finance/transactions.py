@@ -71,7 +71,7 @@ async def get_transactions(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.delete("/{target_id}/finance/transactions/{transaction_id}", response_model=SuccessResponse)
+@router.delete("/{target_id}/finance/transactions/{transaction_id}", response_model=TransactionRevertResponse)
 async def revert_transaction(
     transaction_id: int,
     request: Request,

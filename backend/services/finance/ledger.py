@@ -23,7 +23,7 @@ from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
     _legacy_id_from_journal,
 )
-from .base import service_logger
+from .base import _lock_room_money, service_logger
 
 
 class LedgerMixin:
@@ -60,7 +60,7 @@ class LedgerMixin:
         if ledger_id:
             return ledger_id
         cat = await conn.fetchrow(
-            "SELECT category_name, category_type FROM finance_categories WHERE id = $1 AND room_id = $2",
+            "SELECT category_name, category_type FROM finance_categories WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL",
             legacy_category_id, room_id,
         )
         if not cat:
@@ -107,21 +107,33 @@ class LedgerMixin:
         สร้างหมวดนี้ + ให้ `_resolve_category_ledger` สร้าง revenue ledger ตามมา
         → ทำให้ทุก path เจอหมวด+ledger ตัวเดียวกัน (find-or-create idempotent).
         """
+        # 🗑️ [SOFT DELETE] `deleted_at IS NULL` ทุก SELECT ในฟังก์ชันนี้ — **ห้ามถอด**
+        #
+        # ฟังก์ชันนี้เป็น find-or-create ถ้าไม่กรอง มันจะ "ฟื้น" หมวดที่ถูกลบไปแล้ว:
+        # SELECT เจอแถวที่ `deleted_at` ไม่ null → คืน id นั้น → `confirm_payment` ทุกครั้ง
+        # หลังจากนั้น dual-write ลง ledger ของหมวดที่ผู้ใช้ลบไปแล้ว และหมวดนั้นก็ยังไม่โผล่
+        # ใน `get_categories` ⇒ เงินเข้าฝั่ง legacy แต่ผู้ใช้หาหมวดไม่เจอ = งงถาวร
+        # (สำคัญเป็นพิเศษเพราะฟังก์ชันนี้เป็น **ทางเดียว** ที่หมวดนี้ถูกสร้าง — ดู docstring)
         cat_id = await conn.fetchval(
             """SELECT id FROM finance_categories
                WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+                 AND deleted_at IS NULL
                ORDER BY id LIMIT 1""",
             room_id, DEFAULT_INCOME_CATEGORIES[0],
         )
         if cat_id:
             return cat_id
         # 🛡️ INSERT ... WHERE NOT EXISTS กัน race (2 request พร้อมกันสร้างหมวดซ้ำ)
+        #    ⚠️ subquery ต้องกรอง `deleted_at IS NULL` **ด้วยเหตุผลเดียวกัน** — ถ้าไม่กรอง
+        #    มันจะเห็นหมวดที่ลบไปแล้วว่า "มีอยู่" แล้วไม่ยอมสร้างใหม่ ⇒ INSERT คืน NULL
+        #    → ตกไป branch `if cat_id is None` → คืน id ของหมวดที่ถูกลบ = บั๊กเดิมกลับมา
         cat_id = await conn.fetchval(
             """INSERT INTO finance_categories (room_id, category_name, category_type)
                SELECT $1, $2, 'income'
                WHERE NOT EXISTS (
                    SELECT 1 FROM finance_categories
                    WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+                     AND deleted_at IS NULL
                )
                RETURNING id""",
             room_id, DEFAULT_INCOME_CATEGORIES[0],
@@ -131,6 +143,7 @@ class LedgerMixin:
             return await conn.fetchval(
                 """SELECT id FROM finance_categories
                    WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'
+                     AND deleted_at IS NULL
                    ORDER BY id LIMIT 1""",
                 room_id, DEFAULT_INCOME_CATEGORIES[0],
             )
@@ -290,12 +303,17 @@ class LedgerMixin:
           (asset Dr / equity Cr เมื่อ legacy มากกว่า, asset Cr / equity Dr เมื่อ ledger เกิน)
           ให้ยอดบัญชีคู่กลับมาเท่ากับ Legacy เป๊ะ ๆ
 
-        ⚠️ Ops tool: ไม่ล็อกแถวระหว่าง apply → ควรวิ่งช่วงที่ไม่มีรายการสด
+        ⚠️ Ops tool: ไม่ล็อก **แถว** ระหว่าง apply → ควรวิ่งช่วงที่ไม่มีรายการสด
+           แต่ตั้งแต่มี lock protocol ตัวนี้ยึด advisory lock ของห้องด้วย (ดู `_lock_room_money`)
+           ⇒ ถ้ามีคนรันระหว่างที่มีรายการสด มันจะ **รอ** จนเส้นทางเงินปล่อยล็อก แทนที่จะแทรก
+             กลางtransaction ของเขา (ความเสี่ยงเดิมคืออ่านยอดแล้วเขียนทับระหว่างที่ยอดขยับ)
         คืน dict รายงาน (ตัวเลขเป็น float, journal_entry_id เป็น str)
         """
         async with pool.acquire() as conn:
             resolved_room_id = await cls.resolve_room_id(conn, server_id, room_id)
             async with conn.transaction():
+                # 🔒 ล็อกห้องก่อนสแกน/เขียนใด ๆ (protocol เดียวกันทั้งระบบ)
+                await _lock_room_money(conn, resolved_room_id)
                 rows = await cls._scan_account_diffs(conn, room_id=resolved_room_id, threshold=threshold)
                 mismatches = [r for r in rows if r["action"] != "skip"]
                 room_name = await conn.fetchval(

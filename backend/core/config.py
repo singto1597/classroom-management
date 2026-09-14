@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # บอทจะฟัง channel ไม่ได้ยิน (backend publish กับ bot subscribe คนละ Redis)
     REDIS_URL: str
 
+    # 🖨️ [F3] Gotenberg (headless Chromium) สำหรับเรนเดอร์ใบเสร็จ/ใบแจ้งหนี้เป็น PDF
+    # ⚠️ มี default ได้ (ต่างจาก REDIS_URL) เพราะ **ไม่ใช่ dependency ของทุก request** —
+    #    เฉพาะเส้นทาง /receipts/{no}/pdf เท่านั้น ถ้าไม่มี default เทสต์ทั้งชุดจะ ImportError
+    #    ทันทีที่ import settings ทั้งที่ไม่ได้แตะ PDF เลย
+    #    ตอน deploy docker-compose.app.yml ต้อง override เป็น service name จริงเสมอ
+    GOTENBERG_URL: str = "http://localhost:3000"
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

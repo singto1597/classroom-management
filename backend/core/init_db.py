@@ -357,6 +357,129 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE INDEX IF NOT EXISTS idx_journal_lines_ledger ON journal_lines(ledger_id);
                 CREATE INDEX IF NOT EXISTS idx_journal_entries_room_date ON journal_entries(room_id, transaction_date);
                 CREATE INDEX IF NOT EXISTS idx_journal_entries_metadata ON journal_entries USING GIN (metadata);
+
+                -- 💰 งบประมาณรายหมวด/รายงวด (Budget) — F2
+                -- เก็บ "ทั้ง" ฟิลด์แสดงผล (period_type/year/month) และ start_date/end_date ที่
+                -- materialize ไว้ เพราะยอด "ใช้ไป" ต้องเป็น range predicate บนคอลัมน์ DATE ธรรมดา
+                -- (ถ้าคำนวณจาก year/month ตอน query จะเสีย index และรองรับ period_type='custom' ไม่ได้)
+                CREATE TABLE IF NOT EXISTS finance_budgets (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                    -- ⚠️ RESTRICT เจตนา: กันการลบหมวดที่ยังมีงบผูกอยู่
+                    -- (delete_category เป็น hard delete + ไม่มี guard จะได้ ForeignKeyViolationError ดิบ → 500)
+                    category_id INTEGER NOT NULL REFERENCES finance_categories(id) ON DELETE RESTRICT,
+                    period_type VARCHAR(10) NOT NULL DEFAULT 'monthly',   -- monthly | yearly | custom
+                    period_year INTEGER NOT NULL,                          -- ปี ค.ศ.
+                    period_month INTEGER,                                  -- 1-12 (NULL เมื่อ yearly/custom)
+                    start_date DATE NOT NULL,                              -- ขอบเขตที่ใช้คิดจริง (inclusive)
+                    end_date DATE NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    note TEXT,
+                    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL,
+                    CONSTRAINT chk_budget_amount_positive CHECK (amount > 0),
+                    CONSTRAINT chk_budget_period_order CHECK (end_date >= start_date)
+                );
+
+                -- ทำหน้าที่ 2 อย่างพร้อมกัน: (ก) กันเขียนงบซ้ำช่วง/ซ้ำหมวดชนกัน
+                -- (ข) เป็น index ของเงื่อนไข `deleted_at IS NULL` ที่ทุก query ใช้
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_budgets_active
+                    ON finance_budgets(room_id, category_id, start_date, end_date)
+                    WHERE deleted_at IS NULL;
+
+                CREATE INDEX IF NOT EXISTS idx_finance_budgets_room_period
+                    ON finance_budgets(room_id, start_date, end_date)
+                    WHERE deleted_at IS NULL;
+
+                -- 🧾 เลขรันเอกสาร รายห้อง/รายปี พ.ศ. — F3
+                -- เก็บ "ตัวนับ" ไม่ใช่คำนวณจาก ROW_NUMBER() ตอนอ่าน เพราะเลขที่ derive
+                -- จะเปลี่ยนย้อนหลังทันทีที่มีการ revert รายการก่อนหน้า (revert_transaction
+                -- reset paid_amount/paid_at/transaction_id ของ student_payments) ⇒
+                -- ใบเสร็จที่พิมพ์ออกไปแล้วจะเปลี่ยนเลข = เอกสารทางบัญชีใช้ไม่ได้
+                CREATE TABLE IF NOT EXISTS receipt_sequences (
+                    room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                    year_be INTEGER NOT NULL,                              -- ปี พ.ศ. (ค.ศ. + 543)
+                    doc_type VARCHAR(20) NOT NULL DEFAULT 'receipt',       -- receipt | invoice
+                    last_seq INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    -- PK ผสมทำหน้าที่เป็นเป้า ON CONFLICT ของการจองเลขแบบอะตอมมิก
+                    PRIMARY KEY (room_id, year_be, doc_type)
+                );
+
+                -- 🧾 ใบเสร็จ / ใบแจ้งหนี้ (Receipt / Invoice) — F3
+                -- เก็บ "snapshot" ชื่อผู้ชำระ/ผู้ออกเอกสาร ณ เวลาที่ออก เพราะเอกสารที่พิมพ์
+                -- ออกไปแล้วต้องไม่ย้อนเปลี่ยนตามการแก้ชื่อในอนาคต
+                CREATE TABLE IF NOT EXISTS finance_receipts (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                    receipt_no VARCHAR(40) NOT NULL,                       -- เช่น REC-2569-0042
+                    doc_type VARCHAR(20) NOT NULL DEFAULT 'receipt',       -- receipt | invoice
+                    year_be INTEGER NOT NULL,
+                    seq INTEGER NOT NULL,                                  -- ลำดับภายใน (room, year_be, doc_type)
+                    student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL,
+                    -- 🎯 ชี้ "งวดที่รับเงิน" ไม่ใช่บิล — student_payments.transaction_id ถูกทับ
+                    --    ทุกครั้งที่จ่ายงวดใหม่ จึงใช้ระบุเหตุการณ์รับเงินไม่ได้
+                    legacy_transaction_id INTEGER REFERENCES finance_transactions(id) ON DELETE SET NULL,
+                    student_id INTEGER REFERENCES students(id) ON DELETE SET NULL,
+                    collection_id INTEGER REFERENCES fee_collections(id) ON DELETE SET NULL,
+                    amount DECIMAL(15,2) NOT NULL,                         -- ยอดที่ออกเอกสารครั้งนี้
+                    paid_total_after DECIMAL(15,2) NOT NULL,               -- ยอดสะสมหลังรับครั้งนี้
+                    issued_to_name TEXT,                                   -- snapshot ชื่อผู้ชำระ
+                    issued_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    issued_by_name TEXT,
+                    note TEXT,
+                    -- 🗓️ "เวลาของเหตุการณ์" ที่เอกสารนี้พูดถึง = **แหล่งความจริงเพียงหนึ่งเดียว**
+                    --    ของทั้งปี พ.ศ. บนเลขเอกสาร และวันที่ที่พิมพ์บนกระดาษ
+                    --    ใบเสร็จ → เวลาที่รับเงินงวดนั้น / ใบแจ้งหนี้ → เวลาที่ออกเอกสาร
+                    --    ⇒ พิมพ์ซ้ำหรือเปิดดูเมื่อไรก็ได้วันที่เดิมเสมอ ไม่ขึ้นกับว่าดูตอนไหน
+                    event_at TIMESTAMP WITH TIME ZONE,
+                    -- 🚫 active | voided — รายการที่ถูกยกเลิกต้องไม่ทิ้งใบเสร็จค้างเป็น active
+                    --    (void ตั้ง `deleted_at` คู่กัน ⇒ ทุกจุดอ่านเดิมกรองออกให้เอง — ดู transactions.py)
+                    status VARCHAR(20) NOT NULL DEFAULT 'active',
+                    voided_at TIMESTAMP WITH TIME ZONE,
+                    voided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    void_reason TEXT,
+                    issued_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP DEFAULT NULL,
+                    CONSTRAINT chk_receipt_amount_positive CHECK (amount > 0),
+                    CONSTRAINT chk_receipt_status CHECK (status IN ('active', 'voided')),
+                    -- 🔒 "ใบที่ยกเลิกแล้วต้องถูก soft delete ด้วยเสมอ" — บังคับทิศทางเดียว
+                    --    ร่วมกับ `chk_receipt_status` ไม่ได้ (ตัวนั้นแค่จำกัดโดเมนของค่า)
+                    --
+                    -- ⚠️ ทำไมต้องบังคับที่ DB ไม่ใช่แค่เขียนในโค้ด: `deleted_at` **ไม่ใช่แค่ธง**
+                    --    มันคือ predicate ของ `idx_finance_receipts_tx_active` และของทุกจุดอ่าน
+                    --    ⇒ แถวที่ `status='voided'` แต่ `deleted_at IS NULL` จะ
+                    --      (ก) ยังถูก partial unique index นับว่ามีอยู่ ⇒ ออกใบใหม่ของงวดเดิมไม่ได้ (400)
+                    --      (ข) ถูก `_find_existing` ปฏิเสธเพราะกรอง status ⇒ งอก็ไม่กลับมา
+                    --      = สถานะที่ **ตันทั้งสองทาง** และข้อความ error ก็โกหก ("เลขเอกสารซ้ำ")
+                    --    ปล่อยเป็นความเชื่อในหัวคนเขียนไม่ได้ เพราะไม่มีเทสต์ไหนพิสูจน์ได้
+                    --    ว่าทุกเส้นทางเขียนจะตั้งสองคอลัมน์คู่กันจริง
+                    CONSTRAINT chk_receipt_voided_is_deleted
+                        CHECK (status = 'active' OR deleted_at IS NOT NULL)
+                );
+
+                -- กันเลขเอกสารซ้ำภายในห้องเดียวกัน (ต่อ doc_type) — เป็นด่านสองของการจองเลข
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_receipts_doc_active
+                    ON finance_receipts(room_id, doc_type, receipt_no) WHERE deleted_at IS NULL;
+
+                -- 🔒 ใบเสร็จผูกกับ "เหตุการณ์รับเงิน" 1 ครั้ง → ออกซ้ำไม่ได้ (idempotent)
+                --    ใบแจ้งหนี้ "ไม่อยู่ใน predicate นี้" โดยเจตนา — ยอดค้างของนักเรียนเปลี่ยน
+                --    ได้เมื่อจ่ายเพิ่ม ใบเดิมจึงออกซ้ำได้ตามธรรมชาติ (point-in-time, กินเลขใหม่)
+                --
+                -- ⚠️ COALESCE(..., 0) แทน `IS NOT NULL` ใน predicate: ถ้ากรองด้วย IS NOT NULL
+                --    ใบเสร็จของบิลที่ยืนยันก่อนยุค dual-write (ไม่มีแถว finance_transactions)
+                --    จะ "หลุด" ออกจาก unique index ทั้งที่ student_payment_id มีค่า ⇒ สองคำขอ
+                --    พร้อมกันสร้างใบเสร็จซ้ำได้ ตัว app-level SELECT ยังกันไว้ชั้นหนึ่ง แต่ไม่พอ
+                --    สำหรับเอกสารการเงิน ⇒ ให้ index บังคับด้วยคีย์ที่ normalize แล้ว
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_receipts_tx_active
+                    ON finance_receipts(student_payment_id, COALESCE(legacy_transaction_id, 0), doc_type)
+                    WHERE deleted_at IS NULL AND doc_type = 'receipt';
+
+                -- ครอบ query หลักของ get_receipts: WHERE room_id = $1 AND deleted_at IS NULL ...
+                CREATE INDEX IF NOT EXISTS idx_finance_receipts_room_year
+                    ON finance_receipts(room_id, year_be, doc_type);
             """)
 
             # --- 6. Activity & Role Management Module ---
@@ -437,6 +560,28 @@ async def init_db(pool: asyncpg.Pool):
 
             # --- 5. Extra Alterations & Smart Constraints ---
             await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS student_payment_id INTEGER REFERENCES student_payments(id) ON DELETE SET NULL;")
+
+            # 🧾 F3 — คอลัมน์ของ finance_receipts ที่เพิ่มทีหลัง (event_at + สถานะการยกเลิก)
+            # ⚠️ **ต้องมี ALTER ตรงนี้ ไม่ใช่พึ่ง `CREATE TABLE IF NOT EXISTS` ด้านบน**:
+            #    บน DB ที่ deploy F3 ไปแล้ว ตารางมีอยู่จริง ⇒ CREATE TABLE IF NOT EXISTS เป็น no-op
+            #    ⇒ คอลัมน์ใหม่ไม่ถูกเพิ่ม และทุก query ที่ `SELECT R.status` จะพังเป็น 500 ทันที
+            #    (กับดักตระกูลเดียวกับ `CREATE UNIQUE INDEX IF NOT EXISTS` ที่แก้ predicate ไม่ได้)
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS event_at TIMESTAMP WITH TIME ZONE;")
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active';")
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP WITH TIME ZONE;")
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS voided_by INTEGER REFERENCES users(id) ON DELETE SET NULL;")
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS void_reason TEXT;")
+            # Constraint ที่เพิ่มทีหลังใช้รูปแบบเดียวกับ `users_email_key` ด้านล่าง (DROP IF EXISTS + ADD)
+            await conn.execute("ALTER TABLE finance_receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;")
+            await conn.execute("ALTER TABLE finance_receipts ADD CONSTRAINT chk_receipt_status CHECK (status IN ('active', 'voided'));")
+            # 🔒 "voided ⇒ ต้องมี deleted_at" — แถวที่ฝ่าฝืนไม่ได้มีอยู่จริงบน DB ที่ deploy แล้ว
+            #    (คอลัมน์ status เพิ่งถูกเพิ่มด้วย DEFAULT 'active' ทั้งหมด) ⇒ ADD CONSTRAINT
+            #    ผ่านเสมอ ไม่มีโอกาส deploy ล้มเพราะข้อมูลเก่า
+            await conn.execute("ALTER TABLE finance_receipts DROP CONSTRAINT IF EXISTS chk_receipt_voided_is_deleted;")
+            await conn.execute(
+                "ALTER TABLE finance_receipts ADD CONSTRAINT chk_receipt_voided_is_deleted"
+                " CHECK (status = 'active' OR deleted_at IS NOT NULL);"
+            )
 
             # 🎂 ห้องแฮปปี้เบิร์ดเดย์ + 🔔 ห้องแจ้งเตือนงานเล็กๆน้อยๆ
             # (เพิ่มคอลัมน์ให้ตาราง rooms ที่สร้างไว้แล้ว — บังคับใช้กับ DB ที่ deploy ไปแล้วด้วย)

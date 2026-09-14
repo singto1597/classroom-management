@@ -7,6 +7,11 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://${ENV_NAME}_infra_redis:6379/0
+      # 🖨️ [F3] Gotenberg — service name จริงบน shared_network (ค่า default ใน config.py
+      #    เป็น localhost ซึ่งใช้ได้แค่ตอนเทสต์ ⇒ ถ้าลืมบรรทัดนี้ PDF จะ 502 ทุกครั้ง)
+      # ⚠️ stack name = DNS name ⇒ gotenberg ถูกย้ายไป stack `${ENV_NAME}_pdf` แล้ว
+      #    (docker-compose.pdf.yml) จึงเป็น `..._pdf_gotenberg` ไม่ใช่ `..._infra_gotenberg`
+      - GOTENBERG_URL=http://${ENV_NAME}_pdf_gotenberg:3000
     networks:
       - shared_network
       - traefik-public

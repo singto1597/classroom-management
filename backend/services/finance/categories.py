@@ -22,7 +22,7 @@ from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
     _legacy_id_from_journal,
 )
-from .base import service_logger
+from .base import _lock_room_money, service_logger
 
 
 class CategoriesMixin:
@@ -35,6 +35,9 @@ class CategoriesMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
                     # [DUAL-WRITE] ดึง id ของแถว legacy เพื่อ map ลง accounting_ledgers
                     new_category_id = await conn.fetchval(
                         "INSERT INTO finance_categories (room_id, category_name, category_type) VALUES ($1, $2, $3) RETURNING id",
@@ -83,10 +86,13 @@ class CategoriesMixin:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
+                # 🗑️ กรอง `deleted_at IS NULL` — หมวดที่ถูกลบ (soft delete) ต้องหายจากรายการนี้
+                #    ไม่ใช่แค่ซ่อนฝั่ง frontend ไม่งั้นมันจะโผล่มาให้เลือกใน dropdown แล้ว
+                #    ผู้ใช้สร้างรายการใหม่ผูกกับหมวดที่ "ลบไปแล้ว"
                 if cat_type:
-                    rows = await conn.fetch("SELECT id, category_name, category_type FROM finance_categories WHERE room_id = $1 AND category_type = $2 ORDER BY id", target_room_id, cat_type)
+                    rows = await conn.fetch("SELECT id, category_name, category_type FROM finance_categories WHERE room_id = $1 AND category_type = $2 AND deleted_at IS NULL ORDER BY id", target_room_id, cat_type)
                 else:
-                    rows = await conn.fetch("SELECT id, category_name, category_type FROM finance_categories WHERE room_id = $1 ORDER BY id", target_room_id)
+                    rows = await conn.fetch("SELECT id, category_name, category_type FROM finance_categories WHERE room_id = $1 AND deleted_at IS NULL ORDER BY id", target_room_id)
                 result = [dict(row) for row in rows]
 
                 exec_time = int((time.time() - start_time) * 1000)
@@ -118,8 +124,13 @@ class CategoriesMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
                     
-                    old_data = await conn.fetchrow("SELECT * FROM finance_categories WHERE id = $1 AND room_id = $2", category_id, target_room_id)
+                    # 🗑️ `deleted_at IS NULL` — ห้ามแก้ชื่อหมวดที่ถูกลบไปแล้ว (มันไม่โผล่ใน UI แล้ว
+                    #    การแก้ได้จะทำให้ประวัติ/ledger ที่อ้างชื่อนี้เล่าไม่ตรงกัน)
+                    old_data = await conn.fetchrow("SELECT * FROM finance_categories WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL", category_id, target_room_id)
                     if not old_data: raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
                     old_values = dict(old_data)
 
@@ -162,6 +173,9 @@ class CategoriesMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
                     
                     old_data = await conn.fetchrow("SELECT * FROM finance_categories WHERE id = $1 AND room_id = $2", category_id, target_room_id)
                     if not old_data: raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
@@ -169,8 +183,40 @@ class CategoriesMixin:
 
                     if await conn.fetchval("SELECT 1 FROM finance_transactions WHERE category_id = $1 LIMIT 1", category_id):
                         raise ValueError("ไม่สามารถลบได้ เนื่องจากมีการใช้หมวดหมู่นี้อยู่!")
-                    res = await conn.execute("DELETE FROM finance_categories WHERE id = $1 AND room_id = $2", category_id, target_room_id)
-                    if res == "DELETE 0": raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
+                    # 🛡️ [F2] guard คู่กับ FK `ON DELETE RESTRICT` ของ finance_budgets
+                    #    ตัว FK กันข้อมูลพังได้จริง แต่ถ้าปล่อยให้มันทำงานก่อน จะได้
+                    #    `ForeignKeyViolationError` ดิบทะลุเป็น HTTP 500 แทนที่จะเป็น 400 ที่อ่านรู้เรื่อง
+                    #
+                    # ⚠️ นับ **ทุกแถวรวมที่ soft delete แล้ว** (ไม่ใส่ `deleted_at IS NULL`) — ตั้งใจ
+                    #    FK ของ `finance_budgets.category_id` เป็น NOT NULL + RESTRICT ⇒
+                    #    ลบหมวดที่ "เคย" มีงบไม่ได้เลยไม่ว่าจะลบงบไปแล้วหรือยัง
+                    #    ถ้ากรองแค่ `deleted_at IS NULL` จะเจอเคส: ผู้ใช้ลบงบ (หายจากหน้าจอแล้ว)
+                    #    → กดลบหมวด → guard ผ่าน → FK ระเบิดเป็น 500 ที่ไม่มีใครอธิบายได้
+                    #    ⇒ ให้ guard สื่อความจริงข้อเดียวกันกับ FK เถอะ
+                    #    (เข้าท่าเดียวกับ guard `finance_transactions` ข้างบนซึ่งก็เป็น "เคยใช้" เช่นกัน)
+                    if await conn.fetchval("SELECT 1 FROM finance_budgets WHERE category_id = $1 LIMIT 1", category_id):
+                        raise ValueError("ไม่สามารถลบได้ เนื่องจากมีงบประมาณผูกอยู่!")
+
+                    # 🗑️ [SOFT DELETE] ไม่ใช่ `DELETE FROM` — เปลี่ยนเมื่อ 2026-09-13
+                    #
+                    # ทำไม: `accounting_ledgers.legacy_category_id` และ `finance_transactions.category_id`
+                    # เป็น FK `ON DELETE SET NULL` ⇒ การ hard delete **ไม่ได้ลบประวัติ** แต่ "ตัดสาย mapping" ทิ้ง:
+                    # ledger ที่ผูกหมวดนี้กลายเป็น orphan (`legacy_category_id = NULL`) และพอสร้างหมวด
+                    # ชื่อเดิมใหม่ `create_category` จะออก ledger รหัสใหม่ (`4{id:04d}` ตาม id ใหม่)
+                    # ⇒ ผังบัญชีคู่มี ledger ชื่อซ้ำสองตัวโดยไม่มีอะไรเชื่อมถึงกัน = ข้อมูลเบี้ยวถาวร
+                    # แถม `finance_categories.deleted_at` มีอยู่ในสคีมาตั้งแต่แรกและ **ไม่เคยถูกเขียนเลย**
+                    #
+                    # ปลอดภัยเพราะ guard สองตัวข้างบนรับประกันว่าหมวดที่จะถูกลบ **ไม่มี**
+                    # `finance_transactions` และ **ไม่มี** `finance_budgets` ผูกอยู่เลย ⇒
+                    # `get_categories` ที่กรอง `deleted_at IS NULL` เป็นที่เดียวที่พฤติกรรมเปลี่ยน
+                    # (transactions.py:333 ยังใช้ LEFT JOIN แบบไม่กรอง เพื่อให้ประวัติโชว์ชื่อหมวดเดิมได้)
+                    #
+                    # ⚠️ `AND deleted_at IS NULL` ทำให้กดซ้ำไม่ error และ **ไม่ทับเวลาเดิม** (idempotent)
+                    res = await conn.execute(
+                        "UPDATE finance_categories SET deleted_at = NOW() WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL",
+                        category_id, target_room_id
+                    )
+                    if res == "UPDATE 0": raise RoomNotFoundError("ไม่พบหมวดหมู่นี้")
                     
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(

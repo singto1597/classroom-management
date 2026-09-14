@@ -26,7 +26,7 @@ from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
     _legacy_id_from_journal, _as_utc,
 )
-from .base import service_logger
+from .base import _lock_payments_in_order, _lock_room_money, service_logger
 
 
 class CollectionsMixin:
@@ -39,7 +39,10 @@ class CollectionsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
-                    
+
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
+
                     collection_id = await conn.fetchval(
                         "INSERT INTO fee_collections (room_id, title, amount, due_date) VALUES ($1, $2, $3, $4) RETURNING id",
                         target_room_id, req.title, req.amount, req.due_date
@@ -225,6 +228,9 @@ class CollectionsMixin:
                     if user_id is not None:
                         await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
 
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
+
                     result = await cls._confirm_single_payment(
                         conn=conn, target_room_id=target_room_id,
                         payment_id=payment_id,
@@ -287,6 +293,17 @@ class CollectionsMixin:
                         items.append(item)
 
                     payment_ids = [item.payment_id for item in items]
+
+                    # 🔒 ลำดับการล็อก: ห้อง → บิลทั้งชุดตาม id → รายใบ (เหมือนเส้นทางออกเอกสาร)
+                    #    - ล็อกห้องก่อน ⇒ ตัดวงรอบรอ ABBA ทั้งคลาส (ดู `_lock_room_money`)
+                    #      รวมถึงวง `student_payments` ↔ `finance_accounts` กับ `revert_transaction`
+                    #    - แล้วล็อกบิลทั้งชุด **ตามลำดับ id** ⇒ คำขอที่ส่งบิลชุดเดียวกันสลับลำดับกัน
+                    #      ก็ไม่วนรอกัน (เหตุผลเต็มอยู่ใน `_lock_payments_in_order`)
+                    #    - และเพราะล็อกครบ **ก่อน** แตะกระเป๋าเงิน ⇒ บิลเดียวที่กำลังรับอยู่
+                    #      จะไม่กลายเป็นอีกครึ่งหนึ่งของวงรอบ
+                    await _lock_room_money(conn, target_room_id)
+                    await _lock_payments_in_order(conn, payment_ids)
+
                     rows = await conn.fetch(
                         """SELECT SP.id, SP.student_id
                            FROM student_payments SP
@@ -418,8 +435,13 @@ class CollectionsMixin:
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
 
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    #    จำเป็นเป็นพิเศษที่นี่เพราะเส้นทางนี้ **ลบบิลจริง** (hard delete) ซึ่ง
+                    #    แข่งกับเส้นทางรับเงิน/ออกเอกสารที่กำลังถือบิลใบเดียวกันอยู่
+                    await _lock_room_money(conn, target_room_id)
+
                     payment = await conn.fetchrow("""
-                        SELECT SP.*, FC.title 
+                        SELECT SP.*, FC.title
                         FROM student_payments SP
                         JOIN fee_collections FC ON SP.collection_id = FC.id
                         WHERE SP.collection_id = $1 AND SP.student_id = $2 AND FC.room_id = $3
@@ -571,6 +593,9 @@ class CollectionsMixin:
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
 
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    await _lock_room_money(conn, target_room_id)
+
                     # 🛡️ ต้องเป็นสมาชิก active เท่านั้น (กัน pending/left student เข้ารายการเก็บเงิน)
                     if not await conn.fetchval("SELECT id FROM students WHERE id = $1 AND room_id = $2 AND status = 'active'", student_id, target_room_id):
                         raise RoomNotFoundError("ไม่พบเด็กคนนี้ในห้อง")
@@ -643,6 +668,12 @@ class CollectionsMixin:
                 async with conn.transaction():
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
+                    # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
+                    #    ⚠️ เส้นนี้ "แตะเงิน" แม้ไม่เขียนตารางการเงินตรง ๆ: `fee_collections.amount`
+                    #       คือยอดที่ทุกบิลในแคมเปญใช้คำนวณ ⇒ ต้องไม่ถูกแก้พร้อมกับที่
+                    #       confirm_payment กำลังรับเงินเข้าบิลของแคมเปญเดียวกัน
+                    #       (guard "มีเงินโอนเข้ามาแล้ว" ข้างล่างจะอ่านค่าเก่าไปตัดสินใจ ถ้าไม่มีล็อก)
+                    await _lock_room_money(conn, target_room_id)
                     current_data = await conn.fetchrow("SELECT * FROM fee_collections WHERE id = $1 AND room_id = $2", collection_id, target_room_id)
                     if not current_data: raise RoomNotFoundError("ไม่พบแคมเปญนี้")
                     old_values = dict(current_data)

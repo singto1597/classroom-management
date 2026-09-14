@@ -36,6 +36,15 @@ docker build -t classroom-${ENV_NAME}-bot:${IMAGE_TAG} ./bot_discord
 
 # 5. Deploy อัปเดตระบบแบบ Zero Downtime
 echo "🚀 กำลังสลับสวิตช์ระบบ $ENV_NAME แบบ Zero Downtime (เวอร์ชัน ${IMAGE_TAG})..."
+
+# 5.1 🖨️ Stack ของ PDF renderer (Gotenberg) — แยกไฟล์จาก infra โดยเจตนา
+#     ⚠️ deploy "ก่อน" app เพราะ backend จะเรียกใช้ทันทีที่รับคำขอออกใบเสร็จ
+#     ⚠️ ห้ามใช้ --prune กับ stack ไหนในสคริปต์นี้ — `docker stack deploy` ไม่ลบ service
+#        ที่หายไปจากไฟล์อยู่แล้ว การเติม --prune คือการเปิดโหมด "ลบสิ่งที่ฉันลืมเขียน"
+#     ⚠️ stack นี้ต้องไม่ถูกยุบไปรวมกับ infra: ดูเหตุผลในหัวไฟล์ docker-compose.pdf.yml
+echo "🖨️  กำลัง deploy Stack PDF (${ENV_NAME}_pdf)..."
+docker stack deploy -c docker-compose.pdf.yml ${ENV_NAME}_pdf
+
 docker stack deploy -c docker-compose.app.yml ${ENV_NAME}_app
 
 echo "✅ อัปเดตเสร็จสมบูรณ์ ระบบทำงานต่อเนื่องไม่มีสะดุด!"

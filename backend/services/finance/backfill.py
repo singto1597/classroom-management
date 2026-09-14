@@ -48,7 +48,7 @@ import asyncpg
 
 from .constants import CUTOFF_DATE, THAI_TZ, DEFAULT_INCOME_CATEGORIES
 from .helpers import _as_utc, _thai_day_start
-from .base import service_logger
+from .base import _lock_room_money, service_logger
 
 # จำนวนเงินที่ยอมรับว่า "สองขาเท่ากัน" (บาท) — ครึ่งสตางค์ กัน binary noise ของ float
 _AMOUNT_EPS = 0.005
@@ -430,8 +430,9 @@ class BackfillMixin:
         - `apply=True` = เขียนจริงทั้งห้องใน **transaction เดียว** พร้อม audit log
           ⇒ ห้องใดห้องหนึ่งพลาด = ไม่มีอะไรถูกเขียนครึ่งทาง
 
-        ⚠️ Ops tool — ไม่ได้ล็อกแถว legacy ระหว่างวางแผน แนะนำให้รันช่วงที่ไม่มีรายการสด
-        (เหมือน `reconcile_balances`)
+        ⚠️ Ops tool — ไม่ได้ล็อก **แถว** legacy ระหว่างวางแผน แนะนำให้รันช่วงที่ไม่มีรายการสด
+        (เหมือน `reconcile_balances`) แต่ยึด advisory lock ของห้องไว้ ⇒ ถ้ารันระหว่างที่มี
+        รายการสด มันจะรอจนเส้นทางเงินปล่อยล็อก แทนที่จะวางแผนบนยอดที่กำลังขยับ
 
         คืน dict รายงาน (ตัวเลขเป็น float, journal id เป็น str)
         """
@@ -446,6 +447,10 @@ class BackfillMixin:
             await tx.start()
             committed = False
             try:
+                # 🔒 ล็อกห้องก่อนวางแผน/เขียนใด ๆ (protocol เดียวกันทั้งระบบ)
+                #    ต้องอยู่ใน try เพราะ tx.start() ไปแล้ว — raise ที่นี่ต้องถูก rollback
+                await _lock_room_money(conn, resolved_room_id)
+
                 candidates = await cls._fetch_backfill_candidates(conn, resolved_room_id)
                 plans, skipped = await cls._plan_backfill_journals(conn, resolved_room_id, candidates)
 
