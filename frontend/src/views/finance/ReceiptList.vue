@@ -27,6 +27,19 @@ import { useAuthStore } from '@/stores/auth';
 import { downloadBlob, combinedPdfFilename } from '@/utils/download';
 import { createLatestGuard } from '@/utils/latest';
 import {
+  allVisibleSelected,
+  batchDisplayName,
+  batchVisibilityNote,
+  batchVoidedNote,
+  groupReceipts,
+  rowAmount,
+  rowSelectionState,
+  selectedAmountOf,
+  toggleRowSelection,
+  visibleNosOf,
+  type ReceiptRow,
+} from '@/utils/receiptGroups';
+import {
   describePeriod,
   formatThaiDateTime,
   isRangeReversed,
@@ -38,6 +51,12 @@ import type { ReceiptDocType, ReceiptListItem } from '@/types/finance';
 
 const authStore = useAuthStore();
 const currentRoomId = authStore.currentRoomId!;
+
+// 🔒 ปุ่มจัดการ **ชุด** ต้องใช้ `canManageFinance` (ไม่ใช่ `isAdmin`) ตามกฎเดียวกับปุ่มเขียน
+//    ของ F2/F3/F4 — เหรัญญิกที่ถือ MANAGE_FINANCE แต่ไม่ใช่แอดมินคือคนที่ใช้ฟีเจอร์นี้จริง
+//    ⚠️ หน้านี้ยัง **ไม่มีปุ่มเขียนเอกสาร** ตามเจตนาเดิม (ดูหัวไฟล์) — "จัดเป็นชุด" เป็นการ
+//       จัดกลุ่มเอกสารที่ออกไปแล้ว ไม่ใช่การออกเอกสารใหม่
+const canManageFinance = computed(() => authStore.canManageFinance);
 
 // 🌏 ค่าเริ่มต้น = เดือนนี้ตามเวลาไทย (ดู utils/period.todayThaiYearMonth)
 const initial = todayThaiYearMonth();
@@ -165,16 +184,173 @@ const COMBINED_PDF_MAX = 100;
 
 const isDownloadingCombined = ref(false);
 
-const selectedAmount = computed(() =>
-  items.value.filter((r) => selectedNos.value.includes(r.receipt_no)).reduce((s, r) => s + r.amount, 0),
-);
+// ==========================================
+// 📚 จัดกลุ่มเป็น "ชุดเอกสาร" — ตรรกะอยู่ที่ `utils/receiptGroups.ts` (มีเทสต์คุม)
+// ==========================================
+//
+// 🔴 **ทำไมจัดกลุ่มที่หน้าจอ ไม่ใช่ให้ backend คืนโครงสร้างซ้อนกัน:**
+//    `getReceipts` มีสัญญา `LIMIT 500` + ตัวกรองวันที่ที่หน้าจอพึ่งอยู่ และชุดที่มีสมาชิก
+//    บางส่วนหลุดช่วงกรองจะดูเหมือน "มีไม่ครบ" โดยไม่มีอะไรฟ้อง ⇒ ต้องได้ **แถวแบนชุด
+//    เดียวกันกับที่ checkbox ใช้** แล้วจัดกลุ่มจากข้อมูลชุดนั้น ไม่มีทางไม่ตรงกัน
+//
+// ⚠️ `batch_size` ที่แนบมากับแถวคือขนาด **ทั้งชุด** ⇒ ป้าย "แสดง N จาก M ใบ" คือสิ่งที่
+//    บอกผู้ใช้ตามจริงว่าตัวกรองตัดสมาชิกออกไป และติ๊กชุดจะเลือกเฉพาะ **ที่เห็นบนจอ**
+//    (ไม่แอบเลือกใบที่ผู้ใช้มองไม่เห็นแล้วโหลดเอกสารที่ตรวจไม่ได้ลงเครื่อง)
 
-const allSelected = computed(
-  () => items.value.length > 0 && selectedNos.value.length === items.value.length,
-);
+const grouped = computed(() => groupReceipts(items.value));
+const rows = computed(() => grouped.value.rows);
 
+/** ชุดที่กางอยู่ — เก็บเป็น id เพื่อให้คงสถานะกางไว้ได้หลัง `load()` รอบใหม่ */
+const expandedBatchIds = ref<number[]>([]);
+
+const isExpanded = (batchId: number): boolean => expandedBatchIds.value.includes(batchId);
+
+const toggleExpand = (batchId: number) => {
+  expandedBatchIds.value = isExpanded(batchId)
+    ? expandedBatchIds.value.filter((id) => id !== batchId)
+    : [...expandedBatchIds.value, batchId];
+};
+
+const selectedAmount = computed(() => selectedAmountOf(rows.value, selectedNos.value));
+
+const allSelected = computed(() => allVisibleSelected(rows.value, selectedNos.value));
+
+/**
+ * "เลือกทั้งหมดในหน้านี้" — รวมสมาชิกของชุดที่เห็นบนจอด้วย
+ * ⚠️ นับจาก `rows` ไม่ใช่ `items` โดยตรง เพื่อให้จำนวนที่เลือกตรงกับที่ enumerate จริง
+ *    (ถ้าเขียนสองสูตรแยกกัน วันหนึ่งจะมีใบที่ถูกนับแต่ไม่ถูกเลือก หรือกลับกัน)
+ */
 const toggleSelectAll = () => {
-  selectedNos.value = allSelected.value ? [] : items.value.map((r) => r.receipt_no);
+  selectedNos.value = allSelected.value
+    ? []
+    : rows.value.flatMap((row) => visibleNosOf(row));
+};
+
+/**
+ * สถานะติ๊กของแถว — `'some'` ต้องแยกจาก `'none'` (ดู `rowSelectionState`)
+ *
+ * ⚠️ รับ `ReceiptRow<ReceiptListItem>` แล้วส่งต่อให้ฟังก์ชันที่รับ `ReceiptRow<GroupableReceipt>`
+ *    ได้ตรง ๆ — `ReceiptListItem` มีฟิลด์ครบตาม `GroupableReceipt` (ตัวหลังเป็น subset
+ *    ที่ประกาศ optional ไว้) ⇒ **ไม่ต้อง cast** และไม่ควร cast เพราะจะปิด TypeScript
+ *    ทิ้งทันทีที่มีคนเปลี่ยนชื่อฟิลด์ใน schema
+ */
+const rowState = (row: ReceiptRow<ReceiptListItem>) =>
+  rowSelectionState(row, selectedNos.value);
+
+const onToggleRow = (row: ReceiptRow<ReceiptListItem>) => {
+  selectedNos.value = toggleRowSelection(row, selectedNos.value);
+};
+
+// ==========================================
+// ✍️ จัดกลุ่ม/แก้ชื่อ/ยุบชุด (MANAGE_FINANCE)
+// ==========================================
+
+/** จำนวนขั้นต่ำของชุด — 1 ใบไม่ต้องมีชุด (ตรงกับ `AUTO_BATCH_MIN` ฝั่ง backend) */
+const BATCH_MIN = 2;
+
+const busyBatchId = ref<number | null>(null);
+const isOrganizing = ref(false);
+
+/** เลขที่ที่ติ๊กไว้และ **ยังอยู่บนจอ** — ใช้เป็น input ของการจัดชุด */
+const selectedVisibleNos = computed(() => {
+  const shown = new Set(items.value.map((r) => r.receipt_no));
+  return selectedNos.value.filter((no) => shown.has(no));
+});
+
+const organizeSelectedAsBatch = async () => {
+  if (!canManageFinance.value) {
+    return Swal.fire('ไม่มีสิทธิ์', 'การจัดชุดเอกสารต้องมีสิทธิ์จัดการการเงิน', 'warning');
+  }
+  const nos = selectedVisibleNos.value;
+  if (nos.length < BATCH_MIN) {
+    return Swal.fire(
+      'เลือกไม่พอ',
+      `ต้องเลือกอย่างน้อย ${BATCH_MIN} ฉบับจึงจะจัดเป็นชุดได้ (เลือกไว้ ${nos.length} ฉบับ)`,
+      'warning',
+    );
+  }
+  isOrganizing.value = true;
+  try {
+    const res = await FinanceService.createReceiptBatch(currentRoomId, { receipt_nos: nos });
+    // 🔁 `created: false` = มีชุดที่สมาชิกชุดเดียวกันอยู่แล้ว — ไม่ใช่ความผิดพลาด
+    //    ⇒ ต้องบอกให้ตรง อย่าขึ้น "สร้างสำเร็จ" ซึ่งทำให้ผู้ใช้คิดว่ามีชุดซ้ำ
+    if (res.created) {
+      await Swal.fire('จัดเป็นชุดแล้ว', `รวม ${nos.length} ฉบับไว้ในชุดเดียวกัน`, 'success');
+    } else {
+      await Swal.fire('มีชุดนี้อยู่แล้ว', 'เอกสารชุดนี้ถูกจัดเป็นชุดไว้ก่อนหน้านี้แล้ว', 'info');
+    }
+    selectedNos.value = [];
+    await load();
+  } catch (error: unknown) {
+    Swal.fire(
+      'จัดชุดไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    );
+  } finally {
+    isOrganizing.value = false;
+  }
+};
+
+/** เปลี่ยนชื่อชุด — เว้นว่าง = ล้างชื่อกลับไปใช้ชื่อที่ระบบประกอบให้ */
+const renameBatch = async (batchId: number, currentTitle: string | null, fallback: string) => {
+  const answer = await Swal.fire({
+    title: 'ตั้งชื่อชุดเอกสาร',
+    input: 'text',
+    inputValue: currentTitle ?? '',
+    inputPlaceholder: fallback,
+    showCancelButton: true,
+    confirmButtonText: 'บันทึก',
+    cancelButtonText: 'ยกเลิก',
+    // ⚠️ ส่ง `null` (ไม่ใช่ `''`) เมื่อเว้นว่าง — backend แยก "ล้างชื่อ" ออกจาก "ไม่แก้"
+    //    ด้วย `exclude_unset` ⇒ สตริงว่างจะกลายเป็นชื่อว่างจริง ๆ ไม่ใช่ชื่อที่ระบบประกอบ
+    preConfirm: (value: string) => value.trim(),
+  });
+  if (!answer.isConfirmed) return;
+
+  const next = answer.value === '' ? null : answer.value;
+  if (next === (currentTitle ?? null)) return; // ไม่มีอะไรเปลี่ยน — ไม่ต้องยิง API
+
+  busyBatchId.value = batchId;
+  try {
+    await FinanceService.updateReceiptBatch(currentRoomId, batchId, { title: next });
+    await load();
+  } catch (error: unknown) {
+    Swal.fire('แก้ชื่อไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'error');
+  } finally {
+    busyBatchId.value = null;
+  }
+};
+
+/**
+ * ยุบชุด — 🔴 ต้องย้ำให้ชัดว่า **เอกสารไม่ถูกลบ** เพราะคำว่า "ยุบ/ลบ" ทำให้ผู้ใช้กลัวว่า
+ * ใบเสร็จที่พิมพ์แจกไปแล้วจะหายไปด้วย
+ */
+const dissolveBatch = async (batchId: number, name: string, memberCount: number) => {
+  const confirmed = await Swal.fire({
+    title: 'ยุบชุดเอกสาร?',
+    html:
+      `<p class="text-sm">${name}</p>` +
+      `<p class="mt-2 text-sm"><b>เอกสารทั้ง ${memberCount} ฉบับยังอยู่ครบ</b> — ` +
+      'แค่หลุดออกจากชุด ยังดูและพิมพ์ได้ตามปกติ</p>',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'ยุบชุด',
+    cancelButtonText: 'ยกเลิก',
+  });
+  if (!confirmed.isConfirmed) return;
+
+  busyBatchId.value = batchId;
+  try {
+    const res = await FinanceService.deleteReceiptBatch(currentRoomId, batchId);
+    expandedBatchIds.value = expandedBatchIds.value.filter((id) => id !== batchId);
+    await load();
+    await Swal.fire('ยุบชุดแล้ว', `ปลด ${res.detached_count} ฉบับออกจากชุด (เอกสารยังอยู่ครบ)`, 'success');
+  } catch (error: unknown) {
+    Swal.fire('ยุบชุดไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'error');
+  } finally {
+    busyBatchId.value = null;
+  }
 };
 
 /**
@@ -347,100 +523,304 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
               <template v-else>ติ๊กเลือกเอกสารเพื่อรวมเป็นไฟล์เดียว (หน้าละใบ)</template>
             </p>
           </div>
-          <button
-            v-if="selectedNos.length"
-            type="button"
-            class="btn-primary shrink-0"
-            :disabled="isDownloadingCombined"
-            @click="downloadCombined"
-          >
-            <i
-              class="bi"
-              :class="isDownloadingCombined ? 'bi-hourglass-split' : 'bi-file-earmark-zip'"
-              aria-hidden="true"
-            ></i>
-            ดาวน์โหลดรวมเป็นไฟล์เดียว
-          </button>
+          <div v-if="selectedNos.length" class="flex shrink-0 flex-wrap items-center gap-2">
+            <!-- 📚 จัดกลุ่มทีหลัง — ทางเลือกของผู้ใช้ (ระบบจัดชุดให้แล้วตอนออกเอกสาร) -->
+            <!-- 🔒 gate ด้วย canManageFinance ไม่ใช่ isAdmin (ดูคอมเมนต์บนสุดของสคริปต์) -->
+            <button
+              v-if="canManageFinance"
+              type="button"
+              class="btn-ghost-ui"
+              :disabled="isOrganizing || selectedVisibleNos.length < BATCH_MIN"
+              :title="
+                selectedVisibleNos.length < BATCH_MIN
+                  ? `ต้องเลือกอย่างน้อย ${BATCH_MIN} ฉบับ`
+                  : 'รวมเอกสารที่เลือกไว้เป็นชุดเดียว'
+              "
+              @click="organizeSelectedAsBatch"
+            >
+              <i
+                class="bi"
+                :class="isOrganizing ? 'bi-hourglass-split' : 'bi-collection'"
+                aria-hidden="true"
+              ></i>
+              จัดเป็นชุด
+            </button>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="isDownloadingCombined"
+              @click="downloadCombined"
+            >
+              <i
+                class="bi"
+                :class="isDownloadingCombined ? 'bi-hourglass-split' : 'bi-file-earmark-zip'"
+                aria-hidden="true"
+              ></i>
+              ดาวน์โหลดรวมเป็นไฟล์เดียว
+            </button>
+          </div>
         </div>
 
         <!-- 📱 มือถือ -->
         <div class="space-y-2.5 lg:hidden">
-          <div v-for="r in items" :key="r.id" class="page-card p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <label class="flex cursor-pointer items-center gap-2">
-                  <input
-                    v-model="selectedNos"
-                    type="checkbox"
-                    :value="r.receipt_no"
-                    :aria-label="`เลือกเอกสาร ${r.receipt_no} เพื่อรวมไฟล์`"
-                    class="peer sr-only"
-                  />
-                  <span
-                    class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                    :class="
-                      selectedNos.includes(r.receipt_no)
-                        ? 'border-brand-700 bg-brand-700'
-                        : 'border-stone-300 bg-white'
-                    "
+          <template v-for="row in rows" :key="row.key">
+            <!-- 📚 การ์ดชุด — ยุบไว้ก่อน กดchevron เพื่อกางดูเอกสารข้างใน -->
+            <div v-if="row.kind === 'batch'" class="page-card overflow-hidden">
+              <div class="p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex min-w-0 items-start gap-2">
+                    <label class="flex cursor-pointer items-center pt-0.5">
+                      <input
+                        type="checkbox"
+                        class="peer sr-only"
+                        :checked="rowState(row) === 'all'"
+                        :indeterminate.prop="rowState(row) === 'some'"
+                        :aria-label="`เลือกเอกสารทั้งชุด ${batchDisplayName(row)} เพื่อรวมไฟล์`"
+                        @change="onToggleRow(row)"
+                      />
+                      <span
+                        class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                        :class="
+                          rowState(row) === 'none'
+                            ? 'border-stone-300 bg-white'
+                            : 'border-brand-700 bg-brand-700'
+                        "
+                      >
+                        <i
+                          v-if="rowState(row) === 'all'"
+                          class="bi bi-check-lg text-xs font-bold text-white"
+                          aria-hidden="true"
+                        ></i>
+                        <i
+                          v-else-if="rowState(row) === 'some'"
+                          class="bi bi-dash-lg text-xs font-bold text-white"
+                          aria-hidden="true"
+                        ></i>
+                      </span>
+                    </label>
+                    <div class="min-w-0">
+                      <button
+                        type="button"
+                        class="flex min-h-11 min-w-0 items-center gap-1.5 text-left"
+                        :aria-expanded="isExpanded(row.batchId)"
+                        @click="toggleExpand(row.batchId)"
+                      >
+                        <i
+                          class="bi shrink-0 text-stone-400 transition-transform"
+                          :class="isExpanded(row.batchId) ? 'bi-chevron-down' : 'bi-chevron-right'"
+                          aria-hidden="true"
+                        ></i>
+                        <span class="truncate font-bold text-stone-900">
+                          {{ batchDisplayName(row) }}
+                        </span>
+                      </button>
+                      <div class="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        <!-- 🔴 ขนาดชุดต้องมาจาก batch_size ของ backend เสมอ -->
+                        <span
+                          v-if="batchVisibilityNote(row)"
+                          class="chip bg-amber-50 text-amber-700"
+                        >
+                          <i class="bi bi-funnel" aria-hidden="true"></i>
+                          {{ batchVisibilityNote(row) }}
+                        </span>
+                        <span v-if="batchVoidedNote(row)" class="chip bg-rose-50 text-rose-700">
+                          {{ batchVoidedNote(row) }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    <p class="font-display num text-base font-bold text-stone-900">
+                      {{ formatMoney(rowAmount(row)) }}
+                    </p>
+                    <span class="chip mt-1 bg-stone-100 text-stone-600">
+                      {{ row.visibleCount }}/{{ row.batchSize }} ใบ
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 🔒 ปุ่มจัดการชุด — gate ด้วย canManageFinance -->
+                <div
+                  v-if="canManageFinance"
+                  class="mt-2.5 flex items-center justify-end gap-2 border-t border-stone-100 pt-2.5"
+                >
+                  <button
+                    type="button"
+                    class="btn-ghost-ui"
+                    :disabled="busyBatchId === row.batchId"
+                    @click="renameBatch(row.batchId, row.title, batchDisplayName(row))"
                   >
-                    <i
-                      v-if="selectedNos.includes(r.receipt_no)"
-                      class="bi bi-check-lg text-xs font-bold text-white"
-                      aria-hidden="true"
-                    ></i>
-                  </span>
-                  <span class="num truncate text-sm font-bold text-stone-900">{{ r.receipt_no }}</span>
-                </label>
-                <p class="mt-0.5 truncate text-xs text-stone-500">
-                  {{ r.issued_to_name || '—' }}
-                  <span v-if="r.student_no" class="num">— เลขที่ {{ r.student_no }}</span>
-                </p>
-                <p v-if="r.collection_title" class="truncate text-xs text-stone-400">
-                  {{ r.collection_title }}
-                </p>
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                    ตั้งชื่อ
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-ghost-ui text-rose-600"
+                    :disabled="busyBatchId === row.batchId"
+                    @click="dissolveBatch(row.batchId, batchDisplayName(row), row.visibleCount)"
+                  >
+                    <i class="bi bi-x-square" aria-hidden="true"></i>
+                    ยุบชุด
+                  </button>
+                </div>
               </div>
-              <div class="shrink-0 text-right">
-                <p class="font-display num text-base font-bold text-stone-900">
-                  {{ formatMoney(r.amount) }}
-                </p>
-                <span class="chip mt-1" :class="docChipClass(r.doc_type)">
-                  {{ r.doc_type_label || r.doc_type }}
-                </span>
+
+              <!-- กางออก = สมาชิกที่เห็นในตัวกรองปัจจุบัน (ป้ายด้านบนบอกถ้าไม่ครบ) -->
+              <div v-if="isExpanded(row.batchId)" class="space-y-2 border-t border-stone-100 p-3">
+                <div
+                  v-for="m in row.items"
+                  :key="m.id"
+                  class="rounded-xl bg-stone-50 p-3"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <label class="flex min-w-0 cursor-pointer items-center gap-2">
+                      <input
+                        v-model="selectedNos"
+                        type="checkbox"
+                        :value="m.receipt_no"
+                        :aria-label="`เลือกเอกสาร ${m.receipt_no} เพื่อรวมไฟล์`"
+                        class="peer sr-only"
+                      />
+                      <span
+                        class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                        :class="
+                          selectedNos.includes(m.receipt_no)
+                            ? 'border-brand-700 bg-brand-700'
+                            : 'border-stone-300 bg-white'
+                        "
+                      >
+                        <i
+                          v-if="selectedNos.includes(m.receipt_no)"
+                          class="bi bi-check-lg text-xs font-bold text-white"
+                          aria-hidden="true"
+                        ></i>
+                      </span>
+                      <span class="num truncate text-sm font-bold text-stone-900">
+                        {{ m.receipt_no }}
+                      </span>
+                    </label>
+                    <p class="font-display num shrink-0 text-sm font-bold text-stone-900">
+                      {{ formatMoney(m.amount) }}
+                    </p>
+                  </div>
+                  <div class="mt-1.5 flex items-center justify-between gap-3">
+                    <p class="min-w-0 truncate text-xs text-stone-500">
+                      {{ m.issued_to_name || '—' }}
+                      <span v-if="m.student_no" class="num">— เลขที่ {{ m.student_no }}</span>
+                    </p>
+                    <div class="flex shrink-0 items-center gap-2">
+                      <RouterLink
+                        :to="`/finance/receipts/${m.receipt_no}`"
+                        class="btn-ghost-ui"
+                        title="ดูรายละเอียดเอกสาร"
+                      >
+                        <i class="bi bi-eye" aria-hidden="true"></i>
+                        ดู
+                      </RouterLink>
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        :disabled="downloadingNo !== null"
+                        @click="downloadPdf(m)"
+                      >
+                        <i
+                          class="bi"
+                          :class="downloadingNo === m.receipt_no ? 'bi-hourglass-split' : 'bi-printer'"
+                          aria-hidden="true"
+                        ></i>
+                        PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div
-              class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
-            >
-              <small class="num truncate text-[11px] font-bold text-stone-400">
-                <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(r.issued_at) }}
-              </small>
-              <div class="flex shrink-0 items-center gap-2">
-                <RouterLink
-                  :to="`/finance/receipts/${r.receipt_no}`"
-                  class="btn-ghost-ui"
-                  title="ดูรายละเอียดเอกสาร"
-                >
-                  <i class="bi bi-eye" aria-hidden="true"></i>
-                  ดู
-                </RouterLink>
-                <button
-                  type="button"
-                  class="btn-primary"
-                  :disabled="downloadingNo !== null"
-                  @click="downloadPdf(r)"
-                >
-                  <i
-                    class="bi"
-                    :class="downloadingNo === r.receipt_no ? 'bi-hourglass-split' : 'bi-printer'"
-                    aria-hidden="true"
-                  ></i>
-                  PDF
-                </button>
+            <!-- 🧾 เอกสารเดี่ยว (ไม่ได้อยู่ในชุด) — รูปเดิมทั้งหมด -->
+            <div v-else class="page-card p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <label class="flex cursor-pointer items-center gap-2">
+                    <input
+                      v-model="selectedNos"
+                      type="checkbox"
+                      :value="row.item.receipt_no"
+                      :aria-label="`เลือกเอกสาร ${row.item.receipt_no} เพื่อรวมไฟล์`"
+                      class="peer sr-only"
+                    />
+                    <span
+                      class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                      :class="
+                        selectedNos.includes(row.item.receipt_no)
+                          ? 'border-brand-700 bg-brand-700'
+                          : 'border-stone-300 bg-white'
+                      "
+                    >
+                      <i
+                        v-if="selectedNos.includes(row.item.receipt_no)"
+                        class="bi bi-check-lg text-xs font-bold text-white"
+                        aria-hidden="true"
+                      ></i>
+                    </span>
+                    <span class="num truncate text-sm font-bold text-stone-900">
+                      {{ row.item.receipt_no }}
+                    </span>
+                  </label>
+                  <p class="mt-0.5 truncate text-xs text-stone-500">
+                    {{ row.item.issued_to_name || '—' }}
+                    <span v-if="row.item.student_no" class="num">
+                      — เลขที่ {{ row.item.student_no }}
+                    </span>
+                  </p>
+                  <p v-if="row.item.collection_title" class="truncate text-xs text-stone-400">
+                    {{ row.item.collection_title }}
+                  </p>
+                </div>
+                <div class="shrink-0 text-right">
+                  <p class="font-display num text-base font-bold text-stone-900">
+                    {{ formatMoney(row.item.amount) }}
+                  </p>
+                  <span class="chip mt-1" :class="docChipClass(row.item.doc_type)">
+                    {{ row.item.doc_type_label || row.item.doc_type }}
+                  </span>
+                </div>
+              </div>
+
+              <div
+                class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
+              >
+                <small class="num truncate text-[11px] font-bold text-stone-400">
+                  <i class="bi bi-clock" aria-hidden="true"></i>
+                  {{ formatThaiDateTime(row.item.issued_at) }}
+                </small>
+                <div class="flex shrink-0 items-center gap-2">
+                  <RouterLink
+                    :to="`/finance/receipts/${row.item.receipt_no}`"
+                    class="btn-ghost-ui"
+                    title="ดูรายละเอียดเอกสาร"
+                  >
+                    <i class="bi bi-eye" aria-hidden="true"></i>
+                    ดู
+                  </RouterLink>
+                  <button
+                    type="button"
+                    class="btn-primary"
+                    :disabled="downloadingNo !== null"
+                    @click="downloadPdf(row.item)"
+                  >
+                    <i
+                      class="bi"
+                      :class="
+                        downloadingNo === row.item.receipt_no ? 'bi-hourglass-split' : 'bi-printer'
+                      "
+                      aria-hidden="true"
+                    ></i>
+                    PDF
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          </template>
         </div>
 
         <!-- 🖥️ เดสก์ท็อป -->
@@ -482,79 +862,273 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="r in items" :key="r.id">
-                  <td>
-                    <label class="flex cursor-pointer items-center">
-                      <input
-                        v-model="selectedNos"
-                        type="checkbox"
-                        :value="r.receipt_no"
-                        :aria-label="`เลือกเอกสาร ${r.receipt_no} เพื่อรวมไฟล์`"
-                        class="peer sr-only"
-                      />
-                      <span
-                        class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                        :class="
-                          selectedNos.includes(r.receipt_no)
-                            ? 'border-brand-700 bg-brand-700'
-                            : 'border-stone-300 bg-white'
-                        "
+                <template v-for="row in rows" :key="row.key">
+                  <!-- 📚 แถวชุด — ยุบไว้ก่อน กดchevron เพื่อกางเอกสารข้างในออกมา -->
+                  <template v-if="row.kind === 'batch'">
+                    <tr class="bg-stone-50/80">
+                      <td>
+                        <label class="flex cursor-pointer items-center">
+                          <input
+                            type="checkbox"
+                            class="peer sr-only"
+                            :checked="rowState(row) === 'all'"
+                            :indeterminate.prop="rowState(row) === 'some'"
+                            :aria-label="`เลือกเอกสารทั้งชุด ${batchDisplayName(row)} เพื่อรวมไฟล์`"
+                            @change="onToggleRow(row)"
+                          />
+                          <span
+                            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                            :class="
+                              rowState(row) === 'none'
+                                ? 'border-stone-300 bg-white'
+                                : 'border-brand-700 bg-brand-700'
+                            "
+                          >
+                            <i
+                              v-if="rowState(row) === 'all'"
+                              class="bi bi-check-lg text-xs font-bold text-white"
+                              aria-hidden="true"
+                            ></i>
+                            <i
+                              v-else-if="rowState(row) === 'some'"
+                              class="bi bi-dash-lg text-xs font-bold text-white"
+                              aria-hidden="true"
+                            ></i>
+                          </span>
+                        </label>
+                      </td>
+                      <td colspan="5">
+                        <button
+                          type="button"
+                          class="flex w-full items-center gap-2 text-left"
+                          :aria-expanded="isExpanded(row.batchId)"
+                          @click="toggleExpand(row.batchId)"
+                        >
+                          <i
+                            class="bi shrink-0 text-stone-400"
+                            :class="isExpanded(row.batchId) ? 'bi-chevron-down' : 'bi-chevron-right'"
+                            aria-hidden="true"
+                          ></i>
+                          <span class="chip shrink-0 bg-stone-200 text-stone-700">
+                            <i class="bi bi-collection" aria-hidden="true"></i>
+                            ชุด
+                          </span>
+                          <span class="min-w-0 truncate font-bold text-stone-900">
+                            {{ batchDisplayName(row) }}
+                          </span>
+                          <!-- 🔴 บอกตามจริงเมื่อตัวกรองตัดสมาชิกออก — ห้ามเงียบ -->
+                          <span
+                            v-if="batchVisibilityNote(row)"
+                            class="chip shrink-0 bg-amber-50 text-amber-700"
+                          >
+                            <i class="bi bi-funnel" aria-hidden="true"></i>
+                            {{ batchVisibilityNote(row) }}
+                          </span>
+                          <span
+                            v-if="batchVoidedNote(row)"
+                            class="chip shrink-0 bg-rose-50 text-rose-700"
+                          >
+                            {{ batchVoidedNote(row) }}
+                          </span>
+                        </button>
+                      </td>
+                      <td
+                        class="font-display num whitespace-nowrap text-right font-bold text-stone-900"
                       >
-                        <i
-                          v-if="selectedNos.includes(r.receipt_no)"
-                          class="bi bi-check-lg text-xs font-bold text-white"
-                          aria-hidden="true"
-                        ></i>
+                        {{ formatMoney(rowAmount(row)) }}
+                      </td>
+                      <td>
+                        <div v-if="canManageFinance" class="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            class="btn-ghost-ui"
+                            :disabled="busyBatchId === row.batchId"
+                            title="ตั้งชื่อชุด"
+                            @click="renameBatch(row.batchId, row.title, batchDisplayName(row))"
+                          >
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            ตั้งชื่อ
+                          </button>
+                          <button
+                            type="button"
+                            class="btn-ghost-ui text-rose-600"
+                            :disabled="busyBatchId === row.batchId"
+                            title="ยุบชุด (เอกสารไม่ถูกลบ)"
+                            @click="dissolveBatch(row.batchId, batchDisplayName(row), row.visibleCount)"
+                          >
+                            <i class="bi bi-x-square" aria-hidden="true"></i>
+                            ยุบชุด
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <!-- สมาชิกของชุด — แสดงเมื่อกางออก (เฉพาะที่รอดตัวกรองปัจจุบัน) -->
+                    <tr
+                      v-for="m in row.items"
+                      v-show="isExpanded(row.batchId)"
+                      :key="`m:${m.id}`"
+                      class="border-l-2 border-stone-200"
+                    >
+                      <td class="pl-4">
+                        <label class="flex cursor-pointer items-center">
+                          <input
+                            v-model="selectedNos"
+                            type="checkbox"
+                            :value="m.receipt_no"
+                            :aria-label="`เลือกเอกสาร ${m.receipt_no} เพื่อรวมไฟล์`"
+                            class="peer sr-only"
+                          />
+                          <span
+                            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                            :class="
+                              selectedNos.includes(m.receipt_no)
+                                ? 'border-brand-700 bg-brand-700'
+                                : 'border-stone-300 bg-white'
+                            "
+                          >
+                            <i
+                              v-if="selectedNos.includes(m.receipt_no)"
+                              class="bi bi-check-lg text-xs font-bold text-white"
+                              aria-hidden="true"
+                            ></i>
+                          </span>
+                        </label>
+                      </td>
+                      <td class="num pl-4 font-bold text-stone-900">{{ m.receipt_no }}</td>
+                      <td class="num whitespace-nowrap text-stone-500">
+                        {{ formatThaiDateTime(m.issued_at) }}
+                      </td>
+                      <td>
+                        <span class="chip" :class="docChipClass(m.doc_type)">
+                          {{ m.doc_type_label || m.doc_type }}
+                        </span>
+                      </td>
+                      <td>
+                        <p class="font-bold text-stone-900">{{ m.issued_to_name || '—' }}</p>
+                        <p v-if="m.student_no" class="num text-xs text-stone-400">
+                          เลขที่ {{ m.student_no }}
+                        </p>
+                      </td>
+                      <td class="max-w-[18rem] truncate text-stone-500">
+                        {{ m.collection_title || '—' }}
+                      </td>
+                      <td
+                        class="font-display num whitespace-nowrap text-right font-bold text-stone-900"
+                      >
+                        {{ formatMoney(m.amount) }}
+                      </td>
+                      <td>
+                        <div class="flex justify-end gap-2">
+                          <RouterLink
+                            :to="`/finance/receipts/${m.receipt_no}`"
+                            class="btn-ghost-ui"
+                            title="ดูรายละเอียดเอกสาร"
+                          >
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                            ดู
+                          </RouterLink>
+                          <button
+                            type="button"
+                            class="btn-primary"
+                            :disabled="downloadingNo !== null"
+                            @click="downloadPdf(m)"
+                          >
+                            <i
+                              class="bi"
+                              :class="
+                                downloadingNo === m.receipt_no ? 'bi-hourglass-split' : 'bi-printer'
+                              "
+                              aria-hidden="true"
+                            ></i>
+                            PDF
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+
+                  <!-- 🧾 แถวเอกสารเดี่ยว — รูปเดิมทั้งหมด -->
+                  <tr v-else>
+                    <td>
+                      <label class="flex cursor-pointer items-center">
+                        <input
+                          v-model="selectedNos"
+                          type="checkbox"
+                          :value="row.item.receipt_no"
+                          :aria-label="`เลือกเอกสาร ${row.item.receipt_no} เพื่อรวมไฟล์`"
+                          class="peer sr-only"
+                        />
+                        <span
+                          class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                          :class="
+                            selectedNos.includes(row.item.receipt_no)
+                              ? 'border-brand-700 bg-brand-700'
+                              : 'border-stone-300 bg-white'
+                          "
+                        >
+                          <i
+                            v-if="selectedNos.includes(row.item.receipt_no)"
+                            class="bi bi-check-lg text-xs font-bold text-white"
+                            aria-hidden="true"
+                          ></i>
+                        </span>
+                      </label>
+                    </td>
+                    <td class="num font-bold text-stone-900">{{ row.item.receipt_no }}</td>
+                    <td class="num whitespace-nowrap text-stone-500">
+                      {{ formatThaiDateTime(row.item.issued_at) }}
+                    </td>
+                    <td>
+                      <span class="chip" :class="docChipClass(row.item.doc_type)">
+                        {{ row.item.doc_type_label || row.item.doc_type }}
                       </span>
-                    </label>
-                  </td>
-                  <td class="num font-bold text-stone-900">{{ r.receipt_no }}</td>
-                  <td class="num whitespace-nowrap text-stone-500">
-                    {{ formatThaiDateTime(r.issued_at) }}
-                  </td>
-                  <td>
-                    <span class="chip" :class="docChipClass(r.doc_type)">
-                      {{ r.doc_type_label || r.doc_type }}
-                    </span>
-                  </td>
-                  <td>
-                    <p class="font-bold text-stone-900">{{ r.issued_to_name || '—' }}</p>
-                    <p v-if="r.student_no" class="num text-xs text-stone-400">
-                      เลขที่ {{ r.student_no }}
-                    </p>
-                  </td>
-                  <td class="max-w-[18rem] truncate text-stone-500">
-                    {{ r.collection_title || '—' }}
-                  </td>
-                  <td class="font-display num whitespace-nowrap text-right font-bold text-stone-900">
-                    {{ formatMoney(r.amount) }}
-                  </td>
-                  <td>
-                    <div class="flex justify-end gap-2">
-                      <RouterLink
-                        :to="`/finance/receipts/${r.receipt_no}`"
-                        class="btn-ghost-ui"
-                        title="ดูรายละเอียดเอกสาร"
-                      >
-                        <i class="bi bi-eye" aria-hidden="true"></i>
-                        ดู
-                      </RouterLink>
-                      <button
-                        type="button"
-                        class="btn-primary"
-                        :disabled="downloadingNo !== null"
-                        @click="downloadPdf(r)"
-                      >
-                        <i
-                          class="bi"
-                          :class="downloadingNo === r.receipt_no ? 'bi-hourglass-split' : 'bi-printer'"
-                          aria-hidden="true"
-                        ></i>
-                        PDF
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                    <td>
+                      <p class="font-bold text-stone-900">{{ row.item.issued_to_name || '—' }}</p>
+                      <p v-if="row.item.student_no" class="num text-xs text-stone-400">
+                        เลขที่ {{ row.item.student_no }}
+                      </p>
+                    </td>
+                    <td class="max-w-[18rem] truncate text-stone-500">
+                      {{ row.item.collection_title || '—' }}
+                    </td>
+                    <td
+                      class="font-display num whitespace-nowrap text-right font-bold text-stone-900"
+                    >
+                      {{ formatMoney(row.item.amount) }}
+                    </td>
+                    <td>
+                      <div class="flex justify-end gap-2">
+                        <RouterLink
+                          :to="`/finance/receipts/${row.item.receipt_no}`"
+                          class="btn-ghost-ui"
+                          title="ดูรายละเอียดเอกสาร"
+                        >
+                          <i class="bi bi-eye" aria-hidden="true"></i>
+                          ดู
+                        </RouterLink>
+                        <button
+                          type="button"
+                          class="btn-primary"
+                          :disabled="downloadingNo !== null"
+                          @click="downloadPdf(row.item)"
+                        >
+                          <i
+                            class="bi"
+                            :class="
+                              downloadingNo === row.item.receipt_no
+                                ? 'bi-hourglass-split'
+                                : 'bi-printer'
+                            "
+                            aria-hidden="true"
+                          ></i>
+                          PDF
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>

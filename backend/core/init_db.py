@@ -393,6 +393,41 @@ async def init_db(pool: asyncpg.Pool):
                     ON finance_budgets(room_id, start_date, end_date)
                     WHERE deleted_at IS NULL;
 
+                -- 📚 ชุดเอกสาร (Document Batch) — F5
+                -- 🎯 "ชุด" = กลุ่มเอกสารที่ออก/จัดกลุ่มพร้อมกัน ใช้ **ยุบการแสดงผล** ในทะเบียน
+                --    (ติ๊กครั้งเดียวได้ทั้งชุด แทนการติ๊ก 20 ครั้ง) และกางดูรายละเอียดได้
+                --
+                -- 🔴 **ไม่ใช่เอกสารทางบัญชี** ⇒ ไม่มีเลขรันของตัวเอง (ใช้ `id`) และ **ไม่กินเลขเอกสาร**
+                --    ⇒ ไม่แตะ `receipt_sequences` เลย — การเพิ่ม doc_type ใหม่เข้าไปจะต้องมี
+                --      upsert สำเนาที่ 4 ซึ่ง `services/finance/receipts.py` เขียนเตือนไว้ว่าห้ามทำ
+                --    ⇒ ชุดที่ลบไม่ออกไม่ทำให้เลขเอกสารขาดตอน และกลับกันด้วย
+                --
+                -- ⚠️ ตารางนี้ต้องถูกสร้าง **ก่อน** `finance_receipts` ด้านล่าง เพราะ FK คู่ของใบเสร็จ
+                --    อ้าง `(id, room_id)` ของตารางนี้ (ทั้งคู่อยู่ใน conn.execute() ก้อนเดียวกัน
+                --    ⇒ ลำดับในไฟล์นี้คือลำดับที่รันจริง)
+                CREATE TABLE IF NOT EXISTS finance_receipt_batches (
+                    id SERIAL PRIMARY KEY,
+                    room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                    title TEXT,                                   -- NULL = ให้หน้าจอประกอบชื่อแสดงเอง
+                    -- auto = ออกเอกสารรอบนั้นจัดให้ / room = ออกให้ทั้งห้อง / manual = ผู้ใช้จัดทีหลัง
+                    source VARCHAR(20) NOT NULL DEFAULT 'manual',
+                    note TEXT,
+                    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    created_by_name TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at TIMESTAMP WITH TIME ZONE,          -- "ยุบชุด" = soft delete
+                    CONSTRAINT chk_receipt_batch_source CHECK (source IN ('auto', 'manual', 'room')),
+                    -- 🔒 เป้าของ FK คู่ใน `finance_receipts` — กันไม่ให้ใบเสร็จของห้อง A
+                    --    ไปอยู่ในชุดของห้อง B **ที่ระดับ DB** ไม่ใช่ความเชื่อในหัวคนเขียน
+                    --    (หลักเดียวกันกับ `chk_receipt_voided_is_deleted`)
+                    CONSTRAINT uq_receipt_batch_id_room UNIQUE (id, room_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_finance_receipt_batches_room_created
+                    ON finance_receipt_batches(room_id, created_at DESC, id DESC)
+                    WHERE deleted_at IS NULL;
+
                 -- 🧾 เลขรันเอกสาร รายห้อง/รายปี พ.ศ. — F3
                 -- เก็บ "ตัวนับ" ไม่ใช่คำนวณจาก ROW_NUMBER() ตอนอ่าน เพราะเลขที่ derive
                 -- จะเปลี่ยนย้อนหลังทันทีที่มีการ revert รายการก่อนหน้า (revert_transaction
@@ -449,6 +484,18 @@ async def init_db(pool: asyncpg.Pool):
                     void_reason TEXT,
                     issued_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     deleted_at TIMESTAMP DEFAULT NULL,
+                    -- 📚 ชุดที่ใบนี้สังกัด (NULL = ไม่ได้จัดกลุ่ม) — F5
+                    --    ⚠️ FK เป็น **คู่** `(batch_id, room_id)` + MATCH SIMPLE ⇒ Postgres ข้าม
+                    --       การตรวจทั้งคู่เมื่อ `batch_id IS NULL` ⇒ เอกสารที่ยังไม่จัดกลุ่มผ่านได้
+                    --       ตามปกติ โดยไม่ต้องมี partial index อะไรมาช่วย
+                    --    🚫 **ห้าม `ON DELETE SET NULL`**: FK คู่จะพยายามตั้ง `room_id` เป็น NULL ด้วย
+                    --       ซึ่งชน NOT NULL ⇒ ใช้ NO ACTION (ค่าปริยาย) แล้ว "ยุบชุด" ทำด้วย
+                    --       `UPDATE finance_receipts SET batch_id = NULL` ใน service
+                    --       (เราไม่ hard delete ชุดอยู่แล้ว — ยุบชุดคือ soft delete)
+                    batch_id INTEGER,
+                    CONSTRAINT fk_receipts_batch_same_room
+                        FOREIGN KEY (batch_id, room_id)
+                        REFERENCES finance_receipt_batches(id, room_id),
                     CONSTRAINT chk_receipt_amount_positive CHECK (amount > 0),
                     CONSTRAINT chk_receipt_status CHECK (status IN ('active', 'voided')),
                     -- 🔒 "ใบที่ยกเลิกแล้วต้องถูก soft delete ด้วยเสมอ" — บังคับทิศทางเดียว
@@ -697,6 +744,30 @@ async def init_db(pool: asyncpg.Pool):
             await conn.execute(
                 "ALTER TABLE finance_receipts ADD CONSTRAINT chk_receipt_voided_is_deleted"
                 " CHECK (status = 'active' OR deleted_at IS NOT NULL);"
+            )
+
+            # 📚 F5 — ชุดเอกสาร: `finance_receipt_batches` เป็น **ตารางใหม่** ⇒ `CREATE TABLE
+            #    IF NOT EXISTS` ด้านบนสร้างให้ครบแล้วบน DB ทุกสภาพ (รวม DB ที่ deploy F3 ไปแล้ว)
+            #    ⚠️ แต่ `finance_receipts` **มีอยู่แล้ว** บน DB นั้น ⇒ CREATE TABLE ด้านบนเป็น no-op
+            #       ⇒ คอลัมน์ `batch_id` ไม่ถูกเพิ่มถ้าไม่มี ALTER ตรงนี้ (กฎเดียวกับ event_at/line_items)
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS batch_id INTEGER;")
+            # ⚠️🔴 index ต้องสร้าง **ตรงนี้ หลัง ADD COLUMN** — ห้ามย้ายไปไว้ในบล็อก CREATE TABLE
+            #    ด้านบน: บน DB ที่ deploy แล้ว บล็อกนั้น (ซึ่งมี index ของคอลัมน์อื่น) รัน **ก่อน**
+            #    ALTER เสมอ ⇒ `CREATE INDEX ... ON finance_receipts(batch_id)` จะพังด้วย
+            #    "column batch_id does not exist" = ทุก replica บูตไม่ขึ้น
+            #    (ต่างจาก index ของตารางใหม่ ที่ CREATE TABLE สร้างคอลัมน์ให้ในคำสั่งเดียวกัน)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_finance_receipts_batch"
+                " ON finance_receipts(batch_id) WHERE batch_id IS NOT NULL AND deleted_at IS NULL;"
+            )
+            # ⚠️ DROP+ADD = มีช่วงแข่งกันข้าม replica (กฎ "init_db รันใน lifespan ของทุก replica
+            #    โดยไม่มี advisory lock") — ยอมรับด้วยเหตุผลเดียวกับ `chk_receipt_voided_is_deleted`:
+            #    คอลัมน์ `batch_id` เพิ่งถูกเพิ่มด้วยค่า NULL ทั้งหมด ⇒ ADD CONSTRAINT validate
+            #    ผ่านทันที ไม่มีทางล้มเพราะข้อมูลเก่า และ replica ที่แพ้แค่ fail ตอนบูตแล้วเข้ามาใหม่
+            await conn.execute("ALTER TABLE finance_receipts DROP CONSTRAINT IF EXISTS fk_receipts_batch_same_room;")
+            await conn.execute(
+                "ALTER TABLE finance_receipts ADD CONSTRAINT fk_receipts_batch_same_room"
+                " FOREIGN KEY (batch_id, room_id) REFERENCES finance_receipt_batches(id, room_id);"
             )
 
             # 💰 F4 — `student_credits` เป็นตารางใหม่ ⇒ `CREATE TABLE IF NOT EXISTS` สร้างให้ครบ

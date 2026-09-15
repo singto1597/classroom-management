@@ -456,10 +456,33 @@ export interface Receipt {
    *    ให้เปิดหน้ารายละเอียด (`getReceipt`) จึงจะเห็นค่าจริง
    */
   line_items: ReceiptLineItem[] | null;
+  /**
+   * 📚 [F5] ชุดเอกสารที่ใบนี้สังกัด (`null` = ไม่ได้จัดกลุ่ม)
+   *
+   * ⚠️ อยู่บน `Receipt` (ไม่ใช่ `ReceiptListItem`) โดยเจตนา — คำตอบหลัง **ออกเอกสาร**
+   *    ต้องบอกได้ว่าออกรอบนี้ได้ชุดไหน ผู้ใช้จะได้โหลดรวม PDF ต่อได้ทันที
+   */
+  batch_id: number | null;
+}
+
+/**
+ * 📚 [F5] ข้อมูลชุดที่แนบมากับ **แถวในทะเบียน** (3 ฟิลด์นี้ `null` เมื่อใบนั้นไม่อยู่ในชุด)
+ *
+ * 🔴 `batch_size` = สมาชิก **ทั้งชุด** ไม่ใช่จำนวนที่รอดตัวกรอง ⇒ ต้องแสดงคู่กับความยาว
+ *    ของกลุ่มเสมอ ("แสดง 3 จาก 20 ใบ") ไม่งั้นผู้ใช้จะอ่านว่า "ชุดนี้มี 3 ใบ" แล้วโหลด
+ *    PDF ขาดไป 17 ใบโดยไม่มีอะไรฟ้อง
+ *    ⛔ ห้ามคำนวณ `batch_size` เองที่หน้าจอจากความยาวของกลุ่มที่กรองแล้ว
+ */
+export interface ReceiptBatchFields {
+  /** ชื่อที่ผู้ใช้ตั้งไว้ — `null` = ให้หน้าจอประกอบชื่อเอง (ดู `utils/receiptGroups`) */
+  batch_title: string | null;
+  batch_size: number | null;
+  /** จำนวนสมาชิกที่ถูกยกเลิก/ลบ — ยังนับอยู่ใน `batch_size` */
+  batch_voided_count: number | null;
 }
 
 /** แถวในหน้ารายการ — backend แนบชื่อแคมเปญ/เลขที่นักเรียนมาให้ตารางแสดงได้โดยไม่ต้องยิงเพิ่ม */
-export interface ReceiptListItem extends Receipt {
+export interface ReceiptListItem extends Receipt, ReceiptBatchFields {
   collection_title: string | null;
   student_no: number | null;
 }
@@ -551,6 +574,89 @@ export interface InvoiceBatchIssueResult {
   /** = `receipts.length` — **ไม่นับ** คนที่ถูกข้าม (คนละความหมายกับ `skipped`) */
   issued_count: number;
   skipped: InvoiceSkipItem[];
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 📚 [F5] ชุดเอกสาร (Document Batch)
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔑 "ชุด" ไม่ใช่เอกสารทางบัญชี — **ไม่มีเลขรันของตัวเองและไม่กินเลขเอกสาร**
+//    ⇒ ยุบชุด/ย้ายใบเข้าชุด ไม่แตะ `receipt_no` `amount` หรือ `status` ของใบเลย
+//
+// ⚠️ `source` บอก "ใครสร้างชุดนี้" ไม่ใช่ "ใครแก้ล่าสุด" และ **ผู้ใช้แก้ไม่ได้**
+//    (PATCH ไม่รับฟิลด์นี้) ⇒ ใช้เพื่ออธิบายที่มาบนหน้าจอเท่านั้น
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** ที่มาของชุด — ตรงกับ `BATCH_SOURCE_*` ฝั่ง backend */
+export type ReceiptBatchSource = 'auto' | 'manual' | 'room';
+
+export interface ReceiptBatch {
+  id: number;
+  room_id: number;
+  /** ชื่อที่ผู้ใช้ตั้ง — `null` = ให้หน้าจอประกอบชื่อเอง (ห้ามตีความเป็น "ไม่มีชื่อ") */
+  title: string | null;
+  source: ReceiptBatchSource;
+  note: string | null;
+  created_by: number | null;
+  created_by_name: string | null;
+  /** สมาชิกที่ยัง `active` — ตัวที่ `total_amount` นับด้วย */
+  active_count: number;
+  /** สมาชิกที่ถูกยกเลิก/ลบ (ยังนับอยู่ใน `batch_size`) */
+  voided_count: number;
+  /** = `active_count + voided_count` — ขนาด **ทั้งชุด** ไม่ขึ้นกับตัวกรองใด ๆ */
+  batch_size: number;
+  /** ยอดรวม **เฉพาะใบที่ยัง active** (ใบที่ถูกยกเลิกไม่ใช่เงินแล้ว) */
+  total_amount: number;
+  /** ช่วงวันที่ของเอกสาร (= วันที่ที่พิมพ์บนกระดาษ) — `null` เมื่อชุดว่าง */
+  first_doc_at: string | null;
+  last_doc_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** ชุด + เอกสารทุกใบในชุด — **รวมใบที่ถูกยกเลิก** เพื่อให้ตัวเลขตรงกับ `voided_count` */
+export interface ReceiptBatchDetail {
+  batch: ReceiptBatch;
+  receipts: ReceiptDetail[];
+}
+
+/** 📥 สร้างชุดจากเลขที่เอกสารที่ติ๊กเลือก (1–100 ใบ — เกินกว่านี้ backend ตอบ 400) */
+export interface ReceiptBatchCreatePayload {
+  /** ⚠️ ส่งใน **body** เท่านั้น — ห้ามย้ายไป query string (กับดัก axios `key[]=`) */
+  receipt_nos: string[];
+  title?: string;
+  note?: string;
+  user_name?: string;
+}
+
+export interface ReceiptBatchMutationResult {
+  batch: ReceiptBatch;
+  /**
+   * 🔁 `false` = มีชุดที่สมาชิกชุดเดียวกันอยู่แล้ว ระบบคืนชุดเดิมให้ (ไม่ใช่ error)
+   *    ⇒ หน้าจอไม่ควรขึ้น "สร้างสำเร็จ" — ควรบอกว่ามีชุดนี้อยู่แล้ว
+   */
+  created: boolean;
+}
+
+/** 📥 **ตั้งสมาชิกทั้งชุด** (ไม่ใช่ "เพิ่มเข้า") — ใบที่หายจากลิสต์จะถูกถอดออกจากชุด */
+export interface ReceiptBatchSetReceiptsPayload {
+  receipt_nos: string[];
+}
+
+/**
+ * 📥 แก้ชื่อ/โน้ต — ส่งมาแค่ฟิลด์ที่จะแก้
+ *
+ * ⚠️ ส่ง `title: null` = **ล้างชื่อ** (กลับไปใช้ชื่อที่หน้าจอประกอบ) ต่างจาก "ไม่ส่งมา"
+ *    ⇒ ต้องส่ง `null` ให้ชัดเจน ไม่ใช่ `undefined` (axios ตัด `undefined` ออกจาก body)
+ */
+export interface ReceiptBatchUpdatePayload {
+  title?: string | null;
+  note?: string | null;
+}
+
+export interface ReceiptBatchDissolveResult {
+  batch_id: number;
+  /** จำนวนใบที่ถูกปลดออกจากชุด — **เอกสารไม่ถูกแตะ** (ยัง active, เลขที่/ยอดเดิม) */
+  detached_count: number;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
