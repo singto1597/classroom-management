@@ -8,6 +8,8 @@ import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import RowActionMenu from '@/components/ui/RowActionMenu.vue'
+import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 
 const authStore = useAuthStore()
 
@@ -186,6 +188,27 @@ const deleteTask = async (taskId: number) => {
   }
 }
 
+// 🔒 รวมทุกการกระทำของงานไว้ในเมนูจุด 3 จุดมุมการ์ด
+// เดิมเป็นปุ่มเปลือย 3 ปุ่มเรียงท้ายการ์ด โดย "ลบ" วางติดกับ "ติ๊กเสร็จ" ⇒ กดพลาดง่าย
+const taskMenuItems = (task: Task): RowActionItem[] => {
+  const isDone = task.status === 'done'
+  return [
+    {
+      key: 'toggle',
+      label: isDone ? 'ยกเลิก (ยังไม่เสร็จ)' : 'ติ๊กเสร็จ',
+      icon: isDone ? 'bi-arrow-counterclockwise' : 'bi-check-circle-fill',
+    },
+    // มี `to` ⇒ RowActionMenu เรนเดอร์เป็น RouterLink เอง ไม่ต้องดักที่ @select
+    { key: 'edit', label: 'แก้ไข', icon: 'bi-pencil-square', to: `/tasks/${task.id}/edit` },
+    { key: 'delete', label: 'ลบงาน', icon: 'bi-trash3-fill', tone: 'danger' },
+  ]
+}
+
+const handleTaskAction = async (task: Task, key: string) => {
+  if (key === 'toggle') await toggleStatus(task)
+  else if (key === 'delete') await deleteTask(task.id)
+}
+
 onMounted(fetchData)
 </script>
 
@@ -337,10 +360,20 @@ onMounted(fetchData)
             </p>
           </div>
 
-          <span class="chip shrink-0" :class="getStatusBadgeClass(task)">
-            <i class="bi" :class="getStatusIcon(task)" aria-hidden="true"></i>
-            {{ getStatusText(task) }}
-          </span>
+          <!-- ป้ายสถานะ + เมนูจัดการ ห่อเป็นก้อนเดียวกันเพื่อให้ flex-wrap ของการ์ดพาไปด้วยกัน -->
+          <div class="flex shrink-0 items-center gap-1.5">
+            <span class="chip" :class="getStatusBadgeClass(task)">
+              <i class="bi" :class="getStatusIcon(task)" aria-hidden="true"></i>
+              {{ getStatusText(task) }}
+            </span>
+
+            <RowActionMenu
+              v-if="canManageTasks"
+              :label="`ตัวเลือกจัดการงาน ${task.task_name}`"
+              :items="taskMenuItems(task)"
+              @select="handleTaskAction(task, $event)"
+            />
+          </div>
         </div>
 
         <p
@@ -349,40 +382,6 @@ onMounted(fetchData)
         >
           {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
         </p>
-
-        <div
-          v-if="canManageTasks"
-          class="mt-3 flex items-center justify-between gap-2 border-t border-stone-100 pt-3 sm:mt-4 sm:pt-3.5"
-        >
-          <button type="button" class="btn-ghost-ui" @click="toggleStatus(task)">
-            <i
-              class="bi"
-              :class="task.status === 'done' ? 'bi-arrow-counterclockwise' : 'bi-check-circle-fill'"
-              aria-hidden="true"
-            ></i>
-            {{ task.status === 'done' ? 'ยกเลิก' : 'ติ๊กเสร็จ' }}
-          </button>
-
-          <div class="flex shrink-0 items-center gap-2.5">
-            <RouterLink
-              :to="`/tasks/${task.id}/edit`"
-              class="btn-ghost-ui h-11 w-11 !p-0"
-              title="แก้ไข"
-              aria-label="แก้ไขงาน"
-            >
-              <i class="bi bi-pencil-square" aria-hidden="true"></i>
-            </RouterLink>
-            <button
-              type="button"
-              class="btn-danger h-11 w-11 !p-0"
-              title="ลบ"
-              aria-label="ลบงาน"
-              @click="deleteTask(task.id)"
-            >
-              <i class="bi bi-trash3-fill" aria-hidden="true"></i>
-            </button>
-          </div>
-        </div>
       </article>
     </div>
   </div>

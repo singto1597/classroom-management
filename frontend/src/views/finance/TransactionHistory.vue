@@ -9,6 +9,8 @@ import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import RowActionMenu from '@/components/ui/RowActionMenu.vue';
+import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 
 const authStore = useAuthStore();
 const currentServerId = authStore.currentRoomId!;
@@ -73,7 +75,19 @@ const fetchTransactions = async () => {
   }
 };
 
-const handleRevert = async (transaction: Transaction) => {
+// 🔒 "ยกเลิกรายการ" เป็นการกระทำที่ทำลายข้อมูล (คืนเงินเข้ากระเป๋า + ตีสถานะบิลกลับ)
+// ⇒ ไม่วางเป็นปุ่มเปลือยกลางแถวที่กดพลาดได้ — ซ่อนไว้ในเมนูจุด 3 จุด
+//   (ยังมีรายการเดียวโดยเจตนา: เป็นที่เดียวที่ผู้ใช้จะเจอการกระทำนี้ในหน้านี้)
+const revertMenuItems: RowActionItem[] = [
+  { key: 'revert', label: 'ยกเลิกรายการ', icon: 'bi-arrow-counterclockwise', tone: 'danger' },
+];
+
+// ⚠️ ต้องรับ `key` จาก @select แล้วเช็คก่อนทำงาน — ตอนนี้มีไอเทมเดียวจึงดูเหมือนไม่จำเป็น
+//    แต่ถ้าวันหนึ่งมีไอเทมที่ 2 เพิ่มเข้ามา การผูกแบบ "@select=handleRevert(t)" จะเรียก
+//    "ยกเลิกรายการ" กับทุกไอเทมแบบเงียบ ๆ (การกระทำที่ทำลายข้อมูล)
+const handleRevert = async (transaction: Transaction, key: string) => {
+  if (key !== 'revert') return;
+
   // เพิ่ม Guard ป้องกันเผื่อมีคนเรียกฟังก์ชันนี้ข้าม UI
   if (!isAdmin.value) {
     Swal.fire('ไม่มีสิทธิ์เข้าถึง', 'เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถยกเลิกรายการได้', 'error');
@@ -299,14 +313,12 @@ const resetFilters = () => {
               >
                 <i class="bi bi-link-45deg" aria-hidden="true"></i> โอนเข้า
               </span>
-              <button
+              <RowActionMenu
                 v-else-if="isAdmin"
-                class="btn-danger px-3"
-                aria-label="ยกเลิกรายการ"
-                @click="handleRevert(t)"
-              >
-                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> ยกเลิก
-              </button>
+                :label="`ตัวเลือกจัดการรายการ ${t.description}`"
+                :items="revertMenuItems"
+                @select="handleRevert(t, $event)"
+              />
             </div>
           </div>
         </div>
@@ -368,15 +380,13 @@ const resetFilters = () => {
                   >
                     <i class="bi bi-link-45deg" aria-hidden="true"></i> โอนเงิน
                   </span>
-                  <button
-                    v-else-if="isAdmin"
-                    class="btn-danger mx-auto h-9 w-9 px-0 py-0"
-                    title="ยกเลิกรายการ"
-                    aria-label="ยกเลิกรายการ"
-                    @click="handleRevert(t)"
-                  >
-                    <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
-                  </button>
+                  <div v-else-if="isAdmin" class="flex justify-center">
+                    <RowActionMenu
+                      :label="`ตัวเลือกจัดการรายการ ${t.description}`"
+                      :items="revertMenuItems"
+                      @select="handleRevert(t, $event)"
+                    />
+                  </div>
                 </td>
               </tr>
             </tbody>
