@@ -49,10 +49,11 @@ from .baht_text import baht_text
 from .constants import (
     BATCH_SOURCE_AUTO, BATCH_SOURCE_ROOM,
     BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_DEPOSIT,
-    DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES, DOC_TYPE_RECEIPT,
-    PDF_BATCH_TIMEOUT, RECEIPTS_PER_PDF_MAX, RECEIPT_NO_TEMPLATE,
-    RECEIPT_SEQ_BUDGET_MSG, RECEIPT_SEQ_MAX, RECEIPT_SEQ_OVERFLOW_MSG,
-    THAI_MONTHS_SHORT, THAI_TZ,
+    DOC_TYPE_INCOME, DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES,
+    DOC_TYPE_PAYMENT_VOUCHER, DOC_TYPE_RECEIPT,
+    PDF_BATCH_TIMEOUT, RECEIPTS_PER_PDF_MAX, RECEIPT_LIKE_DOC_TYPES,
+    RECEIPT_NO_TEMPLATE, RECEIPT_SEQ_BUDGET_MSG, RECEIPT_SEQ_MAX,
+    RECEIPT_SEQ_OVERFLOW_MSG, THAI_MONTHS_SHORT, THAI_TZ,
 )
 from .helpers import _as_utc
 
@@ -100,6 +101,15 @@ _MERGEABLE_DOC_TYPES = (DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT)
 #       ส่วนบนใบแจ้งหนี้ บรรทัดเป็นแค่รายการย่อยและยอดรวมยังถูกต้องจาก snapshot
 #       ⇒ การแยกหน้า "ถูกเสมอ" แค่ยาวขึ้น · 12 เหลือเฟือ (การรับเงินจริง 2–5 บิล)
 _MAX_MERGED_MEMBERS = 12
+
+# 🧾 [F6] ทางแยกของเทมเพลต — `_document_context` เลือกไฟล์ที่ `receipt.html` จะ `{% include %}`
+#    🔴 เอกสารทั้ง 5 ชนิดใช้ **shell เดียวกัน** (`receipt.html` ถือ `<style>` + `.doc`) และ
+#       เนื้อในแยกเป็น 2 partial: ใบเสร็จ/ใบแจ้งหนี้/ใบรับเงิน ใช้ `_receipt_body.html`,
+#       ใบสำคัญจ่ายใช้ `_voucher_body.html`
+#    ⚠️ ชื่อไฟล์ต้องตรงกับไฟล์จริงใน `backend/templates/finance/` — พิมพ์ผิดจะได้
+#       `TemplateNotFound` **ตอนกดพิมพ์** ไม่ใช่ตอน import (เทสต์ที่เรนเดอร์ทุกชนิดจึงจำเป็น)
+_RECEIPT_BODY_TEMPLATE = "_receipt_body.html"
+_VOUCHER_BODY_TEMPLATE = "_voucher_body.html"
 
 # 🔒 ข้อความบอกทางออกเมื่อมีคนยิงเส้นทางใบแจ้งหนี้ **แบบเก่า** (ใบละบิล) มา
 #    ⚠️ ต้องบอก "ย้ายไปไหน" ไม่ใช่แค่ปฏิเสธ: หน้าจอที่ค้างเปิดอยู่ (SPA คนละ replica)
@@ -195,6 +205,11 @@ class ReceiptsMixin:
             d["paid_total_after"] = float(d["paid_total_after"])
         d["amount_text"] = baht_text(d["amount"]) if d.get("amount") is not None else None
         d["doc_type_label"] = DOC_TYPE_LABELS.get(d.get("doc_type"), d.get("doc_type"))
+        # 🧾 "เอกสารนี้พูดด้วยถ้อยคำของใบเสร็จหรือใบแจ้งหนี้" — ส่งออกไปให้หน้าจอด้วย
+        #    🔴 เดิมหน้าจอคำนวณเองจาก `doc_type` ⇒ มีสองแหล่งของคำตอบเดียวกัน และ
+        #       `ReceiptDetail.vue` ก็เขียนเตือนกับดักนี้ไว้เองแล้ว · ตอนนี้เหลือแหล่งเดียว
+        #       (`RECEIPT_LIKE_DOC_TYPES` ใน constants.py) ที่ทั้งกระดาษและจออ่านร่วมกัน
+        d["is_receipt"] = d.get("doc_type") in RECEIPT_LIKE_DOC_TYPES
         # issued_at / event_at / voided_at เป็น timestamptz (aware) อยู่แล้ว → ส่งออกได้ตรง ๆ
         #    `_as_utc` เป็น no-op กับค่า aware แต่กันกรณีที่ driver/คอลัมน์เปลี่ยนชนิดในอนาคต
         d["issued_at"] = _as_utc(d.get("issued_at"))
@@ -263,6 +278,40 @@ class ReceiptsMixin:
             d["collection_amount"] = round(
                 float(d["amount"]) + float(d["paid_total_after"]), 2
             )
+
+        # 💸 [F6] ใบสำคัญจ่าย — คลี่ `voucher_snapshot` ออกเป็นฟิลด์แบนให้ frontend ใช้ตรง ๆ
+        #
+        # 🔴 ทำไมต้องแบน ไม่ส่ง jsonb ดิบขึ้นไป: `VoucherFields` ฝั่ง TS ประกาศเป็นฟิลด์
+        #    ชัดเจน (ไม่ใช่ `Record<string, unknown>`) ⇒ จอไม่ต้องรู้จักรูปภายในของ snapshot
+        #    และวันที่ถูกจัดรูปเป็น ISO ที่นี่ที่เดียว (สัญญาเดียวกับ `collection_due_date`)
+        #
+        # ⚠️ ทุกคีย์ถูกตั้ง **เสมอ** แม้ไม่ใช่ใบสำคัญจ่าย (เป็น `None`/`[]`) — ตามสัญญาที่
+        #    ไฟล์นี้เขียนไว้สำหรับ `collection_amount`/`remaining`: คีย์ที่หายไปเรนเดอร์ว่าง
+        #    แต่ `{{ }}` บน `undefined` ที่ฝั่ง TS คือ `undefined` ไม่ใช่ `null` ⇒
+        #    `v-if="detail.budgets.length"` จะ **throw** ตอน render (จอขาว ไม่มี error ฝั่งเซิร์ฟเวอร์)
+        snapshot = cls._parse_voucher_snapshot(d.get("voucher_snapshot"))
+        if snapshot:
+            d["approver_name"] = snapshot.get("approver_name")
+            d["attachment_count"] = int(snapshot.get("attachment_count") or 0)
+            d["account_name"] = snapshot.get("account_name")
+            d["account_kind"] = snapshot.get("channel")
+            d["bank_name"] = snapshot.get("bank_name")
+            d["bank_account_no"] = snapshot.get("bank_account_no")
+            d["bank_account_name"] = snapshot.get("bank_account_name")
+            d["category_name"] = snapshot.get("category_name")
+            d["budgets"] = [
+                b for b in (snapshot.get("budgets") or []) if isinstance(b, dict)
+            ]
+        else:
+            d["approver_name"] = None
+            d["attachment_count"] = 0
+            d["account_name"] = None
+            d["account_kind"] = None
+            d["bank_name"] = None
+            d["bank_account_no"] = None
+            d["bank_account_name"] = None
+            d["category_name"] = None
+            d["budgets"] = []
         return d
 
     # ============================================================ อ่านบิลเป้าหมาย
@@ -937,6 +986,360 @@ class ReceiptsMixin:
             transaction_id or 0, DOC_TYPE_DEPOSIT,
         )
 
+    # ──────────────────────────────────────────── [F6] ใบรับเงิน (รายรับที่บันทึกเอง)
+    @classmethod
+    async def _issue_income_doc(
+        cls, conn: asyncpg.Connection, target_room_id: int, transaction_id: int,
+        amount: float, payer_name: str, user_id: int, user_name: str,
+        note: Optional[str], event_at_db: datetime, issued_at_db: datetime,
+    ) -> dict:
+        """[F6] ออก **ใบรับเงิน** (`doc_type='income'`) ให้รายรับที่บันทึกเอง — caller เป็นเจ้าของ transaction
+
+        คืน dict: {"receipt": <row dict>, "reused": bool}
+
+        🔴 ผู้ใช้ขอว่า *"ตอนที่บันทึกรายการว่าได้รายรับมา ก็เอาให้มีใบเหมือนกับกดรับเงินห้อง
+           จากเพื่อนมา"* ⇒ ใบนี้คือ **หลักฐานว่ารับเงินมาแล้ว** จึงเป็น `is_receipt` (ดู
+           `_document_context`) และใช้เทมเพลตใบเสร็จทั้งดุ้น
+
+        🔴 ทำไม **ห้าม** พยายาม reuse `_issue_one`: ฟังก์ชันนั้นสร้างรอบ **บิล** — เรียก
+           `_load_payment` แล้ว `_resolve_event(conn, payment_id, ...)` ซึ่งอ่าน
+           `student_payments`/`finance_transactions` **ของบิลนั้น** · รายรับที่บันทึกเอง
+           **ไม่มีบิล** (`student_payment_id` เป็น NULL) ⇒ ใช้ไม่ได้จริง เหตุผลเดียวกับที่
+           `_issue_deposit` ต้องแยกออกมา
+
+        🔑 idempotency มาจาก `idx_finance_receipts_income_active` ซึ่งเป็น index **ของตัวเอง**
+           เหตุผลเดียวกับ deposit: `idx_finance_receipts_tx_active` มี `student_payment_id`
+           เป็นคอลัมน์แรก และใบนี้มีค่า NULL ⇒ Postgres ถือ NULL แต่ละตัวไม่ซ้ำกัน
+           ⇒ **ไม่มีการกันซ้ำเลย** ถ้าไปพึ่ง index นั้น
+
+        🗓️ `event_at_db` = `created_at` ของแถว `finance_transactions` ที่เพิ่งเขียน
+           ⇒ **ปี พ.ศ. บนเลขเอกสารมาจากเหตุการณ์รับเงิน** ไม่ใช่จากวันที่กดพิมพ์ซ้ำ
+
+        ⚠️ `event_at_db` **ต้อง tz-aware แล้ว** (ผู้เรียกส่ง `_as_utc(row["created_at"])` มา)
+           — `finance_transactions.created_at` เป็น TIMESTAMP **naive ที่เก็บ UTC**
+           ⇒ เรียก `.astimezone()` บนค่าดิบจะเงียบ ๆ ใช้ TZ ของเครื่อง แล้วปี พ.ศ. จะเพี้ยน
+        """
+        await _lock_room_money(conn, target_room_id)
+
+        # 💰 ยอดต้อง > 0 **หลังปัดเป็นสตางค์** และต้องอยู่ **ก่อน** การจองเลข
+        #    ไม่งั้นเลขถูกกินไปฟรี (ด่านเดียวกับ `_issue_one`/`_issue_deposit`)
+        document_amount = round(float(amount), 2)
+        if document_amount <= 0:
+            raise ValueError(
+                "ยอดรับเงินน้อยกว่า 0.01 บาท จึงออกเอกสารไม่ได้ "
+                "(ปัดเป็นสตางค์แล้วเหลือ 0) — กรุณาตรวจสอบยอดที่บันทึกไว้"
+            )
+
+        # 🔁 idempotency ชั้นที่ 1 (อ่านก่อนเขียน) — คีย์คือ "รายการที่บันทึก" ตรง ๆ
+        existing = await cls._find_existing_income(conn, transaction_id)
+        if existing:
+            return {"receipt": cls._shape_receipt(existing), "reused": True}
+
+        year_be = event_at_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+
+        # 🎫 จองเลข — ตัวนับเดิม (`receipt_sequences`) คนละแถวกับ receipt/invoice/deposit
+        #    เพราะ PK คือ (room_id, year_be, doc_type) ⇒ ไม่ต้องมีตารางใหม่
+        seq = await conn.fetchval(
+            """INSERT INTO receipt_sequences (room_id, year_be, doc_type, last_seq)
+               VALUES ($1, $2, $3, 1)
+               ON CONFLICT (room_id, year_be, doc_type)
+               DO UPDATE SET last_seq = receipt_sequences.last_seq + 1,
+                             updated_at = CURRENT_TIMESTAMP
+               RETURNING last_seq""",
+            target_room_id, year_be, DOC_TYPE_INCOME,
+        )
+        if seq > RECEIPT_SEQ_MAX:
+            raise ValueError(RECEIPT_SEQ_OVERFLOW_MSG)
+        receipt_no = RECEIPT_NO_TEMPLATE.format(
+            prefix=DOC_TYPE_PREFIXES[DOC_TYPE_INCOME], year_be=year_be, seq=seq,
+        )
+
+        try:
+            # 🔁 SAVEPOINT — **คัดลอกรูปจาก `_issue_one` (:669) ไม่ใช่จาก `_issue_deposit` (:910)**
+            #
+            # 🔴 `_issue_deposit` จับ `UniqueViolationError` แล้ว **อ่าน `conn` ต่อทันที**
+            #    ใน transaction ที่ Postgres ทำเครื่องหมาย aborted ไปแล้ว ⇒ คำสั่งถัดไป
+            #    ได้ `25P02 InFailedSQLTransactionError` ⇒ ไม่มีชั้นไหนแปลงเป็น HTTP
+            #    ⇒ **ผู้ใช้ได้ 500 แทนที่จะได้ใบเดิมคืน** — ตัวจัดการการแข่ง (race)
+            #    กลับกลายเป็นโค้ดที่ทำให้แย่ลงกว่าไม่มีมันเลย
+            #    (วันนี้ `_issue_deposit` รอดเพราะ `idx_student_credits_idem` ยิงก่อนถึงตรงนั้น
+            #     — รอดเพราะด่านอื่น ไม่ใช่เพราะโค้ดนี้ถูก)
+            #    ⚠️ ห้ามลอกรูปนั้นมาตรง ๆ เด็ดขาด: ที่นี่ไม่มีด่านอื่นอยู่ข้างหน้าอีกชั้น
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """INSERT INTO finance_receipts
+                           (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
+                            legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
+                            issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
+                            line_items)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL)
+                       RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
+                                 student_payment_id, legacy_transaction_id, student_id, collection_id,
+                                 amount, paid_total_after, issued_to_name, issued_by_name, note,
+                                 event_at, status, voided_at, voided_by, void_reason, issued_at,
+                                 line_items""",
+                    target_room_id, receipt_no, DOC_TYPE_INCOME, year_be, seq,
+                    # 🔴 NULL สามตัวอย่างเจตนา: ใบนี้ไม่ผูกกับบิล ไม่ผูกกับแคมเปญ
+                    #    และไม่ผูกกับนักเรียน (`student_id` NULL ⇒ `_merge_key` คืน None
+                    #    ⇒ ใบรับเงินทุกใบได้หน้าของตัวเอง ไม่ถูกยุบรวมกันเป็นหน้าไร้เจ้าของ)
+                    #    ⇒ `_shape_receipt_detail` จะ **ไม่** แต่ง `collection_amount` ขึ้นมา
+                    None, transaction_id, None, None,
+                    # 💰 `paid_total_after` = ยอดที่รับเข้ามาพักเท่านั้น ไม่ใช่ "ยอดสะสมของบิล"
+                    document_amount, document_amount,
+                    payer_name, user_id, user_name, note,
+                    event_at_db, issued_at_db,
+                )
+        except asyncpg.UniqueViolationError:
+            # 🔁 idempotency ชั้นที่ 2 — แพ้การแข่งขัน: คืนใบที่ชนะ ไม่ใช่ error
+            #    (ปลอดภัยเพราะมี SAVEPOINT ครอบ ⇒ transaction ยังใช้งานได้)
+            raced = await cls._find_existing_income(conn, transaction_id)
+            if raced:
+                return {"receipt": cls._shape_receipt(raced), "reused": True}
+            # ชน `idx_finance_receipts_doc_active` (เลขซ้ำ) — ไม่ควรเกิดเพราะ seq ถูก serialize
+            raise ValueError("เลขเอกสารซ้ำ กรุณาลองใหม่อีกครั้ง")
+
+        return {"receipt": cls._shape_receipt(row), "reused": False}
+
+    @classmethod
+    async def _find_existing_income(cls, conn: asyncpg.Connection, transaction_id: int):
+        """ใบรับเงินที่ออกไปแล้วของรายการนี้ (idempotency ของ income)
+
+        🚫 กรอง `status = 'active'` ด้วยเหตุผลเดียวกับ `_find_existing`/`_find_existing_deposit`:
+           ใบที่ถูก void แล้ว (เพราะรายการถูกรับคืน) ไม่นับว่า "ออกไปแล้ว" มิฉะนั้นรายการ
+           ที่ถูก revert แล้วบันทึกใหม่จะได้ใบที่ถูกยกเลิกไปแล้วกลับมา
+
+        ⚠️ **คีย์คือ `legacy_transaction_id` อย่างเดียว** ไม่มี `student_payment_id`
+           (ใบนี้ไม่มีบิล) ⇒ ต้องมี index ของตัวเอง — ดู `idx_finance_receipts_income_active`
+        """
+        return await conn.fetchrow(
+            f"""SELECT {_RECEIPT_COLUMNS} FROM finance_receipts R
+                WHERE COALESCE(R.legacy_transaction_id, 0) = $1
+                  AND R.doc_type = $2 AND R.deleted_at IS NULL
+                  AND R.status = '{DOC_STATUS_ACTIVE}'
+                LIMIT 1""",
+            transaction_id or 0, DOC_TYPE_INCOME,
+        )
+
+    # ──────────────────────────────────────── [F6] ใบสำคัญจ่าย (รายจ่ายที่บันทึกเอง)
+    @classmethod
+    async def _issue_payment_voucher(
+        cls, conn: asyncpg.Connection, target_room_id: int, transaction_id: int,
+        amount: float, payee_name: str, user_id: int, user_name: str,
+        note: Optional[str], event_at_db: datetime, issued_at_db: datetime,
+        account_id: int, category_id: int, approver_name: Optional[str],
+        attachment_count: int,
+    ) -> dict:
+        """[F6] ออก **ใบสำคัญจ่าย** (`doc_type='payment_voucher'`) ให้รายจ่ายที่บันทึกเอง
+
+        คืน dict: {"receipt": <row dict>, "reused": bool}
+
+        🔴 ผู้ใช้ขอว่า *"อยากให้ตอนที่บันทึกรายการของเงินห้อง ให้มีการสร้างใบสำคัญจ่ายมาด้วย"*
+           พร้อมสเปก 5 ส่วน ⇒ ใบนี้ **ไม่ใช่ใบเสร็จ** (เงินออก ไม่ใช่เงินเข้า) จึง
+           `is_receipt=False` และมีเทมเพลตของตัวเอง (`_voucher_body.html`)
+
+        🔴 ทำไม **ห้าม** reuse `_issue_one`/`_issue_income_doc`: สามฟังก์ชันนี้เป็น
+           **พี่น้อง** ไม่ใช่สาขากัน — `_issue_one` ผูกกับบิล (`_load_payment` →
+           `_resolve_event`), `_issue_income_doc` เป็นเงินเข้า, และตัวนี้ต้องเขียน
+           `voucher_snapshot` (jsonb) ที่อีกสองตัวไม่มี · การยัดสาขาเข้าไปในตัวใดตัวหนึ่ง
+           จะทำให้ทุกจุดที่อ่าน `doc_type` ต้องคิดถึง 3 กรณี (กับดักที่ `docs/skills.md` บันทึกไว้)
+
+        🔑 idempotency มาจาก `idx_finance_receipts_voucher_active` ซึ่งเป็น index ของตัวเอง
+           (เหตุผลเดียวกับ income/deposit: `student_payment_id` เป็น NULL ⇒
+           `idx_finance_receipts_tx_active` ไม่กันซ้ำให้เลย เพราะ Postgres ถือ NULL
+            แต่ละตัวไม่ซ้ำกัน)
+
+        🗓️ `event_at_db` = `created_at` ของแถว `finance_transactions` ที่เพิ่งเขียน
+           ⇒ **ปี พ.ศ. บนเลขเอกสารมาจากวันจ่ายจริง** ไม่ใช่จากวันที่กดพิมพ์ซ้ำ
+           ⚠️ ต้อง tz-aware แล้ว (ผู้เรียกส่ง `_as_utc(...)` มา) — ดู `_issue_income_doc`
+        """
+        await _lock_room_money(conn, target_room_id)
+
+        document_amount = round(float(amount), 2)
+        if document_amount <= 0:
+            raise ValueError(
+                "ยอดจ่ายน้อยกว่า 0.01 บาท จึงออกเอกสารไม่ได้ "
+                "(ปัดเป็นสตางค์แล้วเหลือ 0) — กรุณาตรวจสอบยอดที่บันทึกไว้"
+            )
+
+        # 🔁 idempotency ชั้นที่ 1 (อ่านก่อนเขียน)
+        existing = await cls._find_existing_voucher(conn, transaction_id)
+        if existing:
+            return {"receipt": cls._shape_receipt(existing), "reused": True}
+
+        # 📸 snapshot **ก่อน** จองเลข — ถ้าประกอบไม่ได้ ต้องไม่กินเลขไปฟรี
+        #    (และต้องเป็น snapshot ณ ตอนนี้จริง ๆ ไม่ใช่ตอน render — ดูเหตุผลใน docstring
+        #     ของ `_build_voucher_snapshot`)
+        snapshot = await cls._build_voucher_snapshot(
+            conn, target_room_id, account_id, category_id, event_at_db,
+            approver_name, attachment_count,
+        )
+
+        year_be = event_at_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+
+        seq = await conn.fetchval(
+            """INSERT INTO receipt_sequences (room_id, year_be, doc_type, last_seq)
+               VALUES ($1, $2, $3, 1)
+               ON CONFLICT (room_id, year_be, doc_type)
+               DO UPDATE SET last_seq = receipt_sequences.last_seq + 1,
+                             updated_at = CURRENT_TIMESTAMP
+               RETURNING last_seq""",
+            target_room_id, year_be, DOC_TYPE_PAYMENT_VOUCHER,
+        )
+        if seq > RECEIPT_SEQ_MAX:
+            raise ValueError(RECEIPT_SEQ_OVERFLOW_MSG)
+        receipt_no = RECEIPT_NO_TEMPLATE.format(
+            prefix=DOC_TYPE_PREFIXES[DOC_TYPE_PAYMENT_VOUCHER], year_be=year_be, seq=seq,
+        )
+
+        try:
+            # 🔁 SAVEPOINT — คัดลอกรูปจาก `_issue_one`/`_issue_income_doc`
+            #    🔴 **ห้ามลอกรูปของ `_issue_deposit`** ที่จับ `UniqueViolationError`
+            #       แล้วอ่าน `conn` ต่อใน transaction ที่ถูก abort (`25P02`) ⇒ 500
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """INSERT INTO finance_receipts
+                           (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
+                            legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
+                            issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
+                            line_items, voucher_snapshot)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL,$18)
+                       RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
+                                 student_payment_id, legacy_transaction_id, student_id, collection_id,
+                                 amount, paid_total_after, issued_to_name, issued_by_name, note,
+                                 event_at, status, voided_at, voided_by, void_reason, issued_at,
+                                 line_items, voucher_snapshot""",
+                    target_room_id, receipt_no, DOC_TYPE_PAYMENT_VOUCHER, year_be, seq,
+                    # 🔴 NULL สามตัว: ไม่ผูกบิล ไม่ผูกแคมเปญ ไม่ผูกนักเรียน
+                    #    (`student_id` NULL ⇒ `_merge_key` คืน None ⇒ ใบสำคัญจ่าย
+                    #     ไม่ถูกยุบรวมกับใบของนักเรียนคนใด และไม่ยุบกันเอง)
+                    None, transaction_id, None, None,
+                    # 💰 `paid_total_after` = ยอดที่จ่ายออกครั้งนี้ (ไม่ใช่ "ยอดสะสมของบิล")
+                    #    ⚠️ เทมเพลตใบสำคัญ **ไม่พิมพ์ค่านี้** — เป็นแนวคิดต่อบิล
+                    document_amount, document_amount,
+                    # 🙋 "ออกให้ใคร" = ผู้เบิก/ผู้รับเงิน ตรง ๆ ไม่ต้องเก็บซ้ำอีกคอลัมน์
+                    payee_name, user_id, user_name, note,
+                    event_at_db, issued_at_db, snapshot,
+                )
+        except asyncpg.UniqueViolationError:
+            # 🔁 idempotency ชั้นที่ 2 — แพ้การแข่งขัน: คืนใบที่ชนะ ไม่ใช่ error
+            raced = await cls._find_existing_voucher(conn, transaction_id)
+            if raced:
+                return {"receipt": cls._shape_receipt(raced), "reused": True}
+            raise ValueError("เลขเอกสารซ้ำ กรุณาลองใหม่อีกครั้ง")
+
+        return {"receipt": cls._shape_receipt(row), "reused": False}
+
+    @classmethod
+    async def _build_voucher_snapshot(
+        cls, conn: asyncpg.Connection, room_id: int, account_id: int, category_id: int,
+        event_at_db: datetime, approver_name: Optional[str], attachment_count: int,
+    ) -> str:
+        """ประกอบ `voucher_snapshot` (jsonb) ของใบสำคัญจ่าย — คืน **สตริง JSON**
+
+        🔴 ทำไมต้อง snapshot ไม่ JOIN สดตอนพิมพ์:
+           (ก) `docs/skills.md` — เอกสารที่แจกแจงรายการต้อง snapshot ห้าม recompute
+               (แก้ชื่อหมวด/เลขบัญชี/งบทีหลัง ต้องไม่ย้อนไปเปลี่ยนกระดาษที่พิมพ์ไปแล้ว)
+           (ข) `_render_documents_pdf` อ่านแค่ `finance_receipts` — JOIN จะผูกทุกใบ
+               ที่พิมพ์เข้ากับ 3 ตารางใหม่ตลอดไป
+           (ค) ทนต่อฟีเจอร์ "แก้รายการ" ในอนาคตที่จะเขียนใบทิ้งแล้วกลับมาเปลี่ยนข้อมูล
+
+        🔴 คืน **สตริง** ไม่ใช่ dict: asyncpg ของโปรเจกต์นี้ไม่มี codec สำหรับ jsonb
+           ⇒ ส่ง dict ตรงเข้า `$18` จะได้ `DataError` และตอนอ่านกลับได้ `str` เสมอ
+           (รอยแผลเดียวกับคอมมิต `b8b541c` — ดู `_parse_line_items`)
+
+        🗓️ วันที่ของ "งบที่ครอบ" ตัดสินด้วย **วันไทยของรายการ** ไม่ใช่ UTC
+           (`finance_budgets.start_date`/`end_date` เป็น DATE ที่คนตั้งด้วยปฏิทินไทย)
+           ⇒ รายการเวลา 23:30 UTC = 06:30 ไทยของวันถัดไป ต้องใช้งบของวันถัดไป
+           ⚠️ `_as_utc(...).astimezone(THAI_TZ)` ทำใน Python (ไม่ใช่ SQL) ด้วยเหตุผลเดียวกับ
+              `budgets.py` — ค่าที่เป็น "เวลาของเหตุการณ์" ต้องผ่านไปป์ไลน์เดียวทั้งระบบ
+        """
+        account = await conn.fetchrow(
+            """SELECT account_name, account_kind, bank_name, bank_account_no, bank_account_name
+               FROM finance_accounts
+               WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL""",
+            account_id, room_id,
+        )
+        category = await conn.fetchrow(
+            "SELECT category_name, category_type FROM finance_categories WHERE id = $1",
+            category_id,
+        )
+        txn_day_thai = event_at_db.astimezone(THAI_TZ).date()
+        # 🔎 งบเป็น **implicit** — ไม่มี FK ที่ไหนผูก (`finance_budgets` รู้จักแค่
+        #    room_id + category_id + ช่วงวันที่) ⇒ ต้อง match เองด้วยเงื่อนไขช่วง
+        #    ⚠️ งบซ้อนช่วงกันได้จริง (unique index คือ `(room_id, category_id,
+        #       start_date, end_date)` เท่านั้น) ⇒ ลิสต์ยาวเกิน 1 ได้ **โดยชอบ**
+        #       และเทมเพลตต้องเตือนเรื่องนับซ้ำ ไม่ใช่เงียบหรือเลือกก้อนแรก
+        budgets = await conn.fetch(
+            """SELECT B.id, B.amount, B.start_date, B.end_date, B.period_type
+               FROM finance_budgets B
+               WHERE B.room_id = $1 AND B.category_id = $2 AND B.deleted_at IS NULL
+                 AND B.start_date <= $3::date AND B.end_date >= $3::date
+               ORDER BY B.start_date, B.id""",
+            room_id, category_id, txn_day_thai,
+        )
+        return json.dumps({
+            # 🏦 ช่องทางจ่าย (ตั้งครั้งเดียวที่หน้าตั้งค่ากระเป๋าเงิน — ข้อตกลง #6)
+            "account_name": account["account_name"] if account else None,
+            "channel": account["account_kind"] if account else None,
+            "bank_name": account["bank_name"] if account else None,
+            "bank_account_no": account["bank_account_no"] if account else None,
+            "bank_account_name": account["bank_account_name"] if account else None,
+            # 🏷️ หมวดหมู่งบประมาณ (F2)
+            "category_name": category["category_name"] if category else None,
+            "category_type": category["category_type"] if category else None,
+            "approver_name": approver_name,
+            "attachment_count": int(attachment_count or 0),
+            "budgets": [
+                {
+                    "id": b["id"],
+                    # 💰 cast float ก่อนเสมอ — DECIMAL กลับมาเป็น `Decimal`
+                    "amount": float(b["amount"]),
+                    "start_date": b["start_date"].isoformat(),
+                    "end_date": b["end_date"].isoformat(),
+                    "period_type": b["period_type"],
+                }
+                for b in budgets
+            ],
+        }, ensure_ascii=False)
+
+    @classmethod
+    async def _find_existing_voucher(cls, conn: asyncpg.Connection, transaction_id: int):
+        """ใบสำคัญจ่ายที่ออกไปแล้วของรายการนี้ (idempotency)
+
+        🚫 กรอง `status = 'active'` — ใบที่ถูก void แล้ว (เพราะรายการถูกรับคืน) ไม่นับว่า
+           "ออกไปแล้ว" มิฉะนั้นรายการที่ revert แล้วบันทึกใหม่จะได้ใบที่ถูกยกเลิกกลับมา
+
+        ⚠️ คีย์คือ `legacy_transaction_id` อย่างเดียว ⇒ ต้องพึ่ง
+           `idx_finance_receipts_voucher_active` (ดูเหตุผลเรื่อง NULL ใน issuer)
+        """
+        return await conn.fetchrow(
+            f"""SELECT {_RECEIPT_COLUMNS} FROM finance_receipts R
+                WHERE COALESCE(R.legacy_transaction_id, 0) = $1
+                  AND R.doc_type = $2 AND R.deleted_at IS NULL
+                  AND R.status = '{DOC_STATUS_ACTIVE}'
+                LIMIT 1""",
+            transaction_id or 0, DOC_TYPE_PAYMENT_VOUCHER,
+        )
+
+    @staticmethod
+    def _parse_voucher_snapshot(raw) -> Optional[dict]:
+        """`finance_receipts.voucher_snapshot` (jsonb) → dict หรือ None
+
+        ⚠️ asyncpg คืน jsonb เป็น **`str`** (ไม่มี codec ลงทะเบียนไว้ที่ไหนในโปรเจกต์นี้)
+           ⇒ ลืม `json.loads` = เทมเพลตได้สตริงยาว ๆ แทนที่จะได้ dict แล้ว
+           `d.voucher_category_name` เรนเดอร์ว่าง **โดยไม่มี error** (กับดักเดียวกับ
+           `_parse_line_items`)
+
+        🔒 คืน **dict เท่านั้น** — ค่าที่หลุดรูป (list/สเกลาร์) จะทำให้เทมเพลตเรียก
+           `.get()` ไม่ได้ = 500 ตอนพิมพ์ ⇒ กรองตั้งแต่จุดเดียวที่ข้อมูลเข้ามา
+        """
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (ValueError, TypeError):
+                return None
+        return raw if isinstance(raw, dict) else None
+
     # ============================================================== public API
     @classmethod
     async def issue_receipt(
@@ -1453,11 +1856,12 @@ class ReceiptsMixin:
 
                 active_filter = ("" if include_voided
                                  else f" AND R.deleted_at IS NULL AND R.status = '{DOC_STATUS_ACTIVE}'")
-                # ⚠️ `R.line_items` ถูกเติมเข้ามา **ที่นี่ที่เดียว** (ไม่อยู่ใน `_RECEIPT_COLUMNS`
-                #    เพราะตัวนั้นถูกใช้โดยทะเบียน 500 แถว) ⇒ ถ้าย้ายไปใส่ `_RECEIPT_COLUMNS`
-                #    เมื่อไร ทะเบียนจะขน jsonb ทุกแถวโดยไม่มีใครได้ใช้
+                # ⚠️ `R.line_items`/`R.voucher_snapshot` ถูกเติมเข้ามา **ที่นี่ที่เดียว**
+                #    (ไม่อยู่ใน `_RECEIPT_COLUMNS` เพราะตัวนั้นถูกใช้โดยทะเบียน 500 แถว)
+                #    ⇒ ถ้าย้ายไปใส่ `_RECEIPT_COLUMNS` เมื่อไร ทะเบียนจะขน jsonb ทุกแถว
+                #      โดยไม่มีใครได้ใช้ (ทั้งคู่เป็นคอลัมน์ที่หนักและมีไว้เพื่อหน้ารายละเอียด)
                 row = await conn.fetchrow(f"""
-                    SELECT {_RECEIPT_COLUMNS}, R.line_items,
+                    SELECT {_RECEIPT_COLUMNS}, R.line_items, R.voucher_snapshot,
                            FC.title AS collection_title, FC.amount AS collection_amount,
                            FC.due_date AS collection_due_date,
                            S.student_no, R2.room_name, R2.room_code
@@ -1532,6 +1936,66 @@ class ReceiptsMixin:
             })
         return printed, hidden
 
+    @staticmethod
+    def _voucher_channel_text(d: dict) -> Optional[str]:
+        """ช่องทางจ่ายเงินของใบสำคัญจ่าย → ข้อความไทยหนึ่งบรรทัด (หรือ None ถ้าไม่มีข้อมูล)
+
+        ⚠️ `@staticmethod` **ไม่ใช่ `@classmethod`** โดยเจตนา: ฟังก์ชันนี้ไม่ใช้ `cls` เลย
+           ⇒ ถ้าติด `@classmethod` โดยที่พารามิเตอร์แรกยังชื่อ `d` จะได้
+           `TypeError: takes 1 positional argument but 2 were given` **ทุกครั้งที่เรนเดอร์
+           ใบสำคัญ** (ไม่ใช่ตอน import) — พลาดมาแล้วครั้งหนึ่งใน PR นี้
+
+        🏦 ข้อมูลมาจาก `voucher_snapshot` (ไม่ได้ JOIN สด) ⇒ ใบที่พิมพ์ไปแล้วยังบอก
+           ช่องทางเดิมแม้ครูจะไปแก้กระเป๋าเงินทีหลัง — ตรงกับสัญญาของเอกสารการเงิน
+
+        ⚠️ `None` = "ไม่รู้" ไม่ใช่ "เงินสด": ใบสำคัญที่ออกก่อนฟีเจอร์นี้ (หรือกระเป๋าที่
+           ถูกลบไปแล้ว) ต้องอ่านว่าไม่มีข้อมูล ไม่ใช่ถูกกล่าวหาว่าจ่ายเป็นเงินสด
+           ⇒ เทมเพลตพิมพ์ "-" ให้กรณีนี้ (ห้ามเดา)
+        """
+        kind = d.get("account_kind")
+        if not kind:
+            return None
+        if kind == "cash":
+            return "เงินสด"
+        parts = [
+            p for p in (d.get("bank_name"), d.get("bank_account_no"), d.get("bank_account_name"))
+            if p
+        ]
+        # ธนาคารที่ยังไม่ได้กรอกรายละเอียด = "โอนเข้าบัญชี" เฉย ๆ — ไม่ใช่ช่องว่าง
+        return "โอนเข้าบัญชี — " + " · ".join(parts) if parts else "โอนเข้าบัญชี"
+
+    @classmethod
+    def _voucher_budget_rows(cls, d: dict) -> list:
+        """งบที่ครอบรายการ (จาก snapshot) → แถวสำหรับพิมพ์
+
+        🔴 อ่านจาก `budgets` ของ snapshot **เท่านั้น ห้าม query ใหม่** — งบที่ถูกแก้หรือลบ
+           หลังออกเอกสารต้องไม่ย้อนไปเปลี่ยนกระดาษที่แจกไปแล้ว (`docs/skills.md`)
+
+        ⚠️ จัดรูปวันที่ + cast `float` ที่นี่ ไม่ใช่ในเทมเพลต: snapshot เก็บ ISO string
+           (`"2026-09-01"`) แต่กระดาษต้องได้ "1 ก.ย. 2569" แบบเดียวกับวันที่อื่นทั้งใบ
+           และ `Decimal` ที่หลุดมาถึง `"{:,.2f}".format()` จะพังตอนเรนเดอร์
+
+        🛡️ ค่าที่ผิดรูปถูก **ข้าม** ไม่ใช่ทำให้ล้มทั้งใบ: snapshot เก่าที่เขียนด้วยโค้ดคนละรุ่น
+           ต้องพิมพ์ใบที่เหลือได้ ดีกว่าดาวน์โหลดไม่ได้ทั้งใบ
+        """
+        rows = []
+        for b in d.get("budgets") or []:
+            if not isinstance(b, dict):
+                continue
+            try:
+                start = date.fromisoformat(str(b.get("start_date"))[:10])
+                end = date.fromisoformat(str(b.get("end_date"))[:10])
+            except (ValueError, TypeError):
+                continue
+            rows.append({
+                "period_text": "{} – {}".format(
+                    cls._thai_date_text(start), cls._thai_date_text(end)
+                ),
+                "amount": float(b.get("amount") or 0),
+                "period_type": b.get("period_type"),
+            })
+        return rows
+
     @classmethod
     def _document_context(cls, d: dict) -> dict:
         """เอกสาร 1 ใบ (`_shape_receipt_detail`) → context ของเทมเพลต Jinja2
@@ -1551,7 +2015,13 @@ class ReceiptsMixin:
             #    ⇒ ชนิดเอกสารใหม่ที่ลืมใส่ที่นี่จะถูกพิมพ์ด้วยถ้อยคำของ **ใบแจ้งหนี้**
             #      ("เรียกเก็บจาก" / "ยอดค้างชำระ" / "ผู้รับแจ้ง") ผิดทั้งใบโดยไม่มีอะไรฟ้อง
             #    ⇒ ใบรับเงินล่วงหน้าเป็น "หลักฐานว่ารับเงินมาแล้ว" เหมือนใบเสร็จ ⇒ True
-            "is_receipt": d["doc_type"] in (DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT),
+            #    🆕 [F6] ใบรับเงิน (`income`) ก็เป็นหลักฐานว่ารับเงินมาแล้วเหมือนกัน —
+            #       ต่างกันแค่ "เงินเขาเพราะบิล" กับ "เงินเขาที่บันทึกเอง"
+            #    🔴 `payment_voucher` **ไม่อยู่ในลิสต์นี้โดยเจตนา** — ใบสำคัญจ่ายเป็น
+            #       เอกสารสั่งจ่าย ไม่ใช่หลักฐานว่ารับเงิน ⇒ ต้องเป็น False
+            # 🔑 อ่านจาก tuple กลางตัวเดียวกับที่ `_shape_receipt` ใช้ส่งให้หน้าจอ
+            #    (ดู `RECEIPT_LIKE_DOC_TYPES`) — จอกับกระดาษตอบคำถามนี้ไม่ตรงกันไม่ได้
+            "is_receipt": d["doc_type"] in RECEIPT_LIKE_DOC_TYPES,
             "receipt_no": d["receipt_no"],
             # 🗓️ "วันที่" บนกระดาษ = วันของ **เหตุการณ์** ไม่ใช่วันที่กดพิมพ์
             #    ⇒ พิมพ์ซ้ำอีกกี่ครั้งก็ได้วันที่เดิม ตรงกับปี พ.ศ. บนเลขเอกสารเสมอ
@@ -1606,6 +2076,38 @@ class ReceiptsMixin:
             "doc_date_text": None,
             "merged_count": 0,
             "members": [],
+            # ══ 💸 [F6] คีย์ของ **ใบสำคัญจ่าย** ══════════════════════════════════════
+            # 🔴 ตั้ง **เสมอ ทุกใบ** (เป็น `None`/`[]` สำหรับชนิดอื่น) ตามสัญญาเดียวกับ
+            #    `collection_amount`/`remaining` ข้างบน — partial อ้างคีย์เหล่านี้แบบไม่มี
+            #    เงื่อนไข และ `"{:,.2f}".format(Undefined)` **ระเบิดเป็น TypeError = 500**
+            #    (คีย์ที่หายไปเฉย ๆ เรนเดอร์ว่าง — พังเฉพาะเมื่อมี `format()` คร่อม)
+            #
+            # 🗂️ `body_template` = ทางแยกของเทมเพลต **ไม่ใช่ `is_receipt`**
+            #    🔴 ทำไมไม่เพิ่มสาขาที่สามใน `_receipt_body.html`: ไฟล์นั้น branch ด้วย
+            #       `is_receipt` ราว 8 จุด ทุกจุดเป็น "ใบเสร็จ หรือ ใบแจ้งหนี้" ⇒ เพิ่มชนิด
+            #       ที่สาม = ทุกจุดกลายเป็นสามทาง และ **ลืมจุดเดียว = พิมพ์ "เรียกเก็บจาก" /
+            #       "ยอดค้างชำระ" บนใบสำคัญจ่ายโดยไม่มี error ฟ้อง** (กับดักที่บันทึกไว้ใน
+            #       `docs/skills.md`) ⇒ แยกไฟล์แล้ว **ไม่มี `is_receipt` อยู่ในเส้นทางของ
+            #       ใบสำคัญเลย** จึงไม่มีอะไรให้ลืม
+            #    ⚠️ เป็น `{% include %}` ไม่ใช่ shell ที่สอง: ผู้ใช้ติ๊กใบเสร็จปนกับใบสำคัญ
+            #       ในคำขอเดียวได้ และทั้งไฟล์ถูกเรนเดอร์ครั้งเดียวผ่าน Gotenberg ⇒ `<style>`
+            #       (ฟอนต์ base64 ~61,000 ตัวอักษร) ต้องอยู่นอกลูปเสมอ
+            "body_template": (
+                _VOUCHER_BODY_TEMPLATE
+                if d["doc_type"] == DOC_TYPE_PAYMENT_VOUCHER
+                else _RECEIPT_BODY_TEMPLATE
+            ),
+            # 🧑💼 ผู้เบิก/ผู้รับเงิน — ใช้ `issued_to_name` ตรง ๆ **ไม่เก็บซ้ำใน snapshot**
+            #    เพราะ `finance_receipts.issued_to_name` *คือ* "คนที่เอกสารออกให้" อยู่แล้ว
+            "voucher_payee_name": d.get("issued_to_name"),
+            "voucher_approver_name": d.get("approver_name"),
+            "voucher_attachment_count": int(d.get("attachment_count") or 0),
+            "voucher_account_name": d.get("account_name"),
+            # 🏦 ข้อความช่องทางจ่ายถูกประกอบที่นี่ (ไม่ใช่ในเทมเพลต) — ตรรกะ "มีธนาคาร
+            #    หรือไม่มี" ต้องตอบเหมือนกันทุกที่ และเทมเพลตไม่ควรมี `if` ซ้อนสามชั้น
+            "voucher_channel_text": cls._voucher_channel_text(d),
+            "voucher_category_name": d.get("category_name"),
+            "voucher_budgets": cls._voucher_budget_rows(d),
         }
         collection_amount = d.get("collection_amount")
         if collection_amount:
@@ -1893,7 +2395,7 @@ class ReceiptsMixin:
                 #    `render_receipt_pdf`) — ใบที่ถูกยกเลิกต้องพิมพ์ได้ และเทมเพลตประทับ
                 #    "ยกเลิก" ให้เอง ไม่ใช่หายไปจากไฟล์รวมแบบเงียบ ๆ
                 rows = await conn.fetch(f"""
-                    SELECT {_RECEIPT_COLUMNS}, R.line_items,
+                    SELECT {_RECEIPT_COLUMNS}, R.line_items, R.voucher_snapshot,
                            FC.title AS collection_title, FC.amount AS collection_amount,
                            FC.due_date AS collection_due_date,
                            S.student_no, R2.room_name, R2.room_code

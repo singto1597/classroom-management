@@ -278,6 +278,9 @@ async def _create_tx_api(client, headers, *, account_id, category_id, amount, tx
             "description": f"api {tx_type}",
             "transaction_type": tx_type,
             "user_name": "Tester",
+            # [F6] ทั้งสองทิศออกเอกสารที่พิมพ์ชื่ออีกฝ่าย ⇒ service บังคับให้ระบุ
+            #      (จุดเดียว ครอบทุกเทสต์ในไฟล์นี้)
+            "payee_name": "คู่กรณีทดสอบ",
         },
         headers=headers,
     )

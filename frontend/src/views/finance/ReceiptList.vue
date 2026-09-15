@@ -75,29 +75,46 @@ const guard = createLatestGuard();
 const LIST_LIMIT = 500;
 const hitsLimit = computed(() => items.value.length >= LIST_LIMIT);
 
+// 🔴 ทุกค่านี้ถูกส่งเป็น query param `doc_type` ตรง ๆ ⇒ ต้องมีอยู่ใน whitelist ของ
+//    `GET /finance/receipts` (`routers/finance/receipts.py`) ด้วย ไม่งั้นผู้ใช้กด chip
+//    แล้วได้ 422 ทั้งที่เอกสารถูกออกจริง · ลำดับในลิสต์นี้ = ลำดับ chip บนจอ
 const DOC_TYPE_FILTERS: { value: 'all' | ReceiptDocType; label: string; icon: string }[] = [
   { value: 'all', label: 'ทั้งหมด', icon: 'bi-collection' },
   { value: 'receipt', label: 'ใบเสร็จ', icon: 'bi-receipt' },
-  { value: 'invoice', label: 'ใบแจ้งหนี้', icon: 'bi-file-earmark-text' },
+  // 💸 [F6] ใบสำคัญจ่าย — เอกสาร **จ่ายออก** ชนิดเดียวในทะเบียนนี้
+  { value: 'payment_voucher', label: 'ใบสำคัญจ่าย', icon: 'bi-cash-coin' },
   // 💰 [F4] ใบรับเงินล่วงหน้า — เอกสารคนละชนิดกับใบเสร็จโดยเจตนา (เงินยังไม่ใช่รายได้)
-  //    ⚠️ service ส่งค่านี้เป็น query param ⇒ backend ต้องรับ 'deposit' ด้วย ไม่งั้น 422
   { value: 'deposit', label: 'ใบรับเงินล่วงหน้า', icon: 'bi-piggy-bank' },
+  // 🧾 [F6] ใบรับเงิน — เงินเข้าที่บันทึกเอง (ไม่มีบิลรองรับ)
+  { value: 'income', label: 'ใบรับเงิน', icon: 'bi-cash-stack' },
+  { value: 'invoice', label: 'ใบแจ้งหนี้', icon: 'bi-file-earmark-text' },
 ];
 
 const rangeOf = (p: PeriodValue): { startDate: string; endDate: string } | null =>
   p.mode === 'asof' ? null : toRange(p);
 
 /**
- * 🎨 สีของ chip ตามชนิดเอกสาร — **ต้องแยก 3 ทาง ไม่ใช่ 2**
- * ⚠️ เดิมเป็น `doc_type === 'receipt' ? เขียว : เหลือง` ⇒ ใบรับเงินล่วงหน้าจะได้สีเหลือง
+ * 🎨 สีของ chip ตามชนิดเอกสาร — **ต้องแยกครบทุกชนิดที่ระบบออกได้**
+ *
+ * ⚠️ เดิมเป็น `doc_type === 'receipt' ? เขียว : เหลือง` ⇒ ใบรับเงินล่วงหน้าได้สีเหลือง
  *    เท่ากับใบแจ้งหนี้ ⇒ ผู้ใช้แยกไม่ออกว่าอันไหนคือ "เงินเข้าแล้ว" กับ "ยังไม่ได้รับเงิน"
  *    ซึ่งเป็นความต่างที่สำคัญที่สุดของสองเอกสารนี้
- *    🔴 ห้ามยุบกลับเป็น 2 ทาง — "ใบเสร็จ" (เงินเข้า+เป็นรายได้) กับ "ใบรับเงินล่วงหน้า"
- *       (เงินเข้าแต่ **ยังไม่ใช่รายได้**) ต้องดูต่างกันด้วยตาเปล่า
+ *
+ * 🔑 เกณฑ์คือ **สถานะของเงิน** ไม่ใช่ชื่อชนิด:
+ *    • `emerald` = เงินเข้ามือแล้ว และนับเป็นรายได้ (`receipt`, `income`)
+ *      ℹ️ สองชนิดนี้ **ตั้งใจให้สีเดียวกัน** — ต่างกันที่ "ผูกบิลหรือไม่" ซึ่ง chip บอกด้วย
+ *         ข้อความอยู่แล้ว · การให้คนละสีจะสื่อว่าสถานะเงินต่างกัน ซึ่งไม่จริง
+ *    • `sky`     = เงินเข้ามือแล้ว แต่ **ยังไม่นับเป็นรายได้** (`deposit` — เครดิตล่วงหน้า)
+ *    • `amber`   = **ยังไม่ได้รับเงิน** (`invoice`)
+ *    • `stone`   = **เงินออกจากห้อง** (`payment_voucher`) — ตั้งใจให้เป็นกลาง
+ *
+ * 🔴 ห้ามใช้ `rose-*` กับใบสำคัญจ่าย: ในหน้านี้ `rose` สื่อ "ถูกยกเลิก" อยู่แล้ว
+ *    (`batchVoidedNote`, ปุ่มยกเลิก) ⇒ ใบที่ยังใช้ได้จะอ่านเหมือนใบที่ตายแล้ว
  */
 const docChipClass = (docType: string): string => {
-  if (docType === 'receipt') return 'bg-emerald-50 text-emerald-700';
+  if (docType === 'receipt' || docType === 'income') return 'bg-emerald-50 text-emerald-700';
   if (docType === 'deposit') return 'bg-sky-50 text-sky-700';
+  if (docType === 'payment_voucher') return 'bg-stone-100 text-stone-700';
   return 'bg-amber-50 text-amber-700';
 };
 
@@ -160,8 +177,28 @@ onMounted(() => {
 // 📊 สรุปหัวหน้า
 // ==========================================
 
-const totalAmount = computed(() => items.value.reduce((sum, r) => sum + r.amount, 0));
-const receiptCount = computed(() => items.value.filter((r) => r.doc_type === 'receipt').length);
+/**
+ * 💰 ยอดเงินในกล่องสรุป — **ต้องแยก "รับ" กับ "จ่าย" ออกจากกันเด็ดขาด**
+ *
+ * 🔴 ของเดิมคือ `items.reduce((sum, r) => sum + r.amount, 0)` ซึ่งแปลว่า "ยอดรวม"
+ *    เฉย ๆ · ถูกต้องตราบใดที่ทะเบียนมีแต่เอกสาร **รับเงิน** (ใบเสร็จ/ใบแจ้งหนี้/เครดิต)
+ *    แต่ [F6] เอา **ใบสำคัญจ่าย** (เงินออก) เข้ามาอยู่ในทะเบียนเดียวกัน ⇒ ผลบวกเดียว
+ *    จะกลายเป็น "เงินเข้า ลบด้วยเงินออก" ที่ไม่มีใครขอ และตัวเลขจะดูสมเหตุสมผลเสมอ
+ *    ⇒ ผู้ใช้ที่ดูยอดรวมเพื่อเทียบกับสมุดบัญชีจะเจอตัวเลขที่ไม่มีที่มา โดยไม่มี error ฟ้อง
+ *
+ * ⚠️ `is_receipt` (จาก backend) เป็นตัวตัดสินว่า "เงินเข้า" ไม่ใช่ `doc_type` — ดูเหตุผล
+ *    ในคอมเมนต์ของ `types/finance.ts` · ยอดของใบแจ้งหนี้ **ไม่นับเป็นเงินเข้า** เช่นกัน
+ *    (ยังไม่ได้รับเงิน) จึงต้องมีตัวนับของตัวเอง
+ */
+const receivedTotal = computed(() =>
+  items.value.filter((r) => r.is_receipt).reduce((sum, r) => sum + r.amount, 0),
+);
+const paidTotal = computed(() =>
+  items.value
+    .filter((r) => r.doc_type === 'payment_voucher')
+    .reduce((sum, r) => sum + r.amount, 0),
+);
+const receiptCount = computed(() => items.value.filter((r) => r.is_receipt).length);
 const invoiceCount = computed(() => items.value.filter((r) => r.doc_type === 'invoice').length);
 
 // ==========================================
@@ -439,13 +476,20 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
     <!-- กรองชนิดเอกสาร: pill switch แบบเดียวกับโหมดของ PeriodPicker -->
     <div class="page-card p-3 sm:p-4">
       <p class="field-label mb-1.5">ชนิดเอกสาร</p>
-      <div class="flex items-center gap-1" role="group" aria-label="กรองชนิดเอกสาร">
+      <!-- ⚠️ [F6] 6 chip บนจอ 375px: `flex-1` แถวเดียวจะบีบแต่ละปุ่มเหลือ ~60px
+           จนป้ายถูกตัด ("ใบสำคัญ…") ⇒ มือถือใช้ grid 2 คอลัมน์ (ปุ่มสูง ≥44px ตาม §8)
+           แล้วค่อยกลับเป็นแถวเดียวแบบ wrap ตั้งแต่ `sm` ขึ้นไป -->
+      <div
+        class="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center"
+        role="group"
+        aria-label="กรองชนิดเอกสาร"
+      >
         <button
           v-for="f in DOC_TYPE_FILTERS"
           :key="f.value"
           type="button"
           :aria-pressed="docTypeFilter === f.value"
-          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-sm font-bold transition-colors active:scale-[0.97] sm:flex-none sm:px-4"
+          class="flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-sm font-bold transition-colors active:scale-[0.97] sm:px-4"
           :class="
             docTypeFilter === f.value
               ? 'bg-brand-700 text-white'
@@ -467,16 +511,23 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
         <p class="mt-0.5 text-[11px] text-stone-500">{{ describePeriod(period) }}</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ยอดรวม</p>
-        <p class="font-display num mt-1 text-xl font-bold text-brand-700">
-          {{ formatMoney(totalAmount) }}
+        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ยอดรับเงิน</p>
+        <p class="font-display num mt-1 text-xl font-bold text-emerald-700">
+          {{ formatMoney(receivedTotal) }}
         </p>
-        <p class="mt-0.5 text-[11px] text-stone-500">เฉพาะที่แสดงอยู่</p>
+        <p class="mt-0.5 text-[11px] text-stone-500">เฉพาะที่แสดงอยู่ (ไม่รวมใบแจ้งหนี้)</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ใบเสร็จ</p>
+        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ยอดจ่ายเงิน</p>
+        <p class="font-display num mt-1 text-xl font-bold text-stone-900">
+          {{ formatMoney(paidTotal) }}
+        </p>
+        <p class="mt-0.5 text-[11px] text-stone-500">ใบสำคัญจ่ายที่แสดงอยู่</p>
+      </div>
+      <div class="page-card p-3.5">
+        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">เอกสารรับเงิน</p>
         <p class="font-display num mt-1 text-xl font-bold text-emerald-700">{{ receiptCount }}</p>
-        <p class="mt-0.5 text-[11px] text-stone-500">เอกสารรับเงิน</p>
+        <p class="mt-0.5 text-[11px] text-stone-500">ใบเสร็จ · รับล่วงหน้า · ใบรับเงิน</p>
       </div>
       <div class="page-card p-3.5">
         <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ใบแจ้งหนี้</p>

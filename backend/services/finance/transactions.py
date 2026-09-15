@@ -17,7 +17,9 @@ from .constants import (
     COLLECTION_STATUS_LABELS, REFERENCE_TYPE_LABELS, MANAGEMENT_TAB_COLORS,
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
-    DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
+    DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT, DOC_TYPE_INCOME, DOC_TYPE_PAYMENT_VOUCHER,
+    DOC_TYPE_LABELS,
+    DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
     CREDIT_ENTRY_TOPUP, CREDIT_ENTRY_REVERSE,
 )
 from .helpers import (
@@ -38,6 +40,23 @@ class TransactionsMixin:
                     target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                     await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
 
+                    # 🧾 [F6] "อีกฝ่าย" ของรายการ — บังคับ **ก่อน** คำสั่งเขียนใด ๆ
+                    #    ⇒ คำขอที่ไม่ผ่านได้ 400 โดยไม่ทิ้งร่องรอยอะไรลงฐานข้อมูลเลย
+                    #    🔴 บังคับที่นี่ **ไม่ใช่ที่ Pydantic** (`TransactionCreate` ปล่อยเป็น
+                    #       Optional โดยเจตนา): อยากได้ข้อความไทยที่บอกทางออก ไม่ใช่ 422 ดิบ
+                    #       และการบังคับที่ชั้น schema จะทำให้เทสต์ที่ POST รายจ่ายโดยคาด 400
+                    #       จากเหตุอื่น **ผ่านเพราะด่านใหม่นี้แทน** = false positive เงียบ ๆ
+                    #
+                    #    ทำไมบังคับทั้งสองทิศ: ทั้งใบสำคัญจ่ายและใบรับเงินพิมพ์ชื่ออีกฝ่าย
+                    #    ลงบนกระดาษจริง · ปล่อยว่าง = เอกสารการเงินที่ไม่มีคู่กรณี
+                    #    (เทมเพลตจะพิมพ์ "-" ซึ่งอ่านได้ว่า "ข้อมูลหาย" ไม่ใช่ "ไม่ระบุ")
+                    payee_name = (req.payee_name or "").strip()
+                    if not payee_name:
+                        raise ValueError(
+                            "ต้องระบุผู้เบิก/ผู้รับเงิน (ฝั่งรายจ่าย) หรือผู้จ่ายเงิน "
+                            "(ฝั่งรายรับ) เพราะชื่อนี้พิมพ์ลงบนเอกสารที่ออกให้"
+                        )
+
                     # 🔒 ล็อกห้องก่อนแตะแถวใด ๆ (protocol เดียวกันทั้งระบบ — ดู `_lock_room_money`)
                     await _lock_room_money(conn, target_room_id)
 
@@ -57,13 +76,23 @@ class TransactionsMixin:
                         raise ValueError(f"ประเภทหมวดหมู่ ({cat['category_type']}) ไม่ตรงกับประเภทการบันทึก ({req.transaction_type})!")
 
                     # [DUAL-WRITE] ดึง id ของ legacy transaction เพื่อเก็บลง journal metadata (สำหรับ revert)
-                    new_tx_id = await conn.fetchval(
+                    # 🆕 [F6] `RETURNING id, created_at` — `created_at` คือ **เวลาของเหตุการณ์**
+                    #    ที่จะกลายเป็นปี พ.ศ. บนเลขเอกสาร (ท่าเดียวกับ `credits.py:356-363`)
+                    #    ⚠️ ห้ามใช้เวลาของแอป: 3 replica มีนาฬิกาคนละเรือน และค่า DEFAULT
+                    #       ของคอลัมน์คือ `CURRENT_TIMESTAMP` = transaction_timestamp
+                    new_tx = await conn.fetchrow(
                         """INSERT INTO finance_transactions
-                           (room_id, account_id, category_id, amount, description, transaction_type, slip_image_url, recorded_by)
-                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
+                           (room_id, account_id, category_id, amount, description, transaction_type, slip_image_url, recorded_by,
+                            payee_name, approver_name, attachment_count)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, created_at""",
                         target_room_id, req.account_id, req.category_id, req.amount,
-                        req.description, req.transaction_type, req.slip_image_url, req.user_name
+                        req.description, req.transaction_type, req.slip_image_url, req.user_name,
+                        payee_name, (req.approver_name or "").strip() or None, req.attachment_count,
                     )
+                    new_tx_id = new_tx["id"]
+                    # ⏱️ `created_at` เป็น TIMESTAMP **naive ที่เก็บเวลา UTC** ⇒ ต้องติดป้าย
+                    #    UTC ก่อน ห้ามเรียก `.astimezone()` กับค่าดิบ (จะเงียบ ๆ ใช้ TZ ของเครื่อง)
+                    event_at = _as_utc(new_tx["created_at"])
 
                     if req.transaction_type == 'income':
                         await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", req.amount, req.account_id)
@@ -94,6 +123,37 @@ class TransactionsMixin:
                         lines=lines,
                     )
 
+                    # ──────────────────────────────── 🧾 [F6] เอกสารประกอบของรายการ
+                    # 🔑 ออก **ภายใน transaction นี้** ไม่เปิด transaction ของตัวเอง ⇒
+                    #    เอกสารไม่มีทางอยู่โดยไม่มีรายการ และกลับกัน (atomic) · ไม่มี entry
+                    #    point สาธารณะใหม่ ⇒ **ไม่ต้องแก้ `_MONEY_PATHS`** เพราะ issuer
+                    #    ไม่ได้เรียก `require_permission` และไม่ได้เปิด transaction เอง
+                    # 🔒 `_lock_room_money` ถูกยึดไปแล้วข้างบน ⇒ ไม่มีจุดล็อกใหม่ให้ดูแล
+                    document = None
+                    if req.transaction_type == "income":
+                        issued_at = await conn.fetchval("SELECT CURRENT_TIMESTAMP")
+                        document = await cls._issue_income_doc(
+                            conn, target_room_id, new_tx_id, req.amount,
+                            payee_name, user_id, req.user_name,
+                            # 📝 คำอธิบายรายการกลายเป็น "หมายเหตุ" บนใบ — บรรทัดรายการ
+                            #    ของใบรับเงินเป็นถ้อยคำประจำชนิด (เหมือนใบ DEP) ไม่ใช่ชื่อแคมเปญ
+                            note=req.description,
+                            event_at_db=event_at, issued_at_db=issued_at,
+                        )
+                    else:  # expense — ใบสำคัญจ่าย (สเปก 5 ส่วนของผู้ใช้)
+                        issued_at = await conn.fetchval("SELECT CURRENT_TIMESTAMP")
+                        document = await cls._issue_payment_voucher(
+                            conn, target_room_id, new_tx_id, req.amount,
+                            payee_name, user_id, req.user_name,
+                            note=req.description,
+                            event_at_db=event_at, issued_at_db=issued_at,
+                            # 📸 snapshot ข้างในดึง "ช่องทางจ่าย" จากกระเป๋า + "งบที่ครอบ"
+                            #    จาก `finance_budgets` เอง ⇒ ผู้เรียกส่งแค่ id ที่ชี้เป้า
+                            account_id=req.account_id, category_id=req.category_id,
+                            approver_name=(req.approver_name or "").strip() or None,
+                            attachment_count=req.attachment_count or 0,
+                        )
+
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -111,7 +171,20 @@ class TransactionsMixin:
                     description=req.description,
                     user_name=req.user_name,
                 )
-            return {"status": "success", "message": "บันทึกรายการสำเร็จ"}
+            # 🧾 เลขเอกสารต้องรอดถึงหน้าจอ — `response_model` เป็นคนตัดสิน (ดู
+            #    `TransactionCreateResponse`) · คีย์พวกนี้เป็น `None` เมื่อไม่มีเอกสาร
+            doc_row = document["receipt"] if document else None
+            return {
+                "status": "success",
+                "message": (
+                    f"บันทึกรายการสำเร็จ — ออก{document['receipt']['doc_type_label']} "
+                    f"เลขที่ {document['receipt']['receipt_no']} แล้ว"
+                    if document else "บันทึกรายการสำเร็จ"
+                ),
+                "receipt_no": doc_row["receipt_no"] if doc_row else None,
+                "doc_type": doc_row["doc_type"] if doc_row else None,
+                "doc_type_label": doc_row["doc_type_label"] if doc_row else None,
+            }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:
@@ -731,10 +804,17 @@ class TransactionsMixin:
                            WHERE room_id = $1 AND legacy_transaction_id = ANY($2::int[])
                              AND doc_type = ANY($5::text[])
                              AND status = $6 AND deleted_at IS NULL
-                           RETURNING receipt_no""",
+                           RETURNING receipt_no, doc_type""",
                         target_room_id, voided_tx_ids, user_id,
                         f"ยกเลิกรายการธุรกรรม #{transaction_id}",
-                        [DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT],
+                        # 🔴 [F6] ต้องมี `income`/`payment_voucher` ด้วย: รายรับ-รายจ่ายที่
+                        #    บันทึกเองก็ออกเอกสารผูกกับ `legacy_transaction_id` เดียวกันนี้
+                        #    ⇒ ถ้าไม่ยกเลิกใบด้วย เอกสารจะค้าง `active` ตลอดกาลทั้งที่เงิน
+                        #       ถูกคืนไปแล้ว = "เอกสารขัดกับฐานข้อมูล" ตรง ๆ
+                        #    (ข้ามข้อนี้ = ใบสำคัญจ่ายของรายการที่ถูกรับคืนยังโหลดได้และ
+                        #     ดูเหมือนใช้ได้ — บั๊กที่ไม่มีอะไรฟ้องนอกจากเทสต์นี้)
+                        [DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT,
+                         DOC_TYPE_INCOME, DOC_TYPE_PAYMENT_VOUCHER],
                         DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
                     )
                     voided_nos = [r["receipt_no"] for r in voided_receipts]
@@ -782,7 +862,20 @@ class TransactionsMixin:
                         endpoint_or_command="FinanceService.revert_transaction", execution_time_ms=exec_time
                     )
                     if voided_nos:
-                        action_detail += f" (ยกเลิกใบเสร็จ {len(voided_nos)} ใบ: {', '.join(voided_nos)})"
+                        # 🏷️ เรียกเอกสารด้วย **ชื่อจริงของมัน** — ของเดิมฮาร์ดโค้ดคำว่า
+                        #    "ใบเสร็จ" ซึ่งจริงตอนที่ทะเบียนมีแต่ใบเสร็จ/ใบ DEP เท่านั้น
+                        #    [F6] มีใบสำคัญจ่ายกับใบรับเงินแล้ว ⇒ ประโยคเดิมจะกลายเป็น
+                        #    "ยกเลิกใบเสร็จ 1 ใบ: PV-2569-0001" = เรียก **ใบสั่งจ่าย** ว่า
+                        #    ใบเสร็จ · ผู้ใช้ที่ตรวจสอบย้อนหลังจะเข้าใจผิดว่าเงินเข้า
+                        #    ทั้งที่ความจริงคือเงินออก — ผิดแบบไม่มี error ให้เห็น
+                        voided_labels = sorted({
+                            DOC_TYPE_LABELS.get(t, t) for t in
+                            (r["doc_type"] for r in voided_receipts)
+                        })
+                        action_detail += (
+                            f" (ยกเลิก{'/'.join(voided_labels)} "
+                            f"{len(voided_nos)} ใบ: {', '.join(voided_nos)})"
+                        )
                     return {"status": "success", "message": action_detail,
                             "voided_receipts": voided_nos}
         except Exception as e:

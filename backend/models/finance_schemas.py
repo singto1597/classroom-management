@@ -49,6 +49,17 @@ class AccountCreate(BaseModel):
     initial_balance: float = Field(0.0, ge=0.0)
     user_name: Optional[str] = Field(None, max_length=100)
 
+    # ── 🏦 [F6] ช่องทางจ่ายเงินของกระเป๋า ─────────────────────────────────────
+    # 🔴 "จ่ายเงินผ่านช่องทางไหน" เป็นคุณสมบัติของ **กระเป๋า** ไม่ใช่ของรายการ
+    #    (ข้อตกลงข้อ 6) ⇒ กรอกครั้งเดียวที่หน้าตั้งกระเป๋า แล้วใบสำคัญจ่ายดึงไปพิมพ์เอง
+    #    ⇒ ผู้ใช้ไม่ต้องเลือก "เงินสด/โอน" ทุกครั้งที่บันทึกรายจ่าย ซึ่งเป็นจุดที่คนลืม
+    #    ⚠️ `cash` เป็นค่าตั้งต้น เพราะกระเป๋าที่มีอยู่เดิมทั้งระบบเป็นเงินสด
+    #       (คอลัมน์มี DEFAULT 'cash' เหมือนกัน — ค่าใหม่ต้องไม่ทำให้ของเก่าพัง)
+    account_kind: str = Field("cash", pattern="^(cash|transfer)$")
+    bank_name: Optional[str] = Field(None, max_length=100)
+    bank_account_no: Optional[str] = Field(None, max_length=50)
+    bank_account_name: Optional[str] = Field(None, max_length=150)
+
 class TransactionCreate(BaseModel):
     account_id: int
     category_id: int
@@ -57,6 +68,39 @@ class TransactionCreate(BaseModel):
     transaction_type: str = Field(..., pattern="^(income|expense)$")
     slip_image_url: Optional[str] = None
     user_name: str
+
+    # ── [F6] ข้อมูลที่ใบสำคัญจ่าย / ใบรับเงิน ต้องพิมพ์ ───────────────────────────
+    # 🔴 **ไม่บังคับที่ Pydantic โดยเจตนา** — บังคับใน service (`add_transaction`)
+    #    เพื่อให้ผู้ใช้ได้ **400 ภาษาไทยที่บอกทางออก** ("ต้องระบุผู้เบิก/ผู้รับเงิน")
+    #    ไม่ใช่ 422 ดิบของ Pydantic ที่พูดถึง JSON schema
+    #    💡 ผลพลอยได้ที่สำคัญ: เทสต์ที่ POST รายจ่ายโดยคาด 400 จากเหตุอื่น
+    #       (ยอดเกิน / หมวดผิด) **ยังทดสอบสิ่งที่มันตั้งใจทดสอบ** ไม่กลายเป็น
+    #       false positive ที่ผ่านเพราะไปติดด่านใหม่นี้แทน (ดู `docs/skills.md`)
+    #    ⚠️ `payee_name` ใช้ทั้งสองทิศ: ฝั่งรายจ่าย = "ผู้เบิก/ผู้รับเงิน"
+    #       ฝั่งรายรับ = "ผู้จ่ายเงิน (คนที่ให้เงินกับห้อง)" — เพราะเอกสารทั้งสองใบ
+    #       ต้องระบุ "อีกฝ่าย" เสมอ · ช่องเดียวที่ป้ายเปลี่ยนตามแท็บ ดีกว่าสองช่องที่ไม่มีใครรู้ว่าต่างกันยังไง
+    payee_name: Optional[str] = Field(None, max_length=150)
+    approver_name: Optional[str] = Field(None, max_length=150)
+    attachment_count: int = Field(0, ge=0)
+
+
+class TransactionCreateResponse(SuccessResponse):
+    """ผลของ `POST /finance/transactions` — **รวมเลขเอกสารที่เพิ่งออก**
+
+    🔴 ทำไมต้องมีคลาสนี้แทน `SuccessResponse` เฉย ๆ: FastAPI ตัดฟิลด์ที่ไม่อยู่ใน
+       `response_model` ทิ้ง **เงียบ ๆ** ⇒ ต่อให้ service คืน `receipt_no` มา หน้าจอก็ไม่เห็น
+       และจะไม่มีอะไรฟ้องเลย — เจอเป็น **ครั้งที่สอง** ในโปรเจกต์นี้ (ครั้งแรกคือ
+       `BatchPaymentConfirmResponse`) ⇒ ถ้าไม่ประกาศคลาสนี้ ผู้ใช้จะบันทึกรายจ่ายสำเร็จ
+       แต่ **ไม่มีทางรู้เลขใบสำคัญจ่ายที่เพิ่งออก** ทั้งที่มันถูกเขียนลง DB แล้ว
+
+    📄 หน้าจอใช้ `receipt_no` + `doc_type` สร้างลิงก์ดาวน์โหลด PDF ทันทีหลังบันทึก
+       (reuse `downloadReceiptPdf` เดิม) ⇒ ไม่ต้องยิง `GET /finance/receipts` ซ้ำ
+       แล้วเดาว่าใบไหนคือ "ใบที่เพิ่งออก"
+    """
+
+    receipt_no: Optional[str] = None
+    doc_type: Optional[str] = None
+    doc_type_label: Optional[str] = None
 
 class TransferCreate(BaseModel):
     from_account_id: int
@@ -101,6 +145,16 @@ class AccountResponse(BaseModel):
     id: int
     account_name: str
     balance: float
+    # 🏦 [F6] ช่องทางจ่ายเงิน — 🔴 **ต้องประกาศที่นี่ ไม่งั้นถูกตัดทิ้งเงียบ ๆ**
+    #    `routers/finance/accounts.py:41` ใช้ `response_model=List[AccountResponse]`
+    #    ⇒ service ส่งมาครบแต่หน้าจอไม่เห็น แล้วจะไม่มีเทสต์ไหนจับได้ถ้าตรวจแค่ status
+    #    (กับดักเดียวกับ `TransactionCreateResponse`/`DebtorItem.credit_balance`)
+    #    ⚠️ `account_kind` มีค่า default เพื่อให้แถวที่ service ไม่ได้เลือกคอลัมน์นี้
+    #       (ถ้ามีในอนาคต) ไม่ทำให้ route ล้มทั้งอัน
+    account_kind: str = "cash"
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_account_name: Optional[str] = None
 
 class TransactionResponse(BaseModel):
     id: int
@@ -213,8 +267,23 @@ class FeeCollectionUpdate(BaseModel):
 
 # --- Schemas สำหรับ Account Management ---
 class AccountUpdate(BaseModel):
-    account_name: str = Field(..., max_length=100)
+    """PATCH กระเป๋าเงิน — **ทุกฟิลด์ไม่บังคับ** (ส่งมาแต่ตัวที่จะแก้)
+
+    🔴 `account_name` เปลี่ยนจาก *บังคับ* เป็น *ไม่บังคับ* พร้อมกับที่ service เปลี่ยนไปใช้
+       `model_dump(exclude_unset=True)`: หน้าจอมีสองกรณีที่ต้องแก้ **เฉพาะช่องทางจ่าย**
+       (สลับ เงินสด ↔ โอน) โดยไม่แตะชื่อ ⇒ ถ้ายังบังคับ ช่องทางจะแก้ไม่ได้เลย
+       เว้นแต่ frontend จะส่งชื่อเดิมกลับมา ซึ่งเป็นสัญญาที่เปราะ (ชื่อเปลี่ยนที่อื่นแล้วพังเงียบ)
+
+    ⚠️ `exclude_unset` แปลว่า "ส่ง `null` มา" = **ล้างค่านั้นจริง** ไม่ใช่ "ไม่แตะ"
+       ⇒ การแยกสองกรณีนี้ออกเป็นหน้าที่ของ service (`_ACCOUNT_PATCHABLE`)
+    """
+    account_name: Optional[str] = Field(None, max_length=100)
     user_name: Optional[str] = Field(None, max_length=100)
+    # 🏦 ช่องทางจ่ายเงิน — ดูเหตุผลเต็มที่ `AccountCreate`
+    account_kind: Optional[str] = Field(None, pattern="^(cash|transfer)$")
+    bank_name: Optional[str] = Field(None, max_length=100)
+    bank_account_no: Optional[str] = Field(None, max_length=50)
+    bank_account_name: Optional[str] = Field(None, max_length=150)
 
 # --- Schemas สำหรับ ทวงหนี้รวม ---
 class DebtorItem(BaseModel):
@@ -489,6 +558,14 @@ class ReceiptResponse(BaseModel):
     receipt_no: str
     doc_type: str
     doc_type_label: Optional[str] = None
+    # 🧾 เอกสารนี้พูดด้วยถ้อยคำของ **ใบเสร็จ** (เงินเข้ามือแล้ว) หรือ **ใบแจ้งหนี้** (ยังไม่ได้รับ)?
+    #
+    # 🔴 ส่งมาจาก backend เพื่อให้จอกับกระดาษตอบเหมือนกันจากแหล่งเดียว
+    #    (`RECEIPT_LIKE_DOC_TYPES` ใน `services/finance/constants.py`) — เดิมหน้าจอคำนวณ
+    #    เองจาก `doc_type` ⇒ เพิ่มชนิดใหม่แล้วลืมแก้ฝั่งจอ = แสดง "เรียกเก็บจาก"/"ยอดค้างชำระ"
+    #    บนใบรับเงิน **โดยไม่มี error ให้เห็น** (กับดักที่ `ReceiptDetail.vue` เขียนเตือนไว้เอง)
+    #    ⚠️ ฟิลด์นี้ต้องประกาศที่นี่เสมอ ไม่งั้น `response_model=` จะตัดทิ้งเงียบ ๆ
+    is_receipt: bool = False
     year_be: int
     seq: int
     student_payment_id: Optional[int] = None

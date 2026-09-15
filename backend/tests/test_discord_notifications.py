@@ -249,7 +249,8 @@ async def test_add_income_transaction_publishes(client, db_pool):
         resp = client.post(
             _room_api(room_id, "/finance/transactions"),
             json={"account_id": account_id, "category_id": cat_id, "amount": 500.0,
-                  "description": "ขายขยะ", "transaction_type": "income", "user_name": "เหรัญญิก"},
+                  "description": "ขายขยะ", "transaction_type": "income", "user_name": "เหรัญญิก",
+                  "payee_name": "ผู้จ่ายเงินทดสอบ"},
             headers=_make_web_headers(owner),
         )
         assert resp.status_code == 200, resp.text
@@ -274,7 +275,8 @@ async def test_add_expense_transaction_publishes(client, db_pool):
         resp = client.post(
             _room_api(room_id, "/finance/transactions"),
             json={"account_id": account_id, "category_id": cat_id, "amount": 300.0,
-                  "description": "ซื้ออุปกรณ์", "transaction_type": "expense", "user_name": "เหรัญญิก"},
+                  "description": "ซื้ออุปกรณ์", "transaction_type": "expense", "user_name": "เหรัญญิก",
+                  "payee_name": "ร้านอุปกรณ์การเรียน"},
             headers=_make_web_headers(owner),
         )
         assert resp.status_code == 200, resp.text

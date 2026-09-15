@@ -2197,6 +2197,46 @@
 - **Tests:** `backend/tests/_mutation_credits.py` M12 (แก้เป็นแทนทั้งคำสั่งด้วย `pass` แล้ว)
 - **Date Added:** 2026-09-15
 
+### 🎯 Mutant ที่วาง **ผิดตำแหน่ง** = dead code ⇒ รายงาน SURVIVE ปลอม และทำให้เข้าใจผิดว่าเทสต์อ่อน
+- **Context/Problem:** `_mutation_pr5_docs.py` M8 ตั้งใจจำลอง "ลืม `json.loads`" ของ `_parse_voucher_snapshot` โดย **แทรกบรรทัดใหม่ต่อท้ายฟังก์ชัน**:
+  ```python
+  if isinstance(raw, str):
+      return None  # MUTANT: ลืม json.loads
+  return raw if isinstance(raw, dict) else None
+  ```
+  harness รายงาน **SURVIVE** ⇒ เกือบสรุปว่า "เทสต์งบประมาณไม่ได้ตรวจการคลี่ snapshot จริง" และเกือบไปแก้เทสต์ที่ **ไม่ได้ผิด**
+- **Root Cause:** ฟังก์ชันจริงมี `json.loads` อยู่ **ก่อนหน้า** บรรทัดที่แทรกไปแล้ว:
+  ```python
+  if isinstance(raw, str):        # ← ของจริง แปลง str → dict ตรงนี้
+      try:
+          raw = json.loads(raw)
+      except (ValueError, TypeError):
+          return None
+  return raw if isinstance(raw, dict) else None   # ← mutant แทรกก่อนบรรทัดนี้
+  ```
+  ⇒ ถึงบรรทัดของ mutant ค่า `raw` **เป็น dict แล้วเสมอ** ⇒ `isinstance(raw, str)` เป็น False ตลอด ⇒ บรรทัดนั้นเป็น **dead code** ที่ไม่เปลี่ยนพฤติกรรม = equivalent mutant ปลอม
+  🔴 อาการที่สังเกตได้: **mutant ที่ควรตายกลับรอด พร้อมกับที่ mutant ตัวอื่นที่แตะพื้นที่เดียวกันถูกจับ** (M9 "ไม่คลี่ snapshot" ถูกจับ) ⇒ ความขัดแย้งนี้คือสัญญาณว่าตัวที่รอดนั้น **ไม่เคยมีผล** ไม่ใช่เทสต์อ่อน
+- **กับดักพี่น้อง (เจอพร้อมกัน):** mutant ที่ "แก้ **อาร์กิวเมนต์** ของคำสั่ง แต่ไม่แก้ **ตัวแปรต้นทาง**" ก็เป็น dead code แบบเดียวกัน — เช่นถ้าจะจำลอง "คิดปีจาก `issued_at_db`" แต่ไปแก้แค่ค่าที่ส่งเข้า `INSERT INTO receipt_sequences` ขณะที่บรรทัดคำนวณ `year_be` ยังใช้ `event_at_db` ⇒ เลขที่ประกอบขึ้นยังถูก ⇒ รอดทั้งที่โค้ดที่ตั้งใจทดสอบไม่ถูกแตะ
+  ⇒ **mutant ต้องแก้ที่ "แหล่งความจริง" ของค่า ไม่ใช่ที่ "จุดที่ค่าไหลผ่าน"**
+- **Rule:** (1) 🔴 **ก่อนเพิ่ม mutant ให้ยืนยันว่าบรรทัดที่จะแก้ถูก *execute* จริงในเส้นทางที่เทสต์วิ่ง** — อ่านฟังก์ชันทั้งตัว ไม่ใช่แค่หาคำที่ตรง (2) 🔴 **mutant ที่รอดต้องถูกตรวจ "ตำแหน่ง" ก่อนสรุปว่าเทสต์อ่อน** — ถามว่า "บรรทัดนี้ทำงานเมื่อไร" ถ้าคำตอบคือ "ไม่มีทาง" ⇒ **mutant เสีย ไม่ใช่เทสต์เสีย** (3) เกณฑ์ตัดสิน: `old` ต้อง**ไม่ซ้ำ** (harness มีด่าน AMBIG) **และ** ต้องอยู่ **หลัง** การแปลงค่าใด ๆ ที่ทำให้เงื่อนไขของ mutant เป็นเท็จเสมอ (4) 🚫 **ห้ามแก้เทสต์จากผลของ mutant ที่ยังไม่ได้ตรวจตำแหน่ง** — จะกลายเป็นการเขียนเทสต์หลอกตัวเองเพิ่มอีกชั้น (5) เมื่อ mutant แก้ *อาร์กิวเมนต์* ให้ตรวจด้วยว่าตัวแปรต้นทางถูกแก้จริง ไม่งั้นเป็นการทดสอบที่ไม่มีวันล้ม
+- **Tests:** `_mutation_pr5_docs.py` M8 (ย้ายไปปิด `json.loads` ตัวจริงที่ `receipts.py:1336-1340` ⇒ CATCH) · M22 (mutate บรรทัดคำนวณ `year_be` ไม่ใช่แค่ kwargs ⇒ CATCH)
+- **Date Added:** 2026-09-15
+
+### 🗓️ เทสต์ที่ให้ **อินพุตสองตัวเป็นค่าเดียวกัน** จะพิสูจน์ "แหล่งที่มา" ของค่าไม่ได้เลย
+- **Context/Problem:** `test_voucher_timezone_year_comes_from_the_thai_calendar_day` มี docstring ว่า *"ล้มถ้า issuer ใช้ `issued_at_db`"* แต่ตัวเทสต์ส่ง
+  ```python
+  event_at_db=datetime(2026, 12, 31, 17, 30, tzinfo=timezone.utc),
+  issued_at_db=datetime(2026, 12, 31, 17, 30, tzinfo=timezone.utc),   # ← ค่าเดียวกัน
+  ```
+  ⇒ สลับแหล่งที่มาแล้วผลเท่าเดิม · mutation M6 (สลับเป็น `issued_at_db`) **รอด แม้ถอยไปรันทั้งไฟล์** ⇒ ตัวเลข "ปีของเหตุการณ์" ไม่มีเทสต์คุมเลยทั้งสอง issuer
+- **Root Cause:** การทดสอบว่า "ค่ามาจากแหล่ง A ไม่ใช่แหล่ง B" ต้องทำให้ **A ≠ B** มิฉะนั้นการทดสอบเป็น tautology · และการที่ผู้เขียนใส่ค่าเดียวกันลงไปทั้งสองที่เกิดจาก **สร้างเทสต์จากเส้นทาง production** ซึ่งทั้งสองค่าเป็น `now` เกือบเท่ากันเสมอ ⇒ คัดลอกความบังเอิญนั้นเข้ามาในเทสต์
+  ⚠️ และมีอีกชั้น: ความต่างต้องข้าม **ขอบเขตที่วัด** (ปี พ.ศ. / วันไทย) ไม่ใช่ต่างแค่ระดับวินาที — ส่ง 17:30:00 กับ 17:30:01 ก็ยังแยกไม่ออก
+- **Rule:** (1) 🔴 **เทสต์ที่อ้างว่าพิสูจน์แหล่งที่มา ต้องมีอินพุตที่ให้ผลต่างกันจริงในทุกแหล่ง** — เขียนค่าคาดหวังของ "แหล่งที่ผิด" ลงคอมเมนต์ด้วย (เช่น "ถ้าใช้ issued_at จะได้ `PV-2570-0001`") เพื่อให้คนอ่านตรวจได้ทันที (2) 🔴 **หนึ่งเทสต์ หนึ่งหน้าที่** — "วันไทยถูกใช้" กับ "ค่ามาจาก event ไม่ใช่ issued" เป็นสองข้อสันนิษฐานที่ต้องแยกเทสต์ เพราะค่าที่จับข้อหนึ่งมักทำให้อีกข้อเป็น tautology (3) ผูกกับ **ฟังก์ชันพี่น้อง**: ถ้า issuer สองตัวเป็นฟังก์ชันคนละตัว เทสต์ของตัวหนึ่ง **ไม่ได้คุม** อีกตัว — ต้องเขียนคู่กัน (M6/M22) (4) เปิดทางให้เทสต์ override เวลาได้ (`**overrides` ใน helper) ตั้งแต่แรก ไม่งั้นจะแยกแหล่งไม่ได้เลย (5) 🧪 ผลพลอยได้: mutation harness คือเครื่องมือเดียวที่จับ tautology แบบนี้ได้ — เทสต์แบบนี้ **เขียวตลอดกาล** ไม่ว่าจะพังยังไง
+- **Tests:** `test_voucher_year_comes_from_the_event_not_the_issue_time` (ใหม่) · `test_income_year_comes_from_the_event_not_the_issue_time` (ใหม่) · mutant M6/M22
+- **Date Added:** 2026-09-15
+- **Tests:** `backend/tests/_mutation_credits.py` M12 (แก้เป็นแทนทั้งคำสั่งด้วย `pass` แล้ว)
+- **Date Added:** 2026-09-15
+
 ### 🖥️ อย่าต่อ `| tail -N` ท้าย mutation harness — ตารางสรุปพิมพ์ไว้ **ก่อน** รายละเอียดของ mutant ที่มีปัญหา
 - **Context/Problem:** รัน harness หลายตัวรวดเดียวแล้วต่อ `| tail -40` ต่อตัว เพื่อให้ output สั้น ⇒ เห็นแค่ traceback ของ M12 แล้ว **ไม่เห็นตารางสรุป** ⇒ สรุปผิดว่า "harness ล้มกลางคัน ไม่ได้รันจนจบ" ทั้งที่ความจริงมัน **รันจบครบทุกตัว** และตารางสรุปอยู่เหนือขึ้นไป 40 บรรทัด
 - **Root Cause:** ลำดับการพิมพ์ของ harness คือ `ตารางสรุป` → แล้วจึง `── {ชื่อ mutant} [{สถานะ}] ──` + tail ของ pytest (30 บรรทัด) ต่อ mutant ที่ `SURVIVE`/`INFRA`/`STALE`/`AMBIG` ⇒ **mutant ที่มีปัญหาตัวเดียวก็กิน `tail` หมดหน้าต่างแล้ว**
@@ -2218,4 +2258,123 @@
 - **Root Cause:** `_mutation_jsonb_meta.py` เรียก pytest เองด้วย `subprocess.run(..., cwd="/app")` (:73) ⇒ **ต้องรันจากในคอนเทนเนอร์** ตามที่ docstring ของมันเขียนไว้ (:6-8) · ส่วน harness ตัวอื่น (`_mutation_receipt_merge`, `_mutation_credits`, `_mutation_receipt_batches`, `_mutation_system_pdf`, `_mutation_auto_issue_receipts`) **รันจาก host** แล้ว shell ออกไปสั่ง `docker compose … test_runner` เอง — คนละสัญญากันคนละแบบในโฟลเดอร์เดียวกัน
 - **Rule:** (1) 🔴 **ก่อนรัน harness ทุกครั้ง ให้เปิด docstring 16 บรรทัดแรกดูก่อน** ว่ามันบอกให้รันที่ไหน (2) อาการ `FileNotFoundError` ที่ path เป็น `/app` หรือ `/repo` = **รันผิดที่** ไม่ใช่บั๊กในโค้ดที่เพิ่งแก้ (3) ถ้า harness ระบุคำสั่งเต็มใน docstring ให้ **ลอกทั้งคำสั่ง** รวม `-T` (no TTY) และ `export PYTHONDONTWRITEBYTECODE=1` (4) harness ที่รันในคอนเทนเนอร์จะเขียนไฟล์ผ่าน volume mount — ตรวจ `git status` ว่าคืนสภาพจริงก่อนไปต่อเสมอ (ตัวนี้มี `finally` คืนไฟล์ให้แล้ว)
 - **Tests:** n/a (บทเรียนกระบวนการ)
+- **Date Added:** 2026-09-15
+
+### 🧷 `@classmethod` ที่พารามิเตอร์แรก **ไม่ได้ชื่อ `cls`** ⇒ `TypeError` ตอน **เรียก** ไม่ใช่ตอน import
+- **Context/Problem:** เขียน helper ตัวหนึ่งของใบสำคัญจ่ายเป็น
+  ```python
+  @classmethod
+  def _voucher_channel_text(d: dict) -> Optional[str]:   # ← พารามิเตอร์แรกชื่อ d
+      kind = d.get("account_kind")                        # ← และ body ไม่เคยใช้ cls
+  ```
+  ⇒ ผ่าน import · ผ่าน type-check · ผ่านทุกเทสต์ที่ไม่แตะเส้นทางนี้ · แต่ **ทุกครั้งที่เรนเดอร์ใบสำคัญ** ได้
+  `TypeError: ReceiptsMixin._voucher_channel_text() takes 1 positional argument but 2 were given` ที่บรรทัดที่เรียก ⇒ **500 ตอนพิมพ์ PDF** ซึ่งไม่มีเทสต์ไหนแตะมาก่อน
+- **Root Cause:** `@classmethod` ผูก instance/class เป็นพารามิเตอร์ตัวแรก **เสมอ** โดยไม่สนว่าชื่ออะไร — ผู้เขียนตั้งชื่อว่า `d` เพราะคิดว่าเป็นฟังก์ชันอิสระที่รับ dict · ผลคือตอนเรียกแบบ `cls._voucher_channel_text(d)` ส่งอาร์กิวเมนต์ 2 ตัวเข้า signature ที่รับ 1 ⇒ พัง
+  🔴 และเพราะ **ไม่มีการใช้ `cls` ใน body** จึงไม่มีสัญญาณเตือนใด ๆ จาก linter · และ **ไม่มีเทสต์ไหนรู้เรื่อง** จนกว่าจะมีเทสต์ที่เรนเดอร์ใบสำคัญจริง
+- **Rule:** (1) 🔴 **ใช้ `@classmethod` ก็ต่อเมื่อ body ใช้ `cls` จริง** — ถ้าไม่ใช้ ให้ `@staticmethod` (และถ้าตั้งใจให้รับ `self`/`cls` ให้ตั้งชื่อพารามิเตอร์แรกให้ตรง) (2) 🔴 **`TypeError` เรื่องจำนวนอาร์กิวเมนต์ไม่โผล่ตอน import** ⇒ การที่โมดูล import ผ่านไม่ได้แปลว่าเมธอดเรียกได้ — ต้องมีเทสต์ที่ **เรียก** มัน (3) เมื่อ helper ถูกเรียกจาก **เทมเพลต/เส้นทางเรนเดอร์** ให้มีเทสต์ที่เรนเดอร์เอกสารชนิดนั้นอย่างน้อย 1 ตัวเสมอ (4) ถ้าเจอ `TypeError: takes N positional arguments but M were given` ที่ **เรียกใช้** ไม่ใช่ import — ตรวจ decorator ก่อนตรวจ call site
+- **Tests:** `backend/tests/test_finance_transaction_documents.py::test_voucher_channel_text_never_invents_a_channel` + mutant `M20` ใน `_mutation_pr5_docs.py` (สลับ `@staticmethod` → `@classmethod` ต้องล้ม)
+- **Date Added:** 2026-09-15
+
+### 🗓️ ส่ง `str` ให้พารามิเตอร์ SQL ที่ปลายทางเป็น `DATE` ⇒ `'str' object has no attribute 'toordinal'`
+- **Context/Problem:** helper ของเทสต์สร้างงบประมาณด้วย
+  ```python
+  await conn.fetchval("INSERT INTO finance_budgets (…, start_date, end_date, …) VALUES (…, $5, $6, …)",
+                      room_id, cat_id, "monthly", year, "2020-01-01", "2035-12-31", amount)
+  ```
+  ⇒ 4 เทสต์ล้มพร้อมกันด้วย `asyncpg.exceptions.DataError: invalid input for query argument $5: '2020-01-01' ('str' object has no attribute 'toordinal')`
+- **Root Cause:** Postgres อนุมานชนิดของ `$5` จาก **คอลัมน์ปลายทาง** (DATE) ไม่ใช่จากค่าที่ส่ง ⇒ asyncpg จึงเตรียมตัวเข้ารหัสเป็น `date` และเรียก `.toordinal()` บนค่าที่ได้ — ซึ่งสตริงไม่มี · **ไม่ใช่ปัญหาเรื่องรูปแบบสตริง** (ISO ถูกต้องแล้ว) แต่เป็นเรื่อง **ชนิดของออบเจ็กต์ Python**
+  🔴 นี่คือหลักฐานเชิงประจักษ์ของกฎ `docs/rules/backend.md` — *"Date params must be typed `date`/`datetime`, never `str`"* — ซึ่งเดิมทีเป็นกฎที่ "รู้กัน" แต่ไม่มีเทสต์ไหนพิสูจน์ว่าทำไม
+- **Rule:** (1) 🔴 **ส่ง `datetime.date` object เสมอ** ให้พารามิเตอร์ที่ปลายทางเป็น DATE — `date.fromisoformat("2020-01-01")` ไม่ใช่ `"2020-01-01"` (2) **การเติม `::date` ที่ฝั่ง SQL ไม่ช่วย** — cast เกิดที่ Postgres หลัง asyncpg เข้ารหัสแล้ว ⇒ ยังพังที่เดิม (3) อาการนี้ **ขึ้นกับชนิดของคอลัมน์ปลายทาง** ⇒ คำสั่งเดียวกันย้ายไปคอลัมน์ TEXT แล้วจะผ่าน ⇒ อย่าดูแค่ "SQL หน้าตาถูก" (4) `Model(**payload)` ที่มีฟิลด์ `date` จะแปลงให้อัตโนมัติ — กับดักนี้เกิดกับ **raw SQL ในเทสต์/สคริปต์** เป็นหลัก
+- **Tests:** `_insert_budget` ใน `backend/tests/test_finance_transaction_documents.py` (ลงวันที่เป็น `date` object · มี comment อธิบายกับดักนี้ไว้ที่ตัว helper)
+- **Date Added:** 2026-09-15
+
+### 🎭 `except UniqueViolationError` ชั้นที่ 2 ของ issuer ใหม่ = mutant ที่ **รอดอย่างชอบธรรม** (equivalent) — ต้องพิสูจน์ก่อนสรุปว่าเทสต์หลอกตัวเอง
+- **Context/Problem:** issuer ทั้งสองตัวใหม่ (`_issue_income_doc`, `_issue_payment_voucher`) ลอกรูป "จับ `UniqueViolationError` แล้วคืนใบที่ชนะ" มาจาก `_issue_one` · แผนกำหนด mutant M7 = *"ถอด SAVEPOINT รอบ INSERT ของ issuer"* แล้วคาดว่าเทสต์ยิงซ้ำจะได้ 500 ⇒ **harness รายงาน SURVIVE**
+- **Root Cause (ทำไมมันรอด — วิเคราะห์แล้วไม่ใช่เพราะเทสต์อ่อน):**
+  1. `_lock_room_money(conn, room_id)` เป็นคำสั่งแรกของทุก issuer ⇒ issuer ของห้องเดียวกันถูก **serialize** ⇒ ไม่มีการชนกันจริง
+  2. `add_transaction` **สร้างแถว `finance_transactions` ใหม่ทุกครั้ง** ⇒ `legacy_transaction_id` ใหม่เสมอ ⇒ `_find_existing_voucher` / `_find_existing_income` (**ชั้นที่ 1**) hit ทุกครั้งที่เรียกซ้ำ ⇒ ทางเข้าไปถึงชั้นที่ 2 **ไม่มีอยู่จริง** ผ่าน route ใด ๆ
+  ⇒ การถอด SAVEPOINT จึงไม่เปลี่ยนพฤติกรรมที่สังเกตได้เลย = **equivalent mutant** ไม่ใช่ร่องรอยของเทสต์ที่ไม่มีฟัน
+  📌 เทียบเคียงกับ `_issue_deposit` M9 ที่พิสูจน์ว่าเป็น equivalent มาก่อนแล้ว — และ **ต่าง** จากเคส `_issue_one` ที่ **มี** เทสต์จำลองการแข่งจริง (`test_the_loser_of_the_race_gets_the_winning_receipt_not_a_500`)
+- **Rule:** (1) 🔴 **mutant ที่รอดต้องถูกวินิจฉัยก่อนแก้เทสต์เสมอ** — แยกให้ออกระหว่าง "เทสต์ไม่มีฟัน" กับ "โค้ดบรรทัดนั้นไม่มีทางถูกเรียก" (2) 🔴 **อย่าลบโค้ดที่เป็น defensive contract ทิ้งเพียงเพราะพิสูจน์ด้วยเทสต์ไม่ได้** — ชั้นที่ 2 มีไว้รองรับวันที่ข้อสันนิษฐาน (1) หรือ (2) เปลี่ยน (เช่น มีคนถอด advisory lock ออก หรือเพิ่ม route ที่ออกเอกสารซ้ำจาก transaction เดิม) ⇒ คงโค้ดไว้ แล้ว **บันทึก SURVIVE พร้อมเหตุผลลงรายงาน** (3) จำนวน "จับได้ N/M" ไม่ใช่ตัวชี้วัดคุณภาพโดยลำพัง — **ต้องรายงาน N ที่รอดพร้อมเหตุผลทุกตัว** (4) ถ้าต้องการให้ mutant นี้ "ถูกจับ" จริง ต้องเขียนเทสต์ที่ **ข้าม route** ไปเรียก issuer สองครั้งด้วย `transaction_id` เดียวกันพร้อมกัน — ซึ่งเป็นเทสต์ที่ Artificial จนต้องชั่งน้ำหนักกับคุณค่าที่ได้
+- **Tests:** M7 ใน `_mutation_pr5_docs.py` (รายงาน SURVIVE + rationale เขียนกำกับไว้ในไฟล์ ไม่ใช่เงียบ)
+- **Date Added:** 2026-09-15
+
+### 🧨 `_issue_deposit` **ยัง** จับ `UniqueViolationError` โดยไม่มี SAVEPOINT — กับดักที่ยัง live และเป็นเหตุผลที่ issuer ใหม่ต้องลอกรูปจาก `_issue_one`
+- **Context/Problem:** หลังเขียน issuer ใหม่สองตัว กลับไปตรวจ `_issue_deposit` (`receipts.py:934-965`) พบว่ายังเป็น
+  ```python
+  try:
+      row = await conn.fetchrow("INSERT INTO finance_receipts …")
+  except asyncpg.UniqueViolationError:
+      raced = await cls._find_existing_deposit(conn, transaction_id)   # ← อ่าน conn ต่อ
+  ```
+  โดยไม่มี `async with conn.transaction():` ครอบ ⇒ ถ้า handler นี้ถูกกระตุ้นจริง จะได้ `InFailedSQLTransactionError` (25P02) ⇒ **500** ไม่ใช่ใบเดิม
+- **Root Cause:** หลักการเดียวกับหัวข้อ 💥 ที่ `docs/skills.md:1389` — แต่ **การมีอยู่ของหัวข้อนั้นไม่ได้กันบั๊กนี้** เพราะตอนเขียน `_issue_deposit` ผู้เขียนลอกรูปมาจาก `_issue_one` **เฉพาะส่วน handler** ไม่ได้คัดลอก SAVEPOINT · และมัน **รอดการทดสอบ** เพราะ `idx_student_credits_idem` (`credits.py:226`) ยิงก่อนเสมอ ⇒ เส้นทางนี้ไม่เคยถูกเข้า
+  🔴 **นี่คือรูปแบบความล้มเหลวที่อันตราย: "มีบทเรียนเขียนไว้แล้ว แต่โค้ดที่เขียนทีหลังยังทำผิด"** — บทเรียนที่ไม่ผูกกับเทสต์จะไม่ถูกบังคับใช้
+- **Rule:** (1) 🔴 **issuer ใหม่ทุกตัวต้องคัดลอกรูป SAVEPOINT จาก `_issue_one` (`receipts.py:718`) ไม่ใช่จาก `_issue_deposit`** — และ issuer ทั้งสองตัวของ F6 ทำถูกแล้ว (`:1068`, `:1198`) (2) 🔴 เมื่อจะ "ลอกรูปจากฟังก์ชันพี่น้อง" ให้ลอกจาก **ตัวที่ถูกต้องที่สุด** ไม่ใช่ตัวที่อยู่ใกล้ที่สุด — ตรวจว่ามันมี SAVEPOINT/ด่าน/lock ครบไหมก่อน (3) 🚧 **`_issue_deposit` ยังเป็นหนี้ทางเทคนิคที่ต้องแก้** (ควรมี SAVEPOINT เหมือนพี่น้อง) — ถ้าแตะไฟล์นี้ครั้งหน้าให้แก้พร้อมกัน · **ห้ามลบทิ้ง** เพราะมันเป็น defensive contract (4) บทเรียนใน `docs/skills.md` **ไม่มีผลบังคับใช้ด้วยตัวเอง** ⇒ ถ้าอยากให้กฎถูกบังคับ ต้องมี **เทสต์เชิงโครงสร้าง** (แบบ `_mutation_*` หรือ `ast` check) ตามหลัง
+- **Tests:** issuer ใหม่ทั้งสองมี SAVEPOINT (`receipts.py:1068`, `:1198`) · `_issue_deposit` **ยังไม่มีเทสต์คุมเส้นทางนี้** (ตาม M7/M9 ที่เป็น equivalent) ⇒ ยังเป็นช่องว่างที่บันทึกไว้
+- **Date Added:** 2026-09-15
+
+### 📮 `response_model` ตัดฟิลด์ที่ service คืน **เงียบ ๆ** — เจอเป็นครั้งที่ 3 และเป็นคลาสของบั๊กที่หาไม่เจอด้วยเทสต์ service
+- **Context/Problem:** `add_transaction` ถูกแก้ให้คืน `{"status","message","receipt_no","doc_type","doc_type_label"}` แต่ `routers/finance/transactions.py:17` ยังประกาศ `response_model=SuccessResponse` ⇒ ฟิลด์เลขเอกสาร **ถูกตัดทิ้งที่ชั้น serialization** ⇒ frontend ได้ `receipt_no: undefined` **โดยไม่มี error ใด ๆ ทั้งฝั่ง server และ client**
+  🔁 ก่อนหน้านี้เกิดแบบเดียวกันกับ `BatchPaymentConfirmResponse` และ `TransactionCreateResponse` — **สามครั้งในโปรเจกต์เดียว**
+- **Root Cause:** FastAPI ใช้ `response_model` เป็น **ตัวกรองขาออก** — ฟิลด์ที่ service คืนแต่ schema ไม่ประกาศจะถูก **ทิ้งเงียบ** ไม่ error ไม่ warning · เทสต์ระดับ service (`await add_transaction(...)` แล้ว `assert result["receipt_no"]`) **ผ่านหมด** เพราะมันไม่ผ่านชั้น serialization ⇒ เทสต์ที่ดู "ครอบคลุม" จึงมองไม่เห็นบั๊กนี้เลย
+- **Rule:** (1) 🔴 **ทุกครั้งที่ service เปลี่ยนรูปร่างของ dict ที่คืน ให้ไล่ขึ้นไปแก้ `response_model` ที่ router ด้วย** — ทั้งสองที่ต้องถูกแก้พร้อมกันเสมอ (2) 🧪 **เทสต์ต้องยิงผ่าน HTTP (`client.post(...)`) ไม่ใช่เรียก service ตรง** เมื่อสัญญาที่ต้องการคือ "client เห็นอะไร" — เทสต์ service พิสูจน์ไม่ได้ว่าฟิลด์รอดชั้น serialization (3) เมื่อเพิ่ม response schema ใหม่ ให้ **สืบทอดจาก `SuccessResponse`** เพื่อไม่ให้สัญญาเดิม (`status`/`message`) หลุด (4) อาการปลายทางที่ต้องสงสัย: frontend ได้ค่า `undefined` ทั้งที่ backend log แสดงว่าคืนค่าแล้ว ⇒ ให้ตรวจ `response_model` เป็นอันดับแรก
+- **Tests:** `backend/tests/test_finance_transaction_documents.py::test_add_transaction_response_carries_the_document_number` (ยิงผ่าน HTTP จริง)
+- **Date Added:** 2026-09-15
+
+### 🧩 เทมเพลตที่แตกเป็น partial + `{% include %}`: **ทุกคีย์ที่ partial อ้างต้องถูกตั้งเสมอ** และ **ต้องเปิด `keep_trailing_newline`**
+- **Context/Problem:** ต้องให้ใบสำคัญจ่ายและใบเสร็จใช้ **เทมเพลตคนละตัว** ในไฟล์ HTML เดียว (ผู้ใช้ติ๊กเลือกปนกันได้) ⇒ แตกเนื้อในของ `receipt.html` ออกเป็น `_receipt_body.html` + `_voucher_body.html` แล้วให้ shell เรียก `{% include d.body_template %}` · เกิดปัญหาสองชั้นพร้อมกัน
+- **Root Cause (สองกลไกที่ต้องแก้ทั้งคู่):**
+  1. **คีย์ที่หายไปไม่ได้เรนเดอร์ว่างเสมอ** — `{{ d.foo }}` บนคีย์ที่ไม่มีเรนเดอร์เป็นสตริงว่าง (**ไม่ error**) แต่ `"{:,.2f}".format(d.amount)` หรือ `d.amount|round(2)` บน `Undefined` **ระเบิดเป็น `TypeError` ⇒ 500** ⇒ partial ที่อ้างคีย์ใหม่ต้องมั่นใจว่า `_document_context` ตั้ง **ทุก** คีย์ แม้ค่าจะเป็น `None`/`[]` — และกับดักคือ **มันพังเฉพาะเอกสารชนิดนั้น** ไม่พังตอน import หรือตอนรันเทสต์ชนิดอื่น
+  2. **Jinja ตัด newline ท้ายไฟล์ของทุกเทมเพลตทิ้ง** (`keep_trailing_newline` default = `False`) ⇒ ไบต์ของไฟล์ partial **ไม่เท่ากับ** ไบต์ที่เรนเดอร์ออกมา ⇒ การตรวจ "ไฟล์ตรงกับผลลัพธ์" ด้วยการอ่านไฟล์ดิบ ๆ จะ false positive/negative สลับกันไม่คงที่
+- **Rule:** (1) 🔴 **partial ต้องประกาศสัญญาคีย์ของตัวเองไว้ใน docstring ของผู้เรียก** และ `_document_context` ต้องตั้งครบทุกคีย์แบบไม่มีเงื่อนไข (2) 🔴 **ตั้ง `keep_trailing_newline=True` ที่ `pdf.py:_get_template`** เพื่อให้ "ไบต์ของไฟล์ = ไบต์ที่เรนเดอร์" — เป็นเงื่อนไขที่ทำให้ตรวจ template แบบ byte-compare ได้ (3) อย่าใช้ `{{ }}` กับค่าที่จะถูกส่งเข้า `.format()`/filter ตัวเลข โดยไม่มีการรับประกันว่าคีย์มีอยู่ (4) เทมเพลตใหม่ทุกตัวต้องมี **เทสต์ที่เรนเดอร์มันจริง** ไม่ใช่แค่ import
+- **Tests:** `test_voucher_renders_with_voucher_wording` · `test_voucher_without_an_approver_leaves_the_slot_blank` · `test_voucher_prints_explicit_text_when_no_budget_covers_it` (ทั้งสามจับ `Undefined` ที่หลุดเข้า formatter)
+- **Date Added:** 2026-09-15
+
+### 🕳️ `{% include Undefined %}` **โยน error** แต่ `{{ Undefined }}` เรนเดอร์เป็นช่องว่าง — และ "default ที่ปลอดภัย" อาจเป็นการทำลายด่านกันความผิดพลาด
+- **Context/Problem:** หลังแยก `receipt.html` เป็น shell + `{% include d.body_template %}` **full backend suite ล้ม 1 ตัว**:
+  `tests/test_finance_receipts.py::test_receipt_template_declares_one_font_face_per_weight` →
+  `jinja2.exceptions.UndefinedError: 'dict object' has no attribute 'body_template'` (โยนจาก `loaders.py:197 get_source` ⇒ `template = Undefined` ⇒ `template.split("/")` พัง)
+  เทสต์ตัวนั้นสร้าง context **ด้วยมือ** แล้วส่งเข้า `render_receipt_html` ⇒ ผ่าน production มาไม่ถึง แต่ผ่านเทมเพลตตรง ๆ
+- **Root Cause:** Jinja มีสองพฤติกรรมที่ต่างกันสุดขั้วกับ `Undefined`:
+  | สำนวน | พฤติกรรม |
+  |---|---|
+  | `{{ d.missing }}` | เรนเดอร์เป็น **สตริงว่าง** (default `Undefined`) — เงียบ |
+  | `{% include d.missing %}` | **โยน `UndefinedError`** เพราะต้องใช้ค่าเป็น *ชื่อไฟล์* |
+  | `"{:,.2f}".format(d.missing)` | **โยน `TypeError`** เพราะเรียก `__format__` บน `Undefined` |
+  ⇒ การแยก partial เปลี่ยน "คีย์ที่ลืม" จาก *เงียบ* เป็น *ระเบิด* — ซึ่ง **เป็นผลดี** แต่มีราคาคือทุก caller ที่ประกอบ context เองต้องอัปเดต
+- **กับดักที่ต้องระวัง (สำคัญกว่าตัวบั๊ก):** ทางแก้ที่ดู "ปลอดภัย" คือใส่ default — `{% include d.body_template or '_receipt_body.html' %}` · **ห้ามทำเด็ดขาดในกรณีนี้** เพราะมันเปลี่ยนความล้มเหลวแบบ *เสียงดัง* ให้กลายเป็น *เอกสารผิดที่ไม่มีใครรู้*: ถ้า `_document_context` ลืมตั้งคีย์นี้ให้ใบสำคัญจ่าย ระบบจะ **พิมพ์ถ้อยคำใบเสร็จทั้งใบโดยไม่มี error** ซึ่งคือกับดักที่การแยก body template ถูกออกแบบมาป้องกันตั้งแต่แรก ⇒ **default ที่นี่ = ถอดด่านกันความผิดพลาดออก** (เทียบ `docs/rules/testing.md`: อย่าทำให้เทมเพลตกลืน Undefined)
+- **Rule:** (1) 🔴 **แยกให้ออกระหว่าง "คีย์ที่ผู้ใช้ปลายทางต้องกรอก" กับ "คีย์ที่โค้ดต้องตั้งเสมอ"** — อย่างหลังต้อง **ไม่มี default** และต้องพังให้ดัง (2) 🔴 **เมื่อย้ายเทมเพลตไปเป็น partial ให้ `grep` หาทุกที่ที่เรนเดอร์เทมเพลตนั้นโดยไม่ผ่าน `_document_context`** (เทสต์คือผู้ต้องสงสัยอันดับหนึ่ง) — full suite จะจับได้ก็ต่อเมื่อมีเทสต์นั้นอยู่ (3) ถ้าเทมเพลตมี `{% include %}`, `{% extends %}`, `{% import %}` ที่อ้างคีย์ ⇒ คีย์นั้นเป็น **บังคับเชิงโครงสร้าง** ไม่ใช่ optional (4) เมื่อเทสต์ล้มเพราะฟีเจอร์ใหม่ **ให้แก้ที่เทสต์ถ้าข้อสันนิษฐานของเทสต์เก่า** — อย่าแก้ที่ production เพื่อให้เทสต์เก่าผ่าน (5) 🧪 ผลพลอยได้: เทสต์ที่ประกอบ context เองคือ **canary ฟรี** สำหรับสัญญาคีย์ของเทมเพลต — อย่าลบมัน
+- **Tests:** `test_finance_receipts.py::test_receipt_template_declares_one_font_face_per_weight` (เติม `"body_template": "_receipt_body.html"` + คอมเมนต์อธิบายว่าห้ามใส่ default) · ตรวจด้วย `python -m pytest -q /app/tests/test_finance_receipts.py::test_receipt_template_declares_one_font_face_per_weight /app/tests/test_finance_money_lock.py` → 40 passed
+- **Date Added:** 2026-09-15
+
+### 🎯 เทสต์ที่คาด **400 ด้วยเหตุ A** จะกลายเป็น **false positive** ทันทีที่มีการเพิ่มด่าน B ก่อนถึง A
+- **Context/Problem:** `test_finance_http.py:434` และ `:455` POST **รายจ่าย** แล้วคาดว่าได้ 400 จาก *ยอดเกินงบ* / *หมวดหมู่ผิด* · เมื่องาน F6 เพิ่มด่าน "ต้องระบุผู้เบิก/ผู้รับเงิน" **ก่อน** ด่านเดิมในเส้นทาง ⇒ ทั้งสองเทสต์ยัง **เขียว** แต่เขียวเพราะ **ด่านผู้เบิก** ไม่ใช่เพราะด่านที่มันตั้งใจทดสอบ ⇒ ความสามารถในการจับ regression ของงบประมาณ/หมวดหมู่ **หายไปเงียบ ๆ**
+- **Root Cause:** เทสต์ที่ assert แค่ **สถานะ** (`== 400`) โดยไม่ assert **ข้อความ/สาเหตุ** จะถูก "ด่านใหม่ที่มาก่อน" กลืนได้เสมอ · และการเพิ่มด่านใหม่ **ไม่ทำให้เทสต์เดิมล้ม** ⇒ ไม่มีสัญญาณเตือนใด ๆ ว่าความหมายของเทสต์เปลี่ยนไป
+- **Rule:** (1) 🔴 **เมื่อเพิ่มด่าน validation ใหม่ ให้ไล่หาทุกเทสต์ที่ยิง payload ชนิดนั้นแล้วคาด error** และ **เติมข้อมูลให้ผ่านด่านใหม่** เพื่อให้มันยังทดสอบสิ่งที่มันตั้งใจ (2) 🔴 **เทสต์ negative ควร assert ที่ข้อความ/รหัสของสาเหตุ** ไม่ใช่แค่สถานะ — ไม่งั้นมันจะกลายเป็น false positive ทุกครั้งที่มีด่านใหม่ (3) ถ้าเป็นไปได้ ให้วางด่านใหม่ **หลัง** ด่านเดิมเพื่อลด blast radius — แต่ต้องเลือกอย่างตั้งใจ ไม่ใช่บังเอิญ (4) เวลาประเมิน "เทสต์เขียว" ต้องถามด้วยว่า **เขียวเพราะเหตุที่ตั้งใจหรือเพราะเหตุอื่น**
+- **Tests:** `test_finance_http.py:434,455` (เติม `payee_name` แล้ว) · `test_finance_budgets.py::_create_tx_api` (เติมที่เดียวครอบทุกผู้เรียก) · `test_discord_notifications.py:277`
+- **Date Added:** 2026-09-15
+
+### 📦 **ย้าย/แตกไฟล์เทมเพลต = ทำให้ mutation harness กลายเป็น STALE เงียบ ๆ** — และ STALE อ่านเผิน ๆ เหมือน "ผ่าน"
+- **Context/Problem:** PR-5 แตก `templates/finance/receipt.html` เป็น shell (`<style>` + `.doc` frame + `{% include d.body_template %}`) แล้วย้ายเนื้อในทั้งดุ้นไป `_receipt_body.html` **โดย indent ไม่เปลี่ยนแม้แต่ไบต์** · ผลคือ harness สองตัวที่ผูก anchor กับ *path* ของไฟล์เดิมกลายเป็นใช้ไม่ได้ทันที
+  - `_mutation_credits.py` M14 — `"templates/finance/receipt.html"` → anchor `{%- elif d.doc_type == 'deposit' -%}` ไม่มีอยู่ในไฟล์นั้นอีก
+  - `_mutation_receipt_merge.py` — `TEMPLATE = "templates/finance/receipt.html"` ⇒ **ทุก** mutant ที่ใช้ค่านั้น (17 ตัว) กลายเป็น STALE พร้อมกัน
+- **Root Cause:** harness เหล่านี้ระบุ **`(path, anchor_text)`** ⇒ ตัวชี้เป็น *ตำแหน่งไฟล์* ไม่ใช่ symbol · การย้ายโค้ดไปไฟล์อื่นทำให้ anchor ไม่เจอ **โดยไม่มีการเตือนใด ๆ จาก Python หรือ pytest** · และผลลัพธ์ที่ได้คือ `STALE`/`ข้าม: anchor ไม่ชัด` ซึ่ง **ถ้าไม่ตั้งใจอ่านจะดูคล้าย "ไม่มีปัญหา"** — ต่างจาก `SURVIVE` ที่ดึงสายตาได้
+  - ⚠️ กับดักที่ร้ายกว่าคือ: mutation ตัวนั้น **ไม่ถูกทดสอบเลย** แต่ harness ยังคืน exit code 0 ถ้าไม่มี mutant อื่นรอด ⇒ CI/คนอ่านสรุปว่า "mutation ครบ"
+- **Rule:** (1) 🔴 **ทุกครั้งที่ย้ายหรือแตกไฟล์ ให้ `grep -n "<ชื่อไฟล์เดิม>" backend/tests/_mutation_*.py` ทันที** แล้วอัปเดต path ให้ชี้ไฟล์ที่ anchor ไปอยู่จริง (2) 🔴 **การย้ายไฟล์แบบ "indent เดิมทุกไบต์" เป็นกรณีที่อันตรายที่สุด** เพราะ anchor ยังถูกต้องสมบูรณ์ — มีแต่ *path* ที่ผิด ⇒ ต้องแก้ path เท่านั้น ห้ามไปแก้ anchor (3) **STALE ต้องถูกอ่านเป็นความล้มเหลว ไม่ใช่ความไม่เกี่ยวข้อง** — harness ที่ขึ้น STALE คือ harness ที่ **ไม่ได้ทำหน้าที่ของมัน** (4) harness ที่ครอบ mutation จำนวนมากด้วยค่าคงที่ตัวเดียว (เช่น `TEMPLATE`) จะพังทั้งชุดพร้อมกัน ⇒ **ให้ค่าคงที่ตัวเดียวเป็นจุดที่ต้องตรวจก่อนเสมอ** (5) การรัน "harness ของ PR เก่าทั้งหมด" หลังงานที่แตะไฟล์ร่วม **ไม่ใช่พิธีกรรม** — รอบนี้มันคือสิ่งที่จับ STALE ได้ และถ้าไม่รัน จะไม่มีใครรู้เลยตลอดไป
+- **Tests:** `_mutation_credits.py` (M14) · `_mutation_receipt_merge.py` (`TEMPLATE` → `templates/finance/_receipt_body.html` ⇒ 17/17 หลังแก้)
+- **Date Added:** 2026-09-15
+
+### 🔁 บทเรียนที่บันทึกไว้แล้ว **ไม่ได้บังคับใช้ตัวเอง** — ต้องผูกมันเข้ากับขั้นตอน ไม่ใช่ไว้ในหัว
+- **Context/Problem:** บทเรียน "`_mutation_jsonb_meta.py` ต้องรัน **ใน** คอนเทนเนอร์ ไม่ใช่จาก host" ถูกเขียนลงไฟล์นี้ **ไปแล้ว** (หัวข้อ 🧰 ด้านบน, วันเดียวกัน) — แต่หลังจากนั้น **ในเซสชันเดียวกัน** ผมก็ยังรันมันจาก host ผ่าน loop เดียวกับ harness ตัวอื่น ⇒ `FileNotFoundError: '/app'` · mutant ตัวแรกถูกเขียนลงดิสก์แล้ว crash ก่อน pytest จะได้รัน ⇒ **harness ตัวนั้นไม่ได้ตรวจอะไรเลย** และ `finally` คืนไฟล์ให้อย่างเรียบร้อย ⇒ ไม่มีร่องรอยเหลือให้เห็น นอกจาก traceback ใน log
+- **Root Cause:** "รู้แล้ว" ≠ "กันได้" · เมื่อรันของหลายอย่างพร้อมกันเป็นชุด (loop/template command) **ความต่างเฉพาะตัวของแต่ละตัวจะถูกกลืน** — ผมคัดลอกคำสั่งเดียวใช้กับทั้ง 6 harness ทั้งที่เอกสารบอกไว้ชัดแล้วว่ามันไม่เหมือนกัน
+- **Rule:** (1) 🔴 **ก่อนรันเป็นชุด ให้ดึง "วิธีรัน" ของแต่ละตัวออกมาเทียบกันก่อน** (`grep -nE 'cwd=|docker|sys\.executable' backend/tests/_mutation_*.py`) แล้วจัดกลุ่ม — ตัวที่รันในคอนเทนเนอร์ต้องแยกคิว (2) 🔴 **exit code ที่ไม่ใช่ 0 พร้อม traceback = ยังไม่ได้ทดสอบอะไร** ห้ามนับเป็น "ผ่าน" หรือ "ไม่เกี่ยวข้อง" · และให้ตรวจว่า **harness ตัวนั้นพิมพ์ผลของ mutant ครบทุกตัวหรือไม่** ก่อนเชื่อสรุป (3) เพดานของ loop ที่รันของต่างชนิดกันคือ **ความสม่ำเสมอ** — ถ้าไม่สม่ำเสมอ ให้เขียนคำสั่งแยกกันตรง ๆ ดีกว่ารวบเป็น loop สวย ๆ (4) เมื่อเขียนบทเรียนลงไฟล์แล้ว **รอบถัดไปที่ทำงานชนิดเดียวกัน ต้องเปิดอ่านก่อนลงมือ** ไม่งั้นไฟล์นี้เป็นแค่บันทึก ไม่ใช่เครื่องมือ
+- **Tests:** n/a (บทเรียนกระบวนการ) — หลักฐาน: `>>> _mutation_jsonb_meta exit=1` + `FileNotFoundError: '/app'` ใน `/tmp/mut_existing.txt`
+- **Date Added:** 2026-09-15
+
+### 🙈 `cmd || echo "✅ สำเร็จ"` **โกหกได้** — เมื่อ `cmd` ล้มเหลวด้วยเหตุอื่นที่ไม่ใช่ "ไม่มีอะไรให้ทำ"
+- **Context/Problem:** หลังลบโฟลเดอร์ชั่วคราว ผมตรวจว่าลบหมดด้วย `ls <path> 2>/dev/null || echo "ลบแล้ว"` แล้วเห็น "ลบแล้ว" ⇒ สรุปว่าสะอาด · ความจริงคือ **shell ยังมี cwd เป็นโฟลเดอร์ที่เพิ่งลบไป** ⇒ ทุก relative path พังด้วย `getcwd` error · `ls` ล้มเหลวเพราะ *หาที่ไม่เจอ* ไม่ใช่เพราะ *ไฟล์ไม่มี* และ `rm -f` ก่อนหน้าก็ไม่ลบอะไรเลย (แต่ `-f` กลืน error เงียบ) · `git status` ตอนนั้นก็พังด้วย `fatal: Unable to read current working directory` แต่ข้อความ "✅" ถูกพิมพ์ไปแล้ว
+- **Root Cause:** `A || B` **ไม่แยกแยะสาเหตุของความล้มเหลว** — มันแค่บอกว่า "A ไม่สำเร็จ" · และคำสั่งที่ "สำเร็จโดยไม่ทำอะไร" (`rm -f` กับ path ที่ไม่มี, `grep` ไม่เจอ, `ls` ผิดที่) **Exit code 0 ทำให้ดูเหมือนงานเสร็จ** ⇒ ได้หลักฐานปลอมที่ดูน่าเชื่อถือกว่าการไม่มีหลักฐาน
+- **Rule:** (1) 🔴 **คำยืนยันต้องมีรูปที่ล้มเหลวได้** — ใช้ `if [ -e path ]; then ยังอยู่; else ลบแล้ว; fi` แทน `ls path || echo ลบแล้ว` เพราะรูปแรก **แยก "ไม่มีไฟล์" ออกจาก "คำสั่งพัง" ได้** (2) 🔴 **หลังลบ/ย้าย ให้ `cd` กลับไปที่ที่รู้จักแน่ ๆ ก่อนตรวจ** (`cd <repo root> && …`) — อย่าเชื่อ cwd ที่ค้างมาจากคำสั่งก่อน (3) อย่าใช้ `-f` กลืน error แล้วสรุปว่า "ลบแล้ว" — ให้ตรวจผลลัพธ์จริง (4) 🔴 **`A || B` ที่ B เป็นข้อความยืนยันความสำเร็จ คือกับดักเดียวกับ STALE-อ่านเป็น-ผ่าน** — ในทั้งสองกรณี ระบบรายงาน "เรียบร้อย" ในสถานะที่ **ไม่มีอะไรเกิดขึ้นเลย** ซึ่งแย่กว่า error ตรง ๆ เพราะไม่มีใครไปตรวจต่อ (5) ถ้าต้องลบไฟล์ที่ root สร้าง ให้ `docker run --rm -v <dir>:/t alpine rm -rf /t/...` — แต่อย่าลืมว่ามันก็คืน 0 เหมือนกัน ⇒ ยังต้องตรวจด้วย `if [ -e ]`
+- **Tests:** n/a (บทเรียนกระบวนการ) — เจอตอนเก็บกวาด `_preview_render.py`/`_preview_out/` ของการตรวจ PDF ด้วยตา
 - **Date Added:** 2026-09-15
