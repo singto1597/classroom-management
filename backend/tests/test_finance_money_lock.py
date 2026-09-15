@@ -145,6 +145,13 @@ _MONEY_PATHS = [
     ("budgets", "BudgetsMixin", "delete_budget"),
     ("ledger", "LedgerMixin", "reconcile_balances"),
     ("backfill", "BackfillMixin", "backfill_missing_journals"),
+    # 📚 [F5] ชุดเอกสาร — "ชุด" ไม่ใช่เอกสารทางบัญชี แต่ **การจัดชุดคือการเขียนแถวเอกสาร**
+    #    (`UPDATE finance_receipts SET batch_id`) ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับที่ออกเอกสาร
+    #    ไม่งั้นชุดที่ถูกสร้างพร้อมกันสองคำขอจะอ้างใบชุดเดียวกันแบบอ่านไม่ออก
+    ("receipt_batches", "ReceiptBatchesMixin", "create_receipt_batch"),
+    ("receipt_batches", "ReceiptBatchesMixin", "set_batch_receipts"),
+    ("receipt_batches", "ReceiptBatchesMixin", "update_receipt_batch"),
+    ("receipt_batches", "ReceiptBatchesMixin", "delete_receipt_batch"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง
@@ -155,6 +162,13 @@ _MONEY_WRITE_MARKERS = [
     "INSERT INTO student_payments", "UPDATE student_payments", "DELETE FROM student_payments",
     "UPDATE fee_collections",
     "INSERT INTO finance_receipts", "INSERT INTO receipt_sequences",
+    # ⚠️ `UPDATE finance_receipts` **หายไปจากรายการนี้มาตลอด** ทั้งที่ `revert_transaction`
+    #    เขียนบรรทัดนี้อยู่ (ยกเลิกใบเสร็จ) ⇒ marker ที่ขาด = เทสต์เชิงโครงสร้างมองไม่เห็น
+    #    การเขียนชุดใบเสร็จทั้งคลาส — งาน F5 เพิ่มเข้ามาเพราะเป็นผู้ใช้รายแรกที่พึ่งมันจริง
+    "UPDATE finance_receipts",
+    # 📚 [F5] ชุดเอกสาร — ตารางนี้ไม่ใช่ "เงิน" แต่การแก้มันเปลี่ยนว่าใบไหนอยู่ชุดไหน
+    #    ซึ่งผู้ใช้ใช้ตัดสินใจโหลด/แจกเอกสาร ⇒ ต้องถูกตรวจลำดับล็อกด้วย
+    "INSERT INTO finance_receipt_batches", "UPDATE finance_receipt_batches",
     "INSERT INTO journal_entries",
     # 💰 [F4] บัญชีแยกประเภทเครดิต **รายคน** — ยอดเงินจริง ไม่ใช่บันทึกประกอบ
     #    ⇒ ต้องอยู่ใต้ล็อกห้องเหมือนตารางเงินอื่น (เพิ่มพร้อมงาน F4)

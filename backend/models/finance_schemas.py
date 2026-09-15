@@ -511,12 +511,23 @@ class ReceiptResponse(BaseModel):
     # issued_at เป็น timestamptz → tz-aware เสมอ (กฎเดียวกับ TransactionResponse.created_at)
     # ⚠️ สำหรับใบแจ้งหนี้ `event_at == issued_at` เป๊ะ (ทั้งคู่อ่านจาก DB เวลาเดียวกัน)
     issued_at: Optional[datetime] = None
+    # 📚 ชุดเอกสารที่ใบนี้สังกัด (None = ไม่ได้จัดกลุ่ม) — [F5]
+    #    อยู่บน base ไม่ใช่ list item เพราะ "การออกเอกสาร" ก็ต้องบอกได้ว่าเพิ่งสร้างชุดไหน
+    #    (ผู้ใช้กดออก 20 ใบแล้วอยากโหลดทั้งชุดทันที ⇒ ต้องรู้ `batch_id` จากคำตอบนั้นเลย)
+    batch_id: Optional[int] = None
 
 
 class ReceiptListItem(ReceiptResponse):
     """แถวในหน้ารายการ — แนบชื่อแคมเปญ/เลขที่นักเรียนมาให้ตารางแสดงได้โดยไม่ต้องยิงเพิ่ม"""
     collection_title: Optional[str] = None
     student_no: Optional[int] = None
+    # 📚 [F5] ข้อมูลชุดสำหรับ "ยุบการแสดงผล" ในทะเบียน
+    #    🔴 `batch_size` = สมาชิก **ทั้งชุด** ไม่ใช่จำนวนแถวที่รอดตัวกรองของหน้าจอ
+    #       (คำนวณจากคำขอที่สองใน `_load_batch_counts`) — ตัวเลขนี้คือสิ่งที่ทำให้ป้าย
+    #       "แสดง 12 จาก 20 ใบ" พูดความจริงเมื่อผู้ใช้กรองช่วงวันที่
+    batch_title: Optional[str] = None
+    batch_size: Optional[int] = None
+    batch_voided_count: Optional[int] = None
 
 
 class ReceiptDetailResponse(ReceiptListItem):
@@ -552,6 +563,8 @@ class ReceiptBatchIssueResponse(BaseModel):
     receipts: List[ReceiptResponse]
     issued_count: int
     reused_count: int
+    # 📚 [F5] ชุดที่ระบบสร้างให้รอบนี้ (None = ออกใบเดียว/ไม่มีใบใหม่ ⇒ ไม่มีชุด)
+    batch_id: Optional[int] = None
 
 
 class InvoiceSkipItem(BaseModel):
@@ -579,6 +592,8 @@ class InvoiceBatchIssueResponse(BaseModel):
     receipts: List[ReceiptResponse]
     issued_count: int
     skipped: List[InvoiceSkipItem] = []
+    # 📚 [F5] ชุดที่ระบบสร้างให้รอบนี้ (None = ออกใบเดียว/ไม่มีใบใหม่ ⇒ ไม่มีชุด)
+    batch_id: Optional[int] = None
 
 # =====================================================================
 # [F4] เงินรับล่วงหน้า / เครดิตคงเหลือรายนักเรียน
@@ -747,3 +762,88 @@ class StudentCreditDetailResponse(BaseModel):
     entries: List[StudentCreditEntryResponse]
     open_bills: List[CreditOpenBillItem]
     plan: CreditPlanItem
+
+
+# =====================================================================
+# [F5] ชุดเอกสาร (Document Batch)
+# =====================================================================
+class ReceiptBatchResponse(BaseModel):
+    """ชุดเอกสาร 1 ชุด — ใช้ทั้งหน้ารายการชุดและคำตอบหลังเขียน
+
+    🔴 `batch_size` = สมาชิก **ทั้งชุด** (ใบที่ยัง active + ใบที่ถูกยกเลิก/ลบ)
+       ⇒ `batch_size - batch_voided_count` = จำนวนที่ทะเบียนควรแสดงเมื่อไม่กรองอะไร
+       ตัวเลขนี้ต้องมาจากการนับทั้งชุดเสมอ ไม่ใช่จากการนับแถวที่รอดตัวกรอง
+    ⚠️ `title` เป็น `None` ได้ = ให้หน้าจอประกอบชื่อเอง ("ชุดใบเสร็จ 20 ใบ · วันที่")
+       — ห้ามเก็บสตริงที่ประกอบแล้วลง DB (จะกลายเป็น snapshot ที่โกหกเมื่อมีใบถูกยกเลิก)
+    """
+    id: int
+    room_id: int
+    title: Optional[str] = None
+    # auto = ออกพร้อมกันในรอบเดียว · room = ออกให้ทั้งห้อง · manual = ผู้ใช้จัดกลุ่มทีหลัง
+    source: str
+    note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    # 📊 สรุปของชุด
+    active_count: int = 0
+    voided_count: int = 0
+    batch_size: int = 0
+    total_amount: float = 0.0
+    # 🗓️ ช่วง "วันที่ของเอกสาร" ของสมาชิก (= `_DOC_DATE` ตัวเดียวกับที่พิมพ์บนกระดาษ)
+    first_doc_at: Optional[datetime] = None
+    last_doc_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ReceiptBatchDetailResponse(BaseModel):
+    """ชุด + เอกสารทุกใบในชุด (รวมใบที่ถูกยกเลิก — หน้าจอประทับป้ายเอง)
+
+    ⚠️ อย่าเปลี่ยน `receipts` เป็น `List[ReceiptListItem]`: ที่นี่ต้องได้ข้อมูลครบระดับ
+       หน้ารายละเอียด (`collection_amount`/`room_name`) เพราะผู้ใช้กด "ดูรายละเอียด"
+       จากในชุดแล้วต้องไม่ต้องยิงซ้ำอีกรอบ
+    """
+    batch: ReceiptBatchResponse
+    receipts: List[ReceiptDetailResponse]
+
+
+class ReceiptBatchCreate(BaseModel):
+    """สร้างชุดจากเลขที่เอกสารที่ติ๊กเลือก"""
+    receipt_nos: List[str] = Field(..., min_length=1)
+    title: Optional[str] = Field(None, max_length=200)
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class ReceiptBatchSetReceipts(BaseModel):
+    """**ตั้งสมาชิกทั้งชุด** = เพิ่มและถอดในคำขอเดียว (ไม่ใช่ "เพิ่มเข้า")
+
+    🔒 ไม่รับ `receipt_nos` ทาง query string โดยเจตนา — เลี่ยงกับดัก axios ที่ serialize
+       array เป็น `receipt_nos[]=...` (ดู `docs/skills.md`) ⇒ เลขที่ไปใน body เท่านั้น
+    """
+    receipt_nos: List[str] = Field(..., min_length=1)
+
+
+class ReceiptBatchUpdate(BaseModel):
+    """PATCH — ส่งมาแค่ฟิลด์ที่จะแก้ (service ใช้ `model_dump(exclude_unset=True)`)
+
+    ⚠️ ส่ง `"title": null` = ล้างชื่อกลับไปใช้ชื่อที่หน้าจอประกอบ (ต่างจาก "ไม่ส่งมา")
+    """
+    title: Optional[str] = Field(None, max_length=200)
+    note: Optional[str] = Field(None, max_length=255)
+
+
+class ReceiptBatchMutationResponse(BaseModel):
+    """คำตอบหลังสร้าง/แก้ชุด
+
+    🔁 `created=False` = ไม่ได้สร้างใหม่ แต่คืนชุดเดิมที่มีสมาชิกชุดเดียวกันอยู่แล้ว
+       (กดปุ่มซ้ำต้องไม่สร้างชุดซ้ำ — ดู `create_receipt_batch`)
+    """
+    batch: ReceiptBatchResponse
+    created: bool = False
+
+
+class ReceiptBatchDissolveResponse(BaseModel):
+    """คำตอบหลังยุบชุด — คืนจำนวนใบที่ถูกปลดออกจากชุด (เอกสารไม่ถูกแตะ)"""
+    batch_id: int
+    detached_count: int

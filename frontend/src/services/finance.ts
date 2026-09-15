@@ -36,6 +36,13 @@ import type {
   ReceiptInvoiceIssuePayload,
   ReceiptRoomInvoicePayload,
   InvoiceBatchIssueResult,
+  ReceiptBatch, // 📚 [F5] ชุดเอกสาร
+  ReceiptBatchDetail,
+  ReceiptBatchCreatePayload,
+  ReceiptBatchSetReceiptsPayload,
+  ReceiptBatchUpdatePayload,
+  ReceiptBatchMutationResult,
+  ReceiptBatchDissolveResult,
   StudentCreditBalance, // 💰 [F4] เงินรับล่วงหน้า / เครดิตคงเหลือรายนักเรียน
   StudentCreditDetail,
   CreditApplyPlan,
@@ -396,6 +403,83 @@ export const FinanceService = {
     );
 
     return response as unknown as Blob;
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // 📚 [F5] ชุดเอกสาร — จัดกลุ่มเอกสารเพื่อยุบการแสดงผลในทะเบียน
+  // ════════════════════════════════════════════════════════════════════════════
+  // 🔑 "ชุด" ไม่ใช่เอกสาร: ไม่มีเลขรันของตัวเองและ **ไม่กินเลขเอกสาร** ⇒ ยุบชุด/ย้ายใบ
+  //    ไม่แตะ `receipt_no`/`amount`/`status` ของใบเลย (ต่างจาก "ยกเลิกรายการ" โดยสิ้นเชิง)
+  //
+  // 🔒 อ่าน 2 ตัวเปิดให้ **สมาชิกห้อง** ทุกคน — เขียน 4 ตัวต้อง `MANAGE_FINANCE`
+  //    ⇒ หน้าจอต้อง gate ปุ่มเขียนด้วย `canManageFinance` **ไม่ใช่ `isAdmin`**
+  //    (เหตุผลเดียวกับ F4 — ดูคอมเมนต์ยาวในกลุ่มเครดิตด้านล่าง)
+  //
+  // ⚠️ `receipt_nos` ไปใน **body** ของ POST/PUT เท่านั้น — ห้ามย้ายไป query string
+  //    เพราะ axios จะ serialize array เป็น `receipt_nos[]=` ซึ่ง FastAPI มองไม่เห็น
+  //    แล้วกลายเป็น 422 ที่อ่านไม่ออก (กับดักเดียวกับ `downloadCombinedPdf`)
+
+  // 📋 ชุดเอกสารทั้งหมดของห้อง (ใหม่สุดก่อน) — ชุดที่สมาชิกถูกยกเลิกครบแล้วจะไม่ถูกคืน
+  async getReceiptBatches(roomId: number): Promise<ReceiptBatch[]> {
+    return await api.get(`/api/classroom/${roomId}/finance/receipt-batches`, {
+      params: { target_type: 'room' }
+    }) as unknown as ReceiptBatch[];
+  },
+
+  // 🔎 รายละเอียดชุด + เอกสารทุกใบ **รวมใบที่ถูกยกเลิก** (ตัวเลขจะได้ตรงกับ `voided_count`)
+  async getReceiptBatch(roomId: number, batchId: number): Promise<ReceiptBatchDetail> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/receipt-batches/${batchId}`,
+      { params: { target_type: 'room' } }
+    ) as unknown as ReceiptBatchDetail;
+  },
+
+  // ✍️ สร้างชุดจากเลขที่เอกสารที่ติ๊กเลือก (1–100 ใบ — เกินกว่านี้ backend ตอบ 400)
+  //    🔁 กดซ้ำด้วยเซตเดิม **ปลอดภัย**: backend คืนชุดเดิมพร้อม `created: false`
+  //       ⇒ ไม่ต้องมี idempotency key และไม่ต้อง confirm ที่ UI
+  async createReceiptBatch(
+    roomId: number,
+    payload: ReceiptBatchCreatePayload
+  ): Promise<ReceiptBatchMutationResult> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/receipt-batches?target_type=room`,
+      payload
+    ) as unknown as ReceiptBatchMutationResult;
+  },
+
+  // ✍️ **ตั้งสมาชิกทั้งชุด** (PUT semantics) — ใบที่หายจากลิสต์จะถูกถอดออกจากชุด
+  //    ⚠️ ส่งรายชื่อ **ครบทุกใบที่ต้องการให้อยู่ในชุด** ไม่ใช่แค่ใบที่เพิ่ม
+  //       (ส่งเซตย่อย = ถอดใบที่ไม่ได้ส่งออก — ตั้งใจ เป็นความหมายของ PUT)
+  async setReceiptBatchReceipts(
+    roomId: number,
+    batchId: number,
+    payload: ReceiptBatchSetReceiptsPayload
+  ): Promise<ReceiptBatchMutationResult> {
+    return await api.put(
+      `/api/classroom/${roomId}/finance/receipt-batches/${batchId}/receipts?target_type=room`,
+      payload
+    ) as unknown as ReceiptBatchMutationResult;
+  },
+
+  // ✍️ เปลี่ยนชื่อ/โน้ต — ส่งมาแค่ฟิลด์ที่จะแก้
+  //    ⚠️ `title: null` = ล้างชื่อ (กลับไปใช้ชื่อที่หน้าจอประกอบ) ไม่ใช่ "ไม่แก้"
+  async updateReceiptBatch(
+    roomId: number,
+    batchId: number,
+    payload: ReceiptBatchUpdatePayload
+  ): Promise<ReceiptBatchMutationResult> {
+    return await api.patch(
+      `/api/classroom/${roomId}/finance/receipt-batches/${batchId}?target_type=room`,
+      payload
+    ) as unknown as ReceiptBatchMutationResult;
+  },
+
+  // ✍️ ยุบชุด — **เอกสารไม่ถูกแตะเลย** แค่หลุดออกจากชุด (`detached_count` = จำนวนที่ปลด)
+  //    ⚠️ ไม่ใช่ "ลบเอกสาร": ใบเสร็จทุกใบยัง active และเลขที่/ยอดเดิมครบ
+  async deleteReceiptBatch(roomId: number, batchId: number): Promise<ReceiptBatchDissolveResult> {
+    return await api.delete(
+      `/api/classroom/${roomId}/finance/receipt-batches/${batchId}?target_type=room`
+    ) as unknown as ReceiptBatchDissolveResult;
   },
 
   // ════════════════════════════════════════════════════════════════════════════

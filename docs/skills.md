@@ -1808,3 +1808,77 @@
 - **Rule:** (1) 🔴 เครื่องมือที่แก้ไฟล์ต้นฉบับ **ต้องสำรองออกนอก repo เสมอ** ถ้าไฟล์นั้นยังไม่ถูก commit (2) อย่าพึ่ง signal handler อย่างเดียว — `finally` ต่อ iteration คือด่านที่เชื่อถือได้กว่า (3) ถ้าไฟล์ค้าง mutated ให้ **เทียบ anchor** เพื่อหาว่าผิดบรรทัดไหน แทนการเขียนใหม่ทั้งไฟล์ — และถ้ากู้ไม่ได้จริง **ต้องบอกผู้ใช้ตรง ๆ ว่าไฟล์เสีย** ไม่ใช่รายงานว่างานเสร็จ
 - **Tests:** `_mutation_row_action_menu.mjs` (บรรทัด `BACKUP` + `finally { restore() }`)
 - **Date Added:** 2026-09-15
+
+### 🧱 คอลัมน์ที่เพิ่มทีหลังต้อง ALTER และ **index ของมันต้องอยู่ในบล็อก ALTER ด้วย** — `CREATE TABLE IF NOT EXISTS` เป็น no-op บน DB ที่ deploy แล้ว
+- **Context/Problem:** งาน F5 เพิ่ม `finance_receipts.batch_id` พร้อม index และ FK คู่ ถ้าเขียนทั้งหมดไว้ในบล็อก `CREATE TABLE IF NOT EXISTS finance_receipts` (ที่บรรทัด ~415) โค้ดจะ**ผ่านเทสต์ทุกตัว** เพราะ `conftest.py` สร้าง DB ใหม่เอี่ยมจาก `init_db` ⇒ บล็อกนั้นรันจริง **แต่พังทั้งระบบบน DB ที่ deploy F3 ไปแล้ว** ซึ่งเป็น DB จริงเพียงตัวเดียวที่มีข้อมูลผู้ใช้
+- **Root Cause:** `CREATE TABLE IF NOT EXISTS` **ไม่ทำอะไรเลยถ้าตารางมีอยู่** ⇒ ทั้งคอลัมน์/index/FK ในบล็อกนั้นถูกข้ามเงียบ ๆ · และถ้าย้าย index ไปไว้ "ท้ายบล็อก CREATE TABLE" ก็ยังพังอยู่ดี เพราะบน DB เก่าบล็อกนั้นรัน **ก่อน** บล็อก Extra Alterations เสมอ ⇒ ได้ `column "batch_id" does not exist` **ตอนบูต** = ทุก replica บูตไม่ขึ้น (ตารางใหม่ไม่มีความเสี่ยงนี้ เพราะ `CREATE TABLE` สร้างคอลัมน์กับ index ให้ในคำสั่งเดียวกัน)
+- **Correct Pattern/Solution:** แยก 3 คำสั่ง เรียงแบบนี้เท่านั้น (`backend/core/init_db.py:749-771`) — และ **คอมเมนต์กำกับว่าทำไม index ต้องอยู่ตรงนี้** ไม่งั้นคนถัดไปจะ "จัดระเบียบ" ย้ายมันกลับไป:
+  ```python
+  await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS batch_id INTEGER;")
+  await conn.execute(  # ← หลัง ADD COLUMN เสมอ
+      "CREATE INDEX IF NOT EXISTS idx_finance_receipts_batch"
+      " ON finance_receipts(batch_id) WHERE batch_id IS NOT NULL AND deleted_at IS NULL;")
+  await conn.execute("ALTER TABLE ... DROP CONSTRAINT IF EXISTS fk_...;")
+  await conn.execute("ALTER TABLE ... ADD CONSTRAINT fk_... FOREIGN KEY ...;")
+  ```
+  `DROP CONSTRAINT IF EXISTS` + `ADD` มีช่วงแข่งกันข้าม replica (ยอมรับได้เมื่อคอลัมน์เพิ่งถูกเพิ่มด้วยค่า NULL ทั้งหมด ⇒ validate ผ่านทันที ไม่มีทางล้มเพราะข้อมูลเก่า และ replica ที่แพ้แค่ fail ตอนบูตแล้วเข้ามาใหม่)
+- **Rule:** (1) 🔴 **ตารางที่มีอยู่ก่อนหน้า ⇒ ห้ามพึ่ง `CREATE TABLE IF NOT EXISTS` ให้เพิ่มอะไรให้** ต้องมี ALTER ทุกครั้ง (2) **index ของคอลัมน์ที่เพิ่ง ALTER ต้องอยู่ในบล็อก ALTER หลัง ADD COLUMN** — ไม่ใช่ใน CREATE TABLE (3) เทสต์ที่สร้าง DB ใหม่ **มองไม่เห็นกับดักนี้เลย** ⇒ ต้องยิง DDL กับ DB ที่มีข้อมูลเดิมจริงด้วย (ขั้นตอนตรวจในแผน F5 ข้อ 5) (4) ก่อน "จัดระเบียบ" DDL ให้ย้ายที่ ต้องอ่านคอมเมนต์ที่อธิบายลำดับก่อน
+- **Tests:** `tests/test_finance_receipt_batches.py` (ทั้งไฟล์รันบน DB ที่ `init_db` สร้าง) + การยิง `init_db` ซ้ำกับ DB ที่มีข้อมูลเดิม
+- **Date Added:** 2026-09-15
+
+### 🔢 `COUNT(*) OVER (PARTITION BY …)` โกหกเมื่อมี `WHERE` กรองสมาชิกออก — "ขนาดชุด" ต้องมาจากคำขอที่สอง
+- **Context/Problem:** ต้องแสดง "แสดง 12 จาก 20 ใบ" ในทะเบียนเอกสาร (`batch_size` = ขนาด**ทั้งชุด**, `visible count` = ที่รอดตัวกรอง) ทางที่สั้นที่สุดคือ window function ในคำขอเดิม ⇒ **ผ่านเทสต์ทุกตัวที่กรองไม่ตัดสมาชิกออก** แต่พอผู้ใช้กรองช่วงวันที่ (หรือปิด `include_voided`) ตัวเลขจะกลายเป็น "ขนาดของส่วนที่เห็น" ⇒ ป้ายบนจอบอกว่า "แสดง 20 จาก 20 ใบ" ทั้งที่ในชุดมี 20 และเห็นแค่ 3 = **คำโกหกที่ผู้ใช้ตรวจไม่ได้** (ผู้ใช้ไม่มีทางรู้ว่ามีใบอื่นซ่อนอยู่)
+- **Root Cause:** window function คำนวณ **หลัง** `WHERE` ⇒ มันเห็นเฉพาะแถวที่รอดตัวกรอง ไม่เคยเห็นสมาชิกที่ถูกตัดออก · ตัวกรองเป็นการตัดสินใจของ**หน้าจอ** ส่วนขนาดชุดเป็น**ข้อเท็จจริงของข้อมูล** — สองอย่างนี้ต้องมาจากคนละคำขอ
+- **Correct Pattern/Solution:** คำขอที่สองที่ **ไม่มีตัวกรองของหน้าจอ** นับจากทั้งชุด (`receipt_batches.py:_load_batch_counts`):
+  ```sql
+  SELECT batch_id,
+         COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'active') AS active_cnt,
+         COUNT(*) FILTER (WHERE deleted_at IS NOT NULL OR status <> 'active') AS voided_cnt
+  FROM finance_receipts WHERE room_id = $1 AND batch_id = ANY($2::int[]) GROUP BY batch_id
+  ```
+  ⇒ `batch_size = active_cnt + voided_cnt` · **ใบที่ถูกยกเลิกยังนับเป็นสมาชิกชุด** (ชุดคือบันทึกว่า "ออกพร้อมกัน" การถอดสมาชิก = เขียนประวัติใหม่ และชื่อ "20 ใบ" จะกลายเป็นคำโกหก) ⇒ `batch_voided_count` ทำให้หน้าจอบอกความจริงได้
+- **Rule:** (1) 🔴 **ห้ามใช้ window function นับ "ขนาดของทั้งกลุ่ม" ในคำขอที่มีตัวกรองของหน้าจอ** — มันนับเฉพาะส่วนที่เหลือ (2) ตัวเลขที่ผู้ใช้ใช้ตัดสินใจ ต้องแยก "ของจริง" กับ "ที่เห็น" ให้ชัด และบอกทั้งคู่ (3) เก็บค่าที่ผู้ใช้เห็นเป็น**ค่าที่คำนวณจาก backend** ไม่ใช่ `items.length` ฝั่งจอ — ฝั่งจอเห็นน้อยกว่าเสมอเมื่อมีตัวกรอง
+- **Tests:** `tests/test_finance_receipt_batches.py::test_true_batch_size_survives_the_date_filter` (ชุด 3 ใบคนละเดือน → กรองเดือนเดียว → `batch_size == 3` แต่ได้ 1 แถว) · mutation M4/M5 พิสูจน์ว่ามีฟัน
+- **Date Added:** 2026-09-15
+
+### 🔗 FK คู่ `(child_id, room_id)` + MATCH SIMPLE = กันเอกสารข้ามห้องที่ระดับ DB และ **ห้าม `ON DELETE SET NULL` เด็ดขาด**
+- **Context/Problem:** "ชุดเอกสาร" ต้องกันไม่ให้ใบเสร็จของห้อง A ไปอยู่ในชุดของห้อง B — การเช็คใน service อย่างเดียวพลาดได้ทุกเมื่อที่มีคนเพิ่มเส้นทางเขียนใหม่ · แต่จะใส่ FK ธรรมดา (`batch_id REFERENCES ...`) ก็กันข้ามห้องไม่ได้ เพราะ FK ไม่รู้จัก `room_id`
+- **Root Cause / ทางออก:** FK คู่ `FOREIGN KEY (batch_id, room_id) REFERENCES finance_receipt_batches(id, room_id)` บังคับว่า **คู่ (ชุด, ห้อง) ต้องมีอยู่จริง** ⇒ ย้ายใบข้ามห้อง = FK violation ตั้งแต่ที่ DB · ต้องมี `UNIQUE (id, room_id)` บนตารางปลายทาง (แม้ `id` เป็น PK แล้วก็ตาม — FK ต้องการ unique constraint บน**คู่คอลัมน์ที่อ้าง**) · และ **MATCH SIMPLE (ค่าเริ่มต้น)** = ถ้าคอลัมน์ใดเป็น NULL ให้ **ข้ามการตรวจทั้งแถว** ซึ่งเป็นพฤติกรรมที่ต้องการพอดี: เอกสารที่ยังไม่ถูกจัดชุด (`batch_id IS NULL`) ผ่านได้
+  🔴 **`ON DELETE SET NULL` ใช้ไม่ได้กับ FK คู่** — Postgres จะพยายามตั้ง **ทุกคอลัมน์ใน FK เป็น NULL** รวม `room_id` ซึ่ง `NOT NULL` ⇒ ลบชุดจะ error ⇒ **"ยุบชุด" จึงต้องเป็น `UPDATE finance_receipts SET batch_id = NULL` ที่เขียนเองใน service** (ซึ่งตรงกับความต้องการอยู่แล้ว: ยุบชุดห้ามแตะเอกสาร)
+- **Correct Pattern/Solution:**
+  ```sql
+  CONSTRAINT uq_receipt_batch_id_room UNIQUE (id, room_id),   -- เป้าของ FK คู่
+  ...
+  CONSTRAINT fk_receipts_batch_same_room FOREIGN KEY (batch_id, room_id)
+      REFERENCES finance_receipt_batches(id, room_id)         -- ไม่มี ON DELETE
+  ```
+- **Rule:** (1) 🔴 **`ON DELETE SET NULL` บน FK คู่ = ระเบิดเวลา** (มันจะล้างคอลัมน์ที่เป็น NOT NULL ด้วย) (2) FK คู่ต้องมี `UNIQUE` บนคู่คอลัมน์ปลายทางเสมอ (3) MATCH SIMPLE คือสิ่งที่ทำให้ "ยังไม่จัดชุด" ผ่านได้ฟรี — **อย่าไปใส่ `MATCH FULL`** เพื่อ "เข้มขึ้น" เพราะจะบังคับให้ทุกใบต้องมีชุด (4) composite FK กันได้เฉพาะตอน**เขียน** `batch_id` — การอ่านยังต้องมี `WHERE room_id = $1` ของตัวเอง (ดู `_load_batch_row`)
+- **Tests:** `tests/test_finance_receipt_batches.py::test_create_batch_rejects_receipt_of_another_room` + `::test_batch_is_scoped_to_the_room` · mutation M9 พิสูจน์ว่าด่านนี้มีฟัน
+- **Date Added:** 2026-09-15
+
+### 🧪 `noUncheckedIndexedAccess` ทำให้ **ไฟล์เทสต์** type-check ไม่ผ่านที่ `arr[0]` — ใช้ helper ที่ throw แทน `!`
+- **Context/Problem:** เขียน `utils/__tests__/receiptGroups.spec.ts` ผ่าน vitest ทุกตัว (19 passed) แต่ `npm run type-check` ล้ม **39 error** ในไฟล์เดียว โดยไม่มี error ใน `receiptGroups.ts` หรือ `ReceiptList.vue` เลย
+- **Root Cause:** `tsconfig.app.json` เปิด `noUncheckedIndexedAccess: true` และ **`vue-tsc --build` ครอบไฟล์ `__tests__/*.spec.ts` ด้วย** ⇒ `result.groups[0]` มีชนิด `T | undefined` ส่งต่อให้ฟังก์ชันที่รับ `T` ไม่ได้ · ที่ร้ายกว่าคือ **re-index ซ้ำ defeats narrowing**: `rows[1].kind === 'batch' && rows[1].items` — `rows[1]` ตัวที่สองถูกอ่านใหม่ ⇒ ชนิดกลับไปเป็น union เดิม ⇒ ได้ `Property 'items' does not exist on type 'ReceiptSoloRow<...>'` · เทสต์เดิมในโปรเจกต์รอดมาได้เพราะ index อยู่แต่ใน `expect(...)` ซึ่งรับ `unknown` ได้
+- **Correct Pattern/Solution:** helper ที่ **โยน error พร้อมบอก index** (ไม่ใช่ `!` ซึ่งปิดปาก compiler โดยไม่บอกอะไรเมื่อสมมติฐานผิด):
+  ```ts
+  const at = <T>(arr: readonly T[], i: number): T => {
+    const value = arr[i];
+    if (value === undefined) throw new Error(`คาดว่ามีสมาชิกที่ index ${i} แต่มีแค่ ${arr.length} ตัว`);
+    return value;
+  };
+  // แล้วเขียน: const group = at(result.groups, 0);
+  // และสำหรับ narrowing: const row = at(rows, 1); if (row.kind !== 'batch') throw ...; row.items
+  ```
+  ⇒ ได้ทั้ง type ที่แคบลง (ผูกกับ **ตัวแปรตัวเดียว**) และข้อความที่บอกว่าอะไรผิด
+- **Rule:** (1) 🔴 **ไฟล์เทสต์ก็ถูกตรวจชนิด** — "vitest เขียว" ไม่ได้แปลว่า `type-check` ผ่าน ต้องรันทั้งคู่ (2) **ห้ามใช้ `!` ในเทสต์** — ถ้าสมมติฐานผิดจะได้ `undefined is not a function` ลอย ๆ แทนที่จะรู้ว่าองค์ประกอบไหนหาย (3) narrowing ต้องผูกกับ **ตัวแปร** เสมอ (`const row = at(...)`) ไม่ใช่ index ซ้ำ (4) `npm run type-check` เป็นด่านที่ต้องรันก่อน `npm run build` เสมอในงาน frontend
+- **Tests:** `frontend/src/utils/__tests__/receiptGroups.spec.ts` (helper `at()` ใช้ทั้งไฟล์)
+- **Date Added:** 2026-09-15
+
+### 🗡️ (เสริม) mutation harness ภาษา Python ก็ต้องสำรอง **ไฟล์ที่ยังไม่ commit** ออกนอก repo — และงาน F5 mutate ไฟล์ใหม่ทั้งไฟล์
+- **Context/Problem:** บทเรียนก่อนหน้าสอนเรื่องนี้กับ harness ฝั่ง JS (`_mutation_row_action_menu.mjs`) แต่ `_mutation_credits.py` ซึ่งเป็นแบบอย่างของฝั่ง Python **ไม่มีการสำรอง** — มันอ่านต้นฉบับเข้า memory แล้วเขียนคืนใน `finally` เท่านั้น ⇒ ถ้า process ถูกฆ่า (SIGKILL/ปิดเครื่อง) ต้นฉบับหายถาวร · งาน F5 mutate `services/finance/receipt_batches.py` ซึ่ง **เป็นไฟล์ใหม่ที่ยังไม่ commit** ⇒ `git checkout` กู้ไม่ได้เลย
+- **Root Cause:** การพึ่ง `finally` ครอบคลุมได้แค่เส้นทางที่ process ยังได้รัน Python ต่อ — ไม่ครอบ SIGKILL, การฆ่า process group, หรือเครื่องดับ · ความเสี่ยงสูงสุดคือ **ไฟล์ใหม่ที่ยังไม่ commit** ซึ่งเป็นสภาพปกติของงานที่กำลังทำ
+- **Correct Pattern/Solution:** ก่อนเริ่มรัน harness ให้คัดลอกไฟล์ที่จะถูก mutate ไปไว้นอก repo เสมอ (ทำแล้วในงานนี้: `/tmp/f5_backup/` พร้อม `md5sum` ไว้เทียบ) และถ้าจำเป็นต้องกู้ ให้ **diff กับสำเนา** เพื่อดูว่าค้าง mutant ตัวไหน แทนการเขียนใหม่ทั้งไฟล์
+- **Rule:** (1) 🔴 **ก่อนรัน mutation harness ทุกครั้ง ต้องสำรองไฟล์ที่จะถูกแก้ไปนอก repo** ถ้าไฟล์นั้นยังไม่ commit (2) เก็บ `md5sum` ไว้เทียบ (3) ถ้าไฟล์ค้าง mutated และกู้ไม่ได้ **ต้องบอกผู้ใช้ตรง ๆ ว่าไฟล์เสีย** ไม่ใช่รายงานว่างานเสร็จ
+  ⚠️ **ภาคปฏิบัติที่พลาดจริงในงาน F5:** สำรอง **หลังจาก** harness เริ่มรันไปแล้ว ⇒ สำเนาที่ได้คือ **ตัว mutant** ไม่ใช่ต้นฉบับ (จับได้เพราะ `diff` สำรอง↔ไฟล์จริง เหลือ "บรรทัดที่หายไป 1 บรรทัด" = รูปร่างของ mutant M2 พอดี) ⇒ **ต้องสำรองก่อนสั่งรัน** และเมื่อต้องการตรวจว่า "ไฟล์จริงสะอาดไหม" **อย่าใช้สำเนาเป็นหลักฐาน** ให้ใช้ `grep -rn "MUTANT"` + ตรวจว่า target string ของ mutant ทุกตัวยังอยู่ครบ (สคริปต์ที่รันจบโดยไม่มี `STALE`/`AMBIG` คือหลักฐานว่าไฟล์ถูกคืนครบ)
+- **Tests:** — (เป็นขั้นตอนปฏิบัติ ไม่ใช่เทสต์)
+- **Date Added:** 2026-09-15

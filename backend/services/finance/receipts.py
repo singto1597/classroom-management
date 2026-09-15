@@ -47,6 +47,7 @@ from core.rbac import require_permission, require_member
 from .base import _lock_payments_in_order, _lock_room_money, service_logger
 from .baht_text import baht_text
 from .constants import (
+    BATCH_SOURCE_AUTO, BATCH_SOURCE_ROOM,
     BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_DEPOSIT,
     DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES, DOC_TYPE_RECEIPT,
     PDF_BATCH_TIMEOUT, RECEIPTS_PER_PDF_MAX, RECEIPT_NO_TEMPLATE,
@@ -59,7 +60,8 @@ _RECEIPT_COLUMNS = """
     R.id, R.room_id, R.receipt_no, R.doc_type, R.year_be, R.seq,
     R.student_payment_id, R.legacy_transaction_id, R.student_id, R.collection_id,
     R.amount, R.paid_total_after, R.issued_to_name, R.issued_by_name, R.note,
-    R.event_at, R.status, R.voided_at, R.voided_by, R.void_reason, R.issued_at
+    R.event_at, R.status, R.voided_at, R.voided_by, R.void_reason, R.issued_at,
+    R.batch_id
 """
 
 # 🗓️ "วันที่ของเอกสาร" — ใช้ `event_at` ถ้ามี ไม่งั้นถอยไปใช้ `issued_at`
@@ -400,6 +402,42 @@ class ReceiptsMixin:
         return name
 
     # ================================================================== core
+    @staticmethod
+    async def _attach_issuance_batch(
+        conn: asyncpg.Connection, *, room_id: int, issued: List[dict], new_ids: List[int],
+        source: str, user_id: int, user_name: str,
+    ) -> Optional[int]:
+        """📚 จัดชุดให้เอกสารที่เพิ่งออกในรอบนี้ + ประทับ `batch_id` กลับเข้า dict ที่จะคืน
+
+        🔴 **นับเฉพาะ `new_ids` = ใบที่ออกใหม่จริง (`reused == False`)** — ใบที่ถูก reuse
+           คือใบที่ออกไปก่อนหน้านี้แล้ว การลากเข้าชุดใหม่จะทำให้ชุดเดียวมีใบที่ "ออกคนละเวลา"
+           ปนกัน และกดออกซ้ำหลายรอบจะได้ชุดใหญ่ขึ้นเรื่อย ๆ โดยไม่มีเหตุผล
+           (ผู้เรียกเป็นคนคัด `new_ids` เพราะมีแต่มันที่รู้ว่าใบไหนถูก reuse)
+
+        ⚠️ **import ในฟังก์ชัน ไม่ใช่ที่หัวไฟล์**: `receipt_batches` import `_RECEIPT_COLUMNS`/
+           `_DOC_DATE` จากไฟล์นี้ที่ระดับโมดูล ⇒ ถ้าไฟล์นี้ import กลับที่ระดับโมดูลจะได้
+           module ที่ initialize ไม่จบ (`ImportError` แบบวงกลมจริง ไม่ใช่ความระแวง)
+           — ทางเลือกอื่น (คัดลอก `_RECEIPT_COLUMNS` ไว้สองที่) ขัดกับคอมเมนต์บนหัวไฟล์นั้น
+
+        ⚠️ **ผู้เรียกต้องอยู่ใน transaction ของการออกเอกสารแล้ว** และยึด `_lock_room_money`
+           มาแล้ว (ชุดต้องเกิดพร้อมเอกสาร — ไม่มี background job มาปิดให้ทีหลัง)
+        """
+        if not new_ids:
+            return None
+        from .receipt_batches import attach_issuance_batch
+        batch_id = await attach_issuance_batch(
+            conn, room_id=room_id, receipt_ids=new_ids, source=source,
+            user_id=user_id, user_name=user_name,
+        )
+        if batch_id is not None:
+            # ประทับกลับเข้า dict ที่จะคืนให้ผู้ใช้ — ไม่งั้นผู้ใช้ได้เลขที่เอกสารแต่ไม่รู้ว่า
+            # มันอยู่ในชุดไหน (จอจะโชว์ "ไม่ได้จัดกลุ่ม" ทั้งที่เพิ่งจัดให้) และต้องยิง GET ซ้ำ
+            attached = set(new_ids)
+            for r in issued:
+                if r["id"] in attached:
+                    r["batch_id"] = batch_id
+        return batch_id
+
     @classmethod
     async def _issue_one(
         cls, conn: asyncpg.Connection, target_room_id: int, payment_id: int,
@@ -921,7 +959,7 @@ class ReceiptsMixin:
                     await _lock_room_money(conn, target_room_id)
                     await _lock_payments_in_order(conn, unique_ids)
 
-                    issued, reused = [], 0
+                    issued, reused, new_ids = [], 0, []
                     for pid in unique_ids:
                         r = await cls._issue_one(
                             conn, target_room_id, pid, doc_type, None, user_id, user_name, note,
@@ -929,6 +967,14 @@ class ReceiptsMixin:
                         issued.append(r["receipt"])
                         if r["reused"]:
                             reused += 1
+                        else:
+                            new_ids.append(r["receipt"]["id"])
+
+                    # 📚 จัดชุดให้ "ใบที่ออกรอบนี้" — ใบที่ reuse ไม่ถูกย้าย (เหตุผลใน `_attach_issuance_batch`)
+                    batch_id = await cls._attach_issuance_batch(
+                        conn, room_id=target_room_id, issued=issued, new_ids=new_ids,
+                        source=BATCH_SOURCE_AUTO, user_id=user_id, user_name=user_name,
+                    )
 
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -937,7 +983,7 @@ class ReceiptsMixin:
                         entity_type="FINANCE_RECEIPT", status="success",
                         new_values={"doc_type": doc_type, "payment_ids": unique_ids,
                                     "receipt_nos": [r["receipt_no"] for r in issued],
-                                    "reused_count": reused},
+                                    "reused_count": reused, "batch_id": batch_id},
                         endpoint_or_command="FinanceService.issue_receipts_batch",
                         execution_time_ms=exec_time,
                     )
@@ -948,6 +994,7 @@ class ReceiptsMixin:
                     "message": f"ออกเอกสารแล้ว {new_count} ใบ"
                                + (f" (มีอยู่แล้ว {reused} ใบ)" if reused else ""),
                     "receipts": issued, "issued_count": new_count, "reused_count": reused,
+                    "batch_id": batch_id,
                 }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -1015,13 +1062,22 @@ class ReceiptsMixin:
                         )
                         issued.append(cls._shape_receipt(row))
 
+                    # 📚 "กดออกรายคน" = รอบเดียวเหมือนกัน ⇒ จัดชุดให้เลย (คำขอของผู้ใช้ข้อ 2)
+                    #    ⚠️ ที่นี่ไม่มีแนวคิด reuse: ใบแจ้งหนี้เป็น point-in-time ⇒ ออกใหม่ทุกใบ
+                    batch_id = await cls._attach_issuance_batch(
+                        conn, room_id=target_room_id, issued=issued,
+                        new_ids=[r["id"] for r in issued],
+                        source=BATCH_SOURCE_AUTO, user_id=user_id, user_name=user_name,
+                    )
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="CREATE", actor_identifier=actor_identifier,
                         client_source=client_source, room_id=target_room_id, user_id=user_id,
                         entity_type="FINANCE_RECEIPT", status="success",
                         new_values={"doc_type": DOC_TYPE_INVOICE, "student_ids": unique_ids,
-                                    "receipt_nos": [r["receipt_no"] for r in issued]},
+                                    "receipt_nos": [r["receipt_no"] for r in issued],
+                                    "batch_id": batch_id},
                         endpoint_or_command="FinanceService.issue_invoices",
                         execution_time_ms=exec_time,
                     )
@@ -1030,6 +1086,7 @@ class ReceiptsMixin:
                     "status": "success",
                     "message": f"ออกใบแจ้งหนี้ยอดค้างรวมแล้ว {len(issued)} ฉบับ",
                     "receipts": issued, "issued_count": len(issued), "skipped": [],
+                    "batch_id": batch_id,
                 }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -1099,6 +1156,15 @@ class ReceiptsMixin:
                         )
                         issued.append(cls._shape_receipt(row))
 
+                    # 📚 ทั้งห้องในคำสั่งเดียว = รอบที่ชัดเจนที่สุดของ "ออกพร้อมกัน"
+                    #    ⇒ `source='room'` เพื่อให้หน้าจอแยกได้ว่า "ชุดนี้ระบบออกให้ทั้งห้อง"
+                    #    ต่างจากชุดที่ครูกดติ๊กเลือกเอง (`auto`) หรือจับกลุ่มทีหลัง (`manual`)
+                    batch_id = await cls._attach_issuance_batch(
+                        conn, room_id=target_room_id, issued=issued,
+                        new_ids=[r["id"] for r in issued],
+                        source=BATCH_SOURCE_ROOM, user_id=user_id, user_name=user_name,
+                    )
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="CREATE", actor_identifier=actor_identifier,
@@ -1108,7 +1174,8 @@ class ReceiptsMixin:
                                     "student_ids": issuable,
                                     "receipt_nos": [r["receipt_no"] for r in issued],
                                     "skipped_count": len(skipped),
-                                    "skipped_student_ids": [s["student_id"] for s in skipped]},
+                                    "skipped_student_ids": [s["student_id"] for s in skipped],
+                                    "batch_id": batch_id},
                         endpoint_or_command="FinanceService.issue_invoices_for_room",
                         execution_time_ms=exec_time,
                     )
@@ -1122,6 +1189,7 @@ class ReceiptsMixin:
                 return {
                     "status": "success", "message": msg,
                     "receipts": issued, "issued_count": len(issued), "skipped": skipped,
+                    "batch_id": batch_id,
                 }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -1221,6 +1289,33 @@ class ReceiptsMixin:
                     )
                     d["student_no"] = r["student_no"]
                     result.append(d)
+
+                # 📚 [F5] เติมข้อมูลชุด (ให้ทะเบียนยุบเป็นชุดได้) — **คำขอที่สอง** โดยเจตนา
+                #    ⚠️ `_load_batch_counts` มาจาก `ReceiptBatchesMixin` (ไฟล์อื่น) ⇒ ที่นี่พึ่ง
+                #       MRO ของ `FinanceService` ทำงานได้เพราะเมธอดนี้ถูกเรียกผ่าน `cls` =
+                #       `FinanceService` เสมอ (เทสต์ก็ยิงผ่าน HTTP) ต่างจาก `_issue_one`
+                #       ที่มีเทสต์เรียก `CollectionsMixin.batch_confirm_payments` ตรง ๆ
+                #       ⇒ ที่นั่นจึงต้อง `import` ชัดเจน ส่วนที่นี่ใช้ `cls` ได้
+                #    🔴 ห้ามใช้ `COUNT(*) OVER (PARTITION BY batch_id)`: window function นับ
+                #       เฉพาะแถวที่รอด `WHERE` ⇒ พอผู้ใช้กรองช่วงวันที่ (หรือ `include_voided`
+                #       เป็น false ซึ่งตัดใบที่ถูกยกเลิกออก) ตัวเลขจะกลายเป็น "ขนาดของส่วนที่
+                #       เห็น" ไม่ใช่ "ขนาดของชุด" ⇒ ป้าย "แสดง 12 จาก 20 ใบ" กลายเป็นคำโกหก
+                #       ที่ผู้ใช้ตรวจไม่ได้ (เทสต์ `..._true_batch_size_outside_filter` ปิดไว้)
+                counts = await cls._load_batch_counts(
+                    conn, room_id=target_room_id, batch_ids=[d.get("batch_id") for d in result]
+                )
+                if counts:
+                    titles = await conn.fetch(
+                        "SELECT id, title FROM finance_receipt_batches WHERE room_id = $1 AND id = ANY($2::int[])",
+                        target_room_id, list(counts.keys()),
+                    )
+                    title_by_id = {t["id"]: t["title"] for t in titles}
+                    for d in result:
+                        info = counts.get(d.get("batch_id"))
+                        if info:
+                            d["batch_title"] = title_by_id.get(d["batch_id"])
+                            d["batch_size"] = info["batch_size"]
+                            d["batch_voided_count"] = info["batch_voided_count"]
 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
