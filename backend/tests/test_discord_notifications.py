@@ -153,6 +153,73 @@ async def test_notify_payments_confirmed_payload(db_pool):
     assert payload["count"] == 2
 
 
+async def test_notify_payments_confirmed_carries_receipt_nos(db_pool):
+    """[F5/PR-3] เคลียร์หนี้ที่ออกใบเสร็จอัตโนมัติ → payload ต้องพา `receipt_nos` ไปให้บอท
+
+    🔑 นี่คือ **สัญญาระหว่างสองบริการ**: บอทขอ PDF ด้วยเลขชุดนี้แล้วแนบไปกับข้อความ
+       ใบเดิม (`data.get("receipt_nos")` ใน `cogs/redis_listener.py`) ⇒ ถ้า backend
+       หยุดส่งคีย์นี้ ฟีเจอร์แนบไฟล์หายทั้งฟีเจอร์โดยที่ **ไม่มีอะไร error เลย**
+       (บอทตกไปใช้เส้นทาง "ไม่มีใบเสร็จ" อย่างเงียบ ๆ) — เทสต์นี้คือด่านเดียวที่จับได้
+    """
+    from services.action_service import ActionService
+    server_id = random.randint(1_000_000, 9_999_999)
+    receipt_nos = ["REC-2569-0001", "REC-2569-0002"]
+
+    with patch.object(ActionService, "_publish", new_callable=AsyncMock) as mock_pub:
+        await ActionService.notify_payments_confirmed(
+            server_id=server_id,
+            payer_name="สิงโต",
+            items=[{"title": "ค่าเทอม", "amount": 300.0}],
+            total_amount=300.0,
+            user_name="เหรัญญิก",
+            receipt_nos=receipt_nos,
+        )
+
+    mock_pub.assert_awaited_once()
+    payload = mock_pub.await_args.args[2]
+    assert payload["receipt_nos"] == receipt_nos
+    # ลำดับเลขต้องเรียงตามที่ออกจริง — บอทใช้ทั้งชุดเป็นคำขอเดียว ไม่ได้เรียงเอง
+    assert payload["receipt_nos"] == sorted(payload["receipt_nos"])
+    # และการเพิ่มคีย์นี้ต้องไม่เปลี่ยนอย่างอื่นของข้อความเดิม
+    assert mock_pub.await_args.kwargs["mention"] is False
+    assert mock_pub.await_args.kwargs["channel"] == "minor"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({}, id="ไม่ส่งมา (บิลเดียว/ติ๊กปิด)"),
+        pytest.param({"receipt_nos": None}, id="ส่งมาเป็น None"),
+        pytest.param({"receipt_nos": []}, id="ส่งมาเป็นลิสต์ว่าง"),
+    ],
+)
+async def test_notify_payments_confirmed_without_receipts_has_no_key(db_pool, kwargs):
+    """[F5/PR-3] ไม่มีใบเสร็จ → **ไม่มีคีย์ `receipt_nos` เลย** (ไม่ใช่ `receipt_nos: None`)
+
+    🔑 เส้นทางเดิม (บิลเดียวจาก `confirm_payment`, การติ๊กปิด, รายการที่ไม่มีใบเสร็จ)
+       ต้องเหมือนเดิม **ทุกไบต์** รวมถึงรูปร่างของ payload ที่ Redis — บอทแยกสองทางด้วย
+       `if data.get("receipt_nos"):` ⇒ ทั้ง `None` และลิสต์ว่างพาไปทางเดิมได้เหมือนกัน
+       แต่การ "ไม่ใส่คีย์" คือสัญญาที่เทสต์ได้ชัดกว่าและไม่มีทางกำกวม
+    """
+    from services.action_service import ActionService
+    server_id = random.randint(1_000_000, 9_999_999)
+
+    with patch.object(ActionService, "_publish", new_callable=AsyncMock) as mock_pub:
+        await ActionService.notify_payments_confirmed(
+            server_id=server_id,
+            payer_name="สิงโต",
+            items=[{"title": "ค่าอาหาร", "amount": 50.0}],
+            total_amount=50.0,
+            user_name="เหรัญญิก",
+            **kwargs,
+        )
+
+    mock_pub.assert_awaited_once()
+    payload = mock_pub.await_args.args[2]
+    assert "receipt_nos" not in payload
+    assert payload["count"] == 1
+
+
 async def test_publish_category_present(db_pool):
     """ทุก event มี category (หัวข้อก่อน embed)"""
     from services.action_service import ActionService

@@ -16,7 +16,9 @@ repo นี้ **ไม่มี test harness ของบอทเลย** — 
    (สำหรับเว็บ) ถ้าไม่ส่ง `target_type` บอทจะส่ง `guild_id` ไปถูกตีความเป็น `room_id`
    แล้วได้ 404 "ไม่พบห้อง" ทั้งที่ห้องมีอยู่จริง
 2. **`api_client.request` เรียก `response.json()` เสมอ** — endpoint ที่คืน binary/204 ใช้ไม่ได้
-   (เหตุผลที่ F3 ไม่ส่ง PDF เข้า Discord จนกว่าจะแก้ client กลาง)
+   ⇒ ตั้งแต่ F5/PR-3 มี **`api_client.request_bytes()`** แยกออกมาสำหรับ binary โดยเฉพาะ
+   (ห้ามแก้ `request` ให้เดาชนิด body — ดูเหตุผลใน `api_client.py`) และ PDF ที่นี่คือ
+   `fetch_documents_pdf()` ตัวเดียวที่ใช้มัน
 3. **เดือน+ปีของ `/finance summary` ต้องส่งคู่กันหรือไม่ส่งเลย** — `get_summary` ฝั่ง backend
    รับ `month`/`year` เป็น optional แยกกัน แต่จะได้ช่วงเวลาที่ไม่ตั้งใจถ้าส่งมาแค่ตัวเดียว
    ⇒ validate ที่นี่ที่เดียว (cog แค่ส่งค่าที่ผู้ใช้เลือกมา)
@@ -41,10 +43,23 @@ THAI_MONTHS = (
 MAX_FIELD_CHARS = 1024
 MAX_LIST_ROWS = 15
 
+# 🖨️ เพดานจำนวนใบต่อ PDF หนึ่งไฟล์ — **ต้องตรงกับ `RECEIPTS_PER_PDF_MAX` ฝั่ง backend**
+#    (`backend/services/finance/constants.py`) ⚠️ ถ้าฝั่งโน้นเปลี่ยนแล้วที่นี่ไม่เปลี่ยน
+#    backend จะตอบ 400 พร้อมข้อความไทยที่ผู้ใช้อ่านไม่เห็น (ข้อความอยู่ใน log บอทเท่านั้น)
+#    ⇒ ฝั่งบอทจึงกันไว้ก่อนด้วยเลขเดียวกัน: เกิน = งดแนบแล้วบอกให้ไปโหลดที่หน้าทะเบียน
+PDF_CHUNK_SIZE = 100
+
 SUMMARY_ENDPOINT = "/{guild_id}/finance/summary"
 DEBTORS_ENDPOINT = "/{guild_id}/finance/debtors"
 COLLECTION_ENDPOINT = "/{guild_id}/finance/collections/{collection_id}"
 MY_DEBTS_ENDPOINT = "/{guild_id}/finance/me/debts"
+SYSTEM_PDF_ENDPOINT = "/{guild_id}/finance/system/receipts/pdf"
+
+# 🪪 ป้ายตัวตนของ "บอทที่แนบไฟล์อัตโนมัติ" — ใช้เป็นค่า `X-Actor-Id`
+#    🔑 มีผลจริง: route system ข้ามการตรวจสมาชิก (ไม่มี user_id) ⇒ `get_audit_context`
+#       ฝั่ง backend จะตกไปอ่าน header นี้แทนการบันทึก `"user_id:None"` ลง audit log
+#       ⇒ แถว PRINT_BATCH ของการแนบไฟล์จะบอกได้ว่า "บอททำอัตโนมัติ" ไม่ใช่ "ใครก็ไม่รู้"
+AUTO_ATTACH_ACTOR = "discord-bot:auto-attach"
 
 
 # --------------------------------------------------------------------------- จัดรูป
@@ -174,6 +189,30 @@ async def get_my_debts(guild_id: int, discord_id) -> dict:
         MY_DEBTS_ENDPOINT.format(guild_id=guild_id),
         params=_server_params(),
         headers=_headers(discord_id),
+    )
+
+
+async def fetch_documents_pdf(guild_id: int, discord_id, receipt_nos: List[str]):
+    """โหลดใบเสร็จหลายใบเป็น **PDF ไฟล์เดียว** → คืน `(bytes, filename)`
+
+    🎯 ใช้ตอนแนบไฟล์ไปกับข้อความ `FINANCE_PAYMENT` — `receipt_nos` มาจาก payload ของ event
+       ที่ backend เพิ่ง publish เอง ไม่ได้มาจากผู้ใช้ Discord ⇒ บอทไม่ต้อง validate ว่า
+       เป็นเลขที่ถูกรูปแบบ (backend ตรวจให้แล้ว และเลขของห้องอื่นได้ 404)
+
+    🔒 เรียกด้วย `X-Discord-Id` = **id ของ bot application** (`self.bot.user.id`) ⇒ backend
+       เข้าสาขา system bot (ไม่มี `users` row) แล้วข้ามการตรวจสมาชิก
+       ⚠️ ถ้าวันหนึ่งมีคนเอาบัญชีบอทไปผูกเป็น user ในระบบ สาขานั้นจะกลายเป็น user จริง
+          แล้วโดน `require_member` → 403 (พฤติกรรมเดียวกับ `GET /{target_id}` ที่บอทใช้อยู่
+          ทุกวันนี้ — ไม่ใช่ของใหม่ของงานนี้)
+
+    ⚠️ ส่ง `target_type=server` เหมือนทุกคำสั่ง (ดูกับดักข้อ 1 บนสุดของไฟล์นี้)
+    """
+    return await api_client.request_bytes(
+        "POST",
+        SYSTEM_PDF_ENDPOINT.format(guild_id=guild_id),
+        params=_server_params(),
+        json={"receipt_nos": list(receipt_nos)},
+        headers={**_headers(discord_id), "X-Actor-Id": AUTO_ATTACH_ACTOR},
     )
 
 

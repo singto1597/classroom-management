@@ -9,6 +9,7 @@ from .reporting import router as reporting_router
 from .budgets import router as budgets_router
 from .receipts import router as receipts_router
 from .receipt_batches import router as receipt_batches_router
+from .system import router as system_router
 from .credits import router as credits_router
 from .export import router as export_router
 
@@ -29,5 +30,10 @@ router.include_router(receipt_batches_router)
 # ขึ้นต้นด้วย `/finance/credits` ซึ่งไม่ซ้ำกับใคร ⇒ ลำดับไม่มีผล แต่การวางไว้ท้าย
 # ทำให้ diff ของงานนี้ต่อเติมท้ายไฟล์ และไม่ตัดหน้า router ที่ deploy อยู่แล้ว
 router.include_router(credits_router)
+# [F5/PR-3] 🔓 System RPC ของบอท — ประกาศ **ท้ายสุด** โดยเจตนา: path ขึ้นต้นด้วย
+# `/finance/system` ซึ่งไม่ซ้ำกับกลุ่มใด ⇒ ลำดับไม่มีผลกับความถูกต้อง แต่การวางท้าย
+# ทำให้ชัดว่าเป็นกลุ่มที่ **ข้ามด่านสมาชิก** (ดูคอมเมนต์หัวไฟล์ `system.py`)
+# ⚠️ ห้ามย้าย route จากกลุ่มอื่นมาไว้ที่นี่เพื่อ "ให้บอทเรียกได้" — ขอบเขตคือ PDF อ่านเท่านั้น
+router.include_router(system_router)
 
 __all__ = ["router"]

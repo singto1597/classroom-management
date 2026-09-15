@@ -8,6 +8,7 @@ from core.logger import AuditLogger
 from core.exceptions import RoomNotFoundError, ForbiddenError
 from core.rbac import require_permission
 from datetime import date, datetime
+from typing import List, Optional
 import asyncio
 import sys
 
@@ -117,16 +118,32 @@ class ActionService:
         }, mention=False, category="✅ จ่ายเงินแล้ว", channel="minor")
 
     @classmethod
-    async def notify_payments_confirmed(cls, server_id: int, payer_name: str, items: list, total_amount: float, user_name: str):
+    async def notify_payments_confirmed(cls, server_id: int, payer_name: str, items: list, total_amount: float, user_name: str, receipt_nos: Optional[List[str]] = None):
         """✨ เรียกใช้เมื่อรับเงินรวบยอด (Batch) หลายบิลของคนเดียวกัน — publish แค่รอบเดียว
-        พร้อม `items` (ทุกบิล) ให้บอท render embed สรุปทีเดียว ไม่เด้งหลายรอบ"""
-        await cls._publish("FINANCE_PAYMENT", server_id, {
+        พร้อม `items` (ทุกบิล) ให้บอท render embed สรุปทีเดียว ไม่เด้งหลายรอบ
+
+        🧾 `receipt_nos` (F5/PR-3) = เลขที่ใบเสร็จที่เพิ่งออกในรอบเดียวกับเงินก้อนนี้
+        ⇒ บอทใช้ขอ PDF จาก route system แล้ว **แนบไฟล์ไปกับข้อความนี้เลย**
+        (หนึ่งข้อความ หนึ่ง ping หนึ่งไฟล์) — ไม่สร้าง event ใหม่ เพราะเงินก้อนนี้
+        แจ้งเตือนไปแล้ว การเพิ่ม embed อีกใบ = ping ซ้ำ
+
+        ⚠️ `None` = "ไม่ได้ออกใบเสร็จ" (เช่นติ๊กปิด หรือบิลเดียวที่ยังไม่ออกให้อัตโนมัติ)
+           ⇒ บอทต้องไม่แนบไฟล์ และ payload ที่เหลือต้องเหมือนเดิมเป๊ะ
+        """
+        payload = {
             "payer_name": payer_name,
             "items": items,
             "total_amount": total_amount,
             "count": len(items),
-            "user_name": user_name
-        }, mention=False, category="✅ จ่ายเงินแล้ว", channel="minor")
+            "user_name": user_name,
+        }
+        # 🔑 ใส่คีย์ **เฉพาะเมื่อมีค่า** — ไม่ใส่ `receipt_nos: None` ลง payload เลย
+        #    ⇒ ข้อความ/สัญญาของเส้นทางเดิม (บิลเดียว, ติ๊กปิด) ไม่เปลี่ยนแม้แต่ไบต์เดียว
+        #      และเทสต์เดิมที่ตรวจ payload ยังผ่านโดยไม่ต้องแก้
+        if receipt_nos:
+            payload["receipt_nos"] = receipt_nos
+        await cls._publish("FINANCE_PAYMENT", server_id, payload,
+                           mention=False, category="✅ จ่ายเงินแล้ว", channel="minor")
 
     @classmethod
     async def notify_new_collection(cls, server_id: int, title: str, amount: float, due_date: date, user_name: str):

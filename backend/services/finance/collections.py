@@ -421,6 +421,11 @@ class CollectionsMixin:
                     items=[{"title": r["title"], "amount": float(r["amount"])} for r in results],
                     total_amount=float(sum(r["amount"] for r in results)),
                     user_name=req.user_name,
+                    # 🧾 เลขที่ใบเสร็จที่เพิ่งออก (F5/PR-3) — ให้บอทขอ PDF มาแนบกับข้อความนี้
+                    # ⚠️ `issued` ถูกสร้าง **ใน** transaction ที่ commit ไปแล้ว (บรรทัดบน)
+                    #    และ publish อยู่นอก `async with pool.acquire()` ⇒ อ่านค่าตรงนี้ปลอดภัย
+                    #    ไม่ต้องย้ายบรรทัดใด ๆ ⇒ `None` เมื่อติ๊กปิด/ไม่มีใบ ⇒ payload เดิม
+                    receipt_nos=[r["receipt_no"] for r in issued],
                 )
             # 🧾 ต่อท้ายด้วยจำนวนใบเสร็จ **โดยไม่ตัดทอนข้อความเดิม** — ข้อความ
             #    "รับเงินรวบยอด N รายการสำเร็จ" มีเทสต์เดิมผูกอยู่ และเป็นข้อความที่บอท

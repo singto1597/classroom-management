@@ -1,6 +1,7 @@
 import discord
 import logging
 from services.api_client import api_client, APIException
+from services.pdf_attach import ATTACH_FAILED_NOTE, build_receipt_files
 
 logger = logging.getLogger("DISCORD_BOT")
 
@@ -188,6 +189,25 @@ class BotActionService:
         embed.set_footer(text=f"บันทึกโดย: {data.get('user_name')}")
         await channel.send(content=self._build_content(data, "💰 มีรายการเงินใหม่"), embed=embed)
 
+    async def _deliver_payment_message(self, channel, content: str, embed: discord.Embed, files: list):
+        """ส่งข้อความรับเงิน — **ชั้นที่ 3 ของ 4**: ถ้าแนบไฟล์ไม่สำเร็จ ต้องส่งข้อความต่อให้ได้
+
+        ⚠️ Discord ตอบ `HTTPException` ได้จากหลายสาเหตุ (ไฟล์ใหญ่เกินเพดานจริง ·
+           ชื่อไฟล์/เนื้อหาไม่ผ่าน moderation · rate limit) ⇒ ทางแก้ที่แย่ที่สุดคือปล่อย
+           ให้ข้อความ "รับเงินแล้ว" หายไปเพราะเรื่องของ **ไฟล์แนบ**
+        ⚠️ แลกมาด้วยความเสี่ยง "ข้อความซ้ำ" ในกรณีที่คำขอแรกไปถึง Discord แล้วแต่ response
+           หายกลางทาง — เลือกซ้ำดีกว่าหาย (การแจ้งเตือนการเงินที่หายคือปัญหาที่ตรวจไม่เจอ)
+        """
+        if not files:
+            await channel.send(content=content, embed=embed)
+            return
+        try:
+            await channel.send(content=content, embed=embed, files=files)
+        except discord.HTTPException as e:
+            logger.error(f"❌ ส่งข้อความพร้อมไฟล์แนบไม่สำเร็จ ({e}) — ส่งใหม่โดยไม่มีไฟล์")
+            embed.add_field(name="🧾 ใบเสร็จ", value=ATTACH_FAILED_NOTE, inline=False)
+            await channel.send(content=content, embed=embed)
+
     async def notify_finance_payment(self, server_id: int, data: dict):
         channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
@@ -207,7 +227,23 @@ class BotActionService:
             )
             embed.add_field(name="📄 รายการที่ชำระ", value=lines, inline=False)
             embed.set_footer(text=f"รับเงินโดย: {data.get('user_name')}")
-            await channel.send(content=self._build_content(data, "✅ จ่ายเงินแล้ว"), embed=embed)
+
+            # 🧾 F5/PR-3: แนบ PDF ใบเสร็จที่เพิ่งออกในรอบเดียวกับเงินก้อนนี้
+            #    🔑 **หนึ่งข้อความ หนึ่ง ping หนึ่งไฟล์** — ไม่ส่ง event/ข้อความใหม่ เพราะ
+            #       เงินก้อนนี้แจ้งเตือนไปแล้ว (backend ถึงกับเขียนกฎห้าม publish ตอนออก
+            #       ใบเสร็จไว้ใน `services/finance/receipts.py`) การเพิ่ม embed อีกใบ = ping ซ้ำ
+            #    ⚠️ `receipt_nos` เป็น None ในเส้นทางเดิม (บิลเดียว / ติ๊กออกใบเสร็จออก)
+            #       ⇒ `build_receipt_files` คืน `([], None)` โดยไม่แตะ network เลย
+            files, note = await build_receipt_files(
+                server_id, self.bot.user.id, data.get("receipt_nos")
+            )
+            if note:
+                # 📎 บอกความจริงว่าทำไมไม่มีไฟล์ — เงียบแล้วครูจะเข้าใจว่าลืมแนบ
+                embed.add_field(name="🧾 ใบเสร็จ", value=note, inline=False)
+
+            await self._deliver_payment_message(
+                channel, self._build_content(data, "✅ จ่ายเงินแล้ว"), embed, files
+            )
             return
 
         embed = discord.Embed(
