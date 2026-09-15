@@ -20,12 +20,17 @@ from .constants import (
     COLLECTION_STATUS_LABELS, REFERENCE_TYPE_LABELS, MANAGEMENT_TAB_COLORS,
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
+    BATCH_SOURCE_AUTO, DOC_TYPE_RECEIPT,
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
     _legacy_id_from_journal, _as_utc,
 )
 from .base import _lock_payments_in_order, _lock_room_money, service_logger
+# 🧾 รับเงินรวบยอดต้องออกใบเสร็จให้ทุกรายการใน transaction เดียวกัน (F5)
+# ⚠️ import ที่ระดับโมดูลได้ เพราะ `receipts.py` **ไม่** import ไฟล์นี้กลับ (ไม่มีวงจร)
+#    — เทียบกับ `_attach_issuance_batch` ที่ต้อง import `receipt_batches` ในฟังก์ชัน
+from .receipts import ReceiptsMixin
 
 
 class CollectionsMixin:
@@ -309,6 +314,16 @@ class CollectionsMixin:
                     if len(student_ids) > 1:
                         raise ValueError("รายการชำระเงินต้องเป็นของนักเรียนคนเดียวกัน!")
 
+                    # 🔎 [F5] ด่านล่วงหน้าของเลขเอกสาร — **ต้องอยู่ตรงนี้ คือก่อนลูป**
+                    #    เพราะหลังลูปเงินถูกเขียนไปแล้ว (จะ rollback ก็จริง แต่ครูจะได้ข้อความ
+                    #    ที่ไม่บอกว่าติดอะไร) ⇒ ที่นี่ทำให้ "ยังไม่มีรายการใดถูกบันทึก" เป็นจริง
+                    #    ⚠️ ไม่ใช่ด่านความปลอดภัย — ด่านจริงยังอยู่ที่ `_issue_one` (ดู docstring
+                    #       ของ `_assert_receipt_seq_budget`)
+                    if req.issue_receipts:
+                        await cls._assert_receipt_seq_budget(
+                            conn, target_room_id, DOC_TYPE_RECEIPT, len(items),
+                        )
+
                     results = []
                     for item in items:
                         result = await cls._confirm_single_payment(
@@ -328,11 +343,73 @@ class CollectionsMixin:
                             old_values=result["old_values"], new_values=result["new_values"], endpoint_or_command="FinanceService.batch_confirm_payments", execution_time_ms=exec_time
                         )
 
-                    # audit log ระดับ batch (ยืนยันว่ารับกี่รายการ ผ่าน endpoint ไหน)
+                    # ═══════════════════════════════════════════════════════════════════
+                    # 🧾 [F5] ออกใบเสร็จให้ **ทุกรายการที่เพิ่งรับเงินไป** — ในธุรกรรมเดียวกัน
+                    # ═══════════════════════════════════════════════════════════════════
+                    #
+                    # 🔴 ทำไมต้องอยู่ใน `conn.transaction()` นี้ ไม่ใช่หลัง commit:
+                    #    ทางเลือก "commit เงินก่อน แล้วค่อยออกใบเสร็จ" สร้างสถานะที่
+                    #    **แก้ย้อนหลังไม่ได้** — ครูเห็น "รับเงินสำเร็จ" บนจอ แต่ไม่มีใบเสร็จ
+                    #    และไม่มีอะไรบนจอฟ้องว่าขาด (จะรู้ตัวอีกทีตอนผู้ปกครองทวงเอกสาร)
+                    #    ⇒ ที่นี่คือ "ได้ทั้งเงินและใบเสร็จ หรือไม่ได้ทั้งคู่"
+                    #
+                    # 🔒 ลำดับล็อกตรง protocol แล้วก่อนเข้าลูป: `_lock_room_money` (ห้อง) →
+                    #    `_lock_payments_in_order` (บิลทั้งชุดตาม id) ⇒ ตอนที่ `_issue_one`
+                    #    จองเลข `receipt_sequences` บิลทุกใบถูกยึดไว้แล้ว ไม่มีช่องให้ batch
+                    #    อื่นแทรกกลางทาง · การเรียก `_lock_room_money` ซ้ำข้างใน `_issue_one`
+                    #    ไม่บล็อก (advisory lock เป็น re-entrant ต่อ session)
+                    #
+                    # ⚠️ เรียก `ReceiptsMixin._issue_one` **ไม่ใช่ `cls._issue_one`**:
+                    #    MRO ของ `FinanceService` วาง `ReceiptsMixin` ก่อน `CollectionsMixin`
+                    #    ⇒ `cls.` ให้ผลเหมือนกัน แต่อ่านไม่ออกว่าตั้งใจเรียกตัวไหน และจะพัง
+                    #    เงียบ ๆ ถ้ามีคนเรียก `CollectionsMixin.batch_confirm_payments` ตรง ๆ
+                    #
+                    # ⚠️ ส่ง `r["trans_id"]` **เจาะจง** ห้ามปล่อยเป็น `None`:
+                    #    `_resolve_event` จะถอยไปหยิบ "งวดล่าสุด" ซึ่งบังเอิญถูกในเส้นทางนี้
+                    #    แต่การระบุงวดที่เพิ่งสร้างตรง ๆ คือสัญญาที่ตรงกับความจริง
+                    #
+                    # ⚠️ **ห้ามเรียก `notify_payments_confirmed` เพิ่มที่นี่** — เงินก้อนนี้
+                    #    แจ้งเตือนไปแล้วรอบเดียวด้านล่าง (การเพิ่ม embed = ping ซ้ำ ซึ่งเป็น
+                    #    ความผิดพลาดที่โปรเจกต์นี้แก้ไปครั้งหนึ่งแล้ว — ดูหัวไฟล์ `receipts.py`)
+                    issued, reused, batch_id = [], 0, None
+                    if req.issue_receipts:
+                        new_ids = []
+                        for r in results:
+                            out = await ReceiptsMixin._issue_one(
+                                conn, target_room_id, r["payment_id"], DOC_TYPE_RECEIPT,
+                                r["trans_id"], user_id, req.user_name or "—", None,
+                            )
+                            issued.append(out["receipt"])
+                            # ⚠️ `reused` เป็น 0 **ตลอดกาลในเส้นทางนี้** และนี่คือเหตุผล:
+                            #    ทุกรอบของลูปข้างบนเรียก `_confirm_single_payment` ซึ่ง
+                            #    `INSERT INTO finance_transactions (...) RETURNING id` **ใหม่เสมอ**
+                            #    ⇒ `trans_id` ไม่มีทางซ้ำ ⇒ `_find_existing(...)` ใน `_issue_one`
+                            #    ไม่มีทาง match ⇒ สาขา `reused` ตายในเส้นทางนี้
+                            #    🔒 **ห้ามลบสาขาทิ้ง** — `_issue_one` เป็นฟังก์ชันกลางที่ผู้เรียกอื่น
+                            #    (เช่นออกซ้ำจากทะเบียน) reuse ได้จริง ⇒ มันเป็นสัญญาของฟังก์ชันกลาง
+                            #    ไม่ใช่โค้ดตายของที่นี่ (ดู lesson ใน `docs/skills.md`)
+                            if out["reused"]:
+                                reused += 1
+                            else:
+                                new_ids.append(out["receipt"]["id"])
+
+                        # 📚 จัดชุดให้ "ใบที่ออกรอบนี้" (ใบที่ reuse ไม่ถูกย้าย — ดู
+                        #    `_attach_issuance_batch`) ⇒ "ออกให้ทั้งหนี้ในครั้งเดียว"
+                        #    กลายเป็นชุดเดียวที่โหลดรวมเป็น PDF ได้ในคลิกเดียว
+                        batch_id = await cls._attach_issuance_batch(
+                            conn, room_id=target_room_id, issued=issued, new_ids=new_ids,
+                            source=BATCH_SOURCE_AUTO, user_id=user_id,
+                            user_name=req.user_name or "—",
+                        )
+
+                    # audit log ระดับ batch (ยืนยันว่ารับกี่รายการ + ออกใบเสร็จเลขไหนไปบ้าง)
                     await service_logger.log(
                         conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
                         room_id=target_room_id, user_id=None, entity_type="STUDENT_PAYMENT_BATCH", status="success",
-                        new_values=cls._extract_req_data(req), endpoint_or_command="FinanceService.batch_confirm_payments", execution_time_ms=exec_time
+                        new_values={**cls._extract_req_data(req),
+                                    "receipt_nos": [x["receipt_no"] for x in issued],
+                                    "reused_count": reused, "batch_id": batch_id},
+                        endpoint_or_command="FinanceService.batch_confirm_payments", execution_time_ms=exec_time
                     )
 
                     # 📢 publish ครั้งเดียว หลัง commit (รวบรวมบิลทั้งหมด)
@@ -345,7 +422,23 @@ class CollectionsMixin:
                     total_amount=float(sum(r["amount"] for r in results)),
                     user_name=req.user_name,
                 )
-            return {"status": "success", "message": f"รับเงินรวบยอด {len(results)} รายการสำเร็จ"}
+            # 🧾 ต่อท้ายด้วยจำนวนใบเสร็จ **โดยไม่ตัดทอนข้อความเดิม** — ข้อความ
+            #    "รับเงินรวบยอด N รายการสำเร็จ" มีเทสต์เดิมผูกอยู่ และเป็นข้อความที่บอท
+            #    Discord/หน้าจออื่นอ่าน ⇒ เติมต่อท้ายเท่านั้น
+            issued_count = len(issued) - reused
+            receipt_note = (
+                f" · ออกใบเสร็จ {issued_count} ใบ"
+                + (f" (มีอยู่แล้ว {reused} ใบ)" if reused else "")
+                if issued else ""
+            )
+            return {
+                "status": "success",
+                "message": f"รับเงินรวบยอด {len(results)} รายการสำเร็จ" + receipt_note,
+                "receipts": issued,
+                "issued_count": issued_count,
+                "reused_count": reused,
+                "batch_id": batch_id,
+            }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             try:

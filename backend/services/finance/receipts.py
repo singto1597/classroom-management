@@ -51,7 +51,8 @@ from .constants import (
     BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_DEPOSIT,
     DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES, DOC_TYPE_RECEIPT,
     PDF_BATCH_TIMEOUT, RECEIPTS_PER_PDF_MAX, RECEIPT_NO_TEMPLATE,
-    RECEIPT_SEQ_MAX, RECEIPT_SEQ_OVERFLOW_MSG, THAI_MONTHS_SHORT, THAI_TZ,
+    RECEIPT_SEQ_BUDGET_MSG, RECEIPT_SEQ_MAX, RECEIPT_SEQ_OVERFLOW_MSG,
+    THAI_MONTHS_SHORT, THAI_TZ,
 )
 from .helpers import _as_utc
 
@@ -437,6 +438,62 @@ class ReceiptsMixin:
                 if r["id"] in attached:
                     r["batch_id"] = batch_id
         return batch_id
+
+    # ==================================================== ด่านล่วงหน้าของเลขเอกสาร
+    @classmethod
+    async def _assert_receipt_seq_budget(
+        cls, conn: asyncpg.Connection, room_id: int, doc_type: str, count: int,
+    ) -> None:
+        """🔎 เช็ค **ก่อนลงมือ** ว่าเลขเอกสารของ (ห้อง, ปีนี้, ชนิดนี้) เหลือพอสำหรับ `count` ใบ
+
+        ใช้โดยเส้นทางที่ **รับเงินก่อน แล้วค่อยออกเอกสาร** (`batch_confirm_payments`)
+        ซึ่งเป็นเส้นทางเดียวที่ความล้มเหลวเรื่องเลขเอกสารไปเกิด *หลัง* เงินถูกเขียน
+
+        ─────────────────────────────────────────────────────────────────────────
+        🎯 ทำไมต้องมี ทั้งที่ `_issue_one` ตรวจอยู่แล้ว (`seq > RECEIPT_SEQ_MAX`)
+        ─────────────────────────────────────────────────────────────────────────
+        `_issue_one` ตรวจตอน "จองเลขใบนั้น" ⇒ ในลูป 20 บิลมันจะไปตายที่ใบสุดท้าย
+        หลังใบก่อนหน้าถูกเขียนครบแล้ว (แล้ว rollback ทั้งหมด) ⇒ ครูได้ข้อความกว้าง ๆ
+        ที่ไม่บอกว่าติดอะไร และไม่รู้ว่ารับเงินไปหรือยัง — ซึ่งเป็นความกังวลอันดับหนึ่ง
+        ของคนที่กำลังถือเงินสดอยู่หน้าห้อง
+
+        ด่านนี้ยิงก่อนเข้าลูป ⇒ ยังไม่มีเงินถูกเขียนแม้แต่บาทเดียว ⇒ ข้อความบอกได้ตรง ๆ
+        และบอกได้ว่า "ยังไม่มีรายการใดถูกบันทึก"
+
+        ─────────────────────────────────────────────────────────────────────────
+        ⚠️ ขอบเขตของด่านนี้ — อ่านให้ครบก่อนเชื่อ
+        ─────────────────────────────────────────────────────────────────────────
+        • **ไม่ใช่ด่านความปลอดภัย** — ระหว่างที่อ่าน (`SELECT` ไม่ล็อก) กับตอนที่ `_issue_one`
+          จองเลขจริง มีช่องให้ replica อื่นแย่งเลขไปได้ ⇒ ด่านนี้ "อาจพลาด" ได้
+          แต่ด่านจริงใน `_issue_one` ยังอยู่ครบ ⇒ ผลลัพธ์แย่สุดคือ **400 เหมือนเดิม**
+          ไม่ใช่เลขซ้ำ/ข้อมูลพัง (ทั้งคู่ raise ใน transaction เดียวกัน ⇒ rollback ทั้งคู่)
+        • **ไม่กินเลข** — เป็น `SELECT` ล้วน ไม่แตะ `receipt_sequences`
+        • จำนวนที่ต้องใช้ **แม่นเท่ากับจำนวนใบที่จะออกจริง** เพราะทุกลูปเรียก
+          `_confirm_single_payment` ที่ INSERT `finance_transactions` แถวใหม่ ⇒
+          `_find_existing` ไม่มีทางเจอใบเดิม ⇒ ไม่มีใบไหนถูก reuse ในเส้นทางนี้
+          (ถ้าวันหนึ่งมีใบ reuse ปน ด่านนี้จะ **เข้มเกินจริง** — ยังปลอดภัย แค่ปฏิเสธเร็วไป)
+        • ปี พ.ศ. ใช้สูตรเดียวกับ `_issue_one` ฝั่ง fallback: `CURRENT_TIMESTAMP` ของ DB
+          (transaction timestamp — คงที่ทั้ง transaction) แปลงเป็นเวลาไทย
+          ⇒ ตรงกับปีของ `finance_transactions.created_at` ที่เพิ่ง INSERT ในธุรกรรมนี้
+            เพราะทั้งคู่มาจากนาฬิกาเรือนเดียวกัน และ `created_at` เก็บ UTC wall-clock
+        """
+        if count <= 0:
+            return
+        # 🕐 อ่านจาก DB ไม่ใช่ `datetime.now()` — 3 replica มีนาฬิกาคนละเรือน
+        #    (เหตุผลเดียวกับ `issued_at_db` ใน `_issue_one`)
+        now_db = await conn.fetchval("SELECT CURRENT_TIMESTAMP")
+        year_be = now_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+        last_seq = await conn.fetchval(
+            """SELECT last_seq FROM receipt_sequences
+               WHERE room_id = $1 AND year_be = $2 AND doc_type = $3""",
+            room_id, year_be, doc_type,
+        ) or 0
+        left = RECEIPT_SEQ_MAX - last_seq
+        if count <= left:
+            return
+        raise ValueError(
+            RECEIPT_SEQ_BUDGET_MSG.format(need=count, left=max(left, 0))
+        )
 
     @classmethod
     async def _issue_one(

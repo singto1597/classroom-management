@@ -15,6 +15,7 @@ import type {
   FeeCollectionUpdate,
   PaymentConfirm,
   BatchPaymentConfirm, // ✨ รับเงินรวบยอดหลายบิล
+  BatchPaymentResult, // 🧾 ผลของการรับเงินรวบยอด (มีใบเสร็จที่ออกให้ในรอบนั้นด้วย)
   FinanceSummary,
   Debtor,
   StudentDebtProfile,
@@ -168,8 +169,10 @@ export const FinanceService = {
   },
 
   // ✨ รับเงินรวบยอดหลายบิล (ปลดหนี้) — ยิงครั้งเดียว บอทแจ้งเตือน embed เดียว
-  async confirmBatchPayment(roomId: number, payload: BatchPaymentConfirm): Promise<ApiSuccessResponse> {
-    return await api.put(`/api/classroom/${roomId}/finance/payments/batch?target_type=room`, payload) as unknown as ApiSuccessResponse;
+  // 🧾 [F5] และออกใบเสร็จให้ทุกรายการในรอบเดียวกัน (ปิดได้ด้วย `issue_receipts: false`)
+  //    ⇒ คำตอบจึงไม่ใช่ `ApiSuccessResponse` ธรรมดา แต่มี `receipts` มาด้วย
+  async confirmBatchPayment(roomId: number, payload: BatchPaymentConfirm): Promise<BatchPaymentResult> {
+    return await api.put(`/api/classroom/${roomId}/finance/payments/batch?target_type=room`, payload) as unknown as BatchPaymentResult;
   },
 
   // ✨ API สำหรับลบรายชื่อนักเรียนออกจากแคมเปญ

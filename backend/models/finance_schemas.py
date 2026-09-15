@@ -90,6 +90,11 @@ class BatchPaymentConfirm(BaseModel):
     paid_to_account_id: int
     slip_image_url: Optional[str] = None
     user_name: str
+    # 🧾 [F5] ออกใบเสร็จให้ทุกรายการที่รับเงินไปในรอบนี้ — **default เปิด** ตามคำขอผู้ใช้
+    #    ("กดเคลียร์หนี้แล้วอยากได้ใบเสร็จมาพร้อมกันหมดเลย") ⇒ ปิดได้ด้วยติ๊กในโมดัล
+    #    ⚠️ การออกใบเสร็จเกิด **ใน transaction เดียวกับการรับเงิน** ⇒ ถ้าเลขเอกสารไม่พอ
+    #       จะไม่มีการรับเงินเกิดขึ้นเลย ไม่ใช่รับเงินแล้วไม่มีใบเสร็จ
+    issue_receipts: bool = True
 
 # --- Schemas สำหรับส่งออกข้อมูล (Responses) ---
 class AccountResponse(BaseModel):
@@ -535,6 +540,25 @@ class ReceiptDetailResponse(ReceiptListItem):
     collection_due_date: Optional[date] = None
     room_name: Optional[str] = None
     room_code: Optional[str] = None
+
+
+class BatchPaymentConfirmResponse(SuccessResponse):
+    """ผลของ `PUT /finance/payments/batch` — เงินที่รับ **บวก** ใบเสร็จที่ออกให้ในรอบนั้น
+
+    🔴 ทำไมต้องมีคลาสนี้แทน `SuccessResponse` เฉย ๆ: FastAPI ตัดฟิลด์ที่ไม่อยู่ใน
+       `response_model` ทิ้ง **เงียบ ๆ** ⇒ ต่อให้ service คืน `receipts` มา หน้าจอก็ไม่เห็น
+       และจะไม่มีอะไรฟ้องเลย (บทเรียนเดียวกับ `docs/skills.md` เรื่อง response_model)
+
+    📄 `receipts` เป็น `ReceiptResponse` ทั้งก้อน (ไม่ใช่แค่เลขที่) เพื่อให้หน้าจอ
+       **ดาวน์โหลด PDF รวมได้ทันที** จากคำตอบนี้โดยไม่ต้องยิง `GET /finance/receipts` ซ้ำ
+       (ยิงซ้ำยังต้องเดาว่าจะกรองยังไงให้ได้ "เฉพาะใบที่เพิ่งออก" ซึ่งเปราะกว่ามาก)
+    """
+    receipts: List[ReceiptResponse] = []
+    issued_count: int = 0
+    reused_count: int = 0
+    # 📚 ชุดที่ระบบจัดให้อัตโนมัติเมื่อออก ≥ 2 ใบ — `None` = ไม่ได้จัดชุด (ออกใบเดียว
+    #    หรือผู้ใช้ปิดติ๊กออกใบเสร็จ) ⇒ หน้าจอใช้สร้างลิงก์ "ดูทั้งชุด" ได้
+    batch_id: Optional[int] = None
 
 
 class ReceiptIssueResponse(BaseModel):

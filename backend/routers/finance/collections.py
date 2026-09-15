@@ -69,7 +69,7 @@ async def confirm_payment(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.put("/{target_id}/finance/payments/batch", response_model=SuccessResponse)
+@router.put("/{target_id}/finance/payments/batch", response_model=BatchPaymentConfirmResponse)
 async def batch_confirm_payments(
     req: BatchPaymentConfirm,
     request: Request,

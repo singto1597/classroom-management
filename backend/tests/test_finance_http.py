@@ -23,6 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.config import settings
+from services.finance.receipts import ReceiptsMixin
 from services.finance_service import FinanceService
 
 pytestmark = pytest.mark.asyncio
@@ -1280,3 +1281,321 @@ async def test_batch_confirm_payments_publishes_once(client, db_pool):
     assert len(kwargs["items"]) == 2
     assert kwargs["total_amount"] == 500.0
     assert all("title" in item and "amount" in item for item in kwargs["items"])
+
+
+# =====================================================================
+# Section: [F5/PR-2] เคลียร์หนี้แล้วออกใบเสร็จให้ทุกรายการในรอบเดียว
+# (คำขอเดิมของผู้ใช้: "กดเคลียร์หนี้ แล้วอยากให้มันออกใบเสร็จมาพร้อมกันหมดเลย")
+# =====================================================================
+
+
+async def _seed_batch_scenario(db_pool, bill_amounts, *, server_id=None):
+    """สร้างห้อง + กระเป๋า + นักเรียน 1 คน + บิลหลายใบ (ยอดต่างกันได้) + หมวดรายได้
+
+    ⚠️ ต้อง seed หมวด '📥 เก็บเงินห้องปกติ' เอง — เทสต์นี้ INSERT ตรง (ไม่ผ่าน room_service)
+       แต่เส้นทางรับเงินเขียน journal ผ่าน `_resolve_default_income_ledger` ซึ่งหา **ตามชื่อ**
+       ⇒ ขาดแล้ว dual-write raise (ไม่ใช่ข้ามเงียบ ๆ — ตั้งใจให้เป็นแบบนั้น)
+    """
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner, server_id=server_id)
+    account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
+    student_id = await _insert_student(
+        db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1,
+    )
+    await _insert_category(db_pool, room_id, "📥 เก็บเงินห้องปกติ", "income")
+    payment_ids = []
+    for idx, amount in enumerate(bill_amounts, start=1):
+        col = await _insert_collection(db_pool, room_id, f"ค่าใช้จ่าย {idx}", amount)
+        payment_ids.append(
+            await _insert_student_payment(db_pool, col, student_id, "pending", 0.0)
+        )
+    return owner, room_id, account_id, student_id, payment_ids
+
+
+async def _current_year_be(conn) -> int:
+    """ปี พ.ศ. ของ 'ตอนนี้' **จากนาฬิกาของ DB** — สูตรเดียวกับ `_assert_receipt_seq_budget`
+
+    🔴 ห้ามใช้ `datetime.now()` ของ Python: เทสต์กับ service ต้องอ่านนาฬิกาเรือนเดียวกัน
+       ไม่งั้นเทสต์จะพังเฉพาะช่วงข้ามปี (ซึ่งเป็นตอนที่ไม่มีใครอยู่ดู)
+    """
+    return await conn.fetchval(
+        "SELECT EXTRACT(YEAR FROM (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok'))::int + 543"
+    )
+
+
+@pytest.mark.parametrize("bill_count", [1, 2, 100])
+async def test_batch_confirm_payments_issues_one_receipt_per_bill(client, db_pool, bill_count):
+    """🔑 เคลียร์หนี้ N บิล → ได้ใบเสร็จ N ใบ (เลขต่อเนื่อง) + ชุดอัตโนมัติเมื่อ ≥ 2 ใบ
+
+    ยอดแต่ละบิล **ตั้งใจให้ไม่เท่ากัน** — ถ้าโค้ดเอา "ยอดที่รับรวม" ไปออกใบเสร็จทุกใบ
+    (ซึ่งเป็นความผิดพลาดที่ดูสมเหตุสมผลที่สุด) ยอดบนใบจะเท่ากันหมดแล้วเทสต์นี้จับได้
+    """
+    amounts = [float(100 + 10 * i) for i in range(bill_count)]
+    owner, room_id, account_id, student_id, payment_ids = await _seed_batch_scenario(
+        db_pool, amounts,
+    )
+    payload = await _batch_payload(payment_ids, account_id, amounts=amounts)
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"), json=payload,
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # ── ระดับ HTTP ────────────────────────────────────────────────────────────
+    assert body["issued_count"] == bill_count
+    assert body["reused_count"] == 0
+    assert len(body["receipts"]) == bill_count
+    assert f"รับเงินรวบยอด {bill_count} รายการสำเร็จ" in body["message"]
+    assert f"ออกใบเสร็จ {bill_count} ใบ" in body["message"]
+    nos = [r["receipt_no"] for r in body["receipts"]]
+    assert len(set(nos)) == bill_count, "เลขที่เอกสารต้องไม่ซ้ำกัน"
+    assert all(r["doc_type"] == "receipt" for r in body["receipts"])
+    # 🔴 `response_model` ต้องไม่ตัดฟิลด์ทิ้ง (บทเรียน docs/skills.md) — ตรวจว่ามีจริง
+    assert all(r["receipt_no"] and r["amount"] > 0 for r in body["receipts"])
+
+    async with db_pool.acquire() as conn:
+        # ── 🧠 Deep DB verify: ใบเสร็จในตารางผูกกับงวดรับเงินของ "บิลนั้น ๆ" จริง ──
+        rows = await conn.fetch(
+            """SELECT R.receipt_no, R.student_payment_id, R.legacy_transaction_id,
+                      R.amount, R.status, R.batch_id, FT.amount AS tx_amount
+               FROM finance_receipts R
+               JOIN finance_transactions FT ON FT.id = R.legacy_transaction_id
+               WHERE R.room_id = $1 AND R.doc_type = 'receipt' AND R.deleted_at IS NULL
+               ORDER BY R.seq""",
+            room_id,
+        )
+        assert len(rows) == bill_count
+        assert [r["student_payment_id"] for r in rows] == payment_ids, \
+            "ใบเสร็จต้องเรียงตามบิลที่ส่งมา และผูกกับบิลนั้นจริง"
+        # ยอดบนใบ = ยอดที่รับของ **บิลนั้น** ไม่ใช่ยอดรวม (บิลต่างยอดกัน ⇒ ตรวจได้)
+        assert [float(r["amount"]) for r in rows] == amounts, \
+            "ยอดบนใบเสร็จต้องเป็นยอดของบิลนั้น ไม่ใช่ยอดที่รับรวมทั้งชุด"
+        assert [float(r["tx_amount"]) for r in rows] == amounts
+        assert all(r["status"] == "active" for r in rows)
+        # เลขต่อเนื่องไม่มีช่องว่าง (เลขถูกจองในธุรกรรมเดียวและไม่มีใครแทรก)
+        seqs = [int(n.split("-")[-1]) for n in nos]
+        assert seqs == list(range(seqs[0], seqs[0] + bill_count))
+
+        # ── 📚 ชุดอัตโนมัติ: ≥ 2 ใบเท่านั้น ──────────────────────────────────
+        batch_ids = {r["batch_id"] for r in rows}
+        if bill_count >= 2:
+            assert len(batch_ids) == 1 and None not in batch_ids, \
+                "ออกหลายใบในรอบเดียวต้องได้ชุดเดียว และทุกใบต้องอยู่ในชุด"
+            batch_id = batch_ids.pop()
+            assert body["batch_id"] == batch_id
+            # 🔴 ชุดต้องเป็นของห้องนี้ (คอลัมน์ room_id ตรง) — composite FK คุมไว้อีกชั้น
+            assert await conn.fetchval(
+                "SELECT room_id FROM finance_receipt_batches WHERE id = $1", batch_id,
+            ) == room_id
+            # ใบทุกใบในคำตอบต้องบอกชุดเดียวกัน — ไม่งั้นจอจะโชว์ "ไม่ได้จัดกลุ่ม"
+            # ทั้งที่เพิ่งจัดให้ แล้วผู้ใช้ต้องยิง GET ซ้ำเพื่อดูความจริง
+            assert {r["batch_id"] for r in body["receipts"]} == {batch_id}
+        else:
+            assert batch_ids == {None}, "ใบเดียวไม่ต้องมีชุด"
+            assert body["batch_id"] is None
+            assert await conn.fetchval(
+                "SELECT COUNT(*) FROM finance_receipt_batches WHERE room_id = $1", room_id,
+            ) == 0, "ใบเดียวต้องไม่สร้างแถวชุดทิ้งไว้"
+
+        # ── เงินยังเข้าเหมือนเดิม (diff นี้ต้องไม่แตะเส้นทางเงิน) ─────────────
+        assert float(await conn.fetchval(
+            "SELECT balance FROM finance_accounts WHERE id = $1", account_id,
+        )) == sum(amounts)
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_transactions"
+            " WHERE room_id = $1 AND student_payment_id IS NOT NULL AND deleted_at IS NULL",
+            room_id,
+        ) == bill_count
+
+
+async def test_batch_confirm_payments_opt_out_issue_receipts(client, db_pool):
+    """ติ๊กปิด "ออกใบเสร็จ" → ไม่มีใบเสร็จเลย และ **ไม่แตะ `receipt_sequences`**
+
+    ⚠️ ข้อหลังสำคัญ: ถ้าโค้ดเผลอจองเลขก่อนเช็คติ๊ก เลขจะหายไป 1-2 หมายเลขทุกครั้ง
+       ที่มีคนปิดติ๊ก ซึ่งตรวจไม่เจอจากหน้าจอเลย (แค่เลขกระโดด)
+    """
+    owner, room_id, account_id, _, payment_ids = await _seed_batch_scenario(
+        db_pool, [500.0, 500.0],
+    )
+    payload = await _batch_payload(payment_ids, account_id)
+    payload["issue_receipts"] = False
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"), json=payload,
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["receipts"] == []
+    assert body["issued_count"] == 0 and body["batch_id"] is None
+    # 📌 ข้อความต้องเหมือนเดิมเป๊ะเมื่อไม่มีใบเสร็จ (ไม่มี " · ออกใบเสร็จ 0 ใบ" ต่อท้าย)
+    assert body["message"] == "รับเงินรวบยอด 2 รายการสำเร็จ"
+
+    async with db_pool.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_receipts WHERE room_id = $1", room_id,
+        ) == 0
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM receipt_sequences WHERE room_id = $1", room_id,
+        ) == 0, "ปิดติ๊กแล้วต้องไม่มีการจองเลขเลย"
+        # เงินยังต้องเข้า 100% — ติ๊กนี้ปิดแค่ "เอกสาร" ไม่ใช่ "การรับเงิน"
+        assert float(await conn.fetchval(
+            "SELECT balance FROM finance_accounts WHERE id = $1", account_id,
+        )) == 1000.0
+
+
+async def _force_seq_last(conn, room_id: int, last_seq: int) -> None:
+    """ดัน `receipt_sequences.last_seq` ของปีนี้ให้เป็นค่าที่กำหนด (จำลองเลขใกล้เต็ม)"""
+    await conn.execute(
+        """INSERT INTO receipt_sequences (room_id, year_be, doc_type, last_seq)
+           VALUES ($1, $2, 'receipt', $3)
+           ON CONFLICT (room_id, year_be, doc_type)
+           DO UPDATE SET last_seq = EXCLUDED.last_seq""",
+        room_id, await _current_year_be(conn), last_seq,
+    )
+
+
+async def test_batch_confirm_payments_seq_overflow_does_not_take_money(client, db_pool):
+    """🔑 เลขเอกสารไม่พอ → 400 และ **เงินไม่ถูกแตะเลย** (พิสูจน์ว่า "ใน transaction เดียวกัน" จริง)
+
+    นี่คือเทสต์ที่มีค่าที่สุดของงานนี้: ถ้ามีใครย้ายการออกใบเสร็จไป **นอก**
+    `conn.transaction()` (หรือ commit เงินก่อน) เทสต์นี้จะล้มทันที เพราะเงินจะถูกบันทึกไปแล้ว
+    """
+    owner, room_id, account_id, _, payment_ids = await _seed_batch_scenario(
+        db_pool, [500.0, 500.0],
+    )
+    async with db_pool.acquire() as conn:
+        await _force_seq_last(conn, room_id, 9999)  # เหลือ 0 เลข
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"),
+        json=await _batch_payload(payment_ids, account_id),
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "เลขเอกสาร" in resp.json()["detail"]
+
+    async with db_pool.acquire() as conn:
+        # ── เงิน: ไม่ขยับแม้แต่บาทเดียว ──────────────────────────────────────
+        rows = await conn.fetch(
+            "SELECT status, paid_amount FROM student_payments WHERE id = ANY($1)", payment_ids,
+        )
+        assert all(r["status"] == "pending" for r in rows)
+        assert all(float(r["paid_amount"]) == 0.0 for r in rows)
+        assert float(await conn.fetchval(
+            "SELECT balance FROM finance_accounts WHERE id = $1", account_id,
+        )) == 0.0
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_transactions WHERE room_id = $1", room_id,
+        ) == 0
+        # ── เอกสาร: ไม่มีใบถูกออก และเลขไม่ถูกเผา ───────────────────────────
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_receipts WHERE room_id = $1", room_id,
+        ) == 0
+        assert await conn.fetchval(
+            "SELECT last_seq FROM receipt_sequences WHERE room_id = $1 AND doc_type = 'receipt'",
+            room_id,
+        ) == 9999, "ล้มแล้วต้องไม่กินเลข (rollback ต้องคืนเลขที่จองไป)"
+
+
+async def test_batch_confirm_payments_receipt_failure_takes_no_money(
+    client, db_pool, monkeypatch,
+):
+    """🔑 ออกใบเสร็จล้ม **กลางทาง** (ใบที่ 2) → เงินต้องไม่ถูกบันทึกเลย
+
+    🎯 ทำไมต้องบังคับให้ล้ม (fault injection) แทนที่จะใช้เคส "เลขเอกสารไม่พอ":
+       เคส "เลขไม่พอ" ถูกด่านล่วงหน้า `_assert_receipt_seq_budget` ดักไว้ **ก่อน** เงินถูกแตะ
+       ⇒ เทสต์ overflow (`..._seq_overflow_does_not_take_money`) จึงตอบได้แค่
+       "ด่านล่วงหน้าทำงาน" ไม่ได้ตอบคำถามที่ต่างออกไปว่า
+       **"ถ้าการออกใบเสร็จล้ม *หลัง* เงินถูกเขียนไปแล้ว ระบบยังถอยกลับทั้งก้อนไหม"**
+       ⇒ นี่คือเหตุผลที่ mutant M2 (ย้ายการออกใบเสร็จไป **หลัง commit**) รอดเทสต์ overflow
+       มาตลอด — มันถูกด่านล่วงหน้าบังอยู่
+
+    ⇒ เทสต์นี้คือเทสต์เดียวที่แยก "ออกใบเสร็จในธุรกรรม" ออกจาก "ออกหลัง commit" ได้จริง
+       (พิสูจน์แล้วกับ mutant M2 — ก่อนมีเทสต์นี้ M2 รอดทั้งไฟล์: `53 passed`)
+    """
+    real_issue_one = ReceiptsMixin._issue_one
+    calls = {"n": 0}
+
+    async def flaky_issue_one(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            # ⚠️ ต้องเป็น ValueError ⇒ router แปลเป็น 400
+            #    (ถ้าเป็น exception อื่นจะกลายเป็น 500 และ TestClient โยนกลับในเทสต์)
+            raise ValueError("จำลอง: ออกใบเสร็จใบที่ 2 ไม่สำเร็จ")
+        return await real_issue_one(*args, **kwargs)
+
+    monkeypatch.setattr(ReceiptsMixin, "_issue_one", flaky_issue_one)
+
+    owner, room_id, account_id, _, payment_ids = await _seed_batch_scenario(
+        db_pool, [500.0, 700.0],
+    )
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"),
+        json=await _batch_payload(payment_ids, account_id, amounts=[500.0, 700.0]),
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400, resp.text
+    # ถ้าไม่ได้ล้มที่ใบที่ 2 จริง เทสต์นี้ไม่ได้ทดสอบอะไรเลย ⇒ ต้องยืนยัน
+    assert calls["n"] == 2, f"คาดว่าล้มที่ใบที่ 2 แต่ถูกเรียก {calls['n']} ครั้ง"
+
+    async with db_pool.acquire() as conn:
+        # ── เงินต้องไม่ขยับ แม้ใบแรกจะออกสำเร็จไปแล้วก่อนล้ม ────────────────
+        rows = await conn.fetch(
+            "SELECT status, paid_amount FROM student_payments WHERE id = ANY($1)", payment_ids,
+        )
+        assert all(r["status"] == "pending" for r in rows)
+        assert all(float(r["paid_amount"]) == 0.0 for r in rows)
+        assert float(await conn.fetchval(
+            "SELECT balance FROM finance_accounts WHERE id = $1", account_id,
+        )) == 0.0
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_transactions WHERE room_id = $1", room_id,
+        ) == 0
+        # ── ใบที่ออกไปแล้วก่อนล้ม ต้องถูก rollback ด้วย (ไม่เหลือใบครึ่งทาง) ──
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_receipts WHERE room_id = $1", room_id,
+        ) == 0, "ใบที่ 1 ออกสำเร็จแล้วแต่ต้องถูก rollback พร้อมทั้งธุรกรรม"
+        assert await conn.fetchval(
+            "SELECT last_seq FROM receipt_sequences WHERE room_id = $1 AND doc_type = 'receipt'",
+            room_id,
+        ) in (None, 0), "ล้มแล้วต้องไม่กินเลข (rollback ต้องคืนเลขที่จองไป)"
+
+
+async def test_batch_confirm_payments_seq_budget_precheck_names_the_shortfall(client, db_pool):
+    """ด่านล่วงหน้าต้องบอก **ตัวเลขที่ขาด** และยืนยันว่า "ยังไม่มีรายการใดถูกบันทึก"
+
+    🎯 เทสต์นี้คือด่านที่จับ mutant "ถอด `_assert_receipt_seq_budget` ออก":
+       ถ้าไม่มีด่านนี้ ระบบยังได้ 400 เหมือนกัน (ด่านจริงใน `_issue_one` ยังอยู่)
+       และ DB สุดท้ายก็เหมือนกันเป๊ะเพราะ rollback ทั้งคู่ ⇒ **สิ่งเดียวที่ต่างคือข้อความ**
+       ที่ครูเห็นตอนถือเงินสดอยู่หน้าห้อง ⇒ ข้อความจึงเป็นสัญญาที่ต้องล็อกไว้ ไม่ใช่ของประดับ
+
+    💡 เลขที่เหลือ 1 < ต้องใช้ 3 ⇒ ถ้าด่านนี้ถูกถอด ข้อความจะกลายเป็นข้อความกว้าง ๆ
+       ของ `_issue_one` แทน (ซึ่งไม่บอกจำนวนที่ขาด และไม่บอกว่าเงินยังไม่ถูกแตะ)
+    """
+    owner, room_id, account_id, _, payment_ids = await _seed_batch_scenario(
+        db_pool, [100.0, 200.0, 300.0],
+    )
+    async with db_pool.acquire() as conn:
+        await _force_seq_last(conn, room_id, 9998)  # เหลือ 9999-9998 = 1 เลข แต่ต้องใช้ 3
+
+    resp = client.put(
+        _room_api(room_id, "/finance/payments/batch"),
+        json=await _batch_payload(payment_ids, account_id, amounts=[100.0, 200.0, 300.0]),
+        headers=_make_web_headers(owner),
+    )
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert "(ต้องใช้ 3 เลข แต่เหลือ 1 เลข)" in detail, detail
+    assert "ยังไม่มีรายการใดถูกบันทึก" in detail, detail
+
+    async with db_pool.acquire() as conn:
+        # ข้อความสัญญาว่า "ยังไม่มีรายการใดถูกบันทึก" — ต้องเป็นความจริง ไม่ใช่คำปลอบใจ
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM finance_transactions WHERE room_id = $1", room_id,
+        ) == 0
+        assert float(await conn.fetchval(
+            "SELECT balance FROM finance_accounts WHERE id = $1", account_id,
+        )) == 0.0

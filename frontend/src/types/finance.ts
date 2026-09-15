@@ -183,6 +183,30 @@ export interface BatchPaymentConfirm {
   paid_to_account_id: number;
   slip_image_url?: string | null;
   user_name: string;
+  /**
+   * 🧾 [F5] ออกใบเสร็จให้ **ทุกรายการที่รับเงินในรอบนี้** — ไม่ส่ง = เปิด (default ของ backend)
+   *
+   * ⚠️ เป็น `?` โดยเจตนา: ไม่ส่ง = เปิด ซึ่งเป็นพฤติกรรมที่ผู้ใช้ขอ ("กดเคลียร์หนี้แล้ว
+   *    อยากได้ใบเสร็จมาพร้อมกันหมดเลย") ⇒ ส่ง `false` เท่านั้นเมื่อผู้ใช้ติ๊กปิดเอง
+   */
+  issue_receipts?: boolean;
+}
+
+/**
+ * ผลของ `PUT /finance/payments/batch` — เงินที่รับ **บวก** ใบเสร็จที่ออกให้ในรอบนั้น
+ *
+ * 🔴 `receipts` เป็น object เต็ม ไม่ใช่แค่เลขที่ ⇒ หน้าจอ **ดาวน์โหลด PDF รวมได้ทันที**
+ *    จากคำตอบนี้ โดยไม่ต้องยิง `GET /finance/receipts` ซ้ำแล้วเดาว่าจะกรองยังไง
+ *    ให้เหลือ "เฉพาะใบที่เพิ่งออก" (ซึ่งเปราะและผิดได้ง่ายเมื่อมีใบอื่นออกแทรก)
+ */
+export interface BatchPaymentResult {
+  status: string;
+  message: string | null;
+  receipts: Receipt[];
+  issued_count: number;
+  reused_count: number;
+  /** 📚 ชุดที่ระบบจัดให้อัตโนมัติเมื่อออก ≥ 2 ใบ — `null` = ไม่ได้จัดชุด */
+  batch_id: number | null;
 }
 
 export interface FeeCollectionUpdate {
