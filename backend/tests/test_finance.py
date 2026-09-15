@@ -361,6 +361,7 @@ async def test_add_income_transaction_increases_balance(db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=100.0,
             description="รับบริจาค", transaction_type="income", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -393,6 +394,7 @@ async def test_add_expense_transaction_decreases_balance(db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=200.0,
             description="ซื้ออาหาร", transaction_type="expense", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -1276,7 +1278,7 @@ async def test_revert_transfer_group_destination_insufficient_raises(db_pool):
     exp_cat = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
     await FinanceService.add_transaction(
         pool=db_pool,
-        req=TransactionCreate(account_id=to_acc, category_id=exp_cat, amount=400.0, description="ใช้หมด", transaction_type="expense", user_name="Owner"),
+        req=TransactionCreate(account_id=to_acc, category_id=exp_cat, amount=400.0, description="ใช้หมด", transaction_type="expense", user_name="Owner", payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
     )
@@ -1578,13 +1580,15 @@ async def test_get_summary_current_month(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=inc_cat, amount=300.0,
-                              description="รับบริจาค", transaction_type="income", user_name="Owner"),
+                              description="รับบริจาค", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=exp_cat, amount=100.0,
-                              description="ซื้อของ", transaction_type="expense", user_name="Owner"),
+                              description="ซื้อของ", transaction_type="expense", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
 
@@ -1999,6 +2003,7 @@ async def test_add_transaction_expense_exceeds_balance_raises(db_pool):
             req=TransactionCreate(
                 account_id=account_id, category_id=cat_id, amount=200.0,
                 description="เกินวงเงิน", transaction_type="expense", user_name="Owner",
+            payee_name="คู่กรณีทดสอบ",
             ),
             user_id=owner, client_source="test", actor_identifier="test",
             room_id=room_id,
@@ -2026,6 +2031,7 @@ async def test_add_transaction_account_not_in_room_raises(db_pool):
             req=TransactionCreate(
                 account_id=account_b, category_id=cat_id, amount=50.0,
                 description="ใช้บัญชีคนอื่น", transaction_type="expense", user_name="Owner",
+            payee_name="คู่กรณีทดสอบ",
             ),
             user_id=owner, client_source="test", actor_identifier="test",
             room_id=room_a,
@@ -2045,6 +2051,7 @@ async def test_add_transaction_category_not_in_room_raises(db_pool):
             req=TransactionCreate(
                 account_id=account_id, category_id=cat_b, amount=50.0,
                 description="ใช้หมวดคนอื่น", transaction_type="expense", user_name="Owner",
+            payee_name="คู่กรณีทดสอบ",
             ),
             user_id=owner, client_source="test", actor_identifier="test",
             room_id=room_a,
@@ -2064,6 +2071,7 @@ async def test_add_transaction_category_type_mismatch_raises(db_pool):
             req=TransactionCreate(
                 account_id=account_id, category_id=income_cat, amount=50.0,
                 description="หมวดไม่ตรง", transaction_type="expense", user_name="Owner",
+            payee_name="คู่กรณีทดสอบ",
             ),
             user_id=owner, client_source="test", actor_identifier="test",
             room_id=room_id,

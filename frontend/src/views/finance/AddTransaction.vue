@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { FinanceService } from '@/services/finance';
 import type { Account, Category } from '@/types/finance';
 import { useAuthStore } from '@/stores/auth';
+import { downloadBlob } from '@/utils/download';
 import Swal from 'sweetalert2';
 
 import PageHeader from '@/components/ui/PageHeader.vue';
@@ -36,7 +37,11 @@ const form = ref({
   description: '',
   from_account_id: '',
   to_account_id: '',
-  slip_image_url: ''
+  slip_image_url: '',
+  // 🧾 [F6] ข้อมูลที่พิมพ์ลงบน "ใบสำคัญจ่าย" / "ใบรับเงิน"
+  payee_name: '',
+  approver_name: '',
+  attachment_count: 0
 });
 
 const fetchInitData = async () => {
@@ -72,13 +77,78 @@ const formatMoney = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num);
 };
 
+/**
+ * 🧾 ป้ายของช่อง "อีกฝ่าย" ของรายการ
+ *
+ * 🔴 ชื่อเดียวกันแต่ความหมายกลับกันตามชนิดรายการ — และ **บังคับทั้งสองฝั่ง** เพราะ
+ *    ทั้งใบสำคัญจ่าย (`PV-`) และใบรับเงิน (`INC-`) พิมพ์ชื่อนั้นลงบนกระดาษที่แจกจริง
+ *    ⇒ ไม่มีคำตอบที่ถูกสำหรับ "ปล่อยว่าง" (ฝั่ง backend ตอบ 400 ถ้าว่าง — ดู
+ *    `FinanceService.add_transaction`)
+ */
+const payeeLabel = computed(() =>
+  activeTab.value === 'income' ? 'ผู้จ่ายเงิน/แหล่งที่มา' : 'ผู้เบิก/ผู้รับเงิน'
+);
+
 // 🔄 เมื่อสลับแท็บ ให้เคลียร์ค่าที่เลือกไว้ เพื่อไม่ให้ส่ง id ค้างจาก tab ก่อน
+//    ⚠️ `payee_name` ต้องเคลียร์ด้วย — ชื่อที่กรอกในแท็บรายจ่าย ("ผู้เบิก") จะกลายเป็น
+//       "ผู้จ่ายเงิน" ทันทีที่สลับแท็บ ซึ่งเป็นคนละคนกันได้
 const switchTab = (tab: 'expense' | 'income' | 'transfer') => {
   activeTab.value = tab;
   form.value.account_id = '';
   form.value.category_id = '';
   form.value.from_account_id = '';
   form.value.to_account_id = '';
+  form.value.payee_name = '';
+  form.value.approver_name = '';
+  form.value.attachment_count = 0;
+};
+
+/**
+ * 🖨️ แจ้งผลสำเร็จ + เสนอโหลด PDF ของเอกสารที่เพิ่งออกให้
+ *
+ * ถ้าไม่มีเลขเอกสาร (เช่นเส้นทางที่ไม่ได้ออกเอกสาร) จะถอยไปใช้กล่องสำเร็จแบบเดิม
+ * ⚠️ ข้อความใช้ `text` ไม่ใช่ `html` — เลขที่เอกสารมาจากเซิร์ฟเวอร์ อย่าให้มันกลายเป็นมาร์กอัป
+ */
+const offerDocumentDownload = async (
+  receiptNo: string | null,
+  docType: string | null,
+  docTypeLabel: string | null
+) => {
+  if (!receiptNo) {
+    await Swal.fire({
+      icon: 'success',
+      title: 'บันทึกสำเร็จ!',
+      text: 'รายการของคุณถูกบันทึกเรียบร้อยแล้ว',
+      timer: 1500,
+      showConfirmButton: false
+    });
+    return;
+  }
+
+  const answer = await Swal.fire({
+    icon: 'success',
+    title: 'บันทึกสำเร็จ!',
+    text: `ออก${docTypeLabel ?? 'เอกสาร'} เลขที่ ${receiptNo} แล้ว`,
+    showCancelButton: true,
+    confirmButtonText: 'ดาวน์โหลด PDF',
+    cancelButtonText: 'ปิด',
+    reverseButtons: true
+  });
+
+  if (!answer.isConfirmed) return;
+
+  try {
+    const blob = await FinanceService.downloadReceiptPdf(currentServerId, receiptNo);
+    downloadBlob(blob, `${docType ?? 'document'}-${receiptNo}.pdf`);
+  } catch (error: unknown) {
+    // 502 = Gotenberg ล่ม (ไม่ใช่ 500 ของโค้ดเรา) — service แปลงเป็นข้อความไทยให้แล้ว
+    // 🔑 รายการถูกบันทึกไปแล้ว ⇒ ต้องบอกให้ชัด ไม่งั้นผู้ใช้จะกดบันทึกซ้ำ
+    Swal.fire(
+      'สร้างไฟล์ PDF ไม่สำเร็จ',
+      `${error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง'} — รายการถูกบันทึกแล้ว สามารถโหลดเอกสารซ้ำได้ที่ทะเบียนเอกสาร`,
+      'error'
+    );
+  }
 };
 
 const handleSubmit = async () => {
@@ -93,6 +163,16 @@ const handleSubmit = async () => {
     return Swal.fire('ตรวจสอบจำนวนเงิน', 'กรุณากรอกจำนวนเงินที่มากกว่า 0', 'warning');
   }
 
+  // 🧾 ตรวจ "อีกฝ่าย" ที่ฝั่งจอก่อน เพื่อให้ได้ข้อความที่บอกทางออกทันที
+  //    (backend บังคับซ้ำที่ชั้น service — ด่านนี้ไม่ใช่ด่านเดียว)
+  if (activeTab.value !== 'transfer' && !form.value.payee_name.trim()) {
+    return Swal.fire(
+      `ตรวจสอบ${payeeLabel.value}`,
+      'กรุณาระบุชื่อคู่กรณี เพราะชื่อนี้พิมพ์ลงบนเอกสารที่ออกให้',
+      'warning'
+    );
+  }
+
   isSubmitting.value = true;
   try {
     if (activeTab.value === 'transfer') {
@@ -103,25 +183,33 @@ const handleSubmit = async () => {
         description: form.value.description,
         user_name: currentUserName
       });
+      await Swal.fire({
+        icon: 'success',
+        title: 'บันทึกสำเร็จ!',
+        text: 'รายการของคุณถูกบันทึกเรียบร้อยแล้ว',
+        timer: 1500,
+        showConfirmButton: false
+      });
     } else {
-      await FinanceService.addTransaction(currentServerId, {
+      const result = await FinanceService.addTransaction(currentServerId, {
         account_id: Number(form.value.account_id),
         category_id: Number(form.value.category_id),
         amount: form.value.amount,
         description: form.value.description,
         transaction_type: activeTab.value,
         slip_image_url: form.value.slip_image_url || undefined,
+        payee_name: form.value.payee_name.trim(),
+        // 🖊️ ผู้อนุมัติ/เอกสารแนบเป็นเรื่องของ "ใบสำคัญจ่าย" ⇒ แท็บรายรับไม่ส่งไป
+        approver_name: activeTab.value === 'expense' ? form.value.approver_name.trim() || null : null,
+        attachment_count: activeTab.value === 'expense' ? Number(form.value.attachment_count) || 0 : 0,
         user_name: currentUserName
       });
+
+      // 🖨️ เสนอทางโหลดเอกสารที่เพิ่งออก — ใช้เส้นทาง PDF เดิมของทะเบียนเอกสาร
+      //    (ไม่เขียนเส้นทางใหม่ · ถ้า Gotenberg ล่ม ผู้ใช้ยังบันทึกสำเร็จไปแล้ว)
+      await offerDocumentDownload(result.receipt_no ?? null, result.doc_type ?? null, result.doc_type_label ?? null);
     }
 
-    await Swal.fire({
-      icon: 'success',
-      title: 'บันทึกสำเร็จ!',
-      text: 'รายการของคุณถูกบันทึกเรียบร้อยแล้ว',
-      timer: 1500,
-      showConfirmButton: false
-    });
     router.push('/finance/transactions');
   } catch (error: unknown) {
     Swal.fire('พัง!', error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ', 'error');
@@ -247,6 +335,56 @@ onMounted(() => {
               placeholder="เช่น ซื้อเครื่องเขียน, ค่าขนมเพื่อน..."
               required
             />
+          </div>
+
+          <!-- 🧾 คู่กรณีของรายการ — พิมพ์ลงบนใบสำคัญจ่าย/ใบรับเงิน (บังคับ) -->
+          <div v-if="activeTab !== 'transfer'">
+            <label class="field-label" for="payeeName">
+              {{ payeeLabel }} <span class="text-rose-600">*</span>
+            </label>
+            <input
+              id="payeeName"
+              v-model="form.payee_name"
+              class="field"
+              type="text"
+              maxlength="150"
+              :placeholder="
+                activeTab === 'income' ? 'เช่น ผู้ปกครองนายสมชาย / งานวันเกิด' : 'เช่น นายสมชาย ใจดี'
+              "
+              required
+            />
+            <p class="mt-1 text-xs text-stone-500">
+              ชื่อนี้จะพิมพ์อยู่บน{{ activeTab === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย' }}ที่ออกให้
+            </p>
+          </div>
+
+          <!-- 🖊️ ผู้อนุมัติ + เอกสารแนบ — เฉพาะใบสำคัญจ่าย (ฝั่งรายรับไม่มีช่องนี้บนกระดาษ) -->
+          <div v-if="activeTab === 'expense'" class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+            <div>
+              <label class="field-label" for="approverName">ผู้อนุมัติ (ถ้ามี)</label>
+              <input
+                id="approverName"
+                v-model="form.approver_name"
+                class="field"
+                type="text"
+                maxlength="150"
+                placeholder="เช่น หัวหน้าห้อง"
+              />
+            </div>
+            <div>
+              <label class="field-label" for="attachmentCount">เอกสารแนบ (ใบ)</label>
+              <input
+                id="attachmentCount"
+                v-model.number="form.attachment_count"
+                class="field num text-right"
+                type="number"
+                inputmode="numeric"
+                min="0"
+                step="1"
+                placeholder="0"
+              />
+              <p class="mt-1 text-xs text-stone-500">บิลเงินสด/ใบเสร็จจากร้านค้าที่แนบมาด้วย</p>
+            </div>
           </div>
 
           <!-- สลิป (ไม่บังคับ) -->

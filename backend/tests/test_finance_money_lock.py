@@ -188,7 +188,14 @@ _MONEY_WRITE_MARKERS = [
 #       (มันเป็นผู้รับล็อกต่อจาก `confirm_payment`/`batch_confirm_payments` ไม่ใช่ผู้ยึด)
 #    ⚠️ ชื่อ helper ถูกหาแบบ **substring** (`f"{helper}("`) ⇒ ห้ามตั้งชื่อใหม่ที่ขึ้นต้นด้วย
 #       ชื่อเดิม (เช่น `_issue_one_invoice`) เพราะมันจะไปแมตช์จุดของ `_issue_one` ของเดิม
-_LOCKING_HELPERS = ["_issue_one", "_issue_invoice_aggregate"]
+#    🆕 [F6] issuer สองตัวของ `add_transaction` — ทั้งคู่ยึดล็อกเป็นคำสั่งแรกจริง
+#       (`receipts.py` `_issue_income_doc` / `_issue_payment_voucher`) และเทสต์ตัวล่าง
+#       บังคับข้อนั้นให้ ⇒ การถอดล็อกจากตัวใดตัวหนึ่งจะล้มที่เทสต์นี้ **ไม่ใช่เงียบ**
+#       ⚠️ ทั้งสองชื่อ **ไม่** ขึ้นต้นด้วยชื่อในรายการเดิม ⇒ ไม่มีการแมตช์ซ้อน
+_LOCKING_HELPERS = [
+    "_issue_one", "_issue_invoice_aggregate",
+    "_issue_payment_voucher", "_issue_income_doc",
+]
 
 
 def _first_line_with(lines: list[str], needle: str):

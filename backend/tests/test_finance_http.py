@@ -405,6 +405,8 @@ async def test_web_add_transaction_roundtrip(client, db_pool):
             "description": "รับบริจาค",
             "transaction_type": "income",
             "user_name": "Owner",
+            # [F6] ใบรับเงินพิมพ์ชื่อ "ผู้จ่ายเงิน" ลงกระดาษ ⇒ service บังคับให้ระบุ
+            "payee_name": "ผู้ปกครองทดสอบ",
         },
         headers=_make_web_headers(owner),
     )
@@ -439,6 +441,11 @@ async def test_web_add_transaction_expense_over_balance_400(client, db_pool):
             "description": "เกินวงเงิน",
             "transaction_type": "expense",
             "user_name": "Owner",
+            # 🔴 [F6] **ต้องมีบรรทัดนี้ ไม่งั้นเทสต์นี้กลายเป็น false positive**:
+            #    มันคาด 400 จาก "ยอดเกินวงเงิน" แต่ถ้าไม่ส่ง `payee_name` มันจะได้ 400
+            #    จากด่านผู้เบิกแทน ⇒ **เลิกทดสอบสิ่งที่มันตั้งใจทดสอบ** โดยที่ status
+            #    ยังเป็น 400 เหมือนเดิม = เทสต์ที่ไม่มีวันจับ regression ของด่านยอดเงินได้อีก
+            "payee_name": "ผู้เบิกทดสอบ",
         },
         headers=_make_web_headers(owner),
     )
@@ -460,6 +467,9 @@ async def test_web_add_transaction_category_mismatch_400(client, db_pool):
             "description": "หมวดไม่ตรง",
             "transaction_type": "expense",
             "user_name": "Owner",
+            # 🔴 [F6] เหตุผลเดียวกับเทสต์ "ยอดเกินวงเงิน" ข้างบน: ถ้าไม่ส่ง `payee_name`
+            #    จะได้ 400 จากด่านผู้เบิก แล้ว **ด่าน "หมวดไม่ตรง" จะไม่ถูกทดสอบอีกเลย**
+            "payee_name": "ผู้เบิกทดสอบ",
         },
         headers=_make_web_headers(owner),
     )
@@ -625,6 +635,7 @@ async def test_web_revert_transaction_roundtrip(client, db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=100.0,
             description="รับบริจาค", transaction_type="income", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -758,6 +769,7 @@ async def test_web_delete_category_in_use_400(client, db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=10.0,
             description="ซื้อ", transaction_type="expense", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -813,6 +825,7 @@ async def test_web_get_summary_and_debtors_200(client, db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=300.0,
             description="รับบริจาค", transaction_type="income", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -936,6 +949,7 @@ async def test_web_export_finance_excel_200(client, db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=300.0,
             description="รับบริจาค", transaction_type="income", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -974,6 +988,7 @@ async def test_web_export_finance_excel_month_filter(client, db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=100.0,
             description="ม.ค.", transaction_type="income", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -983,6 +998,7 @@ async def test_web_export_finance_excel_month_filter(client, db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=200.0,
             description="ก.พ.", transaction_type="income", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -1058,6 +1074,7 @@ async def test_web_export_journal_excel_200(client, db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=300.0,
             description="รับบริจาค", transaction_type="income", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,

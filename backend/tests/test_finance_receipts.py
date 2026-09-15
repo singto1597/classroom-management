@@ -1629,11 +1629,17 @@ async def test_receipt_template_declares_one_font_face_per_weight():
     ⇒ ต้องเป็นเลขเดี่ยว (`{{ f.weight }}` ซึ่งมาจาก RECEIPT_FONT_FILES)
 
     ⚠️ เทสต์นี้ไม่ต้องมี DB เลย — `render_receipt_html` ฉีด `font_faces` ให้เอง
-       ที่เหลือของเทมเพลตเป็น `{{ x or '-' }}` / `{% if x %}` ทั้งหมด **ยกเว้นตัวเลข**
-       ที่จัดรูปด้วย `"{:,.2f}".format(...)` ⇒ ต้องส่งมาให้ครบทั้ง 4 ตัว
-       (Jinja2 เรียก `__format__` บน `Undefined` ไม่ได้ → TypeError ไม่ใช่ช่องว่าง)
-       ถ้าเพิ่มฟิลด์ตัวเลขใหม่ในเทมเพลตแล้วเทสต์นี้พัง ให้เติมคีย์ที่นี่ **ไม่ใช่**
+       ที่เหลือของเทมเพลตเป็น `{{ x or '-' }}` / `{% if x %}` ทั้งหมด **ยกเว้นสองกรณี**:
+         • ตัวเลขที่จัดรูปด้วย `"{:,.2f}".format(...)` ⇒ ต้องส่งมาให้ครบทั้ง 4 ตัว
+           (Jinja2 เรียก `__format__` บน `Undefined` ไม่ได้ → TypeError ไม่ใช่ช่องว่าง)
+         • 🔴 `body_template` — ตั้งแต่แยกเทมเพลตเป็น partial (shell + `{% include %}`)
+           คีย์นี้ **ขาดไม่ได้** เพราะ `{% include Undefined %}` โยน `UndefinedError`
+           (ต่างจาก `{{ Undefined }}` ที่เรนเดอร์เป็นช่องว่าง) ⇒ ต้องเป็นชื่อไฟล์ partial จริง
+       ถ้าเพิ่มฟิลด์ใหม่ในเทมเพลตแล้วเทสต์นี้พัง ให้เติมคีย์ที่นี่ **ไม่ใช่**
        ไปทำให้เทมเพลตกลืน Undefined — การพังคือสัญญาณว่ามีฟิลด์ใหม่ที่ยังไม่มีใครครอบ
+       🔴 และ **ห้ามใส่ default ให้ `{% include d.body_template or … %}`** เด็ดขาด:
+       ใบสำคัญจ่ายที่ `_document_context` ลืมตั้งคีย์นี้จะ **พิมพ์ถ้อยคำใบเสร็จทั้งใบ
+       โดยไม่มี error** ซึ่งคือกับดักที่การแยก body template มีไว้ป้องกันตั้งแต่แรก
     """
     from services.finance.pdf import render_receipt_html
 
@@ -1645,6 +1651,8 @@ async def test_receipt_template_declares_one_font_face_per_weight():
         "remaining": 765.5,
         "amount_text": "หนึ่งพันสองร้อยสามสิบสี่บาทห้าสิบสตางค์",
         "is_receipt": True,
+        # 🔴 partial ที่ shell จะ `{% include %}` — คีย์บังคับ ไม่มี default โดยเจตนา
+        "body_template": "_receipt_body.html",
     })
 
     # ⚠️ ต้องตัด CSS comment ออกก่อนตรวจ — เทมเพลตมีคอมเมนต์ เตือนเรื่อง

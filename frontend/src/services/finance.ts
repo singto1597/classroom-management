@@ -3,10 +3,12 @@ import api from './api';
 import type {
   Account,
   AccountCreate,
+  AccountUpdate,
   Category,
   CategoryCreate,
   TransactionList,
   TransactionCreate,
+  TransactionCreateResponse, // 🧾 [F6] ผลของการบันทึกรายการ (มีเลขเอกสารของใบสำคัญจ่าย/ใบรับเงิน)
   TransactionQueryParams,
   TransferCreate,
   Collection,
@@ -83,11 +85,11 @@ export const FinanceService = {
     return await api.post(`/api/classroom/${roomId}/finance/accounts?target_type=room`, payload) as unknown as ApiSuccessResponse;
   },
 
-  async updateAccount(roomId: number, accountId: number, name: string, userName: string): Promise<ApiSuccessResponse> {
-    return await api.patch(`/api/classroom/${roomId}/finance/accounts/${accountId}?target_type=room`, {
-      account_name: name,
-      user_name: userName
-    }) as unknown as ApiSuccessResponse;
+  // 🏦 [F6] รับ payload ทั้งก้อนแทน `name: string` เดิม เพราะกระเป๋าต้องเก็บ "ช่องทางจ่าย"
+  //    (เงินสด/โอน + ธนาคาร/เลขที่บัญชี) ที่ใบสำคัญจ่ายดึงไปพิมพ์
+  //    ⚠️ ฝั่ง backend เป็น PATCH + `exclude_unset=True` ⇒ ฟิลด์ที่ไม่ส่งมา **ไม่ถูกแตะ**
+  async updateAccount(roomId: number, accountId: number, payload: AccountUpdate): Promise<ApiSuccessResponse> {
+    return await api.patch(`/api/classroom/${roomId}/finance/accounts/${accountId}?target_type=room`, payload) as unknown as ApiSuccessResponse;
   },
 
   async deleteAccount(roomId: number, accountId: number): Promise<ApiSuccessResponse> {
@@ -125,8 +127,13 @@ export const FinanceService = {
     return await api.get(`/api/classroom/${roomId}/finance/transactions`, { params }) as unknown as TransactionList;
   },
 
-  async addTransaction(roomId: number, payload: TransactionCreate): Promise<ApiSuccessResponse> {
-    return await api.post(`/api/classroom/${roomId}/finance/transactions?target_type=room`, payload) as unknown as ApiSuccessResponse;
+  // 🧾 [F6] บันทึกรายจ่าย/รายรับ → ออกใบสำคัญจ่าย (`PV-`) หรือใบรับเงิน (`INC-`) ให้ด้วย
+  //    🔑 ต้องเป็น `TransactionCreateResponse` ไม่ใช่ `ApiSuccessResponse` เปล่า ๆ
+  //       ไม่งั้นเลขเอกสารที่ backend ส่งมาจะถูก TypeScript ตัดทิ้งเงียบ ๆ ที่ฝั่งจอ
+  //       (ฝั่ง backend ก็มีกับดักเดียวกันที่ `response_model=` — ดูคอมเมนต์ใน
+  //       `routers/finance/transactions.py`)
+  async addTransaction(roomId: number, payload: TransactionCreate): Promise<TransactionCreateResponse> {
+    return await api.post(`/api/classroom/${roomId}/finance/transactions?target_type=room`, payload) as unknown as TransactionCreateResponse;
   },
 
   async transferMoney(roomId: number, payload: TransferCreate): Promise<ApiSuccessResponse> {
@@ -330,7 +337,8 @@ export const FinanceService = {
   },
 
   // 🔎 รายละเอียดตาม **เลขที่เอกสาร** (string เช่น `REC-2569-0042`) ไม่ใช่ id
-  //    ⚠️ ต้อง encode — backend บังคับ pattern `^[A-Z]{3}-\d{4}-\d{4}$` และเลขที่ไม่ตรงรูปได้ 422
+  //    ⚠️ ต้อง encode — backend บังคับ pattern `^[A-Z]{2,3}-\d{4}-\d{4}$` และเลขที่ไม่ตรงรูปได้ 422
+  //    (ผ่อนจาก `{3}` เป็น `{2,3}` ตอน F6 เพื่อให้ `PV-…` ของใบสำคัญจ่ายใช้ได้)
   async getReceipt(roomId: number, receiptNo: string): Promise<ReceiptDetail> {
     return await api.get(
       `/api/classroom/${roomId}/finance/receipts/${encodeURIComponent(receiptNo)}`,

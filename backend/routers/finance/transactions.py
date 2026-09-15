@@ -13,7 +13,7 @@ from routers._common import TargetResolution, get_target, get_audit_context
 
 router = APIRouter()
 
-@router.post("/{target_id}/finance/transactions", response_model=SuccessResponse)
+@router.post("/{target_id}/finance/transactions", response_model=TransactionCreateResponse)
 async def add_transaction(
     req: TransactionCreate, 
     request: Request,

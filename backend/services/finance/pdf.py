@@ -92,6 +92,15 @@ def _get_template():
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(TEMPLATE_PATH.parent)),
         autoescape=jinja2.select_autoescape(["html"]),
+        # 🔴 `keep_trailing_newline=True` **ไม่ใช่ความสวย** — Jinja ตัด "\n" ตัวสุดท้ายของ
+        #    **ทุกไฟล์เทมเพลต** ทิ้งโดยปริยาย (ค่า default เป็น False) ซึ่งมองไม่เห็นเลย
+        #    ในไฟล์เดียว แต่พังทันทีที่แตกเป็น partial ด้วย `{% include %}`:
+        #    ⇒ ไบต์ที่ `_receipt_body.html` มี จะ **ไม่เท่า** ไบต์ที่ออกจริง ⇒ ใบเสร็จ
+        #       ทุกใบหายไปหนึ่งบรรทัดว่าง (ตรวจด้วยตาเปล่าแทบไม่เห็น แต่ `diff` เห็น)
+        #    ⇒ เปิดค่านี้แล้ว "ไฟล์ partial = ไบต์ที่ออกจริง" อ่านเทียบกันได้ตรง ๆ
+        #    ⚠️ ผลข้างเคียงมีอย่างเดียว: `<html>` ปิดท้ายด้วย "\n" หนึ่งตัว ซึ่งไม่มีเทสต์ใด
+        #       นับ (ทุกตัวนับ `class="doc"` / `data:font/ttf;base64,` ที่อยู่กลางไฟล์)
+        keep_trailing_newline=True,
     )
     return env.get_template(TEMPLATE_PATH.name)
 
@@ -205,6 +214,10 @@ def pdf_filename(receipt_no: str, doc_type: str) -> str:
         "receipt": "receipt",
         "invoice": "invoice",
         "deposit": "deposit",
+        # 🆕 [F6] ลืมเพิ่มสองคีย์นี้ = ไฟล์ชื่อ `document-PV-2569-0001.pdf` (default
+        #    กลืนความผิดเงียบ ๆ) ⇒ มีเทสต์ parametrize บน `DOC_TYPE_LABELS` คอยจับ
+        "income": "income",
+        "payment_voucher": "payment_voucher",
     }.get(doc_type, "document")
     safe = receipt_no.replace("/", "-")
     return f"{prefix}-{safe}.pdf"

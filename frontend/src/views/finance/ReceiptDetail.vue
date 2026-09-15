@@ -38,19 +38,42 @@ const isLoading = ref(true);
 const errorMessage = ref('');
 
 /**
- * 🧾 เอกสารนี้พูดด้วยถ้อยคำของ "ใบเสร็จ" (เงินเข้าแล้ว) หรือ "ใบแจ้งหนี้" (ยังไม่ได้รับเงิน)?
+ * 🧾 เอกสารนี้พูดด้วยถ้อยคำของ "ใบเสร็จ" (เงินเข้ามือแล้ว) หรือ "ใบแจ้งหนี้" (ยังไม่ได้รับเงิน)?
  *
- * 🔴 ต้องนับ `'deposit'` (ใบรับเงินล่วงหน้า) เป็น **ใบเสร็จ** ด้วย — เงินเข้ามาจริงแล้ว
- *    ⚠️ สำเนากับดักเดียวกับ `receipt.html` ที่ branch ด้วย `d.is_receipt` ไม่ใช่ `doc_type`:
- *       ถ้าปล่อยเป็น false ใบรับเงินล่วงหน้าจะถูกแสดงด้วยถ้อยคำใบแจ้งหนี้ทั้งหน้า
- *       ("เรียกเก็บจาก" / "ยอดค้างชำระ") ⇒ **อ่านผิดทั้งใบโดยไม่มีอะไรฟ้อง**
- *    💡 ฝั่ง backend ส่ง `is_receipt: true` มาให้แล้ว แต่หน้านี้คำนวณเองจาก `doc_type`
- *       ⇒ ต้องแก้ให้ตรงกัน ไม่งั้นสองที่จะพูดไม่ตรงกัน
+ * 🔴 **อ่านจาก backend เท่านั้น — ห้ามคำนวณเองจาก `doc_type` อีก**
+ *    ของเดิมหน้านี้เขียนว่า `['receipt','deposit'].includes(doc_type)` ซึ่งเป็นสำเนาที่สอง
+ *    ของคำตอบเดียวกับที่เทมเพลต PDF คิด (คอมเมนต์เดิมข้างบนเตือนกับดักนี้ไว้เองแล้ว)
+ *    ⇒ เพิ่มชนิดที่ 4 แล้วลืมแก้ฝั่งใดฝั่งหนึ่ง = เอกสารอ่านผิดทั้งใบโดยไม่มี error ให้เห็น
+ *    ตอนนี้ backend ส่ง `is_receipt` มาจาก `RECEIPT_LIKE_DOC_TYPES` ตัวเดียวกับที่
+ *    `_document_context` ใช้พิมพ์กระดาษ ⇒ จอกับกระดาษตอบไม่ตรงกันไม่ได้อีก
  */
-const isReceipt = computed(() => ['receipt', 'deposit'].includes(detail.value?.doc_type ?? ''));
+const isReceipt = computed(() => detail.value?.is_receipt ?? false);
+
+/**
+ * 💸 ใบสำคัญจ่าย — **ไม่ใช่ใบเสร็จ และไม่ใช่ใบแจ้งหนี้** ⇒ ต้องมีสาขาของตัวเอง
+ *
+ * 🔴 ถ้าปล่อยให้ตกไปสาขาใบแจ้งหนี้ จะพิมพ์ "เรียกเก็บจาก"/"ยอดค้างชำระ" บนเอกสาร
+ *    ที่ **จ่ายเงินออก** ซึ่งกลับความหมายทั้งใบ (กับดักเดียวกับที่ `receipt.html` เลี่ยง
+ *    ด้วยการแยกไฟล์ partial — ที่นี่เลี่ยงด้วยสาขาที่สาม)
+ */
+const isVoucher = computed(() => detail.value?.doc_type === 'payment_voucher');
 
 /** 💰 ใบรับเงินล่วงหน้าโดยเฉพาะ — ถ้อยคำต่างจากใบเสร็จ/ใบแจ้งหนี้ทั้งใบ */
 const isDeposit = computed(() => detail.value?.doc_type === 'deposit');
+
+/**
+ * 🏦 ช่องทางจ่ายเงินของใบสำคัญจ่าย — มาจาก **กระเป๋าที่รายการนั้นจ่ายออก** (snapshot)
+ * `null` = เอกสารชนิดอื่น หรือข้อมูลช่องทางหาย ⇒ ซ่อนแถวไป ดีกว่าแสดงช่องว่าง
+ */
+const voucherChannel = computed<string | null>(() => {
+  const d = detail.value;
+  if (!d || d.account_kind === null) return null;
+  if (d.account_kind === 'cash') return 'เงินสด';
+  const parts = [d.bank_name, d.bank_account_no, d.bank_account_name].filter(
+    (part): part is string => Boolean(part),
+  );
+  return parts.length ? `โอนเข้าบัญชี — ${parts.join(' · ')}` : 'โอนเข้าบัญชี';
+});
 
 /**
  * 🏷️ ป้ายของ `paid_total_after`
@@ -119,7 +142,7 @@ onMounted(() => {
     <PageHeader
       eyebrow="Finance Document"
       :title="detail?.receipt_no || 'รายละเอียดเอกสาร'"
-      :description="detail?.doc_type_label || 'ใบเสร็จรับเงิน / ใบแจ้งหนี้'"
+      :description="detail?.doc_type_label || 'เอกสารการเงิน'"
     >
       <template #actions>
         <RouterLink to="/finance/receipts" class="btn-ghost-ui" title="กลับทะเบียนเอกสาร">
@@ -168,8 +191,9 @@ onMounted(() => {
         <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div>
             <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
-              <!-- ⚠️ ใบแจ้งหนี้ "ยังไม่ได้รับเงิน" — ใช้ "ได้รับเงินจาก" ไม่ได้ (ความหมายผิด) -->
-              {{ isReceipt ? 'ได้รับเงินจาก' : 'เรียกเก็บจาก' }}
+              <!-- ⚠️ ใบแจ้งหนี้ "ยังไม่ได้รับเงิน" — ใช้ "ได้รับเงินจาก" ไม่ได้ (ความหมายผิด)
+                   💸 ใบสำคัญจ่าย "จ่ายออก" — ใช้ได้แค่ "ผู้เบิก/ผู้รับเงิน" -->
+              {{ isVoucher ? 'ผู้เบิก/ผู้รับเงิน' : isReceipt ? 'ได้รับเงินจาก' : 'เรียกเก็บจาก' }}
             </dt>
             <dd class="mt-0.5 font-bold text-stone-900">
               {{ detail.issued_to_name || '—' }}
@@ -180,16 +204,22 @@ onMounted(() => {
           </div>
 
           <div>
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">รายการ</dt>
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+              <!-- 💸 ใบสำคัญจ่ายไม่มีแคมเปญ — สิ่งที่ต้องรู้คือ "หมวดหมู่" ที่ตัดงบ -->
+              {{ isVoucher ? 'หมวดหมู่งบประมาณ' : 'รายการ' }}
+            </dt>
             <dd class="mt-0.5 text-stone-700">
-              <RouterLink
-                v-if="detail.collection_id"
-                :to="`/finance/collections/${detail.collection_id}`"
-                class="font-bold text-brand-700 hover:underline"
-              >
-                {{ detail.collection_title || `โปรเจกต์ #${detail.collection_id}` }}
-              </RouterLink>
-              <span v-else>{{ detail.collection_title || '—' }}</span>
+              <template v-if="isVoucher">{{ detail.category_name || '—' }}</template>
+              <template v-else>
+                <RouterLink
+                  v-if="detail.collection_id"
+                  :to="`/finance/collections/${detail.collection_id}`"
+                  class="font-bold text-brand-700 hover:underline"
+                >
+                  {{ detail.collection_title || `โปรเจกต์ #${detail.collection_id}` }}
+                </RouterLink>
+                <span v-else>{{ detail.collection_title || '—' }}</span>
+              </template>
             </dd>
           </div>
 
@@ -288,7 +318,64 @@ onMounted(() => {
           </span>
         </div>
 
-        <dl class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+        <!-- 💸 ข้อมูลเฉพาะใบสำคัญจ่าย — ทั้งชุดเป็น snapshot ณ วันออกเอกสาร
+             🔴 "ไม่อยู่ในงบประมาณที่ตั้งไว้" ต้องพิมพ์ออกมา ไม่ใช่เว้นว่าง:
+                ช่องว่างบนใบจ่ายอ่านได้ว่า "ไม่มีงบ" ซึ่งต่างจาก "ยังไม่ได้ตั้งงบ" -->
+        <dl v-if="isVoucher" class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          <div v-if="voucherChannel">
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">จ่ายเงินผ่าน</dt>
+            <dd class="mt-0.5 text-stone-700">
+              {{ voucherChannel }}
+              <span v-if="detail.account_name" class="text-stone-500">({{ detail.account_name }})</span>
+            </dd>
+          </div>
+
+          <div v-if="detail.approver_name">
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">ผู้อนุมัติ</dt>
+            <dd class="mt-0.5 text-stone-700">{{ detail.approver_name }}</dd>
+          </div>
+
+          <div>
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">เอกสารแนบ</dt>
+            <dd class="mt-0.5 text-stone-700">
+              <template v-if="detail.attachment_count > 0">
+                แนบมาด้วย <span class="num">{{ detail.attachment_count }}</span> ใบ
+                (บิลเงินสด/ใบเสร็จจากร้านค้า)
+              </template>
+              <template v-else>ไม่ได้แนบเอกสารมา</template>
+            </dd>
+          </div>
+
+          <div class="sm:col-span-2">
+            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+              หมวดหมู่งบประมาณ (F2)
+            </dt>
+            <dd class="mt-0.5 text-stone-700">
+              <ul v-if="detail.budgets.length" class="space-y-1">
+                <li v-for="budget in detail.budgets" :key="budget.id" class="num">
+                  {{ detail.category_name || 'ไม่ระบุหมวด' }} — งบ
+                  {{ formatThaiDate(budget.start_date) }}–{{ formatThaiDate(budget.end_date) }}
+                  ({{ formatMoney(budget.amount) }})
+                </li>
+              </ul>
+              <span v-else class="text-amber-700">
+                ไม่อยู่ในงบประมาณที่ตั้งไว้ (หมวด: {{ detail.category_name || 'ไม่ระบุ' }})
+              </span>
+              <!-- ⚠️ งบซ้อนช่วงกันได้จริง (unique index คือ (room_id, category_id,
+                   start_date, end_date) เท่านั้น) ⇒ ถ้าแสดงหลายก้อนโดยไม่เตือน
+                   ผู้ใช้จะบวกเองแล้วได้ยอดที่ถูกนับซ้ำ -->
+              <p v-if="detail.budgets.length > 1" class="mt-1 text-xs text-amber-700">
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                รายการนี้อยู่ในงบมากกว่าหนึ่งช่วง — ยอดอาจถูกนับซ้ำในการสรุปรวม
+              </p>
+            </dd>
+          </div>
+        </dl>
+
+        <!-- 💰 ยอดแบบ "ต่อบิล" — เป็นแนวคิดของใบเสร็จ/ใบแจ้งหนี้เท่านั้น
+             🔴 ใบสำคัญจ่ายไม่มี "ยอดเต็มของรายการ" และไม่มี "ยอดค้างชำระ" เลย
+                (`collection_amount` เป็น NULL) ⇒ แสดงไปก็มีแต่ทำให้อ่านผิด -->
+        <dl v-else class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div v-if="detail.collection_amount !== null">
             <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
               ยอดเต็มของรายการ
@@ -330,7 +417,14 @@ onMounted(() => {
           aria-hidden="true"
         ></i>
         <p class="text-sm leading-relaxed text-stone-600">
-          <template v-if="isDeposit">
+          <template v-if="isVoucher">
+            ใบสำคัญจ่ายผูกกับ <b>รายจ่ายที่บันทึกไว้</b> หนึ่งรายการ — พิมพ์ซ้ำได้เลขเดิมเสมอ
+            <br />💰 หมวดหมู่/ช่องทางจ่าย/งบประมาณบนใบนี้เป็น <b>snapshot ณ วันที่ออกเอกสาร</b>
+            — แก้ชื่อหมวด แก้เลขบัญชี หรือแก้งบทีหลัง จะไม่ย้อนไปเปลี่ยนใบที่พิมพ์แจกแล้ว
+            <br />⚠️ การ <b>ยกเลิกรายการจ่าย</b> จะยกเลิกใบนี้ตามไปด้วย (ใบจะถูกประทับว่า
+            ยกเลิก ไม่ถูกลบ)
+          </template>
+          <template v-else-if="isDeposit">
             ใบรับเงินล่วงหน้าเป็นหลักฐานว่า <b>ได้รับเงินเข้ามาแล้ว</b> แต่เงินก้อนนี้ยัง
             <b>ไม่นับเป็นรายได้</b> ของห้อง — ระบบถือไว้เป็น <b>เครดิตคงเหลือ</b> ของนักเรียน
             และจะนับเป็นรายได้ก็ต่อเมื่อถูกหักไปปิดบิลเท่านั้น

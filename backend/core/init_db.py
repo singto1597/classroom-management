@@ -247,7 +247,15 @@ async def init_db(pool: asyncpg.Pool):
                     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
                     account_name TEXT NOT NULL,
                     balance DECIMAL DEFAULT 0.0,
-                    deleted_at TIMESTAMP DEFAULT NULL
+                    deleted_at TIMESTAMP DEFAULT NULL,
+                    -- 💳 [F6] ช่องทางจ่ายของกระเป๋านี้ — 'cash' | 'transfer'
+                    --    ใบสำคัญจ่ายดึงไปพิมพ์เอง ⇒ ไม่ต้องกรอกซ้ำทุกครั้งที่จ่าย
+                    --    ⚠️ ตัวจริงที่บังคับคือ DROP+ADD ใน Extra Alterations ด้านล่าง
+                    account_kind VARCHAR(10) NOT NULL DEFAULT 'cash',
+                    bank_name TEXT,
+                    bank_account_no TEXT,
+                    bank_account_name TEXT,
+                    CONSTRAINT chk_finance_account_kind CHECK (account_kind IN ('cash', 'transfer'))
                 );
 
                 CREATE TABLE IF NOT EXISTS fee_collections (
@@ -272,7 +280,13 @@ async def init_db(pool: asyncpg.Pool):
                     transfer_group_id INTEGER,
                     recorded_by TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    deleted_at TIMESTAMP DEFAULT NULL
+                    deleted_at TIMESTAMP DEFAULT NULL,
+                    -- 🧾 [F6] ข้อมูลที่ผู้ใช้กรอกในฟอร์มบันทึกรายจ่าย/รายรับ
+                    --    เป็น "แหล่งความจริงของรายการ" ส่วน `finance_receipts.voucher_snapshot`
+                    --    เป็น "แหล่งความจริงของกระดาษ" (snapshot ณ เวลาที่ออกเอกสาร)
+                    payee_name TEXT,
+                    approver_name TEXT,
+                    attachment_count INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS student_payments (
@@ -493,6 +507,13 @@ async def init_db(pool: asyncpg.Pool):
                     --       `UPDATE finance_receipts SET batch_id = NULL` ใน service
                     --       (เราไม่ hard delete ชุดอยู่แล้ว — ยุบชุดคือ soft delete)
                     batch_id INTEGER,
+                    -- 🧾 [F6] snapshot ที่ใบสำคัญจ่ายพิมพ์ (ผู้อนุมัติ · ช่องทางจ่าย · ธนาคาร ·
+                    --    จำนวนเอกสารแนบ · หมวดงบ + งบที่ครอบช่วงนั้น)
+                    --    **snapshot ไม่ใช่ JOIN สด** โดยเจตนา: เอกสารที่พิมพ์แจกไปแล้วต้องพิมพ์
+                    --    ซ้ำได้เหมือนเดิมทุกไบต์ แม้งบ/หมวด/ชื่อบัญชีจะถูกแก้ทีหลัง
+                    --    (หลักการเดียวกับ `line_items` ของใบแจ้งหนี้)
+                    --    ℹ️ เป็น NULL สำหรับเอกสารชนิดอื่นทุกชนิด ⇒ ไม่กระทบของเดิม
+                    voucher_snapshot JSONB,
                     CONSTRAINT fk_receipts_batch_same_room
                         FOREIGN KEY (batch_id, room_id)
                         REFERENCES finance_receipt_batches(id, room_id),
@@ -555,6 +576,23 @@ async def init_db(pool: asyncpg.Pool):
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_receipts_deposit_active
                     ON finance_receipts(COALESCE(legacy_transaction_id, 0), doc_type)
                     WHERE deleted_at IS NULL AND doc_type = 'deposit';
+
+                -- 🧾 [F6] ใบสำคัญจ่าย (doc_type = 'payment_voucher') — กันซ้ำด้วย index ของตัวเอง
+                --    รูปร่างคีย์เหมือน deposit เป๊ะ (เอกสารที่ **ไม่มีบิล** ⇒ student_payment_id
+                --    เป็น NULL ซึ่ง Postgres ถือว่าไม่ซ้ำกัน ⇒ ต้อง COALESCE แทนคีย์จริง)
+                --
+                -- 🔴 **ต้องเป็นชื่อใหม่ ไม่ใช่แก้ `idx_finance_receipts_deposit_active`**:
+                --    `CREATE UNIQUE INDEX IF NOT EXISTS` **เปลี่ยน predicate ของ index ที่มีอยู่
+                --    แล้วไม่ได้** — ถ้าชื่อซ้ำมันจะข้ามเงียบ ๆ ⇒ ชนิดใหม่ไร้ด่านกันซ้ำโดยไม่มี
+                --    error ให้เห็น (กับดักเดียวกับที่คอมเมนต์ข้างบนเตือนไว้)
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_receipts_voucher_active
+                    ON finance_receipts(COALESCE(legacy_transaction_id, 0), doc_type)
+                    WHERE deleted_at IS NULL AND doc_type = 'payment_voucher';
+
+                -- 💵 [F6] ใบรับเงิน (doc_type = 'income') — เหตุผลเดียวกับสองตัวข้างบนทั้งหมด
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_receipts_income_active
+                    ON finance_receipts(COALESCE(legacy_transaction_id, 0), doc_type)
+                    WHERE deleted_at IS NULL AND doc_type = 'income';
 
                 -- 💰 เครดิตคงเหลือรายนักเรียน (เงินรับล่วงหน้า) — F4
                 --    append-only ledger: ทุกรายการเป็น "เหตุการณ์" ห้าม UPDATE ยอดเดิม
@@ -777,6 +815,40 @@ async def init_db(pool: asyncpg.Pool):
             #       "คอลัมน์ใหม่ทุกตัวต้องมี ALTER คู่เสมอ" เพราะ CREATE TABLE ที่มีอยู่แล้ว = no-op
             await conn.execute("ALTER TABLE student_credits ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64);")
             await conn.execute("ALTER TABLE student_credits ADD COLUMN IF NOT EXISTS journal_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL;")
+
+            # 🧾 F6 — ใบสำคัญจ่าย + ใบรับเงิน: 3 ตารางที่มีอยู่แล้วทั้งหมด ⇒ ทุกคอลัมน์ต้องมี ALTER
+            #    (กฎเดิมของ repo: "คอลัมน์ใหม่ทุกตัวต้องมี ALTER คู่เสมอ" เพราะ CREATE TABLE
+            #     IF NOT EXISTS บน DB ที่ deploy แล้วเป็น no-op เงียบ ๆ)
+
+            # ── finance_transactions: ข้อมูลที่ **ผู้ใช้กรอกในฟอร์ม** (แหล่งความจริงของรายการ) ──
+            #    🔴 ใช้คอลัมน์ธรรมดา **ไม่ใช้ JSONB** โดยเจตนา: `asyncpg` คืนค่า jsonb เป็น `str`
+            #       และโปรเจกต์นี้ไม่มี codec ที่ไหนเลย ⇒ ทุกจุดอ่านต้อง `json.loads` เอง
+            #       (รอยแผลจริงจากคอมมิต b8b541c — ดู docstring `_parse_line_items`)
+            await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS payee_name TEXT;")
+            await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS approver_name TEXT;")
+            # จำนวนเอกสารแนบ (บิลเงินสด/ใบเสร็จจากร้านค้า) — 0 = ไม่ได้แนบ
+            await conn.execute("ALTER TABLE finance_transactions ADD COLUMN IF NOT EXISTS attachment_count INTEGER NOT NULL DEFAULT 0;")
+
+            # ── finance_accounts: ข้อมูลธนาคาร (กรอกครั้งเดียวที่หน้าตั้งกระเป๋าเงิน) ──
+            #    ใบสำคัญจ่ายดึงไปพิมพ์เอง ไม่ต้องกรอกซ้ำทุกครั้งที่จ่าย
+            await conn.execute("ALTER TABLE finance_accounts ADD COLUMN IF NOT EXISTS account_kind VARCHAR(10) NOT NULL DEFAULT 'cash';")
+            await conn.execute("ALTER TABLE finance_accounts ADD COLUMN IF NOT EXISTS bank_name TEXT;")
+            await conn.execute("ALTER TABLE finance_accounts ADD COLUMN IF NOT EXISTS bank_account_no TEXT;")
+            await conn.execute("ALTER TABLE finance_accounts ADD COLUMN IF NOT EXISTS bank_account_name TEXT;")
+            # ⚠️ DROP+ADD = มีช่วงแข่งกันข้าม replica (init_db รันใน lifespan ของทุก replica
+            #    โดยไม่มี advisory lock) — ยอมรับด้วยเหตุผลเดียวกับ `chk_receipt_status` ข้างบน:
+            #    คอลัมน์ `account_kind` เพิ่งถูกเพิ่มพร้อม DEFAULT 'cash' ทั้งตาราง
+            #    ⇒ ADD CONSTRAINT validate ผ่านทันที ไม่มีทางล้มเพราะข้อมูลเก่า
+            await conn.execute("ALTER TABLE finance_accounts DROP CONSTRAINT IF EXISTS chk_finance_account_kind;")
+            await conn.execute(
+                "ALTER TABLE finance_accounts ADD CONSTRAINT chk_finance_account_kind"
+                " CHECK (account_kind IN ('cash', 'transfer'));"
+            )
+
+            # ── finance_receipts: snapshot ที่ใบสำคัญจ่ายพิมพ์ (แหล่งความจริงของ "กระดาษ") ──
+            #    เป็น **snapshot ไม่ใช่ JOIN สด** เพราะเอกสารที่แจกไปแล้วต้องพิมพ์ซ้ำได้เหมือนเดิม
+            #    แม้งบ/หมวด/ชื่อบัญชีจะถูกแก้ทีหลัง (หลักการเดียวกับ `line_items` ของใบแจ้งหนี้)
+            await conn.execute("ALTER TABLE finance_receipts ADD COLUMN IF NOT EXISTS voucher_snapshot JSONB;")
 
             # 🎂 ห้องแฮปปี้เบิร์ดเดย์ + 🔔 ห้องแจ้งเตือนงานเล็กๆน้อยๆ
             # (เพิ่มคอลัมน์ให้ตาราง rooms ที่สร้างไว้แล้ว — บังคับใช้กับ DB ที่ deploy ไปแล้วด้วย)

@@ -44,7 +44,11 @@ COMPOSE = ["docker", "compose", "-f", "docker-compose.test.yml", "run", "--rm",
 
 MERGE = "tests/test_finance_receipt_merge.py"
 RECEIPTS = "services/finance/receipts.py"
-TEMPLATE = "templates/finance/receipt.html"
+# 🔴 PR-5 แตก `receipt.html` เป็น shell (`<style>` + `.doc` frame + `{% include %}`)
+#    แล้วย้ายเนื้อในทั้งดุ้นไป partial นี้ **โดยไม่เปลี่ยน indent** ⇒ anchor ทุกตัวของ
+#    ไฟล์นี้ (`is_merged` · `doc_no_text` · footer) ยังตรงเป๊ะ แต่ **path เก่าไม่เหลือ
+#    ข้อความเหล่านั้นอยู่เลย** ⇒ harness จะขึ้น STALE ทุกตัว = mutation ไม่ถูกทดสอบ
+TEMPLATE = "templates/finance/_receipt_body.html"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # แต่ละ mutation: (ชื่อ, ไฟล์, ข้อความเดิม, ข้อความใหม่, เทสต์ที่ควรจับ)

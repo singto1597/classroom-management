@@ -357,7 +357,8 @@ async def test_accounting_export_six_sheets_and_matches_db(db_pool):
         await FinanceService.add_transaction(
             pool=db_pool,
             req=TransactionCreate(account_id=acc, category_id=cat, amount=amount,
-                                  description=desc, transaction_type=ttype, user_name="Owner"),
+                                  description=desc, transaction_type=ttype, user_name="Owner",
+                                  payee_name="คู่กรณีทดสอบ"),
             user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
         )
 
@@ -472,7 +473,8 @@ async def test_accounting_export_voided_journal_excluded_from_financials(db_pool
         await FinanceService.add_transaction(
             pool=db_pool,
             req=TransactionCreate(account_id=acc, category_id=inc_cat, amount=amount,
-                                  description=desc, transaction_type="income", user_name="Owner"),
+                                  description=desc, transaction_type="income", user_name="Owner",
+                                  payee_name="คู่กรณีทดสอบ"),
             user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
         )
 

@@ -178,7 +178,11 @@ MUTATIONS = [
     ),
     (
         "M14 ถอยแถวรายการของใบ DEP กลับไปเป็นคำกลาง ๆ 'รายการชำระเงิน'",
-        "templates/finance/receipt.html",
+        # 🔴 PR-5 แตก `receipt.html` เป็น shell + partial (`{% include d.body_template %}`)
+        #    ⇒ เนื้อในทั้งดุ้น **ย้ายไฟล์** ไป `_receipt_body.html` (indent เดิมทุกไบต์)
+        #    ปล่อย path เก่าไว้ = anchor ไม่เจอ ⇒ harness ขึ้น STALE แล้ว **ข้ามไปเงียบ ๆ**
+        #    ซึ่งอ่านเผิน ๆ เหมือน "ผ่าน" ทั้งที่ mutation ตัวนั้นไม่ถูกทดสอบเลย
+        "templates/finance/_receipt_body.html",
         "          {%- elif d.doc_type == 'deposit' -%}\n            รับเงินล่วงหน้า (ยังไม่หักปิดบิลใด)\n",
         "          {%- elif false -%}\n",
         [f"{CREDITS}::test_deposit_document_renders_and_speaks_as_a_receipt"],
