@@ -148,10 +148,23 @@ MUTATIONS = [
         [f"{CREDITS}::test_revert_is_refused_when_the_credit_was_already_used"],
     ),
     (
+        # 🔴 เดิม mutant นี้แทน "แค่ kwargs สองบรรทัด" ด้วย `None  # MUTANT` ⇒ โค้ดที่ได้คือ
+        #    `log(None` แล้วตามด้วย `old_values=…` โดยไม่มีจุลภาค = **SyntaxError**
+        #    ⇒ pytest collection พังทั้งไฟล์ ⇒ ไม่มีบรรทัดสรุปของ pytest ⇒ อ่านเป็น `infra`
+        #    ไม่ใช่ `CATCH` · แย่กว่านั้นคือมัน **ไม่เคยพิสูจน์อะไรเลย** มาตลอด
+        #    ⇒ ต้องแทน **ทั้งคำสั่ง** ด้วย `pass` เพื่อให้ mutant เป็น Python ที่ถูกต้อง
+        #      (มิฉะนั้น harness จะรายงาน INFRA ที่อ่านคล้าย "หาข้อมูลไม่ได้" ทั้งที่ความจริง
+        #       คือ "ไม่มีอะไรถูกทดสอบ" — ผลบวกลวงแบบกลับด้าน)
         "M12 ถอด audit log ของการยกเลิกรายการ",
         "services/finance/transactions.py",
-        'conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,\n                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_TRANSACTION", entity_id=str(transaction_id), status="success",',
-        'None  # MUTANT: ไม่บันทึก audit',
+        '                    await service_logger.log(\n'
+        '                        conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,\n'
+        '                        room_id=target_room_id, user_id=user_id, entity_type="FINANCE_TRANSACTION", entity_id=str(transaction_id), status="success",\n'
+        '                        old_values=old_values,\n'
+        '                        new_values={"action": action_detail, "voided_receipts": voided_nos},\n'
+        '                        endpoint_or_command="FinanceService.revert_transaction", execution_time_ms=exec_time\n'
+        '                    )',
+        '                    pass  # MUTANT: ไม่บันทึก audit',
         [f"{CREDITS}::test_revert_of_top_up_keeps_audit_rows_and_removes_nothing_from_the_journal"],
     ),
     # ── 🖨️ กลุ่มเทมเพลต: บั๊กที่ **เทสต์ 64 ตัวแรกจับไม่ได้** พบตอนเรนเดอร์ PDF ดูด้วยตา ──

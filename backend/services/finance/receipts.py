@@ -84,6 +84,23 @@ _AGGREGATE_TITLE_TEMPLATE = "ยอดค้างชำระรวม {count} 
 #    (ยอดยังครบถ้วนเสมอ เพราะแถว "รวมทั้งสิ้น" พิมพ์ `amount` ที่พาดหัว ไม่ใช่ผลบวกของบรรทัด)
 _MAX_PRINTED_LINE_ITEMS = 12
 
+# 🗂️ ชนิดเอกสารที่ **ยุบรวมได้** เมื่อผู้ใช้เลือกหลายใบพร้อมกัน (F6/PR-4)
+#    ⚠️ `invoice` **ไม่อยู่ในลิสต์นี้โดยเจตนา** — ใบแจ้งหนี้เป็น "ยอดค้างรวมต่อคน" อยู่แล้ว
+#       โดยตัวสร้าง (`_issue_invoice_aggregate`) และ `line_items` ของมันเป็น snapshot
+#       หลายบรรทัดที่มีบรรทัด "รวมทั้งสิ้น" ของตัวเอง ⇒ ยุบสองใบจะเอา snapshot สองช่วงเวลา
+#       มาบวกกันบนหน้าเดียว ยอดรวมที่ได้จะไม่ใช่ยอดค้าง ณ เวลาใดเวลาหนึ่งเลย
+_MERGEABLE_DOC_TYPES = (DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT)
+
+# 👥 จำนวนสมาชิกสูงสุดของกลุ่มที่ยุบ — **คนละตัวกับ `_MAX_PRINTED_LINE_ITEMS` โดยเจตนา**
+#    (สัญญาต่างกัน: นั่นคือ "บรรทัดย่อยของใบเดียว" นี่คือ "จำนวนเอกสารในหนึ่งหน้า")
+#
+#    🔄 เกินเพดานแล้ว **แยกเป็น N หน้า** ไม่ใช่ตัดบรรทัดทิ้ง (ตรงข้ามกับใบแจ้งหนี้ที่พิมพ์
+#       "และอีก N โครงการ"): บนใบเสร็จที่ยุบ **บรรทัดคือ "ชุดเอกสาร" เอง** ⇒ ซ่อนบรรทัด
+#       = ผู้ปกครองถือใบเสร็จที่เลขไม่อยู่บนกระดาษ = audit trail หายไปจากหลักฐาน
+#       ส่วนบนใบแจ้งหนี้ บรรทัดเป็นแค่รายการย่อยและยอดรวมยังถูกต้องจาก snapshot
+#       ⇒ การแยกหน้า "ถูกเสมอ" แค่ยาวขึ้น · 12 เหลือเฟือ (การรับเงินจริง 2–5 บิล)
+_MAX_MERGED_MEMBERS = 12
+
 # 🔒 ข้อความบอกทางออกเมื่อมีคนยิงเส้นทางใบแจ้งหนี้ **แบบเก่า** (ใบละบิล) มา
 #    ⚠️ ต้องบอก "ย้ายไปไหน" ไม่ใช่แค่ปฏิเสธ: หน้าจอที่ค้างเปิดอยู่ (SPA คนละ replica)
 #       จะยิง `doc_type='invoice'` มาที่เดิมได้อีกหลายวันหลัง deploy
@@ -141,6 +158,24 @@ class ReceiptsMixin:
         if d is None:
             return None
         return f"{d.day} {THAI_MONTHS_SHORT[d.month - 1]} {d.year + BUDDHIST_ERA_OFFSET}"
+
+    @classmethod
+    def _thai_day_text(cls, aware_dt: Optional[datetime]) -> Optional[str]:
+        """timestamptz → **วันไทยล้วน** "15 ต.ค. 2569" — ใช้ในตารางของใบที่ถูกยุบ
+
+        ⚠️ ต่างจาก `_thai_datetime_text` (ที่พิมพ์วัน **และ** เวลา) — ในตารางที่ยุบ
+           คอลัมน์วันที่ต้องสั้นพอให้ "@ | วันที่ | รายการ | เลขที่ | จำนวน" อยู่ครบใน A4
+           และ "วัน" คือสิ่งที่ต้องเทียบกับช่วงวันที่บนหัวใบ ⇒ ตัดเวลาออกที่คอลัมน์นี้เท่านั้น
+           (ใบเดี่ยวที่พิมพ์แยกยังคงมีเวลาครบตามเดิม)
+
+        ⚠️ ต้องแปลงเป็น **เวลาไทยก่อน** แล้วจึง `.date()` — ตัดวันที่จาก UTC ตรง ๆ
+           จะได้วันผิดสำหรับรายการที่เกิดก่อน 07:00 น. เวลาไทย
+        """
+        if aware_dt is None:
+            return None
+        if aware_dt.tzinfo is None:
+            aware_dt = aware_dt.replace(tzinfo=timezone.utc)
+        return cls._thai_date_text(aware_dt.astimezone(THAI_TZ).date())
 
     @staticmethod
     def _display_name(row) -> str:
@@ -1561,6 +1596,16 @@ class ReceiptsMixin:
             "collection_amount": None,
             "remaining": None,
             "remaining_text": None,
+            # 🗂️ คีย์ของการยุบ (F6/PR-4) — **ต้องถูกตั้งเสมอ** ด้วยเหตุผลเดียวกับสองตัวบน:
+            #    เทมเพลตกันด้วย `{% if d.is_merged %}` ซึ่ง `Undefined` ตอบ False ให้ฟรี
+            #    แต่ `{{ d.doc_no_text or d.receipt_no }}` บนคีย์ที่หายไปจะเงียบ ๆ ตกไป
+            #    ใช้ `receipt_no` — ซึ่ง **เป็น None** สำหรับใบที่ถูกยุบ ⇒ หัวใบว่างเปล่า
+            #    ⇒ ตั้งที่นี่ที่เดียว แล้ว `_merged_context` ค่อย override ทับ
+            "is_merged": False,
+            "doc_no_text": None,
+            "doc_date_text": None,
+            "merged_count": 0,
+            "members": [],
         }
         collection_amount = d.get("collection_amount")
         if collection_amount:
@@ -1569,6 +1614,158 @@ class ReceiptsMixin:
             context["remaining"] = remaining
             context["remaining_text"] = baht_text(remaining)
         return context
+
+    # ============================================================ ยุบเป็นหน้าเดียว
+    @staticmethod
+    def _merged_item_title(d: dict) -> str:
+        """ชื่อ "รายการ" ของบรรทัดหนึ่งในใบที่ถูกยุบ — คู่กับสาขา `{% else %}` ของ receipt.html
+
+        ⚠️ ถ้อยคำต้องตรงกับที่เทมเพลตพิมพ์ให้ **ใบเดี่ยว** เป๊ะ ไม่งั้นใบเสร็จใบเดียวกัน
+           จะบอก "รายการ" ไม่เหมือนกันแล้วแต่ดาวน์โหลดมาทีละใบหรือรวมทีละสาม
+           (แก้ที่เทมเพลตเมื่อไร ต้องแก้ที่นี่ด้วย — ทั้งคู่มีคอมเมนต์ชี้หากัน)
+        """
+        if d.get("collection_title"):
+            return d["collection_title"]
+        if d.get("doc_type") == DOC_TYPE_DEPOSIT:
+            return "รับเงินล่วงหน้า (ยังไม่หักปิดบิลใด)"
+        return "รายการชำระเงิน"
+
+    @classmethod
+    def _merge_key(cls, d: dict):
+        """คีย์การยุบของเอกสารหนึ่งใบ — `None` = **ห้ามยุบ** (ได้หน้าของตัวเองเสมอ)
+
+        🔴 `student_id` คือ "คนเดียวกัน" — **ห้ามใช้ `issued_to_name` เด็ดขาด**: มันเป็น
+           สตริง snapshot จาก `_display_name` (ชื่อเล่นเปลี่ยนได้) และนักเรียนสองคนในห้อง
+           เดียวกันชื่อซ้ำกันได้จริง ("ไอซ์") ⇒ ใบเสร็จของเด็กสองคนจะถูกยุบรวมเป็นกระดาษ
+           ใบเดียวที่ผู้ปกครองคนหนึ่งถือเลขใบเสร็จของอีกบ้านปนอยู่ด้วย
+
+        🔴 `student_id IS NULL` → ห้ามยุบ: คอลัมน์เป็น `ON DELETE SET NULL` ⇒ ใบของ
+           นักเรียนที่ถูกลบทุกใบ (ของทุกคน) กลายเป็น NULL พร้อมกัน แล้วจะยุบรวมกันหมด
+           เป็นหน้าเดียวที่ไม่มีใครเป็นเจ้าของ
+
+        🚫 `event_at` **ไม่อยู่ในคีย์** โดยเจตนา: ผู้ใช้เลือกรูปแบบ "รวม N ฉบับ + ช่วงวันที่"
+           ⇒ ยุบข้ามวันได้ และหัวใบพิมพ์ **ช่วง** วันที่ ไม่ใช่โกหกว่าทุกใบอยู่วันเดียวกัน
+           (แต่ละบรรทัดมีวันที่ของตัวเองอยู่แล้ว)
+
+        ⚠️ `status` **อยู่**ในคีย์: ใบที่ถูกยกเลิกมีแบนเนอร์ของตัวเองซึ่งวางไว้บนสุดของ
+           **หน้า** ไม่ใช่บนสุดของ **บรรทัด** ⇒ ถ้ายุบปนกับใบที่ยังใช้ได้ ใบที่ยกเลิก
+           จะอ่านเหมือนใบปกติทั้งที่เงินส่วนนั้นถูกคืนไปแล้ว
+        """
+        if d.get("doc_type") not in _MERGEABLE_DOC_TYPES:
+            return None
+        if d.get("student_id") is None:
+            return None
+        return (d["student_id"], d["doc_type"], d.get("status"))
+
+    @classmethod
+    def _merged_context(cls, group: list) -> dict:
+        """กลุ่มเอกสาร (≥2 ใบ คีย์เดียวกัน) → context ของ **หน้าเดียวที่มีหลายบรรทัด**
+
+        🔴 ใช้ context ของสมาชิกตัวแรกเป็น **ฐาน** ไม่ประกอบ dict ใหม่เอง — ได้คีย์ครบ
+           ทุกตัวตามสัญญาที่ `_document_context` เขียนไว้โดยอัตโนมัติ และคีย์ที่เพิ่มใน
+           อนาคตก็ไหลมาที่นี่ฟรี ⇒ ไม่มีทางที่ partial จะได้ `Undefined` ไปเรียก
+           `"{:,.2f}".format()` แล้วระเบิดเป็น 500
+        """
+        ctx = cls._document_context(group[0])
+
+        members = []
+        for d in group:
+            members.append({
+                "receipt_no": d["receipt_no"],
+                "title": cls._merged_item_title(d),
+                "amount": float(d["amount"]),
+                # 🗓️ วันที่ **ของบรรทัดนั้น** — มาจาก `event_at` เหมือนหัวใบของใบเดี่ยว
+                "date_text": cls._thai_day_text(d.get("event_at") or d.get("issued_at")),
+            })
+
+        # 💰 ผลบวกของ **ค่าที่เก็บไว้ตอนออกเอกสาร** — ไม่ recompute จากบิล/แคมเปญ
+        #    (ใบที่ถูกยกเลิกกลางทางยังมียอดเดิมบนกระดาษ ⇒ ผลรวมต้องตรงกับที่ตาเห็น)
+        total = round(sum(m["amount"] for m in members), 2)
+
+        # 🗓️ ช่วงวันที่บนหัวใบ — เทียบสตริงได้เพราะรูปแบบเดียวกันทั้งหมด ("15 ต.ค. 2569")
+        #    ⚠️ วันเดียวทั้งกลุ่ม → พิมพ์วันเดียว ไม่พิมพ์ "X – X" ที่อ่านเหมือนข้อมูลหาย
+        days = [m["date_text"] for m in members if m["date_text"]]
+        if not days:
+            span = None
+        elif len(set(days)) == 1:
+            span = days[0]
+        else:
+            span = f"{days[0]} – {days[-1]}"
+
+        ctx.update({
+            "is_merged": True,
+            "merged_count": len(members),
+            "members": members,
+            # 🏷️ หัวใบ: "รวม N ฉบับ" แทนเลขที่ — ใบที่ยุบ **ไม่มี** เลขที่เดียว
+            #    (ทุกเลขอยู่ครบในคอลัมน์ "เลขที่" ของตารางด้านล่าง)
+            "doc_no_text": f"รวม {len(members)} ฉบับ",
+            "doc_date_text": span,
+            "receipt_no": None,
+            "amount": total,
+            "amount_text": baht_text(total),
+            # 🔴 ปิดทุกอย่างที่เป็นแนวคิด **ต่อบิล** — ใบที่ยุบไม่มีสิ่งนี้
+            #    เหตุผลเชิงความหมาย: ใบเสร็จ 3 ใบของนักเรียนคนหนึ่งอาจมาจาก 3 แคมเปญ
+            #    ⇒ ไม่มี "ยอดเต็มของรายการ" เดียว และไม่มี "ยอดสะสมที่ชำระแล้ว" ที่มี
+            #      ความหมาย ⇒ หน้าที่ยุบพิมพ์เฉพาะตารางสมาชิก + ยอดรวม
+            #    ⚠️ `paid_total_after = None` **บังคับ ไม่ใช่ความสวย**: receipt.html
+            #       พิมพ์ `"{:,.2f}".format(d.paid_total_after)` ⇒ ถ้าไม่ปิด และเทมเพลต
+            #       ไม่กันด้วย `{% if not d.is_merged %}` จะได้ TypeError = 500 ทุกครั้ง
+            "paid_total_after": None,
+            "paid_total_after_text": None,
+            "collection_amount": None,
+            "collection_title": None,
+            "collection_due_date": None,
+            "remaining": None,
+            "remaining_text": None,
+            # 🚫 `line_items` ไม่ถูกยุบ — คอลัมน์นั้นถูกเขียนโดย `_issue_invoice_aggregate`
+            #    เท่านั้น (doc_type='invoice') ซึ่งไม่อยู่ใน `_MERGEABLE_DOC_TYPES`
+            #    ⇒ ไม่มีข้อมูลจริงถูกทิ้งที่นี่
+            "line_items": None,
+            "line_items_hidden": 0,
+        })
+        return ctx
+
+    @classmethod
+    def _document_contexts(cls, docs: list) -> list:
+        """ลิสต์เอกสารที่ shape แล้ว → ลิสต์ context **สำหรับการเรนเดอร์ไฟล์รวม**
+
+        🎯 ผู้ใช้เลือก 3 ใบของผู้ปกครองคนเดียวกัน → ได้กระดาษ **1 หน้า 3 บรรทัด**
+           แต่ละบรรทัดมีเลขที่ของตัวเอง + ยอดรวมเดียวเป็นตัวอักษร
+
+        🔴 เรียกจาก `_render_documents_pdf` **ที่เดียว** · `render_receipt_pdf` (ใบเดียว)
+           เรียก `_document_context` ตรง ๆ — **ห้ามเปลี่ยนมาเรียกตัวนี้**: URL ของใบเดียว
+           ระบุเอกสารหนึ่งใบ ถ้ามันไปตามหา "พี่น้อง" มาพิมพ์รวม กระดาษที่ได้จะมีเลขของ
+           เอกสารที่ URL ไม่ได้ขอ ⇒ เลขใน URL ไม่ใช่เลขบนหัวกระดาษ
+
+        ⚠️ การยุบ **เรียงลำดับใหม่** เมื่อผู้ใช้เลือกสลับคน (A1, B1, A2 → A1, A2, B1)
+           เป็นธรรมชาติของการจัดกลุ่ม และไม่ทำให้ยอด/เลขใดหายไป
+        """
+        # bucket ถูกสร้างตอนเจอสมาชิกตัวแรก ⇒ ลำดับหน้า = ลำดับที่ผู้ใช้เห็นบนจอ
+        order, buckets = [], {}
+        for d in docs:
+            key = cls._merge_key(d)
+            if key is None:
+                order.append(("doc", d))
+                continue
+            if key not in buckets:
+                buckets[key] = []
+                order.append(("group", buckets[key]))
+            buckets[key].append(d)
+
+        contexts = []
+        for kind, payload in order:
+            if kind == "doc":
+                contexts.append(cls._document_context(payload))
+            elif len(payload) == 1:
+                # 🔑 กลุ่มขนาด 1 = เอกสารเดี่ยว ⇒ **ต้องได้ context เหมือนเดิมทุกไบต์**
+                #    ไม่งั้น "โหลดทีละใบ" กับ "โหลดรวม" จะได้กระดาษคนละแบบโดยไม่มีใครรู้
+                contexts.append(cls._document_context(payload[0]))
+            elif len(payload) > _MAX_MERGED_MEMBERS:
+                # ✂️ เกินเพดาน ⇒ แยกเป็น N หน้า **ไม่ตัดบรรทัดทิ้ง** (เหตุผลอยู่ที่ค่าคงที่)
+                contexts.extend(cls._document_context(m) for m in payload)
+            else:
+                contexts.append(cls._merged_context(payload))
+        return contexts
 
     @classmethod
     async def render_receipt_pdf(
@@ -1736,7 +1933,9 @@ class ReceiptsMixin:
             #    ⇒ ถ้ายึดไว้ระหว่างเรนเดอร์ ไฟล์ 100 หน้าจะทำให้ **ทุก endpoint การเงิน
             #      ทั้งระบบ** (ของ replica นั้น) หยุดรอ ไม่ใช่แค่คำขอที่กำลังพิมพ์อยู่
 
-            html = render_receipts_html([cls._document_context(d) for d in docs])
+            # 🗂️ `_document_contexts` จัดกลุ่มใบของ "คนเดียวกัน ชนิดเดียวกัน สถานะเดียวกัน"
+            #    ให้อยู่หน้าเดียว — ใบเดี่ยวและกลุ่มขนาด 1 ได้ context เดิมทุกไบต์
+            html = render_receipts_html(cls._document_contexts(docs))
             pdf_bytes = await html_to_pdf(html, timeout=PDF_BATCH_TIMEOUT)
             # 🏷️ ถ้าชุดนี้ปนสองชนิดเอกสาร ชื่อไฟล์ต้องไม่แอบอ้างว่าเป็นชนิดใดชนิดหนึ่ง
             #    (`pdf_filename_batch` แปลงชนิดที่ไม่รู้จักเป็น "documents" ให้เอง)
