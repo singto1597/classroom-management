@@ -1,7 +1,18 @@
+import type { ApiSuccessResponse } from '@/types/api';
+
 export interface Account {
   id: number;
   account_name: string;
   balance: number;
+  /**
+   * 🏦 [F6] ช่องทางจ่ายของกระเป๋า — ตั้งครั้งเดียวที่หน้าตั้งกระเป๋าเงิน แล้วใบสำคัญจ่าย
+   * ดึงไปพิมพ์เอง (ผู้ใช้ไม่ต้องเลือกช่องทางซ้ำตอนบันทึกรายจ่าย)
+   * ⚠️ `undefined` = backend เวอร์ชันก่อน F6 ⇒ ถือเป็น `'cash'` ไม่ใช่ "ไม่ระบุ"
+   */
+  account_kind?: AccountKind;
+  bank_name?: string | null;
+  bank_account_no?: string | null;
+  bank_account_name?: string | null;
 }
 
 export interface Category {
@@ -129,6 +140,25 @@ export interface BasicStudent {
 export interface AccountCreate {
   account_name: string;
   initial_balance: number;
+  /**
+   * 🏦 [F6] ช่องทางจ่ายของกระเป๋า — ไม่ส่ง = `'cash'` (ค่า default ของคอลัมน์)
+   * ℹ️ สามตัวธนาคารไม่บังคับที่ schema แต่ **ควรกรอกเมื่อเลือก `'transfer'`**:
+   *    ใบสำคัญจ่ายจะพิมพ์เฉพาะที่มี ⇒ ใบที่จ่ายโดยไม่มีเลขบัญชีตรวจสอบย้อนหลังไม่ได้
+   */
+  account_kind?: AccountKind;
+  bank_name?: string | null;
+  bank_account_no?: string | null;
+  bank_account_name?: string | null;
+  user_name?: string;
+}
+
+/** แก้กระเป๋าเงิน — ชื่อ + ข้อมูลช่องทางจ่าย (ไม่แตะยอดคงเหลือ) */
+export interface AccountUpdate {
+  account_name: string;
+  account_kind?: AccountKind;
+  bank_name?: string | null;
+  bank_account_no?: string | null;
+  bank_account_name?: string | null;
   user_name?: string;
 }
 
@@ -145,7 +175,35 @@ export interface TransactionCreate {
   description: string;
   transaction_type: 'income' | 'expense';
   slip_image_url?: string | null;
+  /**
+   * 🧾 [F6] "อีกฝ่าย" ของรายการ — **บังคับทั้งสองแท็บ** (ฝั่ง backend ตรวจที่ชั้น service
+   * และตอบ 400 ภาษาไทย ไม่ใช่ 422)
+   *
+   * 🔴 ห้ามปล่อยว่างแม้แต่กรณีเดียว: ชื่อนี้คือ **คู่กรณีที่พิมพ์ลงบนกระดาษ**
+   *    • แท็บรายจ่าย → ผู้เบิก/ผู้รับเงิน (ลงบนใบสำคัญจ่าย)
+   *    • แท็บรายรับ  → ผู้จ่ายเงิน (ลงบนใบรับเงิน ที่ออกให้ผู้ที่จ่ายเงินเข้ามา)
+   *    ปล่อยว่าง = เอกสารการเงินที่ไม่มีคู่กรณี ซึ่งตรวจสอบย้อนหลังไม่ได้
+   */
+  payee_name: string;
+  /** ผู้อนุมัติ (ใบสำคัญจ่าย) — ไม่บังคับ: บางห้องไม่มีหัวหน้าที่เซ็น */
+  approver_name?: string | null;
+  /** จำนวนเอกสารแนบ (บิลเงินสด/ใบเสร็จจากร้านค้า) — `0` = ไม่ได้แนบ */
+  attachment_count?: number;
   user_name: string;
+}
+
+/**
+ * 🧾 [F6] คำตอบของ `POST /finance/transactions` — **รวมเลขเอกสารที่เพิ่งออก**
+ *
+ * 🔴 เดิม endpoint นี้ประกาศ `response_model=SuccessResponse` ซึ่ง **ตัดฟิลด์ที่ service
+ *    คืนทิ้งเงียบ ๆ** ⇒ หน้าจอไม่มีทางรู้เลขเอกสารที่จะให้ผู้ใช้โหลด/อ้างอิงได้
+ *    (กับดักเดียวกับ `BatchPaymentConfirmResponse` — เจอเป็นครั้งที่สองในระบบนี้)
+ * ⚠️ `receipt_no` เป็น `null` ได้: รายการที่ไม่ได้ออกเอกสาร (เช่นอนาคตที่มีชนิดที่ไม่ต้องออก)
+ */
+export interface TransactionCreateResponse extends ApiSuccessResponse {
+  receipt_no?: string | null;
+  doc_type?: ReceiptDocType | null;
+  doc_type_label?: string | null;
 }
 
 export interface TransferCreate {
@@ -422,8 +480,35 @@ export interface BudgetUpdatePayload {
  *    คนละชนิดเอกสารกัน · แต่**ต้อง**นับเป็น "เอกสารที่รับเงินแล้ว" ทุกที่ที่เทมเพลต
  *    หรือหน้าจอ branch ด้วย `is_receipt` (ไม่งั้นจะถูกพิมพ์ด้วยถ้อยคำใบแจ้งหนี้:
  *    "เรียกเก็บจาก" / "ยอดค้างชำระ" ซึ่งผิดทั้งใบ)
+ *
+ * 🆕 [F6] สองชนิดที่ออกให้ **รายการที่บันทึกเอง** (`POST /finance/transactions`):
+ *    • `'income'` = **ใบรับเงิน** (`INC-2569-0001`) — เงินเข้าห้องที่ไม่มีบิลรองรับ
+ *      ⇒ เป็น "หลักฐานว่ารับเงินมาแล้ว" เหมือน `receipt`/`deposit` (นับใน `is_receipt`)
+ *    • `'payment_voucher'` = **ใบสำคัญจ่าย** (`PV-2569-0001`) — เอกสาร **สั่งจ่าย**
+ *      ตามรายจ่ายที่บันทึก ⇒ 🔴 **ไม่ใช่ใบเสร็จ** ทั้งในเทมเพลตและบนหน้าจอ
+ *      (หน้าจอต้องมีสาขาของตัวเอง — ถ้าปล่อยให้ตกไปสาขาใบแจ้งหนี้จะพิมพ์
+ *      "เรียกเก็บจาก"/"ยอดค้างชำระ" ซึ่งกลับความหมายทั้งใบ)
  */
-export type ReceiptDocType = 'receipt' | 'invoice' | 'deposit';
+export type ReceiptDocType = 'receipt' | 'invoice' | 'deposit' | 'income' | 'payment_voucher';
+
+/** ช่องทางจ่ายเงินของกระเป๋า — ตรงกับ `chk_finance_account_kind` ฝั่ง backend */
+export type AccountKind = 'cash' | 'transfer';
+
+/**
+ * 🧾 หนึ่งช่วงงบประมาณที่ **ครอบวันของรายการนั้น** (snapshot ณ วันออกใบสำคัญจ่าย)
+ *
+ * 🔴 snapshot ไม่ใช่การ JOIN สด: แก้/ลบงบทีหลังต้องไม่เปลี่ยนกระดาษที่พิมพ์แจกไปแล้ว
+ * ⚠️ งบซ้อนช่วงกันได้จริง (unique index คือ `(room_id, category_id, start_date, end_date)`
+ *    เท่านั้น) ⇒ ลิสต์นี้ยาวเกิน 1 ได้ และยอดอาจถูกนับซ้ำในการสรุปรวม
+ */
+export interface VoucherBudget {
+  id: number;
+  amount: number;
+  /** ISO `YYYY-MM-DD` (inclusive) */
+  start_date: string;
+  end_date: string;
+  period_type: string;
+}
 
 /**
  * 📋 หนึ่งบรรทัดในตารางแจกแจงของใบแจ้งหนี้ **ยอดค้างรวมต่อคน**
@@ -447,6 +532,15 @@ export interface Receipt {
   doc_type: ReceiptDocType;
   /** ฉลากไทย เช่น "ใบเสร็จรับเงิน" — มาจาก backend ที่เดียว อย่าเขียนซ้ำที่หน้าจอ */
   doc_type_label: string | null;
+  /**
+   * 🧾 เอกสารนี้พูดด้วยถ้อยคำของ **ใบเสร็จ** (เงินเข้ามือแล้ว) หรือ **ใบแจ้งหนี้** (ยังไม่ได้รับ)?
+   *
+   * 🔴 **ห้ามคำนวณเองที่หน้าจอจาก `doc_type`** — ใช้ฟิลด์นี้เท่านั้น
+   *    backend คิดจาก `RECEIPT_LIKE_DOC_TYPES` ตัวเดียวกับที่เทมเพลต PDF ใช้พิมพ์กระดาษ
+   *    ⇒ จอกับกระดาษตอบคำถามนี้ไม่ตรงกันไม่ได้
+   *    (`payment_voucher` เป็น `false` โดยเจตนา — ใบสั่งจ่ายไม่ใช่หลักฐานว่ารับเงิน)
+   */
+  is_receipt: boolean;
   /** ปี พ.ศ. ของ **เหตุการณ์รับเงิน** (ไม่ใช่ปีที่กดพิมพ์) — คิดตามเวลาไทย */
   year_be: number;
   seq: number;
@@ -511,8 +605,40 @@ export interface ReceiptListItem extends Receipt, ReceiptBatchFields {
   student_no: number | null;
 }
 
+/**
+ * 🧾 [F6] ข้อมูลเฉพาะของ **ใบสำคัญจ่าย** — ทั้งชุดเป็น `null` สำหรับเอกสารชนิดอื่น
+ *
+ * 🔴 อยู่บน `ReceiptDetail` (ไม่ใช่ `ReceiptListItem`) ด้วยเหตุผลเดียวกับ `line_items`:
+ *    ทะเบียนโหลดได้ถึง 500 แถวและ **ไม่ดึง `voucher_snapshot` (jsonb) มาด้วย**
+ *    ⇒ `null` ในทะเบียนแปลว่า "ไม่มีข้อมูล" ไม่ได้แปลว่า "ใบนี้ไม่ใช่ใบสำคัญจ่าย"
+ *    ให้เปิดหน้ารายละเอียดก่อนตัดสินใจ
+ *
+ * ⚠️ ทุกค่าเป็น **snapshot ณ วันออกเอกสาร** — เปลี่ยนชื่อหมวด/แก้เลขบัญชี/แก้งบทีหลัง
+ *    ต้องไม่ย้อนไปเปลี่ยนกระดาษที่พิมพ์แจกไปแล้ว
+ */
+export interface VoucherFields {
+  /** ผู้อนุมัติ — ไม่บังคับ (แล้วแต่ตกลงกันในห้อง) ⇒ `null` = ไม่มีช่องให้เซ็น */
+  approver_name: string | null;
+  /** จำนวนเอกสารแนบ (บิลเงินสด/ใบเสร็จจากร้านค้า) — `0` = ไม่ได้แนบ */
+  attachment_count: number;
+  /** ชื่อกระเป๋าที่จ่ายออก เช่น "🪙 กระเป๋าเงินสด" */
+  account_name: string | null;
+  account_kind: AccountKind | null;
+  /** สามตัวนี้มีค่าเฉพาะ `account_kind === 'transfer'` */
+  bank_name: string | null;
+  bank_account_no: string | null;
+  bank_account_name: string | null;
+  /** หมวดหมู่งบประมาณของรายการนี้ (F2) */
+  category_name: string | null;
+  /**
+   * งบที่ครอบวันของรายการ — **ลิสต์ว่าง = "ไม่อยู่ในงบประมาณที่ตั้งไว้"**
+   * ⚠️ อย่าแสดงช่องว่างเมื่อลิสต์ว่าง: "ไม่มีงบ" ต่างจาก "ยังไม่ได้ตั้งงบ"
+   */
+  budgets: VoucherBudget[];
+}
+
 /** หน้ารายละเอียด — ได้ข้อมูลระดับแคมเปญ/ห้องเพิ่ม สำหรับหัวเอกสารบนหน้าจอ */
-export interface ReceiptDetail extends ReceiptListItem {
+export interface ReceiptDetail extends ReceiptListItem, VoucherFields {
   collection_amount: number | null;
   collection_due_date: string | null;
   room_name: string | null;

@@ -174,13 +174,15 @@ async def test_export_includes_income_and_expense_rows(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=inc_cat, amount=100.0,
-                              description="รับบริจาค", transaction_type="income", user_name="Owner"),
+                              description="รับบริจาค", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=exp_cat, amount=30.0,
-                              description="ซื้อของ", transaction_type="expense", user_name="Owner"),
+                              description="ซื้อของ", transaction_type="expense", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
 
@@ -213,13 +215,15 @@ async def test_export_filters_by_date_range(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=cat, amount=100.0,
-                              description="ม.ค.", transaction_type="income", user_name="Owner"),
+                              description="ม.ค.", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=cat, amount=200.0,
-                              description="ก.พ.", transaction_type="income", user_name="Owner"),
+                              description="ก.พ.", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     async with db_pool.acquire() as conn:
@@ -247,7 +251,8 @@ async def test_export_month_year_filter(db_pool):
         return await FinanceService.add_transaction(
             pool=db_pool,
             req=TransactionCreate(account_id=account_id, category_id=cat, amount=amount,
-                                  description=desc, transaction_type="income", user_name="Owner"),
+                                  description=desc, transaction_type="income", user_name="Owner",
+                                  payee_name="คู่กรณีทดสอบ"),
             user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
         )
 
@@ -317,7 +322,8 @@ async def test_export_summary_sheet_has_correct_totals(db_pool):
         return await FinanceService.add_transaction(
             pool=db_pool,
             req=TransactionCreate(account_id=acc, category_id=cat, amount=amount,
-                                  description=desc, transaction_type=ttype, user_name="Owner"),
+                                  description=desc, transaction_type=ttype, user_name="Owner",
+                                  payee_name="คู่กรณีทดสอบ"),
             user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
         )
 
@@ -358,7 +364,8 @@ async def test_export_soft_deleted_transactions_excluded(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=cat, amount=100.0,
-                              description="รายการจริง", transaction_type="income", user_name="Owner"),
+                              description="รายการจริง", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     async with db_pool.acquire() as conn:
@@ -368,7 +375,8 @@ async def test_export_soft_deleted_transactions_excluded(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=account_id, category_id=cat, amount=999.0,
-                              description="ถูกลบ", transaction_type="income", user_name="Owner"),
+                              description="ถูกลบ", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     async with db_pool.acquire() as conn:
@@ -448,7 +456,8 @@ async def test_export_summary_excludes_transfer_from_totals_legacy(db_pool):
         await FinanceService.add_transaction(
             pool=db_pool,
             req=TransactionCreate(account_id=acc, category_id=cat, amount=amount,
-                                  description=desc, transaction_type=ttype, user_name="Owner"),
+                                  description=desc, transaction_type=ttype, user_name="Owner",
+                                  payee_name="คู่กรณีทดสอบ"),
             user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
         )
 
@@ -493,13 +502,15 @@ async def test_export_summary_excludes_transfer_from_totals_v2(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=acc_main, category_id=inc_cat, amount=500.0,
-                              description="บริจาค", transaction_type="income", user_name="Owner"),
+                              description="บริจาค", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=acc_main, category_id=exp_cat, amount=200.0,
-                              description="ซื้อของ", transaction_type="expense", user_name="Owner"),
+                              description="ซื้อของ", transaction_type="expense", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     await FinanceService.transfer_money(
@@ -551,7 +562,8 @@ async def test_export_spanning_merges_both_eras(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=acc, category_id=cat, amount=200.0,
-                              description="บริจาคหลังตัด", transaction_type="income", user_name="Owner"),
+                              description="บริจาคหลังตัด", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
 
@@ -590,7 +602,8 @@ async def test_export_balances_exclude_voided_journal(db_pool):
         await FinanceService.add_transaction(
             pool=db_pool,
             req=TransactionCreate(account_id=acc, category_id=inc_cat, amount=amount,
-                                  description=desc, transaction_type="income", user_name="Owner"),
+                                  description=desc, transaction_type="income", user_name="Owner",
+                                  payee_name="คู่กรณีทดสอบ"),
             user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
         )
 

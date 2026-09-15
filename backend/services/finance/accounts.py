@@ -25,6 +25,16 @@ from .helpers import (
 from .base import _lock_room_money, service_logger
 
 
+# 🏦 [F6] ฟิลด์ของกระเป๋าเงินที่ PATCH แก้ได้ — **allowlist เดียวในระบบ**
+# 🔴 ต้องเป็น allowlist ไม่ใช่ "ทุกคีย์ที่ส่งมา": ชื่อคอลัมน์ถูกต่อเข้าไปใน SQL
+#    (ดู `update_account`) ⇒ ถ้ารับคีย์อิสระ เท่ากับเปิดให้ผู้ใช้กำหนด SQL เอง
+# ⚠️ `user_name` **ไม่อยู่ในลิสต์** โดยเจตนา — มันเป็นชื่อผู้ทำรายการ (audit) ไม่ใช่ข้อมูลกระเป๋า
+_ACCOUNT_PATCHABLE = (
+    "account_name", "account_kind",
+    "bank_name", "bank_account_no", "bank_account_name",
+)
+
+
 class AccountsMixin:
     @classmethod
     async def create_account(cls, pool: asyncpg.Pool, req, user_id: int, client_source: str, actor_identifier: str, server_id: Optional[int] = None, room_id: Optional[int] = None) -> dict:
@@ -40,9 +50,16 @@ class AccountsMixin:
                     await _lock_room_money(conn, target_room_id)
                     
                     # [DUAL-WRITE] ดึง id ของแถว legacy เพื่อ map ลง accounting_ledgers
+                    # 🏦 [F6] ช่องทางจ่ายเงินถูกบันทึก **พร้อมกันตอนสร้าง** ไม่ใช่แก้ทีหลัง
+                    #    ⇒ ใบสำคัญจ่ายที่ออกให้รายการแรกของกระเป๋าใบนั้นก็รู้ช่องทางแล้ว
                     new_account_id = await conn.fetchval(
-                        "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, $3) RETURNING id",
-                        target_room_id, req.account_name, req.initial_balance
+                        "INSERT INTO finance_accounts"
+                        " (room_id, account_name, balance, account_kind,"
+                        "  bank_name, bank_account_no, bank_account_name)"
+                        " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+                        target_room_id, req.account_name, req.initial_balance,
+                        req.account_kind or "cash",
+                        req.bank_name, req.bank_account_no, req.bank_account_name,
                     )
 
                     # [DUAL-WRITE] สร้าง ledger ฝั่ง Double-Entry (asset 1xxxx) ภายใน transaction เดียวกัน
@@ -83,7 +100,14 @@ class AccountsMixin:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
-                rows = await conn.fetch("SELECT id, account_name, balance FROM finance_accounts WHERE room_id = $1 ORDER BY id", target_room_id)
+                # 🏦 [F6] ส่งช่องทางจ่ายเงินออกไปด้วย — หน้าจอใช้แสดงชิป "เงินสด/โอน"
+                #    ⚠️ ต้องประกาศใน `AccountResponse` ด้วย ไม่งั้น `response_model` ตัดทิ้งเงียบ ๆ
+                rows = await conn.fetch(
+                    "SELECT id, account_name, balance, account_kind,"
+                    " bank_name, bank_account_no, bank_account_name"
+                    " FROM finance_accounts WHERE room_id = $1 ORDER BY id",
+                    target_room_id
+                )
                 result = [dict(row) for row in rows]
 
                 exec_time = int((time.time() - start_time) * 1000)
@@ -123,16 +147,54 @@ class AccountsMixin:
                     if not old_data: raise RoomNotFoundError("ไม่พบบัญชีนี้")
                     old_values = dict(old_data)
 
-                    res = await conn.execute("UPDATE finance_accounts SET account_name = $1 WHERE id = $2 AND room_id = $3", req.account_name, account_id, target_room_id)
+                    # ══ 🏦 [F6] PATCH จริง: แก้เฉพาะฟิลด์ที่ส่งมา ──────────────────────
+                    # 🔴 เดิมโค้ดนี้ตั้ง `account_name` ตรง ๆ จาก req เสมอ ⇒ เพิ่มช่องทางจ่าย
+                    #    (เงินสด/โอน + ธนาคาร) เข้ามาแล้ว **แก้ช่องทางโดยไม่แตะชื่อไม่ได้**
+                    #    เว้นแต่ frontend จะส่งชื่อเดิมกลับมา ซึ่งพังเงียบเมื่อชื่อถูกแก้ที่อื่น
+                    # ⚠️ `exclude_unset` แปลว่า "ส่ง `null` มา" = **ตั้งใจล้างค่านั้น**
+                    #    ⇒ การส่ง `null` ต้องไม่กลายเป็น "ไม่แตะ" โดยบังเอิญ
+                    patch = {
+                        k: v for k, v in req.model_dump(exclude_unset=True).items()
+                        if k in _ACCOUNT_PATCHABLE
+                    }
+                    if not patch:
+                        raise ValueError("ไม่มีข้อมูลที่จะแก้ไข")
+                    # 🔴 ชื่อกระเป๋าเป็น NOT NULL ⇒ ส่ง `null` มาแล้วเขียนตาม = NotNullViolation
+                    #    = 500 แทนที่จะเป็นคำตอบที่อ่านออก · ตีความ `null` ที่ชื่อว่า "ไม่แตะชื่อ"
+                    #    (จะ "ล้างชื่อ" ไม่ได้โดยธรรมชาติของคอลัมน์ ไม่ใช่เพราะโค้ดนี้ปิดกั้น)
+                    if patch.get("account_name") is not None:
+                        patch["account_name"] = patch["account_name"].strip()
+                        if not patch["account_name"]:
+                            raise ValueError("ต้องระบุชื่อกระเป๋าเงิน")
+                    else:
+                        patch.pop("account_name", None)
+
+                    # ⚠️ f-string เฉพาะ **ชื่อคอลัมน์** ซึ่งมาจาก `_ACCOUNT_PATCHABLE`
+                    #    (ค่าคงที่ในไฟล์นี้) ไม่ใช่จาก request — **ค่าทุกค่าเป็น `$n` เสมอ**
+                    #    ⇒ ยังคงกฎ "ห้าม f-string SQL" ในความหมายที่สำคัญ: ผู้ใช้กำหนด SQL ไม่ได้
+                    set_parts, params = [], [account_id, target_room_id]
+                    for col, val in patch.items():
+                        params.append(val)
+                        set_parts.append(f"{col} = ${len(params)}")
+                    res = await conn.execute(
+                        f"UPDATE finance_accounts SET {', '.join(set_parts)}"
+                        f" WHERE id = $1 AND room_id = $2",
+                        *params
+                    )
                     if res == "UPDATE 0": raise RoomNotFoundError("ไม่พบบัญชีนี้")
 
                     # [DUAL-WRITE] ซิงก์ชื่อไปยัง accounting_ledgers (ถ้ามี) — กัน ledger ค้างชื่อเก่า
-                    await conn.execute(
-                        "UPDATE accounting_ledgers SET account_name = $1, updated_at = CURRENT_TIMESTAMP WHERE legacy_account_id = $2 AND room_id = $3",
-                        req.account_name, account_id, target_room_id
-                    )
+                    # 🚫 เรียกเฉพาะเมื่อ **ชื่อถูกแก้จริง** — คำสั่งเดิมเขียนทับด้วยชื่อเดิมทุกครั้ง
+                    #    (ไม่ผิด แต่ทำให้ `updated_at` ของ ledger ขยับทั้งที่ไม่มีอะไรเปลี่ยน)
+                    if "account_name" in patch:
+                        await conn.execute(
+                            "UPDATE accounting_ledgers SET account_name = $1, updated_at = CURRENT_TIMESTAMP WHERE legacy_account_id = $2 AND room_id = $3",
+                            patch["account_name"], account_id, target_room_id
+                        )
 
-                    new_values = cls._extract_req_data(req)
+                    # 📝 audit บันทึก **สิ่งที่ถูกเขียนจริง** (patch) ไม่ใช่ทั้ง req
+                    #    ⇒ อ่าน log แล้วรู้ทันทีว่าคำขอนี้แก้ช่องทางหรือแก้ชื่อ โดยไม่ต้องเดา
+                    new_values = cls._extract_req_data(patch)
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,

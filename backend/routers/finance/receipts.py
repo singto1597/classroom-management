@@ -202,7 +202,13 @@ async def get_receipts(
     # ⚠️ ต้องมี 'deposit' ด้วย ไม่งั้น chip "ใบรับเงินล่วงหน้า" บนหน้าทะเบียนได้ 422
     #    จาก router ก่อนถึง service — ตัว service (`get_receipts`) **ไม่มี whitelist**
     #    จึงมีด่านนี้ด่านเดียวที่บล็อก (ข่าวดี: ล้มดัง ไม่เงียบ)
-    doc_type: Optional[str] = Query(None, pattern="^(receipt|invoice|deposit)$"),
+    # 🔴 [F6] นี่คือ **whitelist เดียวในระบบ** ของ `doc_type` ⇒ ชนิดเอกสารใหม่ทุกชนิด
+    #    ต้องถูกเพิ่มที่นี่ ไม่งั้น chip ตัวกรองบนหน้าทะเบียนได้ 422 ทั้งที่เอกสารถูกออกจริง
+    #    ⚠️ พิมพ์ชื่อชนิดผิดตรงนี้ = 422 ที่อ่านไม่ออกว่า "ลืมเพิ่มชื่อ" (Pydantic บอกแค่
+    #       "string does not match pattern") ⇒ คู่กับเทสต์ `test_receipts_registry_accepts_...`
+    doc_type: Optional[str] = Query(
+        None, pattern="^(receipt|invoice|deposit|income|payment_voucher)$"
+    ),
     student_id: Optional[int] = Query(None, gt=0),
     include_voided: bool = Query(
         False, description="รวมเอกสารที่ถูกยกเลิก/ลบแล้ว (มุมมองตรวจสอบย้อนหลัง)"

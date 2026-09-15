@@ -99,6 +99,7 @@ async def _add_txn(pool, room_id, owner, account_id, category_id, amount, ttype,
         req=TransactionCreate(
             account_id=account_id, category_id=category_id, amount=amount,
             description=desc, transaction_type=ttype, user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
@@ -377,7 +378,8 @@ async def test_journal_export_start_before_cutoff_clamps(db_pool):
     await FinanceService.add_transaction(
         pool=db_pool,
         req=TransactionCreate(account_id=acc, category_id=cat, amount=500.0,
-                              description="บริจาค ต.ค.", transaction_type="income", user_name="Owner"),
+                              description="บริจาค ต.ค.", transaction_type="income", user_name="Owner",
+                              payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
     async with db_pool.acquire() as conn:

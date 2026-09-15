@@ -211,6 +211,7 @@ async def test_add_expense_allowed_when_decimal_balance_slightly_higher(db_pool)
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=0.1,
             description="ซื้อของ 10 สตางค์", transaction_type="expense", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -233,6 +234,7 @@ async def test_add_expense_allowed_when_decimal_balance_1_1_amount_1_1(db_pool):
         req=TransactionCreate(
             account_id=account_id, category_id=cat_id, amount=1.1,
             description="ใช้เงินสตางค์", transaction_type="expense", user_name="Owner",
+        payee_name="คู่กรณีทดสอบ",
         ),
         user_id=owner, client_source="test", actor_identifier="test",
         room_id=room_id,
@@ -255,6 +257,7 @@ async def test_add_expense_still_blocked_when_truly_insufficient(db_pool):
             req=TransactionCreate(
                 account_id=account_id, category_id=cat_id, amount=0.1,
                 description="เกินจริง", transaction_type="expense", user_name="Owner",
+            payee_name="คู่กรณีทดสอบ",
             ),
             user_id=owner, client_source="test", actor_identifier="test",
             room_id=room_id,
