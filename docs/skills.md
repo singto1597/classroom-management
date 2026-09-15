@@ -1727,3 +1727,84 @@
 - **Rule:** (1) **ห้าม `hash()` กับค่าที่ออกนอกโปรเซส** (id, cache key, ชื่อไฟล์, signature) — ใช้ `zlib.crc32`/`hashlib`; ⚠️ ถ้าเป็นเรื่อง **ความปลอดภัย** ต้อง `hmac`/`hashlib` เท่านั้น ห้าม `crc32` (2) จะพิสูจน์ความคงที่ **ต้องรันในโปรเซสลูกที่ `PYTHONHASHSEED` ต่างกัน** — เทสต์ในโปรเซสเดียว **ผ่านเสมอแม้โค้ดจะผิด** (3) เขียน **เทสต์คู่** ที่พิสูจน์ว่ากับดักยังมีจริง (`hash()` ต้องให้ค่าต่างกันจริงในโปรเซสลูก) ไม่งั้นเทสต์ความคงที่อาจ "เขียวหลอก" เพราะไม่ได้พิสูจน์อะไร
 - **Tests:** `test_journal_fallback_id_is_stable_across_processes` (โปรเซสลูก 3 ตัว seed `0`/`1`/`12345`) · mutation "fallback กลับไปใช้ `hash()`" → ถูกจับ
 - **Date Added:** 2026-09-15
+
+### 🧪 harness ของ mutation test ที่ "พังตอนสตาร์ท" ถูกรายงานเป็น "เทสต์จับได้" — vitest 4 ไม่มี `--reporter=basic`
+- **Context/Problem:** สคริปต์ mutation ฝั่ง frontend รายงาน **"ถูกจับ 14/14 · รอด 0"** ตั้งแต่รันครั้งแรก ซึ่งดีเกินจริง ⇒ พอเปิด log ดูจึงเห็นว่าทุกครั้งขึ้น `Startup Error: Failed to load custom Reporter from basic` = **ไม่มีเทสต์ถูกรันเลยสักตัว** แต่สคริปต์อ่าน `exit code != 0` เป็น "เทสต์ล้ม = จับได้" ⇒ **ความล้มเหลวของเครื่องมือถูกรายงานเป็นความสำเร็จของเทสต์**
+- **Root Cause:** vitest 4 **ตัด `--reporter=basic` ออกแล้ว** และตีความ argument ที่ไม่รู้จักเป็น **path ของ reporter ที่ผู้เขียนเอง** ⇒ พังตอนสตาร์ท · ซ้ำร้าย exit code ของ "สตาร์ทไม่ขึ้น" กับ "เทสต์ล้ม" **เป็นค่าเดียวกัน** ⇒ แยกไม่ออกถ้าดูแค่ exit code
+- **Correct Pattern/Solution:** ใช้ `--reporter=dot` (หรือ `default`) และ **ตรวจ output ก่อนตัดสิน**:
+  ```js
+  const harnessBroken =
+    /Startup Error|No test files found|Failed to load|Failed to load custom Reporter/.test(out) ||
+    !/Tests\s+/.test(out)          // ← ต้องมีบรรทัดสรุป "Tests N passed/failed" จริง
+  if (harnessBroken) return { outcome: 'harness' }   // ห้ามนับเป็น caught
+  ```
+  แยก bucket ให้ชัด 4 กอง: `caught` · `survived` (เทสต์จับไม่ได้จริง ⇒ ต้องแก้เทสต์) · `broken` (mutation ทำให้คอมไพล์ไม่ผ่าน = วัดไม่ได้) · `harness` (เครื่องมือพัง)
+- **Rule:** (1) 🔴 **ห้ามตัดสินผล mutation จาก exit code อย่างเดียว** — ต้องยืนยันว่าเทสต์ **รันจริง** (มีบรรทัดสรุป) ก่อน (2) เครื่องมือที่ "พังแล้วรายงานว่าสำเร็จ" อันตรายกว่าเครื่องมือที่พังเฉย ๆ ⇒ ทุก harness ต้องมี guard ที่พิสูจน์ว่าตัวเองทำงาน (3) `anchor ไม่ชัด` (หา string ที่จะ mutate ไม่เจอ) **ต้องแยกจาก** `รอด` — สองเรื่องนี้เคยถูกรวมกันแล้วอ่านผิดว่า "เทสต์อ่อน" ทั้งที่ความจริงคือ "mutation ไม่ได้ถูกทดสอบ"
+- **Tests:** `frontend/src/components/ui/__tests__/_mutation_row_action_menu.mjs`
+- **Date Added:** 2026-09-15
+
+### 🧬 รายการ mutation ที่ "เราเลือกเอง" ไม่ได้วัดความครอบคลุม — "14/14 · รอด 0" คือความมั่นใจปลอม
+- **Context/Problem:** หลังเขียนเทสต์ถดถอย 11 ตัวให้ `RowActionMenu.vue` แล้ว mutation harness รายงาน **"ถูกจับ 14/14 · รอด 0"** ⇒ เกือบสรุปว่าเทสต์ครอบคลุมครบ · แต่ผู้รีวิวยิง mutation ชุด **ใหม่ 13 ตัว** ใส่คอมโพเนนต์เดียวกัน **ผ่านเทสต์ทั้ง 11 ตัวหมด** — รวมถึง `open(event.detail === 0)` → `open(true)`, `const step = 1;`, ลบการนำทางด้วยลูกศรทั้งท่อน, ลบ listener ของ resize, `PANEL_WIDTH` 208→240 และ `:style="panelStyle"` → `:style="{top:'0px',left:'0px'}"` ⇒ **positioning / keyboard / resize ซึ่งเป็นเหตุผลทั้งหมดที่คอมโพเนนต์นี้มีอยู่ กลับไม่มี mutation สักตัว**
+- **Root Cause:** mutation list ที่ **คนเขียนเทสต์เป็นคนเลือกเอง** มีอคติแบบหลีกเลี่ยงไม่ได้ — เรานึกถึงสาขาที่เพิ่งเขียนเทสต์ให้ แต่ **ลืมนึกถึงสาขาที่เราลืมเทสต์** ⇒ ตัวเลขที่ได้วัด "รายการที่เลือกมาทดสอบ" ไม่ได้วัด "โค้ดที่ครอบคลุม" · ยิ่งเป็นไฟล์ที่เขียนมือทั้งไฟล์ (ไม่มี mutation generator อัตโนมัติ) ยิ่งชัด
+- **Correct Pattern/Solution:** (1) เขียน mutation **จากรายการความรับผิดชอบของโค้ด** ไม่ใช่จากรายการเทสต์ — ไล่ทีละฟีเจอร์ที่ไฟล์นี้รับผิดชอบแล้วถามว่า "ถ้าฟีเจอร์นี้พัง จะมี mutation ตัวไหนพิสูจน์" (2) ให้ **คนอื่น** (หรือ subagent ที่ไม่เห็นเทสต์) ยิง mutation ชุดใหม่ (3) ถ้ามี mutation ที่รอด ⇒ **แก้เทสต์ ไม่ใช่ลบ mutation ออก** และถ้า *จงใจ* ไม่แก้ (เช่น เคสที่เข้าถึงไม่ได้จริง) **ต้องเขียนบอกใน PR** ไม่ใช่เงียบ
+- **Rule:** (1) 🔴 **ห้ามอ่าน "ถูกจับ N/N · รอด 0" ว่า "ครอบคลุม"** — ต้องเขียนกำกับเสมอว่า N คือ *รายการที่เลือกทดสอบ* (2) ไฟล์ที่เขียนมือทั้งไฟล์ต้องมี mutation อย่างน้อย **1 ตัวต่อ 1 ความรับผิดชอบ** (3) mutation ที่ "รอด" มีค่าเท่ากับบั๊กที่ยังไม่มีเทสต์ — ต้องปิดด้วยเทสต์ใหม่ ไม่ใช่ด้วยคำอธิบาย
+- **Tests:** `_mutation_row_action_menu.mjs` ขยายจาก 14 → **39 mutation** หลังรีวิว (+ เทสต์ที่เพิ่มเพื่อปิดช่อง: แผงล้นจอแนวตั้ง · ขอบขวา · `Esc` ที่โฟกัสไม่อยู่ที่ปุ่ม · ลำดับ z-index ของฉากหลัง · `@click.stop`)
+- **Date Added:** 2026-09-15
+
+### 🖱️ `.click()` บนปุ่มที่ `disabled` ไม่ยิง event เลย (ทั้งเบราว์เซอร์และ jsdom) ⇒ เทสต์เขียวเพราะไม่ได้ทดสอบอะไร
+- **Context/Problem:** เทสต์ "ไอเทมที่ถูก disable ต้องไม่ยิง `@select`" ใช้ `item.click()` แล้วเขียวมาตลอด — จนเอา mutation "ถอด guard `if (item.disabled) return`" ไปวาง ปรากฏว่า **เทสต์ยังเขียว**
+- **Root Cause:** HTML spec กำหนดว่าการ `click()` บน **form control ที่ disabled** ต้อง **return ทันทีโดยไม่ dispatch event** ⇒ ทั้งเบราว์เซอร์จริงและ jsdom ไม่ยิง `click` ออกมาเลย ⇒ handler ถูกเรียก **0 ครั้ง** ⇒ assertion `expect(emitted).toBeUndefined()` ผ่าน **ด้วยเหตุผลผิด** (ไม่ใช่เพราะ guard ทำงาน แต่เพราะไม่มี event ตั้งแต่แรก)
+- **Correct Pattern/Solution:** ยิง event เองเพื่อข้ามข้อจำกัดของ spec — พร้อม **assert ว่าปุ่ม disabled จริง** เพื่อไม่ให้เทสต์ผ่านเพราะปุ่มบังเอิญไม่ disabled
+  ```js
+  expect(item).toHaveProperty('disabled', true)                  // ยืนยันสมมติฐานก่อน
+  item.dispatchEvent(new MouseEvent('click', { bubbles: true }))  // ข้ามข้อจำกัดของ .click()
+  await nextTick()
+  expect(emitted).toBeUndefined()
+  ```
+- **Rule:** (1) 🔴 **การทดสอบว่า "guard ทำงาน" ต้องทำให้ event ไปถึง guard ให้ได้ก่อน** — ถ้า UI บล็อกไม่ให้ event เกิดแต่แรก เทสต์นั้นพิสูจน์ guard ไม่ได้เลย (2) เมื่อ mutation "ถอด guard" **ไม่ถูกจับ** ให้สงสัยก่อนว่า **event ไม่เคยไปถึงโค้ดนั้น** (3) เทสต์ที่ assert "ไม่เกิดอะไรขึ้น" ต้องพิสูจน์ด้วยว่าสภาพตั้งต้นเอื้อให้เกิดได้
+- **Tests:** `RowActionMenu.spec.ts` → เคส "ไอเทมที่ disabled …" (dispatchEvent + assert `disabled` attribute + assert class `cursor-not-allowed`)
+- **Date Added:** 2026-09-15
+
+### 🧭 Safari (macOS) ไม่ย้ายโฟกัสมาที่ `<button>` เมื่อคลิกด้วยเมาส์ — อย่าผูก `Escape` กับ "โฟกัสอยู่ที่ปุ่ม"
+- **Context/Problem:** ระหว่างแก้บั๊ก "ลูกศรของทั้งหน้าถูกเมนูยึด" จึงเพิ่ม `if (!ownsFocus()) return;` ไว้ต้น `onKeydown` **ครอบทุกคีย์** ⇒ เทสต์ 4 ตัวล้มทันทีเพราะหลังคลิกด้วยเมาส์ `document.activeElement` เป็น `<body>` ⇒ พอไล่ดูจริงพบว่าถ้าปล่อยไว้ **ผู้ใช้ Safari จะกด Esc แล้วเมนูไม่ปิดเลย**
+- **Root Cause:** Safari บน macOS **ไม่ย้าย focus ไปที่ปุ่มเมื่อคลิกด้วยเมาส์** (ต่างจาก Chrome/Firefox) ⇒ `ownsFocus()` เป็น false แม้ผู้ใช้เพิ่งคลิกปุ่มนั้นเอง · ในทางกลับกัน **การยึดลูกศรคือบั๊กจริง** ที่ต้องเช็คโฟกัส ⇒ **สองคีย์นี้ต้องการเงื่อนไขคนละแบบ การใช้ guard ตัวเดียวกันครอบทั้งคู่จึงผิด**
+- **Correct Pattern/Solution:** แยกเงื่อนไขตาม "คีย์นี้เป็นของใคร":
+  - `Tab` / `Escape` ⇒ **ไม่มีเงื่อนไข** (เมนูที่เปิดอยู่มีฉากหลังคลุมทั้งหน้า = overlay บนสุด ⇒ Esc ที่ไหนก็ควรปิด)
+  - `ArrowUp` / `ArrowDown` ⇒ **ต้องมี** `ownsFocus()` (ไม่งั้นไป `preventDefault()` ลูกศรของทั้งหน้าและกระชากโฟกัสจาก `<select>` ของตัวกรองเข้ามา)
+  ข้อสังเกตจากเทสต์: jsdom **ก็ไม่ย้ายโฟกัสให้เช่นกัน** ⇒ เทสต์เส้นทางลูกศรต้อง `triggerEl().focus()` เอง
+- **Rule:** (1) 🔴 **ห้ามใช้ guard "โฟกัสอยู่กับเราไหม" กับปุ่มที่เปิด overlay** — Safari จะพังเงียบ (2) ก่อนผูก logic กับ `document.activeElement` ให้ถามว่า "เบราว์เซอร์อื่นย้ายโฟกัสให้เหมือนกันไหม" (3) เมื่อเทสต์ล้มพร้อมกันหลายตัว ให้สงสัยว่า **สมมติฐานของเทสต์กับของเบราว์เซอร์ไม่ตรงกัน** ไม่ใช่รีบแก้เทสต์ให้ผ่าน
+- **Date Added:** 2026-09-15
+
+### ✂️ เมนู `position: absolute` ใช้ไม่ได้กับตารางที่ `overflow-hidden` + `overflow-x-auto` — ต้อง Teleport ไป `body` + `fixed`
+- **Context/Problem:** ต้องซ่อนปุ่ม "ยกเลิกรายการ" (ทำลายข้อมูล) ไว้ในเมนูจุด 3 จุดกลางแถวตาราง แต่ DESIGN.md §5 **บังคับ** ให้ทุกตารางครอบ `page-card hidden overflow-hidden lg:block` และมี `overflow-x-auto` ⇒ เมนูที่วาง `absolute` ในเซลล์จะ **ถูกตัดหายทั้งแผงโดยไม่มี error ใด ๆ** (แย่กว่านั้น: ปุ่มยังกดได้ แต่แผงที่เปิดมาไม่ปรากฏ ⇒ ดูเหมือน "กดแล้วไม่มีอะไรเกิดขึ้น")
+- **Root Cause:** `overflow: hidden/auto` สร้าง **clipping context** ให้ descendant ที่ `position: absolute` ทุกตัวที่ไม่มี containing block อยู่ข้างนอก · จะแก้ด้วย `z-index` ไม่ได้เลย (ไม่ใช่เรื่อง stacking) · และใน jsdom **มองไม่เห็นบั๊กนี้เลย** เพราะ jsdom ไม่ทำ layout/clipping
+- **Correct Pattern/Solution:** `<Teleport to="body">` + `position: fixed` แล้วคำนวณพิกัดจาก `getBoundingClientRect()` ของปุ่มเอง + **ปิดเมื่อ scroll (capture) และ resize** (เพราะ `fixed` ไม่ขยับตามพ่อ ต้องปิดทิ้งแทน) — เป็นท่าเดียวกับ `MainLayout.vue` ⇒ **ท่า Teleport นี้คือ recipe ของ repo**
+  ⚠️ ต้องมี **ฉากหลัง (backdrop) ที่มี z-index** ด้วย ไม่งั้นองค์ประกอบอื่นบนหน้า (header แบบ sticky) จะอยู่เหนือฉาก ⇒ คลิกนอกครั้งแรกไปโดนอย่างอื่นแทนที่จะปิดเมนู
+  ⚠️ ทางเลือกที่มีอยู่ใน repo: `StudentList.vue:303` แก้ด้วยการ **ถอด `overflow-hidden` ออก** จาก `.page-card` ของตัวเอง — ใช้ได้กับหน้าที่ตารางไม่ต้องเลื่อนแนวนอนเท่านั้น
+- **Rule:** (1) 🔴 **ห้ามวางเมนู/ดรอปดาวน์แบบ `absolute` ในตารางที่ครอบ `overflow-hidden`** (2) เทสต์ jsdom **พิสูจน์ clipping ไม่ได้** ⇒ อย่างน้อยต้อง assert ว่าแผงถูก teleport ออกนอกพ่อที่ clip (`host.contains(menu) === false`) และเป็น `fixed` แบบ **โทเคนทั้งคำ** (`classList.contains('fixed')` — `toContain('fixed')` ผ่านได้กับ `bg-fixed`!) (3) คอมโพเนนต์ที่ `fixed` ต้องผูก `scroll`(capture)/`resize` เพื่อปิดตัวเอง และ **ถอด listener ตอน unmount เทียบ `(type, fn, capture)`** ไม่ใช่เทียบชื่อ
+- **Tests:** `RowActionMenu.spec.ts` → `createClippingHost()` + เคส "แผงหลุดออกจากพ่อที่ overflow-hidden" · เคสปิดเมื่อ scroll/resize · เคส listener cleanup เทียบ triple
+- **Date Added:** 2026-09-15
+
+### 🎨 Tailwind arbitrary value ที่มี `calc()` ต้องใส่ `_` แทนเว้นวรรค ไม่งั้นถูกทิ้งเงียบ ๆ
+- **Context/Problem:** เขียน `max-h-[calc(100vh-1.5rem)]` เพื่อจำกัดความสูงเมนู ⇒ **ไม่มี error ไม่มี warning** แต่ CSS ไม่ถูกสร้าง ⇒ เพดานความสูงไม่มีผลจริง (เมนูยาวเกินจอล้น และไอเทมท้าย ๆ กดไม่ได้ — ซึ่งเป็นบั๊กที่เพดานนี้ตั้งใจกันไว้พอดี)
+- **Root Cause:** Tailwind ตัดคำใน arbitrary value ด้วย **ช่องว่าง** ⇒ `calc(100vh-1.5rem)` ที่ไม่มีช่องว่างรอบ `-` ไม่ใช่ `calc()` ที่ถูกต้องตาม CSS ⇒ declaration ทั้งเส้นถูก **drop เงียบ ๆ** · ต้องเขียนช่องว่างเป็น `_` ซึ่ง Tailwind แปลงกลับให้
+- **Correct Pattern/Solution:** `max-h-[calc(100vh_-_1.5rem)]` · เช่นเดียวกันกับ `grid-cols-[repeat(3,_minmax(0,_1fr))]`
+- **Rule:** (1) arbitrary value ที่มี `calc()`/ฟังก์ชันหลายอาร์กิวเมนต์ ต้องใช้ `_` แทนเว้นวรรคทุกจุด (2) คลาสที่ Tailwind "ทิ้งเงียบ" ต้องมี **เทสต์ที่ assert ว่าคลาสนั้นติดอยู่จริง** — เทสต์จะไม่จับ "CSS ไม่ถูกสร้าง" แต่จะจับ "คลาสหายไปจาก template" (3) อาการ "ใส่คลาสแล้วไม่มีผล" ให้สงสัยว่า Tailwind ไม่รู้จักคลาสนั้นก่อนสงสัย CSS อื่น
+- **Tests:** `RowActionMenu.spec.ts` → assert `max-h-[calc(100vh_-_1.5rem)]` และ `overflow-y-auto`
+- **Date Added:** 2026-09-15
+
+### 🗡️ ฆ่า mutation harness กลางคัน = ไฟล์ที่กำลัง mutate ค้างอยู่ในสภาพพัง และ **กู้ไม่ได้ถ้ายังไม่ commit**
+- **Context/Problem:** หยุดสคริปต์ mutation ด้วย `TaskStop` ระหว่างรัน ⇒ `RowActionMenu.vue` (ไฟล์ใหม่ ยังไม่ถูก commit) **ค้างอยู่ในสภาพ mutated** — `:style="panelStyle"` กลายเป็น `:style="{ top: '0px', left: '0px' }"` · handler `SIGINT`/`SIGTERM` ที่เขียนไว้ **ไม่ได้ทำงาน** เพราะ process ถูกฆ่าก่อนถึงจังหวะ ⇒ **ไม่เหลือต้นฉบับที่ไหนเลย** (untracked file ⇒ `git checkout` กู้ไม่ได้) กู้กลับได้เพราะบังเอิญเทียบ anchor แล้วเห็นว่าผิดอยู่บรรทัดเดียว
+- **Root Cause:** สคริปต์ mutation **ต้องแก้ไฟล์จริงโดยธรรมชาติ** ⇒ มีช่วงเวลาที่ working tree อยู่ในสภาพพังเสมอ · การพึ่ง `finally`/signal handler ครอบคลุมไม่ได้ทุกวิธีที่ process ตาย (SIGKILL, การฆ่า process group, เครื่องดับ) · และความเสี่ยงนี้ **สูงสุดกับไฟล์ใหม่ที่ยังไม่ commit** ซึ่งเป็นกรณีปกติของงานที่กำลังทำอยู่
+- **Correct Pattern/Solution:** (1) **สำรองต้นฉบับออกไปนอก repo ก่อนเริ่ม** (`os.tmpdir()`) แล้วพิมพ์ path ให้เห็น (2) คืนไฟล์ใน `finally` **ต่อ iteration** (ไม่ใช่แค่ท้ายสคริปต์) ⇒ ช่วงที่ไฟล์พังสั้นลงเหลือเฉพาะระหว่างรันเทสต์ (3) ตรวจว่าคืนแล้วจริงด้วยการเทียบ anchor ทุกตัวก่อนรันรอบถัดไป
+  ```js
+  const BACKUP = resolve(tmpdir(), '_RowActionMenu.original.vue')
+  writeFileSync(BACKUP, original, 'utf8')
+  // …ในลูป:
+  writeFileSync(COMPONENT, mutated, 'utf8')
+  let result
+  try { result = runSpec() } finally { restore() }   // ← คืนทันที
+  ```
+- **Rule:** (1) 🔴 เครื่องมือที่แก้ไฟล์ต้นฉบับ **ต้องสำรองออกนอก repo เสมอ** ถ้าไฟล์นั้นยังไม่ถูก commit (2) อย่าพึ่ง signal handler อย่างเดียว — `finally` ต่อ iteration คือด่านที่เชื่อถือได้กว่า (3) ถ้าไฟล์ค้าง mutated ให้ **เทียบ anchor** เพื่อหาว่าผิดบรรทัดไหน แทนการเขียนใหม่ทั้งไฟล์ — และถ้ากู้ไม่ได้จริง **ต้องบอกผู้ใช้ตรง ๆ ว่าไฟล์เสีย** ไม่ใช่รายงานว่างานเสร็จ
+- **Tests:** `_mutation_row_action_menu.mjs` (บรรทัด `BACKUP` + `finally { restore() }`)
+- **Date Added:** 2026-09-15
