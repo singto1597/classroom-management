@@ -1,12 +1,40 @@
 """Module-level helper functions สำหรับ finance (cutoff / time normalize / period resolve)"""
+import json
+import zlib
 from datetime import date, datetime, time as dtime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from .constants import THAI_TZ, CUTOFF_DATE
 
-# [ROUTER] view ขนาดเล็ก ใช้ส่ง month/year/start_date/end_date แบบสลับกันไปมา
-# ระหว่าง router กับ _resolve_export_period (เดิมรับ req object เดียว)
-def _legacy_id_from_journal(metadata: dict, journal_uuid: str) -> int:
+
+def _metadata_to_dict(raw: Any) -> dict:
+    """[JSONB] แปลงค่า `journal_entries.metadata` ที่อ่านจาก asyncpg ให้เป็น dict เสมอ.
+
+    ⚠️ asyncpg **ไม่ได้**ลง type codec สำหรับ jsonb ไว้ (grep `set_type_codec` ทั้ง
+       backend/ ไม่พบเลย) ⇒ คอลัมน์ jsonb ถูกคืนกลับมาเป็น **str ดิบ**
+       เช่น `'{"legacy_transaction_id": 502}'` — **ไม่ใช่ dict**
+
+    ⇒ โค้ดที่เขียนว่า `if not isinstance(metadata, dict): metadata = {}` จะ **ทิ้งค่าจริง
+       ทั้งก้อนอย่างเงียบ ๆ** แล้วตกไปใช้ fallback (บั๊ก 2026-09-14: ปุ่ม "ยกเลิกรายการ"
+       ส่ง id ติดลบไป backend ⇒ "ไม่พบรายการธุรกรรมนี้" ทั้งที่ id จริงอยู่ใน DB)
+
+    ท่าเดียวกับที่ repo นี้ทำถูกอยู่แล้ว 3 ที่ — `activity/base.py:_parse_metadata`,
+    `finance/export.py` (`raw_meta`) และ `finance/receipts.py`
+    ⚠️ ที่ต้องมีสำเนาเป็นของตัวเองเพราะยังไม่มี helper กลางใน `core/` และการ import
+       ข้ามโมดูล (finance → activity) ผิดชั้นสถาปัตยกรรม
+    """
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _legacy_id_from_journal(metadata: Any, journal_uuid: str) -> int:
     """[DOUBLE-ENTRY] สังเคราะห์ TransactionResponse.id จาก journal.
 
     ระบบเดิม (frontend + revert_transaction) อ้างอิงธุรกรรมด้วย finance_transactions.id
@@ -14,9 +42,11 @@ def _legacy_id_from_journal(metadata: dict, journal_uuid: str) -> int:
     - ถ้ามี → คืนค่า int นั้น (revert ได้จริง)
     - ถ้าไม่มี (เช่น opening_balance) → คืนค่าลบที่ derived จาก UUID (คอลัมน์ไม่ซ้ำกัน,
       แต่ไม่สามารถใช้ revert ได้ — ตรงกับธรรมชาติของยอดยกมาที่ไม่ใช่ธุรกรรมรายการ)
+
+    ⚠️ `metadata` รับได้ทั้ง dict และ str — **ห้ามแก้กลับไปเป็น `isinstance(..., dict)`
+       แล้วทิ้งค่า** (ดูเหตุผลใน `_metadata_to_dict`)
     """
-    if not isinstance(metadata, dict):
-        metadata = {}
+    metadata = _metadata_to_dict(metadata)
     for key in ("legacy_transaction_id", "transfer_group_id"):
         val = metadata.get(key)
         if val is not None:
@@ -24,9 +54,16 @@ def _legacy_id_from_journal(metadata: dict, journal_uuid: str) -> int:
                 return int(val)
             except (TypeError, ValueError):
                 continue
-    # fallback: ใช้ hash ของ UUID มาสร้าง id ลบ (กันหน้าจอ key ซ้ำ)
+    # fallback: id ลบที่ **คงที่** จาก UUID (กันหน้าจอ key ซ้ำ)
+    #
+    # 🔴 ห้ามใช้ `hash()` ของ Python — `hash()` ของ str ถูกใส่ salt แบบสุ่ม **ต่อโปรเซส**
+    #    (PYTHONHASHSEED) ⇒ แถวเดียวกันได้ id คนละค่ากันในแต่ละ replica / หลัง restart
+    #    ⇒ เลขบนหน้าจอเปลี่ยนเองโดยที่ข้อมูลไม่เปลี่ยน (วัดจริงบน staging จาก UUID เดียวกัน:
+    #      1376437036645411758 · -4318364185880035763 · -3882699260063488080)
+    #    `zlib.crc32` ให้ค่าเดิมเสมอไม่ว่าโปรเซสไหน และยังได้ช่วงค่าเดิม
+    #    (-(2**31-1) .. -1) ⇒ ยังติดลบเสมอ ไม่มีทางชนกับ id จริงที่เป็นบวก
     try:
-        return -(abs(hash(str(journal_uuid))) % (2**31 - 1) + 1)
+        return -(zlib.crc32(str(journal_uuid).encode("utf-8")) % (2**31 - 1) + 1)
     except Exception:
         return -1
 

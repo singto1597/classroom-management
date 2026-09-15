@@ -1691,3 +1691,39 @@
 - **Correct Pattern/Solution:** เลี่ยงผ่าน REST API: `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@/tmp/body.md` (`-F` ที่ตามด้วย `@ไฟล์` อ่านเนื้อหาจากไฟล์) · **ยืนยันผลด้วยการอ่านกลับ** `gh api repos/.../pulls/<n> --jq '.body' | head`
 - **Rule:** (1) **ห้ามกลบ stderr ของคำสั่งที่แก้ state ภายนอก** (`gh`, `git push`, `curl`) — นี่เป็นครั้งที่สองของรูปแบบนี้ในงานชุดนี้ (ครั้งแรก: `cmd | tail` แล้วต่อ `&& echo "✅"` ทำให้รายงานว่าสำเร็จทั้งที่ exit ไม่ใช่ 0) ⇒ ให้เขียนไฟล์ log แล้วอ่าน `echo "exit=$?"` แยก (2) คำสั่งที่ "แก้ของที่อยู่ข้างนอก" ต้อง **อ่านกลับมายืนยัน** ไม่ใช่เชื่อ exit code อย่างเดียว
 - **Date Added:** 2026-09-14
+
+### 🧩 asyncpg คืนคอลัมน์ `jsonb` เป็น **สตริง** — `if not isinstance(x, dict): x = {}` คือการทิ้งข้อมูลจริงอย่างเงียบ ๆ
+- **Context/Problem:** ผู้ใช้กด "ยกเลิกรายการ" ในหน้าประวัติเงินเคลื่อนไหว แล้วขึ้น Swal `ยกเลิกไม่ได้ / ไม่พบรายการธุรกรรมนี้` **ทุกครั้ง** ที่รายการนั้นเป็นของยุคบัญชีคู่ (`transaction_date >= CUTOFF_DATE`) — ทั้งที่ `journal_entries` ทุกแถวนั้นมี `metadata->>'legacy_transaction_id'` เป็น id จริงอยู่ครบ (`audit_logs`: 6 แถว `error_detail='ไม่พบรายการธุรกรรมนี้'` โดย `entity_id` เป็น **เลขติดลบ**)
+- **Root Cause:** ทั้ง repo **ไม่มี `set_type_codec` ผูกกับ pool เลย** ⇒ asyncpg คืน `metadata` (jsonb) มาเป็น **`str`** `'{"legacy_transaction_id": 502}'` **ไม่ใช่ dict** · แต่ `_legacy_id_from_journal` เปิดด้วย
+  ```python
+  if not isinstance(metadata, dict):
+      metadata = {}          # ← ทิ้ง id จริง 502 ไปทั้งก้อนตรงนี้
+  ```
+  ⇒ ตกไปใช้ fallback ที่คืน **id ติดลบ** ⇒ หน้าจอส่ง id นั้นเข้า `revert_transaction` ⇒ `WHERE id = <ติดลบ>` ไม่เจอ ⇒ "ไม่พบรายการธุรกรรมนี้"
+  🔴 **ทำไมไม่มีใครจับได้:** ค่าที่ผิดคือ id ที่ **"ดูเหมือน id"** (แค่ติดลบ) ไม่ใช่ crash ไม่ใช่ `None` ⇒ ไม่มี log ไหนฟ้อง · และ **เทสต์เดิมไม่เคย assert `id` เลย** (assert แค่ยอด/ประเภท/ชื่อหมวด) ⇒ เขียวมาตลอดจนมีคนกดปุ่ม
+- **Correct Pattern/Solution:** แปลงที่ **ขอบเขต** ก่อนใช้ และตรวจว่าผลลัพธ์เป็น dict จริง — ท่าเดียวกับที่ repo ทำถูกอยู่แล้ว **3 ที่** (`activity/base.py:_parse_metadata`, `finance/export.py`, `finance/receipts.py`)
+  ```python
+  def _metadata_to_dict(raw: Any) -> dict:
+      if isinstance(raw, dict): return raw
+      if isinstance(raw, str):
+          try: parsed = json.loads(raw)
+          except (ValueError, TypeError): return {}
+          return parsed if isinstance(parsed, dict) else {}
+      return {}
+  ```
+  ⚠️ **ห้ามแก้ด้วยการติด jsonb codec ที่ pool** — มี 6+ จุดที่ `json.loads` ค่าอยู่แล้ว และ `rbac.py` ยังเขียนคอมเมนต์เข้าใจผิดว่า *"asyncpg แปลง JSONB กลับมาให้อัตโนมัติ"* ⇒ codec จะเปลี่ยนชนิดให้ **ทั้งแอปพร้อมกัน** ต้องกวาดให้ครบก่อน (กวาดแล้ว 66 จุดเมื่อ 2026-09-15)
+- **Rule:** (1) ทุกครั้งที่อ่านคอลัมน์ jsonb ต้อง **decode ก่อนใช้** (2) 🔴 **ห้ามเขียน `if not isinstance(x, dict): x = {}` กับค่าที่เพิ่งอ่านจาก DB** — รูปนี้ **เงียบ**; ถ้าจะปฏิเสธข้อมูลให้ **raise** (แบบที่ `activity/base.py:186` ทำ) (3) ค่าที่ "ดูถูกแต่ผิด" (id ติดลบ, 0, ชื่อหมวดกลาง ๆ) คือบั๊กที่เทสต์ไม่จับ — ต้องมีเทสต์ที่ **assert ค่าจริง** ไม่ใช่แค่ assert ว่าไม่ throw (4) ฟังก์ชันที่สังเคราะห์ id ให้ client **ต้องมีเทสต์ round-trip** — เอา id ที่ได้ไปใช้จริง ไม่ใช่เทสต์แค่ว่ามันคืน `int` (5) ตรวจสุขภาพทั้ง repo ด้วย `grep -rn -B2 "not isinstance(.*, dict)" backend/` แล้วแยกให้ออกว่า **ตัวไหน validate payload (raise — ปลอดภัย)** กับ **ตัวไหนอ่าน DB (blank — อันตราย)**
+- **Tests:** `test_finance_v2_read.py` → `test_metadata_to_dict_accepts_both_str_and_dict` · `test_v2_transaction_id_is_the_real_legacy_id` · `test_v2_transfer_id_points_at_a_real_transaction_row` · `test_revert_transaction_accepts_the_id_from_the_transaction_list` (round-trip: id จากรายการ → revert สำเร็จ → แถวหายจริง) · 🧬 `tests/_mutation_jsonb_meta.py` **7/7 ถูกจับ · รอด 0**
+- **Date Added:** 2026-09-15
+
+### 🎲 `hash()` ของสตริงใน Python ถูกใส่ salt **ต่อโปรเซส** — ห้ามใช้สร้างค่าที่ client อ้างอิง
+- **Context/Problem:** id สำรองของแถว journal (แถวที่ไม่มี legacy id เช่น `opening_balance`) สร้างด้วย `-(abs(hash(str(journal_uuid))) % …)` ⇒ **UUID เดียวกันให้ id คนละค่าในแต่ละโปรเซส** — วัดบน staging ได้ `1376437036645411758` · `-4318364185880035763` · `-3882699260063488080` จากการรัน 3 ครั้ง
+- **Root Cause:** CPython ใส่ salt สุ่มให้ `hash()` ของ `str`/`bytes` ตั้งแต่ 3.3 (`PYTHONHASHSEED`) เพื่อกัน hash-collision attack ⇒ ค่า **ไม่คงที่ข้ามโปรเซส** (ภายในโปรเซสเดียวคงที่) · ผลคือแถวเดิมได้ id ต่างกันในแต่ละ replica ×3 และเปลี่ยนใหม่ทุกครั้งที่รีสตาร์ท ⇒ key ฝั่ง frontend, URL, log เทียบกันไม่ได้เลย
+  ⚠️ **มองไม่เห็นตอนเทสต์** เพราะทุกเทสต์รันในโปรเซสเดียว
+- **Correct Pattern/Solution:** ใช้ฟังก์ชันที่นิยามไว้แน่นอน — `zlib.crc32` (เร็ว ช่วงค่าเดิม) หรือ `hashlib.blake2b`/`sha256` ตัด 8 ไบต์ (ชนกันยากกว่า ถ้าต้องรองรับหลายล้านแถว)
+  ```python
+  return -(zlib.crc32(str(journal_uuid).encode("utf-8")) % (2**31 - 1) + 1)
+  ```
+- **Rule:** (1) **ห้าม `hash()` กับค่าที่ออกนอกโปรเซส** (id, cache key, ชื่อไฟล์, signature) — ใช้ `zlib.crc32`/`hashlib`; ⚠️ ถ้าเป็นเรื่อง **ความปลอดภัย** ต้อง `hmac`/`hashlib` เท่านั้น ห้าม `crc32` (2) จะพิสูจน์ความคงที่ **ต้องรันในโปรเซสลูกที่ `PYTHONHASHSEED` ต่างกัน** — เทสต์ในโปรเซสเดียว **ผ่านเสมอแม้โค้ดจะผิด** (3) เขียน **เทสต์คู่** ที่พิสูจน์ว่ากับดักยังมีจริง (`hash()` ต้องให้ค่าต่างกันจริงในโปรเซสลูก) ไม่งั้นเทสต์ความคงที่อาจ "เขียวหลอก" เพราะไม่ได้พิสูจน์อะไร
+- **Tests:** `test_journal_fallback_id_is_stable_across_processes` (โปรเซสลูก 3 ตัว seed `0`/`1`/`12345`) · mutation "fallback กลับไปใช้ `hash()`" → ถูกจับ
+- **Date Added:** 2026-09-15
