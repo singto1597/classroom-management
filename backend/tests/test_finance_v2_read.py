@@ -13,8 +13,11 @@ Integration tests for Phase 4 — Time-Based Routing & Double-Entry Read Models.
 ใช้ service โดยตรง (ไม่ผ่าน HTTP) ตาม convention ของ test_finance.py
 และพึ่ง dual-write ของ add_transaction/transfer_money/confirm_payment ที่สร้าง journal ให้เอง
 """
+import os
 import random
 import string
+import subprocess
+import sys
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -29,6 +32,7 @@ from models.finance_schemas import (
     TransactionCreate,
     TransferCreate,
 )
+from services.finance.helpers import _legacy_id_from_journal
 from services.finance_service import FinanceService, CUTOFF_DATE
 
 pytestmark = pytest.mark.asyncio
@@ -517,6 +521,234 @@ async def test_v2_returns_empty_when_room_has_no_journal(db_pool):
     )
     assert data["total_count"] == 0
     assert data["items"] == []
+
+
+# === [BUG 2026-09-14] id ของแถวฝั่ง journal ต้องเป็น legacy id จริง (ไม่ใช่ค่าลบ) ===
+#
+# อาการที่ผู้ใช้เจอ: กด "ยกเลิกรายการ" บนแถวที่มาจาก journal → "ไม่พบรายการธุรกรรมนี้"
+#
+# สาเหตุ: `journal_entries.metadata` (jsonb) ถูก asyncpg คืนกลับมาเป็น **str** ไม่ใช่ dict
+#   (ทั้ง repo ไม่มี `set_type_codec` ผูกกับ pool เลย) แต่ `_legacy_id_from_journal` เดิม
+#   เขียนว่า `if not isinstance(metadata, dict): metadata = {}` ⇒ **ทิ้ง id จริงไปทั้งก้อน**
+#   แล้วตกไปใช้ fallback ที่คืน **id ติดลบ** ซึ่งไม่มีอยู่ใน `finance_transactions`
+#   ⇒ `SELECT ... WHERE id = <ติดลบ>` ไม่เจอ → `TransactionNotFoundError`
+#
+# ⚠️ เทสต์กลุ่มนี้ต้องเป็น integration test กับ Postgres จริงเท่านั้น — ถ้า mock pool
+#    แล้วป้อน dict เข้าไปจะ **ไม่จับบั๊กนี้เลย** เพราะ asyncpg ต่างหากที่เป็นคนคืนสตริง
+#    (เทสต์จะเขียวทั้งที่ของจริงพัง — ตรงกับกับดักที่ `docs/skills.md` เตือนไว้)
+
+
+async def test_metadata_to_dict_accepts_both_str_and_dict():
+    """สัญญาของ helper: รับได้ทั้งสตริงจาก asyncpg และ dict — และไม่ระเบิดกับขยะ.
+
+    ฝั่ง str คือของจริงที่ไหลเข้ามาเสมอในโปรดักชัน ฝั่ง dict คือรูปร่างที่โค้ดเดิม
+    เข้าใจผิดว่ามันเป็น ⇒ เทสต์นี้ล็อกทั้งสองทางไม่ให้ใครเผลอตัดสาขาใดสาขาหนึ่งทิ้ง
+    """
+    assert _legacy_id_from_journal('{"legacy_transaction_id": 502}', "u") == 502
+    assert _legacy_id_from_journal({"legacy_transaction_id": 502}, "u") == 502
+    # ค่าที่เก็บมาเป็นสตริงก็ต้องใช้ได้ (int() แปลงให้)
+    assert _legacy_id_from_journal('{"legacy_transaction_id": "77"}', "u") == 77
+    # ขยะทุกแบบต้องตกไป fallback (ค่าลบ) — ไม่ใช่ raise
+    for junk in ("not json", "[1,2]", "null", None, 42, [], "{}"):
+        assert _legacy_id_from_journal(junk, "u") < 0, f"ขยะ {junk!r} ต้องตกไป fallback"
+
+
+async def test_legacy_id_prefers_legacy_transaction_id_over_transfer_group_id():
+    """metadata ของการโอนมี **สองคีย์** — ต้องเลือก `legacy_transaction_id` (id ของแถวจริง).
+
+    `transfer_group_id` มาจาก `transfer_group_id_seq` ซึ่งไม่ใช่ id ของแถวไหนใน
+    `finance_transactions` ⇒ ถ้าเลือกตัวนั้น `revert_transaction` จะหาแถวไม่เจอ
+    """
+    both = {"transfer_group_id": 9, "legacy_transaction_id": 12}
+    assert _legacy_id_from_journal(both, "u") == 12
+    assert _legacy_id_from_journal('{"transfer_group_id": 9, "legacy_transaction_id": 12}', "u") == 12
+    # ไม่มี legacy_transaction_id → ค่อยใช้ transfer_group_id
+    assert _legacy_id_from_journal('{"transfer_group_id": 9}', "u") == 9
+
+
+async def test_journal_fallback_id_is_stable_across_processes():
+    """🔴 fallback ต้องให้ค่าเดิม **ทุกโปรเซส** — ห้ามพึ่ง `hash()` ของ Python.
+
+    `hash()` ของ str ถูกใส่ salt แบบสุ่มต่อโปรเซส (PYTHONHASHSEED) ⇒ โค้ดเดิมให้ id
+    ต่างกันในแต่ละ replica / หลัง restart ทุกครั้ง ⇒ เลขบนหน้าจอเปลี่ยนเองโดยที่ข้อมูล
+    ไม่เปลี่ยน (วัดบน staging จาก UUID เดียวกันได้ 3 ค่า: 1376437036645411758 ·
+    -4318364185880035763 · -3882699260063488080)
+
+    เทสต์นี้รันโค้ดจริงในโปรเซสลูก 3 ตัวที่ seed ต่างกัน แล้วเทียบผล
+    """
+    jid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+    backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def run(snippet: str, seed: str) -> str:
+        out = subprocess.run(
+            [sys.executable, "-c", snippet],
+            cwd=backend_root, capture_output=True, text=True,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+        )
+        assert out.returncode == 0, f"โปรเซสลูกพัง (seed={seed}):\n{out.stderr}"
+        return out.stdout.strip()
+
+    seeds = ("0", "1", "12345")
+
+    # (ก) พิสูจน์ว่ากับดักยังมีจริง — ถ้าวันหนึ่ง `hash()` กลายเป็นคงที่ เทสต์นี้จะล้ม
+    #     ⇒ เป็นสัญญาณว่ากลับไปใช้ `hash()` ได้อย่างปลอดภัย (และลบ zlib ทิ้งได้)
+    hashes = {run(f"print(hash({jid!r}))", s) for s in seeds}
+    assert len(hashes) > 1, "เทสต์เขียวหลอก: hash() ให้ค่าเดิมทุก seed ⇒ ไม่ได้พิสูจน์อะไร"
+
+    # (ข) ตัวจริง — fallback ของเราต้องคงที่
+    ours = {
+        run(
+            "from services.finance.helpers import _legacy_id_from_journal as f;"
+            f"print(f({{}}, {jid!r}))",
+            s,
+        )
+        for s in seeds
+    }
+    assert len(ours) == 1, f"fallback ไม่คงที่ข้ามโปรเซส: {sorted(ours)}"
+    assert int(ours.pop()) < 0, "id สำรองต้องติดลบเสมอ (กันชนกับ id จริงที่เป็นบวก)"
+
+
+async def test_v2_transaction_id_is_the_real_legacy_id(db_pool):
+    """🔴 เทสต์ถดถอยหลัก — id ที่หน้าจอได้รับต้อง = `finance_transactions.id` จริง."""
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 1000.0)
+    inc_cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+    exp_cat = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
+
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=inc_cat, amount=500.0,
+                              description="รับบริจาค", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=exp_cat, amount=200.0,
+                              description="ซื้อของ", transaction_type="expense", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-10-10' WHERE room_id = $1", room_id
+        )
+        # ยอดเงินไม่ซ้ำกัน ⇒ ใช้เป็นกุญแจจับคู่ (id บนหน้าจอต้องตรงกับแถวจริงของยอดนั้น)
+        real_by_amount = {
+            float(r["amount"]): r["id"]
+            for r in await conn.fetch(
+                "SELECT id, amount FROM finance_transactions WHERE room_id = $1 AND deleted_at IS NULL",
+                room_id,
+            )
+        }
+        # ยืนยันก่อนว่าข้อมูลตั้งต้นมี id จริงอยู่จริง — ไม่งั้นเทสต์นี้พิสูจน์ผิดเรื่อง
+        meta_raw = await conn.fetchval(
+            "SELECT metadata FROM journal_entries WHERE room_id = $1 AND status <> 'voided' LIMIT 1", room_id
+        )
+        assert "legacy_transaction_id" in str(meta_raw)
+
+    data = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        start_date=POST_CUTOFF, end_date=date(2026, 10, 31), room_id=room_id, user_id=owner,
+    )
+    assert data["total_count"] == 2
+
+    for item in data["items"]:
+        assert item["id"] > 0, (
+            f"🔴 id ติดลบ ({item['id']}) ⇒ ปุ่ม 'ยกเลิกรายการ' จะยิงไปหาแถวที่ไม่มีอยู่ "
+            f"แล้วขึ้น 'ไม่พบรายการธุรกรรมนี้' — ดู [BUG 2026-09-14] ด้านบน"
+        )
+        assert item["id"] == real_by_amount[item["amount"]], \
+            "id ต้องเป็น id ของ legacy จริง ไม่ใช่ค่าที่สังเคราะห์ขึ้นมา"
+
+
+async def test_v2_transfer_id_points_at_a_real_transaction_row(db_pool):
+    """โอนเงิน — metadata มีทั้ง `transfer_group_id` และ `legacy_transaction_id`.
+
+    id ที่คืนต้องเป็นแถวจริงใน `finance_transactions` (ไม่ใช่ค่าจาก sequence)
+    ไม่งั้นกดยกเลิกแล้วได้ "ไม่พบรายการธุรกรรมนี้"
+    """
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc1 = await _insert_finance_account(db_pool, room_id, "กระเป๋าหลัก", 1000.0)
+    acc2 = await _insert_finance_account(db_pool, room_id, "กระเป๋ารอง", 0.0)
+
+    await FinanceService.transfer_money(
+        pool=db_pool,
+        req=TransferCreate(from_account_id=acc1, to_account_id=acc2, amount=100.0,
+                           description="ฝาก", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-10-10' WHERE room_id = $1", room_id
+        )
+        real_ids = {
+            r["id"] for r in await conn.fetch(
+                "SELECT id FROM finance_transactions WHERE room_id = $1 AND deleted_at IS NULL", room_id
+            )
+        }
+
+    data = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        start_date=POST_CUTOFF, end_date=date(2026, 10, 31), room_id=room_id, user_id=owner,
+    )
+    assert data["total_count"] == 1
+    assert data["items"][0]["id"] in real_ids, \
+        f"id {data['items'][0]['id']} ไม่ใช่ id ของแถวจริงใน finance_transactions"
+
+
+async def test_revert_transaction_accepts_the_id_from_the_transaction_list(db_pool):
+    """🎯 จำลองการกดปุ่มจริงของผู้ใช้: เอา id จากรายการ → ยิงเข้า revert.
+
+    นี่คือเส้นทางที่พังจริงบน staging (audit_logs: `entity_id` ติดลบ +
+    `error_detail='ไม่พบรายการธุรกรรมนี้'`) — เทสต์นี้ **ไม่รู้ id ล่วงหน้า**
+    ใช้สิ่งที่หน้าจอได้เท่านั้น ⇒ ถ้า id ที่ส่งออกไปกดไม่ได้ เทสต์นี้ล้มทันที
+    """
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กองกลาง", 1000.0)
+    cat = await _insert_category(db_pool, room_id, "เงินบริจาค", "income")
+
+    await FinanceService.add_transaction(
+        pool=db_pool,
+        req=TransactionCreate(account_id=acc, category_id=cat, amount=500.0,
+                              description="รับบริจาค", transaction_type="income", user_name="Owner"),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = '2026-10-10' WHERE room_id = $1", room_id
+        )
+
+    # 1) หน้าจอขอรายการ
+    data = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        start_date=POST_CUTOFF, end_date=date(2026, 10, 31), room_id=room_id, user_id=owner,
+    )
+    assert data["total_count"] == 1
+    listed_id = data["items"][0]["id"]
+
+    # 2) ครูกด "ยกเลิกรายการ" ด้วย id ที่เพิ่งเห็นบนจอ
+    result = await FinanceService.revert_transaction(
+        pool=db_pool, transaction_id=listed_id,
+        user_id=owner, client_source="test", actor_identifier="test",
+        user_name="Owner", room_id=room_id,
+    )
+    assert result["message"] == "ยกเลิกรายการ income"
+
+    # 3) ต้องหายจากรายการจริง — ไม่ใช่แค่ "ไม่ throw"
+    after = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        start_date=POST_CUTOFF, end_date=date(2026, 10, 31), room_id=room_id, user_id=owner,
+    )
+    assert after["total_count"] == 0
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT deleted_at FROM finance_transactions WHERE id = $1", listed_id
+        )
+    assert row is not None and row["deleted_at"] is not None
 
 
 # === [DOUBLE-ENTRY] _get_summary_v2 ===
