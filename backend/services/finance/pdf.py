@@ -113,8 +113,14 @@ def render_receipts_html(contexts: list) -> str:
         "documents": contexts,
         # 🏷️ `<title>` ของไฟล์รวม — เอกสารหลายใบไม่มี "เลขที่" เดียวให้ใช้
         #    (ต้องส่งค่านี้เสมอ ไม่งั้น `<title>` ว่าง)
+        # ⚠️ อ่าน `doc_no_text or receipt_no` ไม่ใช่ `receipt_no` ตรง ๆ: เอกสารที่ถูกยุบ
+        #    ไม่มีเลขที่เดียว (receipt_no = None) ⇒ ถ้าอ่านตัวนั้น `<title>` จะเหลือแค่
+        #    ชื่อชนิดเอกสารลอย ๆ · เอกสารที่ไม่ถูกยุบ `doc_no_text` เป็น None ⇒ ได้ค่าเดิม
         "page_title": (
-            f"{contexts[0].get('doc_title') or ''} {contexts[0].get('receipt_no') or ''}".strip()
+            "{} {}".format(
+                contexts[0].get("doc_title") or "",
+                contexts[0].get("doc_no_text") or contexts[0].get("receipt_no") or "",
+            ).strip()
             if len(contexts) == 1
             else f"เอกสารการเงิน {len(contexts)} ฉบับ"
         ),
