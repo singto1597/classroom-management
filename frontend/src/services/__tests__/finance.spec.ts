@@ -243,7 +243,108 @@ describe('FinanceService — 📚 ชุดเอกสาร (F5)', () => {
       expect(req.uri).toContain('target_type=room');
     }
   });
+});
 
+/**
+ * 🔒 เทสต์ชุดนี้ล็อกสัญญาของ "เคลียร์หนี้แล้วออกใบเสร็จให้ทุกรายการ" (F5/PR-2)
+ *
+ * บั๊กที่มันจับ:
+ * 1. **ติ๊กปิดแล้วยังส่ง `issue_receipts: true`** (หรือตัดฟิลด์ทิ้งจน backend ใช้ default)
+ *    ⇒ ครูที่ตั้งใจไม่ออกใบเสร็จจะได้ใบเสร็จทุกครั้ง และเลขเอการถูกกินไปเปล่า ๆ
+ * 2. **URL ผิด** — `/payments/batch` เป็น route ที่มี `/payments/{payment_id}/pay` อยู่ข้าง ๆ
+ *    ⇒ ถ้าเผลอต่อ `/pay` เข้าไปจะไปโดน route บิลเดียวแทน (400 เพราะ body คนละรูป)
+ * 3. `receipts` ต้องเป็น **object เต็ม** ไม่ใช่แค่เลขที่ — หน้าจอใช้ `receipt_no` ของสมาชิก
+ *    ทุกใบยิง `downloadCombined` ต่อทันที ถ้า backend ส่งแต่เลขที่จะพังตอนกดดูรวม
+ */
+describe('FinanceService — 🧾 เคลียร์หนี้แล้วออกใบเสร็จ (F5/PR-2)', () => {
+  const ROOM = 42;
+  const PAYLOAD = {
+    items: [
+      { payment_id: 11, paid_amount: 500 },
+      { payment_id: 12, paid_amount: 300 },
+    ],
+    paid_to_account_id: 5,
+    user_name: 'ครูสมชาย',
+  };
+
+  it('confirmBatchPayment: ยิง PUT ไปที่ /finance/payments/batch (ไม่ใช่ route บิลเดียว)', async () => {
+    await FinanceService.confirmBatchPayment(ROOM, PAYLOAD);
+
+    expect(first().method).toBe('PUT');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/payments/batch?`);
+    expect(firstUri()).toContain('target_type=room');
+    // ⛔ กันหลุดไปโดน `/payments/{id}/pay` ซึ่งรับ body คนละรูป
+    expect(firstUri()).not.toContain('/pay?');
+  });
+
+  it('🔴 issue_receipts=true ต้องถูกส่งออกไปจริงใน body (ไม่ใช่ query)', async () => {
+    await FinanceService.confirmBatchPayment(ROOM, { ...PAYLOAD, issue_receipts: true });
+
+    expect(firstUri()).not.toContain('issue_receipts');
+    expect(firstBody()['issue_receipts']).toBe(true);
+    expect(firstBody()['items']).toEqual(PAYLOAD.items);
+    expect(firstBody()['paid_to_account_id']).toBe(5);
+  });
+
+  it('🔴 issue_receipts=false ต้องไปถึง backend ตรง ๆ (ไม่ถูกตัดเป็น undefined = เปิด)', async () => {
+    await FinanceService.confirmBatchPayment(ROOM, { ...PAYLOAD, issue_receipts: false });
+
+    const body = firstBody();
+    // ⛔ ถ้าล้ม = ติ๊กปิดไม่ได้ผล เพราะ backend จะ fallback ไป default `True`
+    expect(Object.prototype.hasOwnProperty.call(body, 'issue_receipts')).toBe(true);
+    expect(body['issue_receipts']).toBe(false);
+  });
+
+  it('ไม่ส่ง issue_receipts เลย = ปล่อยให้ backend ตัดสิน (เปิด) — ไม่ยัด true มาเอง', async () => {
+    // 🔎 เทสต์นี้กัน "ความช่วยเหลือที่ไม่ได้ขอ": ถ้ามีคนเติม `?? true` ใน service
+    //    วันหนึ่ง backend เปลี่ยน default เป็นปิด เทสต์นี้จะล้มทันที (ซึ่งถูกต้อง)
+    await FinanceService.confirmBatchPayment(ROOM, PAYLOAD);
+    expect(Object.prototype.hasOwnProperty.call(firstBody(), 'issue_receipts')).toBe(false);
+  });
+
+  it('คำตอบเก็บ `receipts` เป็น object เต็ม + ตัวนับ (ไม่ถูกตัดทิ้งระหว่างทาง)', async () => {
+    const receipt = {
+      id: 1,
+      receipt_no: 'REC-2569-0001',
+      doc_type: 'receipt',
+      amount: 500,
+      issued_at: '2026-09-15T02:00:00Z',
+      batch_id: 9,
+    };
+    api.defaults.adapter = async (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => {
+      captured.push({
+        uri: api.getUri(config),
+        method: (config.method ?? 'get').toUpperCase(),
+        body: config.data,
+      });
+      return {
+        data: {
+          status: 'success',
+          message: 'รับเงินรวบยอด 2 รายการสำเร็จ · ออกใบเสร็จ 2 ใบ',
+          receipts: [receipt],
+          issued_count: 2,
+          reused_count: 0,
+          batch_id: 9,
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: new AxiosHeaders(),
+        config,
+      };
+    };
+
+    const res = await FinanceService.confirmBatchPayment(ROOM, PAYLOAD);
+
+    // ⛔ หน้าจอใช้ 3 อย่างนี้ตรง ๆ: `receipts[].receipt_no` ยิง downloadCombined,
+    //    `issued_count` เขียนข้อความ, `batch_id` ตัดสินว่า "รวมเป็นชุดเดียว"
+    expect(res.receipts.map((r) => r.receipt_no)).toEqual(['REC-2569-0001']);
+    expect(res.issued_count).toBe(2);
+    expect(res.reused_count).toBe(0);
+    expect(res.batch_id).toBe(9);
+  });
+});
+
+describe('FinanceService — กับดักเดิมยังมีจริง (กันเทสต์ข้างบนเขียวหลอก)', () => {
   it('🔎 พิสูจน์ว่ากับดักทั้ง 2 ข้อมีจริง — ถ้า 2 เทสต์นี้ล้ม แปลว่าเทสต์ข้างบนเขียวหลอก', async () => {
     // (ก) array ทาง query ⇒ axios ใส่วงเล็บเหลี่ยม (เหตุผลที่ receipt_nos ต้องอยู่ใน body)
     await api.post('/probe', null, { params: { receipt_nos: ['A-1', 'A-2'] } });

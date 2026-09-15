@@ -19,6 +19,8 @@
 
 ⚠️ สคริปต์นี้ **คืนไฟล์เสมอ** (finally) และยืนยันด้วย git status ตอนจบ
 """
+import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -26,10 +28,23 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent
 REPO = BACKEND.parent
 
+# 🔴 บรรทัดสรุปที่ **pytest ผลิตเองเท่านั้น** (`1 failed in 5.05s` / `130 passed, 1 skipped`)
+#    ใช้เป็นหลักฐานว่า "เทสต์รันจริง" — ไม่มีบรรทัดนี้ = infra พัง ไม่ว่า exit code จะเป็นอะไร
+#    ⚠️ จงใจ **ไม่** รับ `N error` — collection error ไม่ใช่ "เทสต์ล้ม" และต้องไม่นับเป็น "จับได้"
+PYTEST_SUMMARY_RE = re.compile(r"\b\d+ (?:passed|failed)\b")
+
+# 🔴 **ห้ามต่อ `| tail` ในคำสั่งนี้เด็ดขาด** — `sh` เป็น dash ⇒ exit code ของ pipeline
+#    คือของ **ตัวสุดท้าย** ไม่ใช่ของ pytest ⇒ `proc.returncode` เป็น 0 **เสมอ**
+#    ⇒ `run_pytest` คืน "ผ่าน" ทุกครั้ง ⇒ harness รายงาน CATCH ให้ mutant **ทุกตัว**
+#    โดยไม่มีเทสต์จับอะไรเลย — ผลบวกลวงที่อันตรายกว่า false negative เพราะอ่านเหมือน
+#    "เทสต์มีฟันครบ" ⇒ ไม่มีใครกลับไปตรวจ
+#    พิสูจน์สองบรรทัด: `sh -c "false | tail -1"` → 0 · `sh -c "false"` → 1
+#    และ dash ไม่มี `PIPESTATUS` ให้กู้ ⇒ ตัด pipe ทิ้ง แล้วให้ Python ตัด tail เอง
+#    (ดูบทเรียนเต็มใน `docs/skills.md`)
 COMPOSE = ["docker", "compose", "-f", "docker-compose.test.yml", "run", "--rm",
            "test_runner", "sh", "-c",
            "export PYTHONDONTWRITEBYTECODE=1 && python -m pytest "
-           "-p no:cacheprovider -q --no-header -x {targets} 2>&1 | tail -25"]
+           "-p no:cacheprovider -q --no-header -x {targets} 2>&1"]
 
 CREDITS = "tests/test_finance_credits.py"
 LOCK = "tests/test_finance_money_lock.py"
@@ -100,6 +115,16 @@ MUTATIONS = [
         [f"{CREDITS}::test_balance_after_is_a_snapshot_chain_not_a_sum"],
     ),
     (
+        # 🟡 **mutant นี้ "รอด" โดยชอบธรรม (equivalent ที่ระดับ API) — พิสูจน์แล้ว 2026-09-15**
+        #    ปิด `if existing:` ⇒ ไป `INSERT INTO receipt_sequences ... last_seq + 1` (กินเลข)
+        #    แล้วชน `idx_finance_receipts_deposit_active` ⇒ ชั้นที่ 2 (`raced`) คืนใบเดิม
+        #    ⇒ **ใบที่ได้ + แถวใน DB เหมือนเดิมเป๊ะ** ต่างแค่เลขที่ถูกกินไป 1
+        #    🔑 แต่ผลต่างนั้น **ไปไม่ถึง**: `_issue_deposit` มีผู้เรียกเดียว (`credits.py:408`)
+        #       และ `top_up_credit` **return เร็วที่ idempotency_key ก่อนสร้าง transaction**
+        #       (`credits.py:308-313`) ⇒ ทุกครั้งที่เรียกได้ `trans_id` ใหม่เสมอ ⇒ `existing`
+        #       ไม่มีทางไม่เป็น None ผ่านเส้นทางที่มี route อยู่จริง
+        #    ⚠️ **ห้ามลบสาขานี้ทิ้ง** — มันเป็นสัญญาของ `_issue_deposit` ในฐานะฟังก์ชันกลาง
+        #       (เหมือนสาขา `reused` ใน `collections.py` ที่ตายในเส้นทางนั้นแต่ยังต้องอยู่)
         "M9 ปิด idempotency ของใบ DEP (กันซ้ำชั้นที่ 1)",
         "services/finance/receipts.py",
         "        existing = await cls._find_existing_deposit(conn, transaction_id)\n"
@@ -148,17 +173,52 @@ MUTATIONS = [
 ]
 
 
-def run_pytest(targets: list[str]) -> tuple[bool, str]:
-    """คืน (ผ่าน?, ข้อความท้ายสุด)"""
+def run_pytest(targets: list[str]) -> tuple[str, str]:
+    """คืน (สถานะ, ข้อความท้ายสุด) — สถานะ ∈ {"pass", "fail", "infra"}
+
+    🔴 **แยก "เทสต์ล้ม" ออกจาก "container/collection พัง" ให้ออก** — ถ้ารวมเป็น boolean
+       เดียว การที่ docker ดึง image ไม่ได้ / pytest ไม่เก็บเทสต์เลย (exit 5) จะถูกอ่านเป็น
+       "mutant ถูกจับ" ซึ่งเป็นผลบวกลวงที่อันตรายที่สุดของ harness แบบนี้
+       📌 pytest exit code: 0 = ผ่านหมด · 1 = มีเทสต์ล้ม · 2 = ถูกขัดจังหวะ · 3 = internal
+          error · 4 = flag ผิด · 5 = ไม่เก็บเทสต์เลย ⇒ รับเฉพาะ 1 เป็น "ล้มจริง"
+    """
     cmd = COMPOSE[:-1] + [COMPOSE[-1].format(targets=" ".join(f"/app/{t}" for t in targets))]
     proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=2400)
     out = (proc.stdout or "") + (proc.stderr or "")
-    tail = "\n".join(out.strip().splitlines()[-4:])
-    return proc.returncode == 0, tail
+    tail = "\n".join(out.strip().splitlines()[-30:])
+    if not PYTEST_SUMMARY_RE.search(out):
+        # ไม่มีบรรทัดสรุปของ pytest ⇒ **ไม่รู้ว่าเกิดอะไรขึ้น** ⇒ ห้ามเดา ห้ามนับเป็น "จับได้"
+        return "infra", f"exit={proc.returncode} · ไม่พบบรรทัดสรุปของ pytest\n{tail}"
+    if proc.returncode == 0:
+        return "pass", tail
+    if proc.returncode == 1:
+        return "fail", tail
+    return "infra", f"exit={proc.returncode}\n{tail}"
+
+
+MARKER = "MUTANT"
+
+# 🔴 `finally` **ไม่รัน** เมื่อถูก SIGTERM (TaskStop / kill) ⇒ mutant ค้างในไฟล์จริง
+#    และรอบถัดไปจะอ่านไฟล์ที่ค้างเป็น "original" เงียบ ๆ ⇒ ต้องจับสัญญาณแล้ว raise
+#    SystemExit เพื่อให้ finally ได้คืนไฟล์ + มีด่าน pre-flight กัน baseline เสียอีกชั้น
+for _sig in (signal.SIGTERM, signal.SIGINT):
+    signal.signal(_sig, lambda *_: sys.exit(130))
 
 
 def main() -> int:
     results = []
+    # 🛡️ ด่าน pre-flight: ห้ามเริ่มถ้ามี mutant ค้างจากรอบที่ถูกฆ่า
+    dirty = sorted({
+        rel for _, rel, _, _, _ in MUTATIONS
+        if MARKER in (BACKEND / rel).read_text(encoding="utf-8")
+    })
+    if dirty:
+        print("🛑 พบ mutant ค้างในไฟล์ตั้งต้น — หยุดก่อน ไฟล์เหล่านี้ยับแล้ว:")
+        for rel in dirty:
+            print(f"   • {rel}")
+        print("   ⇒ คืนสภาพก่อน (`git checkout -- <file>`) แล้วรันใหม่")
+        return 2
+
     # 🎯 กรองได้ด้วย argv: `python tests/_mutation_credits.py M13 M14`
     #    💡 มีไว้เพราะแต่ละ mutation ต้องสตาร์ท container ใหม่ (~4 นาที) ⇒ การรันทั้งชุด
     #       ใช้เวลาเป็นชั่วโมง · ตอนแก้เทสต์ใหม่จึงอยากรันเฉพาะตัวที่เกี่ยวข้อง
@@ -182,22 +242,28 @@ def main() -> int:
             print(f"⚠️  {name}: AMBIG", flush=True)
             continue
 
+        caught_by, infra = False, False
         try:
             path.write_text(original.replace(old, new), encoding="utf-8")
-            caught_by, tail = run_pytest(targets)
-            if caught_by:
+            state, tail = run_pytest(targets)
+            if state == "infra":
+                verdict = "infra พัง — ผลใช้ไม่ได้"
+            elif state == "fail":
                 verdict = "จับโดยเทสต์ที่เล็ง ✅"
             else:
                 # ถอยไปรันทั้งไฟล์ — mutation อาจถูกจับโดยเทสต์ตัวอื่น
                 print(f"   ↳ {name}: เทสต์ที่เล็งไม่ล้ม → ถอยไปรันทั้งไฟล์", flush=True)
-                caught_by, tail = run_pytest([CREDITS, LOCK])
-                verdict = ("จับโดยเทสต์อื่นในไฟล์ ✅" if caught_by
+                state, tail = run_pytest([CREDITS, LOCK])
+                verdict = ("จับโดยเทสต์อื่นในไฟล์ ✅" if state == "fail"
                            else "รอด ❌ เทสต์หลอกตัวเอง")
+            caught_by, infra = state == "fail", state == "infra"
         finally:
             path.write_text(original, encoding="utf-8")
 
-        results.append((name, "CATCH" if caught_by else "SURVIVE", tail))
-        print(f"{'✅' if caught_by else '❌'} {name}: {verdict}", flush=True)
+        status = "INFRA" if infra else ("CATCH" if caught_by else "SURVIVE")
+        results.append((name, status, tail))
+        icon = "🛑" if infra else ("✅" if caught_by else "❌")
+        print(f"{icon} {name}: {verdict}", flush=True)
 
     print("\n" + "═" * 78)
     print(f"{'ผล':<10} mutation")
@@ -205,13 +271,15 @@ def main() -> int:
     for name, status, _ in results:
         print(f"{status:<10} {name}")
     survived = [n for n, s, _ in results if s == "SURVIVE"]
+    n_infra = sum(1 for _, s, _ in results if s == "INFRA")
     print("═" * 78)
     print(f"จับได้ {sum(1 for _, s, _ in results if s == 'CATCH')}/{len(results)}"
-          f" | รอด {len(survived)}")
+          f" | รอด {len(survived)} | infra พัง {n_infra}")
     for n, s, t in results:
-        if s in ("SURVIVE", "STALE", "AMBIG"):
+        if s in ("SURVIVE", "INFRA", "STALE", "AMBIG"):
             print(f"\n── {n} [{s}] ──\n{t}")
-    return 0
+    # 🛑 infra = "ไม่รู้ผล" ไม่ใช่ "ผ่าน" ⇒ ต้อง exit ไม่เป็นศูนย์ให้คนเห็น
+    return 1 if n_infra else 0
 
 
 if __name__ == "__main__":

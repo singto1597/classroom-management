@@ -35,6 +35,16 @@ const payAmounts = ref<Record<number, number>>({})
 const paidToAccountId = ref<string>('')
 const slipImageUrl = ref('')
 
+/**
+ * 🧾 [F5] ออกใบเสร็จให้ทุกรายการที่เคลียร์ในรอบนี้ — **default ติ๊ก** ตามคำขอผู้ใช้
+ *
+ * 🔄 รีเซ็ตกลับเป็น "ติ๊ก" ทุกครั้งที่เปิดโมดัล (ใน `handleClearDebt`) โดยเจตนา:
+ *    การค้างเป็น "ไม่ติ๊ก" ข้ามคนจะทำให้ใบเสร็จหายเงียบ ๆ ซึ่งเป็นความผิดพลาดที่
+ *    ผู้ปกครองรู้ตัวช้ากว่าทุกฝ่าย (มาเอาทีหลังแล้วครูต้องออกย้อนหลังทีละใบ)
+ *    ⇒ ค่าเริ่มต้นต้องเป็น "ออก" เสมอ และคนที่ไม่ต้องการต้องปิดเองทุกครั้ง
+ */
+const issueReceipts = ref(true)
+
 // Memory logic
 const lastSelectedMemory = ref<number[] | null>(null)
 
@@ -91,6 +101,7 @@ const handleClearDebt = async (debtor: Debtor) => {
   selectedPaymentIds.value = []
   payAmounts.value = {}
   slipImageUrl.value = ''
+  issueReceipts.value = true
 
   // 🔢 คำขอ "หนี้ของนักเรียนคนนี้" ต้องมี guard เพราะผลลัพธ์มันไป **เขียนทับทั้งชุด**
   //    ทั้ง studentDebts และ selectedPaymentIds — ถ้าคำตอบของนักเรียนคนก่อนมาถึงทีหลัง
@@ -384,7 +395,9 @@ const handleBatchPay = async () => {
 
     // ✨ ยิงครั้งเดียวแบบ Batch — backend ประมวลผลทั้งหมดใน transaction เดียว
     // (atomic + Discord แจ้งเตือนรอบเดียว ไม่เด้งหลาย embed เหมือนลูปยิงทีละบิล)
-    await FinanceService.confirmBatchPayment(currentServerId, {
+    // 🧾 [F5] และออกใบเสร็จให้ทุกรายการ **ในธุรกรรมเดียวกัน** — ถ้าเลขเอกสารไม่พอ
+    //     จะไม่มีการรับเงินเกิดขึ้นเลย (ไม่ใช่รับเงินแล้วไม่มีใบเสร็จ)
+    const res = await FinanceService.confirmBatchPayment(currentServerId, {
       items: selectedPaymentIds.value.map((pid) => ({
         payment_id: pid,
         paid_amount: payAmounts.value[pid] || 0,
@@ -392,7 +405,42 @@ const handleBatchPay = async () => {
       paid_to_account_id: Number(paidToAccountId.value),
       slip_image_url: slipImageUrl.value || undefined,
       user_name: currentUserName,
+      issue_receipts: issueReceipts.value,
     })
+
+    isModalOpen.value = false
+    fetchDebtors()
+
+    // 🧾 มีใบเสร็จออกให้ในรอบนี้ → เสนอรวมเป็น PDF ทันที
+    //    🔑 ใช้เลขที่จาก **คำตอบของคำขอนี้** ไม่ใช่จากทะเบียน ⇒ ไม่มีทางดาวน์โหลดใบของ
+    //       คนอื่นปนเข้ามา และไม่ต้องเดาว่าจะกรองช่วงเวลายังไงให้ได้ "เฉพาะที่เพิ่งออก"
+    //    ♻️ ใช้ `downloadCombined` ตัวเดิม — ไม่มีเส้นทางดาวน์โหลดใหม่ให้ต้องดูแล
+    const nos = res.receipts.map((r) => r.receipt_no)
+    if (nos.length > 0) {
+      const canDownload = nos.length <= COMBINED_PDF_MAX
+      const after = await Swal.fire({
+        icon: 'success',
+        title: 'รับเงินและออกใบเสร็จแล้ว',
+        html:
+          `บันทึกการรับเงินรวบยอดเรียบร้อย<br>` +
+          `ออกใบเสร็จ <b>${res.issued_count}</b> ใบ` +
+          (res.batch_id ? ' — รวมเป็นชุดเดียว' : '') +
+          `<br>เลขที่ล่าสุด <b class="num">${nos[nos.length - 1] ?? '—'}</b>` +
+          (canDownload
+            ? `<br><br><span style="font-size:0.85em;color:#78716c">รวมเป็นไฟล์เดียวได้ ` +
+              `(${nos.length} หน้า) เหมาะสำหรับพิมพ์แจก</span>`
+            : `<br><br><span style="font-size:0.85em;color:#a16207">มี ${nos.length} ใบ ` +
+              `เกินกว่าจะรวมเป็นไฟล์เดียว (สูงสุด ${COMBINED_PDF_MAX}) — ` +
+              `ดาวน์โหลดเป็นชุด ๆ ได้ที่หน้าทะเบียนเอกสาร</span>`),
+        showCancelButton: canDownload,
+        confirmButtonText: 'ดาวน์โหลด PDF รวม',
+        cancelButtonText: 'ปิด',
+        confirmButtonColor: '#1d4ed8',
+        cancelButtonColor: '#78716c',
+      })
+      if (canDownload && after.isConfirmed) await downloadCombined('receipts', nos)
+      return
+    }
 
     Swal.fire({
       icon: 'success',
@@ -401,8 +449,6 @@ const handleBatchPay = async () => {
       timer: 1500,
       showConfirmButton: false,
     })
-    isModalOpen.value = false
-    fetchDebtors()
   } catch (error: unknown) {
     Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ', 'error')
   }
@@ -827,6 +873,39 @@ onMounted(() => {
                 />
               </div>
             </div>
+
+            <!--
+              🧾 [F5] ออกใบเสร็จอัตโนมัติ — ติ๊กไว้เป็นค่าเริ่มต้นตามคำขอผู้ใช้
+              ("กดเคลียร์หนี้แล้วอยากให้มันออกใบเสร็จมาพร้อมกันหมดเลย")
+              ⚠️ ข้อความต้องบอกผลของการปิดติ๊กให้ครบทั้งสองด้าน: ไม่มีใบเสร็จ **และ**
+                 ไม่มีอะไรถูกบันทึกเลยถ้าเลขเอกสารไม่พอ — ครูที่ถือเงินสดอยู่ต้องรู้ก่อนกด
+            -->
+            <label
+              class="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border border-stone-200 bg-white p-3 transition-colors hover:border-stone-300"
+            >
+              <input v-model="issueReceipts" type="checkbox" class="peer sr-only" />
+              <span
+                class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                :class="
+                  issueReceipts ? 'border-brand-700 bg-brand-700' : 'border-stone-300 bg-white'
+                "
+              >
+                <i
+                  v-if="issueReceipts"
+                  class="bi bi-check-lg text-sm font-bold text-white"
+                  aria-hidden="true"
+                ></i>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-bold text-stone-900">
+                  ออกใบเสร็จให้ทุกรายการที่เคลียร์
+                </span>
+                <span class="mt-0.5 block text-[11px] font-bold text-stone-500">
+                  ออกพร้อมกับการบันทึกรับเงินในครั้งเดียว — ถ้าเลขเอกสารไม่พอ
+                  ระบบจะไม่บันทึกการรับเงินเลย
+                </span>
+              </span>
+            </label>
           </div>
         </div>
 
