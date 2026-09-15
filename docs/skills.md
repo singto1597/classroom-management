@@ -1972,3 +1972,131 @@
 - **Rule:** (1) 🔴 **ทุกครั้งที่เพิ่มด่านที่ยิง "เร็วขึ้น" ให้ถามว่าเทสต์เดิมตัวไหนเคยใช้เงื่อนไขที่ด่านใหม่ดักไว้เป็นตัวแยกแยะ** — ด่านใหม่จะกลืนพลังของเทสต์นั้นเงียบ ๆ (2) การทดสอบ atomicity ต้องให้ failure เกิด **หลัง** write แรกสำเร็จ ไม่งั้นเทสต์พิสูจน์แค่ "ด่านล่วงหน้าทำงาน" (3) **ต้อง assert ว่าความล้มเหลวที่ฉีดเข้าไปเกิดขึ้นจริง** (`calls["n"] == 2`) ไม่งั้นเทสต์อาจเขียวเพราะฉีดไม่ติด (4) ใช้ exception ชนิดที่ router map เป็น 4xx ที่รู้จัก (เช่น `ValueError` → 400) ไม่ใช่ปล่อยเป็น 500 ซึ่ง `TestClient` จะโยนกลับและกลบความหมาย (5) 🧬 **mutant ที่ "รอด" คือของขวัญ** — มันชี้จุดที่เทสต์ให้ความมั่นใจเกินจริง ถ้าปิดช่องได้ให้ปิด **ก่อน** merge ไม่ใช่รายงานแล้วผ่านไป
 - **Tests:** `tests/test_finance_http.py::test_batch_confirm_payments_receipt_failure_takes_no_money` (เทสต์นี้เกิดมาเพื่อ M2 โดยเฉพาะ) · `_mutation_auto_issue_receipts.py` M2 = CATCH (ก่อนหน้า = SURVIVE)
 - **Date Added:** 2026-09-15
+
+### 🔑 "เพิ่ม route ที่ข้ามการตรวจสมาชิก" — ความเสี่ยงไม่ได้อยู่ที่ route ใหม่ แต่อยู่ที่ route เก่าที่ **ไม่มีเทสต์คุมสัญญา**
+- **Context/Problem:** F5/PR-3 ต้องให้บอท (ซึ่งไม่ผูกกับ `users` เลย) ดึง PDF ใบเสร็จไปแนบใน Discord ⇒ ต้องมี route ที่ **ข้าม `require_member`** ได้ · งานนี้เลือกใช้ `dependencies=[Depends(get_current_user_or_bot)]` แล้วส่ง `user_id=None` ลง service เฉพาะสาขาที่ `is_bot_system is True` · **แต่รีโปมี auth dependency สองตัวที่สัญญาต่างกัน** และเทสต์เดิม **ไม่มีตัวไหน** ล็อกว่า route PDF เก่าต้องปฏิเสธบอทระบบ:
+  | dependency | principal ที่เป็นบอทแต่ไม่มีใน `users` | principal ที่มีใน `users` แต่ไม่ใช่สมาชิก |
+  |---|---|---|
+  | `get_current_user` | **404** ("ไม่พบบัญชีผู้ใช้ที่ผูกกับ Discord ID นี้") | ผ่าน auth → 403 ที่ `require_member` |
+  | `get_current_user_or_bot` | **ผ่าน** (`user_id=None, is_bot_system=True`) | ผ่าน auth → 403 ที่ `require_member` |
+  ⇒ ถ้ามีคน "ลดความซ้ำซ้อน" ด้วยการสลับ dependency ของ route เก่าเป็นตัวใหม่ **จะไม่มีเทสต์ตัวใดล้มเลย** และประตูหลังก็เปิดโดยไม่มีสัญญาณ
+- **Root Cause:** การทดสอบเชิงพฤติกรรมผูกกับ **สิ่งที่ route ทำ** ไม่ได้ผูกกับ **สิ่งที่ route ต้องไม่ทำ** · "บอทระบบยิง route นี้ต้องได้ 404" เป็นสัญญาที่มีตัวตนจริง แต่ไม่มี observable ใดในเทสต์เดิมผลิตมันออกมา ⇒ ช่องว่างนี้จะถูกเปิดโดย refactor ที่ดูบริสุทธิ์
+- **Correct Pattern/Solution:** เขียน **เทสต์แฝด** ประกบกันเสมอเมื่อเพิ่มทางที่ข้ามด่าน: ตัวหนึ่งพิสูจน์ว่า **ทางใหม่เปิด** อีกตัวพิสูจน์ว่า **ทางเก่ายังปิด** — และตัวหลังต้องยิงด้วย principal ชนิดเดียวกับที่ทางใหม่รับ (บอทระบบ) ไม่ใช่ principal ทั่วไป
+  ```python
+  # ทางใหม่: บอทระบบต้องได้ 200
+  assert resp.status_code == 200 and resp.headers["content-type"] == "application/pdf"
+  # ทางเก่า: บอทระบบต้องยังถูกปฏิเสธ (404 = ไม่พบบัญชี — ไม่ใช่ 401/403)
+  assert client.get(WEB_PDF_PATH, headers=_bot_headers()).status_code == 404
+  ```
+  + เทสต์เชิงโครงสร้างที่ล็อก **"มีไฟล์เดียวเท่านั้นที่ถือธงข้ามด่าน"** (`test_the_membership_bypass_lives_in_exactly_one_place`) ⇒ ตรวจ **เซตของไฟล์** ไม่ใช่จำนวนบรรทัด (จำนวนบรรทัดพังทันทีที่มี refactor ที่ไม่ผิด)
+  ⚠️ **อย่าล็อกด้วยจำนวนบรรทัด/`len(offenders) == 3`** — เทสต์จะกลายเป็นตัวขวาง refactor ที่ถูกต้อง แล้วคนจะไปแก้เทสต์แทนที่จะอ่านมัน
+- **Rule:** (1) 🔴 **ทุกครั้งที่เพิ่ม route/สาขาที่ข้ามด่านความปลอดภัย ต้องมีเทสต์ที่พิสูจน์ว่า "ประตูที่เหลือยังปิด"** — ไม่ใช่แค่ประตูใหม่ที่เปิดได้ (2) ตัวเทสต์ต้องยิงด้วย principal **ชนิดเดียวกับที่ช่องใหม่รับ** ไม่งั้นมันพิสูจน์คนละเรื่อง (3) **404 กับ 403 ไม่ใช่เรื่องเดียวกัน**: 404 ของ `get_current_user` = "ไม่รู้จักบอทตัวนี้" ซึ่งเป็นพฤติกรรมที่ต้องการ ⇒ เขียน docstring อธิบายไว้ ไม่งั้น reviewer จะอ่านเป็นบั๊ก (4) เทสต์เชิงโครงสร้างให้ยืนยัน **เซตของไฟล์** และตัดบรรทัดคอมเมนต์ออกก่อนนับ — ไม่งั้นคอมเมนต์ในอนาคตจะทำให้เทสต์ล้มทั้งที่โค้ดถูก
+- **Tests:** `backend/tests/test_finance_system_pdf.py::test_system_pdf_serves_pdf_to_unregistered_bot_principal` (ประตูใหม่) · `::test_old_web_pdf_route_still_refuses_bot_system_principal` (ประตูเก่า — **เทสต์นี้เกิดมาเพื่อเหตุผลนี้เท่านั้น**) · `::test_the_membership_bypass_lives_in_exactly_one_place` · `_mutation_system_pdf.py` M1/M2/M8 = CATCH
+- **Date Added:** 2026-09-15
+
+### 🏷️ `get_audit_context(request, {"user_id": None})` เขียน `"user_id:None"` ลง DB — ตรวจด้วย `in` ไม่ใช่ truthiness
+- **Context/Problem:** ระหว่างส่ง actor ของบอทระบบเข้าชั้น audit เขียนแบบตรงไปตรงมาว่า `get_audit_context(request, user_ctx)` โดยที่ `user_ctx = {"user_id": None, "is_bot_system": True}` ⇒ audit log เก็บ `actor_identifier = "user_id:None"` ซึ่งอ่านแล้วเหมือนมีผู้ใช้ id `None` อยู่ในระบบ · ร่องรอยการเงินที่บอกผิดว่ามีคนทำ = แย่กว่าไม่มีร่องรอย
+- **Root Cause:** ตัวช่วยตัดสินว่า "มี user หรือไม่" เขียนว่า
+  ```python
+  actor_identifier = f"user_id:{user_ctx['user_id']}" if user_ctx and "user_id" in user_ctx else ...
+  ```
+  ⇒ เงื่อนไขคือ **"มีคีย์ไหม"** ไม่ใช่ **"ค่ามีจริงไหม"** · `{"user_id": None}` มีคีย์ ⇒ ผ่านเงื่อนไข ⇒ f-string ประกอบ `None` ออกมาเป็นสตริง · ข้อนี้ **อ่านโค้ดผ่านตาแล้วไม่เห็น** เพราะรูปประโยคถูกต้องทุกตัวอักษร
+- **Correct Pattern/Solution:** ที่จุดเรียก ให้ส่ง `None` ไปทั้งก้อนเมื่อเป็นบอทระบบ ⇒ ตัวช่วยจะตกไปใช้ `x-actor-id` ตามที่ควร
+  ```python
+  client_source, actor = get_audit_context(request, None if is_bot_system else user_ctx)
+  ```
+  แล้ว **ล็อกด้วยเทสต์ที่อ่าน DB จริง** ไม่ใช่แค่ status code:
+  ```python
+  assert row["user_id"] is None
+  assert row["actor_identifier"] == "discord-bot:auto-attach"
+  assert "None" not in (row["actor_identifier"] or "")   # ← ตัวที่จับ mutant ได้จริง
+  ```
+- **Rule:** (1) 🔴 **"มีคีย์" ไม่เท่ากับ "มีค่า"** — ทุกที่ที่ส่ง `dict` บางส่วนเข้าไปในโค้ดที่ตัดสินด้วย `in`/`and` ต้องทดสอบด้วยค่าจริง `None` ไม่ใช่เดาจากการอ่าน (2) audit ของเส้นทางเงินต้อง assert **ทั้ง** `user_id` และ `actor_identifier` และ **ต้องมี assertion ที่ปฏิเสธสตริง `"None"` แบบตรง ๆ** — assertion สองตัวแรกผ่านได้ทั้งที่ค่าเพี้ยน (3) เมื่อเจอว่า helper มีสัญญาที่ไม่ตรงความต้องการ ให้ **แก้ที่จุดเรียก** ไม่ใช่แก้ helper — helper มีผู้เรียกอื่นที่พึ่งพฤติกรรมเดิม
+- **Tests:** `backend/tests/test_finance_system_pdf.py::test_system_pdf_audit_records_the_bot_actor` · `_mutation_system_pdf.py` M6 = CATCH
+- **Date Added:** 2026-09-15
+
+### 📄 นับ "หน้า" ในไฟล์ PDF ที่รวมจาก HTML — `'<div class="doc'` นับได้ 2 ต่อหน้า เพราะไปโดน `doc-title`
+- **Context/Problem:** เทสต์ dedupe ของ PR-3 ต้องพิสูจน์ว่า "ส่งเลขซ้ำ 3 ครั้ง → ได้ 1 ใบ ไม่ใช่ 3 ใบ" วิธีที่นึกออกทันทีคือ `html.count('<div class="doc')` แล้ว assert `== 1` — **ได้ 2** ทั้งที่เทมเพลตถูกต้อง ⇒ เทสต์ล้มด้วยข้อความที่ชี้ไปผิดที่ (เหมือน dedupe พัง) ทั้งที่ dedupe ทำงานดี
+- **Root Cause:** เทมเพลต (`backend/templates/finance/receipt.html`) มี **สอง** div ที่ขึ้นต้นด้วยสตริงเดียวกัน: `<div class="doc doc-break">` (ตัวคั่นหน้า, บรรทัด 116) และ `<div class="doc-title">` (บรรทัด 135) ⇒ ตัวนับของเทสต์คือ "จำนวน div ที่ขึ้นต้นด้วย doc" ไม่ใช่ "จำนวนหน้า" และทั้งสองค่าเท่ากันโดยบังเอิญเฉพาะเคส 1 หน้า
+- **Correct Pattern/Solution:** ล็อก **ตัวคั่นหน้าที่มีชื่อคลาสเต็ม** แล้วบวกหนึ่ง (หน้าแรกไม่มีตัวคั่น) — และเขียนกับดักนี้ลง docstring ของ helper ทันที เพราะคนถัดไปจะนับแบบเดิมอีก
+  ```python
+  DOC_BREAK = '<div class="doc doc-break">'
+  def _page_count(html: str) -> int:
+      """นับหน้า = ตัวคั่นหน้า + 1
+      ⚠️ ห้ามนับ `'<div class="doc'` — `<div class="doc-title">` ก็ขึ้นต้นด้วยสตริงนั้น
+         ⇒ ใบเดียวจะนับได้ 2 ซึ่งอ่านแล้วเหมือน "มี 2 หน้า" (พลาดมาแล้วรอบหนึ่ง)"""
+      return html.count(DOC_BREAK) + 1
+  ```
+- **Rule:** (1) 🔴 **ตัวนับต้องยึดสตริงที่ "ไม่กำกวม" ไม่ใช่คำนำหน้าที่สั้นที่สุดที่ดูเหมือนพอ** — คลาส HTML เป็นคำนำหน้าที่ซ้อนกันโดยธรรมชาติ (`doc` / `doc-break` / `doc-title`) ให้ใช้ค่าที่มีเครื่องหมายคำพูดปิดกำกับ (2) เมื่อ assertion ล้มแล้วค่าที่ได้เป็น "สองเท่าของที่คาด" ให้ **สงสัยตัวนับก่อนสงสัยโค้ดที่ถูกทดสอบ** — รูปร่างของผลลัพธ์บอกใบ้ตัวคูณ (3) เขียนกับดักที่เพิ่งเจอลง docstring ของ helper **พร้อมคำว่าเคยพลาด** — บทเรียนที่ไม่มีร่องรอยการพลาดจะถูกลบทิ้งในการ refactor ครั้งถัดไป
+- **Tests:** `backend/tests/test_finance_system_pdf.py::test_system_pdf_dedupes_repeated_receipt_numbers` (assert `_page_count(html) == 1` + audit `new_values == {"receipt_nos": [...], "count": 1}`)
+- **Date Added:** 2026-09-15
+
+### 🧬 เทสต์ "ห้ามมี SQL ใน router" ต้องใช้ `ast` — `grep` จะฟ้องโค้ดที่ถูก เพราะ docstring ของไฟล์นั้น **พูดถึง** คำต้องห้าม
+- **Context/Problem:** PR-3 ล็อกว่า router ใหม่ต้องอ่านอย่างเดียว 100% วิธีแรกที่คิดได้คือ `grep -c "INSERT INTO\|UPDATE " routers/finance/system.py` แล้ว assert เป็น 0 — **ใช้ไม่ได้** เพราะ docstring ของ router ไฟล์นั้นอธิบายเงื่อนไขว่าห้ามเขียน DB ⇒ มีคำว่า `INSERT`/`UPDATE` อยู่ในนั้นเพื่อ **ห้าม** ตัวเอง · ถ้าตัดบรรทัดที่ขึ้นต้นด้วย `#` ทิ้งก็ยังเหลือ docstring ⇒ เทสต์จะบังคับให้คนเขียน **ลบคำอธิบายความปลอดภัยออก** เพื่อให้เทสต์เขียว ซึ่งกลับหัวกลับหาง
+  ⚠️ และช่องที่**แย่กว่า**คือ: เทสต์ที่ยิง HTTP ไม่มีทางรู้ว่า router แอบเปิด connection เขียน DB ในเส้นทางที่เทสต์ไม่ได้เรียก
+- **Root Cause:** `grep` มองไม่เห็นความต่างระหว่าง **สตริงที่รันจริง** กับ **ข้อความที่ใช้สื่อสารกับมนุษย์** · และการตรวจ "ไฟล์นี้แตะ DB ไหม" เป็นคำถามเชิงโครงสร้าง ไม่ใช่เชิงพฤติกรรม ⇒ เครื่องมือเชิงข้อความตอบไม่ได้ทั้งสองทาง (ฟ้องเกิน + พลาด)
+- **Correct Pattern/Solution:** เดิน AST แล้วดูแค่ **string literal ที่รันได้** — ตัด docstring ออกด้วยการเทียบกับ `ast.get_docstring` ของทุก node ที่มี พร้อม **assert ชนิดที่สอง**: ทั้งไฟล์ต้องไม่มี **การเรียก** เมธอดที่แตะ DB เลย (นี่คือช่องที่การ grep หาสตริง `INSERT` มองไม่เห็นเด็ดขาด)
+  ```python
+  docstrings = {n.body[0].value.value for n in ast.walk(tree)
+                if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and n.body and isinstance(n.body[0], ast.Expr)
+                and isinstance(n.body[0].value, ast.Constant) and isinstance(n.body[0].value.value, str)}
+  literals = [n.value for n in ast.walk(tree)
+              if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value not in docstrings]
+  assert not [s for s in literals if re.search(r"\b(INSERT|UPDATE|DELETE)\b", s, re.I)]
+  assert not [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+              and isinstance(n.func, ast.Attribute)
+              and n.func.attr in {"execute", "fetch", "fetchrow", "fetchval", "executemany"}]
+  ```
+  ⇒ mutant M7 (แอบยัด `UPDATE finance_receipts` เข้า router) **ถูกจับทันที** ทั้งที่เป็น hole ที่เทสต์พฤติกรรมมองไม่เห็น — พิสูจน์ว่าเทสต์นี้มีฟันจริง ไม่ใช่พิธีกรรม
+- **Rule:** (1) 🔴 **คำถามเชิงโครงสร้าง ("ไฟล์นี้แตะ DB ไหม" / "มีกี่ประตูหลัง") ต้องตอบด้วย `ast` ไม่ใช่ `grep`** — และต้อง **แยก docstring ออกจากสตริงที่รัน** เพราะไฟล์ที่เขียนกฎความปลอดภัยไว้มักมีคำต้องห้ามอยู่ในตัว (2) เทสต์โครงสร้างต้องมี **การเรียกเมธอด** เป็นด่านที่สอง ไม่ใช่แค่หาสตริง — สตริงหาง่ายและถูกหลบง่าย (3) 🧬 **เทสต์ที่เป็น "พิธีกรรม" จะไม่มีวันถูกจับได้ว่าหลอกตัวเอง** ⇒ ต้องมี mutant ที่เล็งเทสต์นั้นโดยตรง (M7) ไม่ใช่หวังว่าจะมีตัวอื่นจับให้ (4) การ grep ซอร์สในเทสต์ต้องรันบน **AST/บรรทัดโค้ด** เสมอ ถ้าจำเป็นต้อง grep จริง ให้ตัดบรรทัดคอมเมนต์ **และ** docstring ออกก่อน
+- **Tests:** `backend/tests/test_finance_system_pdf.py::test_system_pdf_router_contains_no_database_access` · `_mutation_system_pdf.py` M7 = CATCH
+- **Date Added:** 2026-09-15
+
+### ⏱️ ใส่ `asyncio.create_task` ให้ลูปฟัง Redis = เปลี่ยนสัญญาของ **ทั้งระบบ** ไม่ใช่แค่จุดที่แก้
+- **Context/Problem:** `cogs/redis_listener.py` เดิมเป็นลูป **sequential** — อ่าน event จาก Redis แล้ว `await` งานทั้งหมด · งานแนบ PDF ต้องยิง Gotenberg ซึ่งตั้ง timeout ไว้ 60 วิ (ฝั่ง Gotenberg เอง 120 วิ) ⇒ ถ้า await ตรง ๆ การแจ้งเตือนอื่น **ทั้งระบบ** จะหยุดรอ 60–120 วินาที · งานนี้จึงห่อเฉพาะเคสที่มี `receipt_nos` ด้วย `asyncio.create_task` + semaphore
+- **Root Cause:** ลูปนี้เป็น **จุดคอขวดเดียวของทุกการแจ้งเตือน** — ใครก็ตามที่เพิ่มงานช้าเข้าไปในเส้นทางนี้ ยืดเวลาของ **ทุกฟีเจอร์** ไม่ใช่แค่ของตัวเอง · และการเพิ่ม concurrency ให้ลูปที่เดิม sequential เป็นการ **เปลี่ยนสัญญาที่คนอื่นพึ่งอยู่โดยไม่รู้ตัว** (เช่น ลำดับการส่งข้อความ, การที่ event ถัดไปไม่เริ่มก่อนตัวก่อนหน้าจบ)
+- **Correct Pattern/Solution:** เมื่อจำเป็นต้องทำ ให้ทำแบบ **แคบที่สุดและมีร่องรอย**:
+  - ห่อเฉพาะ **สาขาที่ต้องช้า** (`data.get("receipt_nos")`) ไม่ใช่ทั้งลูป ⇒ เส้นทางเดิม (บิลเดียว) ยัง sequential เหมือนเดิมเป๊ะ
+  - มี **semaphore** กันงานค้างสะสม และ **เก็บ reference ของ task** ไว้ (task ที่ไม่มีใครอ้างถึงอาจถูก GC ทิ้งกลางทาง)
+  - เขียน **ทำไม** ไว้ที่จุดนั้น ไม่ใช่แค่ **อะไร** — และใส่ใน checklist ของ reviewer ว่าการเปลี่ยน concurrency ต้องถูกมองเห็น
+  - ล็อกด้วยเทสต์ที่พิสูจน์ "ไม่ await" ไม่ใช่เทสต์ที่พิสูจน์ "ทำงานถูก" — เคสที่ต้องพิสูจน์คือ **ไม่บล็อก** ซึ่งเป็น observable คนละตัวกับผลลัพธ์
+- **Rule:** (1) 🔴 **ก่อนเพิ่มงานที่อาจช้าลงในลูป sequential ให้ถามก่อนว่า "ลูปนี้เป็นคอขวดร่วมของใครบ้าง"** — ถ้าเป็นของทั้งระบบ การ await คือการทำให้ฟีเจอร์อื่นพังเพราะฟีเจอร์เรา (2) การเปลี่ยน concurrency model ต้องมี **คอมเมนต์ + เทสต์ที่ยืนยันพฤติกรรมใหม่** และ mutant ที่ย้อนกลับไป await ต้อง **ถูกจับ** (BM4) (3) จำกัดขอบเขตให้แคบที่สุด: เปิด concurrency เฉพาะสาขาที่ต้องการ ไม่ใช่ทั้งลูป (4) semaphore + เก็บ task reference เป็นของบังคับ ไม่ใช่ของประดับ
+- **Tests:** `bot_discord/tests/test_pdf_attach.py::ProcessEventConcurrencyTest::test_payment_with_receipts_is_not_awaited_inline` · `_mutation_pdf_attach.py` BM4 = CATCH
+- **Date Added:** 2026-09-15
+
+### 🐳 เทสต์ฝั่งบอท: image ของบอท **ไม่มี pytest** ⇒ ใช้ stdlib `unittest` ใน image เดิม ไม่ต้องสร้าง image ใหม่
+- **Context/Problem:** ฝั่ง backend รันเทสต์ด้วย `docker-compose.test.yml` + Postgres แต่ฝั่งบอทไม่มีโครงนั้นเลย · และ `bot_discord` ก็ไม่มี `tests/` มาก่อน · ทางเลือกที่ดูสะอาดคือสร้าง test image / เพิ่ม pytest เข้า requirements ซึ่งแตะ image ที่ deploy จริงเพื่อประโยชน์ของเทสต์เท่านั้น
+- **Root Cause:** image ของบอทเป็น **production image** (python:3.12-slim + aiohttp + discord.py + redis) — ไม่มีและไม่ควรมี pytest · แต่เทสต์ชุดนี้ **ไม่ต้องใช้ Postgres และไม่ต้องใช้ Discord จริง** (mock ทั้งคู่) ⇒ ความต้องการของเทสต์ไม่ได้บังคับให้ต้องมีเครื่องมือเพิ่มเลย
+- **Correct Pattern/Solution:** รัน stdlib `unittest` **ใน image เดิม** ด้วย volume mount ⇒ ไม่ต้อง build อะไรใหม่ ไม่แตะ image ที่ deploy
+  ```bash
+  docker run --rm -v "$PWD/bot_discord:/app:z" -w /app \
+      classroom-classroom-bot:latest python -m unittest tests.test_pdf_attach -v
+  ```
+  ⇒ และใน harness ให้ใช้ **บรรทัดสรุปที่ unittest ผลิตเอง** (`OK` / `FAILED`) เป็นด่าน "เทสต์รันจริง" แบบเดียวกับที่ฝั่ง backend ใช้ `N passed`:
+  ```python
+  UNITTEST_SUMMARY_RE = re.compile(r"^(?:OK|FAILED)\b", re.MULTILINE)
+  ```
+  ⚠️ **ต้องเป็น `^` + `MULTILINE`** ไม่ใช่ `in` — คำว่า `OK` โผล่ในข้อความอื่นได้ง่าย
+  ⇒ ผลจริง: **BM1–BM6 = CATCH 6/6** ทั้งที่ไม่มี pytest เลย
+- **Rule:** (1) 🔴 **อย่าเพิ่ม dependency เข้า production image เพื่อประโยชน์ของเทสต์** — ถ้าเทสต์ไม่ต้องใช้ DB/เครือข่าย ให้ใช้ stdlib runner ใน image เดิม (2) ฝั่งบอทไม่มีตู้ Postgres ให้แย่งกัน ⇒ harness ฝั่งบอท **รันพร้อมกับฝั่ง backend ได้** ต่างจาก `_mutation_*.py` ฝั่ง backend ที่ต้องรันทีละตัว (3) ด่าน "เทสต์รันจริง" ของ unittest คือ `^(OK|FAILED)` ที่ต้นบรรทัด — ไม่ใช่การเช็คคำว่า `OK` แบบ substring (4) ทุก harness ต้องมีด่านนี้ ไม่งั้น container/import ที่พังจะถูกอ่านเป็น "mutant ถูกจับ" ซึ่งเป็นผลบวกลวงที่อันตรายที่สุด
+- **Tests:** `bot_discord/tests/_mutation_pdf_attach.py::run_unittest` · `bot_discord/tests/__init__.py` (มีคำอธิบายเหตุผลเดียวกันกำกับ)
+- **Date Added:** 2026-09-15
+
+### ⚠️ `pytestmark = pytest.mark.asyncio` ระดับโมดูล + เทสต์ **sync** = warning ที่ไม่มีไฟล์ไหนในรีโปเป็นแบบนั้น
+- **Context/Problem:** เทสต์เชิงโครงสร้างสองตัวของ PR-3 ไม่ต้อง `await` อะไรเลย (อ่านไฟล์ + เดิน AST) ⇒ เขียนเป็น `def` ธรรมดา · ผลคือ pytest ออกรายงานว่ามี warning ทั้งที่ตัวเลขเทสต์ผ่านครบ:
+  ```
+  PytestWarning: The test <...> is marked with '@pytest.mark.asyncio' but it is not an async function.
+  ```
+- **Root Cause:** ไฟล์เทสต์ทุกไฟล์ของรีโปนี้ตั้ง `pytestmark = pytest.mark.asyncio` **ระดับโมดูล** ⇒ mark ถูกฉีดให้ **ทุก** ฟังก์ชันในไฟล์ รวมตัวที่ไม่ใช่ async · และเมื่อ `asyncio_mode` เป็น strict ตัว mark จึงเป็นคำสัญญาที่เทสต์ไม่ทำตาม
+- **Correct Pattern/Solution:** เปลี่ยนเป็น `async def` (ไม่ต้องมี `await` ข้างในก็ได้) แล้วเขียนคอมเมนต์ว่าทำไม — **ดีกว่า** การไปใส่ `filterwarnings` หรือถอด mark ระดับโมดูล เพราะ:
+  - การปิด warning ทั้งไฟล์จะปิดให้เทสต์ async ตัวอื่นไปด้วย = ลบสัญญาณของทั้งไฟล์
+  - การถอด `pytestmark` แล้วไปใส่ mark รายตัว จะแตะเทสต์เดิมที่ไม่เกี่ยวกับงาน
+  ```python
+  async def test_system_pdf_router_contains_no_database_access(db_pool):
+      """... (คอมเมนต์: ไฟล์นี้ตั้ง `pytestmark = pytest.mark.asyncio` ระดับโมดูล
+         ⇒ เทสต์ sync ในไฟล์นี้จะได้ PytestWarning และไม่มีไฟล์ไหนในรีโปทำแบบนั้น)"""
+  ```
+- **Rule:** (1) 🔴 **ในไฟล์ที่มี `pytestmark` ระดับโมดูล ให้เขียนเทสต์ทุกตัวเป็น `async def` เสมอ** แม้ไม่ต้อง `await` — warning ไม่ได้ทำให้เทสต์ล้ม แต่มันกลายเป็นเสียงรบกวนที่ทำให้ warning ของจริงถูกมองข้าม (2) **ห้ามปิด warning ด้วย `filterwarnings` เมื่อต้นเหตุคือเทสต์เขียนไม่ตรงกับ mark ของไฟล์** — การปิดจะไปปิดของเทสต์ตัวอื่นด้วย (3) ก่อนสรุปว่า "สไตล์นี้โอเค" ให้ `grep` ดูว่า **ไฟล์อื่นในรีโปทำแบบเดียวกันไหม** — ถ้าไม่มีเลย ให้ถือว่านี่คือความผิดปกติที่ต้องแก้ ไม่ใช่ความหลากหลายที่ต้องยอมรับ (4) เกณฑ์ "เทสต์ผ่าน" ของงานนี้คือ **ผ่านโดยไม่มี warning** ไม่ใช่ผ่าน
+- **Tests:** `backend/tests/test_finance_system_pdf.py::test_system_pdf_router_contains_no_database_access` และ `::test_the_membership_bypass_lives_in_exactly_one_place` (ทั้งคู่เป็น `async def` ที่ไม่มี `await` โดยเจตนา) · รันเต็มไฟล์: **18 passed, 0 warnings**
+- **Date Added:** 2026-09-15

@@ -1617,6 +1617,52 @@ class ReceiptsMixin:
            ของ (acquire + resolve_room_id + require_member + audit) ⇒ โหลด 100 ใบ
            จะเขียน audit 100 แถวและตรวจสิทธิ์ 100 ครั้งสำหรับการกระทำเดียว
            ที่นี่จึงโหลดด้วยคำสั่งเดียว และเขียน audit **แถวเดียวที่บอกทั้งชุด**
+
+        🔒 เส้นทางนี้ **บังคับ `require_member` เสมอ** (ผู้ใช้เว็บ/บอทที่เป็นสมาชิกจริง)
+        """
+        return await cls._render_documents_pdf(
+            pool, receipt_nos, client_source, actor_identifier,
+            server_id=server_id, room_id=room_id, user_id=user_id,
+            enforce_membership=True,
+        )
+
+    @classmethod
+    async def render_documents_pdf_for_system(
+        cls, pool: asyncpg.Pool, receipt_nos: List[str], client_source: str,
+        actor_identifier: str, server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+    ) -> tuple:
+        """🔓 เหมือน `render_documents_pdf` แต่ **ข้าม `require_member`** — สำหรับบอทระบบ
+
+        🎯 **จุดเดียวในระบบที่ข้ามการตรวจสมาชิกของเส้นทาง PDF** (F5/PR-3) ⇒ มีเมธอดชื่อ
+           เฉพาะเพื่อให้ **grep เจอ** และให้เทสต์ชี้เป้าได้ ดีกว่าซ่อนเป็นธง boolean ที่
+           ผู้เรียกทั่วไปมองไม่เห็น (`enforce_membership=False` อยู่ลึกใน `_render_documents_pdf`)
+
+        ⚠️ **ไม่ได้ลดความปลอดภัยลงเหลือศูนย์** — สิ่งที่ยังบังคับครบ:
+           (1) ต้องมี `X-API-Key` ที่ถูกต้อง (ด่านที่ router) · (2) `resolve_room_id` ยัง
+           แปลง server → room และ (3) **ด่านที่สำคัญที่สุดยังอยู่**: `WHERE R.room_id = $1
+           AND R.receipt_no = ANY($2)` + `missing` ⇒ เลขของห้องอื่นได้ 404 ไม่ใช่ไฟล์
+           ⇒ บอทอ่านได้เฉพาะเอกสารของห้องที่มันรู้จัก server_id อยู่แล้ว
+           (บอทเรียก `/{target_id}` อยู่แล้วและได้ `announcement_channel_id` ของทุกห้อง)
+
+        ⚠️ `user_id=None` ⇒ audit log ของการพิมพ์ชุดนี้จะบันทึก `user_id` เป็น NULL
+           (เหมือน system RPC อื่นของบอท) — ตัวตนผู้ทำยังติดที่ `actor_identifier`
+        """
+        return await cls._render_documents_pdf(
+            pool, receipt_nos, client_source, actor_identifier,
+            server_id=server_id, room_id=room_id, user_id=None,
+            enforce_membership=False,
+        )
+
+    @classmethod
+    async def _render_documents_pdf(
+        cls, pool: asyncpg.Pool, receipt_nos: List[str], client_source: str,
+        actor_identifier: str, server_id: Optional[int] = None,
+        room_id: Optional[int] = None, user_id: Optional[int] = None,
+        enforce_membership: bool = True,
+    ) -> tuple:
+        """ตัวจริงที่ใช้ร่วมกันของสองเมธอดข้างบน — **ห้ามเรียกตรงจาก router**
+        (ผู้เรียกต้องเลือกเองว่าจะตรวจสมาชิกหรือไม่ และการเลือกนั้นต้องอ่านออกจากชื่อเมธอด)
         """
         from .pdf import html_to_pdf, pdf_filename_batch, render_receipts_html
 
@@ -1639,7 +1685,12 @@ class ReceiptsMixin:
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
-                await require_member(conn, target_room_id, user_id)
+                # 🔒 ด่านสมาชิก — `render_documents_pdf_for_system` เป็นผู้เรียกเดียวที่ปิดด่านนี้
+                #    ⚠️ ห้ามเปลี่ยนเป็น `if user_id is not None` เด็ดขาด: `user_id=None` ต้อง
+                #       **ไม่** หมายถึง "ข้าม" โดยปริยาย ไม่งั้น router ที่ลืมส่ง user_id
+                #       จะกลายเป็นช่องอ่านข้ามห้องแบบเงียบ ๆ (เจตนาต้องอ่านออกจากชื่อเมธอด)
+                if enforce_membership:
+                    await require_member(conn, target_room_id, user_id)
 
                 # 🚫 ไม่กรอง `deleted_at`/`status` เลย (เทียบเท่า `include_voided=True` ของ
                 #    `render_receipt_pdf`) — ใบที่ถูกยกเลิกต้องพิมพ์ได้ และเทมเพลตประทับ
