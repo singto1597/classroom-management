@@ -612,7 +612,57 @@ class ReceiptListItem(ReceiptResponse):
     batch_voided_count: Optional[int] = None
 
 
-class ReceiptDetailResponse(ReceiptListItem):
+class VoucherBudget(BaseModel):
+    """งบหนึ่งก้อนที่ **ครอบวันของรายการ** — snapshot ณ วันออกเอกสาร
+
+    🔎 งบเป็น implicit: `finance_budgets` ไม่มี FK มาหารายการ ผูกด้วย
+       `room_id + category_id + ช่วงวันที่` เท่านั้น ⇒ ก้อนนี้คือคำตอบที่คำนวณไว้ตอนออกใบ
+       ไม่ใช่การ JOIN สด (งบที่ถูกแก้/ลบทีหลังต้องไม่เปลี่ยนใบที่พิมพ์ไปแล้ว)
+    """
+    id: int
+    # 💰 cast float มาแล้วจาก service — DECIMAL กลับมาจาก asyncpg เป็น `Decimal`
+    amount: float
+    # 📅 ISO `YYYY-MM-DD` (JSON ไม่มีชนิด DATE) — เหตุผลเดียวกับ `ReceiptLineItem.due_date`
+    start_date: str
+    end_date: str
+    period_type: str
+
+
+class VoucherFields(BaseModel):
+    """ฟิลด์ของ **ใบสำคัญจ่าย** — snapshot ทั้งชุด อ่านจาก `finance_receipts.voucher_snapshot`
+
+    🔴 ทำไมต้องประกาศที่นี่เสมอ: `response_model=` ของ FastAPI เป็น **ตัวกรองขาออก** —
+       คีย์ที่โมเดลไม่ได้ประกาศจะถูกตัดทิ้ง **เงียบ ๆ** ไม่มี warning และไม่มี error
+       ⇒ `_shape_receipt_detail` ตั้งค่าครบทุกคีย์ (คอมเมนต์ของมันเขียนว่า "ตั้งเสมอ")
+       แต่หน้าจอไม่เห็นอะไรเลย
+
+    💥 เคสจริงที่เกิดขึ้น (2026-09): ฟิลด์ชุดนี้ถูกลืมที่นี่ ⇒ `GET /finance/receipts/{no}`
+       คืน `budgets` เป็น `undefined` ⇒ `ReceiptDetail.vue` ที่เข้าถึง `detail.budgets.length`
+       **throw ตอน render** ⇒ Vue ทิ้ง subtree ทั้งหน้า เหลือแต่ skeleton "กำลังโหลดข้อมูล"
+       ค้างบนพื้นขาว = "หน้าขาว ๆ แปลก ๆ" ที่ผู้ใช้รายงาน **โดยไม่มี error ฝั่งเซิร์ฟเวอร์เลย**
+       และเทสต์ทุกตัวยังเขียว เพราะเทสต์ของใบสำคัญจ่ายวิ่งผ่านเส้นทาง **PDF** ซึ่งไม่ประกาศ
+       `response_model` (คืน binary stream) ⇒ ไม่มีเทสต์ใดแตะเส้นทาง JSON ที่หน้าจอใช้จริง
+
+    ⚠️ บทเรียนเดียวกับ `is_receipt` ที่ `ReceiptResponse` เขียนเตือนไว้แล้ว — ครั้งนั้นจำได้
+       ครั้งนี้ลืม ⇒ ถ้าเพิ่มฟิลด์ให้ใบสำคัญจ่าย ต้องมาเพิ่มที่นี่ด้วยเสมอ
+    """
+    approver_name: Optional[str] = None
+    attachment_count: int = 0
+    account_name: Optional[str] = None
+    # 💰 cash | transfer — ใช้ `str` ไม่ใช่ Literal โดยเจตนา: ค่าที่ไม่รู้จักต้องไม่ทำให้
+    #    หน้า detail เป็น 500 (frontend แสดงช่องทางเฉพาะที่รู้จัก ดู `voucherChannel`)
+    account_kind: Optional[str] = None
+    # 🏦 สามตัวนี้มีค่าเฉพาะ `account_kind == 'transfer'`
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_account_name: Optional[str] = None
+    category_name: Optional[str] = None
+    # 📋 **ลิสต์ว่าง = "ไม่อยู่ในงบประมาณที่ตั้งไว้"** ซึ่งต่างจาก "ยังไม่ได้ตั้งงบ"
+    #    ⇒ ห้ามให้คีย์นี้หายไปแล้ว frontend ตีความเป็นอย่างใดอย่างหนึ่ง
+    budgets: List[VoucherBudget] = []
+
+
+class ReceiptDetailResponse(ReceiptListItem, VoucherFields):
     collection_amount: Optional[float] = None
     collection_due_date: Optional[date] = None
     room_name: Optional[str] = None

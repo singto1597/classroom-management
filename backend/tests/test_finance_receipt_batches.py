@@ -27,6 +27,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from services.finance.constants import AUTO_BATCH_MIN, BATCH_RECEIPTS_MAX
+from services.finance.receipts import ReceiptsMixin
 
 pytestmark = pytest.mark.asyncio
 
@@ -671,3 +672,114 @@ async def test_receipts_without_any_batch_report_null_batch_fields(client, db_po
         assert r["batch_size"] is None
         assert r["batch_voided_count"] is None
         assert r["batch_title"] is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔴 [บั๊ก 2026-09] ชุดที่มี "ใบสำคัญจ่าย" ต้องส่งฟิลด์ของใบสำคัญถึงหน้าจอครบ
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💥 อาการที่ผู้ใช้รายงาน: กดดูเอกสารในมือถือแล้วได้หน้าขาว ๆ (สาเหตุเดียวกับ
+#    `ReceiptDetail.vue` → `detail.budgets.length` throw ตอน render)
+#
+# 🔎 ที่นี่มีสองชั้นที่ต้องถูกทั้งคู่:
+#    (1) `ReceiptBatchDetailResponse.receipts: List[ReceiptDetailResponse]` ⇒ ได้
+#        `VoucherFields` ผ่านการสืบทอด (ถ้าใครเปลี่ยนกลับเป็น `ReceiptListItem`
+#        ฟิลด์จะถูกตัดเงียบ ๆ ที่ชั้นนี้ **โดยไม่กระทบเทสต์ของ `RECEIPT_PATH`**)
+#    (2) SELECT ของเส้นทางนี้ต้องมี `R.voucher_snapshot` — คอมเมนต์บนหัวฟังก์ชันเขียนไว้
+#        แล้วว่าต้องมี "ทุกคอลัมน์ที่ `_shape_receipt_detail` อ่าน" แต่คอลัมน์นี้เคยตกหล่น
+#        ⇒ `dict.get()` คืน `None` แล้ว `_shape_receipt_detail` เข้าสาขา else ⇒
+#        ใบสำคัญในชุดได้ `budgets = []` + `account_kind = None` **เงียบ ๆ** ซึ่งหน้าจอ
+#        จะพิมพ์ว่า "ไม่อยู่ในงบประมาณที่ตั้งไว้" ทั้งที่มีงบ — คำโกหกที่ไม่มีอะไรฟ้อง
+
+VOUCHER_DETAIL_FIELDS = (
+    "approver_name", "attachment_count", "account_name", "account_kind",
+    "bank_name", "bank_account_no", "bank_account_name", "category_name", "budgets",
+)
+
+
+async def _issue_a_payment_voucher(pool, room_id: int, user_id: int) -> str:
+    """ออกใบสำคัญจ่ายหนึ่งใบตรง ๆ (ไม่ผ่าน HTTP) แล้วคืนเลขที่เอกสาร
+
+    ⚠️ สร้าง `finance_transactions` แถวเปล่าก่อนเสมอ — issuer ผูกเอกสารกับ **รายการ**
+       (`legacy_transaction_id`) ไม่ใช่กับบิล ⇒ ไม่มีรายการ = ไม่มีอะไรให้ออกใบ
+    """
+    async with pool.acquire() as conn:
+        account_id = await conn.fetchval(
+            """INSERT INTO finance_accounts
+                   (room_id, account_name, balance, account_kind,
+                    bank_name, bank_account_no, bank_account_name)
+               VALUES ($1, 'บัญชีธนาคารห้อง', 1000, 'transfer',
+                       'ธ.ไทยพาณิชย์', '123-4-56789-0', 'นายสมชาย ใจดี')
+               RETURNING id""",
+            room_id,
+        )
+        category_id = await conn.fetchval(
+            """INSERT INTO finance_categories (room_id, category_name, category_type)
+               VALUES ($1, 'ค่าอาหาร', 'expense') RETURNING id""",
+            room_id,
+        )
+        # 🗓️ งบต้องครอบ "วันนี้" (ทั้งสองนาฬิกา) — ช่วงกว้างพอสำหรับทุกวันที่จะรันเทสต์
+        await conn.execute(
+            """INSERT INTO finance_budgets
+                   (room_id, category_id, period_type, period_year, start_date, end_date, amount)
+               VALUES ($1, $2, 'yearly', 2026, DATE '2020-01-01', DATE '2035-12-31', 5000)""",
+            room_id, category_id,
+        )
+        row = await conn.fetchrow(
+            """INSERT INTO finance_transactions
+                   (room_id, account_id, category_id, amount, description,
+                    transaction_type, recorded_by)
+               VALUES ($1, $2, $3, 250, 'ซื้อของเข้าห้อง', 'expense', 'Tester')
+               RETURNING id, created_at""",
+            room_id, account_id, category_id,
+        )
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            now = await conn.fetchval("SELECT CURRENT_TIMESTAMP")
+            result = await ReceiptsMixin._issue_payment_voucher(
+                conn, room_id, row["id"], 250.0, "ร้านป้าแดง", user_id, "เหรัญญิก", None,
+                event_at_db=row["created_at"], issued_at_db=now,
+                account_id=account_id, category_id=category_id,
+                approver_name="ครูสมศรี", attachment_count=2,
+            )
+    return result["receipt"]["receipt_no"]
+
+
+async def test_batch_detail_carries_the_voucher_fields_of_its_members(
+    client, db_pool, admin_headers,
+):
+    """🔴 เทสต์ที่จับทั้ง (1) การสืบทอด `VoucherFields` ของ response model และ
+    (2) `R.voucher_snapshot` ที่ตกหล่นจาก SELECT ของเส้นทางนี้"""
+    room_id = admin_headers.room_id
+    voucher_no = await _issue_a_payment_voucher(db_pool, room_id, admin_headers.user_id)
+
+    created = _create_batch(client, admin_headers, [voucher_no], title="ชุดทดสอบใบสำคัญ")
+    assert created.status_code == 200, created.text
+    batch_id = created.json()["batch"]["id"]
+
+    res = _batch_detail(client, admin_headers, batch_id)
+    assert res.status_code == 200, res.text
+    body = res.json()
+
+    assert len(body["receipts"]) == 1, "ชุดนี้มีสมาชิกหนึ่งใบ"
+    member = body["receipts"][0]
+    assert member["receipt_no"] == voucher_no
+
+    missing = [k for k in VOUCHER_DETAIL_FIELDS if k not in member]
+    assert not missing, (
+        f"ชุดเอกสารตัดฟิลด์เหล่านี้ออก: {missing} — หน้าจอรายละเอียดชุดจะได้ `undefined` "
+        "แล้ว `detail.budgets.length` จะ throw ตอน render (จอขาว)"
+    )
+
+    assert member["approver_name"] == "ครูสมศรี"
+    assert member["attachment_count"] == 2
+    assert member["account_kind"] == "transfer", (
+        "`account_kind = None` ตรงนี้คืออาการของ `R.voucher_snapshot` ที่ตกหล่นจาก SELECT "
+        "— ไม่ error แต่หน้าจอบอกช่องทางจ่ายผิด/ไม่บอกเลย"
+    )
+    assert member["bank_name"] == "ธ.ไทยพาณิชย์"
+    assert member["category_name"] == "ค่าอาหาร"
+    assert len(member["budgets"]) == 1, (
+        "ลิสต์ว่างตรงนี้จะถูกหน้าจอตีความว่า 'ไม่อยู่ในงบประมาณที่ตั้งไว้' ซึ่ง **โกหก** "
+        "ทั้งที่มีงบครอบอยู่จริง"
+    )
+    assert float(member["budgets"][0]["amount"]) == pytest.approx(5000.0)

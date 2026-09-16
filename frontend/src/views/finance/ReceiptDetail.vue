@@ -25,6 +25,7 @@ import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { downloadBlob } from '@/utils/download';
 import { formatThaiDate, formatThaiDateTime } from '@/utils/period';
+import { voucherChannel as voucherChannelOf } from '@/utils/voucherChannel';
 import type { ReceiptDetail } from '@/types/finance';
 
 const route = useRoute();
@@ -65,15 +66,7 @@ const isDeposit = computed(() => detail.value?.doc_type === 'deposit');
  * 🏦 ช่องทางจ่ายเงินของใบสำคัญจ่าย — มาจาก **กระเป๋าที่รายการนั้นจ่ายออก** (snapshot)
  * `null` = เอกสารชนิดอื่น หรือข้อมูลช่องทางหาย ⇒ ซ่อนแถวไป ดีกว่าแสดงช่องว่าง
  */
-const voucherChannel = computed<string | null>(() => {
-  const d = detail.value;
-  if (!d || d.account_kind === null) return null;
-  if (d.account_kind === 'cash') return 'เงินสด';
-  const parts = [d.bank_name, d.bank_account_no, d.bank_account_name].filter(
-    (part): part is string => Boolean(part),
-  );
-  return parts.length ? `โอนเข้าบัญชี — ${parts.join(' · ')}` : 'โอนเข้าบัญชี';
-});
+const voucherChannel = computed<string | null>(() => voucherChannelOf(detail.value));
 
 /**
  * 🏷️ ป้ายของ `paid_total_after`
@@ -351,6 +344,11 @@ onMounted(() => {
               หมวดหมู่งบประมาณ (F2)
             </dt>
             <dd class="mt-0.5 text-stone-700">
+              <!-- ⚠️ `.length` ตรง ๆ **โดยเจตนา ไม่เติม `?.`** — คีย์นี้ backend รับประกัน
+                   ว่ามีเสมอ (`VoucherFields` ใน models/finance_schemas.py + เทสต์ที่ยิง
+                   เส้นทาง JSON ตรง ๆ) ⇒ ถ้าวันหนึ่งมันหายไปอีก ให้ **throw** แล้วรู้ตัว
+                   ดีกว่าเติม `?.` แล้วเงียบ ๆ ตกลง `v-else` ที่พิมพ์ว่า "ไม่อยู่ในงบประมาณ
+                   ที่ตั้งไว้" ซึ่งเป็นคำโกหก (ต่างจากจอขาวที่เห็นแล้วรู้ว่าพัง) -->
               <ul v-if="detail.budgets.length" class="space-y-1">
                 <li v-for="budget in detail.budgets" :key="budget.id" class="num">
                   {{ detail.category_name || 'ไม่ระบุหมวด' }} — งบ

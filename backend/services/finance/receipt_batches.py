@@ -322,8 +322,12 @@ class ReceiptBatchesMixin:
                 #    ตัวจัดรูปตัวเดียวกัน** — ถ้าที่นี่เรียก `_shape_receipt` เปล่า ๆ
                 #    หน้ารายละเอียดชุดจะขาด `collection_title`/`collection_amount`/
                 #    `student_no`/`room_name` โดยไม่มีอะไรฟ้อง (response_model ตัดเงียบ)
+                #    ⚠️ `R.voucher_snapshot` เคยตกหล่นจากลิสต์นี้ทั้งที่กฎข้างบนเขียนไว้แล้ว
+                #       ⇒ ใบสำคัญจ่ายในชุดได้ `budgets = []` + `account_kind = None` เงียบ ๆ
+                #       (ไม่ error — `dict.get()` คืน None แล้ว `_shape_receipt_detail`
+                #       เข้าสาขา else) ⇒ หน้าจอโชว์ "ไม่อยู่ในงบประมาณที่ตั้งไว้" ซึ่ง **โกหก**
                 rows = await conn.fetch(
-                    f"""SELECT {_RECEIPT_COLUMNS}, R.line_items,
+                    f"""SELECT {_RECEIPT_COLUMNS}, R.line_items, R.voucher_snapshot,
                                FC.title AS collection_title, FC.amount AS collection_amount,
                                FC.due_date AS collection_due_date,
                                S.student_no, R2.room_name, R2.room_code

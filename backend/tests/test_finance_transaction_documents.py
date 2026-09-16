@@ -36,6 +36,8 @@
 from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, patch
 
+import json
+
 import pytest
 
 from services.finance.constants import (
@@ -51,6 +53,11 @@ API_PREFIX = "/api/classroom"
 TRANSACTIONS_PATH = API_PREFIX + "/{room}/finance/transactions"
 TRANSACTION_PATH = API_PREFIX + "/{room}/finance/transactions/{tx_id}"
 RECEIPTS_PATH = API_PREFIX + "/{room}/finance/receipts"
+RECEIPT_PATH = API_PREFIX + "/{room}/finance/receipts/{receipt_no}"
+# ⚠️ `PDF_PATH` กับ `RECEIPT_PATH` ต่างกันแค่ `/pdf` ท้ายสุด **แต่ไม่ใช่เส้นทางเดียวกัน**:
+#    `PDF_PATH` ไม่ประกาศ `response_model` (คืน binary stream) ส่วน `RECEIPT_PATH` ประกาศ
+#    `ReceiptDetailResponse` ⇒ คีย์ที่โมเดลไม่ได้ประกาศจะถูกตัดทิ้งเงียบ ๆ **เฉพาะเส้นทางหลัง**
+#    นี่คือสาเหตุที่เทสต์ใบสำคัญทุกตัวก่อนหน้านี้เขียวทั้งที่หน้าจอพัง (ดูเทสต์ข้อ 8)
 PDF_PATH = API_PREFIX + "/{room}/finance/receipts/{receipt_no}/pdf"
 
 
@@ -1158,3 +1165,177 @@ async def test_mixed_selection_of_receipt_and_voucher_renders_in_one_request(
         "เนื้อในของทั้งสองชนิดต้องอยู่ครบในไฟล์เดียว"
     )
     assert ">None<" not in html
+
+
+# ═══════════════════ 8. 🔴 เส้นทาง JSON ที่หน้าจอใช้จริง — `GET /finance/receipts/{no}`
+#
+# 💥 บั๊กจริงที่ผู้ใช้รายงาน (2026-09, มือถือ Android/Chrome): "กดดูใบสำคัญจ่ายแล้วได้หน้าขาว ๆ
+#    แปลก ๆ" — หน้าค้างที่ skeleton "กำลังโหลดข้อมูล" บนพื้นขาว ไม่มี error ฝั่งเซิร์ฟเวอร์
+#
+# 🔎 กลไก: `ReceiptDetailResponse` ไม่ได้ประกาศฟิลด์ของใบสำคัญ (ทั้ง 9 ตัว) ⇒
+#    `response_model=` ซึ่งเป็น **ตัวกรองขาออก** ตัด `budgets` ทิ้งเงียบ ๆ ⇒ ฝั่งหน้าจอ
+#    `detail.budgets` เป็น `undefined` ⇒ `ReceiptDetail.vue:364` เข้าถึง `.length`
+#    **throw ตอน render** ⇒ Vue ทิ้ง subtree ทั้งหน้า เหลือแต่ skeleton ค้าง
+#
+# 🔴 ทำไมเทสต์ทั้ง 1160 บรรทัดข้างบนจับไม่ได้: ทุกตัววิ่งผ่าน `_voucher_html` → `PDF_PATH`
+#    ซึ่ง **ไม่ประกาศ `response_model`** (คืน binary stream) ⇒ ไม่มีเทสต์ใดในไฟล์นี้
+#    (และในโปรเจกต์) แตะเส้นทาง JSON ที่หน้าจอเรียกจริงเลย
+#
+# ⇒ เทสต์ในบล็อกนี้ต้องยิง **`RECEIPT_PATH`** เท่านั้น ห้ามยิง `PDF_PATH`
+#   มิฉะนั้นจะกลับไปเป็นเทสต์ที่พิสูจน์อะไรไม่ได้อีก
+
+#: ฟิลด์ที่ `VoucherFields` (models/finance_schemas.py) **ต้อง** ประกาศ — ตรงกับที่
+#: `_shape_receipt_detail` ตั้งให้ทุกแถว และตรงกับที่ `ReceiptDetail.vue` อ่าน
+#: ⚠️ รายการนี้คือสัญญาระหว่าง 3 ไฟล์ — เพิ่มฟิลด์ให้ใบสำคัญแล้วไม่อัปเดตที่นี่ = ลืม
+VOUCHER_DETAIL_FIELDS = (
+    "approver_name", "attachment_count", "account_name", "account_kind",
+    "bank_name", "bank_account_no", "bank_account_name", "category_name", "budgets",
+)
+
+
+async def test_voucher_detail_json_carries_every_snapshot_field(client, db_pool, admin_headers):
+    """🔴 เทสต์ที่จับ "response_model ตัดฟิลด์ใบสำคัญทิ้ง" — ตัวเดียวที่จับได้
+
+    ถ้าลบฟิลด์ใดออกจาก `VoucherFields` (หรือถอด `VoucherFields` ออกจาก
+    `ReceiptDetailResponse`) เทสต์นี้ **ต้อง** ล้มที่ `missing` — ไม่ใช่เขียวเหมือนเดิม
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(
+        db_pool, room_id, "บัญชีธนาคารห้อง", 1000.0,
+        account_kind="transfer", bank_name="ธ.ไทยพาณิชย์",
+        bank_account_no="123-4-56789-0", bank_account_name="นายสมชาย ใจดี",
+    )
+    cat_id = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
+    await _insert_budget(db_pool, room_id, cat_id,
+                         start=_WIDE_START, end=_WIDE_END, amount=5000.0)
+
+    res = await _add_tx(client, admin_headers, account_id=account_id, category_id=cat_id,
+                        amount=250.0, tx_type="expense", description="ซื้อของเข้าห้อง",
+                        payee_name="ร้านป้าแดง", approver_name="ครูสมศรี", attachment_count=2)
+    assert res.status_code == 200, res.text
+    receipt_no = (await _docs(db_pool, room_id, DOC_TYPE_PAYMENT_VOUCHER))[0]["receipt_no"]
+
+    # ⚠️ `RECEIPT_PATH` (JSON) — **ไม่ใช่** `PDF_PATH` (binary, ไม่มี response_model)
+    detail = client.get(_url(RECEIPT_PATH, room_id, receipt_no=receipt_no),
+                        headers=admin_headers)
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+
+    missing = [k for k in VOUCHER_DETAIL_FIELDS if k not in body]
+    assert not missing, (
+        f"`response_model=ReceiptDetailResponse` ตัดฟิลด์เหล่านี้ออก: {missing} — "
+        "หน้าจอจะได้ `undefined` แล้ว `v-if=\"detail.budgets.length\"` จะ throw ตอน render "
+        "(จอขาว ไม่มี error ฝั่งเซิร์ฟเวอร์) — ต้องประกาศใน `VoucherFields` เสมอ"
+    )
+
+    assert body["doc_type"] == DOC_TYPE_PAYMENT_VOUCHER
+    assert body["approver_name"] == "ครูสมศรี"
+    assert body["attachment_count"] == 2
+    assert body["account_name"] == "บัญชีธนาคารห้อง"
+    assert body["account_kind"] == "transfer"
+    assert body["bank_name"] == "ธ.ไทยพาณิชย์"
+    assert body["bank_account_no"] == "123-4-56789-0"
+    assert body["bank_account_name"] == "นายสมชาย ใจดี"
+    assert body["category_name"] == "ค่าอาหาร"
+
+    # 📋 `budgets` ต้องเป็น **ลิสต์** เสมอ — `null` ก็ทำให้ `.length` throw เหมือน `undefined`
+    budgets = body["budgets"]
+    assert isinstance(budgets, list) and len(budgets) == 1, (
+        "งบที่ครอบวันของรายการต้องถูกส่งถึงหน้าจอ ไม่ใช่ถูกตัดทิ้ง"
+    )
+    assert set(budgets[0]) == {"id", "amount", "start_date", "end_date", "period_type"}, (
+        "`VoucherBudget` ต้องประกาศครบ 5 คีย์ — คีย์ที่หายไปจะถูกตัดเงียบ ๆ ที่ชั้นนี้"
+    )
+    assert float(budgets[0]["amount"]) == pytest.approx(5000.0), (
+        "DECIMAL ต้องถูก cast เป็น float มาแล้วจาก service (ไม่ใช่สตริง \"5000.00\")"
+    )
+    assert budgets[0]["start_date"] == _WIDE_START and budgets[0]["end_date"] == _WIDE_END, (
+        "วันที่ของงบต้องเป็น ISO `YYYY-MM-DD` ตามสัญญาของ `VoucherBudget`"
+    )
+
+
+@pytest.mark.parametrize("tx_type,doc_type", [
+    ("income", DOC_TYPE_INCOME),
+    ("expense", DOC_TYPE_PAYMENT_VOUCHER),
+])
+async def test_detail_json_keeps_the_voucher_keys_on_every_document_type(
+    client, db_pool, admin_headers, tx_type, doc_type,
+):
+    """เอกสาร **ทุกชนิด** ต้องมีคีย์ชุดนี้ครบ (เป็น `None`/`[]` เมื่อไม่มีค่า) ตามสัญญาของ service
+
+    🔴 ทำไมต้องบังคับ: `_shape_receipt_detail` ตั้งทุกคีย์เสมอทั้งสองสาขา แต่
+       `response_model=` จะตัดทิ้งถ้าไม่ได้ประกาศ ⇒ "คีย์ที่ไม่มีค่า" กับ "คีย์ที่ลืมประกาศ"
+       แยกกันไม่ออกเลยจากฝั่งหน้าจอ (ทั้งคู่กลายเป็น `undefined`) ต่างจาก `null` ที่แยกออก
+       ⇒ เทสต์นี้ผูกสัญญาไว้ว่า "ไม่มีค่า" ต้องหมายถึง `null`/`[]` เท่านั้น
+
+    ⚠️ `receipt` (ที่ออกผ่าน `confirm_payment`) ไม่ได้อยู่ในพารามิเตอร์นี้เพราะสร้างผ่าน
+       `add_transaction` ไม่ได้ — แต่เส้นทางที่มันใช้ (`get_receipt` → `_shape_receipt_detail`
+       → `response_model=ReceiptDetailResponse`) เป็นเส้นเดียวกันทั้งหมด ⇒ สัญญาที่พิสูจน์
+       ที่นี่ครอบมันด้วย
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id, "กองกลาง", 1000.0)
+    cat_id = await _insert_category(db_pool, room_id, "หมวดทดสอบ", tx_type)
+    assert (await _add_tx(client, admin_headers, account_id=account_id, category_id=cat_id,
+                          amount=100.0, tx_type=tx_type)).status_code == 200
+    receipt_no = (await _docs(db_pool, room_id, doc_type))[0]["receipt_no"]
+
+    detail = client.get(_url(RECEIPT_PATH, room_id, receipt_no=receipt_no),
+                        headers=admin_headers)
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+
+    missing = [k for k in VOUCHER_DETAIL_FIELDS if k not in body]
+    assert not missing, f"เอกสารชนิด {doc_type} ต้องมีคีย์ครบ (ขาด: {missing})"
+    assert isinstance(body["budgets"], list), (
+        "`budgets` ต้องเป็นลิสต์เสมอ — `null` ก็ทำให้ `detail.budgets.length` throw"
+    )
+
+    if tx_type == "income":
+        # 🧾 ใบรับเงินไม่มี `voucher_snapshot` ⇒ ต้องเป็นค่าปริยาย ไม่ใช่คีย์ที่หายไป
+        assert body["budgets"] == []
+        assert body["account_kind"] is None
+        assert body["attachment_count"] == 0
+        assert body["approver_name"] is None
+        assert body["category_name"] is None
+
+
+async def test_voucher_detail_json_reports_an_unknown_account_kind_verbatim(
+    client, db_pool, admin_headers,
+):
+    """`account_kind` ที่ไม่รู้จักต้อง **รอดถึงหน้าจอ** ไม่ทำให้หน้า detail เป็น 500
+
+    🔴 `VoucherFields.account_kind` เป็น `str` ไม่ใช่ `Literal['cash','transfer']` โดยเจตนา:
+       ค่าที่เพิ่มเข้ามาทีหลัง (หรือพิมพ์ผิดใน DB) ต้องทำให้ช่องนั้น **ว่าง** บนหน้าจอ
+       (`voucherChannel` คืน `null`) — ไม่ใช่พังทั้งหน้า ซึ่งเป็นความผิดพลาดเดียวกับ
+       ที่ทำให้เกิดบั๊กจอขาว (การตีความค่าที่ไม่รู้จักว่าเป็นอย่างอื่นเงียบ ๆ แย่กว่าระเบิด)
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id, "กระเป๋าใหม่", 1000.0,
+                                       account_kind="cash")
+    cat_id = await _insert_category(db_pool, room_id, "ค่าอาหาร", "expense")
+    assert (await _add_tx(client, admin_headers, account_id=account_id, category_id=cat_id,
+                          amount=100.0, tx_type="expense")).status_code == 200
+    receipt_no = (await _docs(db_pool, room_id, DOC_TYPE_PAYMENT_VOUCHER))[0]["receipt_no"]
+
+    # 🧪 เขียนค่าที่ constraint ไม่อนุญาตผ่านไม่ได้ ⇒ แก้ snapshot ตรง ๆ แทน
+    #    (จำลอง "ค่าใหม่ที่โค้ดรุ่นก่อนไม่รู้จัก" ซึ่งเป็นสถานการณ์จริงของการ deploy แบบ rolling)
+    async with db_pool.acquire() as conn:
+        snapshot = await conn.fetchval(
+            "SELECT voucher_snapshot FROM finance_receipts WHERE receipt_no = $1", receipt_no,
+        )
+        snapshot = ReceiptsMixin._parse_voucher_snapshot(snapshot)
+        snapshot["channel"] = "e_wallet"
+        await conn.execute(
+            "UPDATE finance_receipts SET voucher_snapshot = $2::jsonb WHERE receipt_no = $1",
+            receipt_no, json.dumps(snapshot, ensure_ascii=False),
+        )
+
+    detail = client.get(_url(RECEIPT_PATH, room_id, receipt_no=receipt_no),
+                        headers=admin_headers)
+    assert detail.status_code == 200, (
+        f"ค่าที่ไม่รู้จักต้องไม่ทำให้หน้า detail พัง — ได้ {detail.status_code}: {detail.text}"
+    )
+    assert detail.json()["account_kind"] == "e_wallet", (
+        "ต้องส่งค่าตามจริงให้หน้าจอตัดสินใจเอง (frontend แสดงช่องทางเฉพาะที่รู้จัก)"
+    )
