@@ -58,9 +58,16 @@ async def join_room(
             client_source=client_source,
             actor_identifier=actor
         )
+        # 🔴 `room_name` ต้องถูกส่งต่อ — ไม่ใช่ปล่อยให้เป็นค่าปริยาย
+        #    `join_room` คืนคีย์นี้มา **ทุกเส้นทาง** (ทั้ง "ขอเข้าร่วม" และ
+        #    "ส่งคำขอยืนยันตัวตน") และ `Lobby.vue` ส่งต่อไป `authStore.setRoom`
+        #    ทันทีที่สำเร็จ ⇒ ก่อนหน้านี้ชื่อห้องกลายเป็น `undefined` แล้วถูกเก็บลง
+        #    localStorage **โดยไม่มี error ใด ๆ** (ฝั่ง TS ประกาศ `room_name: string`
+        #    ไว้แล้ว ⇒ ไม่มีใครจับได้ตอนคอมไพล์) — ชื่อห้องบนหัวจอหายทั้งระบบ
         return JoinRoomResponse(
             room_id=result["room_id"],
             student_id=result.get("student_id", 0),
+            room_name=result.get("room_name"),
             message=result.get("message", "ส่งคำขอเข้าสู่ห้องแล้ว กรุณารอครูผู้สอนอนุมัติ")
         )
     except HTTPException as e:

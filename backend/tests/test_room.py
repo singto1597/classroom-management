@@ -1271,3 +1271,52 @@ async def test_join_after_reject_same_user_allowed(db_pool):
             room_id,
         )
         assert count == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔴 เส้นทาง HTTP ของ `POST /api/classroom/join` — ต้องพา `room_name` กลับไปด้วย
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💥 บั๊กจริง (2026-09): `join_room` ใน service คืน `room_name` มาทุกเส้นทาง แต่ **router**
+#    ประกอบ `JoinRoomResponse(...)` เองแบบเลือกฟิลด์ ⇒ `room_name` ไม่ถูกส่งต่อ
+#    ⇒ `Lobby.vue` เรียก `authStore.setRoom(result.room_id, result.room_name, ...)`
+#    ด้วย `undefined` แล้ว **เก็บลง localStorage โดยไม่มี error ใด ๆ** (ฝั่ง TS ประกาศ
+#    `room_name: string` ไว้แล้ว ⇒ ไม่มีใครจับได้ตอนคอมไพล์) — ชื่อห้องบนหัวจอหายทั้งระบบ
+#
+# 🔎 ทำไมเทสต์ service 50 ตัวในไฟล์นี้จับไม่ได้: มันเรียก `RoomManagementService.join_room`
+#    ตรง ๆ ซึ่ง **คืน dict ที่มี `room_name` อยู่แล้ว** — จุดที่ค่าหายคือ router ซึ่งไม่มี
+#    เทสต์ใดในไฟล์นี้แตะเลยมาก่อน ⇒ ต้องยิงผ่าน HTTP เท่านั้น
+
+
+async def _room_code(pool, room_id: int) -> str:
+    async with pool.acquire() as conn:
+        return await conn.fetchval("SELECT room_code FROM rooms WHERE id = $1", room_id)
+
+
+async def test_join_http_response_carries_the_room_name(client, db_pool, admin_headers):
+    """🔴 เทสต์เดียวที่จับ "router ลืมส่ง `room_name`" — ตัวที่ทำให้ชื่อห้องหายทั้งระบบ"""
+    # ห้องที่สอง (คนละเจ้าของ) เพื่อให้ผู้ใช้ของ `admin_headers` ยังไม่เป็นสมาชิก
+    other_owner_id = await _insert_user(db_pool, first_name="Other", last_name="Owner")
+    target_room_id = await _insert_room(db_pool, other_owner_id, room_name="ห้องที่สอง ม.2/1")
+
+    res = client.post(
+        "/api/classroom/join",
+        json={
+            "room_code": await _room_code(db_pool, target_room_id),
+            "student_no": 5,
+            "first_name": "Join",
+            "last_name": "User",
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+
+    assert "room_name" in body, (
+        "router ต้องส่ง `room_name` ต่อ — ถ้าขาด หน้าจอจะเก็บ `undefined` ลง localStorage "
+        "เงียบ ๆ แล้วชื่อห้องบนหัวจอหายทั้งระบบ"
+    )
+    assert body["room_name"] == "ห้องที่สอง ม.2/1", (
+        "ต้องเป็นชื่อห้องที่ผู้ใช้เพิ่งเข้าร่วมจริง ไม่ใช่ค่าว่างหรือชื่อห้องอื่น"
+    )
+    assert body["room_id"] == target_room_id
+    assert body["message"], "ต้องมีข้อความให้หน้าจอแสดง (Lobby.vue เช็ค substring ในนี้)"

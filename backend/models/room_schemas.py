@@ -21,8 +21,20 @@ class RoomResponse(BaseModel):
     message: str
 
 class JoinRoomResponse(BaseModel):
+    """คำตอบของ `POST /api/classroom/join`
+
+    🔴 `room_name` **ต้องประกาศที่นี่** — `join_room` คืนคีย์นี้มาเสมอ (ทั้งเส้นทาง
+       "ขอเข้าร่วม" และ "ส่งคำขอยืนยันตัวตน") และ `Lobby.vue` ส่งต่อไป `authStore.setRoom`
+       ทันที ⇒ ถ้า `response_model=` ตัดทิ้ง `currentRoomName` จะเป็น `undefined`
+       แล้วถูกเก็บลง localStorage **โดยไม่มี error ใด ๆ** (ฝั่ง TS ประกาศ `room_name: string`
+       ไว้แล้ว ⇒ ไม่มีใครจับได้ตอนคอมไพล์) — ชื่อห้องบนหัวจอหายทั้งระบบ
+
+    ⚠️ บทเรียนเดียวกับ `ReceiptDetailResponse`/`ReceiptResponse.is_receipt`:
+       `response_model=` เป็นตัวกรองขาออก คีย์ที่ไม่ประกาศ = คีย์ที่หายไป
+    """
     room_id: int
     student_id: int
+    room_name: Optional[str] = None
     message: str
 
 class PendingRequestResponse(BaseModel):
