@@ -187,16 +187,43 @@ class BotActionService:
         if data.get("description"):
             embed.add_field(name="📄 รายละเอียด", value=data.get("description"), inline=False)
         embed.set_footer(text=f"บันทึกโดย: {data.get('user_name')}")
-        await channel.send(content=self._build_content(data, "💰 มีรายการเงินใหม่"), embed=embed)
 
-    async def _deliver_payment_message(self, channel, content: str, embed: discord.Embed, files: list):
-        """ส่งข้อความรับเงิน — **ชั้นที่ 3 ของ 4**: ถ้าแนบไฟล์ไม่สำเร็จ ต้องส่งข้อความต่อให้ได้
+        # 🧾 [F6/PR-6] แนบ PDF ของเอกสารที่เพิ่งออกในรอบเดียวกับรายการนี้
+        #    (`PV-2569-0001` ใบสำคัญจ่าย · `INC-2569-0001` ใบรับเงิน) เข้ากับ **ข้อความเดิม**
+        #    🔑 **หนึ่งข้อความ หนึ่ง ping หนึ่งไฟล์** — เงินก้อนนี้แจ้งเตือนไปแล้ว การส่ง
+        #       event/ข้อความใหม่ = ping ซ้ำ (backend ถึงกับเขียนกฎห้าม publish ตอนออก
+        #       เอกสารไว้ใน `services/finance/receipts.py`)
+        #    ⚠️ `receipt_nos` เป็น None ในเส้นทางที่ไม่มีเอกสาร ⇒ `build_receipt_files`
+        #       คืน `([], None)` โดย **ไม่แตะ network เลย** (สัญญาของ PR-3 ยังจริงทุกข้อ)
+        #    ⚠️ ชื่อ field ต้องเป็นคำกลาง "เอกสาร" ไม่ใช่ "ใบเสร็จ" — ใบสำคัญจ่ายไม่ใช่ใบเสร็จ
+        files, note = await build_receipt_files(
+            server_id, self.bot.user.id, data.get("receipt_nos")
+        )
+        if note:
+            # 📎 บอกความจริงว่าทำไมไม่มีไฟล์ — เงียบแล้วครูจะเข้าใจว่าลืมแนบ
+            embed.add_field(name="🧾 เอกสาร", value=note, inline=False)
+
+        # ♻️ ใช้ `_deliver_payment_message` ตัวเดียวกับ FINANCE_PAYMENT — ชั้นที่ 3 ของ 4
+        #    ("ไฟล์แนบพัง = ข้อความต้องไม่งั้นพัง") ต้องเหมือนกันทั้งสองเส้นทาง
+        #    ⚠️ แต่ `attach_label` ต้องส่งของเราเอง — ใบสำคัญจ่าย/ใบรับเงิน **ไม่ใช่ใบเสร็จ**
+        await self._deliver_payment_message(
+            channel, self._build_content(data, "💰 มีรายการเงินใหม่"), embed, files,
+            attach_label="🧾 เอกสาร",
+        )
+
+    async def _deliver_payment_message(self, channel, content: str, embed: discord.Embed, files: list, attach_label: str = "🧾 ใบเสร็จ"):
+        """ส่งข้อความการเงิน — **ชั้นที่ 3 ของ 4**: ถ้าแนบไฟล์ไม่สำเร็จ ต้องส่งข้อความต่อให้ได้
 
         ⚠️ Discord ตอบ `HTTPException` ได้จากหลายสาเหตุ (ไฟล์ใหญ่เกินเพดานจริง ·
            ชื่อไฟล์/เนื้อหาไม่ผ่าน moderation · rate limit) ⇒ ทางแก้ที่แย่ที่สุดคือปล่อย
            ให้ข้อความ "รับเงินแล้ว" หายไปเพราะเรื่องของ **ไฟล์แนบ**
         ⚠️ แลกมาด้วยความเสี่ยง "ข้อความซ้ำ" ในกรณีที่คำขอแรกไปถึง Discord แล้วแต่ response
            หายกลางทาง — เลือกซ้ำดีกว่าหาย (การแจ้งเตือนการเงินที่หายคือปัญหาที่ตรวจไม่เจอ)
+
+        🔑 `attach_label` (F6/PR-6) = ป้ายของ field ที่บอกว่า "แนบไม่ได้" — ต้องเป็นคำที่ตรง
+           กับชนิดเอกสารของ **ผู้เรียก** เพราะทั้งสองเส้นทางใช้ฟังก์ชันนี้ร่วมกัน
+           (`FINANCE_PAYMENT` → ใบเสร็จ · `FINANCE_TRANSACTION` → ใบสำคัญจ่าย/ใบรับเงิน)
+           ⇒ ฮาร์ดโค้ด "ใบเสร็จ" ไว้ = ข้อความรายจ่ายบอกใบเสร็จทั้งที่เป็นใบสำคัญจ่าย
         """
         if not files:
             await channel.send(content=content, embed=embed)
@@ -205,7 +232,7 @@ class BotActionService:
             await channel.send(content=content, embed=embed, files=files)
         except discord.HTTPException as e:
             logger.error(f"❌ ส่งข้อความพร้อมไฟล์แนบไม่สำเร็จ ({e}) — ส่งใหม่โดยไม่มีไฟล์")
-            embed.add_field(name="🧾 ใบเสร็จ", value=ATTACH_FAILED_NOTE, inline=False)
+            embed.add_field(name=attach_label, value=ATTACH_FAILED_NOTE, inline=False)
             await channel.send(content=content, embed=embed)
 
     async def notify_finance_payment(self, server_id: int, data: dict):

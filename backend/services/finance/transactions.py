@@ -163,17 +163,26 @@ class TransactionsMixin:
                     )
                     # 📢 แจ้งเตือน Discord: มีรายรับ/รายจ่ายใหม่ (ไม่ @everyone — แค่โชว์ความโปร่งใส)
                     room_server_id = await cls._get_room_server_id(conn, target_room_id)
+
+            # 🧾 เลขเอกสารต้องรอดถึงหน้าจอ — `response_model` เป็นคนตัดสิน (ดู
+            #    `TransactionCreateResponse`) · คีย์พวกนี้เป็น `None` เมื่อไม่มีเอกสาร
+            doc_row = document["receipt"] if document else None
             if room_server_id:
+                # 🧾 [F6/PR-6] แนบ PDF ของเอกสารที่เพิ่งออก (ใบสำคัญจ่าย/ใบรับเงิน) เข้ากับ
+                #    **ข้อความเดิม** — ไม่ส่ง event ใหม่ เพราะเงินก้อนนี้แจ้งเตือนไปแล้ว
+                #    🔑 จุดนี้อยู่ **หลัง** `async with conn.transaction()` ออกไปแล้ว ⇒ เลข
+                #       เอกสารถูก commit จริงบนฐานข้อมูลก่อน publish เสมอ (บอทขอ PDF ผ่าน
+                #       API ได้ทันที ไม่มี race กับ commit)
+                #    ⚠️ `document` เป็น `None` เมื่อไม่มีเอกสาร ⇒ ส่ง `receipt_nos=None`
+                #       ⇒ `notify_new_finance` **ไม่ใส่คีย์นั้นลง payload เลย**
                 await ActionService.notify_new_finance(
                     server_id=room_server_id,
                     txn_type=req.transaction_type,
                     amount=float(req.amount),
                     description=req.description,
                     user_name=req.user_name,
+                    receipt_nos=[doc_row["receipt_no"]] if doc_row else None,
                 )
-            # 🧾 เลขเอกสารต้องรอดถึงหน้าจอ — `response_model` เป็นคนตัดสิน (ดู
-            #    `TransactionCreateResponse`) · คีย์พวกนี้เป็น `None` เมื่อไม่มีเอกสาร
-            doc_row = document["receipt"] if document else None
             return {
                 "status": "success",
                 "message": (

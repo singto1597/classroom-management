@@ -220,6 +220,63 @@ async def test_notify_payments_confirmed_without_receipts_has_no_key(db_pool, kw
     assert payload["count"] == 1
 
 
+async def test_notify_new_finance_carries_receipt_nos_of_its_document(db_pool):
+    """[F6/PR-6] บันทึกรายจ่าย/รายรับ → payload ต้องพาเลข **เอกสารประกอบ** ไปให้บอท
+
+    🔑 สัญญาระหว่างสองบริการเหมือนของ PR-3 เป๊ะ: บอทขอ PDF ด้วยเลขชุดนี้แล้วแนบไปกับ
+       **ข้อความเดิม** (`data.get("receipt_nos")` ใน `cogs/redis_listener.py`) ⇒ ถ้า backend
+       หยุดส่งคีย์นี้ ฟีเจอร์แนบใบสำคัญจ่าย/ใบรับเงินหายทั้งฟีเจอร์โดยที่ **ไม่มีอะไร error เลย**
+       (บอทตกไปใช้เส้นทาง "ไม่มีเอกสาร" อย่างเงียบ ๆ) — เทสต์นี้คือด่านเดียวที่จับได้
+    """
+    from services.action_service import ActionService
+    server_id = random.randint(1_000_000, 9_999_999)
+
+    with patch.object(ActionService, "_publish", new_callable=AsyncMock) as mock_pub:
+        await ActionService.notify_new_finance(
+            server_id, "expense", 300.0, "ค่าซ่อมแซมห้อง", "เหรัญญิก",
+            receipt_nos=["PV-2569-0001"],
+        )
+
+    mock_pub.assert_awaited_once()
+    payload = mock_pub.await_args.args[2]
+    assert payload["receipt_nos"] == ["PV-2569-0001"]
+    assert payload["txn_type"] == "expense"
+    # และการเพิ่มคีย์นี้ต้องไม่เปลี่ยนอย่างอื่นของข้อความเดิม
+    assert mock_pub.await_args.kwargs["mention"] is False
+    assert mock_pub.await_args.kwargs["channel"] == "minor"
+    assert mock_pub.await_args.kwargs["category"] == "💸 มีรายจ่าย"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({}, id="ไม่ส่งมา (เรียกจากที่อื่น/ไม่มีเอกสาร)"),
+        pytest.param({"receipt_nos": None}, id="ส่งมาเป็น None"),
+        pytest.param({"receipt_nos": []}, id="ส่งมาเป็นลิสต์ว่าง"),
+    ],
+)
+async def test_notify_new_finance_without_document_has_no_key(db_pool, kwargs):
+    """[F6/PR-6] ไม่มีเอกสาร → **ไม่มีคีย์ `receipt_nos` เลย** (ไม่ใช่ `receipt_nos: None`)
+
+    🔑 เส้นทางเดิมต้องเหมือนเดิม **ทุกไบต์** รวมถึงรูปร่างของ payload ที่ Redis — บอทแยก
+       สองทางด้วย `if data.get("receipt_nos"):` ⇒ ทั้ง `None` และลิสต์ว่างพาไปทางเดิมได้
+       เหมือนกัน แต่การ "ไม่ใส่คีย์" คือสัญญาที่เทสต์ได้ชัดกว่าและไม่มีทางกำกวม
+    """
+    from services.action_service import ActionService
+    server_id = random.randint(1_000_000, 9_999_999)
+
+    with patch.object(ActionService, "_publish", new_callable=AsyncMock) as mock_pub:
+        await ActionService.notify_new_finance(
+            server_id, "income", 500.0, "ขายขยะ", "เหรัญญิก", **kwargs
+        )
+
+    mock_pub.assert_awaited_once()
+    payload = mock_pub.await_args.args[2]
+    assert "receipt_nos" not in payload
+    # รูปร่างเดิม 4 คีย์ — ไม่มีอะไรมากกว่านี้
+    assert set(payload) == {"txn_type", "amount", "description", "user_name"}
+
+
 async def test_publish_category_present(db_pool):
     """ทุก event มี category (หัวข้อก่อน embed)"""
     from services.action_service import ActionService
@@ -260,6 +317,11 @@ async def test_add_income_transaction_publishes(client, db_pool):
     assert kwargs["server_id"] == server_id
     assert kwargs["txn_type"] == "income"
     assert kwargs["amount"] == 500.0
+    # 🧾 [F6/PR-6] ต้องส่งเลขเอกสารที่เพิ่งออกไปด้วย ⇒ บอทโหลด PDF มาปิดท้าย **ข้อความนี้**
+    #    🔑 เทียบกับ `resp.json()` ไม่ใช่ hardcode — พิสูจน์ว่าเลขที่ผู้ใช้เห็นบนจอ
+    #       คือเลขเดียวกันกับที่ถูกส่งไปแนบไฟล์ (และพิสูจน์ว่าเอกสารถูกออกจริง)
+    #    🔴 `receipt_nos` เป็น **list** เสมอเมื่อมีเอกสาร — บอทวนซ้ำได้โดยไม่ต้องแยกกรณี
+    assert kwargs["receipt_nos"] == [resp.json()["receipt_no"]]
 
 
 async def test_add_expense_transaction_publishes(client, db_pool):
@@ -282,7 +344,10 @@ async def test_add_expense_transaction_publishes(client, db_pool):
         assert resp.status_code == 200, resp.text
 
     mock_notify.assert_awaited_once()
-    assert mock_notify.await_args.kwargs["txn_type"] == "expense"
+    kwargs = mock_notify.await_args.kwargs
+    assert kwargs["txn_type"] == "expense"
+    # 🧾 [F6/PR-6] รายจ่าย → ใบสำคัญจ่าย (`PV-…`) ต้องถูกส่งไปแนบพร้อมข้อความนี้
+    assert kwargs["receipt_nos"] == [resp.json()["receipt_no"]]
 
 
 async def test_create_collection_publishes_mention(client, db_pool):

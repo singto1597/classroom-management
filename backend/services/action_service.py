@@ -94,18 +94,36 @@ class ActionService:
         }, mention=True, category="📢 ประกาศนะทุกคน", channel="announcement")
 
     @classmethod
-    async def notify_new_finance(cls, server_id: int, txn_type: str, amount: float, description: str, user_name: str):
-        """เรียกใช้เมื่อมีรายรับ/รายจ่ายใหม่ — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ต้อง @everyone แต่ทุกคนเห็นความโปร่งใส)"""
+    async def notify_new_finance(cls, server_id: int, txn_type: str, amount: float, description: str, user_name: str, receipt_nos: Optional[List[str]] = None):
+        """เรียกใช้เมื่อมีรายรับ/รายจ่ายใหม่ — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ต้อง @everyone แต่ทุกคนเห็นความโปร่งใส)
+
+        🧾 `receipt_nos` (F6/PR-6) = เลขที่ **เอกสารประกอบ** ที่เพิ่งออกในรอบเดียวกับรายการนี้
+        (`PV-2569-0001` ใบสำคัญจ่าย / `INC-2569-0001` ใบรับเงิน) ⇒ บอทขอ PDF จาก route
+        system แล้ว **แนบไฟล์ไปกับข้อความนี้เลย** (หนึ่งข้อความ หนึ่ง ping หนึ่งไฟล์)
+
+        🚫 **ไม่สร้าง event ใหม่ (`FINANCE_DOCUMENT_ISSUED`) เพราะจะได้สองข้อความต่อการ
+           บันทึกรายการหนึ่งครั้ง** — เงินก้อนนี้แจ้งเตือนไปแล้ว การเพิ่มข้อความที่สองคือ ping ซ้ำ
+           (ท่าเดียวกับ `notify_payments_confirmed` ของ F5/PR-3 ทุกประการ)
+
+        ⚠️ `None` = "รายการนี้ไม่มีเอกสาร" (เส้นทางเดิม / ที่เรียกจากที่อื่น) ⇒ บอทต้องไม่แนบ
+           ไฟล์ และ payload ที่เหลือต้องเหมือนเดิมเป๊ะ
+        """
         if txn_type == "income":
             category = "💰 มีรายรับเข้ามา"
         else:
             category = "💸 มีรายจ่าย"
-        await cls._publish("FINANCE_TRANSACTION", server_id, {
+        payload = {
             "txn_type": txn_type,
             "amount": amount,
             "description": description,
             "user_name": user_name
-        }, mention=False, category=category, channel="minor")
+        }
+        # 🔑 ใส่คีย์ **เฉพาะเมื่อมีค่า** — ไม่ใส่ `receipt_nos: None` ลง payload เลย
+        #    ⇒ สัญญาของเส้นทางเดิมไม่เปลี่ยนแม้แต่ไบต์เดียว และเทสต์เดิมที่ตรวจ payload ยังผ่าน
+        if receipt_nos:
+            payload["receipt_nos"] = receipt_nos
+        await cls._publish("FINANCE_TRANSACTION", server_id, payload,
+                           mention=False, category=category, channel="minor")
 
     @classmethod
     async def notify_payment_confirmed(cls, server_id: int, payer_name: str, title: str, amount: float, user_name: str):

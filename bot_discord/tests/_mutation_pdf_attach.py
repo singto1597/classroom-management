@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""🧬 Mutation harness ฝั่งบอท — F5/PR-3 (แนบ PDF ใบเสร็จเข้า Discord)
+"""🧬 Mutation harness ฝั่งบอท — แนบ PDF เอกสารเข้า Discord (F5/PR-3 · F6/PR-6)
 
 ═══════════════════════════════════════════════════════════════════════════════
 🎯 เป้าหมาย
@@ -12,6 +12,11 @@
    ให้ดูตลก: BM1 คือข้อความการเงินหายเพราะไฟล์แนบ · BM2/BM3 คือยิง Discord ด้วยไฟล์ที่
    ใหญ่เกินจน **ทั้งข้อความถูกปฏิเสธ** · BM4 คือลูปฟัง Redis หยุดรอ Gotenberg 60-120 วิ
    (การแจ้งเตือนอื่นทั้งระบบหยุดตาม) · BM5 คือฟีเจอร์หายเงียบโดยไม่มีอะไร error
+
+🔴 F6/PR-6 เพิ่ม BM7-BM11 — และ **แก้ anchor ของ BM4** เพราะ signature ของ
+   `_spawn_pdf_task` เปลี่ยนจาก `(server_id, data)` เป็น `(handler, server_id, data)`
+   ⇒ ปล่อย anchor เก่าไว้ = STALE เงียบ ๆ ซึ่งอ่านเผิน ๆ เหมือน "ผ่าน"
+   (บทเรียนเดียวกับที่ PR-5 ทำ harness ฝั่ง backend พัง — ดู `docs/skills.md`)
 
 ═══════════════════════════════════════════════════════════════════════════════
 ⚠️ ทำไมสคริปต์นี้ใช้ `docker run` + `unittest` ไม่ใช่ pytest/compose เหมือนฝั่ง backend
@@ -52,6 +57,14 @@ T_ATTACH = f"{TESTS}.NotifyFinancePaymentTest.test_attaches_file_and_adds_no_not
 T_SURVIVE = f"{TESTS}.NotifyFinancePaymentTest.test_message_survives_discord_rejecting_the_file"
 T_NONBLOCK = f"{TESTS}.ProcessEventConcurrencyTest.test_payment_with_receipts_is_not_awaited_inline"
 T_FILENAME = f"{TESTS}.FilenameHeaderTest.test_prefers_rfc5987_filename_star"
+# ── F6/PR-6 ──
+T_TXN_NONBLOCK = f"{TESTS}.ProcessEventConcurrencyTest.test_transaction_with_document_is_not_awaited_inline"
+T_TXN_SEQ = f"{TESTS}.ProcessEventConcurrencyTest.test_transaction_without_document_stays_sequential"
+T_CROSSWIRE = f"{TESTS}.ProcessEventConcurrencyTest.test_two_document_events_never_cross_wires"
+T_HANDLER = f"{TESTS}.SpawnPdfTaskTest.test_spawn_pdf_task_uses_the_passed_handler"
+T_TXN_ATTACH = f"{TESTS}.NotifyFinanceTransactionTest.test_attaches_the_document_and_adds_no_note"
+T_TXN_NOTE = f"{TESTS}.NotifyFinanceTransactionTest.test_note_is_added_when_attachment_fails"
+T_TXN_SURVIVE = f"{TESTS}.NotifyFinanceTransactionTest.test_message_survives_discord_rejecting_the_file"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # (id+ชื่อ, expect, [(ไฟล์, ข้อความเดิม, ข้อความใหม่), ...], เทสต์ที่ควรจับ)
@@ -65,7 +78,7 @@ MUTATIONS = [
           "            await channel.send(content=content, embed=embed, files=files)\n"
           "        except discord.HTTPException as e:\n"
           '            logger.error(f"❌ ส่งข้อความพร้อมไฟล์แนบไม่สำเร็จ ({e}) — ส่งใหม่โดยไม่มีไฟล์")\n'
-          '            embed.add_field(name="🧾 ใบเสร็จ", value=ATTACH_FAILED_NOTE, inline=False)\n'
+          '            embed.add_field(name=attach_label, value=ATTACH_FAILED_NOTE, inline=False)\n'
           "            await channel.send(content=content, embed=embed)\n",
           "        # MUTANT: ไม่มีชั้นที่ 3\n"
           "        await channel.send(content=content, embed=embed, files=files)\n")],
@@ -92,7 +105,9 @@ MUTATIONS = [
         "catch",
         [(LISTENER,
           '            if data.get("receipt_nos"):\n'
-          "                self._spawn_pdf_task(server_id, data)\n"
+          "                self._spawn_pdf_task(\n"
+          "                    self.action_service.notify_finance_payment, server_id, data\n"
+          "                )\n"
           "            else:\n"
           "                await self.action_service.notify_finance_payment(server_id, data)\n",
           "            # MUTANT: กลับไป await ตรง ๆ\n"
@@ -114,6 +129,78 @@ MUTATIONS = [
           "    if encoded_name:\n",
           "    if False:  # MUTANT: ไม่ใช้ filename*\n")],
         [T_FILENAME],
+    ),
+    # ══════════════════════════════════════════════════════════════════════════
+    # F6/PR-6 — ใบสำคัญจ่าย/ใบรับเงินแนบเข้า FINANCE_TRANSACTION
+    # ══════════════════════════════════════════════════════════════════════════
+    (
+        "BM7 ⭐ ถอด fork ของ FINANCE_TRANSACTION ⇒ ลูปหยุดรอ Gotenberg ทุกครั้งที่บันทึกรายการ",
+        "catch",
+        [(LISTENER,
+          '            if data.get("receipt_nos"):\n'
+          "                self._spawn_pdf_task(\n"
+          "                    self.action_service.notify_finance_transaction, server_id, data\n"
+          "                )\n"
+          "            else:\n"
+          "                await self.action_service.notify_finance_transaction(server_id, data)\n",
+          "            # MUTANT: ถอด fork\n"
+          "            await self.action_service.notify_finance_transaction(server_id, data)\n")],
+        [T_TXN_NONBLOCK],
+    ),
+    (
+        "BM8 🔴 ฮาร์ดโค้ด handler ใน `_spawn_pdf_task` ⇒ ข้อความรายการเงินกลายเป็น embed รับเงิน",
+        "catch",
+        [(LISTENER,
+          "                async with self._pdf_semaphore:\n"
+          "                    await handler(server_id, data)\n",
+          "                async with self._pdf_semaphore:\n"
+          "                    await self.action_service.notify_finance_payment(  # MUTANT\n"
+          "                        server_id, data)\n")],
+        [T_HANDLER],
+    ),
+    (
+        "BM9 🔴 ต่อสายสลับ handler ในสาขา FINANCE_TRANSACTION (ส่งผิด embed เงียบ ๆ)",
+        "catch",
+        [(LISTENER,
+          "                self._spawn_pdf_task(\n"
+          "                    self.action_service.notify_finance_transaction, server_id, data\n"
+          "                )\n",
+          "                self._spawn_pdf_task(  # MUTANT: สลับ handler\n"
+          "                    self.action_service.notify_finance_payment, server_id, data\n"
+          "                )\n")],
+        [T_TXN_NONBLOCK, T_CROSSWIRE],
+    ),
+    (
+        "BM10 รายการเงินไม่แนบไฟล์เลย (ส่ง `[]` แทน `files`) ⇒ ฟีเจอร์หายเงียบ",
+        "catch",
+        [(ACTION,
+          '            channel, self._build_content(data, "💰 มีรายการเงินใหม่"), embed, files,\n'
+          '            attach_label="🧾 เอกสาร",\n',
+          '            channel, self._build_content(data, "💰 มีรายการเงินใหม่"), embed, [],\n'
+          '            attach_label="🧾 เอกสาร",  # MUTANT: ไม่แนบไฟล์\n')],
+        [T_TXN_ATTACH],
+    ),
+    (
+        "BM11 เงียบเมื่อแนบไฟล์ไม่ได้ ⇒ ครูเข้าใจว่าลืมแนบ ทั้งที่ระบบแนบไม่ได้",
+        "catch",
+        [(ACTION,
+          '            embed.add_field(name="🧾 เอกสาร", value=note, inline=False)\n',
+          "            pass  # MUTANT: ไม่บอกว่าทำไมไม่มีไฟล์\n")],
+        [T_TXN_NOTE],
+    ),
+    (
+        "BM12 ป้าย fallback ของรายการเงินกลับไปเป็น 'ใบเสร็จ' ⇒ ใบสำคัญจ่ายถูกเรียกเป็นใบเสร็จ",
+        "catch",
+        # ⚠️ anchor ต้องกินบรรทัด `)` ปิดด้วย — ไม่งั้น mutant ที่ได้จะเหลือ `)` เกินมา
+        #    หนึ่งตัว = SyntaxError ⇒ harness ขึ้น INFRA (ไม่ใช่ CATCH) ซึ่งอ่านเผิน ๆ
+        #    เหมือน "เทสต์จับได้" ทั้งที่**ไม่มีเทสต์ตัวไหนได้รันเลย**
+        [(ACTION,
+          '            channel, self._build_content(data, "💰 มีรายการเงินใหม่"), embed, files,\n'
+          '            attach_label="🧾 เอกสาร",\n'
+          "        )\n",
+          '            channel, self._build_content(data, "💰 มีรายการเงินใหม่"), embed, files,\n'
+          "        )  # MUTANT: ป้ายหายไปใช้ค่า default (ใบเสร็จ)\n")],
+        [T_TXN_SURVIVE],
     ),
 ]
 

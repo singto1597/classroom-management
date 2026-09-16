@@ -14,7 +14,9 @@ docker run --rm -v "$PWD/bot_discord:/app:z" -w /app classroom-classroom-bot:lat
 | `FilenameHeaderTest` | parse `Content-Disposition` ได้ทั้ง `filename=` และ RFC 5987 `filename*` และ **ไม่รับชื่อไฟล์ที่เป็นอันตราย** |
 | `BuildReceiptFilesTest` | ทั้ง 6 สาขาของการตัดสินใจแนบ/ไม่แนบ — รวม timeout, error, ไฟล์ใหญ่เกิน |
 | `NotifyFinancePaymentTest` | **ไฟล์แนบพังแล้วข้อความต้องออก** (ชั้นที่ 3) และเส้นทางเดิม (บิลเดียว) ไม่เปลี่ยน |
-| `ProcessEventConcurrencyTest` | `FINANCE_PAYMENT` ที่มีใบเสร็จ **ไม่บล็อกลูปฟัง Redis** ส่วนที่ไม่มีใบเสร็จยัง await เหมือนเดิม |
+| `NotifyFinanceTransactionTest` | 🆕 [F6/PR-6] ใบสำคัญจ่าย/ใบรับเงินแนบไปกับข้อความรายการเงิน — และรายการที่ไม่มีเอกสารไม่เปลี่ยน |
+| `SpawnPdfTaskTest` | 🆕 [F6/PR-6] `_spawn_pdf_task` ใช้ **handler ที่ถูกส่งเข้ามา** ไม่ฮาร์ดโค้ดชนิด event |
+| `ProcessEventConcurrencyTest` | `FINANCE_PAYMENT`/`FINANCE_TRANSACTION` ที่มีเอกสาร **ไม่บล็อกลูปฟัง Redis** ส่วนที่ไม่มีเอกสารยัง await เหมือนเดิม |
 
 ⚠️ กลุ่ม `ProcessEventConcurrencyTest` สร้าง Cog ด้วย `__new__` เพื่อข้าม `__init__`
    ที่ไปสร้าง task ผูกกับ event loop ของบอทจริง — เป็นเทคนิคที่ตั้งใจ ไม่ใช่การหลบเลี่ยง
@@ -320,14 +322,173 @@ class NotifyFinancePaymentTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channel.calls[0]["embed"].title, "✅ มีการชำระเงิน")
 
 
+class NotifyFinanceTransactionTest(unittest.IsolatedAsyncioTestCase):
+    """🧾 [F6/PR-6] ใบสำคัญจ่าย/ใบรับเงินแนบไปกับข้อความ `FINANCE_TRANSACTION`"""
+
+    def setUp(self):
+        self.payload = {
+            "event": "FINANCE_TRANSACTION",
+            "server_id": 1,
+            "category": "💸 มีรายจ่าย",
+            "txn_type": "expense",
+            "amount": 250.0,
+            "description": "ค่าซ่อมแซมห้อง",
+            "user_name": "ครูสมชาย",
+            "receipt_nos": ["PV-2569-0001"],
+        }
+
+    def _embed_titles(self, call):
+        # ⚠️ discord.py คืน `EmbedProxy` (ไม่ใช่ dict) ⇒ ต้องเข้าถึงด้วย attribute
+        return [f.name for f in call["embed"].fields]
+
+    async def test_attaches_the_document_and_adds_no_note(self):
+        channel = _FakeChannel()
+        service = _StubActionService(channel)
+        fake_file = object()
+        with patch(
+            "services.action_service.build_receipt_files",
+            new=AsyncMock(return_value=([fake_file], None)),
+        ) as builder:
+            await service.notify_finance_transaction(1, self.payload)
+
+        self.assertEqual(len(channel.calls), 1)
+        self.assertEqual(channel.calls[0]["files"], [fake_file])
+        self.assertNotIn("🧾 เอกสาร", self._embed_titles(channel.calls[0]))
+        # 🔑 เลขเอกสารต้องถูกส่งต่อให้ตัวโหลด **ครบและตามลำดับ** (args = server, bot_id, nos)
+        self.assertEqual(builder.await_args.args, (1, 999, ["PV-2569-0001"]))
+
+    async def test_income_document_is_attached_too(self):
+        """💰 รายรับก็ออกเอกสาร (`INC-…`) ⇒ ต้องแนบเหมือนรายจ่าย ไม่ใช่แค่ฝั่งจ่าย"""
+        channel = _FakeChannel()
+        service = _StubActionService(channel)
+        with patch(
+            "services.action_service.build_receipt_files",
+            new=AsyncMock(return_value=([object()], None)),
+        ) as builder:
+            await service.notify_finance_transaction(
+                1, {**self.payload, "txn_type": "income", "receipt_nos": ["INC-2569-0001"]}
+            )
+        self.assertEqual(builder.await_args.args[2], ["INC-2569-0001"])
+        self.assertEqual(len(channel.calls[0]["files"]), 1)
+
+    async def test_note_is_added_when_attachment_fails(self):
+        channel = _FakeChannel()
+        service = _StubActionService(channel)
+        with patch(
+            "services.action_service.build_receipt_files",
+            new=AsyncMock(return_value=([], "🧾 แนบไม่ได้เพราะเหตุผลบางอย่าง")),
+        ):
+            await service.notify_finance_transaction(1, self.payload)
+
+        self.assertEqual(len(channel.calls), 1)
+        self.assertNotIn("files", channel.calls[0])
+        self.assertIn("🧾 เอกสาร", self._embed_titles(channel.calls[0]))
+
+    async def test_message_survives_discord_rejecting_the_file(self):
+        """🔑 ชั้นที่ 3 ของ 4 — ไฟล์แนบพังแล้วข้อความ 'มีรายจ่าย' ต้องยังออก"""
+        channel = _FakeChannel(fail_when_files=True)
+        service = _StubActionService(channel)
+        with patch(
+            "services.action_service.build_receipt_files",
+            new=AsyncMock(return_value=([object()], None)),
+        ):
+            await service.notify_finance_transaction(1, self.payload)
+
+        self.assertEqual(len(channel.calls), 2)
+        self.assertIn("files", channel.calls[0])
+        self.assertNotIn("files", channel.calls[1])
+        # ข้อความที่สองต้องบอกความจริงว่าทำไมไม่มีไฟล์ (ไม่เงียบ)
+        self.assertIn("🧾 เอกสาร", self._embed_titles(channel.calls[1]))
+
+    async def test_payload_without_receipt_nos_keeps_the_old_message(self):
+        """🛡️ สัญญาเดิม: รายการที่ไม่มีเอกสาร → ข้อความเหมือนก่อน PR-6 ทุกไบต์
+
+        `receipt_nos` เป็น `None` ⇒ `build_receipt_files` ต้อง **ไม่แตะ network**
+        และ embed ต้องมีแค่ field เดิม ไม่มี "🧾 เอกสาร" โผล่มา
+        """
+        channel = _FakeChannel()
+        service = _StubActionService(channel)
+        payload = {k: v for k, v in self.payload.items() if k != "receipt_nos"}
+        with patch(
+            "services.action_service.build_receipt_files",
+            new=AsyncMock(return_value=([], None)),
+        ) as builder:
+            await service.notify_finance_transaction(1, payload)
+
+        self.assertIsNone(builder.await_args.args[2])  # None ⇒ ทางลัดที่ไม่แตะ network
+        self.assertEqual(len(channel.calls), 1)
+        self.assertNotIn("files", channel.calls[0])
+        self.assertEqual(channel.calls[0]["embed"].title, "💸 รายการเงินใหม่")
+        self.assertEqual(self._embed_titles(channel.calls[0]), ["📄 รายละเอียด"])
+
+    async def test_field_is_labelled_เอกสาร_not_ใบเสร็จ(self):
+        """🔑 ใบสำคัญจ่าย **ไม่ใช่ใบเสร็จ** — ป้ายบน embed ต้องเป็นคำกลาง
+
+        ถ้าป้ายเป็น "ใบเสร็จ" ครูจะอ่านข้อความรายจ่ายแล้วเข้าใจว่าห้องได้ใบเสร็จมา
+        ซึ่งกลับความหมาย (ใบสำคัญจ่าย = หลักฐานว่า **จ่ายออก**)
+        """
+        channel = _FakeChannel()
+        service = _StubActionService(channel)
+        with patch(
+            "services.action_service.build_receipt_files",
+            new=AsyncMock(return_value=([], ATTACH_FAILED_NOTE)),
+        ):
+            await service.notify_finance_transaction(1, self.payload)
+        titles = self._embed_titles(channel.calls[0])
+        self.assertIn("🧾 เอกสาร", titles)
+        self.assertNotIn("🧾 ใบเสร็จ", titles)
+
+
 class _Recorder:
-    """ActionService ปลอมสำหรับทดสอบ routing ของ listener"""
+    """ActionService ปลอมสำหรับทดสอบ routing ของ listener
+
+    ⚠️ แยกสองลิสต์ต่อ handler โดยเจตนา — ถ้ารวมกัน `FINANCE_TRANSACTION` ที่ถูกส่งไปผิด
+       handler จะดูเหมือน "ผ่าน" (มี call เกิดขึ้นจริง) ทั้งที่ข้อความที่ออกผิดชนิด
+    """
 
     def __init__(self):
         self.calls = []
+        self.txn_calls = []
 
     async def notify_finance_payment(self, server_id, data):
         self.calls.append((server_id, data))
+
+    async def notify_finance_transaction(self, server_id, data):
+        self.txn_calls.append((server_id, data))
+
+
+class SpawnPdfTaskTest(unittest.IsolatedAsyncioTestCase):
+    """🔑 [F6/PR-6] `_spawn_pdf_task` ต้องใช้ handler ที่ **ถูกส่งเข้ามา**
+
+    ก่อน PR-6 ตัวนี้ฮาร์ดโค้ด `notify_finance_payment` ไว้ข้างใน ⇒ พอมี event ที่สอง
+    (`FINANCE_TRANSACTION`) ที่ต้องแนบไฟล์ด้วย การฮาร์ดโค้ดจะทำให้มัน **ส่ง embed ผิดชนิด
+    เงียบ ๆ** — ไม่มี exception ไม่มี log ไม่มีอะไรฟ้อง (ผู้ใช้เห็นแค่ "รายการเงินใหม่"
+    ที่หน้าตาเป็น "รับเงินรางวัล" ของ FINANCE_PAYMENT)
+    """
+
+    def _cog(self):
+        cog = RedisListener.__new__(RedisListener)
+        cog.action_service = _Recorder()
+        cog._pdf_tasks = set()
+        cog._pdf_semaphore = asyncio.Semaphore(2)
+        return cog
+
+    async def test_spawn_pdf_task_uses_the_passed_handler(self):
+        cog = self._cog()
+        seen = []
+
+        async def handler(server_id, data):
+            seen.append((server_id, data))
+
+        cog._spawn_pdf_task(handler, 5, {"event": "FINANCE_TRANSACTION"})
+        await asyncio.sleep(0.05)
+
+        self.assertEqual(seen, [(5, {"event": "FINANCE_TRANSACTION"})])
+        # 🛡️ และต้อง **ไม่** ตกไปเรียก handler ตัวอื่นของ action_service
+        self.assertEqual(cog.action_service.calls, [])
+        self.assertEqual(cog.action_service.txn_calls, [])
+        # งานถูกเก็บกวาดออกจาก set หลังจบ (ไม่รั่ว reference)
+        self.assertEqual(cog._pdf_tasks, set())
 
 
 class ProcessEventConcurrencyTest(unittest.IsolatedAsyncioTestCase):
@@ -359,6 +520,48 @@ class ProcessEventConcurrencyTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(cog.action_service.calls), 1)
         self.assertEqual(cog._pdf_tasks, set())
+
+    async def test_transaction_with_document_is_not_awaited_inline(self):
+        """🧾 [F6/PR-6] บันทึกรายการที่มีเอกสาร → ต้องไม่บล็อกรอลูปฟัง Redis"""
+        cog = self._cog()
+        await cog.process_event(
+            {"event": "FINANCE_TRANSACTION", "server_id": 11,
+             "txn_type": "expense", "receipt_nos": ["PV-2569-0001"]}
+        )
+        self.assertEqual(cog.action_service.txn_calls, [])  # ยังไม่ถูกเรียก ⇒ ไม่บล็อก
+
+        await asyncio.sleep(0.05)  # ให้ task เบื้องหลังได้รัน
+        self.assertEqual(len(cog.action_service.txn_calls), 1)
+        self.assertEqual(cog.action_service.txn_calls[0][0], 11)
+        # 🛡️ และต้องไม่ตกไปที่ handler ของ FINANCE_PAYMENT (embed ผิดชนิด)
+        self.assertEqual(cog.action_service.calls, [])
+
+    async def test_transaction_without_document_stays_sequential(self):
+        """เส้นทางเดิม (รายการที่ไม่มีเอกสาร) ต้องถูก await ทันทีเหมือนก่อน PR-6"""
+        cog = self._cog()
+        await cog.process_event(
+            {"event": "FINANCE_TRANSACTION", "server_id": 12,
+             "txn_type": "income", "amount": 10.0}
+        )
+        self.assertEqual(len(cog.action_service.txn_calls), 1)
+        self.assertEqual(cog._pdf_tasks, set())
+
+    async def test_two_document_events_never_cross_wires(self):
+        """🔴 เอกสารของสอง event ต้องไปคนละ handler — กันการฮาร์ดโค้ด handler
+
+        ถ้า `_spawn_pdf_task` ฮาร์ดโค้ด `notify_finance_payment` ไว้ ข้อความของ
+        `FINANCE_TRANSACTION` จะกลายเป็น embed ของ "รับเงินรางวัล" เงียบ ๆ
+        """
+        cog = self._cog()
+        await cog.process_event(
+            {"event": "FINANCE_TRANSACTION", "server_id": 21, "receipt_nos": ["PV-1"]}
+        )
+        await cog.process_event(
+            {"event": "FINANCE_PAYMENT", "server_id": 22, "receipt_nos": ["REC-1"]}
+        )
+        await asyncio.sleep(0.05)
+        self.assertEqual([s for s, _ in cog.action_service.txn_calls], [21])
+        self.assertEqual([s for s, _ in cog.action_service.calls], [22])
 
     async def test_background_failure_does_not_escape(self):
         """task เบื้องหลังที่ raise ต้องถูกกลืนและ log — ห้ามทำให้ลูปพัง"""

@@ -41,8 +41,13 @@ class RedisListener(commands.Cog):
 
         self.bot.loop.create_task(self.listen_to_redis())
 
-    def _spawn_pdf_task(self, server_id: int, data: dict) -> None:
+    def _spawn_pdf_task(self, handler, server_id: int, data: dict) -> None:
         """รันการส่งข้อความ+แนบไฟล์เบื้องหลัง แล้ว **ไม่** บล็อกลูปฟัง Redis
+
+        🔑 `handler` เป็น **พารามิเตอร์ ไม่ใช่ค่าคงที่** (F6/PR-6) — ตอนนี้มีสอง event
+           ที่แนบไฟล์ได้ (`FINANCE_PAYMENT` · `FINANCE_TRANSACTION`) และแต่ละตัวมี embed
+           คนละรูปร่าง ⇒ ถ้าฮาร์ดโค้ด `notify_finance_payment` ไว้ การแนบไฟล์ของ
+           `FINANCE_TRANSACTION` จะ **ส่งข้อความผิดชนิดเงียบ ๆ** (ไม่มี error ให้เห็น)
 
         🛡️ ต้องเก็บ task ไว้ใน set: ถ้าไม่มี reference ค้างไว้ garbage collector
            อาจเก็บ task ทิ้งกลางทาง (asyncio เตือนเรื่องนี้ตรง ๆ) ⇒ ข้อความหายเงียบ ๆ
@@ -50,14 +55,16 @@ class RedisListener(commands.Cog):
            "Task exception was never retrieved" ซึ่งไม่มีผลกับผู้ใช้และไม่มีใครเห็น
         🚦 semaphore จำกัดงานพร้อมกัน — Gotenberg เรนเดอร์ PDF ด้วย Chromium ซึ่งกิน CPU
            หนัก การยิงพร้อมกัน 500 ไฟล์ (import ห้องทั้งห้อง) จะทำให้ทุกรายการช้าลงหมด
+           🔴 **F6 ย้ายเพดานนี้จากเส้นทางที่พบยาก (เคลียร์หนี้เป็นชุด) มาอยู่บนเส้นทาง
+              ที่ยิงทุกครั้งที่บันทึกรายการ** ⇒ งานที่ค้างในคิวจะยาวขึ้น (ดู `docs/skills.md`)
         """
         async def runner():
             try:
                 async with self._pdf_semaphore:
-                    await self.action_service.notify_finance_payment(server_id, data)
+                    await handler(server_id, data)
             except Exception as e:
                 logger.error(
-                    f"⚠️ ส่งข้อความ FINANCE_PAYMENT แบบเบื้องหลังล้มเหลว "
+                    f"⚠️ ส่งข้อความ {data.get('event')} แบบเบื้องหลังล้มเหลว "
                     f"({type(e).__name__}: {e}) server={server_id} — ข้ามไป ไม่ตัด subscription"
                 )
 
@@ -128,7 +135,17 @@ class RedisListener(commands.Cog):
             await self.action_service.notify_custom_message(server_id, data)
 
         elif event_type == "FINANCE_TRANSACTION":
-            await self.action_service.notify_finance_transaction(server_id, data)
+            # 🧾 [F6/PR-6] ข้อความนี้ **อาจต้องโหลด PDF** ของใบสำคัญจ่าย/ใบรับเงิน
+            #    (เมื่อ payload มี `receipt_nos`) ⇒ กติกาเดียวกับ FINANCE_PAYMENT ทุกข้อ:
+            #    🔑 แยกสองทางด้วยการ **มี/ไม่มี `receipt_nos`** ไม่ใช่แยกที่ชนิด event
+            #       ⇒ เส้นทางเดิม (รายการที่ไม่มีเอกสาร) ยัง await แบบ sequential เหมือนก่อน
+            #       ทุกไบต์ และ "การมีอยู่ของ event ใหม่" ไม่ได้เปลี่ยนพฤติกรรมของมันเลย
+            if data.get("receipt_nos"):
+                self._spawn_pdf_task(
+                    self.action_service.notify_finance_transaction, server_id, data
+                )
+            else:
+                await self.action_service.notify_finance_transaction(server_id, data)
 
         elif event_type == "FINANCE_PAYMENT":
             # 🧾 ข้อความนี้ **อาจต้องโหลด PDF จาก Gotenberg** (เมื่อ payload มี `receipt_nos`)
@@ -137,7 +154,9 @@ class RedisListener(commands.Cog):
             #       เส้นทางเดิม (บิลเดียว, ติ๊กออกใบเสร็จออก) ยังเดินแบบ sequential เหมือนก่อน
             #       ทุกไบต์ — พฤติกรรมที่ไม่มีไฟล์แนบไม่ต้องแลกอะไรเลย
             if data.get("receipt_nos"):
-                self._spawn_pdf_task(server_id, data)
+                self._spawn_pdf_task(
+                    self.action_service.notify_finance_payment, server_id, data
+                )
             else:
                 await self.action_service.notify_finance_payment(server_id, data)
 
