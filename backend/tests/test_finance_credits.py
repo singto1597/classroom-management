@@ -666,6 +666,60 @@ async def test_top_up_with_same_idempotency_key_is_not_a_second_payment(
     assert round(float(balance), 2) == 500.0
 
 
+async def test_repeated_top_up_leaves_an_audit_row_flagged_reused(
+    client, db_pool, admin_headers
+):
+    """คำขอที่ **กดซ้ำ** ต้องมีร่องรอย audit ของตัวเอง โดยติดธง `reused: true`
+
+    🔴 ทำไมต้องมีเทสต์ตัวนี้อีกตัว (ทั้งที่ตัวข้างบนก็ยืนยัน "ไม่จ่ายซ้ำ" แล้ว):
+       ด่านกันซ้ำของ `top_up_credit` มี **สองชั้น** และทั้งคู่คืนผลลัพธ์
+       **เหมือนกันเป๊ะในระดับ API** ⇒ เทสต์ที่ดูแค่ response ผ่านทั้งสองทาง:
+         • ชั้นที่ 1 — อ่านก่อนเขียน (`credits.py:308`) เจอคีย์เดิม ⇒ คืนผลเดิม + `reused`
+         • ชั้นที่ 2 — `except UniqueViolationError` ที่ดัก **นอก** transaction (`:226`)
+           ⇒ unique index ของ `student_credits` ยิง ⇒ ค้นหา "ผลลัพธ์ที่ชนะ" แล้วคืนเหมือนกัน
+       ⇒ mutant ที่ปิดชั้นที่ 1 **รอดมาตลอด** เพราะไม่มีอะไรใน response ต่างกันเลย
+
+    🔑 สิ่งที่ต่างกันจริงคือ **ร่องรอย**: ชั้นที่ 2 ต้อง rollback ทั้ง transaction
+       (ซึ่งรวมบรรทัด audit ที่เขียนไปแล้ว) ⇒ คำขอที่จบที่ชั้นที่ 2 **ไม่มีร่องรอยเลย**
+       ทั้งที่ระบบตั้งใจบันทึกทุกครั้งที่รับเงิน — รวมครั้งที่กดซ้ำ (ดู `reused` ที่ `:221`)
+
+    ⚠️ เทสต์นี้จึงเป็นตัวเดียวที่แยก "ถูกกันที่ชั้นที่ 1" ออกจาก "ถูกกันที่ชั้นที่ 2" ได้
+       ห้ามลบโดยอ้างว่าซ้ำกับตัวข้างบน
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id, balance=0.0)
+    student_id = await _make_debtor(db_pool, room_id)
+    key = _key()
+
+    # 📏 อ่าน "ธง reused" ของทุกบรรทัด audit ของเครดิตในห้องนี้ — เรียงตามเวลาที่เขียน
+    #    (เทียบเป็นลิสต์ ⇒ ยืนยันทั้งจำนวนและลำดับ ไม่ใช่แค่ "มีสักบรรทัด")
+    async def _reused_flags():
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT new_values->>'reused' AS reused FROM audit_logs
+                   WHERE room_id = $1 AND entity_type = 'STUDENT_CREDIT'
+                   ORDER BY created_at, id""",
+                room_id,
+            )
+        return [r["reused"] for r in rows]
+
+    assert _top_up(client, admin_headers, student_id, account_id, 500.0, key=key).status_code == 200
+    assert await _reused_flags() == ["false"], "การเติมครั้งแรกต้องถูกบันทึกว่าไม่ได้ reuse"
+
+    second = _top_up(client, admin_headers, student_id, account_id, 500.0, key=key)
+    assert second.status_code == 200, second.text
+
+    flags = await _reused_flags()
+    assert len(flags) == 2, (
+        "คำขอที่กดซ้ำต้องมีร่องรอย audit ของตัวเอง — ถ้ามีบรรทัดเดียว แปลว่ามันไปจบที่ "
+        "ชั้นที่ 2 (UniqueViolation) ซึ่ง rollback ทั้ง transaction รวมบรรทัด audit ทิ้ง "
+        f"⇒ คำขอนั้นหายไปจากร่องรอยทั้งที่ระบบตอบ 200 (พบ {flags})"
+    )
+    assert flags == ["false", "true"], (
+        f"บรรทัดที่สองต้องติดธง reused=true ไม่ใช่ {flags[1]!r}"
+    )
+
+
 async def test_deposit_sequence_is_separate_from_receipt_sequence(client, db_pool, admin_headers):
     """ตัวนับเลขของ `deposit` ต้องแยกจาก `receipt`/`invoice` โดยอัตโนมัติ (PK มี doc_type)"""
     room_id = admin_headers.room_id
