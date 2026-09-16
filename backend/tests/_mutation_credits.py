@@ -84,7 +84,12 @@ MUTATIONS = [
         "services/finance/credits.py",
         "        if existing_id is not None:",
         "        if False:  # MUTANT: ปิดการกันซ้ำ",
-        [f"{CREDITS}::test_top_up_with_same_idempotency_key_is_not_a_second_payment"],
+        [
+            f"{CREDITS}::test_top_up_with_same_idempotency_key_is_not_a_second_payment",
+            # 🔑 เทสต์ตัวนี้คือตัวที่จับ M4 ได้จริง — เทสต์ข้างบนผ่านทั้งสองชั้นเพราะ
+            #    response ของทั้งสองทางเหมือนกันเป๊ะ (ดู docstring ของเทสต์นี้)
+            f"{CREDITS}::test_repeated_top_up_leaves_an_audit_row_flagged_reused",
+        ],
     ),
     (
         "M5 ถอดด่านยอดเงิน <= 0 (ก่อนจองเลขเอกสาร)",
@@ -132,6 +137,9 @@ MUTATIONS = [
         "        existing = await cls._find_existing_deposit(conn, transaction_id)\n"
         "        if False:  # MUTANT",
         [CREDITS],
+        # 🟡 รอดโดยชอบธรรม — ดูเหตุผลเต็มในคอมเมนต์เหนือ mutant นี้
+        #    ⇒ ต้องเป็น EQUIV ไม่ใช่ SURVIVE (ไม่งั้นอ่านเป็น "มีช่องว่างของเทสต์" ทั้งที่ไม่มี)
+        "equiv",
     ),
     (
         "M10 ทำ pdf_filename ให้โกหกสำหรับ deposit อีกครั้ง",
@@ -189,6 +197,17 @@ MUTATIONS = [
     ),
 ]
 
+# 🔑 เติมช่องที่ 6 "ความคาดหวัง" ให้ครบทุก mutant ⇒ `(name, rel, old, new, targets, expect)`
+#    ไม่ใส่ = `"catch"` (พฤติกรรมเดิมของทุกตัวไม่เปลี่ยนแม้แต่ไบต์เดียว)
+#
+#    🟡 `expect="equiv"` = mutant ที่ **รอดโดยชอบธรรม** เพราะพิสูจน์แล้วว่าเทียบเท่ากับ
+#       โค้ดเดิมในระดับที่ผู้ใช้สังเกตได้ (ดูเหตุผลรายตัวในคอมเมนต์ของ mutant นั้น)
+#       ⇒ harness ต้องรายงาน 🟡 EQUIV ไม่ใช่ ❌ SURVIVE และ **ห้ามนับเป็นความล้มเหลว**
+#       🔴 เดิมไม่มีกลไกนี้ ⇒ M9 มีคอมเมนต์พิสูจน์ครบในไฟล์แล้ว แต่ harness ยังพิมพ์ ❌
+#          ⇒ คนอ่านเห็น "รอด 1" แล้วเข้าใจว่ามีช่องว่างของเทสต์ทั้งที่ไม่มี
+#          (คอมเมนต์ที่ไม่มีโค้ดรองรับ = คำอ้างที่ระบบไม่เคยบังคับใช้ — บทเรียนเดิมใน `docs/skills.md`)
+MUTATIONS = [m if len(m) == 6 else (*m, "catch") for m in MUTATIONS]
+
 
 def run_pytest(targets: list[str]) -> tuple[str, str]:
     """คืน (สถานะ, ข้อความท้ายสุด) — สถานะ ∈ {"pass", "fail", "infra"}
@@ -226,7 +245,7 @@ def main() -> int:
     results = []
     # 🛡️ ด่าน pre-flight: ห้ามเริ่มถ้ามี mutant ค้างจากรอบที่ถูกฆ่า
     dirty = sorted({
-        rel for _, rel, _, _, _ in MUTATIONS
+        rel for _, rel, _, _, _, _ in MUTATIONS
         if MARKER in (BACKEND / rel).read_text(encoding="utf-8")
     })
     if dirty:
@@ -246,7 +265,7 @@ def main() -> int:
     ]
     if only:
         print(f"🎯 เลือกรันเฉพาะ: {', '.join(sorted(only))} ({len(selected)} mutation)\n", flush=True)
-    for name, rel, old, new, targets in selected:
+    for name, rel, old, new, targets, expect in selected:
         path = BACKEND / rel
         original = path.read_text(encoding="utf-8")
         if old not in original:
@@ -272,14 +291,31 @@ def main() -> int:
                 print(f"   ↳ {name}: เทสต์ที่เล็งไม่ล้ม → ถอยไปรันทั้งไฟล์", flush=True)
                 state, tail = run_pytest([CREDITS, LOCK])
                 verdict = ("จับโดยเทสต์อื่นในไฟล์ ✅" if state == "fail"
-                           else "รอด ❌ เทสต์หลอกตัวเอง")
+                           else "รอด")
             caught_by, infra = state == "fail", state == "infra"
         finally:
             path.write_text(original, encoding="utf-8")
 
-        status = "INFRA" if infra else ("CATCH" if caught_by else "SURVIVE")
+        if infra:
+            status, icon = "INFRA", "🛑"
+        elif expect == "equiv":
+            # 🟡 mutant ที่ประกาศว่าเทียบเท่า — "รอด" คือผลที่ถูกต้อง ไม่ใช่ความล้มเหลว
+            #    🔴 แต่ถ้ามัน **ถูกจับ** ⇒ คำอ้าง "เทียบเท่า" ถูกหักล้าง ต้องได้เห็น
+            #       (ไม่ใช่รายงานเป็น CATCH เฉย ๆ แล้วผ่านไป — นั่นทำให้คำอ้างผิดมีชีวิตต่อ)
+            #    ⚠️ ข้อความ verdict ต้องไม่ใช้ถ้อยคำของเส้นทาง "catch" — ไม่งั้นบรรทัดนี้
+            #       จะพิมพ์ 🟡 แล้วต่อท้ายด้วย "เทสต์หลอกตัวเอง ❌" ซึ่งขัดกันเอง
+            #       (บั๊กชนิดเดียวกับที่งานนี้ตั้งใจกำจัด — ข้อความที่โกหกผลของตัวเอง)
+            status = "SURPRISE" if caught_by else "EQUIV"
+            icon = "⚠️" if caught_by else "🟡"
+            if caught_by:
+                verdict = "ถูกจับ — คำอ้าง 'เทียบเท่า' ถูกหักล้าง ต้องทบทวน ⚠️"
+            elif verdict == "รอด":
+                verdict = "รอดโดยชอบธรรม (พิสูจน์แล้วว่าเทียบเท่า) 🟡"
+        else:
+            status, icon = ("CATCH", "✅") if caught_by else ("SURVIVE", "❌")
+            if not caught_by and verdict == "รอด":
+                verdict = "รอด ❌ เทสต์หลอกตัวเอง"
         results.append((name, status, tail))
-        icon = "🛑" if infra else ("✅" if caught_by else "❌")
         print(f"{icon} {name}: {verdict}", flush=True)
 
     print("\n" + "═" * 78)
@@ -287,16 +323,20 @@ def main() -> int:
     print("═" * 78)
     for name, status, _ in results:
         print(f"{status:<10} {name}")
-    survived = [n for n, s, _ in results if s == "SURVIVE"]
+    n_surv = sum(1 for _, s, _ in results if s == "SURVIVE")
     n_infra = sum(1 for _, s, _ in results if s == "INFRA")
+    n_surprise = sum(1 for _, s, _ in results if s == "SURPRISE")
     print("═" * 78)
     print(f"จับได้ {sum(1 for _, s, _ in results if s == 'CATCH')}/{len(results)}"
-          f" | รอด {len(survived)} | infra พัง {n_infra}")
+          f" | รอด {n_surv} | เทียบเท่า {sum(1 for _, s, _ in results if s == 'EQUIV')}"
+          f" | คำอ้าง equiv ถูกหักล้าง {n_surprise} | infra พัง {n_infra}")
     for n, s, t in results:
-        if s in ("SURVIVE", "INFRA", "STALE", "AMBIG"):
+        if s in ("SURVIVE", "INFRA", "STALE", "AMBIG", "SURPRISE"):
             print(f"\n── {n} [{s}] ──\n{t}")
     # 🛑 infra = "ไม่รู้ผล" ไม่ใช่ "ผ่าน" ⇒ ต้อง exit ไม่เป็นศูนย์ให้คนเห็น
-    return 1 if n_infra else 0
+    # ⚠️ SURPRISE ก็นับเป็นความล้มเหลว: มันแปลว่าคำอ้าง "mutant นี้เทียบเท่า" **ผิด**
+    #    ⇒ ต้องกลับไปดูว่ามีเทสต์ที่จับมันได้จริง และควรเปลี่ยน expect กลับเป็น "catch"
+    return 1 if (n_infra or n_surprise) else 0
 
 
 if __name__ == "__main__":
