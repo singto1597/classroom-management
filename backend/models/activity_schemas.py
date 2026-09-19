@@ -254,3 +254,64 @@ class ActivityExportResponse(BaseModel):
     status: str = "success"
     file_url: Optional[str] = None
     message: Optional[str] = None
+
+
+# --- เปรียบเทียบกิจกรรม (Intersection / Union / ลบ) ---
+# 🔴 ทุกคีย์ที่ service ตั้งต้องประกาศที่นี่ — `response_model` ตัดฟิลด์ที่ไม่ได้ประกาศทิ้ง
+#    แบบเงียบ ๆ (เคยเกิด 5 ครั้งในโปรเจกต์นี้ ครั้งล่าสุดผู้ใช้เห็นจอขาว)
+class ActivityCompareRequest(BaseModel):
+    """เลือก 2–3 กิจกรรมมาเทียบ — วงกลมเวนบรรยายครบทุกภูมิภาคเมื่อมีไม่เกิน 3 วง"""
+
+    activity_ids: List[int] = Field(..., min_length=2, max_length=3)
+
+
+class CompareMember(BaseModel):
+    """ข้อมูลคนหนึ่งในภูมิภาค — **เฉพาะชื่อ** เพราะ endpoint นี้เปิดให้สมาชิกห้องทุกคนอ่าน
+
+    ไม่มี Type A profile fields (กรุ๊ปเลือด/ไซส์เสื้อ/เบอร์โทร) หลุดออกจากที่นี่โดยเจตนา
+    """
+
+    student_id: int
+    student_no: int = 0
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    nickname: Optional[str] = None
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    nickname_en: Optional[str] = None
+
+
+class CompareRegion(BaseModel):
+    """ภูมิภาค = กลุ่มคนที่มีลายเซ็นการเข้าร่วมเหมือนกัน (อยู่กิจกรรมชุดเดียวกันเป๊ะ)
+
+    `key` = activity id เรียงจากน้อยไปมากต่อด้วย '-' เช่น `"3-7"` — ฝั่งหน้าจอส่งคีย์นี้
+    กลับมาตอน export ไม่ได้ส่งรายชื่อมาเอง
+    """
+
+    key: str
+    activity_ids: List[int]
+    members: List[CompareMember] = Field(default_factory=list)
+
+
+class CompareActivityInfo(BaseModel):
+    id: int
+    title: str
+    activity_date: date
+    participant_count: int = 0
+
+
+class ActivityCompareResponse(BaseModel):
+    activities: List[CompareActivityInfo] = Field(default_factory=list)
+    regions: List[CompareRegion] = Field(default_factory=list)
+
+
+class CombinedExportRequest(BaseModel):
+    """Export Excel ของภูมิภาคที่เลือก — `region_keys` คือหัวใจของ Intersection/Union/ลบ"""
+
+    activity_ids: List[int] = Field(..., min_length=2, max_length=3)
+    region_keys: List[str] = Field(..., min_length=1)
+    # 🌟 ถ้าส่งมา = จำกัดคอลัมน์ฟิลด์เฉพาะกิจกรรมให้เหลือเฉพาะคีย์เหล่านี้ (ไม่ส่ง = เอาทั้งหมด)
+    metadata_keys: List[str] = Field(default_factory=list)
+    # 🌟 ติ๊กถูก "รวมข้อมูลที่เก็บรายคนของแต่ละกิจกรรม" ตอน export
+    include_activity_fields: bool = False
+    user_name: str = Field(..., min_length=1, max_length=100)
