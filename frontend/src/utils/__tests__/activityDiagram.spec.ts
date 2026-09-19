@@ -4,11 +4,20 @@ import {
   CANVAS_H,
   CANVAS_W,
   CIRCLE_GEOMETRY,
+  PILL_CHARS_PER_LINE,
+  PILL_MAX_LINES,
+  PILL_MAX_W,
+  PILL_MIN_W,
   REGION_ANCHORS,
   circleGeometry,
   circleLabelPoint,
+  layoutPill,
+  maxPillBox,
+  pillBaselineY,
+  pillHeight,
   regionAnchor,
   regionMask,
+  type PillBox,
 } from '@/utils/activityDiagram'
 
 /**
@@ -158,5 +167,153 @@ describe('circleLabelPoint', () => {
     const long = 'กิจกรรมพัฒนาแหล่งเรียนรู้ชุมชน'
     const xs = [0, 1, 2].map((index) => circleLabelPoint(3, index, long).x)
     expect(new Set(xs).size).toBe(3)
+  })
+})
+
+/**
+ * 🏷️ ป้ายภูมิภาค (pill)
+ *
+ * บั๊กที่เทสต์ชุดนี้กันไว้:
+ *  1. 🔴 **ป้ายทับกัน** — เพดานความกว้าง/ความสูงของป้ายโตขึ้นได้โดยไม่มีอะไรห้าม
+ *     ⇒ ป้ายของภูมิภาคที่อยู่ใกล้กันทับกัน แล้วอ่านชื่อผิดภูมิภาค (แผนภาพโกหก)
+ *     ⇒ พิสูจน์ด้วย "กรอบใหญ่สุดที่เป็นไปได้" ของทุกคู่ ไม่ต้องรู้ชื่อคนเลย
+ *  2. 🔴 **`+N` หาย** — ถ้าตัด `+N` ต่อท้ายบรรทัดที่เต็มพอดีโดยไม่ตัดชื่อออกก่อน
+ *     ตัวเลข "ยังมีอีก N คน" จะถูก `fitLine` ตัดทิ้งไปด้วย ⇒ รายชื่อขาดแบบเงียบ ๆ
+ *  3. **ชื่อหายทั้งที่ไม่ได้บอก** — ผลรวมชื่อที่แสดง + จำนวนใน `+N` ต้องเท่าจำนวนจริงเสมอ
+ */
+describe('layoutPill', () => {
+  const SHORT = ['สม', 'หญิง', 'ปลา', 'ต้อม', 'นก', 'ออย', 'เบียร์', 'มิ้น']
+
+  it('ไม่มีสมาชิก → ป้ายสั้นที่สุด 1 บรรทัด', () => {
+    const layout = layoutPill([])
+    expect(layout.lines).toEqual(['—'])
+    expect(layout.hidden).toBe(0)
+    expect(layout.width).toBe(PILL_MIN_W)
+  })
+
+  it('ชื่อไม่กี่ชื่อที่พอดี → บรรทัดเดียว ไม่มี `+N`', () => {
+    const layout = layoutPill(['สม', 'หญิง'])
+    expect(layout.lines).toEqual(['สม, หญิง'])
+    expect(layout.hidden).toBe(0)
+    expect(layout.height).toBe(pillHeight(1))
+  })
+
+  it('ชื่อเยอะ → ตัดบรรทัดให้เอง ไม่เกิน PILL_MAX_LINES', () => {
+    const layout = layoutPill(SHORT)
+    expect(layout.lines.length).toBeGreaterThan(1)
+    expect(layout.lines.length).toBeLessThanOrEqual(PILL_MAX_LINES)
+    expect(layout.height).toBe(pillHeight(layout.lines.length))
+  })
+
+  it.each([
+    ['2 ชื่อ', ['สม', 'หญิง']],
+    ['8 ชื่อ', SHORT],
+    ['ชื่อยาว', ['ณัฐพงษ์สิทธิ์', 'วรวรรณธนา', 'ปัณณวิชญ์', 'ฐิติพร']],
+  ])('%s — ทุกบรรทัดไม่ล้นเพดานความกว้าง และความกว้างอยู่ในกรอบ', (_label, names) => {
+    const layout = layoutPill(names)
+    for (const line of layout.lines) {
+      expect(line.length).toBeLessThanOrEqual(PILL_CHARS_PER_LINE)
+    }
+    expect(layout.width).toBeGreaterThanOrEqual(PILL_MIN_W)
+    expect(layout.width).toBeLessThanOrEqual(PILL_MAX_W)
+  })
+
+  it('🔴 `+N` ต้องไม่ถูกตัดทิ้ง แม้บรรทัดสุดท้ายจะเต็มพอดี', () => {
+    // ชื่อยาวจนบรรทัดที่สองเต็มพอดี — เคสที่ทำให้ `+N` ถูกตัดถ้าไม่ตัดชื่อออกก่อน
+    const names = ['ณัฐพงษ์สิทธิ์', 'วรวรรณธนา', 'ปัณณวิชญ์', 'ฐิติพร', 'กมลวรรณ', 'สุทธิพงษ์']
+    const layout = layoutPill(names)
+    const last = layout.lines[layout.lines.length - 1] ?? ''
+    expect(last).toMatch(/\+\d+$/)
+    expect(Number(last.match(/\+(\d+)$/)?.[1])).toBe(layout.hidden)
+    for (const line of layout.lines) {
+      expect(line.length).toBeLessThanOrEqual(PILL_CHARS_PER_LINE)
+    }
+  })
+
+  it('🔴 จำนวนชื่อที่แสดง + จำนวนใน `+N` = จำนวนสมาชิกจริงเสมอ (ไม่มีชื่อหายเงียบ)', () => {
+    for (const names of [SHORT, SHORT.slice(0, 1), SHORT.slice(0, 4), SHORT.slice(0, 6)]) {
+      const layout = layoutPill(names)
+      const text = layout.lines.join('\n')
+      const shown = names.filter((name) => text.includes(name)).length
+      expect(shown + layout.hidden).toBe(names.length)
+    }
+  })
+
+  it('บรรทัดสุดท้ายที่เหลือชื่อเดียวและ `+N` ไม่พอ → ทิ้งชื่อนั้นเข้า `+N` (ไม่ตัด `+N`)', () => {
+    // บรรทัดที่ 2 มีชื่อเดียวที่ยาวจน `+N` ต่อไม่ลง
+    const names = ['ก', 'ข', 'ค', 'ง', 'จ', 'ฉ', 'ช', 'ณัฐพงษ์สิทธิ์ศักดิ์ชัย', 'ญ', 'ฎ']
+    const layout = layoutPill(names)
+    const last = layout.lines[layout.lines.length - 1] ?? ''
+    expect(last).toMatch(/\+\d+$/)
+    const text = layout.lines.join('\n')
+    const shown = names.filter((name) => text.includes(name)).length
+    expect(shown + layout.hidden).toBe(names.length)
+  })
+})
+
+describe('pillBaselineY', () => {
+  it('บรรทัดเดียว → อยู่ที่ centerY + 4 (ตำแหน่งเดิมก่อนรองรับหลายบรรทัด)', () => {
+    expect(pillBaselineY(210, 0, 1)).toBe(214)
+  })
+
+  it('หลายบรรทัด → เรียงจากบนลงล่าง และกึ่งกลางที่ centerY', () => {
+    const first = pillBaselineY(210, 0, 2)
+    const second = pillBaselineY(210, 1, 2)
+    expect(first).toBeLessThan(second)
+    expect((first + second) / 2).toBeCloseTo(214, 5)
+  })
+
+  it('ทุกบรรทัดอยู่ในกรอบป้ายที่ความสูงนั้น', () => {
+    for (const lines of [1, PILL_MAX_LINES]) {
+      const height = pillHeight(lines)
+      const top = 210 - height / 2
+      const bottom = 210 + height / 2
+      for (let index = 0; index < lines; index += 1) {
+        const baseline = pillBaselineY(210, index, lines)
+        expect(baseline).toBeGreaterThan(top)
+        expect(baseline).toBeLessThan(bottom)
+      }
+    }
+  })
+})
+
+describe('maxPillBox', () => {
+  /** กรอบสองกรอบทับกันจริงไหม (แตะขอบพอดีไม่นับเป็นทับ) */
+  const overlaps = (a: PillBox, b: PillBox): boolean =>
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+
+  it.each([2, 3])('N=%i — ป้ายทุกคู่ไม่มีทางทับกัน ไม่ว่าจะมีสมาชิกกี่คน', (count) => {
+    const masks = Object.keys(REGION_ANCHORS[count] ?? {}).map(Number)
+    const boxes = masks.map((mask) => ({ mask, box: maxPillBox(count, mask) }))
+    for (const entry of boxes) expect(entry.box).not.toBeNull()
+
+    // รวมคู่ที่ทับกันเป็นรายการเดียว ⇒ ข้อความเทสต์ที่ fail บอกตรง ๆ ว่าคู่ไหนทับ
+    const colliding: string[] = []
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const left = boxes[i]
+        const right = boxes[j]
+        if (!left?.box || !right?.box) continue
+        if (overlaps(left.box, right.box)) colliding.push(`${left.mask} ↔ ${right.mask}`)
+      }
+    }
+    expect(colliding).toEqual([])
+  })
+
+  it.each([2, 3])('N=%i — ป้ายใหญ่สุดยังอยู่ในขอบ canvas', (count) => {
+    for (const mask of Object.keys(REGION_ANCHORS[count] ?? {}).map(Number)) {
+      const box = maxPillBox(count, mask)
+      expect(box).not.toBeNull()
+      if (!box) continue
+      expect(box.left).toBeGreaterThanOrEqual(0)
+      expect(box.right).toBeLessThanOrEqual(CANVAS_W)
+      expect(box.top).toBeGreaterThanOrEqual(0)
+      expect(box.bottom).toBeLessThanOrEqual(CANVAS_H)
+    }
+  })
+
+  it('mask ที่ไม่มี anchor → null (ไม่มีกรอบให้ตรวจ)', () => {
+    expect(maxPillBox(3, 99)).toBeNull()
+    expect(maxPillBox(1, 1)).toBeNull()
   })
 })

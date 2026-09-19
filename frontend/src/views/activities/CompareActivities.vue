@@ -33,6 +33,7 @@ import {
 import { createLatestGuard } from '@/utils/latest'
 import type { Activity, ActivityCompare, CompareRegion } from '@/types/activity'
 import ActivityVennDiagram from '@/components/activities/ActivityVennDiagram.vue'
+import RegionMemberNames from '@/components/activities/RegionMemberNames.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
@@ -83,6 +84,23 @@ const compareGuard = createLatestGuard()
 const regions = computed<CompareRegion[]>(() => compare.value?.regions ?? [])
 const compareInfo = computed(() => compare.value?.activities ?? [])
 const selectedSet = computed(() => new Set(selectedRegionKeys.value))
+
+/**
+ * 📋 แถวของรายการภูมิภาค — คำนวณป้ายกำกับและชื่อเล่นไว้ล่วงหน้า
+ *
+ * 🔴 ชื่อเล่นต้องอยู่ในรูป **รายการแยกชื่อ** ไม่ใช่สตริงที่ `join(', ')` แล้ว
+ *    เทมเพลตต้องตัดบรรทัด **ระหว่างชื่อ** ได้ เพื่อให้เห็นชื่อทุกคนครบ
+ *    ⇒ ฝั่งเทมเพลตห่อแต่ละชื่อด้วย `whitespace-nowrap` (ชื่อเดียวไม่ถูกตัดกลางคำ)
+ *      แล้วคั่นด้วยช่องว่างหลังจุลภาค ซึ่งเป็นจุดตัดบรรทัดธรรมชาติ
+ */
+const regionRows = computed(() =>
+  regions.value.map((region) => ({
+    key: region.key,
+    membership: regionMembershipLabel(region, compareInfo.value),
+    count: region.members.length,
+    names: regionNicknames(region),
+  })),
+)
 const selectedMemberCount = computed(() =>
   countUniqueMembers(regions.value, selectedRegionKeys.value),
 )
@@ -423,7 +441,8 @@ onMounted(() => {
             </p>
           </div>
 
-          <!-- แผนภาพซ่อนบนมือถือ (วงกลม 640px ย่อจนอ่านชื่อไม่ออก) — รายการด้านล่างคือตัวหลัก -->
+          <!-- 📱 แผนภาพแสดงทุกขนาดจอ — ตัวคอมโพเนนต์คุมความกว้างขั้นต่ำ + เลื่อนแนวนอนเอง
+               (ไม่ซ่อนบนมือถืออีกแล้ว) ⇒ ไม่ต้องมี wrapper อะไรตรงนี้ -->
           <ActivityVennDiagram
             class="mt-4"
             :activities="compareInfo"
@@ -449,29 +468,29 @@ onMounted(() => {
             </button>
           </div>
 
-          <!-- 📋 รายการภูมิภาค — แสดงชื่อเล่น **ครบทุกคน** (แผนภาพย่อเหลือ 3 ชื่อ +N)
-               ห้าม truncate ข้อมูลอ่านอย่างเดียว ⇒ ที่นี่คือแหล่งอ้างอิงจริงของผู้ใช้ -->
+          <!-- 📋 รายการภูมิภาค — แสดงชื่อเล่น **ครบทุกคน** (ป้ายบนแผนภาพมีที่จำกัด)
+               ห้าม truncate ข้อมูลอ่านอย่างเดียว ⇒ ที่นี่คือแหล่งอ้างอิงจริงของผู้ใช้
+               กติกาการตัดบรรทัดอยู่ใน `RegionMemberNames` -->
           <ul class="mt-4 divide-y divide-stone-100 border-t border-stone-100">
-            <li v-for="region in regions" :key="region.key">
+            <li v-for="row in regionRows" :key="row.key">
               <label class="flex min-h-11 cursor-pointer items-start gap-3 py-3">
                 <input
                   type="checkbox"
                   class="mt-1 h-4 w-4 shrink-0 accent-brand-700"
-                  :checked="selectedSet.has(region.key)"
-                  @change="toggleRegion(region.key)"
+                  :checked="selectedSet.has(row.key)"
+                  @change="toggleRegion(row.key)"
                 />
                 <span class="min-w-0 flex-1">
                   <span class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <span class="text-sm font-bold text-stone-900">
-                      {{ regionMembershipLabel(region, compareInfo) }}
-                    </span>
+                    <span class="text-sm font-bold text-stone-900">{{ row.membership }}</span>
                     <span class="chip bg-brand-50 text-brand-700">
-                      <span class="num">{{ region.members.length }}</span> คน
+                      <span class="num">{{ row.count }}</span> คน
                     </span>
                   </span>
-                  <span class="mt-1 block text-sm leading-relaxed text-stone-600">
-                    {{ regionNicknames(region).join(', ') }}
-                  </span>
+                  <RegionMemberNames
+                    :names="row.names"
+                    class="mt-1 block text-sm leading-relaxed text-stone-600"
+                  />
                 </span>
               </label>
             </li>
