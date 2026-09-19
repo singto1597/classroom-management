@@ -10,6 +10,7 @@ import type {
   CheckinSheetDetail,
   CheckinRecordInput,
   AvailableStudent,
+  ActivityCompare,
 } from '@/types/activity'
 
 /**
@@ -202,6 +203,43 @@ export const ActivityService = {
     const response = await api.post(
       `/api/classroom/${roomId}/activities/export?target_type=room`,
       { activity_id: activityId, metadata_keys: metadataKeys, user_name: userName },
+      { responseType: 'blob' },
+    )
+    return response as unknown as Blob
+  },
+
+  // --- เปรียบเทียบกิจกรรม (Intersection / Union / ลบ) ---
+  /**
+   * ดึงภูมิภาคของแผนภาพเวนสำหรับ 2–3 กิจกรรม — อ่านได้ทุกคนในห้อง (require_member)
+   * ใช้ POST เพราะ body เป็น array (เลี่ยงกับดัก axios `ids[]=1` ที่ FastAPI อ่านไม่ตรง)
+   */
+  async compareActivities(roomId: number, activityIds: number[]): Promise<ActivityCompare> {
+    return (await api.post(`/api/classroom/${roomId}/activities/compare?target_type=room`, {
+      activity_ids: activityIds,
+    })) as ActivityCompare
+  },
+
+  /**
+   * Export Excel ของภูมิภาคที่เลือก — ต้องมี `MANAGE_ACTIVITIES`
+   * `regionKeys` ต้องเป็นคีย์ที่ได้จาก `compareActivities` เท่านั้น (backend ตรวจกับ DB อีกชั้น)
+   */
+  async exportCombinedExcel(
+    roomId: number,
+    activityIds: number[],
+    regionKeys: string[],
+    metadataKeys: string[],
+    includeActivityFields: boolean,
+    userName: string,
+  ): Promise<Blob> {
+    const response = await api.post(
+      `/api/classroom/${roomId}/activities/export/combined?target_type=room`,
+      {
+        activity_ids: activityIds,
+        region_keys: regionKeys,
+        metadata_keys: metadataKeys,
+        include_activity_fields: includeActivityFields,
+        user_name: userName,
+      },
       { responseType: 'blob' },
     )
     return response as unknown as Blob

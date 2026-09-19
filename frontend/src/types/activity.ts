@@ -254,3 +254,45 @@ export const PARTICIPANT_STATUS_LABELS: Record<string, string> = {
   cancelled: 'ยกเลิก',
   attended: 'มาแล้ว',
 }
+
+// ================================================================
+// 🌟 เปรียบเทียบกิจกรรม (Intersection / Union / ลบ) + แผนภาพเวน
+// ================================================================
+
+/**
+ * สมาชิก 1 คนในภูมิภาค — **เฉพาะชื่อ** เพราะ endpoint เปรียบเทียบเปิดให้สมาชิกห้องทุกคนอ่าน
+ * (ไม่มี Type A profile fields หลุดออกมาจาก backend โดยเจตนา)
+ */
+export interface CompareMember {
+  student_id: number
+  student_no: number
+  first_name: string | null
+  last_name: string | null
+  nickname: string | null
+  first_name_en: string | null
+  last_name_en: string | null
+  nickname_en: string | null
+}
+
+/**
+ * ภูมิภาค = กลุ่มคนที่อยู่กิจกรรมชุดเดียวกันเป๊ะ
+ * `key` = activity id เรียงจากน้อยไปมากต่อด้วย '-' (เช่น `"3-7"`) — **คำนวณที่ backend**
+ * ฝั่งหน้าจอห้ามประกอบคีย์เอง ให้ส่ง `key` ที่ได้จาก response กลับไปเท่านั้น
+ */
+export interface CompareRegion {
+  key: string
+  activity_ids: number[]
+  members: CompareMember[]
+}
+
+export interface CompareActivityInfo {
+  id: number
+  title: string
+  activity_date: string
+  participant_count: number
+}
+
+export interface ActivityCompare {
+  activities: CompareActivityInfo[]
+  regions: CompareRegion[]
+}

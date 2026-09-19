@@ -25,6 +25,46 @@ const isLoading = ref(true)
 const hasError = ref(false)
 const filter = ref<StatusFilter>('all')
 
+// --- 🔵 เลือกหลายกิจกรรมเพื่อเปรียบเทียบ (Intersection / Union / ลบ) ---
+/** เพดานเดียวกับฝั่งเปรียบเทียบ — เกิน 3 แล้วแผนภาพเวนครอบคลุมทุกภูมิภาคไม่ได้ */
+const MAX_COMPARE = 3
+/** ใช้ Set แล้ว **สร้างใหม่ทุกครั้งที่แก้** (ห้าม `.add()` ตรง ๆ) ให้ reactivity ทำงาน */
+const selectedIds = ref<Set<number>>(new Set())
+const selectedCount = computed(() => selectedIds.value.size)
+const canCompare = computed(() => selectedCount.value >= 2)
+
+const selectedTitles = computed(() => {
+  const byId = new Map(activities.value.map((activity) => [activity.id, activity.title]))
+  return Array.from(selectedIds.value).map((id) => byId.get(id) ?? `#${id}`)
+})
+
+function toggleSelect(activity: Activity) {
+  const next = new Set(selectedIds.value)
+  if (next.has(activity.id)) {
+    next.delete(activity.id)
+  } else {
+    if (next.size >= MAX_COMPARE) {
+      Toast.fire({ icon: 'warning', title: `เปรียบเทียบได้สูงสุด ${MAX_COMPARE} กิจกรรม` })
+      return
+    }
+    next.add(activity.id)
+  }
+  selectedIds.value = next
+}
+
+function clearSelection() {
+  selectedIds.value = new Set()
+}
+
+function compareSelected() {
+  if (!canCompare.value) return
+  // ส่งต่อผ่าน query — หน้าเปรียบเทียบรับช่วงต่อได้เองแม้ถูก refresh/แชร์ลิงก์
+  router.push({
+    name: 'compare-activities',
+    query: { ids: Array.from(selectedIds.value).join(',') },
+  })
+}
+
 /** โทนสีป้ายสถานะ (chip) — คุมโทนตาม Design Contract ไม่ใช้สีฟ้า/ชมพูแบบเดิม */
 function statusChip(status: unknown): string {
   const key = typeof status === 'string' ? status : ''
@@ -47,6 +87,11 @@ const fetchData = async () => {
   hasError.value = false
   try {
     activities.value = await ActivityService.getActivities(currentRoomId)
+    // 🧹 ตัดกิจกรรมที่ถูกลบไประหว่างที่ติ๊กอยู่ — ไม่งั้นแถบลอยบอก "เลือกแล้ว 2" แต่พอเข้า
+    //    หน้าเปรียบเทียบกลับได้ 404 เพราะ id นั้นไม่มีอยู่จริงแล้ว
+    const stillListed = new Set(activities.value.map((activity) => activity.id))
+    const kept = new Set(Array.from(selectedIds.value).filter((id) => stillListed.has(id)))
+    if (kept.size !== selectedIds.value.size) selectedIds.value = kept
   } catch (error: unknown) {
     hasError.value = true
     const msg = error instanceof Error ? error.message : 'ดึงข้อมูลกิจกรรมไม่สำเร็จ'
@@ -230,9 +275,30 @@ onMounted(fetchData)
         :key="activity.id"
         @click="openActivity(activity)"
         class="page-card card-hover flex cursor-pointer flex-col p-4 sm:p-5"
-        :class="{ 'opacity-70': activity.status === 'cancelled' }"
+        :class="{
+          'opacity-70': activity.status === 'cancelled',
+          'ring-2 ring-brand-700': selectedIds.has(activity.id),
+        }"
       >
         <div class="flex items-start justify-between gap-3">
+          <!-- ☑️ ติ๊กเพื่อเปรียบเทียบ — `.stop` กันไม่ให้ไปเปิดหน้ารายละเอียด
+               (การ์ดทั้งใบกดได้ การติ๊กจึงต้องหยุดการ bubbling) -->
+          <button
+            v-if="canManageActivities"
+            type="button"
+            role="checkbox"
+            :aria-checked="selectedIds.has(activity.id)"
+            :aria-label="`เลือก ${activity.title} เพื่อเปรียบเทียบ`"
+            @click.stop="toggleSelect(activity)"
+            class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors active:scale-[0.97]"
+            :class="
+              selectedIds.has(activity.id)
+                ? 'border-brand-700 bg-brand-700 text-white'
+                : 'border-stone-300 text-transparent hover:border-brand-400'
+            "
+          >
+            <i class="bi bi-check-lg" aria-hidden="true"></i>
+          </button>
           <h2 class="min-w-0 flex-1 truncate font-display text-base font-bold text-stone-900">
             {{ activity.title }}
           </h2>
@@ -304,6 +370,41 @@ onMounted(fetchData)
       <router-link to="/dashboard" class="btn-ghost-ui">
         <i class="bi bi-house" aria-hidden="true"></i> กลับหน้าหลัก
       </router-link>
+    </div>
+
+    <!--
+      🔵 แถบเปรียบเทียบติดล่าง — โผล่เมื่อติ๊กอย่างน้อย 1 กิจกรรม
+      📌 ใช้ `sticky` (ไม่ใช่ `fixed`) ตามแบบเดียวกับแถบบันทึกของ EditStudent.vue:608
+         ⇒ แถบกินพื้นที่ของตัวเองในเนื้อหา ไม่ต้องเผื่อ padding กันการ์ดแถวล่างถูกบัง
+      ⚠️ มือถือต้องเผื่อความสูงของแถบเมนูล่าง (`fixed bottom-0 z-40 lg:hidden` ใน MainLayout)
+         ไม่งั้นปุ่ม "เปรียบเทียบกิจกรรม" ถูกทับจนกดไม่ได้ · จอ lg ไม่มีแถบล่าง ⇒ กลับมา bottom-6
+      🎚️ z-30 = เหนือเนื้อหา แต่ **ใต้** แถบเมนู (z-40) และ drawer (z-50) — เมนูต้องอยู่บนสุดเสมอ
+    -->
+    <div
+      v-if="canManageActivities && selectedCount > 0"
+      class="sticky bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-30 rounded-2xl border border-brand-200 bg-white/95 p-3 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.35)] backdrop-blur lg:bottom-6"
+    >
+      <p class="truncate text-xs text-stone-500">
+        เลือกแล้ว <span class="num font-bold text-brand-700">{{ selectedCount }}</span> กิจกรรม:
+        {{ selectedTitles.join(' + ') }}
+      </p>
+      <div class="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          class="btn-primary flex-1 justify-center"
+          :disabled="!canCompare"
+          @click="compareSelected"
+        >
+          <i class="bi bi-diagram-3" aria-hidden="true"></i>
+          เปรียบเทียบกิจกรรม
+        </button>
+        <button type="button" class="btn-ghost-ui shrink-0" @click="clearSelection">
+          <i class="bi bi-x-lg" aria-hidden="true"></i> ล้าง
+        </button>
+      </div>
+      <p v-if="!canCompare" class="mt-1.5 text-center text-[11px] text-stone-500">
+        เลือกอีก 1 กิจกรรมเพื่อเริ่มเปรียบเทียบ
+      </p>
     </div>
   </div>
 </template>

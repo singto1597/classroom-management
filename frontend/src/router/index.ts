@@ -198,6 +198,12 @@ const router = createRouter({
           component: () => import('@/views/activities/CreateActivity.vue'),
         },
         {
+          // 🔴 ต้องมาก่อน `activities/:id` ไม่งั้น 'compare' จะถูกตีความเป็น id ของกิจกรรม
+          path: 'activities/compare',
+          name: 'compare-activities',
+          component: () => import('@/views/activities/CompareActivities.vue'),
+        },
+        {
           path: 'activities/:id/edit',
           name: 'edit-activity',
           component: () => import('@/views/activities/EditActivity.vue'),

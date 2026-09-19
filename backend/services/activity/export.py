@@ -2,7 +2,7 @@
 import io
 import json
 import time
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Dict, FrozenSet, List, Optional
 
 import asyncpg
@@ -28,11 +28,12 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from .constants import (
-    THAI_TZ, THAI_MONTH_NAMES, EXPORT_HEADER_LABELS, ACTIVITY_META_LABELS,
+    THAI_TZ, EXPORT_HEADER_LABELS, ACTIVITY_META_LABELS,
     PROFILE_FIELDS, PROFILE_FIELD_LABELS, ROLE_TYPE_LABELS, PARTICIPANT_STATUS_LABELS,
     ACTIVITY_STATUS_LABELS, ACTIVITY_STATUS_COLORS, PARTICIPANT_STATUS_COLORS,
     EXPORT_FIELD_WIDTHS, DEFAULT_EXPORT_COL_WIDTH,
 )
+from .thai_date import format_buddhist_date, format_thai_datetime
 
 
 class ExportMixin:
@@ -46,14 +47,23 @@ class ExportMixin:
 
     @staticmethod
     def _format_buddhist_date(value: Any) -> str:
-        """'15 ตุลาคม 2569' (พ.ศ. = ค.ศ. + 543)"""
+        """'15 ตุลาคม 2569' (พ.ศ. = ค.ศ. + 543) — ตรรกะจริงอยู่ที่ services/activity/thai_date.py"""
+        return format_buddhist_date(value)
+
+    @staticmethod
+    def _format_typed_value(field: str, value: Any, dynamic_types: Optional[Dict[str, str]] = None) -> Any:
+        """ฟิลด์ที่ **ประกาศ** ว่าเป็นวันเวลา → '1 ตุลาคม 2569 13:00 น.'
+
+        🔴 ยึด **declared type** จาก `activities.metadata.dynamic_fields` ไม่เดาจากรูปร่างค่า
+        เพราะค่าที่เก็บเป็นสตริงดิบจาก `<input type="datetime-local">` (เช่น `2026-10-01T13:00`)
+        ⇒ ถ้าเดาจากรูปร่าง จะไปแปลงฟิลด์ `input` ที่บังเอิญพิมพ์เป็นวันที่ด้วย
+        (`check_in_time` เป็นคีย์เวลาเช็คอินเดิมที่รู้จัก — ค่าที่ parse ไม่ได้คืนเดิมเสมอ)
+        """
         if value is None:
             return ""
-        if isinstance(value, datetime):
-            value = value.date()
-        if not isinstance(value, date):
-            return str(value)
-        return f"{value.day} {THAI_MONTH_NAMES[value.month - 1]} {value.year + 543}"
+        if (dynamic_types or {}).get(field) == "datetime" or field == "check_in_time":
+            return format_thai_datetime(value)
+        return value
 
     @staticmethod
     def _translate_label(field: str, value: Any) -> Any:
@@ -265,6 +275,9 @@ class ExportMixin:
                     # header = label ที่ผู้ใช้ตั้ง (ไม่ใช่คีย์ df_<n>); ค่าอ่านจาก participant.metadata[df_<n>]
                     # เฉพาะเมื่อ activity มี defs — activity เก่าไม่มี → ไม่เพิ่มคอลัมน์ ไม่แตกเทสเดิม
                     dynamic_labels: Dict[str, str] = {}
+                    # 🌟 declared type ของแต่ละ dynamic field — ใช้ตัดสินว่าค่าไหนต้องจัดรูปแบบวันเวลาไทย
+                    # (เก็บแยกจาก dynamic_labels เพราะ label ว่างได้ แต่ type ยังต้องรู้)
+                    dynamic_types: Dict[str, str] = {}
                     dynamic_fields_defs = activity.get("metadata", {}).get("dynamic_fields") or []
                     if isinstance(dynamic_fields_defs, list):
                         for d in dynamic_fields_defs:
@@ -272,7 +285,10 @@ class ExportMixin:
                                 continue
                             k = str(d.get("key", "")).strip()
                             lbl = str(d.get("label", "")).strip()
-                            if k and lbl:
+                            if not k:
+                                continue
+                            dynamic_types[k] = str(d.get("type", "")).strip()
+                            if lbl:
                                 dynamic_labels[k] = lbl
                         for k in dynamic_labels:
                             if k not in fields:
@@ -426,6 +442,8 @@ class ExportMixin:
                                 elif val is None or (isinstance(val, str) and not val.strip()):
                                     final.append("")
                                 else:
+                                    # 🌟 ฟิลด์ที่ประกาศ type=datetime → '1 ตุลาคม 2569 13:00 น.'
+                                    val = cls._format_typed_value(field, val, dynamic_types)
                                     final.append(cls._translate_label(field, val))
                         ws_data.append(final)
                         for col_idx in range(1, len(fields) + 1):
