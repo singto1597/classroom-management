@@ -63,3 +63,34 @@ export const combinedPdfFilename = (
   const last = (receiptNos[receiptNos.length - 1] ?? first).replace(/\//g, '-');
   return first === last ? `${kind}-${first}.pdf` : `${kind}-${first}-to-${last}.pdf`;
 };
+
+/**
+ * 🏷️ ชื่อไฟล์ Excel ของกิจกรรม — ย้ายมาจากสำเนาใน `ActivityDetail.vue`
+ *
+ * 🔴 รูปเดียวกับ `ExportMixin._sanitize_filename` ฝั่ง backend เป๊ะ ๆ
+ *    ถ้าแก้ที่นั่นต้องแก้ที่นี่ ไม่งั้นชื่อไฟล์ที่ผู้ใช้เห็นตอนดาวน์โหลดจะไม่ตรงกับ
+ *    ชื่อที่ backend ใส่ไว้ใน `Content-Disposition` (ผู้ใช้จะได้ไฟล์สองชื่อสลับกันไปมา)
+ *    - อักขระต้องห้ามของ Windows (`\ / : * ? " < > |`) → `_`
+ *    - ช่องว่างทุกชนิด → `_` แล้วตัด `_`/ช่องว่างหัวท้ายออก
+ *    - ยาวเกิน 80 ตัว → ตัด (กัน filesystem/Discord ปฏิเสธ)
+ *    - ว่างเปล่าหลังล้าง → `'กิจกรรม'` (ห้ามได้ชื่อไฟล์ที่ไม่มีชื่อ)
+ */
+export const safeActivityFilename = (title: string): string => {
+  const cleaned = (title ?? '')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/^[_\s]+|[_\s]+$/g, '');
+  return cleaned.slice(0, 80) || 'กิจกรรม';
+};
+
+/**
+ * 🏷️ ชื่อไฟล์ของ **Excel รวมหลายกิจกรรม** (ภูมิภาคที่เลือกจากแผนภาพเวน)
+ *
+ * 🔴 รูปเดียวกับ `ExportCombinedMixin._combined_filename` ฝั่ง backend
+ *    ตัดที่ 60 ตัวอักษร **ก่อน** ต่อท้าย `_รายชื่อผู้เข้าร่วม.xlsx`
+ *    ⇒ ชื่อกิจกรรมยาว ๆ จะไม่ไปกินที่จน suffix ถูกตัดทิ้ง (ซึ่งจะทำให้ไฟล์ไม่มีนามสกุล)
+ */
+export const combinedActivityFilename = (titles: string[]): string => {
+  const joined = titles.map(safeActivityFilename).join('_').slice(0, 60).replace(/_+$/, '');
+  return `${joined || 'กิจกรรม'}_รายชื่อผู้เข้าร่วม.xlsx`;
+};

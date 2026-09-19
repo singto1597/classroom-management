@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
-import { downloadBlob } from '@/utils/download'
+import { downloadBlob, safeActivityFilename } from '@/utils/download'
 import { displayName } from '@/utils/name'
 import type { Activity, ActivityParticipant, RosterItem } from '@/types/activity'
 import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
@@ -256,11 +256,8 @@ const changeStatus = async (status: string) => {
 }
 
 // --- Export ---
-/** ชื่อไฟล์ปลอดภัย: ตัดอักขระต้องห้าม + กันยาวเกิน (ใช้ชื่อกิจกรรมตั้งชื่อไฟล์) */
-function safeFileName(title: string): string {
-  const cleaned = title.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').trim()
-  return cleaned.slice(0, 80) || 'กิจกรรม'
-}
+// 🌟 ชื่อไฟล์ย้ายไป `utils/download.ts` แล้ว (safeActivityFilename) — ที่นั่นเป็นที่เดียว
+//    ที่ mirror ตรรกะ `_sanitize_filename` ของ backend ⇒ ไฟล์เดียวไม่ต้องมีสำเนา 2 ชุด
 
 const exportExcel = async () => {
   if (!canManage.value || !activity.value) return
@@ -277,7 +274,7 @@ const exportExcel = async () => {
     //    (ของเดิม revoke ในบรรทัดถัดจาก click() และไม่ append เข้า document ด้วย
     //     ซึ่ง Firefox ไม่เริ่มดาวน์โหลดให้ anchor ที่ลอยอยู่)
     // 🌟 ชื่อไฟล์ใช้ชื่อกิจกรรม (สอดคล้องกับชื่อที่ backend สร้าง) ไม่ใช่ activity_<id>
-    downloadBlob(blob, `${safeFileName(activity.value.title)}_รายชื่อผู้เข้าร่วม.xlsx`)
+    downloadBlob(blob, `${safeActivityFilename(activity.value.title)}_รายชื่อผู้เข้าร่วม.xlsx`)
     Toast.fire({ icon: 'success', title: 'Export Excel เรียบร้อย 📄' })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Export ไม่สำเร็จ'
