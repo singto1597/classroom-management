@@ -88,6 +88,143 @@ function rawLabelPoint(
   return { x: 529, y: 354 } // วงขวาล่าง
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🏷️ ป้ายภูมิภาค (pill) — จัดวางชื่อเล่นเป็นหลายบรรทัดภายในกรอบจำกัด
+//
+// 🔴 ทำไมต้องมีเพดานความกว้าง/ความสูง และทำไมตัวเลขเหล่านี้ต้องเป็น "ค่าคงที่ที่พิสูจน์ได้"
+//    ป้ายแต่ละอันถูกวางที่ anchor ของภูมิภาคตัวเอง ถ้าป้ายกว้างขึ้นโดยไม่มีเพดาน
+//    ป้ายที่อยู่ใกล้กัน (เช่น "เฉพาะวงซ้ายล่าง" กับ "ซ้ายล่าง ∩ ขวาล่าง" ซึ่งห่างกัน 150 หน่วย)
+//    จะ **ทับกัน** ⇒ อ่านชื่อผิดภูมิภาค = แผนภาพโกหกผู้ใช้ ขณะที่หน้าจอยังดูปกติ
+//    ⇒ `PILL_MAX_W` ต้องไม่เกินระยะห่างป้ายที่ใกล้กันที่สุด และมีเทสต์บังคับว่ากรอบใหญ่สุด
+//      ของทุกคู่ไม่ทับกัน (`__tests__/activityDiagram.spec.ts`)
+//
+// 📌 การตัดชื่อในป้ายเป็นเรื่องที่ตั้งใจ — ป้ายคือ "ป้ายแผนภาพ" ไม่ใช่รายชื่อ
+//    รายการภูมิภาคด้านล่างแสดงชื่อเล่นครบทุกคนเสมอ และ `<title>` ของป้ายมีชื่อครบทุกคนด้วย
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** font-size ของข้อความในป้าย (หน่วย viewBox) */
+export const PILL_FONT = 11
+/** ความกว้างตัวอักษรไทยเฉลี่ยที่ PILL_FONT — ใช้ประมาณความกว้าง ไม่ต้องวัด DOM */
+export const PILL_CHAR_W = 7.4
+/** เพดานความกว้างป้าย — ต้องต่ำกว่าระยะห่างระหว่าง anchor ที่ใกล้กันที่สุด (150) */
+export const PILL_MAX_W = 130
+/** ระยะห่างจากขอบป้ายถึงข้อความ (สองข้าง) */
+export const PILL_PAD_X = 10
+/** ความสูงต่อหนึ่งบรรทัด + ระยะขอบบน/ล่างรวมกัน */
+export const PILL_LINE_H = 13
+export const PILL_PAD_Y = 7
+/** จำนวนบรรทัดสูงสุดบนป้าย — เพิ่มแล้วต้องตรวจกรอบไม่ให้ทับกัน (ดูเทสต์) */
+export const PILL_MAX_LINES = 2
+/** จำนวนตัวอักษรไทยสูงสุดต่อบรรทัดที่ยังอยู่ในเพดานความกว้าง */
+export const PILL_CHARS_PER_LINE = Math.floor((PILL_MAX_W - 2 * PILL_PAD_X) / PILL_CHAR_W)
+/** ความสูงของป้ายที่มี `lines` บรรทัด */
+export function pillHeight(lines: number): number {
+  return lines * PILL_LINE_H + PILL_PAD_Y
+}
+/** ความสูงมากสุดที่เป็นไปได้ — ใช้ตรวจการทับกันแบบไม่ต้องรู้ชื่อคน */
+export const PILL_MAX_H = pillHeight(PILL_MAX_LINES)
+/** ความกว้างต่ำสุดของป้าย (ป้ายของภูมิภาคที่มีคนเดียว/ว่าง) */
+export const PILL_MIN_W = 58
+
+export interface PillLayout {
+  /** ข้อความแต่ละบรรทัด (อย่างน้อย 1 บรรทัดเสมอ) */
+  lines: string[]
+  width: number
+  height: number
+  /** จำนวนชื่อที่ป้ายแสดงไม่ครบ — มีครบในรายการภูมิภาคด้านล่าง */
+  hidden: number
+}
+
+/** ยืนยันว่าบรรทัดไม่ล้นกรอบ — ตัดกลางชื่อได้เฉพาะกรณีชื่อเดียวยาวเกินทั้งบรรทัด */
+function fitLine(line: string, maxChars: number): string {
+  return line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line
+}
+
+/**
+ * จัดชื่อเล่นลงป้าย: เติมทีละชื่อจนเต็มบรรทัด แล้วขึ้นบรรทัดใหม่ (สูงสุด `PILL_MAX_LINES`)
+ * ชื่อที่เหลือย่อเป็น `+N` ต่อท้ายบรรทัดสุดท้าย
+ *
+ * ⚠️ ตอนเติม `+N` ต้อง **ตัดชื่อท้ายบรรทัดออกก่อน** ถ้าที่เหลือไม่พอ ไม่งั้น `+N` จะถูก
+ *    `fitLine` ตัดทิ้ง ⇒ ตัวเลขบอก "ยังมีคนอีก N คน" หายไปทั้งที่ชื่อก็ถูกตัดไปแล้ว
+ *    (ผู้ใช้จะเห็นรายชื่อขาดโดยไม่รู้ว่าขาด — ผิดกฎ "ห้าม truncate ข้อมูลอ่านอย่างเดียว")
+ */
+export function layoutPill(names: string[]): PillLayout {
+  const maxChars = PILL_CHARS_PER_LINE
+  if (names.length === 0) {
+    return { lines: ['—'], width: PILL_MIN_W, height: pillHeight(1), hidden: 0 }
+  }
+
+  const lines: string[] = []
+  let index = 0
+  while (index < names.length && lines.length < PILL_MAX_LINES) {
+    let line = ''
+    while (index < names.length) {
+      const name = names[index] ?? ''
+      const candidate = line ? `${line}, ${name}` : name
+      // ชื่อเดียวยาวเกินบรรทัด: ยอมให้อยู่บรรทัดของตัวเองแล้วตัดด้วย `…` ทีหลัง
+      if (line && candidate.length > maxChars) break
+      line = candidate
+      index += 1
+    }
+    lines.push(line)
+  }
+
+  let hidden = names.length - index
+  if (hidden > 0) {
+    const suffix = ` +${hidden}`
+    const last = lines.length - 1
+    let tail = lines[last] ?? ''
+    while (tail.length + suffix.length > maxChars) {
+      const cut = tail.lastIndexOf(', ')
+      if (cut < 0) {
+        // บรรทัดนี้เหลือชื่อเดียวและยังไม่พอ ⇒ ทิ้งชื่อนั้นเป็นส่วนหนึ่งของ `+N`
+        tail = ''
+        hidden += 1
+        break
+      }
+      tail = tail.slice(0, cut)
+      hidden += 1
+    }
+    lines[last] = tail ? `${tail}${suffix}` : `+${hidden}`
+  }
+
+  const fitted = lines.map((line) => fitLine(line, maxChars))
+  const widest = fitted.reduce((max, line) => Math.max(max, line.length), 0)
+  const width = Math.min(PILL_MAX_W, Math.max(PILL_MIN_W, widest * PILL_CHAR_W + 2 * PILL_PAD_X))
+  return { lines: fitted, width, height: pillHeight(fitted.length), hidden }
+}
+
+/**
+ * ตำแหน่ง baseline ของบรรทัดที่ `lineIndex` ในป้ายที่วางกึ่งกลางที่ `centerY`
+ * (1 บรรทัด → `centerY + 4` เท่าเดิมที่ใช้มาตลอด)
+ */
+export function pillBaselineY(centerY: number, lineIndex: number, lineCount: number): number {
+  return centerY + (lineIndex - (lineCount - 1) / 2) * PILL_LINE_H + 4
+}
+
+export interface PillBox {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
+/**
+ * กรอบ **ใหญ่ที่สุดที่เป็นไปได้** ของป้ายภูมิภาคนั้น (ไม่ต้องรู้ชื่อคน)
+ * ใช้พิสูจน์ว่าป้ายไม่มีทางทับกันไม่ว่าจะมีสมาชิกกี่คน — ดูเทสต์
+ */
+export function maxPillBox(activityCount: number, mask: number): PillBox | null {
+  const anchor = regionAnchor(activityCount, mask)
+  if (!anchor) return null
+  const [x, y] = anchor
+  return {
+    left: x - PILL_MAX_W / 2,
+    right: x + PILL_MAX_W / 2,
+    top: y - PILL_MAX_H / 2,
+    bottom: y + PILL_MAX_H / 2,
+  }
+}
+
 /** ความกว้างตัวอักษรไทยเฉลี่ยที่ font-size 12 (ใช้ประมาณ ไม่ต้องวัด DOM) */
 const LABEL_CHAR_W = 7.2
 
