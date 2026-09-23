@@ -348,9 +348,14 @@ async def delete_daily_note(
 @router.get("/{target_id}/summary", response_model=DailySummaryResponse)
 async def get_daily_summary(
     request: Request,
-    target_date: date, 
+    target_date: date,
+    # ⚠️ system RPC — บอทเป็นผู้เรียก (loop แจ้งเตือน + slash command) ซึ่งไม่เป็นสมาชิกห้องใด
+    #    จึงใช้ verify_api_key ไม่ใช่ get_current_user/require_member (ดู docs/skills.md)
+    # ⚠️ ต้องวาง "ก่อน" resolve_target_to_room_id — ถ้าวางหลัง จะเกิด enumeration oracle:
+    #    target ที่มีอยู่จริง → 401 แต่ที่ไม่มี → 404 ⇒ แยกออกได้ว่าห้องไหนมีจริงโดยไม่ต้องมี credential
+    api_key: str = Depends(verify_api_key),
     room_id: int = Depends(resolve_target_to_room_id),
-    pool: asyncpg.Pool = Depends(get_db_pool)
+    pool: asyncpg.Pool = Depends(get_db_pool),
 ):
     client_source, actor = get_audit_context(request)
     return await ClassroomService.get_daily_summary(
