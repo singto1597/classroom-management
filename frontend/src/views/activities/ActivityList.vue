@@ -95,7 +95,7 @@ const fetchData = async () => {
   } catch (error: unknown) {
     hasError.value = true
     const msg = error instanceof Error ? error.message : 'ดึงข้อมูลกิจกรรมไม่สำเร็จ'
-    Toast.fire({ icon: 'error', title: msg })
+    Toast.fire({ icon: 'error', titleText: msg })
   } finally {
     isLoading.value = false
   }

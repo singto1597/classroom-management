@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { CollectionStatus, Account, StudentPaymentDetail } from '@/types/finance'
 import { displayName } from '@/utils/name'
+import { escapeHtml } from '@/utils/html'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
 import Swal from 'sweetalert2'
 
@@ -63,17 +64,20 @@ const handlePay = async (student: StudentPaymentDetail) => {
   const remaining = student.total_amount - student.paid_amount
 
   const { value: formValues } = await Swal.fire({
-    title: `รับเงิน: ${displayName(student)}`,
+    // `titleText` ไม่ใช่ `title` — Swal เรนเดอร์ `title:` ด้วย innerHTML (dist บรรทัด 1910)
+    // ส่วน `titleText` ตั้งด้วย innerText (บรรทัด 1913) ⇒ ชื่อนักเรียนที่ผู้ใช้กรอก
+    // ใช้เป็นมาร์กอัปไม่ได้
+    titleText: `รับเงิน: ${displayName(student)}`,
     html:
       '<div class="mb-3 text-left">' +
       '<label class="block text-xs font-bold text-stone-400 mb-1 uppercase">รับเงินเข้าบัญชีห้อง</label>' +
       `<select id="swal-acc" class="swal2-input w-full">
-        ${accounts.value.map((acc) => `<option value="${acc.id}">${acc.account_name}</option>`).join('')}
+        ${accounts.value.map((acc) => `<option value="${escapeHtml(acc.id)}">${escapeHtml(acc.account_name)}</option>`).join('')}
       </select>` +
       '</div>' +
       '<div class="mb-3 text-left">' +
       '<label class="block text-xs font-bold text-stone-400 mb-1 uppercase">จำนวนเงินที่จ่าย (฿)</label>' +
-      `<input id="swal-amt" type="number" class="swal2-input w-full" value="${remaining}" step="0.01">` +
+      `<input id="swal-amt" type="number" class="swal2-input w-full" value="${escapeHtml(remaining)}" step="0.01">` +
       '</div>' +
       '<div class="text-left">' +
       '<label class="block text-xs font-bold text-stone-400 mb-1 uppercase">URL รูปสลิป (ถ้ามี)</label>' +
@@ -110,7 +114,11 @@ const handlePay = async (student: StudentPaymentDetail) => {
       Swal.fire({ icon: 'success', title: 'รับเงินสำเร็จ!', timer: 1500, showConfirmButton: false })
       fetchDetail()
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'รับเงินไม่สำเร็จ', 'error')
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'รับเงินไม่สำเร็จ',
+      })
     }
   }
 }
@@ -127,7 +135,8 @@ const handleRemoveStudent = async (student: StudentPaymentDetail) => {
 
   const result = await Swal.fire({
     title: 'ยืนยันการลบ?',
-    html: `คุณต้องการลบรายชื่อ <b>${displayName(student)}</b> ออกจากการเก็บเงินนี้ใช่หรือไม่?`,
+    // ⚠️ escape เฉพาะค่าที่ interpolate — มาร์กอัป `<b>` ของเทมเพลตต้องคงอยู่
+    html: `คุณต้องการลบรายชื่อ <b>${escapeHtml(displayName(student))}</b> ออกจากการเก็บเงินนี้ใช่หรือไม่?`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#dc2626',
@@ -147,7 +156,11 @@ const handleRemoveStudent = async (student: StudentPaymentDetail) => {
       Swal.fire({ icon: 'success', title: 'ลบเรียบร้อย', timer: 1500, showConfirmButton: false })
       fetchDetail()
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'ลบรายชื่อไม่สำเร็จ', 'error')
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'ลบรายชื่อไม่สำเร็จ',
+      })
     }
   }
 }
@@ -205,11 +218,11 @@ const handleIssueReceipt = async (student: StudentPaymentDetail) => {
     })
     showIssued(res.receipt.receipt_no, res.reused, true)
   } catch (error: unknown) {
-    Swal.fire(
-      'ออกใบเสร็จไม่สำเร็จ',
-      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
-      'error',
-    )
+    Swal.fire({
+      icon: 'error',
+      title: 'ออกใบเสร็จไม่สำเร็จ',
+      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+    })
   } finally {
     issuingPaymentId.value = null
   }
@@ -278,11 +291,11 @@ const handleIssueAllReceipts = async () => {
     })
     if (canDownload && after.isConfirmed) await downloadCombined(nos)
   } catch (error: unknown) {
-    Swal.fire(
-      'ออกใบเสร็จไม่สำเร็จ',
-      error instanceof Error ? error.message : 'ไม่มีใบใดถูกออก (ยกเลิกทั้งชุด)',
-      'error',
-    )
+    Swal.fire({
+      icon: 'error',
+      title: 'ออกใบเสร็จไม่สำเร็จ',
+      text: error instanceof Error ? error.message : 'ไม่มีใบใดถูกออก (ยกเลิกทั้งชุด)',
+    })
   } finally {
     isIssuingBatch.value = false
     // 🔄 โหลดใหม่ **หลัง** ออกเอกสารเสร็จ — ของเดิมลืมบรรทัดนี้ ทำให้ `issuableCount`
@@ -317,11 +330,11 @@ const downloadCombined = async (nos: string[]) => {
     downloadBlob(blob, combinedPdfFilename(nos, 'receipts'))
     Swal.close()
   } catch (error: unknown) {
-    Swal.fire(
-      'สร้างไฟล์ PDF ไม่สำเร็จ',
-      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
-      'error',
-    )
+    Swal.fire({
+      icon: 'error',
+      title: 'สร้างไฟล์ PDF ไม่สำเร็จ',
+      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+    })
   }
 }
 
@@ -330,7 +343,7 @@ const showIssued = (receiptNo: string, reused: boolean, allowOpen: boolean) => {
   void Swal.fire({
     icon: reused ? 'info' : 'success',
     title: reused ? 'ใบเสร็จนี้เคยออกแล้ว' : 'ออกใบเสร็จเรียบร้อย',
-    html: `เลขที่เอกสาร <b class="num">${receiptNo}</b>${
+    html: `เลขที่เอกสาร <b class="num">${escapeHtml(receiptNo)}</b>${
       reused ? '<br>ระบบคืนใบเดิมให้ — เลขที่เอกสารไม่เปลี่ยน' : ''
     }`,
     showCancelButton: allowOpen,

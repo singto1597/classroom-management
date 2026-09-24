@@ -72,7 +72,11 @@ const handleAddTask = async () => {
     })
     router.push('/tasks')
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถเพิ่มงานได้', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มงานได้'
+    })
   } finally {
     isSubmitting.value = false
   }
@@ -93,14 +97,18 @@ const handleAddNote = async () => {
     })
     await Swal.fire({
       icon: 'success',
-      title: `บันทึกโน้ตสำหรับวันที่ ${noteForm.target_date} เรียบร้อย!`,
+      titleText: `บันทึกโน้ตสำหรับวันที่ ${noteForm.target_date} เรียบร้อย!`,
       timer: 1500,
       showConfirmButton: false,
       confirmButtonColor: '#1d4ed8'
     })
     router.push('/tasks')
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถเพิ่มโน้ตได้', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มโน้ตได้'
+    })
   } finally {
     isSubmitting.value = false
   }

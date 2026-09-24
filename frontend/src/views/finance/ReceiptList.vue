@@ -25,6 +25,7 @@ import PeriodPicker from '@/components/finance/PeriodPicker.vue';
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { downloadBlob, combinedPdfFilename } from '@/utils/download';
+import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
 import {
   allVisibleSelected,
@@ -353,7 +354,11 @@ const renameBatch = async (batchId: number, currentTitle: string | null, fallbac
     await FinanceService.updateReceiptBatch(currentRoomId, batchId, { title: next });
     await load();
   } catch (error: unknown) {
-    Swal.fire('แก้ชื่อไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'error');
+    Swal.fire({
+      icon: 'error',
+      title: 'แก้ชื่อไม่สำเร็จ',
+      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+    });
   } finally {
     busyBatchId.value = null;
   }
@@ -366,8 +371,9 @@ const renameBatch = async (batchId: number, currentTitle: string | null, fallbac
 const dissolveBatch = async (batchId: number, name: string, memberCount: number) => {
   const confirmed = await Swal.fire({
     title: 'ยุบชุดเอกสาร?',
+    // 🔒 escape เฉพาะชื่อชุดเอกสารที่ interpolate — มาร์กอัป (<p>, <b>) คงไว้ตามเดิม
     html:
-      `<p class="text-sm">${name}</p>` +
+      `<p class="text-sm">${escapeHtml(name)}</p>` +
       `<p class="mt-2 text-sm"><b>เอกสารทั้ง ${memberCount} ฉบับยังอยู่ครบ</b> — ` +
       'แค่หลุดออกจากชุด ยังดูและพิมพ์ได้ตามปกติ</p>',
     icon: 'warning',
@@ -384,7 +390,11 @@ const dissolveBatch = async (batchId: number, name: string, memberCount: number)
     await load();
     await Swal.fire('ยุบชุดแล้ว', `ปลด ${res.detached_count} ฉบับออกจากชุด (เอกสารยังอยู่ครบ)`, 'success');
   } catch (error: unknown) {
-    Swal.fire('ยุบชุดไม่สำเร็จ', error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง', 'error');
+    Swal.fire({
+      icon: 'error',
+      title: 'ยุบชุดไม่สำเร็จ',
+      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+    });
   } finally {
     busyBatchId.value = null;
   }

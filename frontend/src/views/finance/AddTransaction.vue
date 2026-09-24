@@ -212,7 +212,11 @@ const handleSubmit = async () => {
 
     router.push('/finance/transactions');
   } catch (error: unknown) {
-    Swal.fire('พัง!', error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ', 'error');
+    Swal.fire({
+      icon: 'error',
+      title: 'พัง!',
+      text: error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ',
+    });
   } finally {
     isSubmitting.value = false;
   }

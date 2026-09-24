@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ActionService } from '@/services/action';
 import { ClassroomService } from '@/services/classroom';
+import { escapeHtml } from '@/utils/html';
 import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
@@ -75,7 +76,8 @@ const handleSend = async () => {
     await Swal.fire({
       icon: 'success',
       title: 'ส่งประกาศเรียบร้อยแล้ว!',
-      html: `ข้อความ "${messageForm.title}" จะถูกประกาศใน Discord ทันที 🎉`,
+      // 🔒 escape เฉพาะหัวข้อที่ผู้ใช้พิมพ์ — ข้อความรอบ ๆ เป็นข้อความล้วน ไม่มีมาร์กอัป
+      html: `ข้อความ "${escapeHtml(messageForm.title)}" จะถูกประกาศใน Discord ทันที 🎉`,
       timer: 2000,
       showConfirmButton: false
     });

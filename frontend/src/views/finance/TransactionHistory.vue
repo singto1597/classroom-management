@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue';
+import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
 import { useAuthStore } from '@/stores/auth';
 import { FinanceService } from '@/services/finance';
@@ -68,7 +69,11 @@ const fetchTransactions = async () => {
     // error ของคำขอที่ถูกแทนที่แล้วต้องเงียบ — ไม่งั้น Swal เด้งทั้งที่จอโหลดปกติอยู่
     if (!listGuard.isCurrent(token)) return;
     hasError.value = true;
-    Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ', 'error');
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ',
+    });
   } finally {
     // ตัวที่เก่ากว่าต้องไม่ปิด spinner ของตัวที่ใหม่กว่า (ไม่งั้นจอว่างทั้งที่ยังโหลดอยู่)
     if (listGuard.isCurrent(token)) isLoading.value = false;
@@ -97,7 +102,8 @@ const handleRevert = async (transaction: Transaction, key: string) => {
   const result = await Swal.fire({
     title: 'ต้องการยกเลิก?',
     // ใช้ inline style เพราะ SweetAlert2 ไม่ผ่าน Tailwind JIT
-    html: `คุณกำลังจะยกเลิกรายการ:<br><b style="display:block;margin-top:8px;font-size:16px;color:#1c1917">"${transaction.description}"</b><span style="display:block;margin-top:8px;padding:8px 12px;border-radius:10px;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:13px;font-weight:600">ยอดเงินจะถูกคืนกลับกระเป๋าเดิม<br>หากเป็นรายการรับเงินจากเพื่อน สถานะบิลจะถูกตีกลับเป็น "ค้างจ่าย" ทันที</span>`,
+    // 🔒 escape เฉพาะคำอธิบายที่ interpolate — มาร์กอัป/สไตล์ที่ตั้งใจไว้คงเดิม
+    html: `คุณกำลังจะยกเลิกรายการ:<br><b style="display:block;margin-top:8px;font-size:16px;color:#1c1917">"${escapeHtml(transaction.description)}"</b><span style="display:block;margin-top:8px;padding:8px 12px;border-radius:10px;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:13px;font-weight:600">ยอดเงินจะถูกคืนกลับกระเป๋าเดิม<br>หากเป็นรายการรับเงินจากเพื่อน สถานะบิลจะถูกตีกลับเป็น "ค้างจ่าย" ทันที</span>`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#dc2626',
@@ -112,7 +118,11 @@ const handleRevert = async (transaction: Transaction, key: string) => {
       Swal.fire({ icon: 'success', title: 'ยกเลิกรายการสำเร็จ!', timer: 1500, showConfirmButton: false });
       fetchTransactions();
     } catch (error: unknown) {
-      Swal.fire('ยกเลิกไม่ได้', error instanceof Error ? error.message : 'ยกเลิกรายการไม่สำเร็จ', 'error');
+      Swal.fire({
+        icon: 'error',
+        title: 'ยกเลิกไม่ได้',
+        text: error instanceof Error ? error.message : 'ยกเลิกรายการไม่สำเร็จ',
+      });
     }
   }
 };

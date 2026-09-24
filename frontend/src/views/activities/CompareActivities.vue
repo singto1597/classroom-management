@@ -150,7 +150,7 @@ const fetchActivities = async () => {
     listError.value = true
     Toast.fire({
       icon: 'error',
-      title: error instanceof Error ? error.message : 'ดึงรายการกิจกรรมไม่สำเร็จ',
+      titleText: error instanceof Error ? error.message : 'ดึงรายการกิจกรรมไม่สำเร็จ',
     })
   } finally {
     if (listGuard.isCurrent(token)) isLoadingList.value = false
@@ -181,7 +181,7 @@ const fetchCompare = async () => {
     compareError.value = true
     Toast.fire({
       icon: 'error',
-      title: error instanceof Error ? error.message : 'เปรียบเทียบกิจกรรมไม่สำเร็จ',
+      titleText: error instanceof Error ? error.message : 'เปรียบเทียบกิจกรรมไม่สำเร็จ',
     })
   } finally {
     if (compareGuard.isCurrent(token)) isLoadingCompare.value = false

@@ -36,6 +36,7 @@ import type {
   StudentCreditEntry,
   CreditAllocationItem,
 } from '@/types/finance'
+import { escapeHtml } from '@/utils/html'
 import { createLatestGuard } from '@/utils/latest'
 import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
 import Swal from 'sweetalert2'
@@ -163,10 +164,11 @@ const handleTopUp = async () => {
     await Swal.fire({
       icon: 'success',
       title: res.reused ? 'รายการนี้ถูกบันทึกไว้แล้ว' : 'เติมเงินล่วงหน้าเรียบร้อย',
+      // 🔒 escape เฉพาะชื่อนักเรียนที่ interpolate — มาร์กอัป (<b>, <span>) คงไว้ตามเดิม
       html: res.reused
         ? `ระบบตรวจพบว่าเป็นการกดซ้ำจากรายการเดิม จึง <b>ไม่บันทึกซ้ำ</b><br>` +
           `เครดิตคงเหลือ <b class="num">${formatMoney(res.balance_after)}</b>`
-        : `รับเงิน <b class="num">${formatMoney(res.amount)}</b> จาก <b>${res.student_name}</b><br>` +
+        : `รับเงิน <b class="num">${formatMoney(res.amount)}</b> จาก <b>${escapeHtml(res.student_name)}</b><br>` +
           `เครดิตคงเหลือ <b class="num">${formatMoney(res.balance_after)}</b><br>` +
           `<span style="font-size:0.85em;color:#78716c">` +
           `ออกใบรับเงินล่วงหน้าเลขที่ <b>${depNo}</b> แล้ว — ` +
@@ -380,7 +382,7 @@ const handleUndo = async (entry: StudentCreditEntry) => {
       `คืนเครดิต <b class="num">${formatMoney(entry.amount)}</b> ` +
       `เข้ากระเป๋านักเรียน และเปิดบิลกลับเป็น "ค้างชำระ"<br>` +
       `<span style="font-size:0.85em;color:#78716c">` +
-      `บิล: ${entry.collection_title ?? '—'} · รายการนี้จะยังอยู่ในประวัติ (ไม่ถูกลบ)</span>`,
+      `บิล: ${escapeHtml(entry.collection_title ?? '—')} · รายการนี้จะยังอยู่ในประวัติ (ไม่ถูกลบ)</span>`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#b91c1c',
