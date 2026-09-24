@@ -367,7 +367,14 @@ class StudentsMixin:
         try:
             async with pool.acquire() as conn:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
-                is_member = await conn.fetchval("SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL", target_room_id, user_id)
+                # 🔒 ต้องเป็นสมาชิกที่ **active** เท่านั้น — แถว `status='pending'` คือ "คำเชิญที่ยังไม่รับ"
+                #    (มี `user_id` ผูกอยู่แล้วแต่ `identity_claimed = FALSE` ดู `room_service.accept_invite`)
+                #    ⇒ ถ้าไม่กรอง status คนที่แค่ "ถูกเชิญ" จะอ่านรายชื่อทั้งห้องได้ทั้งที่ยังไม่ได้เป็นสมาชิก
+                #
+                # ⚠️ `rbac.require_permission` ใช้ `status = 'active'` อยู่แล้ว และงานการเงิน/กิจกรรม
+                #    ก็กรองเหมือนกันหมด ⇒ ที่นี่เป็นจุดเดียวที่หลุด (และ route นี้ไม่มี require_permission
+                #    ครอบ — การเช็คใน service คือด่านเดียวที่มีจริง ๆ)
+                is_member = await conn.fetchval("SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND status = 'active' AND deleted_at IS NULL", target_room_id, user_id)
                 
                 from core.config import settings
                 is_super_admin = settings.SUPER_ADMIN_ID and int(user_id) == int(settings.SUPER_ADMIN_ID)
