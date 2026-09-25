@@ -1,0 +1,67 @@
+# ============================================================
+# CI · Frontend (Vue 3 + Vite + TypeScript)
+# ============================================================
+#
+# ⚠️ GitHub Actions อ่าน workflow จาก **.github/workflows/ ที่ราก repo เท่านั้น**
+#    ไฟล์ deploy.yml เดิมที่อยู่ใน frontend/.github/workflows/ จึงไม่เคยถูกรันเลย
+#    (ตรวจแล้ว: `gh run list` ว่างเปล่า = ไม่มี workflow ไหนเคยทำงานบน repo นี้)
+#
+# 📌 ไฟล์นี้ **ตรวจอย่างเดียว ไม่ deploy อะไรทั้งสิ้น**
+#    การ deploy ยังเป็นการรัน `./pull_all.sh` ด้วยมือจาก checkout ของ production เท่านั้น
+#    ⇒ merge เข้า main ไม่ทำให้ production เปลี่ยน (ดู docs/skills.md)
+#
+# 🔎 ทำไมแยกไฟล์ต่อ service แทนที่จะเป็นไฟล์เดียวหลาย job:
+#    `paths` ของ GitHub เป็นตัวกรอง **ระดับ workflow** ไม่ใช่ระดับ job
+#    ⇒ ถ้ารวมไฟล์เดียว ทุก PR ต้องรอ backend suite (~44 นาที) แม้แก้แค่ปุ่มสี
+#    แยกไฟล์เพื่อให้งานฝั่ง frontend/bot ได้ผลตอบกลับในไม่กี่นาที
+#
+# ℹ️ ยังไม่มี `paths` สำหรับไฟล์ที่ใช้ร่วมกัน (เช่น .env.example) — ถ้าวันหนึ่งมีการแก้
+#    ไฟล์ร่วมที่กระทบทั้งสาม service ให้เพิ่ม path นั้นในทุกไฟล์
+name: CI · Frontend
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/ci-frontend.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/ci-frontend.yml'
+
+# ยกเลิก run เก่าของ branch เดียวกันเมื่อ push ซ้ำ — ประหยัดนาที CI
+concurrency:
+  group: ci-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: type-check + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # ให้ตรงกับ `FROM node:22-alpine` ใน frontend/Dockerfile
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci` (ไม่ใช่ install) เพื่อใช้ lockfile ตรง ๆ — ผลตรงกับที่นักพัฒนารัน
+      # และไม่เขียน lockfile ใหม่เงียบ ๆ บน CI
+      - name: ติดตั้ง dependencies
+        run: npm ci
+
+      # TypeScript เป็น strict และห้ามใช้ `any` — type-check คือด่านจริง ไม่ใช่ของแถม
+      - name: type-check
+        run: npm run type-check
+
+      # ⚠️ ต้องมี `--run` ไม่งั้น vitest จะเข้า watch mode แล้ว job ค้างจนหมดเวลา
+      - name: unit tests
+        run: npm run test:unit -- --run

@@ -1,0 +1,65 @@
+# ============================================================
+# CI · Discord bot (discord.py)
+# ============================================================
+#
+# ⚠️ GitHub Actions อ่าน workflow จาก **.github/workflows/ ที่ราก repo เท่านั้น**
+#    ไฟล์ deploy.yml เดิมที่อยู่ใน bot_discord/.github/workflows/ จึงไม่เคยถูกรันเลย
+#
+# 📌 ไฟล์นี้ **ตรวจอย่างเดียว ไม่ deploy อะไรทั้งสิ้น**
+#    การ deploy ยังเป็นการรัน `./pull_all.sh` ด้วยมือจาก checkout ของ production เท่านั้น
+#
+# 🔎 ทำไมไม่ใช้ container ของบอท (`classroom-classroom-bot:latest`) แบบที่รันในเครื่อง:
+#    image นั้นถูก build ไว้บนเซิร์ฟเวอร์ production ไม่มีอยู่ใน Docker Hub
+#    ⇒ CI ต้องประกอบ environment เอง (เหมือนที่ image ทำ) แต่ **ไม่ต้อง build image**
+#    เพราะเทสต์ใช้ stdlib unittest ล้วน ไม่พึ่ง layer ใดของ image
+name: CI · Bot
+
+on:
+  pull_request:
+    paths:
+      - 'bot_discord/**'
+      - '.github/workflows/ci-bot.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'bot_discord/**'
+      - '.github/workflows/ci-bot.yml'
+
+concurrency:
+  group: ci-bot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bot:
+    name: unittest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: bot_discord
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # ให้ตรงกับ Python ของ image บอทบนเซิร์ฟเวอร์ (3.12)
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: bot_discord/requirements.txt
+
+      - name: ติดตั้ง dependencies
+        run: pip install -r requirements.txt
+
+      # ⚠️ `API_KEY` ต้องใส่ไว้ **เสมอ** แม้วันนี้ยังไม่บังคับก็ตาม
+      #    · วันนี้ (main): `core/config.py` ยังมี default ฮาร์ดโค้ด `api-key-for-my-bot-1234`
+      #      ⇒ ไม่ใส่ก็ผ่าน — แต่ผ่านเพราะ "มีคีย์ปลอมฝังในโค้ด" ซึ่งคือตัวปัญหาเอง
+      #    · หลัง merge งาน H8: default นั้นถูกถอดออก ⇒ `import core.config` จะ raise
+      #      **ตอน collect** ⇒ ทุกเทสต์ error ทั้งที่โค้ดที่ทดสอบถูกต้อง
+      #        และอาการที่เห็นคือ "collection error" ซึ่งไม่บอกสาเหตุที่แท้จริงเลย
+      #    ⇒ ใส่ไว้ตั้งแต่ตอนนี้เพื่อให้ไฟล์นี้ถูกทั้งก่อนและหลัง H8 ไม่ต้องกลับมาแก้
+      #    ค่านี้เป็นค่าปลอมได้ — เทสต์ทั้งชุด stub ชั้น api_client ไม่ต่อ backend จริง
+      - name: unittest
+        env:
+          API_KEY: test-api-key
+        # ใช้ stdlib unittest (ไม่ใช่ pytest) ตาม docs/skills.md — image บอทไม่มี pytest
+        run: python -m unittest discover -s tests -t . -v
