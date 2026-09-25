@@ -176,8 +176,32 @@
 ### 🛠️ Read RPC → `require_member` Design: Where It Is NOT Safe to Add
 - **Context/Problem:** The RBAC hardening pass added `require_member` to classroom read/write RPCs. But the daily-notification **loop** (`bot_discord/cogs/classroom_cmd.py:78,93`) calls `GET /{server_id}/summary` with `X-Discord-Id` = the **bot's own user id** (`self.bot.user.id`), which is NOT a member of any room.
 - **Root Cause:** `get_daily_summary` is a cross-layer RPC: used both by the bot-loop (system identity, no user) and by user slash commands (`/today`, `/tomorrow`). Its router has no `get_current_user`, and the bot-loop has no per-room membership.
-- **Correct Pattern/Solution:** **Do NOT add `require_member` to `get_daily_summary`** — it would break the scheduled notification loop. Instead, this read stays transparent at the RPC layer (same reasoning as Finance GET transparency, but here the "caller" is the bot). When hardening read RPCs, audit every caller (bot loops, schedulers, slash commands) before adding a check. `get_rooms_to_notify` is likewise system-only (`verify_api_key`), so it gets no membership check either.
-- **Date Added:** 2026-08-04
+- **Correct Pattern/Solution:** **Do NOT add `require_member` to `get_daily_summary`.** `get_rooms_to_notify` is likewise system-only, so it gets no membership check either. When hardening read RPCs, audit every caller (bot loops, schedulers, slash commands) before adding a check.
+- **⚠️ แก้ไข 2026-09-23 — ข้อสรุปเดิมของหัวข้อนี้ผิด และเป็นเหตุให้เกิดช่องโหว่จริง:** เวอร์ชันก่อนหน้าของหัวข้อนี้เขียนว่า *"this read stays transparent at the RPC layer"* — ประโยคนั้นถูกอ่านเป็น "ไม่ต้องใส่อะไรเลย" ทั้งที่เจตนาคือ "ไม่ต้องใส่ `require_member`" ผลคือ `GET /{target_id}/summary` กลายเป็น **route เดียวจาก 106 ตัวที่ไม่มี auth dependency ใด ๆ** ยืนยันด้วยการยิงจริงว่าได้ข้อมูลจริงของโรงเรียนตอบ 200 ทั้ง production และ staging โดยไม่ต้องส่ง credential และ enumerate `target_id` เก็บได้ทั้งโรงเรียน
+- **Rule ที่ถูกต้อง:** "system RPC" ≠ "ไม่ต้องมี auth" — มันหมายถึง **`verify_api_key` ไม่ใช่ `require_member`/`get_current_user`** ดูตัวอย่างที่ถูกต้องในไฟล์เดียวกัน: `get_rooms_to_notify` และ `get_birthday_celebrants` ใช้ `api_key: str = Depends(verify_api_key)` ครบทั้งคู่ บอทส่ง `X-API-Key` ให้ทุกคำขออยู่แล้วใน `api_client.init_session` จึงไม่ต้องแก้อะไรฝั่งบอทเลย
+- **Date Added:** 2026-08-04 (แก้ไข 2026-09-23)
+
+### 🛠️ ลำดับ dependency ของ FastAPI สร้าง Enumeration Oracle ได้ — วาง auth ไว้ก่อนเสมอ
+- **Context/Problem:** ตอนเติม `verify_api_key` ให้ `GET /{target_id}/summary` ถ้าวาง parameter ไว้ **หลัง** `room_id: int = Depends(resolve_target_to_room_id)` จะได้พฤติกรรมนี้ — target_id ที่มีอยู่จริง → **401**, target_id ที่ไม่มี → **404** ⇒ ผู้โจมตีที่ไม่มี credential เลยแยกออกได้ว่าห้องไหนมีอยู่จริง แล้วไล่เก็บทีละห้อง (ตรงกับที่เห็นใน log จริงของเทสต์: `GET /api/classroom/6/summary → 200` คู่กับ `GET /api/classroom/2418485/summary → 404`)
+- **Root Cause:** FastAPI resolve dependency ตาม **ลำดับที่ประกาศใน signature** — `resolve_target_to_room_id` แตะ DB ก่อน จึง raise `RoomNotFoundError` (404) ทันก่อนที่ `verify_api_key` จะได้ทำงาน ตัว auth เลยไม่ได้เป็นประตูด่านแรกจริง
+- **Correct Pattern/Solution:** วาง parameter ที่เป็น auth (`Depends(verify_api_key)`, `Depends(get_current_user)`) **ก่อน** parameter ที่แตะ DB หรือ resolve ข้อมูลเสมอ
+  ```python
+  async def get_daily_summary(
+      request: Request,
+      target_date: date,
+      api_key: str = Depends(verify_api_key),        # ← auth ก่อน
+      room_id: int = Depends(resolve_target_to_room_id),  # ← ค่อยแตะ DB
+      pool: asyncpg.Pool = Depends(get_db_pool),
+  ):
+  ```
+  **Rule:** endpoint ที่มี auth + resolve target ต้องมีเทสต์ที่ยิง **target_id ที่ไม่มีอยู่จริงโดยไม่ส่ง credential** แล้วคาดหวัง 401 (ไม่ใช่ 404) — ถ้าได้ 404 แปลว่าลำดับ dependency กลับกัน และมี oracle ให้ enumerate ดูตัวอย่างที่ `tests/test_daily_summary_auth.py::test_summary_nonexistent_target_returns_401_not_404`
+- **Date Added:** 2026-09-23
+
+### 🔍 เทสต์ที่เรียก service ตรง ๆ ไม่ผ่าน HTTP layer จะจับ auth ที่หายไปไม่ได้เลย
+- **Context/Problem:** ช่องโหว่ข้อ C1 (`/summary` ไม่มี auth) อยู่บน production โดยที่ชุดเทสต์ **1,065 ตัวเขียวทั้งหมด** — เพราะเทสต์ของ `get_daily_summary` ทั้ง 6 ตัวใน `test_classroom_sync.py` และ `test_classroom_sync_extended.py` เรียก `ClassroomService.get_daily_summary(pool, ...)` ตรง ๆ ซึ่งข้ามชั้น HTTP ไปเลย dependency ของ route จึงไม่เคยถูกตรวจ
+- **Root Cause:** เทสต์ระดับ service พิสูจน์ได้แค่ "business logic ถูก" ไม่สามารถพิสูจน์ได้ว่า "route ถูกป้องกัน" — สองเรื่องนี้คนละชั้นกัน และเทสต์ที่ครอบคลุมชั้นล่างก็ไม่บอกอะไรเกี่ยวกับชั้นบน
+- **Correct Pattern/Solution:** endpoint ที่มี auth ทุกตัวต้องมีเทสต์ยิงผ่าน `client` (HTTP) **อย่างน้อยหนึ่งตัว** ควบคู่กับเทสต์ระดับ service ที่มีอยู่ — และทางที่ดีกว่าคือเทสต์ที่ enumerate **ทุก** route แล้ว assert 401/403 โดยมี allowlist สำหรับ route public (ดู `tests/test_route_auth_audit.py`) **Rule:** ความเขียวของชุดเทสต์ไม่ได้แปลว่าระบบปลอดภัย มันแปลว่า*สิ่งที่เทสต์ครอบคลุม*ปลอดภัย — ถ้ามีชั้นที่ไม่มีเทสต์ ชั้นนั้นก็ไม่มีด่าน
+- **Date Added:** 2026-09-23
 
 ### 🛠️ Flaky Summary Test — `datetime.now()` UTC vs `THAI_TZ` Midnight Rollover
 - **Context/Problem:** `test_get_daily_summary_combines_schedule_and_tasks` in `test_classroom_sync.py` failed with `days_left == -1` only during 00:00–06:59 Bangkok time.
