@@ -29,6 +29,49 @@ class UserLoginResult(BaseModel):
     user_id: int
     discord_id: Optional[int] = None
 
+class SuccessResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+
+class UserProfileResponse(BaseModel):
+    """โปรไฟล์ของผู้ใช้ที่ล็อกอินอยู่ — `GET`/`PATCH /api/auth/me`
+
+    🔴 ผลตรวจระบบ 2026-09-23 → M4: เดิม `GET /me` คืน `dict(user)` ดิบ ๆ โดยไม่มี
+       `response_model` ⇒ **คอลัมน์ไหนถูกเพิ่มเข้า SELECT ก็หลุดออก API ทันที**
+       โดยไม่มีใครตั้งใจและไม่มีอะไรเตือน (และเป็นวิธีที่ฟิลด์ภายในรั่วออกไปจริง ๆ)
+       การประกาศ `response_model` ทำให้รายการฟิลด์ที่ส่งออกเป็น **สัญญาที่เขียนไว้**
+       ไม่ใช่ผลข้างเคียงของคำสั่ง SQL
+
+    ⚠️ ชนิดข้อมูลคงเดิมทุกตัวตามที่ asyncpg อ่านจากคอลัมน์ — **ไม่ปรับให้สวยขึ้น**
+       เพราะ frontend ประกาศ `discord_id: number | null` ไว้แล้ว (services/auth.ts)
+       การเปลี่ยนเป็น str จะเป็นการเปลี่ยนรูปข้อมูลบนสายแบบเงียบ ๆ
+    ⚠️ `discord_id` เป็น snowflake 19 หลักซึ่ง **เกินเพดานจำนวนเต็มปลอดภัยของ
+       JavaScript (2^53)** ⇒ ฝั่ง frontend ต้องแปลงเป็นสตริงก่อนใช้ (ทำอยู่แล้วใน
+       stores/auth.ts: `String(data.discord_id)`) — อย่าส่งค่านี้ออกไปเป็นตัวเลข
+       แล้วเอาไปใช้คำนวณฝั่งเบราว์เซอร์
+    """
+    id: int
+    prefix: Optional[str] = None
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    first_name_en: Optional[str] = None
+    last_name_en: Optional[str] = None
+    username: Optional[str] = None
+    nickname: Optional[str] = None
+    nickname_en: Optional[str] = None
+    birthday: Optional[date] = None
+    phone_number: Optional[str] = None
+    line_id: Optional[str] = None
+    address_house_no: Optional[str] = None
+    address_road: Optional[str] = None
+    address_sub_district: Optional[str] = None
+    address_district: Optional[str] = None
+    address_province: Optional[str] = None
+    address_post_code: Optional[str] = None
+    discord_id: Optional[int] = None
+    google_id: Optional[str] = None
+
 class UserProfileUpdate(BaseModel):
     prefix: str = Field(..., max_length=10, description="คำนำหน้า")
     first_name: str = Field(..., max_length=100, description="ชื่อจริง (ไทย)")
