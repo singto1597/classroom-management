@@ -5,6 +5,7 @@ import {
   referenceDate,
   formatThaiDate,
   formatThaiDateTime,
+  formatThaiTime,
 } from '@/utils/period';
 
 /**
@@ -158,5 +159,86 @@ describe('formatThaiDateTime', () => {
   it('วันที่ล้วน → ได้ 07:00 ไทยติดมา (จึงต้องใช้ formatThaiDate กับฟิลด์ DATE)', () => {
     expect(formatThaiDateTime('2026-09-13')).toContain('07:00');
     expect(formatThaiDate('2026-09-13')).not.toContain('07:00');
+  });
+});
+
+/**
+ * 🗓️ `todayIso()` เป็น **ค่าเริ่มต้นของฟอร์ม** (กำหนดส่งงาน · วัน override ตารางเรียน ·
+ *    วันเดินทางกิจกรรม) ⇒ ถ้าคิดจากปฏิทินของ "อุปกรณ์ผู้ใช้" เครื่องที่ตั้ง TZ ตามหลังไทย
+ *    จะได้ **เมื่อวาน** แล้วงานที่เพิ่งสร้างกลายเป็น "เลยกำหนด" ทันที
+ *
+ * เดิมบั๊กนี้อยู่ใน `getLocalDate()` ของ `AddTask.vue` / `ScheduleManager.vue` ซึ่งแก้
+ * "UTC Bug" ได้เฉพาะเครื่องที่ตั้ง TZ เป็นไทยเท่านั้น — ย้ายมาใช้ตัวนี้เพื่อให้มี
+ * แหล่งความจริงเดียวเรื่องโซนเวลา (แบบเดียวกับที่ `todayThaiYearMonth` ทำกับตัวกรองเดือน)
+ */
+
+/**
+ * oracle **อิสระจาก Intl** — บวกคงที่ +07:00 แล้วอ่าน "วันที่แบบ UTC"
+ * ไทยไม่มี DST มาตั้งแต่ พ.ศ. 2484 (ค.ศ. 1941) ⇒ UTC+7 คงที่ตลอด จึงใช้วิธีนี้ได้
+ * การตรวจด้วยกลไกคนละตัว (เลขคณิตเวลา) คือสิ่งที่ทำให้เทสต์ไม่ตรวจตัวเอง
+ */
+const bangkokDateByFixedOffset = (iso: string): string =>
+  new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+describe('todayIso', () => {
+  it('ตอนไทยข้ามวันแล้ว ต้องได้วันใหม่ แม้ UTC ยังเป็นวันเดิม', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CROSSES_THAI_DAY)); // 13 ก.ย. 18:30 UTC = 14 ก.ย. 01:30 ไทย
+
+    expect(todayIso()).toBe('2026-09-14');
+    // 🔑 ยืนยันว่าเทสต์นี้ "แยกได้จริง" — ปฏิทิน UTC ยังเป็นวันที่ 13
+    expect(new Date().toISOString().slice(0, 10)).toBe('2026-09-13');
+  });
+
+  it('ขอบเขตเที่ยงคืนไทย (17:00Z) ต้องเข้าวันใหม่พอดี', () => {
+    vi.useFakeTimers();
+
+    vi.setSystemTime(new Date('2026-09-29T16:59:59Z')); // ไทย 23:59:59
+    expect(todayIso()).toBe('2026-09-29');
+
+    vi.setSystemTime(new Date('2026-09-29T17:00:00Z')); // ไทย 00:00:00 ของวันถัดไป
+    expect(todayIso()).toBe('2026-09-30');
+  });
+
+  it('ต้องตรงกับ oracle เลขคณิตเวลาเสมอ (ไม่พึ่ง Intl ในการตรวจ)', () => {
+    vi.useFakeTimers();
+    for (const iso of [
+      '2026-01-01T00:00:00Z',
+      '2026-09-13T18:30:00Z',
+      '2026-09-29T20:00:00Z', // ไทยเป็นวันที่ 30 แล้ว แต่ UTC ยังเป็น 29
+      '2026-12-31T18:00:00Z', // ข้ามปีไทย
+      '2027-02-28T17:00:00Z',
+    ]) {
+      vi.setSystemTime(new Date(iso));
+      expect(todayIso()).toBe(bangkokDateByFixedOffset(iso));
+    }
+  });
+});
+
+/**
+ * 🕐 `formatThaiTime` ใช้กับ **เวลาที่เป็นหลักฐาน** — เวลาเช็คอินบนใบยืนยันชั่วโมงจิตอาสา
+ *    เดิมเขียน `new Date(p.checked_at).toLocaleTimeString('th-TH', …)` ตรง ๆ ในเทมเพลต
+ *    โดยไม่ระบุ `timeZone` ⇒ ใช้โซนของ **อุปกรณ์ผู้ใช้** ⇒ แท็บเล็ตที่ตั้ง TZ อื่น
+ *    แสดงเวลาเช็คอินคลาดเคลื่อนได้หลายชั่วโมง บนเอกสารที่ครูใช้ยืนยันชั่วโมง
+ */
+describe('formatThaiTime', () => {
+  it('แสดงเวลาไทย (ชม.:นาที) จาก timestamp จริง', () => {
+    expect(formatThaiTime('2026-09-29T20:00:00Z')).toBe('03:00'); // 20:00 UTC + 7
+    expect(formatThaiTime(CROSSES_THAI_DAY)).toBe('01:30');
+  });
+
+  it('🔑 ต้องไม่ใช้โซนของอุปกรณ์ — instant เดียวกันต้องได้ผลเดียวกันเสมอ', () => {
+    // ถ้าลบ `timeZone` ออกจากฟังก์ชัน เทสต์นี้จะล้มบนเครื่องที่รันด้วย TZ ไม่ใช่ไทย
+    // (TZ=UTC จะได้ '20:00' และ '17:00' แทน) — ตรวจซ้ำด้วย TZ=America/New_York แล้ว
+    expect(formatThaiTime('2026-09-29T20:00:00Z')).toBe('03:00');
+    // เที่ยงคืนไทย = ขึ้นวันใหม่ แต่เวลาต้องเป็น 00:00 ไม่ใช่ 24:00
+    expect(formatThaiTime('2026-09-29T17:00:00Z')).toBe('00:00');
+  });
+
+  it('ไม่มีค่า / ค่าว่าง → ขีดกลาง · สตริงที่ parse ไม่ได้ → คืนค่าเดิม', () => {
+    expect(formatThaiTime(null)).toBe('—');
+    expect(formatThaiTime(undefined)).toBe('—');
+    expect(formatThaiTime('')).toBe('—');
+    expect(formatThaiTime('ไม่ใช่วันที่')).toBe('ไม่ใช่วันที่');
   });
 });

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
+import { todayIso } from '@/utils/period'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
@@ -30,22 +31,19 @@ const canManageTasks = computed(
 const activeTab = ref<'task' | 'note'>('task')
 const isSubmitting = ref(false)
 
-// 🛠️ Fix Bug: ฟังก์ชันดึงวันที่ปัจจุบัน (Local Timezone) เพื่อป้องกันวันที่เพี้ยนเป็นเมื่อวานตอนเช้าตรู่ (UTC Bug)
-const getLocalDate = (): string => {
-  const date = new Date()
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-  const [datePart] = date.toISOString().split('T')
-  return datePart ?? ''
-}
-
 const taskForm = reactive({
   task_name: '',
   task_detail: '',
-  due_date: getLocalDate()
+  // 🗓️ ค่าเริ่มต้น = "วันนี้" ตามเวลาไทย ไม่ใช่ปฏิทินของอุปกรณ์ผู้ใช้
+  //    เดิมใช้ getLocalDate() ที่คิดจาก timezone ของเครื่อง (แก้ UTC Bug ได้เฉพาะเครื่อง
+  //    ที่ตั้ง TZ เป็นไทย) ⇒ เครื่องที่ตั้ง TZ ตามหลังไทย เช่น UTC-5 เปิดตอนเช้าตามเวลาไทย
+  //    จะได้ "เมื่อวาน" ⇒ งานกลายเป็นเลยกำหนดทันทีที่สร้าง
+  //    ใช้ todayIso() จาก utils/period เพื่อให้มีแหล่งความจริงเดียวเรื่องโซนเวลา
+  due_date: todayIso()
 })
 
 const noteForm = reactive({
-  target_date: getLocalDate(),
+  target_date: todayIso(),
   bring_items: '',
   announcement: ''
 })
