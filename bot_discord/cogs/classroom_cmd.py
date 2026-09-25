@@ -13,6 +13,7 @@ from ui import set_override_ui
 from services.api_client import api_client, APIException
 from services.action_service import BotActionService
 from services.task_embed import build_no_pending_tasks_embed, build_pending_tasks_embed
+from services.reply_embed import error_embed, info_embed, success_embed
 
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -189,15 +190,15 @@ class BotCommands(commands.Cog):
     async def set_time(self, interaction: discord.Interaction, time_str: str):
         await interaction.response.defer()
         if not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", time_str):
-            return await interaction.followup.send("❌ รูปแบบเวลาผิด ต้องเป็น HH:MM เช่น 19:00, 20:30", ephemeral=True)
+            return await interaction.followup.send(embed=error_embed("❌ รูปแบบเวลาผิด ต้องเป็น HH:MM เช่น 19:00, 20:30"), ephemeral=True)
 
         try:
             payload = {"notify_time": time_str, "user_name": interaction.user.name}
             # 🚨 แทรก target_type="server"
             await api_client.request("PUT", f"/{interaction.guild_id}/time", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"⏰ เปลี่ยนเวลาแจ้งเตือนอัตโนมัติเป็น **{time_str} น.** เรียบร้อยแล้ว!")
+            await interaction.followup.send(embed=success_embed(f"⏰ เปลี่ยนเวลาแจ้งเตือนอัตโนมัติเป็น **{time_str} น.** เรียบร้อยแล้ว!"))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="setup_room", description="ตั้งค่าบอทและกำหนดชื่อห้องเรียน")
     async def setup_room(self, interaction: discord.Interaction, room_name: str):
@@ -206,9 +207,9 @@ class BotCommands(commands.Cog):
             payload = {"server_id": interaction.guild_id, "room_name": room_name, "user_name": interaction.user.name}
             # 🚨 แทรก target_type="server"
             await api_client.request("POST", "/setup", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"✅ ลงทะเบียนห้อง **{room_name}** สำเร็จ!\n👉 กด `/set_channel` ด้วยนะ")
+            await interaction.followup.send(embed=success_embed(f"✅ ลงทะเบียนห้อง **{room_name}** สำเร็จ!\n👉 กด `/set_channel` ด้วยนะ"))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="set_channel", description="กำหนดห้องแชทที่จะให้บอทแจ้งเตือนหลัก")
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
@@ -228,9 +229,9 @@ class BotCommands(commands.Cog):
             payload = {"channel_id": channel.id, "user_name": interaction.user.name, "channel_type": channel_type}
             # 🚨 แทรก target_type="server"
             await api_client.request("PUT", f"/{interaction.guild_id}/channel", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"📢 ตั้งค่าสำเร็จ! {label}ที่ห้อง {channel.mention}")
+            await interaction.followup.send(embed=success_embed(f"📢 ตั้งค่าสำเร็จ! {label}ที่ห้อง {channel.mention}"))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="set_schedule", description="ตั้งตารางเรียนยืนพื้น")
     @app_commands.choices(day=[app_commands.Choice(name=d, value=d) for d in ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์"]])
@@ -245,9 +246,9 @@ class BotCommands(commands.Cog):
             }
             # 🚨 แทรก target_type="server"
             await api_client.request("POST", f"/{interaction.guild_id}/schedule/default", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"✅ บันทึกตารางวัน**{day.value}**\n👕 ชุด: {attire}\n📚 วิชา: {subjects}")
+            await interaction.followup.send(embed=success_embed(f"✅ บันทึกตารางวัน**{day.value}**\n👕 ชุด: {attire}\n📚 วิชา: {subjects}"))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="set_override", description="ตั้งค่าข้อยกเว้นฉุกเฉิน")
     async def set_override(self, interaction: discord.Interaction):
@@ -267,9 +268,9 @@ class BotCommands(commands.Cog):
             payload = {"user_name": interaction.user.name}
             # 🚨 แทรก target_type="server"
             res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/done", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"✅ ทำสัญลักษณ์ว่างาน **{res['task_name']}** เสร็จ เรียบร้อยแล้ว!")
+            await interaction.followup.send(embed=success_embed(f"✅ ทำสัญลักษณ์ว่างาน **{res['task_name']}** เสร็จ เรียบร้อยแล้ว!"))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="delete_task", description="ลบงานทิ้ง (มีเมนูให้เลือก)")
     @app_commands.autocomplete(task_id=task_autocomplete)
@@ -279,9 +280,9 @@ class BotCommands(commands.Cog):
             payload = {"user_name": interaction.user.name}
             # 🚨 แทรก target_type="server"
             res = await api_client.request("DELETE", f"/{interaction.guild_id}/tasks/{task_id}", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"🗑️ ลบงาน **{res['task_name']}** ทิ้งแล้ว")
+            await interaction.followup.send(embed=success_embed(f"🗑️ ลบงาน **{res['task_name']}** ทิ้งแล้ว"))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="restore_task", description="กู้คืนงานที่เผลอลบทิ้งไปจากถังขยะ")
     @app_commands.autocomplete(task_id=deleted_task_autocomplete)
@@ -291,9 +292,9 @@ class BotCommands(commands.Cog):
             payload = {"user_name": interaction.user.name}
             # 🚨 แทรก target_type="server"
             res = await api_client.request("PATCH", f"/{interaction.guild_id}/tasks/{task_id}/restore", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"♻️ กู้คืนงาน **{res['task_name']}** กลับมาที่หน้าหลักเรียบร้อยแล้ว!", ephemeral=False)
+            await interaction.followup.send(embed=success_embed(f"♻️ กู้คืนงาน **{res['task_name']}** กลับมาที่หน้าหลักเรียบร้อยแล้ว!"), ephemeral=False)
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="list_tasks", description="ดูลิสต์งานทั้งหมดที่ยังไม่เสร็จ")
     async def list_tasks(self, interaction: discord.Interaction):
@@ -310,7 +311,7 @@ class BotCommands(commands.Cog):
             #    ทำให้ Discord ปฏิเสธ **ทั้งข้อความ** แล้วครูเห็น "ไม่ตอบสนอง"
             await interaction.followup.send(embed=build_pending_tasks_embed(tasks_data))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="edit_task", description="แก้ไขชื่องาน หรือ วันกำหนดส่ง (มีป๊อปอัปให้แก้)")
     @app_commands.autocomplete(task_id=task_autocomplete)
@@ -327,7 +328,7 @@ class BotCommands(commands.Cog):
             )
             await interaction.response.send_modal(modal)
         except APIException as e:
-            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            await interaction.response.send_message(embed=error_embed(f"❌ {e}"), ephemeral=True)
     
     @app_commands.command(name="add_note", description="เพิ่มโน้ตรายวัน")
     async def add_note(self, interaction: discord.Interaction):
@@ -338,15 +339,15 @@ class BotCommands(commands.Cog):
     async def delete_note(self, interaction: discord.Interaction, date_str: str):
         await interaction.response.defer()
         target_date = self.parse_date(date_str)
-        if not target_date: return await interaction.followup.send("❌ วันที่ผิด", ephemeral=True)
+        if not target_date: return await interaction.followup.send(embed=error_embed("❌ วันที่ผิด"), ephemeral=True)
 
         try:
             payload = {"user_name": interaction.user.name}
             # 🚨 แทรก target_type="server"
             deleted_data = await api_client.request("DELETE", f"/{interaction.guild_id}/notes/{target_date}", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(f"🗑️ **ลบโน้ตวันที่ {target_date} แล้ว!**\nสิ่งที่ลบไป:\n🎒 {deleted_data['bring_items']}\n📢 {deleted_data['announcement']}")
+            await interaction.followup.send(embed=success_embed(f"🗑️ **ลบโน้ตวันที่ {target_date} แล้ว!**\nสิ่งที่ลบไป:\n🎒 {deleted_data['bring_items']}\n📢 {deleted_data['announcement']}"))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
 
     def build_summary_embed(self, title, data):
@@ -377,7 +378,7 @@ class BotCommands(commands.Cog):
             data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target), "target_type": "server"}, headers=headers)
             await interaction.followup.send(embed=self.build_summary_embed("☀️ สรุปตารางวันนี้", data))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="tomorrow", description="สรุปข้อมูลทั้งหมดของวันพรุ่งนี้")
     async def tomorrow(self, interaction: discord.Interaction):
@@ -389,7 +390,7 @@ class BotCommands(commands.Cog):
             data = await api_client.request("GET", f"/{interaction.guild_id}/summary", params={"target_date": str(target), "target_type": "server"}, headers=headers)
             await interaction.followup.send(embed=self.build_summary_embed("🌙 เตรียมตัวสำหรับวันพรุ่งนี้", data))
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
     
     @app_commands.command(name="view_logs", description="(ผู้ดูแล) ดูประวัติการแก้ไขข้อมูลระบบย้อนหลัง 20 รายการ")
     async def view_logs(self, interaction: discord.Interaction):
@@ -400,7 +401,7 @@ class BotCommands(commands.Cog):
             # 🚨 แทรก target_type="server"
             logs = await api_client.request("GET", f"/{interaction.guild_id}/logs", params={"target_type": "server"}, headers=headers)
             if not logs:
-                return await interaction.followup.send("📭 ยังไม่มีประวัติการทำรายการในระบบครับ", ephemeral=True)
+                return await interaction.followup.send(embed=info_embed("📭 ยังไม่มีประวัติการทำรายการในระบบครับ"), ephemeral=True)
             
             embed = discord.Embed(title="📜 ประวัติการทำรายการล่าสุด (Audit Logs)", color=discord.Color.dark_theme())
             text = ""
@@ -420,7 +421,7 @@ class BotCommands(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(BotCommands(bot))

@@ -2,6 +2,7 @@ import discord
 import datetime
 from datetime import timezone, timedelta
 from services.api_client import api_client, APIException
+from services.reply_embed import error_embed, success_embed
 
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -39,7 +40,7 @@ class SetOverrideModal(discord.ui.Modal, title='🚨 ตั้งค่าข้
         try:
             datetime.datetime.strptime(self.target_date.value, "%Y-%m-%d").date()
         except ValueError:
-            return await interaction.followup.send("❌ วันที่ผิด YYYY-MM-DD นะ", ephemeral=True)
+            return await interaction.followup.send(embed=error_embed("❌ วันที่ผิด YYYY-MM-DD นะ"), ephemeral=True)
 
         new_attire = self.new_attire.value if self.new_attire.value.strip() else "-"
         announcement = self.announcement.value if self.announcement.value.strip() else "-"
@@ -56,7 +57,7 @@ class SetOverrideModal(discord.ui.Modal, title='🚨 ตั้งค่าข้
             # 🚨 แทรก target_type="server"
             await api_client.request("POST", f"/{self.server_id}/schedule/override", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.followup.send(
-                f"🚨 **ตั้งค่าข้อยกเว้นวันที่ {self.target_date.value}**\n👕 ใส่ชุด: {new_attire}\n📝 หมายเหตุ: {announcement}"
+                embed=success_embed(f"🚨 **ตั้งค่าข้อยกเว้นวันที่ {self.target_date.value}**\n👕 ใส่ชุด: {new_attire}\n📝 หมายเหตุ: {announcement}")
             )
         except APIException as e:
-            await interaction.followup.send(f"❌ ผิดพลาด: {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ ผิดพลาด: {e}"), ephemeral=True)

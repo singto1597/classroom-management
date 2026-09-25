@@ -30,6 +30,7 @@ from discord.ext import commands
 
 from services import finance_api
 from services.api_client import APIException
+from services.reply_embed import error_embed
 
 MONTH_CHOICES = [
     app_commands.Choice(name=f"{i}. {finance_api.THAI_MONTHS[i - 1]}", value=i)
@@ -67,7 +68,7 @@ class FinanceCommands(commands.Cog):
             print(f"⚠️ [finance_cmd] {type(error).__name__}: {error}")
             message = f"เกิดข้อผิดพลาดที่ไม่คาดคิด ({type(error).__name__}) กรุณาแจ้งผู้ดูแลระบบครับ"
         try:
-            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {message}"), ephemeral=True)
         except discord.HTTPException:
             # followup ถูกใช้ไปแล้ว/หมดอายุ — กลืนไว้ ไม่ให้ cog พังทั้งตัว
             pass
