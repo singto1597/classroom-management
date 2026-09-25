@@ -160,7 +160,11 @@ const toggleStatus = async (task: Task) => {
     }
     await fetchData()
   } catch (error: unknown) {
-    Swal.fire('ข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถอัปเดตสถานะได้', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: apiErrorDetail(error) || 'ไม่สามารถอัปเดตสถานะได้'
+    })
   }
 }
 
@@ -183,7 +187,11 @@ const deleteTask = async (taskId: number) => {
       Toast.fire({ icon: 'success', title: '🗑️ ลบงานเรียบร้อยแล้ว' })
       await fetchData()
     } catch (error: unknown) {
-      Swal.fire('ข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถลบงานได้', 'error')
+      Swal.fire({
+        icon: 'error',
+        title: 'ข้อผิดพลาด',
+        text: apiErrorDetail(error) || 'ไม่สามารถลบงานได้'
+      })
     }
   }
 }

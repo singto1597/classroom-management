@@ -47,7 +47,11 @@ const fetchTask = async () => {
     form.task_detail = task.task_detail || ''
     form.due_date = task.due_date
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลงานได้', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลงานได้'
+    })
     router.push('/tasks')
   } finally {
     isLoading.value = false
@@ -76,7 +80,11 @@ const handleUpdateTask = async () => {
     })
     router.push('/tasks')
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถอัปเดตงานได้', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: apiErrorDetail(error) || 'ไม่สามารถอัปเดตงานได้'
+    })
   } finally {
     isSubmitting.value = false
   }

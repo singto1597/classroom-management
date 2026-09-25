@@ -66,7 +66,7 @@ function addField() {
     return
   }
   if (hasDuplicateLabel.value) {
-    Swal.fire('ซ้ำ', `ฟิลด์ "${label}" มีอยู่แล้ว`, 'warning')
+    Swal.fire({ icon: 'warning', title: 'ซ้ำ', text: `ฟิลด์ "${label}" มีอยู่แล้ว` })
     return
   }
   if (newType.value === 'dropdown' && !buildOptions()) {

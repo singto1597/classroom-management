@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { Debtor, Account, StudentDebtItem, InvoiceBatchIssueResult } from '@/types/finance'
+import { escapeHtml } from '@/utils/html'
 import { createLatestGuard } from '@/utils/latest'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
 import Swal from 'sweetalert2'
@@ -278,10 +279,12 @@ const runInvoiceIssue = async (
     const canDownload = nos.length > 0 && nos.length <= COMBINED_PDF_MAX
     // 📋 ข้อความต้องรายงาน **คนที่ถูกข้าม** ด้วย ไม่งั้นผู้ใช้ที่เห็น "ออก 38 ฉบับ"
     //    ทั้งที่มี 40 คน จะไม่รู้เลยว่าอีก 2 คนเป็นใครและเพราะอะไร (backend ส่ง `skipped` มาให้)
+    // 🔒 escape ชื่อ/เลขที่นักเรียนตอน **ประกอบ** สตริง เพราะค่านี้ถูก interpolate ลง
+    //    `html:` ตรง ๆ (มาร์กอัป <span>/<br> ของหมายเหตุคงไว้ตามเดิม)
     const skippedNote = res.skipped.length
       ? `<br><span style="font-size:0.85em;color:#a16207">ข้าม ${res.skipped.length} คน ` +
         `ที่มียอดค้างน้อยกว่า 0.01 บาท: ${res.skipped
-          .map((s) => s.student_name || `#${s.student_no ?? s.student_id}`)
+          .map((s) => escapeHtml(s.student_name || `#${s.student_no ?? s.student_id}`))
           .join(', ')}</span>`
       : ''
 
@@ -450,7 +453,11 @@ const handleBatchPay = async () => {
       showConfirmButton: false,
     })
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ',
+    })
   }
 }
 

@@ -165,7 +165,7 @@ const confirmDelete = async (student: Student) => {
       Swal.fire({ title: 'ลบสำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false });
       fetchData();
     } catch (error: unknown) {
-      Swal.fire('ลบไม่สำเร็จ', apiErrorDetail(error), 'error');
+      Swal.fire({ icon: 'error', title: 'ลบไม่สำเร็จ', text: apiErrorDetail(error) });
     }
   }
 };
@@ -176,7 +176,7 @@ const approveJoin = async (studentNo: number) => {
     await fetchData();
     Swal.fire({ title: 'อนุมัติสำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false });
   } catch (error: unknown) {
-    Swal.fire('ข้อผิดพลาด', apiErrorDetail(error), 'error');
+    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: apiErrorDetail(error) });
   }
 };
 
@@ -196,7 +196,7 @@ const rejectJoin = async (studentNo: number) => {
       await StudentService.rejectStudent(currentRoomId, studentNo);
       await fetchData();
     } catch (error: unknown) {
-      Swal.fire('ข้อผิดพลาด', apiErrorDetail(error), 'error');
+      Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: apiErrorDetail(error) });
     }
   }
 };

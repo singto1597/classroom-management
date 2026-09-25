@@ -75,7 +75,7 @@ const addPosition = () => {
   const value = newPosition.value.trim()
   if (!value) return
   if (positions.value.some((p) => p === value)) {
-    return Swal.fire('ซ้ำ', `ตำแหน่ง "${value}" มีอยู่แล้ว`, 'warning')
+    return Swal.fire({ icon: 'warning', title: 'ซ้ำ', text: `ตำแหน่ง "${value}" มีอยู่แล้ว` })
   }
   positions.value.push(value)
   newPosition.value = ''
@@ -340,7 +340,7 @@ const load = async () => {
   } catch (error: unknown) {
     hasError.value = true
     const msg = error instanceof Error ? error.message : 'โหลดรายชื่อนักเรียนไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: msg })
   } finally {
     isLoading.value = false
   }
@@ -473,7 +473,7 @@ const submit = async () => {
     }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ'
-    Swal.fire('ข้อผิดพลาด', msg, 'error')
+    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: msg })
   } finally {
     isSaving.value = false
   }

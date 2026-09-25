@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { Collection, BasicStudent } from '@/types/finance'
 import { displayName } from '@/utils/name'
+import { escapeHtml } from '@/utils/html'
 import Swal from 'sweetalert2'
 
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -110,7 +111,11 @@ const submitCreateCollection = async () => {
     isCreateModalOpen.value = false
     fetchCollections()
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'สร้างโปรเจกต์ไม่สำเร็จ', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: error instanceof Error ? error.message : 'สร้างโปรเจกต์ไม่สำเร็จ',
+    })
   } finally {
     isSubmitting.value = false
   }
@@ -123,15 +128,15 @@ const handleEditCollection = async (col: Collection) => {
       <div class="flex flex-col gap-3 mt-4 text-left">
         <div>
           <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">ชื่อรายการ</label>
-          <input id="swal-title" class="swal2-input custom-swal-input mt-1" placeholder="ชื่อรายการ" value="${col.title}">
+          <input id="swal-title" class="swal2-input custom-swal-input mt-1" placeholder="ชื่อรายการ" value="${escapeHtml(col.title)}">
         </div>
         <div>
           <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">ยอดเรียกเก็บ (฿)</label>
-          <input id="swal-amount" type="number" class="swal2-input custom-swal-input mt-1" placeholder="ยอดเรียกเก็บ" value="${col.amount}">
+          <input id="swal-amount" type="number" class="swal2-input custom-swal-input mt-1" placeholder="ยอดเรียกเก็บ" value="${escapeHtml(col.amount)}">
         </div>
         <div>
           <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">ครบกำหนดชำระ</label>
-          <input id="swal-date" type="date" class="swal2-input custom-swal-input mt-1" value="${col.due_date}">
+          <input id="swal-date" type="date" class="swal2-input custom-swal-input mt-1" value="${escapeHtml(col.due_date)}">
         </div>
         <div>
           <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">สถานะแคมเปญ</label>
@@ -169,7 +174,11 @@ const handleEditCollection = async (col: Collection) => {
       Swal.fire({ icon: 'success', title: 'อัปเดตสำเร็จ!', timer: 1500, showConfirmButton: false })
       fetchCollections()
     } catch (error: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', error instanceof Error ? error.message : 'บันทึกการตั้งค่าไม่สำเร็จ', 'error')
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: error instanceof Error ? error.message : 'บันทึกการตั้งค่าไม่สำเร็จ',
+      })
     }
   }
 }

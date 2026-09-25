@@ -25,6 +25,7 @@ import PeriodPicker from '@/components/finance/PeriodPicker.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
+import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
 import {
   describePeriod,
@@ -285,7 +286,8 @@ const confirmDelete = async (item: BudgetItem) => {
   const result = await Swal.fire({
     icon: 'warning',
     title: 'ลบงบประมาณนี้?',
-    html: `งบของ <b>${item.category_name}</b> ช่วง ${formatThaiDate(item.period_start)} – ${formatThaiDate(item.period_end)}<br><span class="text-sm">รายการจะหายจากหน้าจอ แต่ประวัติยังอยู่</span>`,
+    // 🔒 escape เฉพาะชื่อหมวดที่ interpolate — มาร์กอัป (<b>, <br>, <span>) คงไว้ตามเดิม
+    html: `งบของ <b>${escapeHtml(item.category_name)}</b> ช่วง ${formatThaiDate(item.period_start)} – ${formatThaiDate(item.period_end)}<br><span class="text-sm">รายการจะหายจากหน้าจอ แต่ประวัติยังอยู่</span>`,
     showCancelButton: true,
     confirmButtonText: 'ลบงบ',
     cancelButtonText: 'ยกเลิก',

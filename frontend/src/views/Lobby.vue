@@ -47,7 +47,11 @@ const acceptInvite = async (invite: Invite) => {
       confirmButtonColor: '#1d4ed8'
     });
   } catch (error: unknown) {
-    Swal.fire('ข้อผิดพลาด', error instanceof Error ? error.message : 'ไม่สามารถรับคำเชิญได้', 'error');
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: error instanceof Error ? error.message : 'ไม่สามารถรับคำเชิญได้'
+    });
   }
 };
 
@@ -257,7 +261,11 @@ const submitCreateRoom = async () => {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '';
-    Swal.fire('ข้อผิดพลาด', message || 'ไม่สามารถสร้างห้องได้', 'error');
+    Swal.fire({
+      icon: 'error',
+      title: 'ข้อผิดพลาด',
+      text: message || 'ไม่สามารถสร้างห้องได้'
+    });
   }
 };
 </script>

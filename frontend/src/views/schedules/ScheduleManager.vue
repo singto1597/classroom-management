@@ -62,12 +62,16 @@ const handleSaveDefault = async () => {
     })
     Swal.fire({
       icon: 'success',
-      title: `บันทึกตารางวัน${defaultForm.day_of_week} เรียบร้อยแล้ว!`,
+      titleText: `บันทึกตารางวัน${defaultForm.day_of_week} เรียบร้อยแล้ว!`,
       timer: 2000,
       showConfirmButton: false
     })
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถบันทึกตารางได้', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: apiErrorDetail(error) || 'ไม่สามารถบันทึกตารางได้'
+    })
   } finally {
     isSubmitting.value = false
   }
@@ -89,12 +93,16 @@ const handleSaveOverride = async () => {
     })
     Swal.fire({
       icon: 'success',
-      title: `ตั้งข้อยกเว้นสำหรับวันที่ ${overrideForm.target_date} เรียบร้อย!`,
+      titleText: `ตั้งข้อยกเว้นสำหรับวันที่ ${overrideForm.target_date} เรียบร้อย!`,
       timer: 2000,
       showConfirmButton: false
     })
   } catch (error: unknown) {
-    Swal.fire('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถบันทึกข้อยกเว้นได้', 'error')
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: apiErrorDetail(error) || 'ไม่สามารถบันทึกข้อยกเว้นได้'
+    })
   } finally {
     isSubmitting.value = false
   }

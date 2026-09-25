@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth'; // เพิ่ม import authStore
 import { FinanceService } from '@/services/finance';
 import type { Account, AccountKind, Category } from '@/types/finance';
+import { escapeAttr } from '@/utils/html';
 import Swal from 'sweetalert2';
 
 import PageHeader from '@/components/ui/PageHeader.vue';
@@ -53,16 +54,10 @@ const ACCOUNT_KIND_LABELS: Record<AccountKind, string> = {
   transfer: 'โอนเข้าบัญชี'
 };
 
-/**
- * 🔒 Escape ค่าก่อนยัดลง attribute ของ `html:` ใน Swal
- *
- * 🔴 ชื่อกระเป๋า/ชื่อบัญชีเป็น **ข้อความที่ผู้ใช้พิมพ์เอง** และถูก interpolate ลง HTML
- *    ตรง ๆ ⇒ เครื่องหมายคำพูดตัวเดียวในชื่อ (เช่น `กระเป๋า "ห้อง 1"`) จะหลุดออกจาก
- *    `value="…"` แล้วกลายเป็นมาร์กอัป — พังอย่างน้อยที่สุดคือฟอร์มเพี้ยน
- *    (ของเดิมไม่ต้องระวังเพราะไม่ได้ interpolate ค่าเดิมกลับเข้าไปในฟอร์ม)
- */
-const escapeAttr = (value: string | null | undefined): string =>
-  (value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// 🔒 `escapeAttr` ย้ายไปอยู่ที่ `@/utils/html` แทนสำเนาในไฟล์นี้ (พฤติกรรมเดิมทุกประการ)
+//    ใช้กับชื่อกระเป๋า/ชื่อบัญชีที่เป็น **ข้อความที่ผู้ใช้พิมพ์เอง** ก่อน interpolate
+//    ลง `value="…"` ใน `html:` ของ Swal — ไม่งั้นเครื่องหมายคำพูดตัวเดียวในชื่อ
+//    (เช่น `กระเป๋า "ห้อง 1"`) จะหลุดออกจาก attribute แล้วกลายเป็นมาร์กอัป
 
 /**
  * 🧩 HTML ของฟอร์ม "ช่องทางจ่าย" ที่ใช้ทั้งตอนเพิ่มและตอนแก้ไข

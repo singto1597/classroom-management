@@ -349,7 +349,7 @@ async function addSheet() {
     showAddSheet.value = false
     newSheetTitle.value = ''
     newSheetDate.value = ''
-    Toast.fire({ icon: 'success', title: `สร้างแผ่น "${title}" แล้ว` })
+    Toast.fire({ icon: 'success', titleText: `สร้างแผ่น "${title}" แล้ว` })
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'สร้างแผ่นเช็คชื่อไม่สำเร็จ'
