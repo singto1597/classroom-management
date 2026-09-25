@@ -137,6 +137,29 @@ export const formatThaiDateTime = (iso?: string | null): string => {
   })} น.`;
 };
 
+/**
+ * เวลาแบบไทย (ชม.:นาที) จาก timestamp จริง — ใช้กับเวลาที่เป็น **หลักฐาน**
+ * เช่น เวลาเช็คอินบนใบยืนยันชั่วโมงจิตอาสา
+ *
+ * ⚠️ รับได้เฉพาะ timestamp จริง (มี `Z`/offset) — ถ้าส่งสตริงวันที่ล้วน (`YYYY-MM-DD`)
+ *    เข้ามันจะกลายเป็นเที่ยงคืน UTC แล้วจัดรูปเป็น 07:00 ซึ่งไม่มีความหมาย
+ *
+ * 🔑 แยกออกมาเป็นฟังก์ชัน (เดิมเขียน `toLocaleTimeString` ตรง ๆ ในเทมเพลต) เพราะ
+ *    **การไม่ระบุ `timeZone` = ใช้โซนของอุปกรณ์ผู้ใช้** ⇒ แท็บเล็ต/มือถือที่ตั้ง TZ
+ *    ไม่ใช่ไทยจะโชว์เวลาเช็คอินคลาดเคลื่อนได้หลายชั่วโมง บนเอกสารที่ครูใช้ยืนยัน
+ *    ชั่วโมงจิตอาสา ⇒ ต้องเป็นโซนไทยเสมอตามกฎของโปรเจกต์
+ */
+export const formatThaiTime = (iso?: string | null): string => {
+  if (!iso) return '—';
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: BANGKOK_TZ,
+  });
+};
+
 /** เดือน + ปี พ.ศ. เช่น "กันยายน 2569" */
 export const formatThaiMonthYear = (year: number, month: number): string =>
   `${THAI_MONTHS[month - 1] ?? month} ${year + 543}`;

@@ -7,6 +7,7 @@
  */
 import { computed } from 'vue'
 import { displayName } from '@/utils/name'
+import { formatThaiTime } from '@/utils/period'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import type { ActivityParticipant, CheckinMark, CheckinSheet } from '@/types/activity'
 
@@ -138,7 +139,7 @@ function actionClass(isPresent: boolean): string {
             <p class="truncate text-sm font-bold text-stone-900">{{ displayName(p) }}</p>
             <p v-if="p.checked_at" class="mt-0.5 text-xs text-stone-500">
               เช็ค
-              {{ new Date(p.checked_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) }}
+              {{ formatThaiTime(p.checked_at) }}
               น.
             </p>
           </div>

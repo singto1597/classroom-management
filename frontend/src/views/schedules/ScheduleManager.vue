@@ -3,6 +3,7 @@ import { ref, reactive, computed } from 'vue'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { ScheduleService } from '@/services/schedule'
+import { todayIso } from '@/utils/period'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
@@ -30,14 +31,6 @@ const isSubmitting = ref(false)
 
 const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์']
 
-// ดึงวันที่ปัจจุบันแบบ Local Timezone ป้องกัน UTC Bug (แบบเดียวกับ AddTask.vue)
-const getLocalDate = (): string => {
-  const date = new Date()
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-  const [datePart] = date.toISOString().split('T')
-  return datePart ?? ''
-}
-
 const defaultForm = reactive({
   day_of_week: 'จันทร์',
   attire: '',
@@ -45,7 +38,10 @@ const defaultForm = reactive({
 })
 
 const overrideForm = reactive({
-  target_date: getLocalDate(),
+  // 🗓️ ค่าเริ่มต้น = "วันนี้" ตามเวลาไทย (แบบเดียวกับ AddTask.vue)
+  //    เดิมคิดจาก timezone ของเครื่อง ⇒ เครื่องที่ตั้ง TZ ตามหลังไทยจะได้ "เมื่อวาน"
+  //    แล้วครูตั้งวัน override ผิดวันโดยไม่รู้ตัว
+  target_date: todayIso(),
   new_attire: '',
   note: ''
 })
