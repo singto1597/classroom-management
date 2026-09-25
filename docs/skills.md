@@ -2703,3 +2703,33 @@
 - **Rule:** (1) 🔴 **ข้อความที่ความยาวมาจากปลายทางต้องถูกจำกัดก่อนส่งเสมอ** — และจำกัดที่จุดเดียว ไม่ใช่กระจาย 44 ที่ให้เชื่อว่าทำถูก (2) 🔴 **`except APIException` ไม่ครอบ `HTTPException`** — เพดานที่เกินจะกลายเป็น "บอทไม่ตอบ" ที่ไม่มีร่องรอยในโค้ด (3) ✅ **เทสต์ต้อง "วัดค่าจริง" ไม่ใช่ "ดัก exception"** เมื่อไลบรารีไม่ตรวจให้ — เขียนเทสต์ premise ที่พิสูจน์ว่าไม่มีใครตรวจ แล้วจึงวัดความยาวของ embed ที่สร้างเสร็จ (4) ✅ **`content=` ควรถูกแทนด้วย embed ทั้งโปรเจกต์** ไม่ใช่แค่จุดที่พบปัญหา — บั๊กชนิดนี้เลือกจุดเกิดเอง
 - **Tests:** `bot_discord/tests/test_reply_embed.py` (19 ตัว · ทำลาย `clip` → **14/19 ล้ม** ตัวที่รอดคือเทสต์ premise + ตัวที่ไม่เกี่ยวกับการตัด ซึ่งถูกต้อง) · `docker run --rm -e API_KEY=test-api-key … python -m unittest discover -s tests -t .` → **93/93 ผ่าน** · ตรวจซ้ำด้วย AST ว่าเหลือ `send` ที่ไม่ใช้ embed **0 จุด**
 - **Date Added:** 2026-09-25
+
+### 🕳️ `except:` เปล่าไม่ได้แปลว่า "ดัก error" — มันแปลว่า "ดักทุกอย่างที่โยนได้"
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (L4) — เจอ bare `except` 3 จุด
+  · `bot_discord/cogs/classroom_cmd.py` (×2 — `task_autocomplete`, `deleted_task_autocomplete`)
+  · `backend/services/student/base.py` (`_parse_permissions`)
+  ทั้งสามจุดจบด้วย `except:` แล้ว `return []`
+- **Root Cause:** ตั้งแต่ Python 3.8 **`asyncio.CancelledError` สืบทอดจาก `BaseException` ไม่ใช่ `Exception`** และ `KeyboardInterrupt`/`SystemExit` ก็เช่นกัน
+  ⇒ `except:` เปล่า **กลืนการสั่งยกเลิกงาน** · ตอน deploy (`pull_all.sh` ส่ง SIGTERM) หรือกด Ctrl-C งานที่กำลังรอ API จะถูกสั่งยกเลิกแล้ว **หายไปเงียบ ๆ** ⇒ ลูปไม่ยอมจบ บอทปิดไม่สนิท
+  ⚠️ และเพราะไม่มี log อะไรเลย อาการ "ปิดบอทแล้วค้าง" จึงหาสาเหตุไม่ได้ — **การกลืน error ทำให้ symptom อยู่ห่างจาก cause มาก**
+  🔎 **ทำไม `except Exception` ยังไม่พอ:** มันแก้เรื่อง `CancelledError` ได้ แต่ยังกลืน **bug ของเราเอง** (`KeyError`, `AttributeError`) ⇒ autocomplete ที่ "ขึ้นแต่รายการว่าง" เพราะคีย์ใน response เปลี่ยน จะดูเหมือน "ไม่มีข้อมูล" ไปตลอด
+- **Correct Pattern/Solution:** แยก **"ความล้มเหลวที่คาดไว้"** ออกจาก **"ข้อผิดพลาดที่ไม่คาดคิด"** แล้วจัดการคนละแบบ
+  ```python
+  except APIException:
+      return []                      # คาดไว้: API ล่ม = ไม่มีตัวเลือกให้เสนอ (เงียบ)
+  except Exception:
+      logger.exception(...)          # ไม่คาดคิด: คืน [] เหมือนกัน แต่ต้องมีร่องรอย
+      return []
+  ```
+  🔑 **พฤติกรรมต่อผู้ใช้ไม่เปลี่ยน** (ยังได้ `[]` ทั้งคู่) — สิ่งที่เพิ่มคือ *ความสามารถในการวินิจฉัย* ไม่ใช่การเปลี่ยนสัญญา
+  ```python
+  # ฝั่ง backend: ระบุชนิดที่โยนได้จริง
+  try:
+      parsed = json.loads(perms)
+  except json.JSONDecodeError:
+      return []
+  ```
+  ⚠️ **เจอข้อบกพร่องข้างเคียงในฟังก์ชันเดียวกัน:** `_parse_permissions` ประกาศคืน `List[str]` แต่ `json.loads` คืนได้ทุกชนิด ⇒ ค่าที่เก็บเป็น JSON *สตริง* จะถูกคืนเป็นสตริง ผู้เรียกที่ `.includes()` จะกลายเป็น substring match ⇒ เติม `return parsed if isinstance(parsed, list) else []`
+- **Rule:** (1) 🔴 **ห้ามใช้ `except:` เปล่าในโค้ด async เด็ดขาด** — มันกลืน `CancelledError` (2) 🔴 **`except Exception` ไม่ใช่คำตอบสุดท้าย** — ถ้ามีชนิดที่คาดไว้ ให้ระบุชนิดนั้น แล้วดัก `Exception` แยกเพื่อ log (3) ✅ **"เงียบต่อผู้ใช้" กับ "เงียบใน log" เป็นคนละเรื่อง** — อย่างแรกอาจถูก อย่างหลังผิดเสมอ (4) ✅ **แก้ `except` ที่ไหน ให้ตรวจสัญญาการคืนค่าของฟังก์ชันนั้นด้วย** — `except` ที่กว้างมักซ่อน type bug ไว้ข้าง ๆ
+- **Tests:** `bot_discord/tests/test_autocomplete_errors.py` (8 ตัว · ย้อนกลับเป็น `except:` เปล่า → **4/8 ล้ม** = เทสต์ที่ยืนยันว่า `CancelledError`/`KeyboardInterrupt` ต้องหลุดออกไป; อีก 4 ตัวที่ผ่านคือตัวที่ล็อก *พฤติกรรมเดิม* ซึ่งถูกต้อง) · `backend/tests/test_student.py` Section 11 (5 ตัว — รวมเทสต์ที่บังคับให้ `json.loads` โยน `KeyboardInterrupt`/`CancelledError` แล้วยืนยันว่ามันหลุดออกไป)
+- **Date Added:** 2026-09-25

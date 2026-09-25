@@ -65,8 +65,20 @@ class BaseMixin:
         if not perms: return []
         if isinstance(perms, list): return perms
         if isinstance(perms, str):
-            try: return json.loads(perms)
-            except: return []
+            # 🔴 เดิมเป็น `except: return []` (พบจากการตรวจระบบ 2026-09-23 → L4)
+            #    bare `except` ดัก **ทุกอย่าง** รวมถึง `KeyboardInterrupt` และ
+            #    `asyncio.CancelledError` (ซึ่งสืบทอดจาก `BaseException` ไม่ใช่ `Exception`)
+            #    ⇒ cancellation หยุดกลางทางแล้วถูกกลืน · ปิดระบบ/รีสตาร์ทไม่ทำงานตามที่ควร
+            #    ชนิดที่ `json.loads` โยนได้จริงกับสตริงมีอย่างเดียวคือ `JSONDecodeError`
+            try:
+                parsed = json.loads(perms)
+            except json.JSONDecodeError:
+                return []
+            # ⚠️ ฟังก์ชันนี้ประกาศคืน `List[str]` แต่ `json.loads` คืนได้ทุกชนิด
+            #    ถ้าค่าที่เก็บไว้เป็นสตริง/ตัวเลข (ไม่ใช่ array) เดิมจะคืนค่านั้นออกไปตรง ๆ
+            #    ⇒ ผู้เรียกที่เอาไปวนลูปหรือ `.includes()` จะได้ผลผิดแบบเงียบ ๆ
+            #    ⇒ บังคับให้ตรงสัญญา: ไม่ใช่ list = ไม่มีสิทธิ์
+            return parsed if isinstance(parsed, list) else []
         return []
 
     @staticmethod
