@@ -259,10 +259,17 @@ class RoomMixin:
                 )
 
                 exec_time = int((time.time() - start_time) * 1000)
-                # await service_logger.log(
-                #     conn=conn, action="VIEW", actor_identifier=actor_identifier, client_source=client_source,
-                #     entity_type="ROOM", endpoint_or_command="get_rooms_to_notify", execution_time_ms=exec_time
-                # )
+                # 📌 ไม่ log VIEW ตอนสำเร็จ **โดยเจตนา** — เมธอดนี้ถูกเรียกจากลูปทุกนาที
+                #    ของบอท ⇒ 1,440 แถว/วันของ audit ที่ไม่มีใครอ่าน และไปกลบร่องรอย
+                #    ที่มีความหมายจริงในตารางเดียวกัน
+                #    แนวเดียวกับ `get_birthday_celebrants` ในไฟล์นี้ ซึ่งถูกเรียกจากลูป
+                #    เดียวกันและ log เฉพาะตอนล้มเหลว (ไม่มีบล็อกสำเร็จเลย)
+                #
+                # 🔴 ผลตรวจระบบ 2026-09-23 → L6: บล็อกที่คอมเมนต์ค้างไว้ถูกลบ
+                #    โค้ดที่คอมเมนต์ไว้ไม่มีเทสต์ ไม่ถูกรัน ไม่มีใครรู้ว่ายังถูกต้องไหม
+                #    และเมื่อแก้โค้ดรอบข้าง มันจะเน่าอยู่ตรงนั้นโดยไม่มีอะไรเตือน
+                #    ⚠️ ถ้าต้องการ audit การอ่านรายชื่อห้องเพื่อแจ้งเตือนจริง ๆ
+                #       ให้เปิดที่ระดับ "มีคนขอข้อมูล" ไม่ใช่ที่ระดับ "ลูปทำงานเอง"
                 return [dict(row) for row in rows]
         except Exception as e:
             async with pool.acquire() as fallback_conn:

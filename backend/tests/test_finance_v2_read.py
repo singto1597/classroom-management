@@ -575,6 +575,38 @@ async def test_legacy_id_prefers_legacy_transaction_id_over_transfer_group_id():
     assert _legacy_id_from_journal('{"transfer_group_id": 9}', "u") == 9
 
 
+async def test_journal_fallback_id_is_unique_per_row():
+    """🔴 L5: fallback ต้องให้ id **ต่างกัน** ต่อแถว — เดิมคืน `-1` ให้ทุกแถวที่ล้มเหลว
+
+    คอมเมนต์เหนือ fallback เขียนไว้ชัดว่าเป้าหมายคือ "กันหน้าจอ key ซ้ำ" แต่สาขา
+    `except Exception: return -1` ให้ **ค่าคงที่ตัวเดียว** กับทุกแถวที่เข้ารหัสไม่ผ่าน
+    ⇒ กลับกลายเป็นสร้าง key ซ้ำเอง ซึ่งเป็นอาการที่แย่กว่าไม่มี fallback
+    """
+    junk = "{}"  # metadata ที่ไม่มี legacy id ⇒ ตกไปใช้ fallback ทุกแถว
+    ids = {_legacy_id_from_journal(junk, f"3f2504e0-4f89-11d3-9a0c-{i:012d}") for i in range(500)}
+
+    assert len(ids) == 500, f"fallback ให้ id ซ้ำ: {len(ids)} ค่าจาก 500 แถว"
+
+
+async def test_journal_fallback_id_handles_lone_surrogate():
+    """🔴 L5 ตัวจริง: สตริงที่มี lone surrogate คือเส้นทาง **เดียว** ที่เข้ารหัสล้มเหลว
+
+    `.encode("utf-8")` ตรง ๆ โยน `UnicodeEncodeError: surrogates not allowed`
+    ⇒ เดิมตกไปที่ `except Exception: return -1` ⇒ ได้ id **-1** ซึ่งเป็นค่าที่แถวอื่น
+      ที่ล้มเหลวก็ได้เหมือนกัน
+
+    ตอนนี้ใช้ `errors="replace"` ⇒ เข้ารหัสไม่มีทางล้ม ⇒ ได้ id ที่แตกต่างจริง
+    """
+    other_uuid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+    weird = _legacy_id_from_journal({}, "uuid-\ud800-bad")
+    normal = _legacy_id_from_journal({}, other_uuid)
+
+    assert weird < 0, "id สำรองต้องติดลบเสมอ"
+    # 🔑 ประเด็นของ L5: ต้อง **ไม่เท่ากับ** ค่าคงที่ที่ทุกแถวเคยได้
+    assert weird != -1, "lone surrogate ต้องไม่ได้ค่า -1 แบบเดิม"
+    assert weird != normal, "คนละ UUID ต้องได้คนละ id"
+
+
 async def test_journal_fallback_id_is_stable_across_processes():
     """🔴 fallback ต้องให้ค่าเดิม **ทุกโปรเซส** — ห้ามพึ่ง `hash()` ของ Python.
 
