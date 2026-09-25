@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from services.api_client import api_client, APIException
 from services.action_service import person_display_name
+from services.reply_embed import error_embed, success_embed
 
 class StudentCommands(commands.Cog):
     def __init__(self, bot):
@@ -21,11 +22,11 @@ class StudentCommands(commands.Cog):
             # New endpoint POST /discord/sync
             await api_client.request("POST", "/discord/sync", headers=headers, json=payload)
             await interaction.followup.send(
-                f"🎉 ผูกบัญชีกับห้อง {room_code} เลขที่ {student_no} สำเร็จ! ลองพิมพ์ `/my_profile` ดูสิ!",
+                embed=success_embed(f"🎉 ผูกบัญชีกับห้อง {room_code} เลขที่ {student_no} สำเร็จ! ลองพิมพ์ `/my_profile` ดูสิ!"),
                 ephemeral=True
             )
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="my_profile", description="ดูโปรไฟล์ส่วนตัวของคุณ")
     async def my_profile(self, interaction: discord.Interaction):
@@ -92,7 +93,7 @@ class StudentCommands(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except APIException as e:
-            await interaction.followup.send(f"❌ {e} (ลองพิมพ์ `/sync_room` ก่อนนะ)", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e} (ลองพิมพ์ `/sync_room` ก่อนนะ)"), ephemeral=True)
 
 
 async def setup(bot):

@@ -2,6 +2,7 @@ import discord
 import datetime
 from datetime import timezone, timedelta
 from services.api_client import api_client, APIException 
+from services.reply_embed import error_embed, success_embed
 
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -39,7 +40,7 @@ class AddNoteModal(discord.ui.Modal, title='📝 เพิ่มโน้ตใ�
         try:
             datetime.datetime.strptime(self.target_date.value, "%Y-%m-%d").date()
         except ValueError:
-            return await interaction.followup.send("❌ วันที่ผิด YYYY-MM-DD นะ", ephemeral=True)
+            return await interaction.followup.send(embed=error_embed("❌ วันที่ผิด YYYY-MM-DD นะ"), ephemeral=True)
 
         bring_items = self.bring_items.value if self.bring_items.value.strip() else "-"
         announcement = self.announcement.value if self.announcement.value.strip() else "-"
@@ -57,7 +58,7 @@ class AddNoteModal(discord.ui.Modal, title='📝 เพิ่มโน้ตใ�
             # 🚨 แทรก target_type="server"
             await api_client.request("POST", f"/{guild_id}/notes", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.followup.send(
-                f"📌 **บันทึกโน้ตวันที่ {self.target_date.value}**\n🎒 ให้เตรียม: {bring_items}\n📢 โน้ต: {announcement}"
+                embed=success_embed(f"📌 **บันทึกโน้ตวันที่ {self.target_date.value}**\n🎒 ให้เตรียม: {bring_items}\n📢 โน้ต: {announcement}")
             )
         except APIException as e:
-            await interaction.followup.send(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ เกิดข้อผิดพลาด: {e}"), ephemeral=True)

@@ -4,6 +4,7 @@ from discord.ext import commands
 import datetime
 
 from services.api_client import api_client, APIException
+from services.reply_embed import error_embed, info_embed
 
 THAI_TZ = datetime.timezone(datetime.timedelta(hours=7))
 
@@ -99,7 +100,7 @@ class ActivityCommands(commands.Cog):
                 headers=headers,
             )
             if not activities_data:
-                return await interaction.followup.send("🎉 ยังไม่มีกิจกรรมที่กำลังจะมาถึงเลยครับ", ephemeral=True)
+                return await interaction.followup.send(embed=info_embed("🎉 ยังไม่มีกิจกรรมที่กำลังจะมาถึงเลยครับ"), ephemeral=True)
 
             # เรียงตามวัน
             upcoming = sorted(
@@ -133,7 +134,7 @@ class ActivityCommands(commands.Cog):
 
             await interaction.followup.send(embed=embed)
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     @app_commands.command(name="my_roles", description="เช็คว่างานหน้าต้องทำหน้าที่อะไร / ขึ้นรถบัสคันไหน")
     async def my_roles(self, interaction: discord.Interaction):
@@ -148,7 +149,7 @@ class ActivityCommands(commands.Cog):
             )
             if not roles:
                 return await interaction.followup.send(
-                    "🎈 คุณยังไม่ได้เข้าร่วมกิจกรรมใด ๆ ครับ\nพิมพ์ `/activities` เพื่อดูกิจกรรมของห้อง",
+                    embed=info_embed("🎈 คุณยังไม่ได้เข้าร่วมกิจกรรมใด ๆ ครับ\nพิมพ์ `/activities` เพื่อดูกิจกรรมของห้อง"),
                     ephemeral=True,
                 )
 
@@ -202,7 +203,7 @@ class ActivityCommands(commands.Cog):
 
             await interaction.followup.send(embed=embed, ephemeral=True)
         except APIException as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
 
 async def setup(bot):

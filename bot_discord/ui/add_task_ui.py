@@ -2,6 +2,7 @@ import discord
 import datetime
 from datetime import timezone, timedelta
 from services.api_client import api_client, APIException
+from services.reply_embed import error_embed, success_embed
 
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -37,7 +38,7 @@ class AddTaskModal(discord.ui.Modal, title='📝 เพิ่มงาน/กา
         try:
             datetime.datetime.strptime(self.due_date.value, "%Y-%m-%d").date()
         except ValueError:
-            return await interaction.followup.send("❌ วันที่ผิด YYYY-MM-DD นะ", ephemeral=True)
+            return await interaction.followup.send(embed=error_embed("❌ วันที่ผิด YYYY-MM-DD นะ"), ephemeral=True)
 
         detail_val = self.task_detail.value if self.task_detail.value.strip() else "-"
 
@@ -53,9 +54,11 @@ class AddTaskModal(discord.ui.Modal, title='📝 เพิ่มงาน/กา
             # 🚨 แทรก target_type="server"
             await api_client.request("POST", f"/{self.server_id}/tasks", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.followup.send(
-                f"📝 **เพิ่มงานใหม่:** {self.task_name.value}\n"
-                f"ℹ️ **รายละเอียด:** {detail_val}\n"
-                f"⏳ **กำหนดส่ง:** {self.due_date.value}"
+                embed=success_embed(
+                    f"📝 **เพิ่มงานใหม่:** {self.task_name.value}\n"
+                    f"ℹ️ **รายละเอียด:** {detail_val}\n"
+                    f"⏳ **กำหนดส่ง:** {self.due_date.value}"
+                )
             )
         except APIException as e:
-            await interaction.followup.send(f"❌ เกิดข้อผิดพลาด: {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ เกิดข้อผิดพลาด: {e}"), ephemeral=True)

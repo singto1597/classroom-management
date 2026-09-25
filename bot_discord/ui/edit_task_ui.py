@@ -1,6 +1,7 @@
 import discord
 import datetime
 from services.api_client import api_client, APIException
+from services.reply_embed import error_embed, success_embed
 
 class EditTaskModal(discord.ui.Modal, title='✏️ แก้ไขรายละเอียดงาน'):
     def __init__(self, task_id: int, old_name: str, old_detail: str, old_date: str):
@@ -33,7 +34,7 @@ class EditTaskModal(discord.ui.Modal, title='✏️ แก้ไขรายล�
         try:
             datetime.datetime.strptime(self.due_date.value, "%Y-%m-%d").date()
         except ValueError:
-            return await interaction.followup.send("❌ วันที่ผิด YYYY-MM-DD นะเว้ย", ephemeral=True)
+            return await interaction.followup.send(embed=error_embed("❌ วันที่ผิด YYYY-MM-DD นะเว้ย"), ephemeral=True)
 
         detail_val = self.task_detail.value if self.task_detail.value.strip() else "-"
 
@@ -49,7 +50,7 @@ class EditTaskModal(discord.ui.Modal, title='✏️ แก้ไขรายล�
             # 🚨 แทรก target_type="server"
             await api_client.request("PUT", f"/{interaction.guild_id}/tasks/{self.task_id}", params={"target_type": "server"}, json=payload, headers=headers)
             await interaction.followup.send(
-                f"✅ **อัปเดตงานสำเร็จ!**\n📌 ชื่องาน: {self.task_name.value}\nℹ️ รายละเอียด: {detail_val}\n⏳ ส่งวันที่: {self.due_date.value}"
+                embed=success_embed(f"✅ **อัปเดตงานสำเร็จ!**\n📌 ชื่องาน: {self.task_name.value}\nℹ️ รายละเอียด: {detail_val}\n⏳ ส่งวันที่: {self.due_date.value}")
             )
         except APIException as e:
-            await interaction.followup.send(f"❌ แก้ไขไม่สำเร็จ: {e}", ephemeral=True)
+            await interaction.followup.send(embed=error_embed(f"❌ แก้ไขไม่สำเร็จ: {e}"), ephemeral=True)
