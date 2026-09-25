@@ -3,7 +3,17 @@
 
   // Override to include only test files and clear exclusions.
   // Application code imported in tests is automatically included via module resolution.
-  "include": ["src/**/__tests__/*", "env.d.ts"],
+  //
+  // ⚠️ แต่ **ambient declaration** (`declare module '...'`) ตาม module resolution ไม่ได้ —
+  //    มันไม่มีไฟล์ไหน `import` จึงไม่ถูกดึงเข้ามาเลย ⇒ ต้องระบุ path ตรง ๆ ที่นี่
+  //
+  //    อาการถ้าไม่ใส่: เทสต์ที่แตะกราฟของ store/router จะล้มด้วย
+  //      TS7016: Could not find a declaration file for module 'thai-address-database'
+  //    ทั้งที่โปรเจกต์ app มองเห็น shim นั้นปกติ (tsconfig.app.json include `src/**/*`)
+  //    ⇒ `npm run type-check` แดง แต่ `npm run dev` ทำงานได้ปกติ = อาการที่สับสนที่สุด
+  //    (เจอจริงตอนเพิ่ม `src/stores/__tests__/auth.spec.ts` — เทสต์ตัวแรกที่ import
+  //     `@/stores/auth` ซึ่งลาก `@/router` → `Onboarding.vue` เข้ามาในโปรเจกต์นี้)
+  "include": ["src/**/__tests__/*", "src/**/*.d.ts", "env.d.ts"],
   "exclude": [],
 
   "compilerOptions": {
