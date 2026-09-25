@@ -2,8 +2,9 @@
 
 ## หลักการของ cog นี้: **โง่ที่สุดเท่าที่จะเป็นได้**
 
-repo นี้ไม่มี test harness ของบอท → cog ไม่ถูก CI ตรวจ ทุกอย่างที่ "คิด" ได้
-(params, validate, แปลงตัวเลข/วันที่, ประกอบ embed) อยู่ใน `services/finance_api.py`
+repo นี้มีเทสต์ของบอทอยู่ที่ `bot_discord/tests/` (stdlib `unittest` — ดู CLAUDE.md)
+แต่ยังไม่มี CI ตรวจ ⇒ ทุกอย่างที่ "คิด" ได้ (params, validate, แปลงตัวเลข/วันที่,
+ประกอบ embed) อยู่ใน `services/finance_api.py` เพื่อให้เทสต์ได้โดยไม่ต้องมี Discord
 cog ทำแค่ 4 อย่าง: `defer()` → เรียกฟังก์ชัน → `followup.send(embed=...)` → จับ error
 
 ## กฎที่ยึดทุกคำสั่ง
@@ -11,7 +12,13 @@ cog ทำแค่ 4 อย่าง: `defer()` → เรียกฟังก
 - **`defer()` ก่อนเรียก API เสมอ** — กฎ 3 วินาทีของ Discord (API หลังบ้านช้ากว่านั้นได้ง่าย ๆ)
 - **ตอบเป็น `discord.Embed` เสมอ** — ห้ามส่งข้อความดิบ
 - **error เป็น ephemeral เสมอ** — ข้อความ error อาจมีรายละเอียดภายใน ไม่ควรโชว์ทั้งห้อง
-- **`my-debts` เป็น ephemeral ทั้งเส้น** — เป็นข้อมูลส่วนบุคคลของนักเรียน (defer + followup)
+- 🔒 **คำสั่งที่เปิดเผยข้อมูล "รายคน" เป็น ephemeral ทั้งเส้น** — `my-debts`, `debtors`,
+  `collection` ล้วนมีชื่อนักเรียนผูกกับยอดเงิน ⇒ ถ้าโพสต์สาธารณะทั้งห้องจะรู้ว่าใครค้างเท่าไร
+  ⚠️ **defer ก็ต้อง ephemeral ด้วย** — `followup.send()` **ไม่สืบทอด** ค่าจาก `defer()`
+  ⇒ `defer()` เฉย ๆ แล้ว `followup.send(ephemeral=True)` จะเหลือ "Bot is thinking..."
+  ค้างสาธารณะ และพลาดง่ายมากถ้าลอกรูปจากคำสั่งอื่น
+- **`summary` เป็นยอดรวมของห้อง ไม่มีชื่อใคร ⇒ ตั้งใจให้เป็นข้อความสาธารณะ** (เป็นภาพรวม
+  ที่ห้องอยากปักไว้) — ถ้าวันหนึ่งมีคนเพิ่มชื่อคนลงใน embed นี้ ต้องเปลี่ยนเป็น ephemeral ด้วย
 - **`summary` รับ month/year เป็น `Choice`** — กันผู้ใช้พิมพ์เลขเดือนนอกช่วง และบังคับ
   "คู่กันหรือไม่ส่งเลย" ที่ `finance_api.validate_period`
 """
@@ -93,10 +100,11 @@ class FinanceCommands(commands.Cog):
     # ------------------------------------------------------------------ /finance debtors
     @finance.command(name="debtors", description="ดูรายชื่อลูกหนี้ค้างชำระทั้งห้อง (ครู/เหรัญญิก)")
     async def finance_debtors(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        # 🔒 ephemeral ทั้งเส้น: embed มี "ชื่อนักเรียน + ยอดค้าง" รายคน
+        await interaction.response.defer(ephemeral=True)
         try:
             rows = await finance_api.get_debtors(interaction.guild_id, interaction.user.id)
-            await self._reply(interaction, finance_api.build_debtors_embed(rows), ephemeral=False)
+            await self._reply(interaction, finance_api.build_debtors_embed(rows), ephemeral=True)
         except Exception as e:  # noqa: BLE001
             await self._reply_error(interaction, e)
 
@@ -104,10 +112,11 @@ class FinanceCommands(commands.Cog):
     @finance.command(name="collection", description="ดูสถานะแคมเปญเก็บเงินรายตัว (ครู/เหรัญญิก)")
     @app_commands.describe(collection_id="รหัสแคมเปญเก็บเงิน (ดูได้จากหน้าเว็บหรือข้อความแจ้งเก็บเงิน)")
     async def finance_collection(self, interaction: discord.Interaction, collection_id: int):
-        await interaction.response.defer()
+        # 🔒 ephemeral ทั้งเส้น: embed แสดงว่า "ใครจ่ายแล้ว/ยังไม่จ่าย" เป็นรายคน
+        await interaction.response.defer(ephemeral=True)
         try:
             data = await finance_api.get_collection(interaction.guild_id, interaction.user.id, collection_id)
-            await self._reply(interaction, finance_api.build_collection_embed(data), ephemeral=False)
+            await self._reply(interaction, finance_api.build_collection_embed(data), ephemeral=True)
         except Exception as e:  # noqa: BLE001
             await self._reply_error(interaction, e)
 
