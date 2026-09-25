@@ -394,3 +394,24 @@ async def update_user_profile(
                     execution_time_ms=exec_time
                 )
             raise e
+
+
+async def get_user_profile(pool: asyncpg.Pool, user_id: int) -> Optional[dict]:
+    """อ่านโปรไฟล์ของผู้ใช้ที่ล็อกอินอยู่ — คืน `None` เมื่อไม่พบ
+
+    🔴 ผลตรวจระบบ 2026-09-23 → M5: SQL ชุดนี้เดิมอยู่ใน `routers/auth_router.py`
+       ตรง ๆ ซึ่งผิดชั้นสถาปัตยกรรม (`routers/` ห้ามมี SQL — ดู docs/rules/backend.md)
+       ⇒ ย้ายมาที่นี่โดย **คัดลอกคอลัมน์และลำดับเดิมมาทั้งชุด** เพื่อไม่ให้รูปข้อมูล
+         บนสายเปลี่ยน (งานนี้คือย้ายที่ ไม่ใช่แก้พฤติกรรม)
+
+    ⚠️ คืน `None` แทนการโยน `HTTPException` — ชั้น service ไม่ควรรู้จัก HTTP
+       ให้ router เป็นคนแปลงเป็น 404 เอง (route อื่นในโปรเจกต์ทำแบบนี้อยู่แล้ว)
+    ⚠️ ไม่กรอง `deleted_at` — คงพฤติกรรมเดิมของ endpoint ไว้เป๊ะ ๆ
+       (การเพิ่มตัวกรองเป็นการเปลี่ยนพฤติกรรม ควรแยกคอมมิตที่มีเทสต์คุม)
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, prefix, email, first_name, last_name, first_name_en, last_name_en, username, nickname, nickname_en, birthday, phone_number, line_id, address_house_no, address_road, address_sub_district, address_district, address_province, address_post_code, discord_id, google_id FROM users WHERE id = $1",
+            user_id,
+        )
+    return dict(row) if row else None

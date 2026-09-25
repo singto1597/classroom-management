@@ -128,7 +128,7 @@ async def get_pending_requests(
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.put("/{room_id}/requests/{student_no}/approve", summary="อนุมัตินักเรียนเข้าห้อง")
+@router.put("/{room_id}/requests/{student_no}/approve", response_model=SuccessResponse, summary="อนุมัตินักเรียนเข้าห้อง")
 async def approve_student(
     room_id: int,
     student_no: int,
@@ -150,7 +150,7 @@ async def approve_student(
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-@router.delete("/{room_id}/requests/{student_no}/reject", summary="ปฏิเสธนักเรียนเข้าห้อง")
+@router.delete("/{room_id}/requests/{student_no}/reject", response_model=SuccessResponse, summary="ปฏิเสธนักเรียนเข้าห้อง")
 async def reject_student(
     room_id: int,
     student_no: int,
