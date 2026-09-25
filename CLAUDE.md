@@ -53,7 +53,19 @@ npm run test:e2e     # playwright (browsers must be installed first: npx playwri
 ```bash
 python main.py
 ```
-Requires `.env` with `DISCORD_TOKEN`, `API_BASE_URL`, `API_KEY`. No tests.
+Requires `.env` with `DISCORD_TOKEN`, `API_BASE_URL`, `API_KEY`.
+
+Tests use **stdlib `unittest`** (not pytest — the bot image has no pytest, and installing
+it needs network). Run them in the existing bot image, no new image needed:
+```bash
+docker run --rm -e API_KEY=test-api-key -v "$PWD/bot_discord:/app:z" -w /app \
+    classroom-classroom-bot:latest python -m unittest discover -s tests -t . -v
+```
+- `-e API_KEY=...` is **required**: `core/config.py` deliberately has no fallback for
+  `API_KEY` (it used to ship a hardcoded key). Without it, `import core.config` raises
+  at collection time and every test errors even though the code under test is fine.
+- The value can be fake — the suite never talks to a real backend (the whole
+  `api_client` stack is stubbed).
 
 ### Infra / deploy (repo root)
 ```bash
