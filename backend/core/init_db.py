@@ -199,36 +199,10 @@ async def init_db(pool: asyncpg.Pool):
                 );
             """)
 
-            # --- 3. Maintenance Module ---
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS mtn_locations (
-                    id SERIAL PRIMARY KEY,
-                    building TEXT NOT NULL,
-                    room TEXT NOT NULL,
-                    UNIQUE(building, room)
-                );
-
-                CREATE TABLE IF NOT EXISTS mtn_tickets (
-                    id VARCHAR(50) PRIMARY KEY,
-                    location_id INTEGER REFERENCES mtn_locations(id) ON DELETE CASCADE,
-                    category TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    image_url TEXT,
-                    priority TEXT DEFAULT 'Low',
-                    status TEXT DEFAULT 'pending',
-                    parent_ticket_id VARCHAR(50) REFERENCES mtn_tickets(id) ON DELETE SET NULL,
-                    reporter_name TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-
-                CREATE TABLE IF NOT EXISTS mtn_logs (
-                    id SERIAL PRIMARY KEY,
-                    ticket_id VARCHAR(50) REFERENCES mtn_tickets(id) ON DELETE CASCADE,
-                    action TEXT NOT NULL,
-                    user_name TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
+            # --- 3. Maintenance Module --- ⛔ ไม่มีแล้ว (ลบ 2026-09-25 / ผลตรวจระบบข้อ L8)
+            #    โมดูลถูกลบไปตั้งแต่คอมมิต 93e8aa9 แต่ DDL ถูกทิ้งไว้ ⇒ `init_db()` สร้างตาราง mtn_*
+            #    กลับมาทุกครั้งที่บูต ("ลบตารางแล้วงอกใหม่") ⇒ ถ้าจะทำฟีเจอร์นี้ต่อ ต้องเขียน DDL ใหม่
+            #    พร้อม router/service/model ที่ใช้งานจริง ไม่ใช่กู้บรรทัดนี้กลับมา
 
             # --- 4. Finance Module ---
             await conn.execute("""

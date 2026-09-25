@@ -148,7 +148,7 @@ Backend writes to DB and publishes to Redis channel `classroom_events` (`ActionS
 ## Testing conventions
 
 The test suite is **integration-style** (real Postgres via `test_db` container). Rules from `docs/rules/testing.md`:
-- Absolute state isolation: never hardcode IDs; use randomized `server_id` (`random.randint(1_000_000, 9_999_999)`) per test; rely on the `clean_database` fixture (truncates `users, rooms, mtn_locations CASCADE`) before each test.
+- Absolute state isolation: never hardcode IDs; use randomized `server_id` (`random.randint(1_000_000, 9_999_999)`) per test; rely on the `clean_database` fixture (truncates `users, rooms CASCADE`) before each test.
 - **Deep DB verification is mandatory:** after asserting the HTTP status, query the DB directly through the `db_pool` fixture to prove the mutation (e.g. `deleted_at IS NOT NULL` for soft deletes).
 - Mock all external side effects: `require_permission` is mocked globally (Discord ID `999` = Admin via `admin_headers` fixture); mock `ActionService._publish` or `aioredis.from_url` for anything that would hit Redis.
 - Use `@pytest.mark.parametrize` for validation/boundary edge cases.

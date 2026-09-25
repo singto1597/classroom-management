@@ -79,8 +79,9 @@ async def clean_database(db_pool):
     """
     async with db_pool.acquire() as conn:
         # 🚨 ล้างแค่ Master Tables หลักๆ CASCADE จะจัดการตารางลูกให้เอง
+        # (mtn_locations ถูกถอดออกจากลิสต์ 2026-09-25 พร้อมกับ DDL ของมันใน init_db.py)
         await conn.execute("""
-            TRUNCATE TABLE users, rooms, mtn_locations CASCADE;
+            TRUNCATE TABLE users, rooms CASCADE;
         """)
     yield
 
@@ -107,7 +108,7 @@ def client(test_db_url):
 #
 # ข้อบังคับ 3 ข้อที่ห้ามละเมิด:
 #   1. **function-scoped เท่านั้น** — `clean_database` เป็น autouse และ TRUNCATE
-#      users/rooms/mtn_locations CASCADE ก่อนทุกเทสต์ → fixture ระดับ session/module
+#      users/rooms CASCADE ก่อนทุกเทสต์ → fixture ระดับ session/module
 #      จะถูกล้างทิ้งตั้งแต่เทสต์แรก แล้วเทสต์ถัด ๆ ไปจะได้ 404 (หา users ไม่เจอ) แทน 403
 #   2. **ต้องสร้างห้อง+ผู้ใช้ของตัวเองทุกครั้ง** — ห้าม hardcode id
 #   3. **ใช้เส้นทาง API key** (`X-API-Key` + `X-Discord-Id`) เหมือนบอท → `get_current_user`
