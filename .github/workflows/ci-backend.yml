@@ -1,0 +1,59 @@
+# ============================================================
+# CI · Backend (FastAPI + asyncpg + PostgreSQL)
+# ============================================================
+#
+# ⚠️ GitHub Actions อ่าน workflow จาก **.github/workflows/ ที่ราก repo เท่านั้น**
+#    ไฟล์ deploy.yml เดิมที่อยู่ใน backend/.github/workflows/ จึงไม่เคยถูกรันเลย
+#    (ตรวจแล้ว: `gh run list` ว่างเปล่า = ไม่มี workflow ไหนเคยทำงานบน repo นี้)
+#
+# 📌 ไฟล์นี้ **ตรวจอย่างเดียว ไม่ deploy อะไรทั้งสิ้น**
+#    การ deploy ยังเป็นการรัน `./pull_all.sh` ด้วยมือจาก checkout ของ production เท่านั้น
+#    ⇒ merge เข้า main ไม่ทำให้ production เปลี่ยน
+#
+# ⏱️ **งานนี้ใช้เวลาประมาณ 45 นาที** (integration test ต่อ Postgres จริงทั้งชุด)
+#    ⇒ ถูกแยกเป็นไฟล์ของตัวเอง เพื่อไม่ให้ PR ที่แก้แค่ frontend ต้องรอ
+#    ⇒ `timeout-minutes` ตั้งไว้ 90 เพื่อให้มีที่ว่างพอ แต่ยังไม่ปล่อยให้ค้างข้ามวัน
+#
+# 🔑 **ใช้ `docker-compose.test.yml` ตัวเดียวกับที่นักพัฒนารันในเครื่อง**
+#    ไม่ประกอบ service เองในไฟล์นี้ เพราะถ้า CI กับเครื่องนักพัฒนาใช้คนละชุด
+#    "ผ่านในเครื่อง แต่ตกบน CI" จะกลายเป็นปัญหาที่แก้ไม่จบ
+name: CI · Backend
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'docker-compose.test.yml'
+      - '.github/workflows/ci-backend.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'backend/**'
+      - 'docker-compose.test.yml'
+      - '.github/workflows/ci-backend.yml'
+
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: pytest (Postgres 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # คำสั่งเดียวกับใน CLAUDE.md ทุกตัวอักษร — ถ้าจะแก้ ให้แก้ทั้งสองที่พร้อมกัน
+      # (test_db = Postgres 16 บนพอร์ต 5433, conftest.py สร้าง DB ชื่อสุ่มต่อ session
+      #  แล้ว drop ทิ้ง ⇒ ไม่มีสถานะค้างระหว่างรอบ)
+      - name: รัน backend test suite
+        run: |
+          docker compose -f docker-compose.test.yml run --rm test_runner \
+            sh -c "export PYTHONDONTWRITEBYTECODE=1 && python -m pytest -p no:cacheprovider -v /app/tests/"
+
+      # 🔴 ต้องเป็น `always()` — ถ้าเทสต์ตกแล้วไม่เก็บกวาด container/volume จะค้าง
+      #    บน runner (และถ้าวันหนึ่งย้ายไป runner ที่ใช้ซ้ำ จะกลายเป็นขยะสะสม)
+      - name: เก็บกวาด container และ volume
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v --remove-orphans
