@@ -3,9 +3,12 @@
 รัน (ไม่ต้องติดตั้งอะไรเพิ่ม — ใช้ image ของบอทที่มี discord.py อยู่แล้ว):
 
 ```
-docker run --rm -v "$PWD/bot_discord:/app:z" -w /app classroom-classroom-bot:latest \
-    python -m unittest discover -s tests -t . -v
+docker run --rm -e API_KEY=test-api-key -v "$PWD/bot_discord:/app:z" -w /app \
+    classroom-classroom-bot:latest python -m unittest discover -s tests -t . -v
 ```
+
+⚠️ `-e API_KEY=...` **จำเป็น** ตั้งแต่ M8 (config ไม่มี fallback แล้ว) — ไม่ส่งมา
+   จะได้ `ValueError` ตอน import ทำให้เทสต์ทั้งชุด error ทั้งที่โค้ดไม่ได้ผิด
 
 ## ขอบเขตที่เทสต์ชุดนี้พิสูจน์
 

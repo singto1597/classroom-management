@@ -5,7 +5,22 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000/api/classroom")
-API_KEY = os.getenv("API_KEY", "api-key-for-my-bot-1234") 
+
+# 🔴 ห้ามใส่ค่า default ให้ API_KEY เด็ดขาด
+#
+# เดิมเป็น `os.getenv("API_KEY", "api-key-for-my-bot-1234")` ⇒ ถ้า `.env` ขาด API_KEY
+# บอทจะ **สตาร์ทขึ้นมาปกติ** แล้วยิงทุกคำขอด้วยคีย์ที่เขียนไว้ในซอร์สสาธารณะ
+# ⇒ ได้ 401 ทุกคำสั่ง โดยไม่มีอะไรบอกว่าต้นเหตุคือ environment ไม่ครบ
+# (อ่านดูเหมือน "backend พัง" ไม่ใช่ "ตั้งค่าไม่ครบ") — และถ้าบังเอิญคีย์จริงตรงกับ
+# ค่า default ก็เท่ากับใช้คีย์ที่ใครอ่าน repo ก็รู้
+#
+# ⇒ ล้มตั้งแต่ตอน import ดีกว่าไปล้มตอนผู้ใช้พิมพ์คำสั่ง
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise ValueError(
+        "ไม่พบ API_KEY — บอทต้องใช้ยืนยันตัวตนกับ backend\n"
+        "ตั้งค่าในไฟล์ .env ที่ root ของโปรเจกต์ (ดู .env.example) แล้วรีสตาร์ทบอท"
+    )
 
 REDIS_URL = os.getenv("REDIS_URL")
 

@@ -29,6 +29,8 @@ class StudentCommands(commands.Cog):
 
     @app_commands.command(name="my_profile", description="ดูโปรไฟล์ส่วนตัวของคุณ")
     async def my_profile(self, interaction: discord.Interaction):
+        # 🔒 ข้อมูลส่วนตัว ⇒ defer แบบ ephemeral ให้ตรงกับ followup ที่ตามมา
+        await interaction.response.defer(ephemeral=True)
         try:
             headers = {"X-Discord-Id": str(interaction.user.id)}
             # 🚨 แทรก target_id=guild + target_type="server" — backend route คือ /{target_id}/students/me
@@ -87,10 +89,10 @@ class StudentCommands(commands.Cog):
                 missing_str = ", ".join(missing)
                 embed.add_field(name=f"📊 สถานะข้อมูล ({percent}%)", value=f"⚠️ ยังขาดข้อมูล: `{missing_str}`", inline=False)
 
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         except APIException as e:
-            await interaction.response.send_message(f"❌ {e} (ลองพิมพ์ `/sync_room` ก่อนนะ)", ephemeral=True)
+            await interaction.followup.send(f"❌ {e} (ลองพิมพ์ `/sync_room` ก่อนนะ)", ephemeral=True)
 
 
 async def setup(bot):

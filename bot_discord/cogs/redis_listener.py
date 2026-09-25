@@ -77,6 +77,9 @@ class RedisListener(commands.Cog):
         await asyncio.sleep(3) 
 
         while True:
+            # 🔒 ประกาศนอก `try` เพื่อให้ `finally` ปิดของที่สร้างไปแล้วได้เสมอ
+            redis_client = None
+            pubsub = None
             try:
                 # 1. เชื่อมต่อแบบคลีนๆ พร้อมตั้งให้แปลงข้อมูลเป็น String ทันที (decode_responses=True)
                 redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -112,6 +115,25 @@ class RedisListener(commands.Cog):
                 # พิมพ์ชื่อ Error ออกมาด้วย จะได้รู้ชัดๆ ว่าหลุดเพราะอะไร
                 logger.error(f"❌ Redis หลุด! ({type(e).__name__}): {e} -> ขอเริ่มใหม่ใน 5 วินาที...")
                 await asyncio.sleep(5)
+            finally:
+                # 🔒 ปิดของเก่า **ก่อน** วนไปสร้างใหม่
+                #    เดิมไม่มีบล็อกนี้ ⇒ ทุกครั้งที่ Redis หลุดกลางทาง (หรือตู้ Redis ยังไม่ตื่น
+                #    ตอนบอทบูต ซึ่ง `ping()` จะล้มแล้ววนซ้ำทุก 5 วิ) จะทิ้ง connection pool
+                #    + pubsub ค้างไว้ทั้งชุด ⇒ reconnect ซ้ำ ๆ กิน connection ของ Redis จนหมด
+                #    อาการที่ผู้ใช้เห็นคือ "บอทเงียบ" แล้ว Redis ปฏิเสธการเชื่อมต่อใหม่
+                #    ⚠️ รั่วตอน **บูต** ด้วย ไม่ใช่แค่ตอนเน็ตกระตุก — เป็นเคสที่เกิดทุกครั้งที่ deploy
+                # ⚠️ ใช้ `aclose()` (redis>=5) — `close()` แบบเดิมเป็น deprecated
+                # ⚠️ ปิดแบบ best-effort: ปิดไม่สำเร็จต้องไม่ทำให้ loop ตาย (จะไม่ได้ reconnect เลย)
+                if pubsub is not None:
+                    try:
+                        await pubsub.aclose()
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"⚠️ ปิด pubsub เก่าไม่สำเร็จ (ข้ามไป): {type(e).__name__}: {e}")
+                if redis_client is not None:
+                    try:
+                        await redis_client.aclose()
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"⚠️ ปิด redis client เก่าไม่สำเร็จ (ข้ามไป): {type(e).__name__}: {e}")
 
     async def process_event(self, data):
         """ฟังก์ชันคัดแยกพัสดุ (Router)"""
