@@ -40,9 +40,28 @@ if (!('innerText' in HTMLElement.prototype)) {
   })
 }
 
-/** ยิง Swal แล้วรอให้ render จบ โดยไม่ await promise ที่จะ resolve ตอนปิด */
+/**
+ * ยิง Swal แล้วรอให้ render จบ โดยไม่ await promise ที่จะ resolve ตอนปิด
+ *
+ * 🔴 `returnFocus: false` **จำเป็น ไม่ใช่ความสะดวก** — ตอนปิดกล่อง Swal จะตั้ง
+ *    `setTimeout(..., RESTORE_FOCUS_TIMEOUT)` = **100ms** เพื่อคืนโฟกัสให้ element เดิม
+ *    (dist: `restoreActiveElement`) ⇒ timer นั้นยิง **หลัง** ไฟล์เทสต์จบและ jsdom
+ *    ถูกฉีกทิ้งไปแล้ว ⇒ `focusPreviousActiveElement()` อ้าง `HTMLElement` ที่ไม่มีอยู่
+ *    → `ReferenceError: HTMLElement is not defined` กลายเป็น **unhandled error**
+ *    ที่ vitest รายงานว่า "might cause false positive tests" (เจอจริงตอนรัน: 183 passed
+ *    แต่ Errors 1 error)
+ *
+ *    ⚠️ `await new Promise(r => setTimeout(r, 0))` **แก้ไม่พอ** เพราะ timer หน่วง 100ms
+ *       ไม่ใช่ 0 — ต้องรอ 100ms+ ต่อเทสต์ (11 เทสต์ = เสียเวลาเปล่า ~1.5s)
+ *       และยังเปราะ: เปลี่ยนค่า const ในอนาคตแล้วพังอีก
+ *    ✅ `restoreActiveElement(false)` `return resolve()` ตั้งแต่ต้นบรรทัด ⇒ **ไม่มี timer
+ *       ถูกตั้งเลย** ต้นเหตุหายไป ไม่ใช่แค่ทำให้ทัน
+ *
+ *    เทสต์ชุดนี้สนใจว่า Swal "ตีความมาร์กอัปอย่างไร" ไม่ได้สนใจการคืนโฟกัส
+ *    ⇒ ปิด returnFocus ไม่ได้ลดกำลังของเทสต์แต่อย่างใด
+ */
 const render = async (params: Record<string, unknown>) => {
-  void Swal.fire({ showConfirmButton: false, ...params })
+  void Swal.fire({ showConfirmButton: false, returnFocus: false, ...params })
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
