@@ -796,7 +796,7 @@
 
 ### 🧪 Tests — `clean_database` เป็น autouse + `TRUNCATE ... CASCADE` ⇒ fixture ที่สร้าง room/user ต้อง **function-scoped** และห้าม hardcode id
 - **Context/Problem:** `docs/rules/testing.md` อ้างถึง `admin_headers` (discord 999 = admin) แต่ `backend/tests/conftest.py` **ไม่มี** มาก่อน → ต่างไฟล์ต่างสร้าง user/room เอง ซ้ำ ๆ; พอเพิ่ม fixture จริงแล้วเทสต์ใหม่ยิง 403 `"คุณไม่ได้เป็นสมาชิกที่ใช้งานอยู่ในห้องเรียนนี้"` เพราะสร้าง room ของตัวเองด้วย `_insert_room` แล้วยิงด้วย `admin_headers` (ซึ่งเป็นสมาชิกของ **ห้องอื่น**)
-- **Root Cause:** `require_member(conn, room_id, user_id)` **ไม่ bypass ให้ `is_admin`** (ต่างจาก `require_permission` ที่ bypass ทั้ง `SUPER_ADMIN_ID` และ `is_admin`) ⇒ ต้องมีแถว `students` ที่ `status='active'` ในห้องนั้นจริง ๆ; และ `clean_database` เป็น `autouse=True` + `TRUNCATE TABLE users, rooms, mtn_locations CASCADE` **ก่อนทุกเทสต์** ⇒ fixture ระดับ session/module จะถูกล้างทิ้งกลางทาง
+- **Root Cause:** `require_member(conn, room_id, user_id)` **ไม่ bypass ให้ `is_admin`** (ต่างจาก `require_permission` ที่ bypass ทั้ง `SUPER_ADMIN_ID` และ `is_admin`) ⇒ ต้องมีแถว `students` ที่ `status='active'` ในห้องนั้นจริง ๆ; และ `clean_database` เป็น `autouse=True` + `TRUNCATE TABLE users, rooms CASCADE` **ก่อนทุกเทสต์** ⇒ fixture ระดับ session/module จะถูกล้างทิ้งกลางทาง
 - **Correct Pattern/Solution:** fixture แบบ function-scoped ที่สร้าง user + room + แถว `students` ของตัวเอง (`_provision_auth_context`) แล้วให้เทสต์ใช้ `admin_headers.room_id` เป็นห้องเป้าหมาย — **ไม่สร้างห้องใหม่แยกจาก header**; `TRUNCATE ... CASCADE` **ไม่ reset sequence** ⇒ ledger/user/room id ไต่ขึ้นเรื่อย ๆ ข้ามเทสต์ **ห้าม hardcode id เด็ดขาด**
 - **Rule:** (1) `require_member` ≠ `require_permission` — ตัวแรกต้องการแถว `students` จริง `is_admin` ไม่ช่วย (มีเทสต์ล็อกไว้: `test_statements_is_admin_does_not_bypass_require_member`) (2) เทสต์ที่ยิง HTTP ด้วย header fixture ต้องใช้ `headers.room_id` เป็นห้อง (3) fixture ที่แตะ DB ต้อง function-scoped เสมอเพราะ `clean_database` เป็น autouse
 - **Tests:** `test_finance_statements.py` — `test_statements_allow_plain_member` / `test_statements_forbid_non_member` / `test_statements_is_admin_does_not_bypass_require_member` (parametrize ครบ 3 path) + `test_statements_unknown_room_returns_404`
@@ -2982,4 +2982,22 @@
   ⚠️ **อย่าเข้าใจผิดว่า "มีไฟล์ = มี CI"** — ต้องยืนยันว่า workflow ถูกสั่งรันจริง (ดูแท็บ Actions หรือ `gh run list`)
 - **Rule:** (1) 🔴 **ยืนยันว่า CI ทำงานจริงก่อนเชื่อว่ามี** — ไฟล์ที่วางผิดที่ให้ความมั่นใจปลอมแบบเดียวกับเทสต์ที่ไม่เคยรัน (2) 🔴 **ไฟล์ deploy/infra ที่ไม่ได้ใช้ต้องถูกลบ** ไม่ใช่ปล่อยไว้ให้เข้าใจผิด (3) ✅ **"merge แล้ว deploy ไหม" ต้องตอบให้ได้ก่อนสั่ง merge** — คำตอบเปลี่ยนระดับความเสี่ยงของการกระทำทั้งหมด
 - **Tests:** ไม่มี (ตรวจด้วย `git ls-files | grep -i workflow` แล้วเทียบกับกติกาของ GitHub Actions)
+- **Date Added:** 2026-09-25
+
+### 🧹 ลบโมดูลแล้วทิ้ง DDL ไว้ = ตาราง "งอกใหม่" ทุกครั้งที่บูต (L8)
+- **Context/Problem:** ผลตรวจระบบ 2026-09-23 (L8) พบตาราง `mtn_locations` · `mtn_tickets` · `mtn_logs` ว่างเปล่าค้างอยู่ในฐานข้อมูล ทั้งที่ไม่มีโค้ดไหนอ่านเขียนเลย ⇒ เกือบสั่ง `DROP TABLE` ตรง ๆ แล้วปิดเรื่อง
+- **Root Cause:** โมดูลซ่อมบำรุงถูกลบไปแล้วจริงในคอมมิต `93e8aa9` ("remove maintenance module" — ลบ `routers/maintenance_router.py` · `services/maintenance_service.py` · `models/maintenance_schemas.py`) **แต่ DDL ยังอยู่ใน `backend/core/init_db.py`** ซึ่งถูกรัน**ทุกครั้งที่ backend บูต** ⇒ `DROP TABLE` ครั้งเดียวได้ผลแค่จนถึง restart รอบถัดไป แล้ว `CREATE TABLE IF NOT EXISTS` จะสร้างตารางเปล่ากลับมา ⇒ **"ลบแล้วงอกใหม่"** ซึ่งแย่กว่าไม่ลบ เพราะทำให้เข้าใจว่าสะอาดแล้วทั้งที่ยังไม่
+  🔴 **กับดักที่สองซ่อนอยู่ในเทสต์:** `conftest.py` ยัง `TRUNCATE TABLE users, rooms, mtn_locations CASCADE` ⇒ ถ้า DROP ตารางก่อนแก้โค้ด เทสต์**ทั้งชุด**จะพังทันทีด้วย `relation "mtn_locations" does not exist` — ไม่ใช่พังเฉพาะเทสต์ที่เกี่ยวข้อง เพราะมันเป็น autouse fixture ⇒ อาการที่เห็นคือ "เทสต์พังยกชุดทั้งที่งานเป็นแค่การเก็บกวาด"
+  🔎 **สาเหตุที่มองข้ามง่าย:** `93e8aa9` ลบ **ไฟล์** ซึ่งเห็นได้จาก `git log --diff-filter=D --name-only` แต่ DDL **ไม่ใช่ไฟล์** — มันเป็นบรรทัดในไฟล์ที่ยังอยู่ ⇒ รีวิวด้วยการดูรายชื่อไฟล์ที่ถูกลบไม่มีทางเห็น
+- **Correct Pattern/Solution:** ลบให้ครบ **สามที่** ไม่ใช่ที่เดียว
+  1. **DDL** ใน `init_db.py`
+  2. **fixture/เทสต์** ที่อ้างชื่อตาราง (`conftest.py`)
+  3. **เอกสาร** ที่ยก SQL นั้นมาอ้าง (`CLAUDE.md` · `docs/skills.md`)
+  ```bash
+  grep -rn 'mtn_locations\|mtn_tickets\|mtn_logs' --include='*.py' --include='*.ts' --include='*.vue' --include='*.md' .
+  # เจอแค่ init_db.py + conftest.py ⇒ ยืนยันว่าเป็นซากจริง ไม่มีใครใช้
+  ```
+  🔑 **ลำดับที่ถูกคือ "โค้ดก่อน ข้อมูลทีหลัง"** — merge + deploy โค้ดที่ถอด DDL **ก่อน** แล้วค่อย DROP ตาราง ถ้าสลับกัน deploy รอบถัดไปจะสร้างตารางคืนทันที
+- **Rule:** (1) 🔴 **`CREATE TABLE IF NOT EXISTS` ในฟังก์ชันที่รันทุกบูต = การลบตารางใน DB ไม่ถาวร** — ต้องถอด DDL ก่อนเสมอ (2) 🔴 **การลบโมดูลต้องลบครบ โค้ด + DDL + fixture** ลบแค่ไฟล์ไม่พอ (3) ⚠️ **autouse fixture ที่อ้างตารางที่ถูกถอดจะพังยกชุด** ไม่ใช่พังเฉพาะเทสต์ที่เกี่ยวข้อง (4) ✅ ตรวจด้วย `grep` ทั้ง repo ก่อนสรุปว่า "ไม่มีใครใช้" — อย่าดูแค่รายชื่อไฟล์ที่ถูกลบใน git
+- **Tests:** เทสต์ทั้งชุดผ่านหลังถอด DDL — ยืนยันว่าไม่มีเทสต์ไหนพึ่งตาราง `mtn_*`
 - **Date Added:** 2026-09-25
