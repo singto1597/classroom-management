@@ -12,6 +12,7 @@ from ui import set_override_ui
 
 from services.api_client import api_client, APIException
 from services.action_service import BotActionService
+from services.task_embed import build_no_pending_tasks_embed, build_pending_tasks_embed
 
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -301,17 +302,13 @@ class BotCommands(commands.Cog):
             headers = {"X-Discord-Id": str(interaction.user.id)}
             # 🚨 แทรก target_type="server"
             tasks_data = await api_client.request("GET", f"/{interaction.guild_id}/tasks", params={"status": "pending", "target_type": "server"}, headers=headers)
-            if not tasks_data: return await interaction.followup.send("🎉 ไม่มีงานเลยจ้าา")
+            if not tasks_data:
+                return await interaction.followup.send(embed=build_no_pending_tasks_embed())
 
-            embed = discord.Embed(title="📋 รายการงานที่ยังไม่เสร็จ", color=discord.Color.blue())
-            for task in tasks_data:
-                created_str = task['created_at'].split("T")[0] if task.get('created_at') else "ไม่ระบุ"
-                embed.add_field(
-                    name=f"📌 {task['task_name']}", 
-                    value=f"📅 กำหนดส่ง: {task['due_date']} \nรายละเอียด: {task['task_detail']}\n(บันทึกเมื่อ: {created_str})", 
-                    inline=False
-                )
-            await interaction.followup.send(embed=embed)
+            # 🧩 เพดานของ Discord (25 ฟิลด์ / 6,000 ตัวอักษร) บังคับในตัวสร้างแล้ว (M11)
+            #    เดิมต่อ add_field ตรงนี้โดยไม่จำกัด ⇒ งานค้างตั้งแต่ 26 ชิ้นขึ้นไป
+            #    ทำให้ Discord ปฏิเสธ **ทั้งข้อความ** แล้วครูเห็น "ไม่ตอบสนอง"
+            await interaction.followup.send(embed=build_pending_tasks_embed(tasks_data))
         except APIException as e:
             await interaction.followup.send(f"❌ {e}", ephemeral=True)
 
