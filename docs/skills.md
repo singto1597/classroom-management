@@ -2819,3 +2819,167 @@
 - **Rule:** (1) 🔴 **`except` ต้องเรียง แคบ &#8594; กว้าง และ `HTTPException` ต้องมาก่อน `Exception` เสมอ** ในทุก handler ที่มี `try` — `HTTPException` เป็น `Exception` (2) 🔴 **ห้าม `detail=str(e)` ของ exception ที่ไม่รู้จัก** — ลง `logger.exception` แทน (3) 🔴 **ข้อความที่ตั้งใจให้ผู้ใช้เห็นต้องมี exception คลาสของตัวเอง** ไม่งั้นมันจะถูกกลืนไปกับข้อความกลางอย่างเงียบ ๆ และหายไปโดยไม่มีเทสต์ไหนจับ (4) 🔴 **SQL ต้องไม่อยู่ใน `routers/`** (`GET /me` เคยมี) — ไม่ใช่แค่เรื่องชั้นสถาปัตยกรรม แต่เพราะ **คนที่เพิ่มคอลัมน์ใน `SELECT *` ไม่มีทางรู้ว่ามันจะไปโผล่ที่ API** (5) ✅ **เทสต์ของงานนี้ต้องยิง HTTP จริง ไม่ใช่เรียก service** — บั๊กอยู่ที่ "ชั้นที่ประกอบ HTTP response" ซึ่งเทสต์ระดับ service มองไม่เห็นเลย (ชุดเทสต์ 1,000+ ตัวของโปรเจกต์เขียวทั้งหมดขณะที่บั๊กนี้ยังอยู่)
 - **Tests:** `backend/tests/test_auth_http_error_contract.py` (12 ตัว · ผ่านโดยไม่มี warning) · **พิสูจน์ว่ามีฟันด้วย mutant 3 ตัวรวดเดียว** — ถอด `except HTTPException` ของ `discord_login` + ถอด `except ForbiddenError` + คืน `GET /me` กลับเป็น `SELECT *` ไม่มี `response_model` &#8594; **6/12 ล้ม** และตัวที่ล้มคือตัวที่ควรล้มเป๊ะ (ฝั่ง google ที่ไม่ได้แตะยังเขียว = เทสต์ไม่ได้ล้มเพราะมลพิษข้ามเทสต์) · ตัวชี้ขาด: `test_me_returns_exactly_the_declared_fields` (เทียบ **ชุดคีย์** ไม่ใช่แค่ presence ⇒ จับได้ทั้งตอนเพิ่มและตอนลบฟิลด์)
 - **Date Added:** 2026-09-25
+
+### 🐍 `await response.json()` **ก่อน** เช็ค status = ปล่อย exception ที่ **ไม่ใช่** `APIException` หลุดผ่านทุก `except APIException`
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (H8) — `bot_discord/services/api_client.py` เรียก `await response.json()` เป็นบรรทัดแรก แล้วค่อยเช็ค `response.status` ทีหลัง ⇒ เวลา backend ล่มและ Traefik ตอบหน้า HTML 502 มาแทน JSON ผู้ใช้บอทเห็น "ใช้คำสั่งไม่ได้" โดยไม่มีอะไรบอกสาเหตุ
+  🔎 จุดที่หลอกตา: ตอน backend ตอบปกติดีทุกอย่างดูถูกต้อง และเทสต์ที่ mock `response.json()` ให้คืน dict ก็เขียวหมด ⇒ บั๊กโผล่เฉพาะตอน **พัง** ซึ่งเป็นตอนที่ไม่มีใครนั่งดู
+- **Root Cause:** `aiohttp.ContentTypeError` **ไม่ได้สืบทอดจาก** `APIException` (เป็น subclass ของ `ClientResponseError`) ⇒ `except APIException` ทุกจุดในโค้ดบอทไม่ดักเลย ⇒ error กลายเป็น stack trace หรือบอทเงียบไปเฉย ๆ
+  🔴 **ชั้นที่สองที่มองไม่เห็น:** ไม่มี `timeout` ใน `kwargs` เลย ⇒ aiohttp ใช้ default **5 นาที** ของตัวเอง ทั้งที่ interaction ของ Discord หมดอายุที่ **3 วินาที** ⇒ คำสั่งค้างเงียบ ๆ แล้วขึ้น "The application did not respond"
+- **Correct Pattern/Solution:** แยกการอ่าน body ออกจากกันอย่างชัดเจน — ตั้ง `kwargs.setdefault("timeout", DEFAULT_TIMEOUT)` แล้วห่อ **ทั้ง** การส่งคำขอและการอ่าน body ด้วย `try/except APIException: raise` / `except (aiohttp.ClientError, asyncio.TimeoutError) as e: raise APIException(_describe_transport_error(e)) from e`
+  ```python
+  DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5)   # เพดาน 30 วิ เพราะ interaction ตายที่ 3 วิ
+  PDF_TIMEOUT     = aiohttp.ClientTimeout(total=180, connect=5)  # Gotenberg ใช้เวลาหลายสิบวินาที
+  ```
+  `_describe_transport_error()` แปลงเป็นข้อความไทย **ห้ามให้ `str(exc)` ดิบหลุดขึ้นจอ Discord**
+- **Rule:** (1) 🔴 **ห้ามอ่าน body ก่อนรู้ว่า status เป็นอะไร** — และ **ทุก** ทางที่ผิดพลาดต้องออกเป็น exception ชนิดเดียวที่ผู้เรียกดัก (`APIException`) (2) 🔴 **ไคลเอนต์ HTTP ต้องมี timeout ที่ตั้งเองเสมอ** — default ของไลบรารีไม่รู้จัก deadline ของผู้เรียก (3) ✅ พิสูจน์ว่าเทสต์แยกแยะได้จริง: รันกับ `git show HEAD:` เวอร์ชันเดิม → **9/21 fail** และในนั้นต้องมีข้อที่ล้มด้วย `ContentTypeError` จริง ไม่ใช่ `AttributeError` จาก stub ที่ไม่ครบ
+  ⚠️ **stub ที่ไม่มี `.json()` ทำให้ได้ `AttributeError`** ซึ่งเป็นเหตุผลที่ไม่มีในโลกจริง ⇒ เทสต์ "จับบั๊กได้" แต่จับด้วยเหตุผลผิด พิสูจน์ไม่ได้ว่าแยกแยะบั๊กจริง ⇒ stub ต้อง `raise aiohttp.ContentTypeError` เมื่อ content-type ไม่ใช่ JSON
+- **Tests:** `bot_discord/tests/test_api_client.py` (`BackendErrorTest`, `TransportErrorTest`, `RequestTimeoutTest`)
+- **Date Added:** 2026-09-24
+
+### 🎫 แถว `students` ที่ `status='pending'` **มี `user_id` ผูกอยู่แล้ว** ⇒ ด่าน "เป็นสมาชิกไหม" ที่ไม่กรอง `status` เปิดให้ "คนที่แค่ถูกเชิญ" อ่านข้อมูลทั้งห้อง
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (H4) — `StudentService.get_all_students` เช็คสมาชิกด้วย `SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL` ⇒ **ไม่มี `status`**
+  🔎 จุดที่หลอกตา: แถวของ "คนที่ถูกเชิญ" **ไม่ใช่แถวว่าง** — มี `room_id`, มี `user_id` ครบ ⇒ query แบบ "มีแถวไหม" ตอบว่าใช่ ⇒ อ่านจากโค้ดแล้วดูเหมือนเช็คถูก
+- **Root Cause:** ใน consent model นี้ `pending` = "คำเชิญที่ยังไม่รับ": แอดมินแอดชื่อที่ตรงกับบัญชีจริง ⇒ สร้างแถวที่มี `user_id` แล้ว แต่ `identity_claimed = FALSE` (ดู `RoomManagementService.accept_invite` ที่พลิกเป็น `active` + `identity_claimed=TRUE` เมื่อเจ้าตัวกดรับ) ⇒ **"ถูกเชิญ" ≠ "เป็นสมาชิก"**
+  🔴 **ทำไมร้ายแรงกว่าปกติ:** `GET /{target_id}/students` **ไม่มี `require_permission` ครอบ** (มีแค่ `get_target` + `get_current_user`) ⇒ การเช็คใน service คือ **ด่านเดียวที่มีจริง ๆ** ไม่มีชั้นอื่นรับอีก — และ `rbac.require_permission` เองใช้ `status = 'active'` อยู่แล้ว จึงไม่มีใครเอะใจว่าที่อื่นพลาด
+- **Correct Pattern/Solution:** เพิ่ม `AND status = 'active'` ใน membership check
+  ⚠️ **แก้เฉพาะจุดที่คืนข้อมูลของ "คนอื่น"** — `/students/me` (`get_student_by_user_id`) **ไม่แก้โดยเจตนา** เพราะ match ด้วย `u.id = $2` ⇒ คืนได้แค่แถวของเจ้าตัวเอง และผู้ถูกเชิญต้องเห็นสถานะคำเชิญของตัวเองได้ ⇒ เขียนเทสต์ล็อกพฤติกรรมนี้ไว้กันคนเผลอ "แก้ให้สอดคล้องกัน" แล้วทำเส้นทาง invite พัง
+- **Rule:** (1) 🔴 **ด่าน "เป็นสมาชิก" ต้องกรอง `status = 'active'` เสมอ** — การมีแถวไม่ได้แปลว่าเป็นสมาชิก (2) 🔴 **ก่อนเชื่อว่าด่านหนึ่งปลอดภัย ให้ดูว่ามีชั้นอื่นรับอีกไหม** — route ที่ไม่มี `require_permission` ทำให้โค้ดใน service เป็นจุดเดียวที่พลาดไม่ได้ (3) ✅ เทสต์ที่พิสูจน์ได้ต้องเดิน **เส้นทาง invite → accept จริง** (พลิก `status` แล้วต้องได้สิทธิ์) ไม่ใช่แค่ assert ว่า `pending` ถูกปฏิเสธ ⇒ ข้อหลังผ่านได้แม้ไปเช็คเงื่อนไขผิด
+- **Tests:** `backend/tests/test_roster_active_only.py` (เอาคำสั่งกรองออกแล้วรันซ้ำ → 2/4 fail ด้วย `assert 200 == 403`)
+- **Date Added:** 2026-09-24
+
+### 🍬 SweetAlert2: argument ที่ 2 ของ `Swal.fire(a, b, c)` คือ **`html`** และ `title:` ก็เป็น innerHTML sink — ส่วน `text:` / `titleText:` ปลอดภัยโดยธรรมชาติ
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (H6) — ข้อความ error จาก backend, ชื่อนักเรียน, ชื่อกระเป๋า/หมวดงบที่ผู้ใช้พิมพ์เอง ถูก interpolate ลง `Swal.fire(...)` ตรง ๆ ⇒ ถูกตีความเป็นมาร์กอัป ไม่ใช่ข้อความ
+  ⚠️ **Vue ช่วยไม่ได้:** ในเทมเพลต Vue escape ให้อัตโนมัติ แต่ `Swal.fire({...})` เป็น **JavaScript ที่ต่อสตริงเอง** ⇒ จุดที่ปลอดภัยที่สุดของแอปกลายเป็นจุดที่อันตรายที่สุด และอ่านจากโค้ดไม่ออก
+  🔎 ผลกระทบที่ดู "แค่เรื่องเล็ก": เครื่องหมายคำพูดตัวเดียวในชื่อ (`กระเป๋า "ห้อง 1"`) หลุดออกจาก `value="…"` แล้ว **ฟอร์มแก้ไขพัง** — ผู้ใช้แก้ข้อมูลเดิมไม่ได้อีก
+- **Root Cause:** ตำแหน่ง argument ถูกแมปแบบกำปั้นทุบดิน (dist `sweetalert2.all.js:3653-3656`):
+  ```js
+  ['title', 'html', 'icon'].forEach((name, index) => { ... params[name] = arg ... })
+  ```
+  ⇒ **argument ที่ 2 ลง `params.html` เสมอ** และ `:1910` `parseHtmlToContainer(params.title, title)` ⇒ `title:` ก็เป็น sink
+  ตรงข้ามกับ `:1912-1913` `title.innerText = params.titleText` และ `:1463-1472` ที่ `text:` ตั้งด้วย `textContent` แล้ว **แยกทางกับ `html:` โดยสิ้นเชิง** (ไม่ใช่แค่ลำดับความสำคัญ)
+- **Correct Pattern/Solution:** เรียงตามความปลอดภัย — เลือกอันแรกที่ทำได้
+  1. **ข้อความล้วน** → object form + `text:` (และ `title:` → `titleText:`)
+  2. **ต้องคงมาร์กอัปของเรา** (`<b>`, `<br>`, inline style) → `escapeHtml()` **เฉพาะค่าที่ interpolate** ไม่ใช่ทั้งก้อน
+  ```ts
+  html: `ลบ <b>${escapeHtml(displayName(student))}</b> ?`   // ✅
+  html: escapeHtml(`ลบ <b>${name}</b> ?`)                    // ❌ มาร์กอัปหายหมด
+  ```
+- **Rule:** (1) 🔴 **ห้ามใช้ positional `Swal.fire(a, b, c)`** เมื่อ `b` มีค่าที่ผู้ใช้/backend กำหนด — ใช้ object form และเลือก `text:`/`titleText:` ก่อนเสมอ (2) 🔴 **`escapeHtml` ต้องห่อ "ค่า" ไม่ใช่ "เทมเพลต"** (3) ⚠️ **ห้ามแก้ด้วย wrapper กลางที่ครอบ `Swal.fire`** — 5 ไฟล์ประกาศ `const Toast = Swal.mixin({...})` **ตอน module eval** ⇒ `Toast.fire` จับ `Swal.fire` ไปแล้วก่อน wrapper จะถูกติดตั้ง ⇒ ต้องแก้ที่ **call site** (4) ✅ เทมเพลต Vue ที่ escape ให้ฟรี ≠ `Swal.fire({...})` ที่ต่อสตริงเอง — จุดหลังต้อง escape ด้วยมือทุกครั้ง
+- **Tests:** `frontend/src/utils/__tests__/html.spec.ts` (เทียบกับ SweetAlert2 ตัวจริงใน jsdom; ทำ `escapeHtml` เป็น identity แล้วรันซ้ำ → 6/11 fail)
+- **Date Added:** 2026-09-24
+
+### 🧪 jsdom ไม่ implement `innerText` ⇒ เทสต์ที่ยืนยัน `titleText:` ของ SweetAlert2 **เขียวแบบหลอก ๆ**
+- **Context/Problem:** เขียนเทสต์พิสูจน์ว่า `titleText:` ของ Swal ไม่ตีความ HTML (H6) แล้ว assert `title().textContent` ควรเท่ากับข้อความดิบ — แต่ได้ `''`
+- **Root Cause:** `Dist` ของ SweetAlert2 ตั้งค่าด้วย `title.innerText = params.titleText` แต่ **jsdom ไม่มี `innerText`** (เป็นคุณสมบัติของ layout engine ที่ jsdom ไม่มี) ⇒ การ assign กลายเป็น property ใหม่ที่ไม่ผูกกับ DOM อะไรเลย
+  🔴 **อันตรายที่แท้จริงไม่ใช่เทสต์ fail แต่คือเทสต์ *ผ่าน*:** ถ้า assert แค่ `querySelector('#pwn') === null` ข้อนั้นจะเป็นจริง **เสมอ** ไม่ว่าค่าที่ส่งมาจะเป็นอะไร (แม้แต่ `titleText` ที่ไม่ทำงานเลย) ⇒ เทสต์ให้ความมั่นใจปลอม
+- **Correct Pattern/Solution:** polyfill ให้ jsdom เลียนแบบเบราว์เซอร์ แล้ว **เขียนข้อจำกัดนี้ไว้ในเทสต์**
+  ```ts
+  if (!('innerText' in HTMLElement.prototype)) {
+    Object.defineProperty(HTMLElement.prototype, 'innerText', {
+      get() { return this.textContent }, set(v) { this.textContent = v }, configurable: true,
+    })
+  }
+  ```
+- **Rule:** (1) 🔴 **เจอ DOM API ที่ jsdom ไม่รองรับ ให้ polyfill แล้ว assert ต่อ — อย่าลบ assertion ทิ้ง** เพราะการลบจะเหลือแต่ข้อที่จริงเสมอ (2) 🔴 **แยกให้ออกระหว่าง "พิสูจน์ว่าโค้ดถูก" กับ "พิสูจน์ว่าโค้ดไม่ได้ทำอะไรเลย"** — ข้อหลังผ่านง่ายและไร้ค่า (3) ✅ วิธีตรวจว่าข้อสอบมีพลังจริง: **ทำโค้ดที่ถูกให้พังแล้วรันซ้ำ** ต้องเห็น fail — ถ้าไม่ fail แปลว่ายังไม่ได้ทดสอบอะไร
+- **Tests:** `frontend/src/utils/__tests__/html.spec.ts` (polyfill อยู่หัวไฟล์)
+- **Date Added:** 2026-09-24
+
+### 🗃️ `students` **ไม่มีคอลัมน์ชื่อ** — ชื่อ-นามสกุลมาจาก `users` ผ่าน `LEFT JOIN` ใน `BASE_STUDENT_SELECT`
+- **Context/Problem:** เขียนเทสต์ integration ของรายชื่อห้อง (H4) แล้ว insert `first_name, last_name` ลง `students` ตรง ๆ ⇒ `asyncpg.exceptions.UndefinedColumnError: column "first_name" of relation "students" does not exist` ทุกเทสต์
+- **Root Cause:** ตาราง `students` เก็บ **ความสัมพันธ์กับห้อง** (`room_id`, `student_no`, `class_role`, `status`, `is_admin`, `permissions`, `identity_claimed`, `added_by`) ส่วนข้อมูลตัวบุคคลอยู่ที่ `users` และ `BASE_STUDENT_SELECT` (`services/student/base.py:35-48`) ประกอบกลับด้วย `LEFT JOIN users u ON s.user_id = u.id`
+  🔎 **ผลที่ตามมาในเทสต์:** แถว `students` ที่ไม่มี `user_id` จะให้ `first_name = NULL` — ถ้าใช้เป็น "เนื้อของรายชื่อ" ข้อมูลที่ทดสอบจะไม่เหมือนของจริง ⇒ helper ต้องสร้างแถว `users` คู่กันเสมอ
+- **Correct Pattern/Solution:** helper เดียวที่สร้างทั้ง `users` และ `students` พร้อมกัน แล้วคืน `(user_id, discord_id)` ให้เทสต์เอา `discord_id` ไปทำ header ได้เลย
+  ```python
+  async def _add_member(pool, room_id, student_no, *, status, added_by=None):
+      user_id, discord_id = await _insert_user(pool, ...)      # users = ข้อมูลบุคคล
+      await conn.execute("INSERT INTO students (...) VALUES (...)", ...)  # students = ความเป็นสมาชิก
+      return user_id, discord_id
+  ```
+  ⚠️ `added_by` เป็น **FK ไป `users(id)`** — ใส่ค่าคงที่อย่าง `1` ไม่ได้ ต้องส่ง id จริงเข้ามา
+- **Rule:** (1) 🔴 **ก่อนเขียนเทสต์ integration ให้เปิด DDL จริง (`core/init_db.py`) และ `SELECT` ที่ service ใช้จริง** — อย่าเดาจากชื่อตาราง (2) 🔴 **helper ต้องสร้างข้อมูลให้ครบตามที่ query จริงต้องใช้** — แถวที่ "ครบพอให้ query ผ่าน" แต่ไม่เหมือนข้อมูลจริง จะทำให้เทสต์ผ่านด้วยข้อมูลที่ไม่มีทางเกิดใน production (3) ⚠️ **คอลัมน์ที่เป็น FK ต้องได้ id จริง** ไม่ใช่ค่าคงที่ที่บังเอิญตรง
+- **Tests:** `backend/tests/test_roster_active_only.py` (`_insert_user` / `_insert_room` / `_add_member`)
+- **Date Added:** 2026-09-24
+
+### 🧩 discord.py **ไม่ตรวจเพดานของ `Embed` ฝั่ง client เลย** ⇒ เทสต์ที่รอ `ValueError` จะเขียวแบบหลอก ๆ (M11)
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (M11) — `/list_tasks` ต่อ `add_field` หนึ่งฟิลด์ต่อหนึ่งงานโดยไม่จำกัด ⇒ ห้องที่มีงานค้าง 26 ชิ้นขึ้นไป (ซึ่งปกติมากช่วงสอบ) ทำให้ Discord **ปฏิเสธทั้งข้อความ** ⇒ ครูเห็น "ไม่ตอบสนอง" ทั้งที่โหลดข้อมูลสำเร็จแล้ว
+  🔎 ตอนเขียนเทสต์กันบั๊กนี้ ผมเขียนเทสต์ที่คาดหวัง `ValueError` จาก `add_field` เป็นอย่างแรก — **และมันก็คอมไพล์ผ่าน** เพราะไม่มีอะไรโยน
+- **Root Cause:** discord.py **ไม่ตรวจเพดาน 25 ฟิลด์ / 256 ชื่อ / 1,024 ค่า ฝั่ง client** — `Embed.add_field` รับค่าที่เกินไปเงียบ ๆ (ยืนยันกับ 2.7.1: 26 ฟิลด์, 1,025 ตัวอักษร, ชื่อ 257 ตัวอักษร ผ่านหมด) การปฏิเสธเกิดที่ **API ของ Discord** เป็น HTTP 400 `Invalid Form Body` (error code 50035) ⇒ discord.py โยน `HTTPException`
+  🔴 **ชั้นที่สอง:** คำสั่งนั้น `except APIException` เท่านั้น ⇒ `HTTPException` **ไม่ใช่** `APIException` ⇒ หลุดพ้นทุกด่าน (รูปแบบเดียวกับ H8)
+  🔎 **กับดักที่แท้จริงคือ "เทสต์ที่ผ่านเพราะไม่มีอะไรเกิดขึ้น"** — ถ้า assert แค่ "ไม่มีการโยน exception" ข้อนั้นจะเป็นจริงเสมอไม่ว่าข้อมูลจะเกินเพดานแค่ไหน ⇒ ความมั่นใจปลอม (เทียบกับบทเรียน jsdom/`innerText` ที่เจอมาก่อนหน้า — เป็นกับดักชนิดเดียวกัน)
+- **Correct Pattern/Solution:** วัด **ค่าจริงใน embed ที่สร้างเสร็จ** เทียบเพดานของ Discord แล้วบังคับเพดานเองในตัวสร้าง
+  ```python
+  MAX_FIELDS = 25; MAX_FIELD_NAME = 256; MAX_FIELD_VALUE = 1024; MAX_EMBED_CHARS = 6000
+  case.assertLessEqual(len(embed.fields), MAX_FIELDS)   # ✅ วัดของจริง
+  for f in embed.fields:
+      case.assertLessEqual(len(f.name), MAX_FIELD_NAME)
+  case.assertLessEqual(len(embed), MAX_EMBED_CHARS)     # ⚠️ เพดานที่ 2 ที่มองไม่เห็น
+  ```
+  - ⚠️ **เพดานมีสองชั้นจากข้อมูลชุดเดียวกัน:** 25 ฟิลด์ที่ `task_detail` ยาว ๆ ก็ยังเกิน 6,000 ตัวอักษร ⇒ ต้องคุมทั้งจำนวนฟิลด์ **และ** งบตัวอักษรรวม
+  - ตัดแล้วต้อง **บอกว่าซ่อนไปกี่ชิ้น** ใน footer ไม่ใช่หายเงียบ ๆ
+- **Rule:** (1) 🔴 **เพดานที่ไลบรารีไม่ได้บังคับ = ความรับผิดชอบของเรา** อย่าเขียนเทสต์ที่พึ่ง exception จากไลบรารี — วัดค่าจริงแทน (2) 🔴 **ตัวเลขเพดานของบุคคลที่สาม (Discord) ต้องเขียนเป็นเลขตรง ๆ ในเทสต์** ไม่ใช่ดึงจากค่าคงที่ของเรา ไม่งั้นเทสต์จะตรวจตัวเอง (3) ✅ วิธีพิสูจน์ว่าข้อสอบมีพลัง: ถอดเพดานออกแล้วรันซ้ำ ต้องเห็น fail ตรงจุดที่ล็อกบั๊ก
+- **Tests:** `bot_discord/tests/test_task_embed.py` (`PremiseTest` ยืนยันว่า discord.py ไม่ตรวจ · `_assert_within_discord_limits` วัดค่าจริง · ถอดเพดานออก → 6/74 fail)
+- **Date Added:** 2026-09-25
+
+### 🔌 `while True` ที่สร้าง connection ใหม่ทุกรอบโดยไม่มี `finally` = รั่ว connection ทุกครั้งที่ reconnect (M12)
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (M12) — `RedisListener.listen_to_redis` เป็น `while True:` ที่สร้าง `aioredis.from_url(...)` ใหม่ทุกรอบ แต่ **ไม่มี `finally`** ปิดตัวเก่า ⇒ ทุกครั้งที่หลุดจะทิ้ง connection pool + pubsub ค้างไว้ทั้งชุด ⇒ reconnect ซ้ำ ๆ กิน connection ของ Redis จนหมด อาการที่ผู้ใช้เห็นคือ **"บอทเงียบ"** แล้ว Redis ปฏิเสธการเชื่อมต่อใหม่ — ซึ่งอ่านจาก log ของบอทไม่ออกเลยว่าต้นเหตุคือ connection ของตัวเอง
+  🔴 **เกิดตอนบูตด้วย ไม่ใช่แค่ตอนเน็ตกระตุก** — ถ้าตู้ Redis ยังไม่ตื่น `ping()` จะล้ม แล้ววนซ้ำทุก 5 วินาที ⇒ **ตอน deploy (ที่ Redis กับบอทสตาร์ทพร้อมกัน) คือเคสที่เกิดชัวร์** ⇒ บั๊กที่ดูเหมือน "เน็ตมีปัญหาเป็นครั้งคราว" จริง ๆ แล้วเกิดทุกครั้งที่ deploy
+- **Root Cause:** `try/except` ที่ครอบ **การใช้งาน** แต่ไม่ครอบ **การทำความสะอาด** — ตัวแปรถูกประกาศ **ใน** `try` ⇒ `except`/`finally` มองไม่เห็นของที่สร้างไปแล้วครึ่งทาง ⇒ ทางที่ผิดพลาดจึงไม่มีใครปิดให้
+  ⚠️ **รายละเอียดที่พลาดง่าย:** `except Exception` **ไม่ดัก** `BaseException` ⇒ ถ้าออกจากลูปด้วย `CancelledError` (ตอนปิดบอท) บล็อก `finally` ต้องยังทำงาน — ซึ่งเป็นพฤติกรรมที่ต้อง **ออกแบบให้ถูก** ไม่ใช่บังเอิญ
+- **Correct Pattern/Solution:** ประกาศตัวแปร **นอก** `try` แล้วปิดใน `finally` แบบ best-effort
+  ```python
+  while True:
+      redis_client = None; pubsub = None      # ⬅️ นอก try เสมอ
+      try:
+          redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+          ...
+      finally:
+          if pubsub is not None:
+              try: await pubsub.aclose()      # ⚠️ redis>=5: `close()` เป็น deprecated
+              except Exception as e: logger.warning(...)   # ปิดไม่สำเร็จต้องไม่ฆ่า loop
+  ```
+  🔑 **ปิดแบบ best-effort โดยเจตนา** — ถ้าการปิดที่ล้มเหลวทำให้ loop ตาย บอทจะไม่ reconnect เลย **ซึ่งแย่กว่าการรั่ว** ⇒ ห่อ `try/except` แยกต่อ resource
+- **Rule:** (1) 🔴 **ทุกลูปที่สร้าง resource ใหม่ต้องมี `finally` ที่บรรทัดเดียวกัน** ไม่ใช่พึ่ง GC หรือ context manager ที่ครอบไม่ถึง (2) 🔴 **ตัวแปรที่ต้องปิดต้องถูกประกาศก่อน `try`** ไม่งั้น `except`/`finally` เข้าถึงไม่ได้ (3) ⚠️ **การทำความสะอาดที่ล้มเหลวต้องไม่ทำให้ลูปตาย** (4) ✅ เทสต์ที่พิสูจน์ได้ต้อง**นับจำนวนรอบ** ไม่ใช่แค่ assert ว่าไม่โยน — ใช้ `CancelledError` จาก `from_url` เป็นทางออกที่ตั้งใจ เพราะ `except Exception` ไม่ดัก `BaseException` ⇒ `finally` ทำงานครบและรู้แน่ว่ารันกี่รอบ
+- **Tests:** `bot_discord/tests/test_redis_listener_resources.py` (3 ตัว · ลบบล็อก `finally` ออก → 3/3 fail)
+- **Date Added:** 2026-09-25
+
+### 🔒 `followup.send()` **ไม่สืบทอด** `ephemeral` จาก `defer()` (M9)
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (M9) — `/finance debtors` และ `/finance collection` แสดง "ชื่อนักเรียน + ยอดเงิน" เป็นรายคน แต่ตอบแบบสาธารณะ ⇒ ครูรันในห้องประกาศแล้วทั้งเซิร์ฟเวอร์เห็นว่าใครค้างเท่าไร
+  🔎 `my-debts` ทำถูกอยู่แล้ว ⇒ ปัญหาไม่ใช่ "ไม่รู้จัก ephemeral" แต่เป็น **ความไม่สม่ำเสมอระหว่างคำสั่งที่หน้าตาคล้ายกัน**
+- **Root Cause:** `defer()` กับ `followup.send()` เป็นคนละการเรียก และ **`ephemeral` ไม่ไหลตามกัน** ⇒ `await interaction.response.defer()` เฉย ๆ แล้ว `followup.send(embed=..., ephemeral=True)` จะเหลือ **"Bot is thinking…" ค้างสาธารณะ** ในห้อง
+  ⚠️ **ข้อความ error ก็ต้อง ephemeral ด้วย** — ข้อความ error อาจมีรายละเอียดภายใน
+- **Correct Pattern/Solution:** คำสั่งที่เปิดเผยข้อมูลรายคนต้อง ephemeral **ทั้งเส้น** ตั้งแต่ `defer()`
+  ```python
+  await interaction.response.defer(ephemeral=True)          # ⬅️ ต้องมี
+  ...
+  await self._reply(interaction, embed, ephemeral=True)
+  ```
+  📌 **`/finance summary` ตั้งใจให้เป็นข้อความสาธารณะต่อไป** — เป็นยอดรวมของห้อง ไม่มีชื่อใคร · ถ้าวันหนึ่งมีคนเพิ่มชื่อลงใน embed นั้น ต้องพลิกเป็น ephemeral ด้วย
+- **Rule:** (1) 🔴 **ข้อมูลรายคน = ephemeral ทั้งเส้น รวม `defer()`** (2) 🔴 **"ข้อมูลภาพรวม" กับ "ข้อมูลรายคน" เป็นคนละนโยบาย** — การรวมยอดไม่ต้อง ephemeral แต่พอมีชื่อต้องพลิกทันที ⇒ เขียนกติกานี้ไว้ใน docstring ของ cog ไม่ใช่ปล่อยให้เป็นความรู้ในหัว (3) ⚠️ คำสั่งที่หน้าตาคล้ายกันต้องมีนโยบายเหมือนกัน — ความไม่สม่ำเสมอคือร่องรอยของบั๊ก
+- **Tests:** ยังไม่มีเทสต์อัตโนมัติ (ต้องมี Discord จริง) — อาศัย docstring ของ cog เป็นที่เก็บกติกา
+- **Date Added:** 2026-09-25
+
+### 🌿 ไฟล์ "หายไป" จากแบรนช์ ≠ ไฟล์หาย — commit ที่ถูก cherry-pick ไปอยู่คนละเส้นทาง
+- **Context/Problem:** รันเทสต์บอททั้งชุดบนแบรนช์ `fix/audit-h4-roster-status` ได้ **40 ตัว** แต่คาดว่า **61** (37 + 21 + 3) ⇒ สงสัยว่า unittest discovery ข้ามโมดูลไปเงียบ ๆ (ซึ่งจะแปลว่าเทสต์ที่เขียนไว้ไม่เคยถูกรัน)
+- **Root Cause:** `test_api_client.py` **ไม่ได้หายไป** — มันถูก commit ไว้บนแบรนช์ `fix/audit-h5-frontend-errors` ซึ่งมี **สามคอมมิตซ้อนกัน** (H5 frontend → H7 bot → H8+M8 bot) ส่วนแบรนช์ที่รันเทสต์นั้นแยกจาก `main` ⇒ เห็นแค่ 37 + 3 = 40 ซึ่ง **ตรงกับการ discovery พอดี** ⇒ discovery ไม่ได้ข้ามอะไรเลย
+  🔎 **สิ่งที่ทำให้เกือบสรุปผิด:** ตัวเลข 40 "ดูน้อยกว่า" 61 จึงชวนให้ตั้งสมมติฐานว่าเครื่องมือพัง ทั้งที่คำอธิบายง่ายกว่าคือ **แบรนช์ต่างกัน**
+- **Correct Pattern/Solution:** ก่อนสรุปว่าไฟล์/เทสต์หาย ให้ถาม git ตรง ๆ
+  ```bash
+  git log --oneline --all -- path/to/file          # ไฟล์นี้อยู่ในคอมมิตไหน
+  git branch --contains <sha>                      # แบรนช์ไหนมีคอมมิตนั้น
+  git cat-file -e <branch>:path/to/file && echo YES  # มีจริงบนแบรนช์นั้นไหม
+  ```
+  🔑 **และแก้ที่ต้นเหตุของความสับสน:** คอมมิตหลายเรื่องที่ซ้อนบนแบรนช์เดียวทำให้ **PR หนึ่งใบพาสามเรื่องไปด้วย** ⇒ แตกเป็นแบรนช์ละเรื่อง (`git branch -f` ย่อแบรนช์ที่ยังไม่ push ได้) แล้ว cherry-pick เรื่องที่เหลือลงแบรนช์ใหม่ที่แยกจาก `main`
+- **Rule:** (1) 🔴 **ตัวเลขเทสต์ไม่ตรงให้ตรวจ "แบรนช์" ก่อน "เครื่องมือ"** — คำอธิบายที่ต้องสมมติว่าทุกอย่างพังมักไม่ใช่คำตอบ (2) 🔴 **หนึ่งคอมมิต = หนึ่งเรื่อง และหนึ่งแบรนช์ = หนึ่งเรื่อง** — คอมมิตที่ซ้อนกันจะทำให้ทั้งการนับเทสต์และการรีวิวสับสน (3) ✅ ยืนยันด้วยคำสั่ง git ที่ตอบตรงคำถาม แทนการเดาจากอาการ
+- **Tests:** ไม่มี (เป็นบทเรียนกระบวนการ) — ตรวจด้วย `git log --all -- bot_discord/tests/test_api_client.py` แล้วเจอคอมมิตเดียวคือ `afb5c3e`
+- **Date Added:** 2026-09-25
+
+### ⚙️ GitHub Actions อ่าน `.github/workflows/` **ที่ราก repo เท่านั้น** — ไฟล์ในโฟลเดอร์ย่อยไม่เคยถูกรัน
+- **Context/Problem:** ตรวจระบบ 2026-09-23 (T1) บันทึกไว้ว่า "ไม่มี CI เลย" ต่อมาพบไฟล์ `deploy.yml` **สามไฟล์** ⇒ เกือบสรุปผิดสองทาง: ทั้งที่ "ไม่มี CI" และ "มี CI ที่ deploy อัตโนมัติ"
+- **Root Cause:** ไฟล์อยู่ที่ `backend/.github/workflows/deploy.yml`, `frontend/.github/...`, `bot_discord/.github/...` ⇒ **GitHub ไม่เคยอ่าน** เพราะ Actions ค้นหา workflow ที่ **`.github/workflows/` ของราก repository เท่านั้น** ⇒ ไฟล์เหล่านี้เป็นไฟล์ตาย
+  🔎 **และถึงถูกอ่านก็ยังพัง:** ทุกไฟล์ `cd ~/classroom-management/classroom-management_backend` แต่ checkout จริงอยู่ที่ `~/classroom-management_project/classroom-management/` ⇒ path ไม่ตรง และคำสั่ง restart ทุกตัวถูกคอมเมนต์ทิ้งไว้
+  🔑 **ข้อสรุปที่สำคัญต่อความปลอดภัย:** การ merge เข้า `main` **ไม่** ทำให้ production deploy — การ deploy ยังเป็น `./pull_all.sh` ที่รันมือจาก checkout ของ production เท่านั้น
+- **Correct Pattern/Solution:** (1) ถ้าต้องการ CI ให้ย้ายไปที่ `.github/workflows/` ที่ราก (2) ถ้าไม่ใช้ ให้ **ลบไฟล์ตายทิ้ง** เพราะไฟล์ deploy ที่ไม่ทำงานคือกับดักความเข้าใจ — คนอ่านจะเชื่อว่ามี safety net ทั้งที่ไม่มี
+  ⚠️ **อย่าเข้าใจผิดว่า "มีไฟล์ = มี CI"** — ต้องยืนยันว่า workflow ถูกสั่งรันจริง (ดูแท็บ Actions หรือ `gh run list`)
+- **Rule:** (1) 🔴 **ยืนยันว่า CI ทำงานจริงก่อนเชื่อว่ามี** — ไฟล์ที่วางผิดที่ให้ความมั่นใจปลอมแบบเดียวกับเทสต์ที่ไม่เคยรัน (2) 🔴 **ไฟล์ deploy/infra ที่ไม่ได้ใช้ต้องถูกลบ** ไม่ใช่ปล่อยไว้ให้เข้าใจผิด (3) ✅ **"merge แล้ว deploy ไหม" ต้องตอบให้ได้ก่อนสั่ง merge** — คำตอบเปลี่ยนระดับความเสี่ยงของการกระทำทั้งหมด
+- **Tests:** ไม่มี (ตรวจด้วย `git ls-files | grep -i workflow` แล้วเทียบกับกติกาของ GitHub Actions)
+- **Date Added:** 2026-09-25
