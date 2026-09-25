@@ -1,0 +1,82 @@
+# ============================================================
+# .dockerignore — สิ่งที่ "ไม่" ถูกส่งเข้า build context ของ frontend
+#   context = ./frontend  (ดู `docker build ... ./frontend` ใน pull_all.sh)
+# ============================================================
+#
+# 🔴🔴 ห้ามเพิ่ม `.env` ลงในไฟล์นี้ 🔴🔴
+#
+#   `pull_all.sh` ข้อ 3 ทำ `cp .env frontend/.env` **ก่อน** สั่ง build โดยเจตนา
+#   ⇒ Vite อ่าน `VITE_*` จากไฟล์นั้นตอน build แล้ว **ฝังค่าลงในบันเดิล**
+#
+#   ⚠️ ถ้า ignore `.env` การ build **ยังผ่านปกติ ไม่มี error ไม่มี warning**
+#      แต่ `import.meta.env.VITE_*` จะกลายเป็น `undefined` ทั้งชุด ⇒
+#        • `src/services/api.ts` ตกไปใช้ fallback `http://localhost:8000`
+#          ⇒ ผู้ใช้จริงเรียก API ไม่ได้ทั้งระบบ
+#        • `VITE_DISCORD_CLIENT_ID` / `VITE_GOOGLE_CLIENT_ID` หาย ⇒ ลิงก์ OAuth
+#          กลายเป็น `client_id=undefined` ⇒ ล็อกอินไม่ได้เลย
+#
+#   ⇒ ความผิดพลาดชนิดนี้ **ไม่ปรากฏตอน build** ไปโผล่ที่หน้าจอผู้ใช้เท่านั้น
+#      ซึ่งเป็นอาการเดียวกับบั๊กที่ผลตรวจ 2026-09-23 จับได้หลายข้อ (H5/H8)
+#
+# 📌 ค่าที่ Vite เปิดให้ฝั่ง client เห็นมีแค่คีย์ที่ขึ้นต้นด้วย `VITE_` เท่านั้น
+#    ส่วนความลับอื่นในไฟล์เดียวกัน (JWT_SECRET, รหัส DB) ไม่ถูกฝังลงบันเดิล
+#    และ stage สุดท้ายคัดลอกมาแค่ `/app/dist` ⇒ ไม่ติดไปกับอิมเมจที่ deploy
+
+# ---- dependencies: ให้คอนเทนเนอร์ติดตั้งเองเสมอ ----
+# Dockerfile จงใจแบ่งเป็น `COPY package*.json` → `npm install` → `COPY . .`
+# เพื่อให้ layer ของ dependency ถูก cache ไว้
+#
+# 🔴 ถ้าไม่ ignore บรรทัดนี้ `COPY . .` จะทับ node_modules ที่คอนเทนเนอร์เพิ่ง
+#    ติดตั้ง ด้วยของจากเครื่อง host — ซึ่งเป็น glibc ขณะที่อิมเมจเป็น alpine (musl)
+#    คนละ platform กัน ⇒ ที่ยัง build ผ่านทุกวันนี้เพราะ `COPY` **รวม** ไฟล์
+#    ไม่ได้ลบของเดิม (ตัว musl ที่ npm install สร้างไว้จึงยังอยู่)
+#    = ผ่าน "โดยบังเอิญ" ไม่ใช่โดยการออกแบบ
+# 🔴 และทำให้ build context โตเป็น 374MB (ในนั้น 370MB คือ node_modules)
+#    ต้องส่งเข้าดาโมนใหม่ทุกครั้งที่ build
+node_modules
+
+# ---- ผลลัพธ์จาก build: ให้สร้างใหม่ทุกครั้ง ----
+dist
+dist-ssr
+# เศษจาก docker build รอบเก่าที่ลบไม่ได้เพราะไฟล์เป็นของ root (ดูหมายเหตุใน .gitignore)
+# ถ้ามีอยู่จริงและสิทธิ์อ่านไม่ได้ `COPY . .` จะล้มทั้งการ build
+dist_old_rootowned
+
+# ---- artifacts ของเครื่องมือทดสอบ (ไม่เกี่ยวกับการ build) ----
+coverage
+test-results/
+playwright-report/
+__screenshots__/
+cypress/videos/
+cypress/screenshots/
+
+# ---- cache ของ TypeScript / ESLint และ log ----
+*.tsbuildinfo
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs
+
+# ---- ไฟล์ของ editor / OS ----
+.DS_Store
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ---- workflow ของ CI: ไม่ต้องใช้ตอน build ----
+# (และไฟล์ในโฟลเดอร์นี้เป็น workflow ที่ GitHub ไม่เคยอ่าน — ดู docs/skills.md)
+.github
+
+# ℹ️ ตั้งใจ **ไม่** ignore สิ่งเหล่านี้
+#   • .env          → จำเป็นต่อการ build (ดูคำเตือนด้านบน)
+#   • e2e/          → เล็ก และ playwright.config.ts อ้างถึงอยู่ ถ้าไม่จำเป็นอย่าเสี่ยง
+#   • public/       → ถูกคัดลอกเข้า dist จริง (favicon, sitemap, svg)
+#   • ไฟล์ config ทั้งหมด (tsconfig*, vite/vitest/playwright/eslint/postcss/tailwind)
+#     → `vue-tsc --build` และ `vite build` อ่านทุกตัว
