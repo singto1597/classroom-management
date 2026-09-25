@@ -98,9 +98,28 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isFetchingProfile = ref(false); 
 
-  const fetchProfile = async () => {
-    if (!token.value || isFetchingProfile.value) return;
-    
+  /**
+   * ดึงโปรไฟล์ล่าสุดจาก Backend แล้วเขียนทับค่าทั้งหมดใน store + localStorage
+   *
+   * @returns `true` = **ไม่มีความล้มเหลวให้รายงาน** · `false` = ดึงไม่สำเร็จ
+   *
+   * 🔑 ทำไมต้องคืนค่า (เดิมเป็น `void` แล้วกลืน error ด้วย `console.error` เฉย ๆ):
+   *    ผู้เรียกที่ต้องรู้ว่า "ข้อมูลพร้อมใช้แล้วหรือยัง" แยกไม่ออกระหว่าง
+   *    **"ดึงเสร็จและค่าว่าง"** กับ **"ดึงไม่สำเร็จแล้วยังค่าว่าง"** — ทั้งสองอย่าง
+   *    มองจากข้างนอกเหมือนกันเป๊ะ ⇒ หน้าออนบอร์ดจึงขึ้นฟอร์มว่างเปล่าโดยไม่บอกอะไร
+   *    ⇒ คนที่มีข้อมูลอยู่ในระบบแล้ว (ล็อกอินเครื่องใหม่ / เน็ตสะดุด) เข้าใจว่า
+   *      "ข้อมูลหาย" หรือกรอกทับข้อมูลเดิมของตัวเองโดยไม่รู้ตัว
+   *
+   * ⚠️ `true` สองกรณีแรก (ไม่มี token / มีรอบค้างอยู่) หมายถึง **"ไม่มีอะไรต้องรายงาน"**
+   *    ไม่ได้แปลว่า "ดึงข้อมูลมาแล้ว" — ผู้เรียกต้องอ่านค่าจริงจาก store อีกชั้น
+   *    (ปัจจุบันมี Onboarding เป็นผู้ใช้ค่าที่คืนเพียงรายเดียว และอยู่บนเส้นทางที่มี token แน่นอน)
+   */
+  const fetchProfile = async (): Promise<boolean> => {
+    // ยังไม่ล็อกอิน = ไม่มีอะไรให้ดึง และไม่ใช่ความล้มเหลว
+    if (!token.value) return true;
+    // มีการดึงค้างอยู่แล้ว = รอบนี้ถูกข้าม ไม่ใช่ความล้มเหลว
+    if (isFetchingProfile.value) return true;
+
     isFetchingProfile.value = true;
     try {
       const data = await api.get(`/api/auth/me`) as unknown as UserProfileResponse;
@@ -143,8 +162,12 @@ export const useAuthStore = defineStore('auth', () => {
       if (phoneNumber.value) localStorage.setItem('user_phone_number', phoneNumber.value);
       else localStorage.removeItem('user_phone_number');
 
+      return true;
     } catch (error) {
+      // 🔕 ยัง log ไว้เหมือนเดิม (เป็นร่องรอยให้ dev) แต่ **ไม่กลืน** อีกต่อไป —
+      //    คืน `false` ให้ผู้เรียกรู้ว่าข้อมูลที่อ่านได้ยังไม่ใช่ของจริง
       console.error("Failed to fetch user profile", error);
+      return false;
     } finally {
       isFetchingProfile.value = false;
     }

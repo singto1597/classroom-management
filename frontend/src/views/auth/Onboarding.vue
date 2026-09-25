@@ -142,10 +142,36 @@ const selectAddress = (option: AddressOption) => {
 
 // 📥 ดึงโปรไฟล์ล่าสุดจาก Backend ก่อน Pre-fill เพื่อข้อมูลสดใหม่เสมอ
 // แล้วค่อย Pre-fill ข้อมูลทั้งหมดที่มีจาก authStore เพื่อลดการพิมพ์ซ้ำ
+//
+// 🔑 เดิมกลืน error เงียบ ๆ (fetchProfile เป็น void) ⇒ ผู้ใช้เห็น **ฟอร์มว่างเปล่า**
+//    ซึ่งอ่านได้สองความหมาย: "ยังไม่มีข้อมูลในระบบ" หรือ "มีข้อมูลแต่ดึงไม่สำเร็จ"
+//    ⇒ คนที่ล็อกอินเครื่องใหม่ หรือเน็ตสะดุดตอนเปิดหน้า (เช่นตอน deploy ที่ backend
+//      รีสตาร์ท) จะเข้าใจว่าข้อมูลหาย แล้ว **กรอกทับข้อมูลเดิมของตัวเอง**
+//    ตอนนี้แยกสองกรณีออกจากกันชัดเจน: ดึงไม่สำเร็จ = บอกผู้ใช้ + ให้ลองใหม่ได้
+//
+// ⚠️ โครงร่าง (SkeletonRows) ยังแสดงอยู่ตลอดทั้งลูปนี้ เพราะ `isLoadingPage`
+//    ถูกลดเป็น false ที่ `finally` เท่านั้น ⇒ ระหว่างที่กล่องยืนยันโช่อยู่
+//    ผู้ใช้จะไม่เห็นฟอร์มว่างโผล่มาก่อน
 const loadProfile = async () => {
   try {
-    if (authStore.isAuthenticated) {
-      await authStore.fetchProfile();
+    // ยังไม่ล็อกอิน = ไม่มีอะไรให้ดึง ข้ามไป pre-fill จาก store ตามเดิม
+    while (authStore.isAuthenticated) {
+      if (await authStore.fetchProfile()) break;
+
+      const { isConfirmed } = await Swal.fire({
+        icon: 'warning',
+        title: 'ดึงข้อมูลเดิมไม่สำเร็จ',
+        text: 'ระบบดึงโปรไฟล์เดิมของคุณไม่ได้ ฟอร์มด้านล่างจึงยังว่างอยู่ — ถ้ากรอกต่อ ข้อมูลเดิมที่มีในระบบจะถูกแทนที่ด้วยสิ่งที่กรอกใหม่',
+        confirmButtonText: 'ลองใหม่',
+        cancelButtonText: 'กรอกเอง',
+        showCancelButton: true,
+        confirmButtonColor: '#1d4ed8',
+        cancelButtonColor: '#6b7280',
+      });
+
+      // กด "กรอกเอง" = ยอมรับความเสี่ยงเอง ⇒ ไปต่อด้วยฟอร์มว่าง
+      // ⚠️ ทางออกนี้ต้องมี ไม่งั้นผู้ที่ Backend ล่มถาวรจะออนบอร์ดไม่ได้เลย
+      if (!isConfirmed) break;
     }
 
     form.value.prefix = authStore.prefix ?? '';
