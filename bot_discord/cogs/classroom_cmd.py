@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import datetime
 from datetime import timezone, timedelta
+import logging
 import re
 
 from ui import edit_task_ui
@@ -16,6 +17,8 @@ from services.task_embed import build_no_pending_tasks_embed, build_pending_task
 from services.reply_embed import error_embed, info_embed, success_embed
 
 THAI_TZ = timezone(timedelta(hours=7))
+
+logger = logging.getLogger("DISCORD_BOT")
 
 @app_commands.guild_only()
 class BotCommands(commands.Cog):
@@ -55,9 +58,16 @@ class BotCommands(commands.Cog):
                     
                     choices.append(app_commands.Choice(name=display_name, value=t['id']))
             return choices[:25]
-        except:
+        except APIException:
+            # API ล่ม = ไม่มีตัวเลือกให้เสนอ · autocomplete ที่โยน error จะทำให้ Discord
+            # ขึ้น "โหลดตัวเลือกไม่สำเร็จ" ซึ่งไม่ได้ช่วยอะไรผู้ใช้ ⇒ เงียบไว้ถูกแล้ว
             return []
-    
+        except Exception:
+            # ⚠️ แต่ข้อผิดพลาดที่ไม่คาดคิด (คีย์ใน response เปลี่ยน / รูปข้อมูลไม่ตรง)
+            #    ต้องมีร่องรอย ไม่งั้นอาการ "autocomplete ขึ้นแต่รายการว่าง" วินิจฉัยไม่ได้เลย
+            logger.exception("autocomplete งานค้างล้มเหลว (server_id=%s)", server_id)
+            return []
+
     async def deleted_task_autocomplete(self, interaction: discord.Interaction, current: str):
         server_id = interaction.guild_id
         try:
@@ -72,9 +82,13 @@ class BotCommands(commands.Cog):
                     if len(display_name) > 100: display_name = display_name[:95] + "..."
                     choices.append(app_commands.Choice(name=display_name, value=t['id']))
             return choices[:25]
-        except:
+        except APIException:
+            # เหตุผลเดียวกับ task_autocomplete ด้านบน
             return []
-    
+        except Exception:
+            logger.exception("autocomplete งานที่ถูกลบแล้วล้มเหลว (server_id=%s)", server_id)
+            return []
+
     @tasks.loop(minutes=1)
     async def daily_notification(self):
         now = datetime.datetime.now(THAI_TZ)

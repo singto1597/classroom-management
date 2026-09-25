@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import random
@@ -1530,3 +1531,55 @@ async def test_add_student_permissions_string_database(db_pool):
         room_id=room_id,
     )
     assert data["permissions"] == ["MANAGE_STUDENTS"]
+
+
+# === Section 11: L4 — `_parse_permissions` ต้องไม่กลืน BaseException และต้องคืน list เสมอ ===
+
+
+async def test_parse_permissions_returns_empty_for_non_array_json():
+    """🔴 L4: ค่าที่ parse แล้วไม่ใช่ list ต้องไม่ถูกคืนออกไปดิบ ๆ
+
+    `_parse_permissions` ประกาศคืน `List[str]` แต่ `json.loads` คืนได้ทุกชนิด
+    ⇒ เดิมสตริง `'"MANAGE_STUDENTS"'` (JSON string) จะถูกคืนเป็น **สตริง**
+      ผู้เรียกที่วนลูปจะได้ตัวอักษรทีละตัว และ `.includes()` กลายเป็น substring match
+    """
+    assert StudentService._parse_permissions('"MANAGE_STUDENTS"') == []
+    assert StudentService._parse_permissions('{"MANAGE_STUDENTS": true}') == []
+    assert StudentService._parse_permissions("123") == []
+    assert StudentService._parse_permissions("null") == []
+
+
+async def test_parse_permissions_still_parses_valid_array():
+    """กัน regression: การเพิ่ม guard ต้องไม่ทำให้ค่าที่ถูกต้องพัง"""
+    assert StudentService._parse_permissions('["MANAGE_STUDENTS"]') == ["MANAGE_STUDENTS"]
+    assert StudentService._parse_permissions(["EXPORT_STUDENTS"]) == ["EXPORT_STUDENTS"]
+    assert StudentService._parse_permissions(None) == []
+    assert StudentService._parse_permissions([]) == []
+
+
+async def test_parse_permissions_tolerates_invalid_json():
+    """JSON ที่พังต้องได้ [] ไม่ใช่ exception"""
+    assert StudentService._parse_permissions("ไม่ใช่ json เลย") == []
+    assert StudentService._parse_permissions("{ขาดวงเล็บ") == []
+
+
+async def test_parse_permissions_does_not_swallow_baseexception():
+    """🔴 L4 หัวใจของเรื่อง: เดิมเป็น `except:` เปล่า ซึ่งดัก **ทุกอย่าง**
+
+    `asyncio.CancelledError` และ `KeyboardInterrupt` สืบทอดจาก `BaseException`
+    ไม่ใช่ `Exception` ⇒ bare `except` กลืนการยกเลิกงาน ⇒ ปิด/รีสตาร์ทระบบ
+    ไม่ทำงานตามที่ควร และหาสาเหตุไม่ได้เลยเพราะ error หายไปทั้งดุ้น
+
+    เทสต์นี้บังคับให้ `json.loads` โยน `KeyboardInterrupt` แล้วยืนยันว่ามัน **หลุดออกไป**
+    ⇒ ถ้ามีใครเปลี่ยนกลับเป็น `except:` (หรือ `except BaseException`) เทสต์นี้ล้มทันที
+    """
+    with patch("services.student.base.json.loads", side_effect=KeyboardInterrupt):
+        with pytest.raises(KeyboardInterrupt):
+            StudentService._parse_permissions('["MANAGE_STUDENTS"]')
+
+
+async def test_parse_permissions_does_not_swallow_cancelled_error():
+    """`asyncio.CancelledError` ก็เป็น `BaseException` เช่นกัน — ต้องหลุดออกไป"""
+    with patch("services.student.base.json.loads", side_effect=asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError):
+            StudentService._parse_permissions('["MANAGE_STUDENTS"]')
