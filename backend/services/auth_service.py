@@ -75,13 +75,19 @@ async def process_user_login(
     async with pool.acquire() as conn:
         try:
             async with conn.transaction():
+                # ⚠️ ห้ามเปลี่ยนเป็น SELECT * — ทั้งแถวนี้ไหลลง old_values ของ audit_logs
+                #    (ข้อมูลสุขภาพ/เบอร์โทร/ที่อยู่จะถูกคัดลอกไปตารางที่คนอ่านได้กว้างกว่ามาก)
+                #    ระบุคอลัมน์เท่าที่ใช้จริง: id + คีย์ระบุตัวตน 3 ตัวที่ใช้ตอนรวมบัญชี (บรรทัดล่าง ๆ)
+                #    ด่านสำรองอยู่ที่ core/logger.py::redact_sensitive แต่ต้นทางควรสะอาดก่อน
+                _IDENTITY_COLS = "id, email, google_id, discord_id"
+
                 existing_by_provider = await conn.fetchrow(
-                    "SELECT * FROM users WHERE (discord_id = $1 AND $1 IS NOT NULL) OR (google_id = $2 AND $2 IS NOT NULL) LIMIT 1",
+                    f"SELECT {_IDENTITY_COLS} FROM users WHERE (discord_id = $1 AND $1 IS NOT NULL) OR (google_id = $2 AND $2 IS NOT NULL) LIMIT 1",
                     payload.discord_id, payload.google_id
                 )
-                
+
                 existing_by_email = await conn.fetchrow(
-                    "SELECT * FROM users WHERE email = $1", payload.email
+                    f"SELECT {_IDENTITY_COLS} FROM users WHERE email = $1", payload.email
                 )
 
                 old_values = {}
@@ -194,10 +200,13 @@ async def link_oauth_account(
                 provider_id_val = str(profile.get('sub')) if provider == 'google' else int(profile['id'])
                 email = profile.get('email')
 
+                # ต้องดึง email/phone_number/birthday จริง ๆ เพราะบรรทัดล่างใช้ COALESCE ย้ายค่า
+                # ข้ามบัญชี — ค่าที่ดึงมาตรงนี้ไม่รั่ว เพราะ redact_sensitive() ปกปิดตอนเขียน log
                 query = f"SELECT id, email, phone_number, birthday FROM users WHERE {provider_id_col} = $1"
                 old_user = await conn.fetchrow(query, provider_id_val)
-                
-                curr_user = await conn.fetchrow(f"SELECT id, email, phone_number, birthday, {provider_id_col} FROM users WHERE id = $1", current_user_id)
+
+                # ดึงเท่าที่ใช้: id สำหรับ log, provider_id_col สำหรับเช็คว่าผูกซ้ำไหม
+                curr_user = await conn.fetchrow(f"SELECT id, {provider_id_col} FROM users WHERE id = $1", current_user_id)
 
                 if curr_user and curr_user.get(provider_id_col) is not None and str(curr_user[provider_id_col]) != str(provider_id_val):
                     raise ForbiddenError(f"บัญชีนี้ผูกกับ {provider} ID {curr_user[provider_id_col]} อยู่แล้ว กรุณาใช้ ID เดิม")
