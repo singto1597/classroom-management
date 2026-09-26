@@ -3001,3 +3001,32 @@
 - **Rule:** (1) 🔴 **`CREATE TABLE IF NOT EXISTS` ในฟังก์ชันที่รันทุกบูต = การลบตารางใน DB ไม่ถาวร** — ต้องถอด DDL ก่อนเสมอ (2) 🔴 **การลบโมดูลต้องลบครบ โค้ด + DDL + fixture** ลบแค่ไฟล์ไม่พอ (3) ⚠️ **autouse fixture ที่อ้างตารางที่ถูกถอดจะพังยกชุด** ไม่ใช่พังเฉพาะเทสต์ที่เกี่ยวข้อง (4) ✅ ตรวจด้วย `grep` ทั้ง repo ก่อนสรุปว่า "ไม่มีใครใช้" — อย่าดูแค่รายชื่อไฟล์ที่ถูกลบใน git
 - **Tests:** เทสต์ backend ทั้งชุด `1115 passed, 1 skipped, 0 failed` หลังถอด DDL — ยืนยันว่าไม่มีเทสต์ไหนพึ่งตาราง `mtn_*`
 - **Date Added:** 2026-09-25
+
+### 🩺 `/health` ที่คืน **200** ตอน DB ล่ม = healthcheck ที่โกหก (H9)
+- **Context/Problem:** ผลตรวจระบบ 2026-09-23 (H9) พบว่า `health_check()` ใน `main.py` มีสาขา `except` ที่ `return {"status": "error"}` **โดยไม่ตั้ง HTTP status** ⇒ FastAPI คืน **200 พร้อม body ที่บอกว่า error** — ฟังดูเหมือนแค่เรื่องความสวยงามของ API แต่จริง ๆ แล้วมันปิดสวิตช์ safety net ทั้งตัวของ Swarm
+- **Root Cause:** `docker-compose.app.yml` ผูก healthcheck ของ backend ไว้กับ `curl -f http://localhost:8000/health` และ **`curl -f` (fail) จะ exit != 0 เฉพาะเมื่อ HTTP status >= 400** ⇒ เมื่อ backend ต่อ DB ไม่ได้ มันยังตอบ 200 ⇒ `curl -f` **ผ่าน** ⇒ Swarm นับ task นั้นว่า `healthy` ทั้งที่ให้บริการจริงไม่ได้เลย
+  🔴 **ผลที่ร้ายจริงอยู่ที่จังหวะ deploy:** `update_config: {order: start-first}` + `replicas: 3` ⇒ Swarm เห็น task ใหม่ "healthy" จึง**ฆ่า task เก่าที่ใช้งานได้จริงทิ้ง** ⇒ ผู้ใช้เจอ error จากทุก request แทนที่จะเป็น "deploy ล้ม แล้วของเก่ายังรับงานอยู่" — คือความเสียหายเต็มจำนวนจากการ deploy ที่ควรจะไม่มีผลกระทบ
+  🔎 **ตระกูลเดียวกับบั๊ก frontend ที่ไม่มี healthcheck** (502 ตอน deploy) ต่างกันแค่ชั้น: อันนั้น task ใหม่ยังไม่ทันฟังพอร์ต อันนี้ task ใหม่ฟังพอร์ตแล้วแต่ตอบ error ทุกคำขอ
+- **Correct Pattern/Solution:** `raise HTTPException(status_code=503, detail={"status": "error", "database": "disconnected"})` — และ `try` ต้องคร่อม**ทั้งบล็อก** (ทั้ง `acquire()` และ `fetchval()`) ไม่ใช่แค่ตอน acquire เพราะ connection ตายกลางทางเจอบ่อยกว่า
+  ⚠️ **ผลข้างเคียงที่ตั้งใจไว้ (ไม่ใช่บั๊ก):** เมื่อ DB ล่มจริง task ที่ healthcheck ไม่ผ่านจะถูก Swarm ฆ่าแล้วเริ่มใหม่เป็นวงจร ซึ่งดูเหมือนแย่ แต่ถูกต้องกว่า — task นั้นให้บริการไม่ได้อยู่แล้ว และการตายทำให้เห็นใน `docker service ps` แทนที่จะเงียบ ๆ คืน 200 ให้ผู้ใช้เป็นคนเจอ error เอง
+  ℹ️ **แก้ H9 แล้ว rolling update ยังมีสะดุดสั้น ๆ ได้ (วัดจริง: 3 จาก 45 ตัวอย่างเป็น `000`/`502`)** — healthcheck คุมแค่ตอน Swarm *ฆ่า task เก่า* ไม่ได้คุมตอน Traefik *เริ่มส่ง traffic ให้ task ใหม่* ⇒ อย่าคาดว่า 503 จะทำให้ deploy ไร้รอยต่อ
+- **Rule:** (1) 🔴 **`except` ที่ `return` เฉย ๆ ใน healthcheck = healthcheck ที่ไม่เคย fail** — ต้อง `raise HTTPException` ให้ status ตรงกับความจริงเสมอ (2) 🔴 **แก้ status code แล้วต้องมีเทสต์ที่ยืนยันว่า "มีคนใช้ status นั้นจริง"** — ไม่งั้นวันหนึ่งมีคนถอด `-f` ออกหรืองัดไปยิง path อื่น แล้ว 503 ก็ไร้ความหมายโดยไม่มีใครรู้ (3) ⚠️ **body ของ `/health` เป็น public route (ไม่มี auth)** ⇒ ห้ามให้ exception ต้นทางรั่วออก เพราะข้อความจาก asyncpg อาจพา host/port/user ของ DB ติดมา — คืนค่าคงที่เท่านั้น
+- **Tests:** `backend/tests/test_health_check.py` (ไฟล์ใหม่ 5 เทสต์) — ครอบทั้งเส้นปกติ (200), `acquire()` พัง (503), query พัง (503), ไม่รั่ว exception, และเทสต์ "สายไฟ" ที่**แกะ `docker-compose.app.yml` จริง** มาดูว่ามี `curl -f ... /health`
+  🔬 **ยืนยันว่าเทสต์จับบั๊กจริง (mutation test):** เอา `return {"status": "error"}` กลับไปใส่ ⇒ **3 จาก 5 เทสต์ fail** พร้อมข้อความ `HTTP/1.1 200 OK` คู่กับ `ConnectionRefusedError` ใน log
+  เทสต์ backend ทั้งชุดหลังแก้: `1120 passed, 1 skipped in 2639.73s`
+  ⚠️ **กับดักตอนเขียนเทสต์ตัวสุดท้าย:** `test_runner` เมานต์แค่ `./backend:/app` ⇒ ราก repo **ไม่ได้อยู่ในคอนเทนเนอร์** (`parents[2]` ชี้ไปที่ `/`) ⇒ เทสต์จะ `skip` เงียบ ๆ ตลอดกาล ต้องเมานต์ไฟล์ compose เข้าไปแบบอ่านอย่างเดียว (`./docker-compose.app.yml:/repo/docker-compose.app.yml:ro`) และ **ห้ามใช้ `yaml` module** เพราะ `PyYAML` ไม่อยู่ใน `requirements.txt` (ยืนยันแล้ว) — แยกด้วย indent เอา ไม่คุ้มที่จะเพิ่ม dependency เข้า production image เพื่อให้เทสต์อ่านไฟล์ได้
+- **Date Added:** 2026-09-26
+
+### 🏷️ `docker stack deploy` ที่ไม่ได้ `export IMAGE_TAG` = ถอยหลังเงียบ ๆ 8 สัปดาห์
+- **Context/Problem:** `docker-compose.app.yml` เขียน image ไว้ทั้งสามตัวเป็น `classroom-${ENV_NAME}-backend:${IMAGE_TAG:-latest}` ⇒ **`IMAGE_TAG` ไม่ใช่ค่าที่ compose หาเองจาก git** มันเป็นแค่ตัวแปร environment ที่ `pull_all.sh` เป็นคน `export` ให้
+- **Root Cause:** `pull_all.sh` กับ `oh_shit.sh` ต่างก็ `export IMAGE_TAG=$(git rev-parse --short HEAD)` เอง แต่ **สคริปต์ไม่มี `set -e`** และคำสั่งนี้อยู่ *หลัง* งานอื่น ⇒ ถ้ารัน `docker stack deploy` **มือ** (เช่นตอนแก้แค่ `.env` หรือแก้ compose โดยไม่ต้อง build ใหม่) จะไม่มีใคร export ให้ ⇒ `${IMAGE_TAG:-latest}` ตกไปใช้ tag `:latest`
+  🔴 **`classroom-{production,staging}-{backend,frontend,bot}:latest` ทั้ง 6 tag เก่ามาก** (ตรวจแล้ว: 8 สัปดาห์) และ **ไม่มีอะไร error** — `docker stack deploy` จะสำเร็จ, `docker service ls` จะขึ้น `3/3` สีเขียว ⇒ ได้ระบบที่ดูปกติแต่รันโค้ดย้อนหลังสองเดือน ซึ่งเป็นความผิดพลาดที่หาไม่เจอด้วยการดู service status
+- **Correct Pattern/Solution:** ก่อน `docker stack deploy` ด้วยมือ **ทุกครั้ง**
+  ```bash
+  export IMAGE_TAG=$(git rev-parse --short HEAD)
+  docker stack deploy -c docker-compose.app.yml ${ENV_NAME}_app
+  ```
+  🔑 **ทาสี `:latest` ทิ้งไม่ได้ ⇒ ต้องทาสี "ตัวที่รันจริง" แทน** — หลัง deploy ให้เทียบ `docker service inspect <svc> --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'` กับ `git rev-parse --short HEAD` ของ checkout เสมอ เพราะ `docker service ls` ไม่ได้โชว์ tag ให้ดู
+- **Rule:** (1) 🔴 **compose ที่อ้าง `${VAR}` ต้องมีคน `export` ให้ — ไม่มี = ค่า default ที่มักเป็น `latest`** และ `latest` ในเครื่องนี้คือ image เก่า ไม่ใช่ของใหม่ (2) 🔴 **`docker stack deploy` สำเร็จ + replica ครบ ≠ deploy ถูกเวอร์ชัน** — ต้องยืนยันที่ image tag/digest (3) ✅ แก้ `.env`/compose อย่างเดียวก็ต้อง `export IMAGE_TAG` เหมือนกัน — ไม่มีข้อยกเว้น
+- **Tests:** ไม่มี (เป็นบทเรียน infra) — ตรวจด้วย `grep -rn 'IMAGE_TAG' --include='*.yml' --include='*.sh' .` แล้วเทียบว่า compose อ้าง แต่สคริปต์เป็นคนให้ค่า
+- **Date Added:** 2026-09-26

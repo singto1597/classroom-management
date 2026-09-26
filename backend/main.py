@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncpg
@@ -83,13 +83,29 @@ app.include_router(activity_router.router, prefix="/api/classroom", tags=["Activ
 
 @app.get("/health", tags=["Health"])
 async def health_check():
+    """รายงานสถานะจริงของ service — **ต้องคืน 503 เมื่อ DB ต่อไม่ได้**
+
+    🚨 เดิมสาขา `except` คืน `{"status": "error"}` แต่ **HTTP status ยังเป็น 200**
+    ⇒ `curl -f` ใน healthcheck ของ Swarm (ดู `docker-compose.app.yml`) **ผ่านตลอด**
+    ⇒ task ที่ต่อ DB ไม่ได้ถูกนับว่า healthy ⇒ ระหว่าง rolling update Swarm
+    อาจสลับ request ไปหาตัวที่ให้บริการไม่ได้จริง (บั๊กชนิดเดียวกับที่ frontend
+    เจอตอนไม่มี healthcheck — ดู docs/skills.md)
+
+    ⚠️ ผลข้างเคียงที่ตั้งใจ: task ที่ DB หลุดจะถูก Swarm ฆ่าแล้วเริ่มใหม่
+    ซึ่งเป็นพฤติกรรมที่ถูกต้อง — task นั้นให้บริการไม่ได้อยู่แล้ว และการตาย
+    ทำให้เห็นใน `docker service ps` แทนที่จะเงียบ ๆ คืน 200
+    """
     try:
         # ถ้า Pool ทำงานได้ SELECT 1 จะคืนค่า 1
         async with app.state.db_pool.acquire() as conn:
             await conn.fetchval("SELECT 1")
         return {"status": "ok", "database": "connected"}
     except Exception as e:
-        return {"status": "error", "database": "disconnected"}
+        logger.warning(f"health check ล้มเหลว: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"status": "error", "database": "disconnected"},
+        )
     
 if __name__ == "__main__":
     import uvicorn
