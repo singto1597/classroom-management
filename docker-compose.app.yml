@@ -38,6 +38,18 @@ services:
     image: classroom-${ENV_NAME}-frontend:${IMAGE_TAG:-latest}
     networks:
       - traefik-public
+    # 🚨 ต้องมี healthcheck — ไม่งั้นเกิด 502 ชั่วคราวทุกครั้งที่ deploy
+    #    frontend ใช้ `order: start-first` ⇒ Swarm ถือว่า task ใหม่ "พร้อม" ทันทีที่สถานะเป็น
+    #    running แล้ว **ฆ่า task เก่าทิ้ง** ทั้งที่ nginx ข้างในยังไม่ทันฟังพอร์ต 80
+    #    ⇒ ช่วงเปลี่ยนผ่านมี task ที่ยังรับ request ไม่ได้ค้างอยู่หลัง Traefik = 502
+    #    (backend รอดเพราะมี healthcheck อยู่แล้ว ⇒ Swarm รอ healthy จริงก่อนสลับ)
+    #    วัดจริงตอน deploy 38ec9e6 (2026-09-25): เจอ 502 ~1 นาที บน class.singto1597.xyz
+    #    ตรวจแล้วว่า `curl` มีติดมากับ image (nginx:alpine) และคืน 200 เมื่อ nginx พร้อม
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     deploy:
       replicas: 3
       update_config:
