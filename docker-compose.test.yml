@@ -8,7 +8,20 @@ services:
       POSTGRES_PASSWORD: test_password
       POSTGRES_DB: test_smte_bot_db
     ports:
-      - "5433:5432" # ใช้พอร์ต 5433 จะได้ไม่ชนกับ DB หลักที่รันอยู่
+      # 🔒 ผูกกับ 127.0.0.1 เท่านั้น (แก้ 2026-09-26) — เดิมเป็น "5433:5432" ซึ่งผูกกับ 0.0.0.0
+      #    ⇒ เปิดให้เข้าจากอินเทอร์เน็ตได้ และ **ufw กันไม่ได้** เพราะ Docker ใส่กฎ iptables
+      #    ของตัวเองใน DOCKER chain ซึ่งถูกประเมินก่อนกฎของ ufw (เครื่องนี้ไม่มี
+      #    /etc/docker/daemon.json ⇒ ใช้ค่า default คือ docker คุม iptables เอง)
+      #
+      #    ทำไมอันตราย: `POSTGRES_USER: test_admin` ของ image ทางการถูกสร้างเป็น **superuser**
+      #    ⇒ ใครต่อติดก็สั่ง `COPY ... FROM PROGRAM` เพื่อรันคำสั่ง shell ในคอนเทนเนอร์ได้ (RCE)
+      #    (ประเมินแล้วความเสียหายจำกัด — DB ว่าง · ไม่มี bind mount จาก host ·
+      #     อยู่บน network `classroom-management_default` แยกจาก production ⇒ ไม่ทะลุถึงข้อมูลจริง
+      #     แต่ก็เป็นประตูที่ไม่จำเป็นต้องเปิดเลย)
+      #
+      #    test_runner ต่อผ่าน `test_db:5432` บน compose network อยู่แล้ว **ไม่ได้ใช้พอร์ตนี้**
+      #    ⇒ ผูก loopback ยังคงความสะดวกเดิม (ต่อจากเครื่อง host ได้ที่ localhost:5433)
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U test_admin -d test_smte_bot_db"]
       interval: 5s
