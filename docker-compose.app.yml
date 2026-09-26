@@ -2,7 +2,15 @@ version: "3.8"
 
 services:
   backend:
-    image: classroom-${ENV_NAME}-backend:${IMAGE_TAG:-latest}
+    # 🚨 ห้ามมี `:-latest` fallback — ดู docs/skills.md "docker stack deploy ที่ไม่ได้ export IMAGE_TAG"
+    #    `${IMAGE_TAG:?...}` ทำให้ "ลืม export" = deploy ล้มดัง ๆ แทนที่จะถอยไปรันอิมเมจ `:latest`
+    #    ซึ่งในเครื่องนี้อายุ 8 สัปดาห์ ⇒ ระบบดูปกติแต่รันโค้ดย้อนหลังสองเดือน (หาไม่เจอด้วย docker service ls)
+    #    ⚠️ ข้อความ error มีข้อจำกัด 2 ข้อ (ทดสอบจริง 2026-09-26 — ถ้าผิดข้อใดข้อหนึ่ง
+    #       docker จะ **ไม่ฟ้อง error** แต่เอาข้อความนั้นไปเป็นชื่อ tag เงียบ ๆ ⇒ แย่กว่าเดิม):
+    #         1. ต้องอยู่ในเครื่องหมายคำพูด (ทั้ง " และ ' ใช้ได้)
+    #         2. ห้ามมีเครื่องหมายขีด `-` — parser จะตัดที่ `-` เหมือนไวยากรณ์ `:-`
+    #            เช่น "a - b" จะกลายเป็น tag "b"
+    image: classroom-${ENV_NAME}-backend:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}
     env_file:
       - .env
     environment:
@@ -35,7 +43,8 @@ services:
         - "traefik.docker.network=traefik-public"
 
   frontend:
-    image: classroom-${ENV_NAME}-frontend:${IMAGE_TAG:-latest}
+    # 🚨 `:?` เช่นเดียวกับ backend (ดูข้อจำกัดของข้อความ error ที่หัวข้อ backend) — ห้าม fallback ไป `:latest`
+    image: classroom-${ENV_NAME}-frontend:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}
     networks:
       - traefik-public
     # 🚨 ต้องมี healthcheck — ไม่งั้นเกิด 502 ชั่วคราวทุกครั้งที่ deploy
@@ -65,7 +74,8 @@ services:
         - "traefik.docker.network=traefik-public"
 
   bot_discord:
-    image: classroom-${ENV_NAME}-bot:${IMAGE_TAG:-latest}
+    # 🚨 `:?` เช่นเดียวกับ backend (ดูข้อจำกัดของข้อความ error ที่หัวข้อ backend) — ห้าม fallback ไป `:latest`
+    image: classroom-${ENV_NAME}-bot:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}
     env_file:
       - .env
     environment:
