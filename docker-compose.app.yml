@@ -98,3 +98,4 @@ networks:
   shared_network:
     name: app-internal-${ENV_NAME}
     external: true
+# (ชั่วคราว) ทดสอบว่า path filter ของ CI · Compose จับการแก้ docker-compose*.yml จริง
