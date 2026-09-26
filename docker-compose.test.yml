@@ -37,6 +37,12 @@ services:
     user: "root"
     volumes:
       - ./backend:/app:z
+      # 🔗 เปิดให้เทสต์ `test_health_check.py::test_swarm_healthcheck_is_wired_to_the_503`
+      #    อ่าน healthcheck ของ backend ได้ — ไฟล์ compose อยู่ที่ราก repo ซึ่ง **ไม่ได้**
+      #    ถูกเมานต์เข้าไป (มีแค่ ./backend → /app) ⇒ ถ้าไม่เมานต์บรรทัดนี้ เทสต์นั้นจะ skip
+      #    ตลอดกาล แล้วคำรับประกันว่า "503 ถูกใช้จริง" ก็หายไปเงียบ ๆ
+      #    เมานต์แบบอ่านอย่างเดียว (ro) — เทสต์ต้องไม่แก้ไฟล์ deploy
+      - ./docker-compose.app.yml:/repo/docker-compose.app.yml:ro
     environment:
       # 🚨 OVERRIDE DATABASE_URL ให้ชี้มาที่ Test DB ตัวนี้แทน!
       - DATABASE_URL=postgresql://test_admin:test_password@test_db:5432/test_smte_bot_db
