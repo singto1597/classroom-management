@@ -1,0 +1,157 @@
+# ============================================================
+# CI · Compose
+# ============================================================
+#
+# 🕳️ **ทำไมต้องมีไฟล์นี้:** workflow อีกสามตัวกรอง path แบบแคบ
+#    (`backend/**`, `frontend/**`, `bot_discord/**`) ⇒ **การแก้ `docker-compose*.yml`
+#    ไม่เคยถูกตรวจเลย** — PR #86 ที่เพิ่มกับดัก `${IMAGE_TAG:?...}` จึงไม่มี check วิ่ง
+#    ทั้งที่เป็นคลาสของ change ที่แตะเส้นทาง deploy ตรง ๆ
+#
+# 📌 **ตรวจอย่างเดียว ไม่ deploy อะไรทั้งสิ้น** — ไม่ต้องมี secret ไม่ต้องมี network
+#    ใช้เวลาไม่ถึง 10 วินาที (ต่างจาก ci-backend ที่ราว 45 นาที)
+#
+# 🎯 **เทสต์ที่สำคัญที่สุดคือ "กับดักต้องล้ม" ไม่ใช่ "compose ต้องผ่าน"**
+#    เพราะกับดักนี้พังแบบ *เงียบ* ได้สองทาง ซึ่งทั้งคู่เคยเกิดขึ้นจริง (2026-09-26):
+#      1. ลบ `${IMAGE_TAG:?...}` ออก ⇒ ถอยไปใช้ `:latest` ซึ่งอายุ 8 สัปดาห์
+#      2. ใส่ขีด `-` ในข้อความ error ⇒ docker **ไม่ฟ้อง error** แต่ตัดที่ขีดตัวแรก
+#         แล้วเอาข้อความข้างหลังไปเป็นชื่อ tag เงียบ ๆ (ดู docs/skills.md)
+#    ⇒ สองข้อนี้จึงถูกบังคับด้วยเทสต์ ไม่ใช่ด้วยคอมเมนต์
+name: CI · Compose
+
+on:
+  pull_request:
+    paths:
+      - 'docker-compose*.yml'
+      - '.github/workflows/ci-compose.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'docker-compose*.yml'
+      - '.github/workflows/ci-compose.yml'
+
+concurrency:
+  group: ci-compose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    name: ตรวจ compose + กับดัก IMAGE_TAG
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # ① ตรวจโครงสร้างทุกไฟล์ — `--no-interpolate` ไม่แทนค่าตัวแปร
+      #    ⇒ ผ่านได้โดยไม่ต้องรู้ค่าจริง และไม่ต้องมีความลับใน workflow
+      - name: ตรวจโครงสร้าง compose ทุกไฟล์
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in docker-compose*.yml; do
+            if docker compose -f "$f" config --no-interpolate >/dev/null; then
+              echo "✅ $f"
+            else
+              echo "❌ $f — YAML/โครงสร้างผิด"
+              docker compose -f "$f" config --no-interpolate || true
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # ② กับดักต้องมีอยู่ และข้อความต้องไม่มีขีด `-`
+      #    (ตรวจนอก docker เพื่อให้ได้ข้อความ error ที่อ่านรู้เรื่อง
+      #     ไม่ใช่ "invalid interpolation format" ที่บอกอะไรไม่ได้)
+      - name: กับดัก IMAGE_TAG ต้องอยู่ และข้อความต้องไม่มีขีด
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          # ⚠️ ต้องสแกน **เฉพาะบรรทัด `image:`** ไม่ใช่ทั้งไฟล์
+          #    เพราะคอมเมนต์ในไฟล์นี้ยกตัวอย่าง `${IMAGE_TAG:?...}` ไว้ด้วย
+          #    (สแกนทั้งไฟล์แล้วนับได้ 4 ทั้งที่กับดักจริงมี 3 — พลาดมาแล้วรอบหนึ่ง)
+          lines = pathlib.Path('docker-compose.app.yml').read_text(encoding='utf-8').splitlines()
+          img_lines = [l for l in lines if re.match(r'\s*image:', l)]
+
+          if len(img_lines) != 3:
+              print(f"❌ บรรทัด `image:` มี {len(img_lines)} บรรทัด แต่ต้องมี 3")
+              sys.exit(1)
+
+          msgs = []
+          for l in img_lines:
+              found = re.findall(r'\$\{IMAGE_TAG:\?([^}]*)\}', l)
+              if not found:
+                  print(f"❌ บรรทัดนี้ไม่มีกับดัก ⇒ ถอยไปใช้ค่า default ได้อีกแล้ว")
+                  print(f"   {l.strip()}")
+                  print("   default ในเครื่องนี้คือ ':latest' ซึ่งอายุ 8 สัปดาห์")
+                  sys.exit(1)
+              msgs += found
+
+          bad = [m for m in msgs if '-' in m]
+          if bad:
+              print("❌ ข้อความ error มีเครื่องหมายขีด `-`")
+              for b in bad:
+                  print(f"   {b!r}")
+              print("   ⇒ docker จะ *ไม่ฟ้อง error* แต่ตัดที่ขีดตัวแรก แล้วเอาข้อความ")
+              print("      ข้างหลังไปเป็นชื่อ tag เงียบ ๆ = แย่กว่าไม่มีกับดัก")
+              sys.exit(1)
+
+          print(f"✅ กับดักครบ {len(msgs)} จุด และข้อความไม่มีขีด")
+          print(f"   ตัวอย่าง: {msgs[0]}")
+          PY
+
+      # ③ ทดสอบพฤติกรรมจริงด้วย compose engine ตัวเดียวกับที่ production ใช้
+      - name: กับดักต้องล้มดัง ๆ เมื่อไม่มี IMAGE_TAG
+        run: |
+          set -euo pipefail
+
+          # `env_file: - .env` ใน compose ต้องมีไฟล์จริง ไม่งั้น render ล้มด้วยเหตุผลอื่น
+          # สร้าง .env เปล่า — ไม่มีความลับใด ๆ ใน workflow นี้
+          : > .env
+
+          export ENV_NAME=ci
+          export API_DOMAIN=ci-api.example.com
+          export WEB_DOMAIN=ci-web.example.com
+
+          # ⚠️ ต้องตั้ง IMAGE_TAG **ก่อน** probe — ถ้าไม่ตั้ง กับดักจะทำให้ probe ล้ม
+          #    แล้วเราเข้าใจผิดว่า "runner ใช้ stack config ไม่ได้" (พลาดมาแล้วรอบหนึ่ง:
+          #    บนเครื่องนี้ซึ่งเป็น swarm manager จริง ก็ยังถอยไปใช้ compose config เงียบ ๆ)
+          #    ⇒ probe ที่ถูกต้องคือ "ลองตอนที่ทุกอย่างพร้อม" ถ้าผ่านแปลว่าใช้ได้จริง
+          export IMAGE_TAG=ci00000
+
+          # ใช้ `docker stack config` ให้ตรงกับที่ production ใช้ (`docker stack deploy`)
+          # แต่ runner ของ GitHub ไม่ได้อยู่ใน swarm mode ⇒ ถ้าใช้ไม่ได้ให้ถอยไป
+          # `docker compose config` ซึ่งใช้ compose-go ตัวเดียวกัน ⇒ กติกา `${VAR:?...}` เหมือนกัน
+          if docker stack config -c docker-compose.app.yml >/dev/null 2>&1; then
+            RENDER="docker stack config -c docker-compose.app.yml"
+            echo "ℹ️ ใช้ docker stack config (ตรงกับ production)"
+          else
+            RENDER="docker compose -f docker-compose.app.yml config"
+            echo "ℹ️ docker stack config ใช้ไม่ได้กับ runner นี้ — ถอยไปใช้ docker compose config"
+            echo "   (บน runner ปกติจะเป็นเส้นทางนี้ — compose-go ตัวเดียวกันจึงได้ผลเท่ากัน)"
+          fi
+
+          # ③.๑ มี IMAGE_TAG ⇒ ต้อง render ผ่าน และ tag ต้องโผล่จริง
+          $RENDER > /tmp/rendered.yml
+          if ! grep -qE 'image: classroom-ci-(backend|frontend|bot):ci00000' /tmp/rendered.yml; then
+            echo "❌ render ผ่านแต่ไม่พบ image ที่ติด tag ci00000:"
+            grep -E 'image: classroom' /tmp/rendered.yml || true
+            exit 1
+          fi
+          echo "✅ มี IMAGE_TAG ⇒ render ผ่าน และติด tag ถูกต้อง"
+
+          # ③.๒ ไม่มี IMAGE_TAG ⇒ ต้องล้ม (นี่คือตัวกันไม่ให้ถอยไป ':latest' เงียบ ๆ)
+          unset IMAGE_TAG
+          if $RENDER > /tmp/no-tag.yml 2>&1; then
+            echo "❌ ไม่มี IMAGE_TAG แต่ render ผ่าน ⇒ กับดักหายไปแล้ว"
+            echo "   ได้ image อะไร:"
+            grep -E 'image: classroom' /tmp/no-tag.yml || true
+            exit 1
+          fi
+          echo "✅ ไม่มี IMAGE_TAG ⇒ ล้มตามที่ควร"
+          echo "   ข้อความที่ docker คืนมา:"
+          head -2 /tmp/no-tag.yml | sed 's/^/     /'
+
+      - name: เก็บกวาด
+        if: always()
+        run: rm -f .env /tmp/rendered.yml /tmp/no-tag.yml
