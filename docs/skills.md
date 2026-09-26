@@ -3027,6 +3027,14 @@
   docker stack deploy -c docker-compose.app.yml ${ENV_NAME}_app
   ```
   🔑 **ทาสี `:latest` ทิ้งไม่ได้ ⇒ ต้องทาสี "ตัวที่รันจริง" แทน** — หลัง deploy ให้เทียบ `docker service inspect <svc> --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'` กับ `git rev-parse --short HEAD` ของ checkout เสมอ เพราะ `docker service ls` ไม่ได้โชว์ tag ให้ดู
+  ✅ **ปิดกับดักที่ต้นทางแล้ว (2026-09-26):** เปลี่ยน `${IMAGE_TAG:-latest}` เป็น `${IMAGE_TAG:?"..."}` ⇒ "ลืม export" = **deploy ล้มดัง ๆ** แทนที่จะถอยไปรัน `:latest` เงียบ ๆ
+  ```yaml
+  image: classroom-${ENV_NAME}-backend:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}
+  ```
+  ⚠️ **ข้อความ error มีข้อจำกัด 2 ข้อ — ถ้าผิดข้อใดข้อหนึ่ง docker จะ "ไม่ฟ้อง error" แต่เอาข้อความนั้นไปเป็นชื่อ tag เงียบ ๆ ซึ่งแย่กว่าเดิม** (ทดสอบกับ `docker stack config` จริง 2026-09-26)
+    1. ต้องอยู่ในเครื่องหมายคำพูด (`"` หรือ `'` ก็ได้) — `${VAR:?has spaces}` เปล่า ๆ พัง
+    2. 🔴 **ห้ามมีเครื่องหมายขีด `-`** — parser ตัดที่ `-` เหมือนไวยากรณ์ `:-` ⇒ `"has a dash-x here"` ทำให้ได้ tag `x here"`
+  ✅ **ไม่กระทบทาง rollback:** ทั้ง `pull_all.sh` (บรรทัด 24) และ `oh_shit.sh` (บรรทัด 17) ต่าง `export IMAGE_TAG` เองก่อน deploy ⇒ ยังทำงานปกติ (ตรวจแล้ว — สำคัญ เพราะถ้า `oh_shit.sh` ไม่ export การ rollback ฉุกเฉินจะพังทันที)
 - **Rule:** (1) 🔴 **compose ที่อ้าง `${VAR}` ต้องมีคน `export` ให้ — ไม่มี = ค่า default ที่มักเป็น `latest`** และ `latest` ในเครื่องนี้คือ image เก่า ไม่ใช่ของใหม่ (2) 🔴 **`docker stack deploy` สำเร็จ + replica ครบ ≠ deploy ถูกเวอร์ชัน** — ต้องยืนยันที่ image tag/digest (3) ✅ แก้ `.env`/compose อย่างเดียวก็ต้อง `export IMAGE_TAG` เหมือนกัน — ไม่มีข้อยกเว้น
 - **Tests:** ไม่มี (เป็นบทเรียน infra) — ตรวจด้วย `grep -rn 'IMAGE_TAG' --include='*.yml' --include='*.sh' .` แล้วเทียบว่า compose อ้าง แต่สคริปต์เป็นคนให้ค่า
 - **Date Added:** 2026-09-26
