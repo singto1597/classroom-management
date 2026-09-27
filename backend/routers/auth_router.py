@@ -163,6 +163,28 @@ async def link_google(payload: ProviderLoginRequest, request: Request, pool: asy
         logger.exception("ผูกบัญชี Google ล้มเหลว (user_id=%s)", user_ctx.get("user_id"))
         raise HTTPException(status_code=400, detail="ผูกบัญชี Google ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
 
+@router.post("/refresh", response_model=TokenResponse, summary="ต่ออายุ Access Token")
+async def refresh_token(
+    current_user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+):
+    """
+    ออก token ใหม่ให้ผู้ใช้ที่ยังล็อกอินอยู่ — ให้ frontend เรียกเป็นรอบเพื่อไม่ให้
+    session หลุดเมื่อ token ครบอายุ (ดู `auth_service.refresh_access_token`)
+
+    ⚠️ ไม่มี `except Exception` ครอบเหมือน endpoint อื่นโดยเจตนา — งานนี้ไม่ได้แตะ
+       บริการภายนอก (Discord/Google) ที่ล้มเหลวได้บ่อย ต้นเหตุเดียวที่เป็นไปได้คือ DB
+       ซึ่งปล่อยให้เป็น 500 ธรรมดาพร้อม stack trace ดีกว่ากลืนเป็นข้อความกลาง
+       ที่ตามหาสาเหตุไม่ได้
+    """
+    user_id = current_user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User mapping not found.")
+
+    access_token = await auth_service.refresh_access_token(pool, int(user_id))
+    return TokenResponse(access_token=access_token, user_id=str(user_id))
+
+
 @router.get("/me", response_model=UserProfileResponse)
 async def get_current_user_profile(current_user: dict = Depends(get_current_user), pool: asyncpg.Pool = Depends(get_db_pool)):
     user_id = current_user.get("user_id")

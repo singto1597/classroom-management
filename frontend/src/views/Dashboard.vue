@@ -62,9 +62,8 @@ const fetchTaskCount = async () => {
 
 onMounted(fetchTaskCount);
 
-// ✨ ฟีเจอร์สลับห้องเรียน (กลับไปหน้า lobby)
+// ✨ ไปหน้าเลือกห้อง — ไม่ล้างห้องที่เปิดอยู่ (ปุ่มสลับห้องแบบเร็วอยู่ใน header ของ MainLayout)
 const handleChangeRoom = () => {
-  authStore.clearRoom();
   router.push('/lobby');
 };
 

@@ -4,6 +4,8 @@ import { RouterView, useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
 import { StudentService } from '@/services/student';
+import { ClassroomService } from '@/services/classroom';
+import type { UserRoom } from '@/types/classroom';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -20,12 +22,34 @@ const COLLAPSE_KEY = 'syncroom_sidebar_collapsed';
 onMounted(async () => {
   isSidebarCollapsed.value = localStorage.getItem(COLLAPSE_KEY) === '1';
   if (authStore.isAuthenticated) {
+    // 🔄 ต่ออายุ session ก่อนเป็นอันดับแรก — ถ้า token ใกล้ครบอายุ คำขอถัด ๆ ไป
+    //    ในรอบนี้จะได้ใช้ token ใหม่ (ถูก throttle ไว้ จึงไม่ยิงทุกครั้งที่โหลดหน้า)
+    await authStore.refreshSession();
     await authStore.fetchProfile();
+    await loadRooms();
   }
   // 🔁 ปิด Dropdown เมื่อมีการ Scroll หน้าจอ
   window.addEventListener('scroll', closeDropdowns, true);
   window.addEventListener('resize', closeDropdowns);
 });
+
+/**
+ * ดึงรายการห้องทั้งหมดมาเก็บใน store
+ *
+ * ทำที่ MainLayout (ไม่ใช่แค่ Lobby) เพราะผู้ใช้ที่เปิด `/dashboard` ตรง ๆ — หรือเปิด
+ * แท็บใหม่ — ไม่เคยผ่าน Lobby ในรอบนั้น ⇒ ถ้าไม่ดึงที่นี่จะไม่มีรายการห้องให้สลับเลย
+ * และสิทธิ์ (is_admin/permissions) ที่แคชไว้ก็จะค้างเป็นของเก่าโดยไม่มีใครแก้
+ */
+const loadRooms = async () => {
+  if (!authStore.userId) return;
+  try {
+    const list = await ClassroomService.getUserRooms(authStore.userId);
+    authStore.setRooms(list);
+  } catch (error: unknown) {
+    // ดึงไม่ได้ = ใช้รายการที่แคชไว้ต่อ ดีกว่าเด้งผู้ใช้ออก
+    console.error('Failed to load rooms:', error);
+  }
+};
 
 onUnmounted(() => {
   window.removeEventListener('scroll', closeDropdowns, true);
@@ -146,11 +170,34 @@ const currentSubMenuName = computed(() => {
 });
 
 // ---------------- การทำงาน ----------------
+/**
+ * ไปหน้าเลือกห้อง — **ไม่ล้างห้องที่เปิดอยู่**
+ *
+ * เดิมฟังก์ชันนี้เรียก `clearRoom()` ก่อนเด้งไป `/lobby` ⇒ แค่จะ "ดูห้องอื่น" ก็เสีย
+ * ห้องปัจจุบันไปแล้ว ต้องเลือกใหม่ทุกครั้ง ตอนนี้ Lobby เป็นเพียงหน้าเลือกห้อง
+ * ที่กลับไปดูได้โดยไม่กระทบว่ากำลังทำงานอยู่ห้องไหน
+ */
 const handleChangeRoom = () => {
   closeDropdowns();
   closeMoreSheet();
-  authStore.clearRoom();
   router.push('/lobby');
+};
+
+/**
+ * สลับไปห้องอื่นโดยไม่ต้องออกจากห้องเดิม (ห้องเดิมยังอยู่ในรายการ)
+ *
+ * ⚠️ ต้องพากลับ `/dashboard` ด้วย — หน้าปัจจุบันอาจอ้างข้อมูลเฉพาะห้องเดิม
+ *    (เช่น `/students/12` หรือ `/finance/receipts/REC-...`) ซึ่งพอสลับห้องแล้ว
+ *    ข้อมูลนั้นไม่มีอยู่จริง จะกลายเป็นหน้า error ทันที
+ *    ถ้าอยู่ `/dashboard` แล้ว การเปลี่ยน key ของ RouterView จะ remount ให้เอง
+ */
+const switchRoom = (room: UserRoom) => {
+  closeDropdowns();
+  closeMoreSheet();
+  if (room.room_id === authStore.currentRoomId) return;
+
+  authStore.setActiveRoom(room.room_id);
+  if (route.path !== '/dashboard') router.push('/dashboard');
 };
 
 const goToMyProfile = async () => {
@@ -455,8 +502,9 @@ const goToProfileSettings = async () => {
               v-if="authStore.currentRoomId"
               type="button"
               class="hidden h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-800 sm:flex"
+              :class="{ 'bg-stone-100 text-stone-800': activeDropdown === 'roomSwitcher' }"
               title="สลับห้องเรียน"
-              @click="handleChangeRoom"
+              @click.stop="toggleDropdown($event, 'roomSwitcher')"
             >
               <i class="bi bi-arrow-left-right text-base" aria-hidden="true"></i>
             </button>
@@ -502,9 +550,16 @@ const goToProfileSettings = async () => {
         class="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] focus:outline-none sm:px-6 sm:pt-6 lg:px-8 lg:pb-8 lg:pt-8"
       >
         <div class="page-wrap">
+          <!--
+            ⚠️ key ต้องมี roomId ด้วย ไม่ใช่แค่ path
+            วิวส่วนใหญ่ (~20 ไฟล์ เช่น TaskList / StudentList / ManageActivity / CreditList)
+            อ่าน `authStore.currentRoomId` ใส่ `const` ตอน setup = **ไม่ reactive**
+            ⇒ ถ้าสลับห้องแล้วไม่ remount หน้าจอจะยังยิง API ของห้องเดิมต่อไป
+              และโชว์ข้อมูลผิดห้องแบบเงียบ ๆ ซึ่งอันตรายกว่าการเห็นหน้า error
+          -->
           <RouterView v-slot="{ Component, route: r }">
             <transition name="fade-slide" mode="out-in">
-              <div :key="r.path">
+              <div :key="`${r.path}::${authStore.currentRoomId ?? 'none'}`">
                 <component :is="Component" />
               </div>
             </transition>
@@ -729,7 +784,7 @@ const goToProfileSettings = async () => {
           <button
             type="button"
             class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
-            @click.stop="handleChangeRoom"
+            @click.stop="toggleDropdown($event, 'roomSwitcher')"
           >
             <i class="bi bi-arrow-left-right text-lg opacity-70" aria-hidden="true"></i>
             สลับห้องเรียน
@@ -768,6 +823,65 @@ const goToProfileSettings = async () => {
             <i :class="['bi', item.icon, 'me-3 text-base opacity-70']" aria-hidden="true"></i>
             {{ item.name }}
           </RouterLink>
+        </div>
+      </Transition>
+
+      <!-- สลับห้องเรียน -->
+      <Transition name="dropdown-anim">
+        <div
+          v-if="activeDropdown === 'roomSwitcher'"
+          class="fixed z-[80] w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white py-1.5 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
+          :style="dropdownStyle"
+        >
+          <p
+            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+          >
+            ห้องเรียนของฉัน
+          </p>
+
+          <!--
+            ⚠️ จำกัดความสูง + ให้เลื่อนในตัวเอง — จำนวนห้องของครูคนหนึ่งอาจเกิน 10
+            ตัวจัดตำแหน่ง dropdown คำนวณจากความสูงประมาณ 220px ถ้าปล่อยให้ยาวกว่านั้น
+            มาก panel จะล้นจอบนมือถือ
+          -->
+          <div class="max-h-[220px] overflow-y-auto overscroll-contain">
+            <button
+              v-for="room in authStore.rooms"
+              :key="room.room_id"
+              type="button"
+              class="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-brand-50"
+              @click.stop="switchRoom(room)"
+            >
+              <i
+                :class="[
+                  'bi text-base',
+                  room.room_id === authStore.currentRoomId
+                    ? 'bi-check-circle-fill text-brand-700'
+                    : 'bi-circle text-stone-300',
+                ]"
+                aria-hidden="true"
+              ></i>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-bold text-stone-700">
+                  {{ room.room_name }}
+                </span>
+                <span class="block truncate text-[11px] font-medium text-stone-400">
+                  {{ authStore.roleLabel(room.role) }}
+                  <template v-if="room.is_admin"> · ผู้ดูแลระบบ</template>
+                </span>
+              </span>
+            </button>
+          </div>
+
+          <div class="mx-3 my-1.5 h-px bg-stone-100"></div>
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
+            @click.stop="handleChangeRoom"
+          >
+            <i class="bi bi-grid-3x3-gap text-base opacity-70" aria-hidden="true"></i>
+            ดูห้องทั้งหมด
+          </button>
         </div>
       </Transition>
 
