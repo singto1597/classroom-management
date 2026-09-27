@@ -3116,3 +3116,32 @@
 - **Tests:** `frontend/src/stores/__tests__/roomState.spec.ts` (10 เคส) ล็อกสัญญา 6 ข้อ: ห้องเก็บใน `sessionStorage` ไม่ใช่ `localStorage` · แท็บใหม่ fallback ไปห้องล่าสุด · **สองแท็บถือคนละห้องจากรายการชุดเดียวกัน** · สิทธิ์เปลี่ยนตามห้องที่สลับไป · ห้องหลุดจากรายการ → `currentRoomId` เป็น `null` · **ผู้ใช้เดิมที่มีคีย์รุ่นเก่าถูกย้ายเข้าที่ ไม่ถูกเด้งกลับหน้าเลือกห้อง**
   🔴 **เทสต์ข้อสุดท้ายจับ regression จริงก่อน ship:** `readActiveRoomId()` เช็คแค่ `sessionStorage` กับ `last_room_id` ซึ่ง **ผู้ใช้ที่อัปเกรดยังไม่มีทั้งคู่** ⇒ `currentRoomId` เป็น `null` ⇒ router guard เด้งผู้ใช้เดิม **ทุกคน** กลับ `/lobby` แก้ด้วยการเพิ่ม `?? safeGetItem('current_room_id')` เป็น fallback สุดท้าย
 - **Date Added:** 2026-09-27
+
+### 🚦 `pull_all.sh` คืน exit 0 แล้ว **ยังตรวจไม่ได้** — ระหว่าง rollout มี replica เก่ากับใหม่ปนกัน
+- **Context/Problem:** deploy production เสร็จ (`✅ อัปเดตเสร็จสมบูรณ์` exit 0) แล้วตรวจว่าโค้ดใหม่ขึ้นจริงด้วยการยิง `POST /api/auth/refresh` — ซึ่ง**ก่อน deploy ได้ 404** (route ยังไม่มี) และถ้าขึ้นจริงต้องได้ **401** ผลคือ
+  ```
+  docker service ls  →  production_app_backend  3/3  classroom-production-backend:d6ef166   ← ดูเหมือนเสร็จแล้ว
+  docker ps          →  พบ container backend 4 ตัว (ไม่ใช่ 3)
+  env ใน container   →  1440 × 3 (เก่า)  +  43200 × 1 (ใหม่)
+  POST /refresh      →  404        ← เกือบสรุปว่า "deploy ล้มเหลว"
+  ```
+- **Root Cause:** `docker-compose.app.yml` ตั้ง `update_config: { parallelism: 1, order: start-first }` ⇒ **สร้าง task ใหม่ก่อน แล้วค่อยปิดตัวเก่า** ระหว่างนั้นจึงมี replica เก่า+ใหม่ทำงานพร้อมกันถึง 4 ตัว และ **Traefik ยัง load-balance ไปที่ตัวเก่าด้วย** ⇒ คำขอที่ยิงไปโดนตัวเก่าได้
+  ⚠️ **`docker service ls` แสดง `3/3` ตั้งแต่ต้น** เพราะมันนับ "จำนวน task ที่รัน" ไม่ได้บอกว่า **task ที่รันเป็นเวอร์ชันไหน** — และ `{{.Image}}` ในคำสั่งนั้นก็อ่านจาก spec ซึ่งอัปเดตไปแล้วตั้งแต่ตอน deploy ไม่ใช่จาก container ที่รันจริง
+  🔴 **นี่คือกับดัก "ตรวจแล้วดูเหมือนล้มเหลว"** ซึ่งอันตรายกว่า "ไม่ตรวจ" เพราะผลลัพธ์ที่ได้ **ผิดทางเดียวที่คนมักไม่ตรวจซ้ำ** — ถ้าสรุปว่า deploy ล้มแล้วสั่ง rollback (`oh_shit.sh`) ทั้งที่ของใหม่กำลังขึ้น จะได้ระบบที่ **ถอยหลังลง** โดยไม่มีใครรู้สาเหตุ
+- **Correct Pattern/Solution:** รอให้ **ทุก container ที่รันอยู่เป็น env/เวอร์ชันใหม่หมด** ก่อนตรวจ — นับจาก `docker ps` (ของจริง) ไม่ใช่ `docker service ls` (ของ spec):
+  ```bash
+  for i in $(seq 1 60); do
+    n_new=0; n_old=0
+    for c in $(docker ps --filter "name=production_app_backend" --format '{{.ID}}'); do
+      if docker inspect "$c" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+         | grep -q '^ACCESS_TOKEN_EXPIRE_MINUTES=43200'; then n_new=$((n_new+1)); else n_old=$((n_old+1)); fi
+    done
+    [ "$n_new" -ge 3 ] && [ "$n_old" -eq 0 ] && break     # ครบ 3 และไม่มีตัวเก่าเหลือ
+    sleep 10
+  done
+  ```
+  ✅ **ตรวจซ้ำหลังรอ:** 401 ทั้ง 6 ครั้งติดกัน · env ใหม่ 3/3 · `/health` 200 · หน้าเว็บ 200 · bot ต่อ gateway สำเร็จ ⇒ ยืนยันว่า deploy สำเร็จจริง
+  ✅ **ทางตรวจที่เชื่อได้ที่สุดคือยิง endpoint ซ้ำหลายครั้ง** — ระหว่าง rollout จะได้ **404 สลับ 401** (แล้วแต่ replica) พอได้ค่าติดกันหมดจึงสรุปได้
+- **Rule:** (1) 🔴 **`docker service ls` ขึ้น `3/3` ไม่ได้แปลว่า deploy จบ** — `start-first` มีช่วงที่เก่า+ใหม่ปนกัน (2) 🔴 **คำสั่งที่ `exit 0` แล้ว ยังไม่ใช่หลักฐานว่าโค้ดใหม่รับงาน** ต้องยืนยันที่ container จริง (`docker inspect` / `docker ps`) (3) ⚠️ **ผลตรวจที่ "ดูเหมือนพัง" ต้องตรวจซ้ำก่อนสรุป** โดยเฉพาะก่อนตัดสินใจอย่างกลับไม่ได้ (4) ✅ **ตรวจด้วย endpoint ที่ "ก่อน deploy ต้อง 404"** เป็นวิธีพิสูจน์ว่าโค้ดใหม่ขึ้นจริงโดยไม่ต้องมี credential ใด ๆ — ใช้ได้กับทุก deploy ที่เพิ่ม route
+- **Tests:** ไม่มี (บทเรียน infra) — พิสูจน์ด้วย `docker ps` เทียบจำนวน container กับ `desired`, `docker inspect` เทียบ env ต่อ container, และยิง endpoint ซ้ำจนได้ค่าคงที่ · deploy 2026-09-27 (PR #92)
+- **Date Added:** 2026-09-27
