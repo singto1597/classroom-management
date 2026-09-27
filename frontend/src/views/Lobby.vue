@@ -81,6 +81,8 @@ const fetchRooms = async () => {
   hasErrorRooms.value = false;
   try {
     rooms.value = await ClassroomService.getUserRooms(authStore.userId!);
+    // 🏫 เก็บรายการห้องลง store ด้วย — เป็นแหล่งเดียวที่ทั้งแถบสลับห้องและหน้าอื่นใช้
+    authStore.setRooms(rooms.value);
   } catch (error: unknown) {
     console.error("Failed to load rooms:", error);
     hasErrorRooms.value = true;
@@ -148,16 +150,9 @@ const inviterName = (invite: Invite) =>
   [invite.added_by_first, invite.added_by_last].filter(Boolean).join(' ') || 'ผู้ดูแลห้อง';
 
 const selectRoom = (room: UserRoom) => {
-  // 🎯 ยัดสิทธิ์ (is_admin, permissions) เข้า Store ตอนเลือกห้อง!
-  authStore.setRoom(
-    room.room_id,
-    room.room_name,
-    room.room_code,
-    room.role,
-    authStore.currentUserName,
-    room.is_admin || false,
-    room.permissions || []
-  );
+  // 🎯 เปิดห้องนี้ใน "แท็บนี้" — สิทธิ์ (is_admin/permissions) อยู่ในรายการห้องแล้ว
+  //    ไม่ต้องยัดซ้ำทีละค่าอย่างเดิม และไม่กระทบแท็บอื่นที่อาจเปิดห้องอื่นอยู่
+  authStore.setActiveRoom(room.room_id);
   router.push('/dashboard');
 };
 
@@ -225,10 +220,31 @@ const submitJoinRoom = async () => {
       text: result.message || 'เข้าสู่ห้องเรียนสำเร็จ',
       confirmButtonText: 'เข้าสู่แดชบอร์ด',
       confirmButtonColor: '#1d4ed8'
-    }).then(() => {
+    }).then(async () => {
       showJoinModal.value = false;
-      // 🎯 เข้าห้องใหม่ สิทธิ์ตั้งต้นจะเป็น False และ []
-      authStore.setRoom(result.room_id, result.room_name, payload.room_code, 'student', authStore.currentUserName, false, []);
+
+      // 🎯 เพิ่มห้องที่เพิ่งเข้า ลงรายการก่อนแล้วค่อยเปิด
+      //    ⚠️ ต้องอยู่ในรายการก่อน `setActiveRoom` ไม่งั้น `currentRoomId` จะเป็น null
+      //       แล้ว router guard เด้งกลับหน้าเลือกห้องทันที
+      //    สิทธิ์ตั้งต้นของสมาชิกใหม่ = ไม่ใช่แอดมิน และยังไม่มีสิทธิ์รายตัว
+      await fetchRooms();
+      if (!authStore.rooms.some((r) => r.room_id === result.room_id)) {
+        // ดึงรายการไม่สำเร็จ/ยังไม่ทันมีห้องนี้ — เติมเข้าไปเองด้วยข้อมูลจากผลการเข้าร่วม
+        // (รอบถัดไปที่โหลดรายการจริงจะถูกเขียนทับให้ตรงเอง)
+        authStore.setRooms([
+          ...authStore.rooms,
+          {
+            room_id: result.room_id,
+            room_name: result.room_name,
+            room_code: payload.room_code,
+            role: 'student',
+            status: 'active',
+            is_admin: false,
+            permissions: [],
+          },
+        ]);
+      }
+      authStore.setActiveRoom(result.room_id);
       router.push('/dashboard');
     });
 

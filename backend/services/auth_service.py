@@ -311,6 +311,37 @@ def create_access_token(data: dict) -> str:
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
+async def refresh_access_token(pool: asyncpg.Pool, user_id: int) -> str:
+    """
+    ออก Access Token ใหม่ให้ผู้ใช้ที่ **ยังถือ token ที่ไม่หมดอายุ** อยู่
+
+    🔑 ทำไมต้องมี: token เดิมมีอายุจำกัด (ค่าใน `ACCESS_TOKEN_EXPIRE_MINUTES`)
+       เมื่อครบกำหนด backend ตอบ 401 → frontend ลบ session ทั้งชุดแล้วเด้งไปหน้า login
+       ⇒ ผู้ใช้ที่เข้าใช้งานทุกวันก็ยังต้องล็อกอินใหม่เมื่อครบรอบ
+       endpoint นี้ทำให้ frontend ต่ออายุล่วงหน้าได้เรื่อย ๆ ตราบใดที่ยังใช้งานอยู่
+
+    ⚠️ รับเฉพาะ token ที่ **ยังไม่หมดอายุ** (ด่านอยู่ที่ `get_current_user` ก่อนถึงฟังก์ชันนี้)
+       โดยเจตนา — ถ้ารับ token ที่ตายแล้วต้องเปิด "grace window" ซึ่งเท่ากับยืดอายุ
+       token ที่อาจรั่วไปแล้วโดยไม่มีใครรู้ ⇒ ไม่ทำ
+
+    ⚠️ ไม่เขียน audit_logs โดยเจตนา — นี่ไม่ใช่การแก้ข้อมูลธุรกิจ แต่เป็นรอบต่ออายุ
+       อัตโนมัติ (ทุก ~12 ชม./คน) ⇒ ถ้า log จะกลายเป็นเสียงรบกวนกลบเหตุการณ์จริง
+
+    ⚠️ คืน `user_id` เป็น **str** ให้ตรงกับที่ `login` สองตัวสร้างไว้เป๊ะ
+       (`token_payload = {"user_id": str(...)}`) — frontend ถอดค่านี้ไปใช้ต่อ
+       ถ้าที่นี่ส่ง int จะได้ token ที่ "หน้าตาเหมือนกันแต่ชนิดต่างกัน" ซึ่งหา bug ยาก
+    """
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL", user_id
+        )
+
+    if not exists:
+        # บัญชีถูกลบ/ปิดไปแล้วระหว่างที่ยังถือ token อยู่ — ห้ามต่ออายุให้
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return create_access_token(data={"user_id": str(user_id)})
+
 async def update_user_profile(
     pool: asyncpg.Pool, 
     user_id: int, 

@@ -2,20 +2,112 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import router from '@/router';
 import api from '@/services/api';
-import type { UserProfileResponse } from '@/services/auth';
+import { refreshAccessToken, type UserProfileResponse } from '@/services/auth';
+import type { UserRoom } from '@/types/classroom';
+import {
+  ACCESS_TOKEN_KEY,
+  ALL_LOCAL_STORAGE_KEYS,
+  ALL_SESSION_STORAGE_KEYS,
+  LAST_ROOM_KEY,
+  LEGACY_ROOM_STORAGE_KEYS,
+  ROOMS_KEY,
+  SESSION_ROOM_KEY,
+  TOKEN_REFRESHED_AT_KEY,
+} from '@/constants/storageKeys';
+
+/** ต่ออายุ token ได้เมื่อผ่านไปเกินช่วงนี้ (ตอนเปิดแอป) — ไม่ต้องยิงทุกครั้งที่โหลดหน้า */
+const TOKEN_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 // ✨ ฟังก์ชันกวาดล้างข้อมูลผี (Ghost Data Cleaner)
-const safeGetItem = (key: string) => {
-  const val = localStorage.getItem(key);
+//    รับ `storage` เข้ามาได้ เพราะห้องที่เปิดอยู่เก็บใน sessionStorage ไม่ใช่ localStorage
+const safeGetItem = (key: string, storage: Storage = localStorage) => {
+  const val = storage.getItem(key);
   if (!val || val === 'null' || val === 'undefined' || val === 'ไม่ระบุชื่อ') return null;
   return val;
 };
 
+/** อ่าน JSON แบบไม่โยน exception — ค่าที่พังต้องไม่ทำให้แอปทั้งแอปสร้าง store ไม่ขึ้น */
+const safeParseArray = <T,>(raw: string | null): T[] => {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * ห้องที่ใช้ได้จริง — กรองข้อมูลผีที่อาจค้างอยู่ใน storage
+ *
+ * ⚠️ ต้องกรอง ไม่งั้นค่าอย่าง `room_name: undefined` จะไหลเข้าไปใน UI เงียบ ๆ
+ *    (บทเรียนเดิมของ repo นี้ — ดู docs/skills.md หัวข้อ `room_name: undefined`)
+ */
+const isUsableRoom = (room: UserRoom | null | undefined): room is UserRoom =>
+  !!room &&
+  typeof room.room_id === 'number' &&
+  Number.isFinite(room.room_id) &&
+  typeof room.room_name === 'string' &&
+  room.room_name.trim() !== '';
+
+/** อ่านรายการห้องจาก localStorage — **synchronous โดยเจตนา** (router guard ต้องใช้ค่าทันที) */
+const readStoredRooms = (): UserRoom[] => {
+  const stored = safeParseArray<UserRoom>(safeGetItem(ROOMS_KEY)).filter(isUsableRoom);
+  if (stored.length > 0) return stored;
+
+  // ไม่มีรายการห้อง แต่มีคีย์รุ่นเก่าค้างอยู่ = ผู้ใช้ที่ใช้งานมาตั้งแต่ก่อนเปลี่ยนระบบ
+  // ⇒ สร้างรายการชั่วคราวจากค่าที่มี เพื่อไม่ให้ถูกเด้งกลับหน้าเลือกห้องทั้งที่ยังล็อกอินอยู่
+  //    (Lobby จะ fetch รายการจริงมาเขียนทับในอีกไม่ช้า)
+  const legacyRoomId = Number(safeGetItem('current_room_id'));
+  const legacyName = safeGetItem('current_room_name');
+  if (!Number.isFinite(legacyRoomId) || legacyRoomId <= 0 || !legacyName) return [];
+
+  const permissions = safeParseArray<unknown>(safeGetItem('current_permissions')).filter(
+    (p): p is string => typeof p === 'string'
+  );
+
+  return [
+    {
+      room_id: legacyRoomId,
+      room_name: legacyName,
+      room_code: safeGetItem('current_room_code') ?? undefined,
+      role: safeGetItem('current_role') ?? 'student',
+      status: 'active',
+      is_admin: safeGetItem('current_is_admin') === 'true',
+      permissions,
+    },
+  ];
+};
+
+/**
+ * อ่านห้องที่แท็บนี้เปิดอยู่ — เรียงตามความจำเพาะ:
+ *   1. `sessionStorage` = ห้องที่ **แท็บนี้** เลือกไว้ (แม่นสุด)
+ *   2. `last_room_id` = ห้องล่าสุดของเบราว์เซอร์นี้ (ให้แท็บใหม่เปิดมาเจอห้องเดิม)
+ *   3. `current_room_id` = คีย์รุ่นเก่า — **จำเป็นสำหรับผู้ใช้ที่ใช้งานมาตั้งแต่ก่อนเปลี่ยนระบบ**
+ *      ถ้าไม่มีข้อนี้ คนกลุ่มนั้นจะถูกเด้งกลับหน้าเลือกห้องทั้งที่ยังล็อกอินอยู่
+ *      (เทสต์ `roomState.spec.ts` → "ย้ายเข้าที่อัตโนมัติ" จับเคสนี้ไว้)
+ */
+const readActiveRoomId = (): number | null => {
+  const raw =
+    safeGetItem(SESSION_ROOM_KEY, sessionStorage) ??
+    safeGetItem(LAST_ROOM_KEY) ??
+    safeGetItem('current_room_id');
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
+};
+
+/** true เมื่อสคริปต์อยู่ในเบราว์เซอร์จริง (กัน test runner ที่ไม่มี sessionStorage) */
+const hasWebStorage = (): boolean =>
+  typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined';
+
+/** ตัวดัก `storage` ผูกกับ `window` ครั้งเดียวต่อหน้าเว็บ (ไม่ใช่ต่อ store instance) */
+let isStorageSyncAttached = false;
+
 export const useAuthStore = defineStore('auth', () => {
   // ดึงค่าผ่าน safeGetItem ทั้งหมด
-  const token = ref<string | null>(safeGetItem('access_token'));
+  const token = ref<string | null>(safeGetItem(ACCESS_TOKEN_KEY));
   const userId = ref<string | null>(safeGetItem('user_id_str'));
-  
+
   const prefix = ref<string | null>(safeGetItem('user_prefix'));
   const firstName = ref<string | null>(safeGetItem('user_first_name'));
   const lastName = ref<string | null>(safeGetItem('user_last_name'));
@@ -29,15 +121,37 @@ export const useAuthStore = defineStore('auth', () => {
   const nickname = ref<string | null>(safeGetItem('user_nickname'));
   const phoneNumber = ref<string | null>(safeGetItem('user_phone_number'));
 
-  const storedRoomId = safeGetItem('current_room_id');
-  const currentRoomId = ref<number | null>(storedRoomId ? Number(storedRoomId) : null);
-  const currentRoomName = ref<string | null>(safeGetItem('current_room_name'));
-  const currentRoomCode = ref<string | null>(safeGetItem('current_room_code')); 
-  const currentRole = ref<string | null>(safeGetItem('current_role'));
+  // ===================================================================================
+  // 🏫 ห้องเรียน — แยกระหว่าง "รายการห้อง" กับ "ห้องที่แท็บนี้เปิดอยู่"
+  // ===================================================================================
+  //
+  // เดิมเก็บเป็นค่าชุดเดียวใน localStorage (`current_room_id` + ผองเพื่อน) ซึ่งใช้ร่วม
+  // ทุกแท็บ ⇒ เปิดห้อง B ในแท็บใหม่จะทับค่าของแท็บ A ทำให้อยู่สองห้องพร้อมกันไม่ได้
+  //
+  // ตอนนี้: `rooms` (รายการห้อง + สิทธิ์ของแต่ละห้อง) อยู่ใน localStorage ใช้ร่วมทุกแท็บ
+  //         `activeRoomId` (ห้องที่เปิดอยู่) อยู่ใน sessionStorage = ของแท็บนี้เท่านั้น
+  //
+  // 🔑 ชื่อ `currentRoom*` ทั้งหมดยังคงอยู่ แต่เปลี่ยนจาก ref เป็น computed ที่คำนวณจาก
+  //    สองตัวข้างบน ⇒ วิวอีก ~35 ไฟล์ที่เรียก `authStore.currentRoomId` ไม่ต้องแก้อะไรเลย
 
-  // 🎯 เพิ่มตัวแปรเก็บสิทธิ์ที่แท้จริง (RBAC)
-  const currentIsAdmin = ref<boolean>(safeGetItem('current_is_admin') === 'true');
-  const currentPermissions = ref<string[]>(JSON.parse(safeGetItem('current_permissions') || '[]'));
+  const rooms = ref<UserRoom[]>(readStoredRooms());
+  const activeRoomId = ref<number | null>(readActiveRoomId());
+
+  const currentRoom = computed<UserRoom | null>(
+    () => rooms.value.find((room) => room.room_id === activeRoomId.value) ?? null
+  );
+
+  // ⚠️ ผูกกับ `currentRoom` ไม่ใช่ `activeRoomId` โดยเจตนา — ถ้าห้องที่ active ไม่อยู่ใน
+  //    รายการแล้ว (ถูกลบ / ถูกถอดสิทธิ์) ต้องมองเป็น "ไม่มีห้อง" ⇒ router guard เด้งไป
+  //    หน้าเลือกห้อง ดีกว่าปล่อยให้เข้าไปในหน้าที่ข้อมูลจะพังทุกคำขอ
+  const currentRoomId = computed<number | null>(() => currentRoom.value?.room_id ?? null);
+  const currentRoomName = computed<string | null>(() => currentRoom.value?.room_name ?? null);
+  const currentRoomCode = computed<string | null>(() => currentRoom.value?.room_code ?? null);
+  const currentRole = computed<string | null>(() => currentRoom.value?.role ?? null);
+
+  // 🎯 สิทธิ์ที่แท้จริง (RBAC) ของห้องที่กำลังเปิด
+  const currentIsAdmin = computed<boolean>(() => currentRoom.value?.is_admin === true);
+  const currentPermissions = computed<string[]>(() => currentRoom.value?.permissions ?? []);
 
   const isAuthenticated = computed(() => !!token.value);
 
@@ -75,12 +189,20 @@ export const useAuthStore = defineStore('auth', () => {
     admin: 'ผู้ดูแลระบบ'
   };
 
-  // computed ใช้กับทุกหน้า (Sidebar, Header, Dashboard) แทนการโชว์ raw role
-  const currentRoleLabel = computed(() => {
-    const raw = currentRole.value || '';
+  /**
+   * แปลง class_role → ป้ายไทย
+   *
+   * เปิดเป็นฟังก์ชันสาธารณะ (ไม่ใช่แค่ computed ของห้องปัจจุบัน) เพราะตัวสลับห้อง
+   * ต้องแสดงบทบาทของ **ทุกห้องในรายการ** เพื่อให้เลือกถูกว่าห้องไหนเป็นอะไร
+   */
+  const roleLabel = (role: string | null | undefined): string => {
+    const raw = role || '';
     if (!raw) return 'สมาชิก';
     return ROLE_LABELS[raw] || raw;
-  });
+  };
+
+  // computed ใช้กับทุกหน้า (Sidebar, Header, Dashboard) แทนการโชว์ raw role
+  const currentRoleLabel = computed(() => roleLabel(currentRole.value));
 
   const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '' && !!phoneNumber.value && phoneNumber.value.trim() !== '');
 
@@ -96,7 +218,7 @@ export const useAuthStore = defineStore('auth', () => {
     return `${enF} ${enL}`.trim() || 'ผู้ใช้งานระบบ';
   });
 
-  const isFetchingProfile = ref(false); 
+  const isFetchingProfile = ref(false);
 
   /**
    * ดึงโปรไฟล์ล่าสุดจาก Backend แล้วเขียนทับค่าทั้งหมดใน store + localStorage
@@ -123,9 +245,9 @@ export const useAuthStore = defineStore('auth', () => {
     isFetchingProfile.value = true;
     try {
       const data = await api.get(`/api/auth/me`) as unknown as UserProfileResponse;
-      
+
       if (data.id) setUserId(data.id);
-      
+
       prefix.value = data.prefix && data.prefix !== 'null' ? data.prefix : '';
       firstName.value = data.first_name && data.first_name !== 'null' && data.first_name !== 'ไม่ระบุชื่อ' ? data.first_name : '';
       lastName.value = data.last_name && data.last_name !== 'null' ? data.last_name : '';
@@ -137,7 +259,7 @@ export const useAuthStore = defineStore('auth', () => {
       googleId.value = data.google_id ? String(data.google_id) : null;
       nickname.value = data.nickname && data.nickname !== 'null' ? data.nickname : '';
       phoneNumber.value = data.phone_number && data.phone_number !== 'null' ? data.phone_number : '';
-      
+
       if (prefix.value) localStorage.setItem('user_prefix', prefix.value);
       else localStorage.removeItem('user_prefix');
 
@@ -175,7 +297,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   const setToken = (newToken: string) => {
     token.value = newToken;
-    localStorage.setItem('access_token', newToken);
+    localStorage.setItem(ACCESS_TOKEN_KEY, newToken);
+    // ประทับเวลาไว้ตรงนี้จุดเดียว — ครอบทั้งตอนล็อกอินและตอนต่ออายุ
+    // ⇒ เปิดแอปครั้งถัดไปจะไม่ยิง refresh ซ้ำถ้าเพิ่งได้ token มาไม่นาน
+    localStorage.setItem(TOKEN_REFRESHED_AT_KEY, String(Date.now()));
   };
 
   const setUserId = (id: string | number | null | undefined) => {
@@ -189,69 +314,62 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
-  // 🎯 อัปเดต setRoom ให้รับพารามิเตอร์เรื่องสิทธิ์เพิ่ม
-  const setRoom = (
-    roomId: number, 
-    roomName: string, 
-    roomCode: string | null | undefined, 
-    role: string, 
-    userName?: string,
-    isAdminFlag: boolean = false,
-    permissionsArray: string[] = []
-  ) => {
-    currentRoomId.value = roomId;
-    currentRoomName.value = roomName;
-    currentRoomCode.value = roomCode || 'N/A';
-    currentRole.value = role;
-    currentIsAdmin.value = isAdminFlag;
-    currentPermissions.value = permissionsArray;
-
-    localStorage.setItem('current_room_id', String(roomId));
-    localStorage.setItem('current_room_name', roomName);
-    localStorage.setItem('current_room_code', roomCode || 'N/A');
-    localStorage.setItem('current_role', role);
-    localStorage.setItem('current_is_admin', String(isAdminFlag));
-    localStorage.setItem('current_permissions', JSON.stringify(permissionsArray));
+  /**
+   * เก็บกวาดคีย์รุ่นก่อน — เรียก **หลัง** ได้รายการห้องจริงจากเซิร์ฟเวอร์แล้วเท่านั้น
+   * (ถ้าเรียกก่อนหน้า จะลบข้อมูลที่ใช้ bootstrap ระหว่างทางทิ้ง)
+   */
+  const clearLegacyRoomKeys = () => {
+    LEGACY_ROOM_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
   };
 
-  const clearRoom = () => {
-    currentRoomId.value = null;
-    currentRoomName.value = null;
-    currentRoomCode.value = null;
-    currentRole.value = null;
-    currentIsAdmin.value = false;
-    currentPermissions.value = [];
-    
-    localStorage.removeItem('current_room_id');
-    localStorage.removeItem('current_room_name');
-    localStorage.removeItem('current_room_code');
-    localStorage.removeItem('current_role');
-    localStorage.removeItem('current_is_admin');
-    localStorage.removeItem('current_permissions');
+  /** เขียนรายการห้องทั้งชุดลง store + localStorage (ใช้ร่วมทุกแท็บ) */
+  const setRooms = (list: UserRoom[]) => {
+    rooms.value = list.filter(isUsableRoom);
+    localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms.value));
+    // ได้ข้อมูลจริงแล้ว ⇒ คีย์เก่าไม่มีประโยชน์อีก เก็บกวาดได้
+    clearLegacyRoomKeys();
+    // ห้องที่เปิดอยู่อาจไม่ปรากฏในรายการใหม่ (ถูกลบ / ถูกถอดสิทธิ์)
+    if (activeRoomId.value !== null && currentRoom.value === null) clearActiveRoom();
   };
 
-  // 🧹 รายการ key ที่แอพเราใช้ใน localStorage (ลบเฉพาะ key ของเรา ไม่กวาดหมด)
-  const AUTH_KEYS = [
-    'access_token',
-    'user_id_str',
-    'user_prefix',
-    'user_first_name',
-    'user_last_name',
-    'user_first_name_en',
-    'user_last_name_en',
-    'user_nickname_en',
-    'user_email',
-    'user_discord_id',
-    'user_google_id',
-    'user_nickname',
-    'user_phone_number',
-    'current_room_id',
-    'current_room_name',
-    'current_room_code',
-    'current_role',
-    'current_is_admin',
-    'current_permissions'
-  ];
+  /** เปิดห้องใน **แท็บนี้** — ไม่กระทบแท็บอื่นที่อาจเปิดห้องอื่นอยู่ */
+  const setActiveRoom = (roomId: number) => {
+    activeRoomId.value = roomId;
+    if (hasWebStorage()) sessionStorage.setItem(SESSION_ROOM_KEY, String(roomId));
+    // จดไว้เป็นค่าเริ่มต้นของแท็บใหม่/รอบเปิดเบราว์เซอร์ถัดไป (พฤติกรรมเดิมที่ผู้ใช้คุ้น)
+    localStorage.setItem(LAST_ROOM_KEY, String(roomId));
+  };
+
+  /** ออกจากห้องที่เปิดอยู่ — ไม่ลบรายการห้อง และไม่ล็อกเอาต์ */
+  const clearActiveRoom = () => {
+    activeRoomId.value = null;
+    if (hasWebStorage()) sessionStorage.removeItem(SESSION_ROOM_KEY);
+    localStorage.removeItem(LAST_ROOM_KEY);
+  };
+
+  /**
+   * ต่ออายุ session ล่วงหน้า — ให้ผู้ใช้ไม่ต้องล็อกอินใหม่เมื่อ token ครบอายุ
+   *
+   * เรียกตอนเปิดแอป (MainLayout) และ throttle ด้วย `TOKEN_REFRESHED_AT_KEY`
+   * ⇒ token ที่อายุ 30 วันจะถูกต่อใหม่เรื่อย ๆ ตราบใดที่ยังเข้าใช้งาน
+   */
+  const refreshSession = async (): Promise<void> => {
+    if (!token.value) return;
+
+    const lastRefreshedAt = Number(safeGetItem(TOKEN_REFRESHED_AT_KEY) ?? 0);
+    if (Date.now() - lastRefreshedAt < TOKEN_REFRESH_INTERVAL_MS) return;
+
+    try {
+      const result = await refreshAccessToken();
+      setToken(result.access_token);
+      if (result.user_id) setUserId(result.user_id);
+    } catch {
+      // 🔕 ต่ออายุไม่สำเร็จ ณ จุดนี้ **ไม่ใช่เรื่องที่ต้องรายงาน** —
+      //    token เดิมอาจยังใช้ได้อีกนาน (เน็ตสะดุด / backend รีสตาร์ทชั่วคราว)
+      //    ถ้ามันตายจริง คำขอถัดไปจะได้ 401 แล้วตัวดักใน services/api.ts จัดการเอง
+      //    ⇒ ไม่ล้าง token ที่นี่ ไม่งั้นจะกลายเป็นการล็อกเอาต์ผู้ใช้เพราะเน็ตกระตุก
+    }
+  };
 
   const logout = () => {
     token.value = null;
@@ -267,18 +385,51 @@ export const useAuthStore = defineStore('auth', () => {
     googleId.value = null;
     nickname.value = null;
     phoneNumber.value = null;
-    clearRoom();
-    AUTH_KEYS.forEach((key) => localStorage.removeItem(key));
+    rooms.value = [];
+    clearActiveRoom();
+    ALL_LOCAL_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+    if (hasWebStorage()) ALL_SESSION_STORAGE_KEYS.forEach((key) => sessionStorage.removeItem(key));
     router.push('/login');
   };
+
+  // ===================================================================================
+  // 🔄 ประสานกับแท็บอื่น
+  // ===================================================================================
+  // localStorage ยิง event `storage` ไปยัง **แท็บอื่น** (ไม่ยิงกลับแท็บที่เขียนเอง)
+  // ⇒ ใช้ซิงก์เฉพาะสิ่งที่ใช้ร่วมกัน (รายการห้อง / การล็อกเอาต์) ส่วน `activeRoomId`
+  //    เป็นของแท็บนี้ จึงต้องไม่ยุ่งกับมัน
+  //  ⚠️ ผูกครั้งเดียวต่อหน้าเว็บ — store ถูกสร้างใหม่ได้ (เช่นในเทสต์ที่สร้าง pinia ใหม่)
+  //     ถ้าไม่กันไว้จะได้ listener ซ้อนกันหลายตัวโดยไม่มีใครรู้
+  const attachStorageSync = () => {
+    if (!hasWebStorage() || isStorageSyncAttached) return;
+    isStorageSyncAttached = true;
+    window.addEventListener('storage', (event) => {
+      if (event.key === ROOMS_KEY) {
+        rooms.value = readStoredRooms();
+        if (activeRoomId.value !== null && currentRoom.value === null) clearActiveRoom();
+        return;
+      }
+
+      // แท็บอื่นออกจากระบบ (หรือ session ตายแล้วถูกล้าง) — แท็บนี้ต้องไปด้วย
+      // ไม่งั้นจะค้างในสภาพที่ดูเหมือนยังล็อกอินอยู่ แต่ยิง API ไม่ผ่านสักคำขอ
+      if (event.key === ACCESS_TOKEN_KEY && !event.newValue) {
+        token.value = null;
+        clearActiveRoom();
+        if (!window.location.pathname.startsWith('/login')) window.location.href = '/login';
+      }
+    });
+  };
+
+  attachStorageSync();
 
   return {
     token, userId, prefix, firstName, lastName, firstNameEn, lastNameEn, nicknameEn, currentUserName,
     email, discordId, googleId, nickname, phoneNumber, isOnboarded,
+    rooms, activeRoomId,
     currentRoomId, currentRoomName, currentRoomCode, currentRole,
     currentIsAdmin, currentPermissions, // 🎯 Expose ไปให้ Component อื่นดึงไปใช้ได้
-    isAuthenticated, isAdmin, currentRoleLabel,
+    isAuthenticated, isAdmin, currentRoleLabel, roleLabel,
     hasPermission, canManageFinance,
-    setToken, setUserId, setRoom, clearRoom, logout, fetchProfile
+    setToken, setUserId, setRooms, setActiveRoom, clearActiveRoom, logout, fetchProfile, refreshSession
   };
 });

@@ -70,6 +70,17 @@ export const loginWithDiscord = async (code: string): Promise<LoginResult> => {
   return await api.post('/api/auth/discord/login', { code });
 };
 
+/**
+ * ต่ออายุ Access Token ที่ยังไม่หมดอายุ — คืน token ใหม่ที่มีอายุเต็มอีกครั้ง
+ *
+ * เรียกจาก `authStore.refreshSession()` ตอนเปิดแอป (throttle 12 ชม.)
+ * ⇒ ผู้ใช้ที่เข้าใช้งานสม่ำเสมอจะไม่ถูกเด้งไปหน้า login เมื่อ token ครบอายุ
+ * (backend รับเฉพาะ token ที่ยังไม่หมดอายุ — ไม่มี grace window)
+ */
+export const refreshAccessToken = async (): Promise<LoginResult> => {
+  return await api.post('/api/auth/refresh', {});
+};
+
 export const loginWithGoogle = async (code: string): Promise<LoginResult> => {
   return await api.post('/api/auth/google/login', { code });
 };

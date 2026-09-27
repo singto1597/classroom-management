@@ -1,5 +1,10 @@
 import axios, { AxiosError } from 'axios';
 import type { PydanticValidationError } from '@/types/api';
+import {
+  ACCESS_TOKEN_KEY,
+  ALL_LOCAL_STORAGE_KEYS,
+  ALL_SESSION_STORAGE_KEYS,
+} from '@/constants/storageKeys';
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
@@ -12,7 +17,7 @@ export const api = axios.create({
 // Interceptor ขาออก
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token');
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -55,14 +60,14 @@ export const normalizeApiError = async (
   if (error.response.status === 401) {
     // ✅ เคลียร์ Session ทั้งหมด (ไม่ใช่แค่ token) เพื่อป้องกัน redirect วนลูป
     // และคืนค่าผู้ใช้ไปหน้า Login ครั้งเดียวเท่านั้น
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user_id_str');
-    localStorage.removeItem('current_room_id');
-    localStorage.removeItem('current_room_name');
-    localStorage.removeItem('current_room_code');
-    localStorage.removeItem('current_role');
-    localStorage.removeItem('current_is_admin');
-    localStorage.removeItem('current_permissions');
+    //
+    // ⚠️ ใช้ลิสต์กลางจาก `constants/storageKeys.ts` — เดิมที่นี่ลบมือเพียง 8 คีย์
+    //    ขณะที่ `authStore.logout()` ลบ 19 ⇒ สองเส้นทางทิ้งขยะไว้ไม่เท่ากัน
+    //    (ชื่อ/อีเมล/เบอร์โทรค้างอยู่ใน localStorage หลังโดนเด้ง) ซึ่งไม่มีอะไรฟ้อง
+    ALL_LOCAL_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      ALL_SESSION_STORAGE_KEYS.forEach((key) => sessionStorage.removeItem(key));
+    }
 
     if (!isRedirectingToLogin && !window.location.pathname.startsWith('/login')) {
       isRedirectingToLogin = true;
