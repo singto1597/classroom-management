@@ -132,7 +132,10 @@ def test_route_count_is_not_silently_shrinking():
     ตัวเลขนี้ *ตั้งใจ* ให้ต้องอัปเดตมือเมื่อเพิ่ม/ลบ route — เป็นสัญญาณเตือน
     ไม่ใช่ภาระ ถ้าเทสต์ล้มเพราะเพิ่งเพิ่ม route จริง ให้ปรับตัวเลขแล้ว commit มาด้วยกัน
     """
-    expected = 127
+    # 127 → 128 (2026-09-27): เพิ่ม `POST /api/auth/refresh` (ต่ออายุ session)
+    #   route ใหม่มี `Depends(get_current_user)` ⇒ ผ่าน `test_every_route_declares_auth_dependency`
+    #   ไม่ต้องเพิ่มลง PUBLIC_ROUTES (และไม่ควร — ต้องล็อกอินอยู่เท่านั้นจึงต่ออายุได้)
+    expected = 128
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (
