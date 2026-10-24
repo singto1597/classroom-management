@@ -6,6 +6,7 @@ import logging
 
 from core.config import settings
 from core.init_db import init_db
+from core.migrations import apply_migrations
 
 from routers import classroom_sync_router
 from routers import student_router
@@ -37,8 +38,14 @@ async def lifespan(app: FastAPI):
         )
         logger.info("✅ Database Connection Pool Created Successfully!")
         
-        # 🚀 เรียกใช้ Schema Setup จาก core.init_db
+        # 🚀 เรียกใช้ Schema Setup จาก core.init_db (สร้างสคีมาเต็มของ DB ใหม่)
         await init_db(app.state.db_pool)
+
+        # 🧱 ต่อด้วย migration ที่เพิ่มเข้ามาหลังจากนั้น — คนละหน้าที่กับ init_db:
+        #    init_db = "DB ใหม่ต้องได้ทุกตาราง", migrations = "DB เดิมต้องได้ของใหม่"
+        #    (ไฟล์ที่เคย apply แล้วถูกแก้ = MigrationDriftError ⇒ บูตไม่ขึ้นโดยเจตนา)
+        applied = await apply_migrations(app.state.db_pool)
+        logger.info("✅ Migrations checked — applied %d new file(s)", applied)
 
     except Exception as e:
         logger.error(f"❌ Failed to connect to Database: {e}")

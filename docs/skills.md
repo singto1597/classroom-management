@@ -3145,3 +3145,28 @@
 - **Rule:** (1) 🔴 **`docker service ls` ขึ้น `3/3` ไม่ได้แปลว่า deploy จบ** — `start-first` มีช่วงที่เก่า+ใหม่ปนกัน (2) 🔴 **คำสั่งที่ `exit 0` แล้ว ยังไม่ใช่หลักฐานว่าโค้ดใหม่รับงาน** ต้องยืนยันที่ container จริง (`docker inspect` / `docker ps`) (3) ⚠️ **ผลตรวจที่ "ดูเหมือนพัง" ต้องตรวจซ้ำก่อนสรุป** โดยเฉพาะก่อนตัดสินใจอย่างกลับไม่ได้ (4) ✅ **ตรวจด้วย endpoint ที่ "ก่อน deploy ต้อง 404"** เป็นวิธีพิสูจน์ว่าโค้ดใหม่ขึ้นจริงโดยไม่ต้องมี credential ใด ๆ — ใช้ได้กับทุก deploy ที่เพิ่ม route
 - **Tests:** ไม่มี (บทเรียน infra) — พิสูจน์ด้วย `docker ps` เทียบจำนวน container กับ `desired`, `docker inspect` เทียบ env ต่อ container, และยิง endpoint ซ้ำจนได้ค่าคงที่ · deploy 2026-09-27 (PR #92)
 - **Date Added:** 2026-09-27
+
+### 🧱 `CREATE TABLE IF NOT EXISTS` ไม่เคยสร้างคอลัมน์ใหม่บน DB จริง — และ migration ที่ไม่มี lock จะชนกันตอน 3 replica บูต
+- **Context/Problem:** ระบบนี้ไม่มีระบบ migration มาเลย สคีมาทั้งหมดอยู่ใน `core/init_db.py` (958 บรรทัด, `CREATE TABLE IF NOT EXISTS` ทั้งไฟล์) ⇒ บน DB โปรดักชันที่มีตารางอยู่แล้ว ทุกบล็อกเป็น **no-op** สิ่งที่เพิ่ม "ข้างใน CREATE TABLE" จึงไม่ถูกสร้าง — เคยเจอจริงกับ `finance_receipts.batch_id` (มีเทสต์ล็อกไว้ที่ `test_init_db_upgrade_path.py`) แต่ไม่มีที่ให้เพิ่มคอลัมน์ยุคหน้า
+- **Root Cause:** `IF NOT EXISTS` แปลว่า "ถ้าตารางมีอยู่ ไม่ต้องทำอะไร" ไม่ใช่ "ถ้าคอลัมน์ขาด ให้เติม" — และการ "แก้ init_db ให้มีของใหม่" ยังพังเงียบอีกชั้น: เทสต์ทุกตัวรันบน DB ที่ `init_db` สร้างใหม่เอี่ยม ⇒ เขียวหมด ขณะที่ DB จริงไม่ถูกแตะ
+  🔎 กับดักที่สอง: backend รัน **3 replica** และทุกตัวเรียก setup ตอนบูตพร้อมกัน ⇒ runner ที่อ่าน "ยังไม่มีใคร apply" แล้วทุกตัวลงมือ รัน SQL ซ้ำและตายที่ PK ของตารางบันทึก version ทั้งที่สคีมาเรียบร้อยแล้ว
+  🔎 กับดักที่สาม: ตั้ง regex ชื่อไฟล์เป็น `\d{3}` แต่เขียนไฟล์จริงเป็น `0001_` (4 หลัก) ⇒ loader คืนลิสต์ว่าง **ไม่มี error** — เทสต์ loader เป็นตัวจับ (ถ้าไม่มีเทสต์นี้ "ไม่มี migration" จะดูเหมือน "ระบบยังไม่ต้องมี migration")
+- **Correct Pattern/Solution:**
+  ```python
+  # backend/core/migrations/runner.py
+  await conn.execute("SELECT pg_try_advisory_lock($1)", APPLY_LOCK_KEY)  # ลูป 60 วิ
+  applied = {r["version"]: r["checksum"] for r in await conn.fetch(...)}
+  for m in pending:
+      if stored := applied.get(m.version):
+          if stored != m.checksum: raise MigrationDriftError(...)  # แก้ของเก่า = บูตไม่ขึ้น
+          continue
+      async with conn.transaction():          # ต่อไฟล์ ⇒ ล้มกลางทางไม่ทิ้งครึ่ง ๆ
+          for stmt in m.statements: await conn.execute(stmt)
+          await conn.execute("INSERT INTO schema_migrations ...")
+  ```
+  - `init_db()` = "DB ใหม่ต้องได้ทุกตาราง"; `apply_migrations()` = "DB เดิมต้องได้ของใหม่" — เรียกตามลำดับนี้ใน `main.py` lifespan
+  - `conftest.py` ต้องเรียกทั้งสองด้วย ไม่งั้นตารางที่มาจาก migration ไม่มีในเทสต์
+  - loader ปฏิเสธ `DROP TABLE`/`DROP COLUMN`/`TRUNCATE` และเลขไฟล์ซ้ำ ก่อนแตะ DB เลย
+- **Rule:** (1) 🔴 **เปลี่ยนสคีมา = เขียน migration ใหม่เท่านั้น** ห้ามแก้ `init_db.py` ให้ตารางที่มีอยู่แล้วได้คอลัมน์ใหม่ (2) 🔴 **ห้ามแก้ migration ที่ apply แล้ว** — เขียนเลขถัดไป (3) 🔴 **ทุก runner ต้องถือ lock ก่อนอ่านสถานะ** ไม่ใช่แค่ตอนเขียน (4) 🔴 **`0` ที่คืนมาต้องแยกออกจาก "ไม่เคยรัน"** — log ให้เห็นจำนวนไฟล์ในโค้ดด้วย (5) ⚠️ **loader ที่ค้นไฟล์ผิดแบบคืนลิสต์ว่าง = ฟีเจอร์ที่ไม่มีใครรู้ว่าหาย** ต้องมีเทสต์ที่อ่านไฟล์จริงและ assert ว่าลิสต์ที่ได้เรียงถูก
+- **Tests:** `backend/tests/test_migrations.py` — idempotent (รันซ้ำได้ 0 + แถวเดียว), rollback ต่อไฟล์, drift, **สอง pool apply พร้อมกันแล้วได้ `[0, 1]`**, loader ปฏิเสธคำสั่งทำลายข้อมูล/เลขซ้ำ/`SQL` ว่าง · `test_init_db_upgrade_path.py` ยังต้องเขียว
+- **Date Added:** 2026-10-24
