@@ -44,6 +44,7 @@ import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore()
 const currentRoomId = authStore.currentRoomId!
@@ -170,10 +171,10 @@ const handleTopUp = async () => {
           `เครดิตคงเหลือ <b class="num">${formatMoney(res.balance_after)}</b>`
         : `รับเงิน <b class="num">${formatMoney(res.amount)}</b> จาก <b>${escapeHtml(res.student_name)}</b><br>` +
           `เครดิตคงเหลือ <b class="num">${formatMoney(res.balance_after)}</b><br>` +
-          `<span style="font-size:0.85em;color:#78716c">` +
+          `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
           `ออกใบรับเงินล่วงหน้าเลขที่ <b>${depNo}</b> แล้ว — ` +
           `เงินก้อนนี้จะยัง <b>ไม่นับเป็นรายได้</b> จนกว่าจะถูกหักปิดบิล</span>`,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
 
     isTopUpOpen.value = false
@@ -287,14 +288,14 @@ const handleApply = async () => {
       `จะหักเครดิตของ <b>${plan.items.length}</b> คน ไปปิดบิลรวม ` +
       `<b>${planAllocations.value.length}</b> รายการ<br>` +
       `ยอดที่หักรวม <b class="num">${formatMoney(plan.total_applied)}</b><br><br>` +
-      `<span style="font-size:0.85em;color:#78716c">` +
+      `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
       `การหักเครดิต <b>ไม่มีเงินเคลื่อนไหว</b> (เงินเข้ามาตั้งแต่ตอนเติม) ` +
       `และ <b>ไม่มีการออกใบเสร็จใหม่</b> — หลักฐานคือใบรับเงินล่วงหน้าที่ออกไว้แล้ว<br>` +
       `รายการนี้ยกเลิกได้ภายหลังหากหักผิด</span>`,
     icon: 'question',
     showCancelButton: true,
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ยืนยันหักเครดิต',
     cancelButtonText: 'ยกเลิก',
   })
@@ -320,7 +321,7 @@ const handleApply = async () => {
         `หักไป <b class="num">${formatMoney(res.total_applied)}</b> ` +
         `ปิดบิล ${res.bills_paid ?? 0} รายการ<br>` +
         `เครดิตคงเหลือรวม <b class="num">${formatMoney(res.total_balance_after)}</b>`,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     selectedIds.value = []
     await fetchCredits()
@@ -330,7 +331,7 @@ const handleApply = async () => {
     Swal.fire(
       'หักเครดิตไม่สำเร็จ',
       (error instanceof Error ? error.message : 'เกิดข้อผิดพลาด') +
-        '<br><span style="font-size:0.85em;color:#78716c">ยังไม่มีรายการใดถูกหัก (ยกเลิกทั้งชุด)</span>',
+        `<br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">ยังไม่มีรายการใดถูกหัก (ยกเลิกทั้งชุด)</span>`,
       'error',
     )
   } finally {
@@ -381,12 +382,12 @@ const handleUndo = async (entry: StudentCreditEntry) => {
     html:
       `คืนเครดิต <b class="num">${formatMoney(entry.amount)}</b> ` +
       `เข้ากระเป๋านักเรียน และเปิดบิลกลับเป็น "ค้างชำระ"<br>` +
-      `<span style="font-size:0.85em;color:#78716c">` +
+      `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
       `บิล: ${escapeHtml(entry.collection_title ?? '—')} · รายการนี้จะยังอยู่ในประวัติ (ไม่ถูกลบ)</span>`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#b91c1c',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.dangerStrong,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ยืนยันยกเลิกการหัก',
     cancelButtonText: 'ไม่ใช่',
   })
@@ -403,7 +404,7 @@ const handleUndo = async (entry: StudentCreditEntry) => {
       html:
         `คืนเครดิต <b class="num">${formatMoney(res.reverted_amount)}</b><br>` +
         `เครดิตคงเหลือ <b class="num">${formatMoney(res.credit_balance_after)}</b>`,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     // โหลดใหม่ทั้งสองส่วน — ประวัติเปลี่ยน (แถวเดิมถูกลบ, แถว reverse ถูกเพิ่ม)
     if (historyTarget.value) await openHistory(historyTarget.value)
@@ -419,8 +420,8 @@ const handleUndo = async (entry: StudentCreditEntry) => {
 
 /** ฉลาก/สีของแต่ละประเภทรายการ — ไม่ให้ผู้ใช้ต้องตีความตัวอักษรอังกฤษเอง */
 const entryChipClass = (type: string): string => {
-  if (type === 'topup') return 'bg-emerald-50 text-emerald-700'
-  if (type === 'apply') return 'bg-amber-50 text-amber-700'
+  if (type === 'topup') return 'bg-ok-50 text-ok-700'
+  if (type === 'apply') return 'bg-warn-50 text-warn-700'
   return 'bg-stone-100 text-stone-600'
 }
 
@@ -523,7 +524,7 @@ onMounted(() => {
       >
         <p class="min-w-0 text-sm font-bold text-stone-700">
           เลือกไว้ <span class="num">{{ selectedIds.length }}</span> คน ·
-          เครดิตที่เลือก <span class="num text-emerald-600">{{ formatMoney(selectedBalance) }}</span>
+          เครดิตที่เลือก <span class="num text-ok-600">{{ formatMoney(selectedBalance) }}</span>
         </p>
         <div class="flex shrink-0 gap-2">
           <button type="button" class="btn-ghost-ui" @click="selectedIds = []">ล้างที่เลือก</button>
@@ -540,7 +541,7 @@ onMounted(() => {
           v-for="c in credits"
           :key="c.student_id"
           class="page-card p-4"
-          :class="c.credit_balance > 0 ? 'border-s-4 border-s-emerald-500' : ''"
+          :class="c.credit_balance > 0 ? 'border-s-4 border-s-ok-500' : ''"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-2">
@@ -580,7 +581,7 @@ onMounted(() => {
               <p class="text-[11px] font-bold text-stone-500">เครดิตคงเหลือ</p>
               <p
                 class="font-display num mt-0.5 whitespace-nowrap text-lg font-bold"
-                :class="c.credit_balance > 0 ? 'text-emerald-600' : 'text-stone-300'"
+                :class="c.credit_balance > 0 ? 'text-ok-600' : 'text-stone-300'"
               >
                 {{ formatMoney(c.credit_balance) }}
               </p>
@@ -593,7 +594,7 @@ onMounted(() => {
             </span>
             <span
               class="chip shrink-0"
-              :class="c.net_pending_amount > 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'"
+              :class="c.net_pending_amount > 0 ? 'bg-danger-50 text-danger-700' : 'bg-ok-50 text-ok-700'"
             >
               ต้องเก็บจริง {{ formatMoney(c.net_pending_amount) }}
             </span>
@@ -686,7 +687,7 @@ onMounted(() => {
                 <td class="font-bold text-stone-900">{{ c.student_name }}</td>
                 <td
                   class="font-display num whitespace-nowrap text-right font-bold"
-                  :class="c.credit_balance > 0 ? 'text-emerald-600' : 'text-stone-300'"
+                  :class="c.credit_balance > 0 ? 'text-ok-600' : 'text-stone-300'"
                 >
                   {{ formatMoney(c.credit_balance) }}
                 </td>
@@ -695,7 +696,7 @@ onMounted(() => {
                 </td>
                 <td
                   class="num whitespace-nowrap text-right font-bold"
-                  :class="c.net_pending_amount > 0 ? 'text-red-600' : 'text-emerald-600'"
+                  :class="c.net_pending_amount > 0 ? 'text-danger-600' : 'text-ok-600'"
                 >
                   {{ formatMoney(c.net_pending_amount) }}
                 </td>

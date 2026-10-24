@@ -9,6 +9,7 @@ import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
 
@@ -112,7 +113,7 @@ const handleAddAccount = async () => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
 
   const { value: formValues } = await Swal.fire({
@@ -125,8 +126,8 @@ const handleAddAccount = async () => {
     showCancelButton: true,
     confirmButtonText: 'บันทึกข้อมูล',
     cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     didOpen: wireChannelToggle,
     preConfirm: () => {
       const name = (document.getElementById('swal-input1') as HTMLInputElement).value;
@@ -149,7 +150,7 @@ const handleAddAccount = async () => {
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
         text: error instanceof Error ? error.message : 'เพิ่มกระเป๋าเงินไม่สำเร็จ',
-        confirmButtonColor: '#1d4ed8'
+        confirmButtonColor: UI_COLOR.brand
       });
     }
   }
@@ -161,7 +162,7 @@ const handleEditAccount = async (account: Account) => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
 
   const { value: formValues } = await Swal.fire({
@@ -174,8 +175,8 @@ const handleEditAccount = async (account: Account) => {
     showCancelButton: true,
     confirmButtonText: 'บันทึก',
     cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     didOpen: wireChannelToggle,
     preConfirm: () => {
       const name = (document.getElementById('swal-input1') as HTMLInputElement).value.trim();
@@ -200,7 +201,7 @@ const handleEditAccount = async (account: Account) => {
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
         text: error instanceof Error ? error.message : 'แก้ไขกระเป๋าเงินไม่สำเร็จ',
-        confirmButtonColor: '#1d4ed8'
+        confirmButtonColor: UI_COLOR.brand
       });
     }
   }
@@ -212,7 +213,7 @@ const handleDeleteAccount = async (id: number) => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
 
   const result = await Swal.fire({
@@ -220,8 +221,8 @@ const handleDeleteAccount = async (id: number) => {
     text: 'หากลบแล้วข้อมูลประวัติที่เกี่ยวข้องอาจได้รับผลกระทบ',
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ลบทันที',
     cancelButtonText: 'ยกเลิก'
   });
@@ -236,7 +237,7 @@ const handleDeleteAccount = async (id: number) => {
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
         text: error instanceof Error ? error.message : 'ลบกระเป๋าเงินไม่สำเร็จ',
-        confirmButtonColor: '#1d4ed8'
+        confirmButtonColor: UI_COLOR.brand
       });
     }
   }
@@ -250,7 +251,7 @@ const handleAddCategory = async () => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
 
   const { value: formValues } = await Swal.fire({
@@ -265,8 +266,8 @@ const handleAddCategory = async () => {
     showCancelButton: true,
     confirmButtonText: 'เพิ่มหมวดหมู่',
     cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     preConfirm: () => {
       const type = (document.getElementById('swal-type') as HTMLSelectElement).value as 'income' | 'expense';
       const name = (document.getElementById('swal-name') as HTMLInputElement).value;
@@ -288,7 +289,7 @@ const handleAddCategory = async () => {
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
         text: error instanceof Error ? error.message : 'เพิ่มหมวดหมู่ไม่สำเร็จ',
-        confirmButtonColor: '#1d4ed8'
+        confirmButtonColor: UI_COLOR.brand
       });
     }
   }
@@ -300,7 +301,7 @@ const handleEditCategory = async (category: Category) => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
 
   const { value: name } = await Swal.fire({
@@ -310,8 +311,8 @@ const handleEditCategory = async (category: Category) => {
     showCancelButton: true,
     confirmButtonText: 'บันทึก',
     cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     inputValidator: (value) => {
       if (!value) return 'กรุณากรอกชื่อหมวดหมู่';
       return null;
@@ -328,7 +329,7 @@ const handleEditCategory = async (category: Category) => {
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
         text: error instanceof Error ? error.message : 'แก้ไขหมวดหมู่ไม่สำเร็จ',
-        confirmButtonColor: '#1d4ed8'
+        confirmButtonColor: UI_COLOR.brand
       });
     }
   }
@@ -340,7 +341,7 @@ const handleDeleteCategory = async (id: number) => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
 
   const result = await Swal.fire({
@@ -348,8 +349,8 @@ const handleDeleteCategory = async (id: number) => {
     text: 'การลบหมวดหมู่อาจส่งผลต่อการจัดกลุ่มรายงาน',
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ลบทันที',
     cancelButtonText: 'ยกเลิก'
   });
@@ -364,7 +365,7 @@ const handleDeleteCategory = async (id: number) => {
         icon: 'error',
         title: 'เกิดข้อผิดพลาด',
         text: error instanceof Error ? error.message : 'ลบหมวดหมู่ไม่สำเร็จ',
-        confirmButtonColor: '#1d4ed8'
+        confirmButtonColor: UI_COLOR.brand
       });
     }
   }
@@ -469,7 +470,7 @@ const formatNumber = (num: number) => {
                   <i class="bi bi-pencil-square" aria-hidden="true"></i>
                 </button>
                 <button
-                  class="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                  class="flex h-11 w-11 items-center justify-center rounded-lg text-danger-600 transition-colors hover:bg-danger-50"
                   title="ลบ"
                   aria-label="ลบกระเป๋าเงิน"
                   @click="handleDeleteAccount(acc.id)"
@@ -501,7 +502,7 @@ const formatNumber = (num: number) => {
           <!-- รายรับ -->
           <div class="min-w-0">
             <div class="mb-3 flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
-              <span class="chip bg-emerald-50 text-emerald-700">
+              <span class="chip bg-ok-50 text-ok-700">
                 <i class="bi bi-arrow-down-left" aria-hidden="true"></i>
                 รายรับ
               </span>
@@ -533,7 +534,7 @@ const formatNumber = (num: number) => {
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                   </button>
                   <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-danger-600 transition-colors hover:bg-danger-50"
                     title="ลบ"
                     aria-label="ลบหมวดหมู่"
                     @click.stop="handleDeleteCategory(cat.id)"
@@ -548,7 +549,7 @@ const formatNumber = (num: number) => {
           <!-- รายจ่าย -->
           <div class="min-w-0">
             <div class="mb-3 flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
-              <span class="chip bg-red-50 text-red-700">
+              <span class="chip bg-danger-50 text-danger-700">
                 <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
                 รายจ่าย
               </span>
@@ -580,7 +581,7 @@ const formatNumber = (num: number) => {
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                   </button>
                   <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-danger-600 transition-colors hover:bg-danger-50"
                     title="ลบ"
                     aria-label="ลบหมวดหมู่"
                     @click.stop="handleDeleteCategory(cat.id)"

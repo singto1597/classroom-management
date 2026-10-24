@@ -113,10 +113,10 @@ const rangeOf = (p: PeriodValue): { startDate: string; endDate: string } | null 
  *    (`batchVoidedNote`, ปุ่มยกเลิก) ⇒ ใบที่ยังใช้ได้จะอ่านเหมือนใบที่ตายแล้ว
  */
 const docChipClass = (docType: string): string => {
-  if (docType === 'receipt' || docType === 'income') return 'bg-emerald-50 text-emerald-700';
-  if (docType === 'deposit') return 'bg-sky-50 text-sky-700';
+  if (docType === 'receipt' || docType === 'income') return 'bg-ok-50 text-ok-700';
+  if (docType === 'deposit') return 'bg-info-50 text-info-700';
   if (docType === 'payment_voucher') return 'bg-stone-100 text-stone-700';
-  return 'bg-amber-50 text-amber-700';
+  return 'bg-warn-50 text-warn-700';
 };
 
 /** เงินทุกตัวในหน้านี้ผ่านฟังก์ชันเดียว — เติม `฿` เสมอ (แบบเดียวกับ BudgetList/FinancialStatements) */
@@ -522,7 +522,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
       </div>
       <div class="page-card p-3.5">
         <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ยอดรับเงิน</p>
-        <p class="font-display num mt-1 text-xl font-bold text-emerald-700">
+        <p class="font-display num mt-1 text-xl font-bold text-ok-700">
           {{ formatMoney(receivedTotal) }}
         </p>
         <p class="mt-0.5 text-[11px] text-stone-500">เฉพาะที่แสดงอยู่ (ไม่รวมใบแจ้งหนี้)</p>
@@ -536,12 +536,12 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
       </div>
       <div class="page-card p-3.5">
         <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">เอกสารรับเงิน</p>
-        <p class="font-display num mt-1 text-xl font-bold text-emerald-700">{{ receiptCount }}</p>
+        <p class="font-display num mt-1 text-xl font-bold text-ok-700">{{ receiptCount }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">ใบเสร็จ · รับล่วงหน้า · ใบรับเงิน</p>
       </div>
       <div class="page-card p-3.5">
         <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ใบแจ้งหนี้</p>
-        <p class="font-display num mt-1 text-xl font-bold text-amber-700">{{ invoiceCount }}</p>
+        <p class="font-display num mt-1 text-xl font-bold text-warn-700">{{ invoiceCount }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">เอกสารเรียกเก็บ</p>
       </div>
     </div>
@@ -562,7 +562,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
       <template v-else>
         <p
           v-if="hitsLimit"
-          class="chip bg-amber-50 text-amber-700"
+          class="chip bg-warn-50 text-warn-700"
           role="status"
         >
           <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
@@ -679,12 +679,12 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         <!-- 🔴 ขนาดชุดต้องมาจาก batch_size ของ backend เสมอ -->
                         <span
                           v-if="batchVisibilityNote(row)"
-                          class="chip bg-amber-50 text-amber-700"
+                          class="chip bg-warn-50 text-warn-700"
                         >
                           <i class="bi bi-funnel" aria-hidden="true"></i>
                           {{ batchVisibilityNote(row) }}
                         </span>
-                        <span v-if="batchVoidedNote(row)" class="chip bg-rose-50 text-rose-700">
+                        <span v-if="batchVoidedNote(row)" class="chip bg-danger-50 text-danger-700">
                           {{ batchVoidedNote(row) }}
                         </span>
                       </div>
@@ -716,7 +716,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                   </button>
                   <button
                     type="button"
-                    class="btn-ghost-ui text-rose-600"
+                    class="btn-ghost-ui text-danger-600"
                     :disabled="busyBatchId === row.batchId"
                     @click="dissolveBatch(row.batchId, batchDisplayName(row), row.visibleCount)"
                   >
@@ -980,14 +980,14 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                           <!-- 🔴 บอกตามจริงเมื่อตัวกรองตัดสมาชิกออก — ห้ามเงียบ -->
                           <span
                             v-if="batchVisibilityNote(row)"
-                            class="chip shrink-0 bg-amber-50 text-amber-700"
+                            class="chip shrink-0 bg-warn-50 text-warn-700"
                           >
                             <i class="bi bi-funnel" aria-hidden="true"></i>
                             {{ batchVisibilityNote(row) }}
                           </span>
                           <span
                             v-if="batchVoidedNote(row)"
-                            class="chip shrink-0 bg-rose-50 text-rose-700"
+                            class="chip shrink-0 bg-danger-50 text-danger-700"
                           >
                             {{ batchVoidedNote(row) }}
                           </span>
@@ -1012,7 +1012,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                           </button>
                           <button
                             type="button"
-                            class="btn-ghost-ui text-rose-600"
+                            class="btn-ghost-ui text-danger-600"
                             :disabled="busyBatchId === row.batchId"
                             title="ยุบชุด (เอกสารไม่ถูกลบ)"
                             @click="dissolveBatch(row.batchId, batchDisplayName(row), row.visibleCount)"

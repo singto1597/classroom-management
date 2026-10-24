@@ -37,6 +37,7 @@ import RegionMemberNames from '@/components/activities/RegionMemberNames.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
+import { UI_COLOR } from '@/constants/theme'
 
 /** เพดานกิจกรรมที่เปรียบเทียบได้ — เกินนี้แผนภาพเวนไม่ครอบคลุมทุกภูมิภาคทางเรขาคณิต */
 const MAX_ACTIVITIES = 3
@@ -286,7 +287,7 @@ const exportExcel = async () => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะผู้ดูแลกิจกรรมเท่านั้นที่ export ได้',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     return
   }
@@ -295,7 +296,7 @@ const exportExcel = async () => {
       icon: 'warning',
       title: 'ยังไม่ได้เลือกภูมิภาค',
       text: 'เลือกอย่างน้อย 1 ภูมิภาคก่อน export',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     return
   }
@@ -319,7 +320,7 @@ const exportExcel = async () => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: error instanceof Error ? error.message : 'Export ไม่สำเร็จ',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   } finally {
     isExporting.value = false

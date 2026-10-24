@@ -86,16 +86,16 @@ function isOrphanedDuty(item: RosterItem): boolean {
 
 /** ค่าป้ายสถานะ (dot สี) แบบ StudentList */
 const statusDot = (status: string) => {
-  if (status === 'attended') return 'bg-emerald-500'
-  if (status === 'cancelled') return 'bg-red-500'
-  return 'bg-amber-500'
+  if (status === 'attended') return 'bg-ok-500'
+  if (status === 'cancelled') return 'bg-danger-500'
+  return 'bg-warn-500'
 }
 
 /** สไตล์ปุ่มเช็คอิน (bottom action) — ต่างจาก dot เล็ก ๆ ตรงที่ต้องการให้กดชัดเจน */
 const actionClass = (status: string) => {
-  if (status === 'attended') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
-  if (status === 'cancelled') return 'bg-red-50 text-red-700 border-red-200'
-  return 'bg-white text-stone-500 border-stone-200 hover:border-emerald-300 hover:text-emerald-700'
+  if (status === 'attended') return 'bg-ok-50 text-ok-700 border-ok-200'
+  if (status === 'cancelled') return 'bg-danger-50 text-danger-700 border-danger-200'
+  return 'bg-white text-stone-500 border-stone-200 hover:border-ok-300 hover:text-ok-700'
 }
 
 /** ป้ายปุ่มเช็คอิน — "มาแล้ว" เมื่อ attend แล้ว, "ยังไม่มา" เมื่อยังไม่เช็คอิน */
@@ -357,7 +357,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                       v-if="showRemove && (!readOnly || canManage)"
                       type="button"
                       @click="emit('remove', item.key)"
-                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
                     >
                       <i class="bi bi-trash3" aria-hidden="true"></i> นำออก
                     </button>
@@ -426,7 +426,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                 }}</span>
                 <template v-if="item.earned_hours > 0">
                   <span class="text-stone-300">•</span>
-                  <span class="num whitespace-nowrap font-bold text-emerald-600"
+                  <span class="num whitespace-nowrap font-bold text-ok-600"
                     >{{ item.earned_hours }} ชม.</span
                   >
                 </template>
@@ -482,7 +482,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                   <button
                     type="button"
                     @click.stop="handleMenuAction('remove', item.key)"
-                    class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+                    class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-danger-600 transition-colors hover:bg-danger-50"
                   >
                     <i class="bi bi-trash" aria-hidden="true"></i> นำออก
                   </button>
@@ -549,7 +549,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="showRemove"
               type="button"
               @click="emit('remove', item.key)"
-              class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+              class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
             >
               <i class="bi bi-trash3" aria-hidden="true"></i> นำออก
             </button>

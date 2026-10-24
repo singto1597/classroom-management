@@ -9,6 +9,7 @@ import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -88,7 +89,7 @@ const handleSend = async () => {
       icon: 'error',
       title: 'ส่งประกาศไม่สำเร็จ',
       text: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดจากระบบ โปรดลองใหม่อีกครั้ง',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
   } finally {
     isSubmitting.value = false;
@@ -129,16 +130,16 @@ const handleSend = async () => {
 
     <div
       v-else-if="!isDiscordLinked"
-      class="page-card flex items-start gap-3 border-amber-200 bg-amber-50 p-4 sm:gap-4 sm:p-5"
+      class="page-card flex items-start gap-3 border-warn-200 bg-warn-50 p-4 sm:gap-4 sm:p-5"
     >
       <div
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-warn-100 text-warn-700"
       >
         <i class="bi bi-discord text-lg" aria-hidden="true"></i>
       </div>
       <div class="min-w-0 flex-1">
-        <p class="text-sm font-bold text-amber-800">ห้องนี้ยังไม่ได้เชื่อมต่อกับ Discord</p>
-        <p class="mt-1 text-xs leading-relaxed text-amber-700">
+        <p class="text-sm font-bold text-warn-800">ห้องนี้ยังไม่ได้เชื่อมต่อกับ Discord</p>
+        <p class="mt-1 text-xs leading-relaxed text-warn-700">
           ประกาศจะถูกส่งได้เฉพาะห้องที่มี Discord Server ผูกไว้แล้ว — กดเชื่อมต่อเพื่อให้บอทประกาศข้อความถึงเพื่อนทุกคนได้
         </p>
         <RouterLink to="/discord-connect" class="btn-ghost-ui mt-3">
@@ -150,16 +151,16 @@ const handleSend = async () => {
 
     <div
       v-else
-      class="page-card flex items-start gap-3 border-emerald-200 bg-emerald-50 p-4 sm:gap-4 sm:p-5"
+      class="page-card flex items-start gap-3 border-ok-200 bg-ok-50 p-4 sm:gap-4 sm:p-5"
     >
       <div
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ok-100 text-ok-700"
       >
         <i class="bi bi-discord text-lg" aria-hidden="true"></i>
       </div>
       <div class="min-w-0">
-        <p class="text-sm font-bold text-emerald-800">ห้องเชื่อมต่อ Discord เรียบร้อยแล้ว</p>
-        <p class="mt-1 text-xs leading-relaxed text-emerald-700">
+        <p class="text-sm font-bold text-ok-800">ห้องเชื่อมต่อ Discord เรียบร้อยแล้ว</p>
+        <p class="mt-1 text-xs leading-relaxed text-ok-700">
           ประกาศจะถูกส่งไปยังช่องประกาศของห้องทันที
         </p>
       </div>

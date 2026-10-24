@@ -113,7 +113,7 @@ function removeRow(index: number) {
           <button
             type="button"
             @click="removeRow(index)"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:h-9 sm:w-9"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
             title="ลบข้อมูลนี้"
             aria-label="ลบข้อมูลนี้"
           >

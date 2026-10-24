@@ -7,6 +7,7 @@ import { TaskService } from '@/services/task'
 import { todayIso } from '@/utils/period'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -66,7 +67,7 @@ const handleAddTask = async () => {
       title: 'เพิ่มงานเรียบร้อยแล้ว!',
       timer: 1500,
       showConfirmButton: false,
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
     router.push('/tasks')
   } catch (error: unknown) {
@@ -98,7 +99,7 @@ const handleAddNote = async () => {
       titleText: `บันทึกโน้ตสำหรับวันที่ ${noteForm.target_date} เรียบร้อย!`,
       timer: 1500,
       showConfirmButton: false,
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
     router.push('/tasks')
   } catch (error: unknown) {
@@ -151,7 +152,7 @@ const handleAddNote = async () => {
         <form v-if="activeTab === 'task'" class="space-y-4" @submit.prevent="handleAddTask">
           <div>
             <label class="field-label" for="taskName">
-              ชื่องาน <span class="text-red-600">*</span>
+              ชื่องาน <span class="text-danger-600">*</span>
             </label>
             <input
               id="taskName"
@@ -177,7 +178,7 @@ const handleAddNote = async () => {
 
           <div>
             <label class="field-label" for="taskDueDate">
-              กำหนดส่ง <span class="text-red-600">*</span>
+              กำหนดส่ง <span class="text-danger-600">*</span>
             </label>
             <input
               id="taskDueDate"
@@ -213,7 +214,7 @@ const handleAddNote = async () => {
         <form v-else class="space-y-4" @submit.prevent="handleAddNote">
           <div>
             <label class="field-label" for="noteDate">
-              วันที่เป้าหมาย <span class="text-red-600">*</span>
+              วันที่เป้าหมาย <span class="text-danger-600">*</span>
             </label>
             <input
               id="noteDate"

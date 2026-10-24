@@ -21,6 +21,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
+import { UI_COLOR } from '@/constants/theme'
 
 const route = useRoute()
 const router = useRouter()
@@ -84,9 +85,9 @@ const formatDate = (dateStr: string) => {
 /** โทนสีป้ายสถานะ (chip) — คุมโทนตาม Design Contract ไม่ใช้สีฟ้า/ชมพูแบบเดิม */
 function statusChip(status: unknown): string {
   const key = typeof status === 'string' ? status : ''
-  if (key === 'ongoing') return 'bg-amber-50 text-amber-700'
-  if (key === 'completed') return 'bg-emerald-50 text-emerald-700'
-  if (key === 'cancelled') return 'bg-red-50 text-red-700'
+  if (key === 'ongoing') return 'bg-warn-50 text-warn-700'
+  if (key === 'completed') return 'bg-ok-50 text-ok-700'
+  if (key === 'cancelled') return 'bg-danger-50 text-danger-700'
   return 'bg-brand-50 text-brand-700'
 }
 
@@ -100,7 +101,7 @@ const fetchData = async () => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     router.push('/activities')
   } finally {
@@ -193,7 +194,7 @@ const toggleParticipantStatus = async (key: string | number) => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -207,7 +208,7 @@ const removeParticipant = async (key: string | number) => {
     text: `${displayName(participant)} จะถูกนำออก`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
+    confirmButtonColor: UI_COLOR.danger,
     confirmButtonText: 'นำออก',
     cancelButtonText: 'ยกเลิก',
   })
@@ -227,7 +228,7 @@ const removeParticipant = async (key: string | number) => {
         icon: 'error',
         title: 'ข้อผิดพลาด',
         text: msg,
-        confirmButtonColor: '#1d4ed8',
+        confirmButtonColor: UI_COLOR.brand,
       })
     }
   }
@@ -250,7 +251,7 @@ const changeStatus = async (status: string) => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -282,7 +283,7 @@ const exportExcel = async () => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   } finally {
     isExporting.value = false
@@ -428,12 +429,12 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                     >
                       <i
                         v-if="isExporting"
-                        class="bi bi-arrow-repeat animate-spin text-emerald-600"
+                        class="bi bi-arrow-repeat animate-spin text-ok-600"
                         aria-hidden="true"
                       ></i>
                       <i
                         v-else
-                        class="bi bi-file-earmark-excel text-emerald-600"
+                        class="bi bi-file-earmark-excel text-ok-600"
                         aria-hidden="true"
                       ></i>
                       Export Excel
@@ -551,7 +552,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
             <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i>
             <span class="truncate">ผู้เข้าร่วม ({{ activity.participants.length }})</span>
           </h2>
-          <span class="chip shrink-0 bg-emerald-50 text-emerald-700">
+          <span class="chip shrink-0 bg-ok-50 text-ok-700">
             <i class="bi bi-check2-circle" aria-hidden="true"></i>
             มาแล้ว {{ attendedCount }}/{{ activity.participants.length }}
           </span>

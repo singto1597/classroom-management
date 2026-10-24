@@ -344,7 +344,7 @@ onMounted(() => {
           <!-- 🧾 คู่กรณีของรายการ — พิมพ์ลงบนใบสำคัญจ่าย/ใบรับเงิน (บังคับ) -->
           <div v-if="activeTab !== 'transfer'">
             <label class="field-label" for="payeeName">
-              {{ payeeLabel }} <span class="text-rose-600">*</span>
+              {{ payeeLabel }} <span class="text-danger-600">*</span>
             </label>
             <input
               id="payeeName"

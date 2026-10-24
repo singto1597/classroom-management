@@ -3199,3 +3199,27 @@
 - **Rule:** (1) 🔴 **อย่า redirect stdout ของคำสั่ง docker ลงไฟล์ข้อมูล** — ใช้ bind mount และให้โปรแกรมเขียนไฟล์เอง (2) 🔴 **compose ทุกไฟล์ในโฟลเดอร์เดียวกันต้องมี `name:`** ถ้าเป็นคนละ stack (3) 🔴 **เทสต์ที่ไม่มีข้อมูลต้อง skip พร้อมเหตุผล ไม่ใช่ผ่านหลอก** และต้องมีขั้นตอน validate ไฟล์ก่อนรันไม่งั้น skip จะกลายเป็นความเงียบ (4) ⚠️ `CI=1` เปลี่ยน `vite preview` เป็นพอร์ต 4173 ⇒ backend ต้อง allow origin นี้ใน CORS (ยิง API ตรง ไม่ผ่าน proxy)
 - **Tests:** `frontend/e2e/smoke.spec.ts` (2 เคส: `/` → dashboard ไม่เด้ง login · สร้างงานแล้วเห็นในรายการ) รันกับ Postgres + backend image จริงผ่าน `docker-compose.e2e.yml` — ผ่าน 2/2 ด้วย `CI=1 npx playwright test --project=chromium`
 - **Date Added:** 2026-10-24
+
+### 🎨 Codemod สีทั้งระบบ: hex ไม่ได้อยู่ใน `class=` อย่างที่คิด — และด่านที่ไม่ได้พิสูจน์ว่าจับได้ คือด่านที่ไม่มี
+- **Context/Problem:** ระบบมีชื่อสีดิบ `emerald-*`(100) `amber-*`(87) `red-*`(159) `sky-*`(13) `rose-*`(10) `blue-*`(3) กระจาย 45 ไฟล์ และ hex อีก 191 จุด — ต้องเปลี่ยนเป็น `ok/warn/danger/info` เพื่อให้ "สี" กลายเป็น "ความหมาย" และมีด่านกันถอยหลัง
+- **Root Cause:**
+  1. **hex ไม่ได้อยู่ในคลาส** — ค้น `class="…[#rrggbb]…"` ได้ **0 จุด** ตัวเลข 184 ที่คิดไว้มาจาก hex ทั้งหมด ซึ่งจริง ๆ อยู่ที่ `confirmButtonColor: '#1d4ed8'` (96 ครั้ง, 33 ไฟล์), `cancelButtonColor: '#78716c'` (38), HTML ที่ประกอบเองใน `Swal.fire({ html })` และสีกราฟ Chart.js ⇒ **Tailwind ไม่มีทางแตะค่าพวกนี้** ต้องมีไฟล์ค่าสีฝั่ง JS แยก (`src/constants/theme.ts`)
+  2. **`#1d4ed8` vs `#1D4ED8`** — ตัวสะกดต่างกันสองแบบ จึง grep ตรง ๆ พลาดครึ่งหนึ่ง
+  3. **แทรก import ผิดที่** — สคริปต์แทรกหลัง "บรรทัดที่ขึ้นต้นด้วย `import` บรรทัดสุดท้าย" ⇒ ไปตกกลาง `import type {\n  ThaiAddressModule,\n} from …` ทำให้ vue-tsc ฟ้อง `TS1003 Identifier expected` หลายไฟล์ ต้องยึด **บรรทัดที่จบคำสั่ง import จริง** (`^\s*\} from ['"]…['"];?$`) ไม่ใช่บรรทัดแรกของ import
+  4. **สคริปต์ตรวจที่เขียนเองก็ผิดได้** — ตัว parse mutation fixture ที่ผมเขียนจับ description มาปนกับ code ⇒ รายงาน "77 จุดไม่ตรง" ทั้งที่ของจริงตรงหมด ต้องใช้ harness จริง (`node …/_mutation_row_action_menu.mjs` → 39/39) ไม่ใช่ script ad-hoc
+- **Correct Pattern/Solution:**
+  ```js
+  // tailwind.config.js
+  import colors from 'tailwindcss/colors'
+  colors: { ok: colors.emerald, warn: colors.amber, danger: colors.red, info: colors.sky }
+  ```
+  ```ts
+  // src/constants/theme.ts — ค่าที่ JS ต้องใช้ (Swal/Chart.js/inline style)
+  export const UI_COLOR = { brand: '#1d4ed8', danger: '#dc2626', neutral: '#78716c', … }
+  ```
+  - codemod แทน `\b(emerald|amber|red|sky|rose|blue)-(\d{2,3})\b` → ชื่อความหมาย (ค่า hex เท่าเดิมทุกเฉด — ตรวจได้จาก CSS ที่ build แล้ว: `bg-ok-50` = `rgb(236 253 245)`)
+  - ด่าน `scripts/check-brand-colors.mjs` (hex) และ `check-status-palette.mjs` (ชื่อสี) **ตัดคอมเมนต์ก่อนตรวจโดยรักษาจำนวนบรรทัด** ⇒ เลขบรรทัดที่รายงานยังตรง
+  - ไฟล์ที่อนุญาตให้มี hex มี 3 ไฟล์เท่านั้น: `tailwind.config.js`, `src/constants/theme.ts`, `src/assets/main.css` (+ `Login.vue` สำหรับ SVG โลโก้ Google)
+- **Rule:** (1) 🔴 **ด่านใหม่ต้องพิสูจน์ว่าจับได้จริง** — สร้างไฟล์ probe ที่ละเมิดกฎ, รัน, เห็น exit 1, ลบ probe (ทำทั้งสองด่านก่อนเชื่อ) (2) 🔴 **แทรก import ด้วย anchor ที่เป็นคำสั่งสมบูรณ์** ไม่ใช่ "บรรทัดล่าสุดที่ขึ้นต้นด้วย import" (3) ⚠️ ก่อน codemod ต้องนับของจริงด้วย regex ที่ตรงกับ **บริบทที่ค่าไม่ได้อยู่ในคลาส** — อย่าเชื่อตัวเลขจากความจำ (4) ⚠️ สีของบุคคลที่สาม (โลโก้ Google/Discord) เป็นข้อยกเว้นถูกต้อง — ใส่ `PROVIDER_COLOR` ไม่ใช่ปรับให้เข้ากับพาเลตต์เรา
+- **Tests:** `npm run lint` (มี `lint:colors` + `lint:palette` ต่อท้าย), probe ยืนยันสองทาง (ไฟล์ละเมิด → exit 1 · คอมเมนต์เท่านั้น → exit 0), type-check/build/unit 215/215, mutation harness 39/39
+- **Date Added:** 2026-10-24

@@ -8,6 +8,7 @@ import ActivityForm from '@/components/activities/ActivityForm.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
+import { UI_COLOR } from '@/constants/theme'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,7 +30,7 @@ const load = async () => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     router.push('/activities')
   } finally {

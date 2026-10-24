@@ -39,6 +39,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
+import { UI_COLOR } from '@/constants/theme'
 
 const route = useRoute()
 const router = useRouter()
@@ -101,7 +102,7 @@ const fetchData = async () => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     router.push('/activities')
   } finally {
@@ -201,7 +202,7 @@ async function saveInfoModal(payload: {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -217,7 +218,7 @@ function openBatch() {
       icon: 'warning',
       title: 'เลือกก่อน',
       text: 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     return
   }
@@ -261,7 +262,7 @@ async function applyBatch(payload: {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -284,7 +285,7 @@ async function openAddStudents() {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   } finally {
     availableLoading.value = false
@@ -308,7 +309,7 @@ async function handleAddStudents(studentNos: number[]) {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -336,7 +337,7 @@ async function addSheet() {
       icon: 'warning',
       title: 'กรอกชื่อก่อน',
       text: 'ต้องระบุชื่อแผ่นเช็คชื่อ เช่น "เช็คขึ้นรถ"',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
     return
   }
@@ -357,7 +358,7 @@ async function addSheet() {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -368,7 +369,7 @@ async function deleteSheet(sheet: CheckinSheet) {
     text: `"${sheet.title}" และประวัติการเช็คทั้งหมดจะถูกลบ`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
+    confirmButtonColor: UI_COLOR.danger,
     confirmButtonText: 'ลบแผ่น',
     cancelButtonText: 'ยกเลิก',
   })
@@ -387,7 +388,7 @@ async function deleteSheet(sheet: CheckinSheet) {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -408,7 +409,7 @@ async function toggleExpandSheet(sheetId: number) {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   } finally {
     sheetLoadingId.value = null
@@ -435,7 +436,7 @@ async function togglePresent(sheetId: number, participantId: number, next: boole
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -465,7 +466,7 @@ async function markAllPresent(sheetId: number) {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -487,7 +488,7 @@ async function updateDynamicFields(defs: DynamicFieldDef[]) {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: msg,
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   }
 }
@@ -584,7 +585,7 @@ onMounted(() => {
       <div class="page-card p-4 sm:p-5">
         <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
           <h2 class="section-title flex min-w-0 items-center gap-2">
-            <i class="bi bi-clipboard2-check text-emerald-600" aria-hidden="true"></i>
+            <i class="bi bi-clipboard2-check text-ok-600" aria-hidden="true"></i>
             <span class="truncate">เช็คชื่อตามเหตุการณ์</span>
           </h2>
           <button
