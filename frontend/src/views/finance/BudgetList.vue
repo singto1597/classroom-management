@@ -42,6 +42,7 @@ import type {
   BudgetUpdatePayload,
   Category,
 } from '@/types/finance';
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
 const currentRoomId = authStore.currentRoomId!;
@@ -291,7 +292,7 @@ const confirmDelete = async (item: BudgetItem) => {
     showCancelButton: true,
     confirmButtonText: 'ลบงบ',
     cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: '#dc2626',
+    confirmButtonColor: UI_COLOR.danger,
   });
   if (!result.isConfirmed) return;
 
@@ -314,9 +315,9 @@ const confirmDelete = async (item: BudgetItem) => {
 
 /** แถบ progress ธรรมดา (div) — ไม่ใช้ไลบรารี chart และไม่ใช้ gradient */
 const barClass = (item: BudgetItem): string => {
-  if (item.is_over) return 'bg-red-500';
-  if (item.is_near) return 'bg-amber-500';
-  return 'bg-emerald-500';
+  if (item.is_over) return 'bg-danger-500';
+  if (item.is_near) return 'bg-warn-500';
+  return 'bg-ok-500';
 };
 
 const barWidth = (item: BudgetItem): string => {
@@ -332,13 +333,13 @@ const pctLabel = (item: BudgetItem): string =>
 
 // 🏷️ ป้ายสถานะ — เขียนเป็น Record เพื่อให้เพิ่มสถานะใหม่แล้ว type-check จับว่าลืมใส่
 const STATUS_CHIP: Record<'over' | 'near' | 'ok', { label: string; cls: string; icon: string }> = {
-  over: { label: 'เกินงบ', cls: 'bg-red-50 text-red-700', icon: 'bi-exclamation-octagon-fill' },
+  over: { label: 'เกินงบ', cls: 'bg-danger-50 text-danger-700', icon: 'bi-exclamation-octagon-fill' },
   near: {
     label: 'ใกล้เต็ม',
-    cls: 'bg-amber-50 text-amber-700',
+    cls: 'bg-warn-50 text-warn-700',
     icon: 'bi-exclamation-triangle-fill',
   },
-  ok: { label: 'ปกติ', cls: 'bg-emerald-50 text-emerald-700', icon: 'bi-check-circle-fill' },
+  ok: { label: 'ปกติ', cls: 'bg-ok-50 text-ok-700', icon: 'bi-check-circle-fill' },
 };
 
 const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? 'near' : 'ok');
@@ -419,7 +420,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">คงเหลือ</p>
           <p
             class="font-display num mt-2 break-words text-2xl font-bold sm:text-3xl"
-            :class="isTotalOver ? 'text-red-600' : 'text-emerald-600'"
+            :class="isTotalOver ? 'text-danger-600' : 'text-ok-600'"
           >
             {{ formatMoney(totalRemaining) }}
           </p>
@@ -430,12 +431,12 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
 
         <div
           class="page-card p-3.5 sm:p-5"
-          :class="(overview?.over_count ?? 0) > 0 ? 'border-s-4 border-s-red-500' : ''"
+          :class="(overview?.over_count ?? 0) > 0 ? 'border-s-4 border-s-danger-500' : ''"
         >
           <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">เกินงบ</p>
           <p
             class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
-            :class="(overview?.over_count ?? 0) > 0 ? 'text-red-600' : 'text-stone-900'"
+            :class="(overview?.over_count ?? 0) > 0 ? 'text-danger-600' : 'text-stone-900'"
           >
             {{ overview?.over_count ?? 0 }}
             <span class="text-base font-bold text-stone-400">รายการ</span>
@@ -452,7 +453,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           v-for="item in items"
           :key="item.budget_id"
           class="page-card p-4"
-          :class="item.is_over ? 'border-s-4 border-s-red-500' : ''"
+          :class="item.is_over ? 'border-s-4 border-s-danger-500' : ''"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -489,7 +490,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               <span class="num text-[11px] font-bold text-stone-400">{{ pctLabel(item) }}</span>
               <span
                 class="num text-[11px] font-bold"
-                :class="item.remaining < 0 ? 'text-red-600' : 'text-stone-500'"
+                :class="item.remaining < 0 ? 'text-danger-600' : 'text-stone-500'"
               >
                 คงเหลือ {{ formatMoney(item.remaining) }}
               </span>
@@ -510,7 +511,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
             </button>
             <button
               type="button"
-              class="btn-ghost-ui min-w-0 flex-1 text-red-600"
+              class="btn-ghost-ui min-w-0 flex-1 text-danger-600"
               @click="confirmDelete(item)"
             >
               <i class="bi bi-trash3" aria-hidden="true"></i>
@@ -540,7 +541,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               <tr
                 v-for="item in items"
                 :key="item.budget_id"
-                :class="item.is_over ? 'border-s-4 border-s-red-500' : ''"
+                :class="item.is_over ? 'border-s-4 border-s-danger-500' : ''"
               >
                 <td>
                   <p class="font-bold text-stone-900">{{ item.category_name }}</p>
@@ -559,7 +560,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                 </td>
                 <td
                   class="num whitespace-nowrap text-right font-bold"
-                  :class="item.remaining < 0 ? 'text-red-600' : 'text-stone-700'"
+                  :class="item.remaining < 0 ? 'text-danger-600' : 'text-stone-700'"
                 >
                   {{ formatMoney(item.remaining) }}
                 </td>
@@ -592,7 +593,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                     </button>
                     <button
                       type="button"
-                      class="btn-ghost-ui px-3 py-2 text-xs text-red-600"
+                      class="btn-ghost-ui px-3 py-2 text-xs text-danger-600"
                       :title="`ลบงบของ ${item.category_name}`"
                       @click="confirmDelete(item)"
                     >
@@ -615,7 +616,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
         </p>
         <p
           class="num font-display text-lg font-bold"
-          :class="isTotalOver ? 'text-red-600' : 'text-stone-900'"
+          :class="isTotalOver ? 'text-danger-600' : 'text-stone-900'"
         >
           ใช้ไป {{ formatMoney(overview?.total_used ?? 0) }} /
           {{ formatMoney(overview?.total_budget ?? 0) }}
@@ -671,7 +672,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               <p v-if="isEditing" class="mt-1 text-xs text-stone-400">
                 เปลี่ยนหมวดไม่ได้ — ถ้าต้องการย้าย ให้ลบงบนี้แล้วสร้างใหม่
               </p>
-              <p v-else-if="!categoryOptions.length" class="mt-1 text-xs text-amber-700">
+              <p v-else-if="!categoryOptions.length" class="mt-1 text-xs text-warn-700">
                 ยังไม่มีหมวดหมู่ในห้องนี้ — เพิ่มได้ที่หน้าตั้งค่าการเงิน
               </p>
             </div>
@@ -726,11 +727,11 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
             </div>
 
             <!-- สองระดับ: แดง = บันทึกไม่ได้ (ดักไว้ก่อน), เหลือง = บันทึกได้แต่ backend อาจตีกลับ -->
-            <p v-if="formError" class="chip w-full justify-start bg-red-50 text-red-700">
+            <p v-if="formError" class="chip w-full justify-start bg-danger-50 text-danger-700">
               <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
               {{ formError }}
             </p>
-            <p v-else-if="formWarning" class="chip w-full justify-start bg-amber-50 text-amber-700">
+            <p v-else-if="formWarning" class="chip w-full justify-start bg-warn-50 text-warn-700">
               <i class="bi bi-info-circle" aria-hidden="true"></i>
               {{ formWarning }}
             </p>

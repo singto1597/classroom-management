@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { Debtor, Account, StudentDebtItem, InvoiceBatchIssueResult } from '@/types/finance'
@@ -12,8 +11,8 @@ import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import { UI_COLOR } from '@/constants/theme'
 
-const router = useRouter()
 const authStore = useAuthStore()
 const currentServerId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -207,7 +206,7 @@ const COMBINED_PDF_MAX = 100
 
 /** คำเตือนที่ต้องมีทุกครั้งก่อนออกใบแจ้งหนี้ — พฤติกรรมนี้ต่างจากใบเสร็จโดยสิ้นเชิง */
 const POINT_IN_TIME_HINT =
-  '<span style="font-size:0.85em;color:#78716c">' +
+  `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
   'ใบแจ้งหนี้เป็นเอกสาร <b>ณ จุดเวลา</b> — ยอดค้างเปลี่ยนเมื่อนักเรียนจ่ายเพิ่ม ' +
   'การออกซ้ำจึงได้ <b>เลขใหม่ทุกครั้ง</b> (ต่างจากใบเสร็จที่ได้เลขเดิม)' +
   '</span>'
@@ -260,8 +259,8 @@ const runInvoiceIssue = async (
     html: `${description}<br><br>${POINT_IN_TIME_HINT}`,
     icon: 'question',
     showCancelButton: true,
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ออกใบแจ้งหนี้',
     cancelButtonText: 'ยกเลิก',
   })
@@ -282,7 +281,7 @@ const runInvoiceIssue = async (
     // 🔒 escape ชื่อ/เลขที่นักเรียนตอน **ประกอบ** สตริง เพราะค่านี้ถูก interpolate ลง
     //    `html:` ตรง ๆ (มาร์กอัป <span>/<br> ของหมายเหตุคงไว้ตามเดิม)
     const skippedNote = res.skipped.length
-      ? `<br><span style="font-size:0.85em;color:#a16207">ข้าม ${res.skipped.length} คน ` +
+      ? `<br><span style="font-size:0.85em;color:${UI_COLOR.warn}">ข้าม ${res.skipped.length} คน ` +
         `ที่มียอดค้างน้อยกว่า 0.01 บาท: ${res.skipped
           .map((s) => escapeHtml(s.student_name || `#${s.student_no ?? s.student_id}`))
           .join(', ')}</span>`
@@ -296,14 +295,14 @@ const runInvoiceIssue = async (
         `เลขที่ล่าสุด <b class="num">${nos[nos.length - 1] ?? '—'}</b>` +
         skippedNote +
         (canDownload
-          ? `<br><br><span style="font-size:0.85em;color:#78716c">รวมเป็นไฟล์เดียวได้ ` +
+          ? `<br><br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">รวมเป็นไฟล์เดียวได้ ` +
             `(${nos.length} หน้า — หน้าละคน) เหมาะสำหรับพิมพ์แจก</span>`
           : ''),
       showCancelButton: canDownload,
       confirmButtonText: 'ดาวน์โหลด PDF รวม',
       cancelButtonText: 'ปิด',
-      confirmButtonColor: '#1d4ed8',
-      cancelButtonColor: '#78716c',
+      confirmButtonColor: UI_COLOR.brand,
+      cancelButtonColor: UI_COLOR.neutral,
     })
     if (canDownload && after.isConfirmed) await downloadCombined('invoices', nos)
     selectedStudentIds.value = []
@@ -430,16 +429,16 @@ const handleBatchPay = async () => {
           (res.batch_id ? ' — รวมเป็นชุดเดียว' : '') +
           `<br>เลขที่ล่าสุด <b class="num">${nos[nos.length - 1] ?? '—'}</b>` +
           (canDownload
-            ? `<br><br><span style="font-size:0.85em;color:#78716c">รวมเป็นไฟล์เดียวได้ ` +
+            ? `<br><br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">รวมเป็นไฟล์เดียวได้ ` +
               `(${nos.length} หน้า) เหมาะสำหรับพิมพ์แจก</span>`
-            : `<br><br><span style="font-size:0.85em;color:#a16207">มี ${nos.length} ใบ ` +
+            : `<br><br><span style="font-size:0.85em;color:${UI_COLOR.warn}">มี ${nos.length} ใบ ` +
               `เกินกว่าจะรวมเป็นไฟล์เดียว (สูงสุด ${COMBINED_PDF_MAX}) — ` +
               `ดาวน์โหลดเป็นชุด ๆ ได้ที่หน้าทะเบียนเอกสาร</span>`),
         showCancelButton: canDownload,
         confirmButtonText: 'ดาวน์โหลด PDF รวม',
         cancelButtonText: 'ปิด',
-        confirmButtonColor: '#1d4ed8',
-        cancelButtonColor: '#78716c',
+        confirmButtonColor: UI_COLOR.brand,
+        cancelButtonColor: UI_COLOR.neutral,
       })
       if (canDownload && after.isConfirmed) await downloadCombined('receipts', nos)
       return
@@ -544,7 +543,7 @@ onMounted(() => {
         <div
           v-for="d in debtors"
           :key="d.student_id"
-          class="page-card border-s-4 border-s-red-500 p-4"
+          class="page-card border-s-4 border-s-danger-500 p-4"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-2">
@@ -589,7 +588,7 @@ onMounted(() => {
               -->
               <p
                 class="font-display num mt-0.5 whitespace-nowrap text-lg font-bold"
-                :class="d.net_pending_amount > 0 ? 'text-red-600' : 'text-emerald-600'"
+                :class="d.net_pending_amount > 0 ? 'text-danger-600' : 'text-ok-600'"
               >
                 ฿{{ formatNumber(d.net_pending_amount) }}
               </p>
@@ -606,7 +605,7 @@ onMounted(() => {
             class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
           >
             <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <span class="chip shrink-0 bg-amber-50 text-amber-700">
+              <span class="chip shrink-0 bg-warn-50 text-warn-700">
                 <i class="bi bi-receipt" aria-hidden="true"></i>
                 ค้าง {{ d.overdue_count }} รายการ
               </span>
@@ -614,7 +613,7 @@ onMounted(() => {
               <RouterLink
                 v-if="d.credit_balance > 0"
                 to="/finance/credits"
-                class="chip shrink-0 bg-emerald-50 text-emerald-700"
+                class="chip shrink-0 bg-ok-50 text-ok-700"
                 :title="`ดูเงินรับล่วงหน้าของ ${d.student_name}`"
               >
                 <i class="bi bi-piggy-bank" aria-hidden="true"></i>
@@ -703,7 +702,7 @@ onMounted(() => {
                 <td class="font-bold text-stone-900">{{ d.student_name }}</td>
                 <td class="text-center">
                   <div class="flex flex-wrap items-center justify-center gap-1.5">
-                    <span class="chip bg-amber-50 text-amber-700">
+                    <span class="chip bg-warn-50 text-warn-700">
                       <i class="bi bi-receipt" aria-hidden="true"></i>
                       ค้าง {{ d.overdue_count }} รายการ
                     </span>
@@ -711,7 +710,7 @@ onMounted(() => {
                     <RouterLink
                       v-if="d.credit_balance > 0"
                       to="/finance/credits"
-                      class="chip bg-emerald-50 text-emerald-700"
+                      class="chip bg-ok-50 text-ok-700"
                       :title="`ดูเงินรับล่วงหน้าของ ${d.student_name}`"
                     >
                       <i class="bi bi-piggy-bank" aria-hidden="true"></i>
@@ -723,7 +722,7 @@ onMounted(() => {
                   <!-- 💰 ตัวเลขหลัก = ยอดที่ต้องเก็บจริงหลังหักเครดิต (ดูเหตุผลที่การ์ดมือถือ) -->
                   <span
                     class="font-display num text-base font-bold"
-                    :class="d.net_pending_amount > 0 ? 'text-red-600' : 'text-emerald-600'"
+                    :class="d.net_pending_amount > 0 ? 'text-danger-600' : 'text-ok-600'"
                   >
                     ฿{{ formatNumber(d.net_pending_amount) }}
                   </span>
@@ -836,7 +835,7 @@ onMounted(() => {
 
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-bold text-stone-900">{{ debt.title }}</p>
-                <p class="num mt-0.5 text-[11px] font-bold text-red-600">
+                <p class="num mt-0.5 text-[11px] font-bold text-danger-600">
                   ยอดค้าง: ฿{{ formatNumber(debt.amount) }}
                 </p>
               </div>
@@ -923,7 +922,7 @@ onMounted(() => {
             <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">
               ยอดรวมที่เลือกชำระ
             </p>
-            <p class="font-display num text-2xl font-bold text-red-600">
+            <p class="font-display num text-2xl font-bold text-danger-600">
               ฿{{ formatNumber(totalSelectedAmount) }}
             </p>
           </div>

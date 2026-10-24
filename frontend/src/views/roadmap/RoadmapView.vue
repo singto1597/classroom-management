@@ -8,6 +8,7 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import type { Student } from '@/types/student';
 import Swal from 'sweetalert2';
+import { UI_COLOR } from '@/constants/theme'
 
 // Types
 interface DepartmentNode {
@@ -106,7 +107,7 @@ const fetchStudents = async () => {
       icon: 'error',
       title: 'โหลดข้อมูลไม่สำเร็จ',
       text: 'ไม่สามารถดึงข้อมูลรายชื่อนักเรียนได้',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
     hasError.value = true;
   } finally {

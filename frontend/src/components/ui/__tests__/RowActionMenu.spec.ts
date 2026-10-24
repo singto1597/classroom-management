@@ -514,10 +514,10 @@ describe('RowActionMenu', () => {
       await clickTrigger(1)
 
       const [toggle, , del] = menuItems()
-      expect(del!.className).toContain('text-red-600')
+      expect(del!.className).toContain('text-danger-600')
       expect(del!.className).not.toContain('text-stone-700')
       expect(toggle!.className).toContain('text-stone-700')
-      expect(toggle!.className).not.toContain('text-red-600')
+      expect(toggle!.className).not.toContain('text-danger-600')
     })
 
     it('ไอเทมที่กดได้ต้องสูง ≥44px ตาม DESIGN.md §2 (เดิม py-2.5 = 40px ไม่ผ่าน)', async () => {

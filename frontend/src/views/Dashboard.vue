@@ -8,6 +8,7 @@ import { StudentService } from '@/services/student';
 import { TaskService } from '@/services/task';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import Swal from 'sweetalert2';
+import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -44,7 +45,7 @@ const isTaskCountError = ref(false);
 // สีของตัวเลขงานค้าง — เทาเมื่อไม่รู้ค่า, เหลืองเมื่อมีงานค้าง, ดำเมื่อไม่มี
 const pendingCountClass = computed(() => {
   if (isTaskCountError.value) return 'text-stone-400';
-  return pendingTaskCount.value > 0 ? 'text-amber-600' : 'text-stone-900';
+  return pendingTaskCount.value > 0 ? 'text-warn-600' : 'text-stone-900';
 });
 
 const fetchTaskCount = async () => {
@@ -82,7 +83,7 @@ const goToMyProfile = async () => {
       icon: 'warning',
       title: 'ข้อผิดพลาด',
       text: 'ไม่สามารถเข้าถึงโปรไฟล์ได้ (คุณอาจเป็นผู้ดูแลระบบที่ไม่ได้มีชื่อในทะเบียนนักเรียน)',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
       confirmButtonText: 'รับทราบ'
     });
   }
@@ -326,10 +327,10 @@ const goToMyProfile = async () => {
         <RouterLink
           v-if="isAdmin"
           to="/finance/debtors"
-          class="card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-white p-3 text-center sm:p-4"
+          class="card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-danger-200 bg-white p-3 text-center sm:p-4"
         >
-          <i class="bi bi-exclamation-triangle text-lg text-red-500" aria-hidden="true"></i>
-          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-red-600">
+          <i class="bi bi-exclamation-triangle text-lg text-danger-500" aria-hidden="true"></i>
+          <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-danger-600">
             ทวงหนี้
           </span>
         </RouterLink>

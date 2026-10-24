@@ -45,8 +45,8 @@ function formatDate(value: string | null): string {
 
 function actionClass(isPresent: boolean): string {
   return isPresent
-    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-    : 'bg-white text-stone-500 border-stone-200 hover:border-emerald-300 hover:text-emerald-600'
+    ? 'bg-ok-50 text-ok-700 border-ok-200'
+    : 'bg-white text-stone-500 border-stone-200 hover:border-ok-300 hover:text-ok-600'
 }
 </script>
 
@@ -74,7 +74,7 @@ function actionClass(isPresent: boolean): string {
           <p class="truncate text-sm font-bold text-stone-900">{{ sheet.title }}</p>
           <p class="mt-0.5 text-xs text-stone-500">
             <span v-if="sheet.event_date">{{ formatDate(sheet.event_date) }} · </span>
-            ตรวจแล้ว <b class="num text-emerald-600">{{ checkedCount }}</b>/<span class="num">{{ totalCount }}</span>
+            ตรวจแล้ว <b class="num text-ok-600">{{ checkedCount }}</b>/<span class="num">{{ totalCount }}</span>
           </p>
         </div>
         <span
@@ -117,7 +117,7 @@ function actionClass(isPresent: boolean): string {
         <div v-if="canManage && checkedCount < totalCount" class="mb-1 flex sm:justify-end">
           <button
             type="button"
-            class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-100 sm:w-auto"
+            class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-ok-200 bg-ok-50 px-3 text-xs font-bold text-ok-700 transition-colors hover:bg-ok-100 sm:w-auto"
             @click="emit('markAllPresent')"
           >
             <i class="bi bi-check2-all" aria-hidden="true"></i> เช็คทั้งหมดว่า "มาแล้ว"
@@ -128,7 +128,7 @@ function actionClass(isPresent: boolean): string {
           v-for="p in participants"
           :key="p.id"
           class="flex items-center gap-3 rounded-xl border px-3 py-2"
-          :class="p.is_present ? 'border-emerald-100 bg-emerald-50/40' : 'border-stone-200 bg-white'"
+          :class="p.is_present ? 'border-ok-100 bg-ok-50/40' : 'border-stone-200 bg-white'"
         >
           <div
             class="num flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200 bg-stone-50 text-xs font-bold text-stone-600"
@@ -157,7 +157,7 @@ function actionClass(isPresent: boolean): string {
           <span
             v-else
             class="chip shrink-0"
-            :class="p.is_present ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-600'"
+            :class="p.is_present ? 'bg-ok-50 text-ok-700' : 'bg-stone-100 text-stone-600'"
           >
             {{ p.is_present ? 'มาแล้ว' : 'ยังไม่มา' }}
           </span>

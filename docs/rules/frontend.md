@@ -9,13 +9,23 @@
 - **Styling:** `Tailwind CSS` (ไม่มี DaisyUI ในโปรเจกต์นี้) — ดูสัญญาการออกแบบที่ [`frontend/DESIGN.md`](../../frontend/DESIGN.md)
 - **HTTP Client:** `Axios` (ผ่าน `src/services/api.ts`)
 
-## 2. โครงสร้างและการแยก Layer (4-Layer Architecture)
+## 2. โครงสร้างและการแยก Layer
 - **Types (`src/types/`):** นิยาม Interface สำหรับ Data Model ทั้งหมด
 - **Services (`src/services/`):** 
   - ศูนย์รวม Logic การเรียก API (ห้ามเรียก `api.get/post` ใน View โดยตรง)
   - จัดการข้อมูลก่อนส่งหรือหลังรับจาก Backend
 - **Views (`src/views/`):** จัดการ UI Logic, Lifecycle และการแสดงผล
 - **Components (`src/components/`):** UI ชิ้นส่วนที่ใช้ซ้ำได้
+  - `src/components/ui/`: primitive กลางของทั้งแอป (`PageHeader`, `StateBlock`, `SkeletonRows`, `RowActionMenu`) — เพิ่มที่นี่ก่อนสร้างใหม่ในวิว
+- **Stores (`src/stores/`):** Pinia — เฉพาะสถานะที่ใช้ร่วมข้ามหน้า (ตอนนี้คือ `auth.ts`)
+- **Layouts (`src/layouts/`):** โครงหน้าของแอป (`MainLayout` = หลังล็อกอิน, `GlobalLayout` = lobby)
+- **Router (`src/router/`):** `routes.ts` (ข้อมูลเส้นทางล้วน), `meta.ts` (สัญญา `route.meta`), `redirect.ts`/`unavailable.ts` (ปลายทางหลัง redirect), `index.ts` (guard + title)
+- **Utils (`src/utils/`):** ฟังก์ชันบริสุทธิ์ที่ทดสอบได้ (เงิน, วันที่, ชื่อ, ดาวน์โหลด)
+- **Constants (`src/constants/`):** ค่าคงที่ใช้ร่วม (`nav.ts` = ชื่อหน้า/เมนูแหล่งเดียว, `storageKeys.ts`, `theme.ts`)
+
+> ทิศทาง dependency: `views` → `components`/`services`/`stores`/`utils` → `constants`/`types`
+> ย้อนทางไม่ได้ — ไฟล์ใน `services`/`utils`/`constants` **ห้าม import จาก `views` หรือ layout**
+> (การ import layout/component แบบ static ในโมดูลข้อมูลก่อ import cycle จริงมาแล้ว ดู `docs/skills.md`)
 
 ## 3. Data Flow & API Standard
 - **No Direct DB Access:** ห้ามเชื่อมต่อ Database โดยตรง ต้องผ่าน API ของ Backend เท่านั้น
@@ -41,3 +51,14 @@
   - ใช้คอมโพเนนต์กลางใน `src/components/ui/`: `PageHeader`, `StateBlock`, `SkeletonRows`
   - **ห้ามใช้:** `bg-gradient-*`, `backdrop-blur*`, `blur-[*]`, `shadow-{color}`, `rounded-[2rem]`, `animate-bounce`, `animate-ping`, และสี `slate/gray/zinc/neutral/indigo/violet/purple/blue` (ใช้ `stone-*` กับ `brand-*` แทน)
   - ทุก view ที่มี fetch ต้องมีครบ 3 สถานะ: `SkeletonRows` → `StateBlock variant="error"` → `StateBlock variant="empty"`
+
+## 7. Routing & Navigation
+- **แหล่งเดียวของชื่อหน้า/เมนู:** `src/constants/nav.ts` — `routeTitles` (ชื่อหน้า ต่อจากชื่อ route) · `NAV_ITEMS` (เมนูหลัก) · `NAV_TABS` (แท็บบนมือถือ)
+  - ทุก route ต้องมี `name` และ `meta.title` (อ้างจาก `routeTitles`); `router/index.ts` ตั้ง `document.title` ให้เองจาก meta
+  - ห้ามเขียนรายการเมนูซ้ำใน layout — ใช้ `NAV_ITEMS` / `NAV_TABS` / `MORE_NAV_ITEMS`
+- **สัญญาของ `route.meta`** ประกาศไว้ที่ `src/router/meta.ts` (`title`, `navTab`, `headerBack`, `headerHidden`, `fullscreen`) — เพิ่มฟิลด์ใหม่ต้องประกาศใน interface ก่อน
+- **`router/routes.ts` เป็นข้อมูลล้วน:** import layout/component ด้วย `() => import()` เท่านั้น ไม่งั้นเทสต์/router จะชน import cycle (ดู `docs/skills.md`)
+- **catch-all `/:pathMatch(.*)*` → `views/NotFound.vue` ต้องเป็นรายการสุดท้ายเสมอ** และห้ามมีมากกว่าหนึ่งตัว
+- **ปลายทางหลัง redirect:** ค่าที่มาจาก URL (`?next=`) ต้องผ่าน `safeRedirect()` จาก `src/router/redirect.ts` — **ห้าม `router.push()` หรือ `window.location` กับค่าดิบจาก query เด็ดขาด**
+- **อ่าน HTTP status:** ใช้ `apiStatus(error)` จาก `services/api.ts` (คืน `number | undefined`) — ห้ามไล่ `isAxiosError` เองในวิว
+- **เทสต์บังคับ:** `src/router/__tests__/routes.spec.ts` ตรวจ title ครบ / เมนูชี้ path จริง/catch-all อยู่ท้าย — เพิ่มหน้าใหม่แล้ว CI แดงคือสิ่งที่ถูกต้อง

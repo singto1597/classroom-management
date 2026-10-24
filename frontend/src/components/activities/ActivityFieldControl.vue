@@ -87,7 +87,7 @@ function onDatetime(e: Event) {
       @change="onCheckbox"
       class="h-4 w-4 shrink-0 rounded accent-brand-700"
     />
-    <span class="chip" :class="isPaid ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-600'">
+    <span class="chip" :class="isPaid ? 'bg-ok-50 text-ok-700' : 'bg-stone-100 text-stone-600'">
       <i class="bi" :class="isPaid ? 'bi-check-circle-fill' : 'bi-clock'" aria-hidden="true"></i>
       {{ isPaid ? 'จ่ายแล้ว' : 'ยังไม่จ่าย' }}
     </span>

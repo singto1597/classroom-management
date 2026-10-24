@@ -44,3 +44,6 @@ playwright-report/
 .env
 # leftover root-owned build dir from a docker build (cannot be removed without root) — safe to delete manually
 /dist_old_rootowned/
+
+# E2E session ที่ seed จาก backend/scripts/e2e_seed.py (มี token จริง — ห้าม commit)
+e2e/.auth/

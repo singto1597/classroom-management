@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import Swal from 'sweetalert2';
+import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -153,8 +154,8 @@ const confirmDelete = async (student: Student) => {
     text: `ลบ ${displayName(student)} (เลขที่ ${student.student_no}) ใช่หรือไม่?`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ลบข้อมูล',
     cancelButtonText: 'ยกเลิก'
   });
@@ -186,8 +187,8 @@ const rejectJoin = async (studentNo: number) => {
     text: 'คำขอนี้จะถูกลบออกจากระบบ',
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ปฏิเสธ',
     cancelButtonText: 'ยกเลิก'
   });
@@ -247,7 +248,7 @@ const rejectJoin = async (studentNo: number) => {
         @click="switchTab('pending')"
       >
         รออนุมัติ
-        <span v-if="pendingStudents.length > 0" class="chip num bg-amber-100 text-amber-700">
+        <span v-if="pendingStudents.length > 0" class="chip num bg-warn-100 text-warn-700">
           {{ pendingStudents.length }}
         </span>
       </button>
@@ -330,7 +331,7 @@ const rejectJoin = async (studentNo: number) => {
                     </span>
                     <i
                       v-if="student.is_admin"
-                      class="bi bi-shield-lock-fill shrink-0 text-amber-500"
+                      class="bi bi-shield-lock-fill shrink-0 text-warn-500"
                       title="System Admin"
                       aria-hidden="true"
                     ></i>
@@ -364,8 +365,8 @@ const rejectJoin = async (studentNo: number) => {
                   <span
                     class="chip"
                     :class="{
-                      'bg-emerald-50 text-emerald-700': student.status === 'active',
-                      'bg-amber-50 text-amber-700': student.status === 'pending',
+                      'bg-ok-50 text-ok-700': student.status === 'active',
+                      'bg-warn-50 text-warn-700': student.status === 'pending',
                       'bg-stone-100 text-stone-600': student.status === 'inactive'
                     }"
                   >
@@ -411,7 +412,7 @@ const rejectJoin = async (studentNo: number) => {
                         <div class="mx-2 my-1 h-px bg-stone-100"></div>
                         <button
                           type="button"
-                          class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+                          class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-danger-600 transition-colors hover:bg-danger-50"
                           @click.stop="confirmDelete(student)"
                         >
                           <i class="bi bi-trash" aria-hidden="true"></i> ลบข้อมูล
@@ -450,7 +451,7 @@ const rejectJoin = async (studentNo: number) => {
                   </p>
                   <i
                     v-if="student.is_admin"
-                    class="bi bi-shield-lock-fill shrink-0 text-xs text-amber-500"
+                    class="bi bi-shield-lock-fill shrink-0 text-xs text-warn-500"
                     title="System Admin"
                     aria-hidden="true"
                   ></i>
@@ -474,8 +475,8 @@ const rejectJoin = async (studentNo: number) => {
                   <span
                     class="chip"
                     :class="{
-                      'bg-emerald-50 text-emerald-700': student.status === 'active',
-                      'bg-amber-50 text-amber-700': student.status === 'pending',
+                      'bg-ok-50 text-ok-700': student.status === 'active',
+                      'bg-warn-50 text-warn-700': student.status === 'pending',
                       'bg-stone-100 text-stone-600': student.status === 'inactive'
                     }"
                   >
@@ -529,7 +530,7 @@ const rejectJoin = async (studentNo: number) => {
                     <div class="mx-2 my-1 h-px bg-stone-100"></div>
                     <button
                       type="button"
-                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-danger-600 transition-colors hover:bg-danger-50"
                       @click.stop="confirmDelete(student)"
                     >
                       <i class="bi bi-trash" aria-hidden="true"></i> ลบข้อมูล
@@ -558,13 +559,13 @@ const rejectJoin = async (studentNo: number) => {
         <div
           v-for="req in pendingStudents"
           :key="req.student_no"
-          class="page-card border-s-4 border-s-amber-400 p-4 sm:p-5"
+          class="page-card border-s-4 border-s-warn-400 p-4 sm:p-5"
         >
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <!-- ซ้าย: ข้อมูล -->
             <div class="flex min-w-0 items-start gap-3">
               <div
-                class="num flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 font-display text-base font-bold text-amber-700"
+                class="num flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warn-50 font-display text-base font-bold text-warn-700"
               >
                 {{ req.student_no }}
               </div>
@@ -573,14 +574,14 @@ const rejectJoin = async (studentNo: number) => {
                 <!-- 🛡️ claim_request: มีคนขออ้างสิทธิ์ ghost → แอดมินเห็นชื่อเดิม vs ชื่อผู้ขอ แล้วตัดสิน -->
                 <template v-if="req.request_type === 'claim_request'">
                   <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
-                    {{ displayName(req) }} <span class="text-amber-700">อ้างสิทธิ์เลขที่นี้</span>
+                    {{ displayName(req) }} <span class="text-warn-700">อ้างสิทธิ์เลขที่นี้</span>
                   </p>
                   <p class="mt-0.5 text-sm text-stone-500">
                     ชื่อในระบบเดิม: <span class="font-bold text-stone-700">{{ req.ghost_first_name || '-' }} {{ req.ghost_last_name || '-' }}</span>
                     <span
                       v-if="req.name_match !== undefined"
                       class="chip ms-1.5"
-                      :class="req.name_match ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+                      :class="req.name_match ? 'bg-ok-50 text-ok-700' : 'bg-danger-50 text-danger-700'"
                     >
                       {{ req.name_match ? 'ชื่อตรงกัน' : 'ชื่อไม่ตรง' }}
                     </span>
@@ -596,7 +597,7 @@ const rejectJoin = async (studentNo: number) => {
                     {{ displayName(req) }}
                   </p>
                   <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
-                    <i class="bi bi-envelope text-amber-600" aria-hidden="true"></i> คำเชิญที่ระบบส่งให้ — รอเจ้าตัวกดรับ
+                    <i class="bi bi-envelope text-warn-600" aria-hidden="true"></i> คำเชิญที่ระบบส่งให้ — รอเจ้าตัวกดรับ
                   </p>
                 </template>
 

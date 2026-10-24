@@ -6,6 +6,14 @@ import Swal from 'sweetalert2';
 import { StudentService } from '@/services/student';
 import { ClassroomService } from '@/services/classroom';
 import type { UserRoom } from '@/types/classroom';
+import { UI_COLOR } from '@/constants/theme'
+import {
+  NAV_ITEMS,
+  NAV_TABS,
+  MORE_NAV_ITEMS,
+  isNavItemActive,
+  navSectionName,
+} from '@/constants/nav';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -126,48 +134,20 @@ const toggleSidebarCollapse = () => {
 };
 
 // ---------------- เมนู ----------------
-type MenuItem = { name: string; path: string; icon: string };
-
-const menuItems: MenuItem[] = [
-  { name: 'แดชบอร์ด', path: '/dashboard', icon: 'bi-grid' },
-  { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
-  { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check' },
-  { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
-  { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
-  { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
-  { name: 'ประกาศ Discord', path: '/messages', icon: 'bi-megaphone' },
-  { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
-];
-
-// แท็บบนมือถือ 4 ช่อง (ช่องกลางเป็น FAB)
-const bottomTabs = computed<MenuItem[]>(() => [
-  { name: 'หน้าแรก', path: '/dashboard', icon: 'bi-house-door' },
-  { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
-  { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
-]);
+// 🧭 รายการเมนู/แท็บ/breadcrumb มาจาก `constants/nav.ts` ที่เดียว
+// (เดิมเขียนไว้ในไฟล์นี้ ⇒ เพิ่มหน้าใหม่แล้วลืมใส่เมนูไม่มีอะไรฟ้อง)
+const menuItems = NAV_ITEMS;
+const bottomTabs = NAV_TABS;
+const moreItems = MORE_NAV_ITEMS;
 
 const canManageTasks = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS'),
 );
 
-// เมนูที่เหลือในชีต "เพิ่มเติม" (มือถือ) — ตัดตัวที่อยู่ในแท็บล่างออกแล้ว
-const moreItems = computed<MenuItem[]>(() =>
-  menuItems.filter((i) => !['/dashboard', '/students', '/finance'].includes(i.path)),
-);
-
-const isItemActive = (path: string) =>
-  path === '/dashboard'
-    ? route.path === '/dashboard' || route.path === '/'
-    : route.path.startsWith(path);
+const isItemActive = (path: string) => isNavItemActive(path, route.path);
 
 // ชื่อเมนูย่อยสำหรับ breadcrumb
-const currentSubMenuName = computed(() => {
-  if (route.path === '/dashboard' || route.path === '/') return null;
-  const matchedMenu = menuItems.find(
-    (item) => item.path !== '/dashboard' && route.path.startsWith(item.path),
-  );
-  return matchedMenu ? matchedMenu.name : null;
-});
+const currentSubMenuName = computed(() => navSectionName(route.path));
 
 // ---------------- การทำงาน ----------------
 /**
@@ -217,7 +197,7 @@ const goToMyProfile = async () => {
       icon: 'warning',
       title: 'ไม่สามารถเข้าถึงได้',
       text: 'คุณอาจเป็นผู้ดูแลระบบ (Admin) ที่ไม่มีข้อมูลในรายชื่อนักเรียนห้องนี้',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     });
   }
 };
@@ -228,19 +208,19 @@ const showAccountInfo = () => {
     title: '<span style="font-family:Anuphan;font-weight:700">ข้อมูลบัญชีระบบ</span>',
     html: `
       <div style="text-align:left;margin-top:18px;display:flex;flex-direction:column;gap:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E7E5E4;padding-bottom:12px">
-          <span style="font-size:13px;color:#78716C;font-weight:600">Discord ID</span>
-          <span style="font-family:ui-monospace,monospace;font-size:13px;font-weight:700;color:#1C1917">${authStore.discordId || 'ยังไม่ระบุ'}</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ${UI_COLOR.border};padding-bottom:12px">
+          <span style="font-size:13px;color:${UI_COLOR.neutral};font-weight:600">Discord ID</span>
+          <span style="font-family:ui-monospace,monospace;font-size:13px;font-weight:700;color:${UI_COLOR.ink}">${authStore.discordId || 'ยังไม่ระบุ'}</span>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:13px;color:#78716C;font-weight:600">บทบาทในห้อง</span>
-          <span style="font-size:12px;font-weight:700;color:#1D4ED8;background:#EFF6FF;padding:4px 10px;border-radius:8px">${authStore.currentRoleLabel}</span>
+          <span style="font-size:13px;color:${UI_COLOR.neutral};font-weight:600">บทบาทในห้อง</span>
+          <span style="font-size:12px;font-weight:700;color:${UI_COLOR.brand};background:${UI_COLOR.brandSoft};padding:4px 10px;border-radius:8px">${authStore.currentRoleLabel}</span>
         </div>
       </div>
     `,
     icon: 'info',
     confirmButtonText: 'ปิดหน้าต่าง',
-    confirmButtonColor: '#1d4ed8',
+    confirmButtonColor: UI_COLOR.brand,
   });
 };
 
@@ -272,17 +252,17 @@ const goToProfileSettings = async () => {
   const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${import.meta.env.VITE_GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(import.meta.env.VITE_GOOGLE_REDIRECT_URI)}&response_type=code&scope=${googleScope}`;
 
   const row = (linked: boolean, label: string, sub: string, icon: string, href: string) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:14px;border:1px solid ${linked ? '#A7F3D0' : '#E7E5E4'};background:${linked ? '#ECFDF5' : '#FFFFFF'}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:14px;border:1px solid ${linked ? UI_COLOR.okBorder : UI_COLOR.border};background:${linked ? UI_COLOR.okSoft : UI_COLOR.white}">
       <div style="display:flex;align-items:center;gap:12px;min-width:0">
-        <div style="width:40px;height:40px;border-radius:12px;background:#F5F5F4;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <div style="width:40px;height:40px;border-radius:12px;background:${UI_COLOR.surface};display:flex;align-items:center;justify-content:center;flex-shrink:0">
           <i class="${icon}" style="font-size:18px"></i>
         </div>
         <div style="text-align:left;min-width:0">
-          <p style="font-weight:700;color:#1C1917;margin:0;font-size:14px">${label}</p>
-          <p style="font-size:11px;font-weight:700;margin:2px 0 0;color:${linked ? '#059669' : '#A8A29E'}">${linked ? 'เชื่อมต่อแล้ว' : sub}</p>
+          <p style="font-weight:700;color:${UI_COLOR.ink};margin:0;font-size:14px">${label}</p>
+          <p style="font-size:11px;font-weight:700;margin:2px 0 0;color:${linked ? UI_COLOR.ok : UI_COLOR.subtle}">${linked ? 'เชื่อมต่อแล้ว' : sub}</p>
         </div>
       </div>
-      ${!linked ? `<a href="${href}" style="flex-shrink:0;padding:8px 16px;background:#1D4ED8;color:#fff;font-size:12px;font-weight:700;border-radius:10px;text-decoration:none">ผูกบัญชี</a>` : ''}
+      ${!linked ? `<a href="${href}" style="flex-shrink:0;padding:8px 16px;background:${UI_COLOR.brand};color:${UI_COLOR.white};font-size:12px;font-weight:700;border-radius:10px;text-decoration:none">ผูกบัญชี</a>` : ''}
     </div>
   `;
 
@@ -290,14 +270,14 @@ const goToProfileSettings = async () => {
     title: '<span style="font-family:Anuphan;font-weight:700;font-size:19px">จัดการบัญชีและการเชื่อมต่อ</span>',
     html: `
       <div style="text-align:left;display:flex;flex-direction:column;gap:12px;margin-top:16px">
-        <p style="font-size:13px;color:#78716C;margin:0">เชื่อมต่อแพลตฟอร์มต่างๆ เพื่อรวมข้อมูลของคุณให้เป็นหนึ่งเดียว ป้องกันการสูญหาย</p>
+        <p style="font-size:13px;color:${UI_COLOR.neutral};margin:0">เชื่อมต่อแพลตฟอร์มต่างๆ เพื่อรวมข้อมูลของคุณให้เป็นหนึ่งเดียว ป้องกันการสูญหาย</p>
         ${row(isGoogleLinked, 'Google Account', 'ยังไม่ได้เชื่อมต่อ', 'bi bi-google', googleUrl)}
         ${row(isDiscordLinked, 'Discord Account', 'ยังไม่ได้เชื่อมต่อ', 'bi bi-discord', discordUrl)}
       </div>
     `,
     showConfirmButton: true,
     confirmButtonText: 'ปิดหน้าต่าง',
-    confirmButtonColor: '#1d4ed8',
+    confirmButtonColor: UI_COLOR.brand,
   });
 };
 </script>
@@ -736,7 +716,7 @@ const goToProfileSettings = async () => {
             </button>
             <button
               type="button"
-              class="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+              class="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-danger-600 transition-colors hover:bg-danger-50"
               @click="logout"
             >
               <i class="bi bi-box-arrow-right text-lg" aria-hidden="true"></i>
@@ -792,7 +772,7 @@ const goToProfileSettings = async () => {
           <div class="mx-3 my-1.5 h-px bg-stone-100"></div>
           <button
             type="button"
-            class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50"
+            class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-danger-600 transition-colors hover:bg-danger-50"
             @click.stop="logout"
           >
             <i class="bi bi-box-arrow-right text-lg" aria-hidden="true"></i>
@@ -936,7 +916,7 @@ const goToProfileSettings = async () => {
           <div class="border-t border-stone-100 bg-stone-50/60 p-2">
             <button
               type="button"
-              class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50"
+              class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-danger-600 transition-colors hover:border-danger-200 hover:bg-danger-50"
               @click.stop="logout"
             >
               ออกจากระบบ

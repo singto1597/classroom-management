@@ -29,6 +29,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
+import { UI_COLOR } from '@/constants/theme'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -228,7 +229,7 @@ const saveInfoModal = (payload: {
     icon: 'success',
     title: 'บันทึกข้อมูลของนักเรียนคนนี้แล้ว',
     text: 'ยังไม่บันทึกกิจกรรม',
-    confirmButtonColor: '#1d4ed8',
+    confirmButtonColor: UI_COLOR.brand,
   })
 }
 
@@ -272,7 +273,7 @@ const applyBatch = (payload: { dutyPosition: string; typeB: Record<string, unkno
     icon: 'success',
     title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนแล้ว`,
     text: 'ยังไม่บันทึกกิจกรรม',
-    confirmButtonColor: '#1d4ed8',
+    confirmButtonColor: UI_COLOR.brand,
   })
 }
 
@@ -383,8 +384,8 @@ const submit = async () => {
       showCancelButton: true,
       confirmButtonText: 'บันทึกต่อ',
       cancelButtonText: 'กลับไปแก้',
-      confirmButtonColor: '#1d4ed8',
-      cancelButtonColor: '#78716c',
+      confirmButtonColor: UI_COLOR.brand,
+      cancelButtonColor: UI_COLOR.neutral,
     })
     if (!result.isConfirmed) return
   }
@@ -447,7 +448,7 @@ const submit = async () => {
         icon: 'success',
         title: 'สร้างกิจกรรมสำเร็จ! 🎪',
         text: `"${form.value.title}" พร้อมผู้เข้าร่วม ${participants.length} คน ถูกบันทึกแล้ว`,
-        confirmButtonColor: '#1d4ed8',
+        confirmButtonColor: UI_COLOR.brand,
       })
       emit('saved', 0)
     } else {
@@ -467,7 +468,7 @@ const submit = async () => {
         icon: 'success',
         title: 'แก้ไขกิจกรรมสำเร็จ! ✏️',
         text: `"${form.value.title}" ถูกอัปเดตแล้ว`,
-        confirmButtonColor: '#1d4ed8',
+        confirmButtonColor: UI_COLOR.brand,
       })
       emit('saved', activityId)
     }
@@ -622,7 +623,7 @@ const submit = async () => {
               </button>
               <button
                 type="button"
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600"
                 title="ลบตำแหน่ง"
                 aria-label="ลบตำแหน่ง"
                 @click="removePosition(index)"

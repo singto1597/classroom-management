@@ -11,7 +11,9 @@ from fastapi.testclient import TestClient
 from core.config import settings
 from main import app
 # 👇 Import ฟังก์ชันสร้างตารางของมึงมา
-from core.init_db import init_db 
+from core.init_db import init_db
+# 🧱 DB ของเทสต์ต้องเหมือน DB จริง "หลังบูต" ⇒ init_db + migrations ตามลำดับเดียวกับ main.py
+from core.migrations import apply_migrations
 
 @pytest_asyncio.fixture(scope="session")
 async def test_db_url():
@@ -42,6 +44,9 @@ async def test_db_url():
         # 🚨 สร้าง Pool ชั่วคราวเพื่อส่งให้ init_db ของมึงทำงานได้
         temp_pool = await asyncpg.create_pool(new_db_url)
         await init_db(temp_pool)
+        # ⚠️ ต้องเรียกด้วย — ไม่งั้นตารางที่มาจาก migration (เช่น notifications)
+        #    จะไม่มีในเทสต์ แล้วเทสต์จะเขียวทั้งที่โปรดักชันยังพัง
+        await apply_migrations(temp_pool)
     except Exception as e:
         print(f"Error initializing test database schema: {e}")
     finally:

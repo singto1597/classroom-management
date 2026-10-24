@@ -9,6 +9,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
+import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -68,9 +69,9 @@ function compareSelected() {
 /** โทนสีป้ายสถานะ (chip) — คุมโทนตาม Design Contract ไม่ใช้สีฟ้า/ชมพูแบบเดิม */
 function statusChip(status: unknown): string {
   const key = typeof status === 'string' ? status : ''
-  if (key === 'ongoing') return 'bg-amber-50 text-amber-700'
-  if (key === 'completed') return 'bg-emerald-50 text-emerald-700'
-  if (key === 'cancelled') return 'bg-red-50 text-red-700'
+  if (key === 'ongoing') return 'bg-warn-50 text-warn-700'
+  if (key === 'completed') return 'bg-ok-50 text-ok-700'
+  if (key === 'cancelled') return 'bg-danger-50 text-danger-700'
   return 'bg-brand-50 text-brand-700'
 }
 
@@ -169,15 +170,15 @@ const deleteActivity = async (activity: Activity) => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     })
   const result = await Swal.fire({
     title: 'ลบกิจกรรมนี้ไหม?',
     text: `"${activity.title}" จะถูกลบ (soft delete) พร้อมผู้เข้าร่วมทั้งหมด`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ลบข้อมูล',
     cancelButtonText: 'ยกเลิก',
   })
@@ -192,7 +193,7 @@ const deleteActivity = async (activity: Activity) => {
         icon: 'error',
         title: 'ข้อผิดพลาด',
         text: msg,
-        confirmButtonColor: '#1d4ed8',
+        confirmButtonColor: UI_COLOR.brand,
       })
     }
   }
@@ -327,7 +328,7 @@ onMounted(fetchData)
             <i class="bi bi-calendar-event" aria-hidden="true"></i>
             <span class="num">{{ formatDate(activity.activity_date) }}</span>
           </span>
-          <span v-if="activity.base_hours > 0" class="chip bg-emerald-50 text-emerald-700">
+          <span v-if="activity.base_hours > 0" class="chip bg-ok-50 text-ok-700">
             <i class="bi bi-clock-history" aria-hidden="true"></i>
             <span class="num">{{ activity.base_hours }}</span> ชม.
           </span>
@@ -355,7 +356,7 @@ onMounted(fetchData)
             <button
               type="button"
               @click.stop="deleteActivity(activity)"
-              class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+              class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
               title="ลบกิจกรรม"
               aria-label="ลบกิจกรรม"
             >

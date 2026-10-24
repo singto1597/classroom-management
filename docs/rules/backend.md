@@ -44,3 +44,11 @@
 - **Naming:** ใช้ `snake_case` สำหรับตัวแปร/ฟังก์ชัน, `PascalCase` สำหรับ Classes
 - **Type Hinting:** ต้องระบุ Type Hint ให้ครบถ้วนทั้ง Parameter และ Return Type
 - **Bangkok Time:** การจัดการเวลาให้ยึดตาม `Asia/Bangkok` (UTC+7) เสมอ
+
+## 7. Schema Migration (กฎเหล็ก — เริ่มใช้ 2026-10-24)
+- **เปลี่ยนสคีมา = เขียนไฟล์ migration ใหม่ใน `backend/core/migrations/` เท่านั้น** — ห้ามเพิ่มคอลัมน์ใหม่ "ข้างในบล็อก `CREATE TABLE IF NOT EXISTS`" ของ `init_db.py` เพราะบน DB จริงบล็อกนั้นเป็น no-op ⇒ คอลัมน์ไม่ถูกสร้างเลย (เจอจริงกับ `finance_receipts.batch_id`)
+- **ห้ามแก้ไฟล์ migration ที่ apply ไปแล้ว** — checksum ถูกตรึงใน `schema_migrations` ⇒ แก้แล้วบูตไม่ขึ้นด้วย `MigrationDriftError` (โดยเจตนา) ให้เขียนเลขถัดไปต่อท้ายแทน
+- **Additive เท่านั้น:** `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` — `DROP TABLE`, `DROP COLUMN`, `TRUNCATE` ถูก loader ปฏิเสธ (ถ้าจำเป็นจริงต้องประกาศ `DESTRUCTIVE = True` พร้อมสำรองข้อมูลก่อน deploy)
+- **รูปแบบไฟล์:** `NNNN_<ชื่อสั้นอังกฤษ>.py` (เลข 4 หลัก) ประกาศ `SQL: list[str]` — แต่ละสมาชิกคือหนึ่งคำสั่ง; ลำดับในลิสต์มีผล
+- **ตรวจความ additive ของงาน:** `git diff --numstat` ของไฟล์ migration ต้องมีแต่ไฟล์ใหม่ (`+N  -0`); ถ้าเห็น `-` ในไฟล์ที่เคย apply แปลว่าแก้ของเก่า ให้ย้อน
+- **จังหวะบูต:** `main.py` เรียก `init_db()` แล้วต่อด้วย `apply_migrations()`; runner ถือ advisory lock จึงปลอดภัยกับ backend 3 replica ที่บูตพร้อมกัน และคืน `0` เมื่อไม่มีไฟล์ใหม่ (ค่าที่ assert ได้ ไม่ใช่สัญญาณว่าโค้ดไม่เคยรัน)

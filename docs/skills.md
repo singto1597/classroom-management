@@ -1,4 +1,240 @@
-# Classroom-Sync Knowledge Base (skill.md)
+# Classroom-Sync Knowledge Base (skills.md)
+
+<!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
+
+**สารบัญ 229 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+
+- [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
+- [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
+- [🛠️ Auth Test Suite - Patterns for 100% Pass](#auth-test-suite---patterns-for-100-pass)
+- [🛠️ Class Roadmap Org Chart View - Frontend Implementation](#class-roadmap-org-chart-view---frontend-implementation)
+- [🛠️ User Onboarding Profile Update - SQL Parameter Order Alignment](#user-onboarding-profile-update---sql-parameter-order-alignment)
+- [🛠️ Frontend Onboarding Guard - Required Profile Fields Enforcement](#frontend-onboarding-guard---required-profile-fields-enforcement)
+- [🛠️ Frontend Onboarding Form - Expanded Profile Fields Collection](#frontend-onboarding-form---expanded-profile-fields-collection)
+- [🛠️ Frontend Onboarding Form - Pre-fill, Validation, and Payload Refactor](#frontend-onboarding-form---pre-fill-validation-and-payload-refactor)
+- [🛠️ Frontend Onboarding Form - Dynamic Required Fields & Direct Payload (Implementation Detail)](#frontend-onboarding-form---dynamic-required-fields-direct-payload-implementation-detail)
+- [🛠️ Frontend Onboarding Form - Thai Address Autocomplete with `thailand-address`](#frontend-onboarding-form---thai-address-autocomplete-with-thailand-address)
+- [🛠️ Thai Address Autocomplete - Debounce, Mobile Blur, and Empty-Query Handling](#thai-address-autocomplete---debounce-mobile-blur-and-empty-query-handling)
+- [🛠️ RBAC Enforcement - Never Comment Out `require_permission` in Services](#rbac-enforcement---never-comment-out-requirepermission-in-services)
+- [🛠️ RBAC - Read Transparency vs Write: `require_member` for Finance GET](#rbac---read-transparency-vs-write-requiremember-for-finance-get)
+- [🛠️ Room Creation - Frontend-Primary, Bot as Optional Adapter](#room-creation---frontend-primary-bot-as-optional-adapter)
+- [🛠️ Schema Audit Trap - `rooms` Table Has NO `updated_at` Column](#schema-audit-trap---rooms-table-has-no-updatedat-column)
+- [🛠️ `users` Table Has NO `discord_username` Column - Sync Discord Endpoint Was Always Broken](#users-table-has-no-discordusername-column---sync-discord-endpoint-was-always-broken)
+- [🛠️ get_audit_logs - SELECT อ้างคอลัมน์ schema เก่า (user_name/detail) ที่ไม่มีอยู่จริง](#getauditlogs---select-อ้างคอลัมน์-schema-เก่า-usernamedetail-ที่ไม่มีอยู่จริง)
+- [🛠️ get_daily_summary - query ไร้ `deleted_at IS NULL` → ข้อมูล soft-delete ยังโผล่](#getdailysummary---query-ไร้-deletedat-is-null-ข้อมูล-soft-delete-ยังโผล่)
+- [🛠️ asyncpg JSONB Returns `str` or `list` Depending on Version](#asyncpg-jsonb-returns-str-or-list-depending-on-version)
+- [🛠️ Classroom Task Mutations Missed Soft-Delete Guards — work on "deleted" tasks](#classroom-task-mutations-missed-soft-delete-guards-work-on-deleted-tasks)
+- [🛠️ AuditLogger Fallback Can Mask the Real Exception (FK violation on phantom room_id)](#auditlogger-fallback-can-mask-the-real-exception-fk-violation-on-phantom-roomid)
+- [🛠️ Read RPC → `require_member` Design: Where It Is NOT Safe to Add](#read-rpc-requiremember-design-where-it-is-not-safe-to-add)
+- [🛠️ ลำดับ dependency ของ FastAPI สร้าง Enumeration Oracle ได้ — วาง auth ไว้ก่อนเสมอ](#ลำดับ-dependency-ของ-fastapi-สร้าง-enumeration-oracle-ได้-วาง-auth-ไว้ก่อนเสมอ)
+- [🔍 เทสต์ที่เรียก service ตรง ๆ ไม่ผ่าน HTTP layer จะจับ auth ที่หายไปไม่ได้เลย](#เทสต์ที่เรียก-service-ตรง-ๆ-ไม่ผ่าน-http-layer-จะจับ-auth-ที่หายไปไม่ได้เลย)
+- [🛠️ Flaky Summary Test — `datetime.now()` UTC vs `THAI_TZ` Midnight Rollover](#flaky-summary-test-datetimenow-utc-vs-thaitz-midnight-rollover)
+- [🛠️ Finance transfer_money — โอนเงินข้ามห้องได้ (cross-room money leak) ตรวจไม่เจอปลายทาง](#finance-transfermoney-โอนเงินข้ามห้องได้-cross-room-money-leak-ตรวจไม่เจอปลายทาง)
+- [🛠️ Finance confirm_payment — ไม่มี RBAC + รับ overpay ได้ (สองจุดที่ต้อง flag)](#finance-confirmpayment-ไม่มี-rbac-รับ-overpay-ได้-สองจุดที่ต้อง-flag)
+- [🛠️ Finance service: asyncpg ปฏิเสธ `str` ใส่คอลัมน์ TIMESTAMP — ต้องใช้ datetime object](#finance-service-asyncpg-ปฏิเสธ-str-ใส่คอลัมน์-timestamp-ต้องใช้-datetime-object)
+- [🛠️ TaskStatus.ALL — enum มีค่า "all" แต่ service ยัง `WHERE status=$2` → Web ดูงานเสร็จไม่ได้](#taskstatusall-enum-มีค่า-all-แต่-service-ยัง-where-status2-web-ดูงานเสร็จไม่ได้)
+- [🛠️ Finance — `DECIMAL` column กลับมาเป็น `decimal.Decimal` แต่ Pydantic ส่ง `float` → เปรียบเทียบ `Decimal < float` พัง (เทส edge case จับได้ 5 จุด)](#finance-decimal-column-กลับมาเป็น-decimaldecimal-แต่-pydantic-ส่ง-float-เปรียบเทียบ-decimal-float-พัง-เทส-edge-case-จับได้-5-จุด)
+- [🛠️ Finance — `add_student_to_collection` ไม่เช็ค `students.status='active'` → เพิ่ม pending/left student เข้าแคมเปญเก็บเงินได้](#finance-addstudenttocollection-ไม่เช็ค-studentsstatusactive-เพิ่ม-pendingleft-student-เข้าแคมเปญเก็บเงินได้)
+- [🛠️ Finance — `delete_account` hard-delete โดยไม่เช็ค `finance_transactions` → ประวัติรายรับ/รายจ่ายที่ผูกบัญชีโดน `ON DELETE SET NULL` (ประวัติหาย)](#finance-deleteaccount-hard-delete-โดยไม่เช็ค-financetransactions-ประวัติรายรับรายจ่ายที่ผูกบัญชีโดน-on-delete-set-null-ประวัติหาย)
+- [🛠️ Finance — `confirm_payment` รับเงินแคมเปญที่ `status='closed'` ได้ + `get_summary(month)` ที่ไม่มี `year` ทำ params เลื่อน (SQL 500)](#finance-confirmpayment-รับเงินแคมเปญที่-statusclosed-ได้-getsummarymonth-ที่ไม่มี-year-ทำ-params-เลื่อน-sql-500)
+- [🛠️ Finance Excel Export — รวมขาโอนเงินก่อนเขียนไฟล์ + placeholder เริ่มที่ $2 + timestamp ต้องเป็น datetime](#finance-excel-export-รวมขาโอนเงินก่อนเขียนไฟล์-placeholder-เริ่มที่-2-timestamp-ต้องเป็น-datetime)
+- [🛠️ Room create_room — seed หมวดหมู่/บัญชีค่าเริ่มต้นให้ห้องใหม่](#room-createroom-seed-หมวดหมู่บัญชีค่าเริ่มต้นให้ห้องใหม่)
+- [🛠️ Finance Phase 4 — Time-Based Routing ระหว่าง Single-Entry กับ Double-Entry (Strangler Fig)](#finance-phase-4-time-based-routing-ระหว่าง-single-entry-กับ-double-entry-strangler-fig)
+- [🛠️ Backend Full-Audit Pass (2026-08-05) — RBAC, IDOR, dead code, debt](#backend-full-audit-pass-2026-08-05-rbac-idor-dead-code-debt)
+- [🛠️ Redis Pub/Sub — Backend กับ Bot ต้องชี้ Redis instance เดียวกัน (compose override แค่ฝั่งเดียว = ฟังไม่เห็น)](#redis-pubsub-backend-กับ-bot-ต้องชี้-redis-instance-เดียวกัน-compose-override-แค่ฝั่งเดียว-ฟังไม่เห็น)
+- [🛠️ Web→Discord ประกาศ — action endpoint (service-layer) + RBAC `MANAGE_CLASSROOM_SETTINGS`](#webdiscord-ประกาศ-action-endpoint-service-layer-rbac-manageclassroomsettings)
+- [🛠️ GET /{target_id} — แก้ด้วย `get_current_user_or_bot` (bot system identity ผ่าน, web ยังเข้ม)](#get-targetid-แก้ด้วย-getcurrentuserorbot-bot-system-identity-ผ่าน-web-ยังเข้ม)
+- [🛠️ GET /{target_id} (get_room_data) — สลับคอลัมน์ WHERE ใน query ตรง ๆ แทน resolve แยก (กัน 404 งง ๆ)](#get-targetid-getroomdata-สลับคอลัมน์-where-ใน-query-ตรง-ๆ-แทน-resolve-แยก-กัน-404-งง-ๆ)
+- [🛠️ GET /{target_id} (get_room_data) — 404 จริง ๆ มาจาก `get_current_user` ว่าบอท identity ไม่มีใน users ไม่ใช่ server_id query](#get-targetid-getroomdata-404-จริง-ๆ-มาจาก-getcurrentuser-ว่าบอท-identity-ไม่มีใน-users-ไม่ใช่-serverid-query)
+- [🛠️ Discord Notifications — `mention` + `category` ใน payload (แยก @everyone vs แจ้งเฉยๆ)](#discord-notifications-mention-category-ใน-payload-แยก-everyone-vs-แจ้งเฉยๆ)
+- [🛠️ Student Excel Export — openpyxl 2 แผ่น (สรุป + รายชื่อ) + วันเกิดแบบไทย พ.ศ.](#student-excel-export-openpyxl-2-แผ่น-สรุป-รายชื่อ-วันเกิดแบบไทย-พศ)
+- [🛠️ rooms รองรับห้องแฮปปี้เบิร์ดเดย์ + ห้องแจ้งเตือนงานเล็กๆน้อยๆ (mini-channels)](#rooms-รองรับห้องแฮปปี้เบิร์ดเดย์-ห้องแจ้งเตือนงานเล็กๆน้อยๆ-mini-channels)
+- [🛠️ Finance — รับเงินรวบยอด (Batch) — frontend ลูปยิงทีละบิล → backend batch endpoint + notification เดียว](#finance-รับเงินรวบยอด-batch-frontend-ลูปยิงทีละบิล-backend-batch-endpoint-notification-เดียว)
+- [🛠️ Frontend Mobile-Responsive Overhaul — design tokens + บัคที่พบ (h-dvh, dropdown teleport, mobile-card pattern)](#frontend-mobile-responsive-overhaul-design-tokens-บัคที่พบ-h-dvh-dropdown-teleport-mobile-card-pattern)
+- [🛠️ Activity & Role Management — ระบบกิจกรรม/ผู้เข้าร่วม (JSONB metadata + soft-delete + NEW_ACTIVITY)](#activity-role-management-ระบบกิจกรรมผู้เข้าร่วม-jsonb-metadata-soft-delete-newactivity)
+- [🛠️ Dynamic Smart Forms — Field Selector (required_fields) + Type A/B + Batch Apply](#dynamic-smart-forms-field-selector-requiredfields-type-ab-batch-apply)
+- [🛠️ Git Push/PR ติด DNS — วน retry จนกว่าจะได้ (เป็นปกติช่วงนี้)](#git-pushpr-ติด-dns-วน-retry-จนกว่าจะได้-เป็นปกติช่วงนี้)
+- [🛠️ Activity Edit — Participant Reconcile (`_reconcile_participants`) + per-activity duty positions](#activity-edit-participant-reconcile-reconcileparticipants-per-activity-duty-positions)
+- [🛠️ Activity UX Overhaul — custom_fields (หัวข้อ+ค่า) + dual-write + batch role_detail + export no-raw-keys](#activity-ux-overhaul-customfields-หัวข้อค่า-dual-write-batch-roledetail-export-no-raw-keys)
+- [🛠️ Activity Detail — read-only roster (โหมดแสดงเฉย ๆ) + นำออกซ่อนในเมนูจุด 3 จุด](#activity-detail-read-only-roster-โหมดแสดงเฉย-ๆ-นำออกซ่อนในเมนูจุด-3-จุด)
+- [🛠️ English-Primary Name Refactor — ชื่ออังกฤษเป็น "กุญแจตัวตน", ชื่อไทยใช้แสดงผล (แก้ อำ/อํา)](#english-primary-name-refactor-ชื่ออังกฤษเป็น-กุญแจตัวตน-ชื่อไทยใช้แสดงผล-แก้-อำอํา)
+- [🛠️ Activity Part 1 — เช็คชื่อแยกแผ่น + Bulk Update ขยาย + เพิ่มนักเรียน + Dynamic Fields](#activity-part-1-เช็คชื่อแยกแผ่น-bulk-update-ขยาย-เพิ่มนักเรียน-dynamic-fields)
+- [🛠️ Activity Excel Export ปรับปรุง — สถานะไทย + ชื่อไฟล์ + รูปแบบสวยงาม](#activity-excel-export-ปรับปรุง-สถานะไทย-ชื่อไฟล์-รูปแบบสวยงาม)
+- [🛠️ Global Font: Noto Sans Thai — ฟอนต์หลักของแอป (กัน fallback เป็น serif)](#global-font-noto-sans-thai-ฟอนต์หลักของแอป-กัน-fallback-เป็น-serif)
+- [🛠️ Consent Model — PII ของนักเรียนต้องผ่าน "การยืนยันตัวตน" (identity_claimed) ก่อนเปิดให้ห้องดู](#consent-model-pii-ของนักเรียนต้องผ่าน-การยืนยันตัวตน-identityclaimed-ก่อนเปิดให้ห้องดู)
+- [🛠️ สร้าง PR ตอน `gh` token หมดอายุ — ใช้ git credential store + GitHub REST API แทน](#สร้าง-pr-ตอน-gh-token-หมดอายุ-ใช้-git-credential-store-github-rest-api-แทน)
+- [🛠️ Excel สรุปรายการนับโอนเงินเป็นรายจ่าย + สร้าง export สมุดรายวัน (General Journal)](#excel-สรุปรายการนับโอนเงินเป็นรายจ่าย-สร้าง-export-สมุดรายวัน-general-journal)
+- [🛠️ เทส summary ที่ไม่ระบุเดือน "กลายเป็นเทสเก่า" เมื่อเวลาจริงเลย CUTOFF_DATE (2026-09-01) — ยกระดับเป็นบัญชีคู่ หรือยัดวันที่ยุคเก่าให้ชัด](#เทส-summary-ที่ไม่ระบุเดือน-กลายเป็นเทสเก่า-เมื่อเวลาจริงเลย-cutoffdate-2026-09-01-ยกระดับเป็นบัญชีคู่-หรือยัดวันที่ยุคเก่าให้ชัด)
+- [🛠️ Reconciliation Script — กระทบยอด Legacy ↔ บัญชีคู่: ยึด `finance_accounts.balance` เป็นจริง แล้วปรับ journal (equity 3001 เป็นขาสะท้อน)](#reconciliation-script-กระทบยอด-legacy-บัญชีคู่-ยึด-financeaccountsbalance-เป็นจริง-แล้วปรับ-journal-equity-3001-เป็นขาสะท้อน)
+- [🐛 SQL — กรอง `JE.status <> 'voided'` ต้องอยู่ใน WHERE ของ subquery ไม่อยู่ใน ON clause ของ LEFT JOIN](#sql-กรอง-jestatus-voided-ต้องอยู่ใน-where-ของ-subquery-ไม่อยู่ใน-on-clause-ของ-left-join)
+- [🛠️ Excel Export ระดับ Enterprise (ERP) — ข้อมูล "ลูกหนี้/โปรเจค" เป็น Real-time, sheet Tab ≤ 31 ตัวอักษร, แยก data-fetch ออกจาก builder](#excel-export-ระดับ-enterprise-erp-ข้อมูล-ลูกหนี้โปรเจค-เป็น-real-time-sheet-tab-31-ตัวอักษร-แยก-data-fetch-ออกจาก-builder)
+- [🎨 Frontend — เปลี่ยน Design System ทั้งระบบเป็น "Academic Ledger" (stone paper + น้ำเงินเดียว + เส้นบาง)](#frontend-เปลี่ยน-design-system-ทั้งระบบเป็น-academic-ledger-stone-paper-น้ำเงินเดียว-เส้นบาง)
+- [📱 Frontend — บั๊คมือถือ 3 ตัวที่ "มองไม่เห็น" จนกว่าจะรู้กลไก: หัวข้อถูกบีบ, `sm:p-*` ทับระยะกันแท็บล่าง, และคอมเมนต์ในแท็ก](#frontend-บั๊คมือถือ-3-ตัวที่-มองไม่เห็น-จนกว่าจะรู้กลไก-หัวข้อถูกบีบ-smp--ทับระยะกันแท็บล่าง-และคอมเมนต์ในแท็ก)
+- [🧩 Frontend — แผนที่ lookup ใน Vue template (`Record<string, T>`) พัง type-check เพราะ `noUncheckedIndexedAccess`](#frontend-แผนที่-lookup-ใน-vue-template-record-พัง-type-check-เพราะ-nouncheckedindexedaccess)
+- [📱 Frontend — `truncate` บน "ข้อมูลที่อ่านอย่างเดียว" = ซ่อนข้อมูลถาวรบนมือถือ](#frontend-truncate-บน-ข้อมูลที่อ่านอย่างเดียว-ซ่อนข้อมูลถาวรบนมือถือ)
+- [🤖 Process — แปล enum เดียวกันด้วยเอเจนต์ขนานกัน = ข้อความไม่ตรงกันข้ามหน้า](#process-แปล-enum-เดียวกันด้วยเอเจนต์ขนานกัน-ข้อความไม่ตรงกันข้ามหน้า)
+- [📄 Frontend — เปลี่ยน "จำนวนแถวต่อหน้า" ต้องรีเซ็ต/หนีบ page ด้วย ไม่งั้นได้ "ไม่พบรายการ" ปลอม](#frontend-เปลี่ยน-จำนวนแถวต่อหน้า-ต้องรีเซ็ตหนีบ-page-ด้วย-ไม่งั้นได้-ไม่พบรายการ-ปลอม)
+- [🐛 Timezone — `datetime` แบบ naive เทียบกับคอลัมน์ `timestamptz` = asyncpg ตีความเป็น "เวลาท้องถิ่นของเครื่อง" ไม่ใช่ UTC (งบการเงินกินข้อมูลข้ามวัน)](#timezone-datetime-แบบ-naive-เทียบกับคอลัมน์-timestamptz-asyncpg-ตีความเป็น-เวลาท้องถิ่นของเครื่อง-ไม่ใช่-utc-งบการเงินกินข้อมูลข้ามวัน)
+- [🐛 Finance — `_compose_balance_sheet` ฮาร์ดโค้ด `liability_total = 0.0` → `is_balanced` เป็นเท็จหลอก ๆ บนเอกสารที่พิมพ์ออกมา](#finance-composebalancesheet-ฮาร์ดโค้ด-liabilitytotal-00-isbalanced-เป็นเท็จหลอก-ๆ-บนเอกสารที่พิมพ์ออกมา)
+- [🐛 Routers — `from models.finance_schemas import *` ทำให้การเพิ่ม `__all__` ในไฟล์ schema พังทั้ง router](#routers-from-modelsfinanceschemas-import-ทำให้การเพิ่ม-all-ในไฟล์-schema-พังทั้ง-router)
+- [🧪 Tests — เทสต์ export ที่ assert ด้วย **index ของคอลัมน์/แถว** เน่าเงียบ ๆ เมื่อ layout ขยับ (แต่ assert ด้วย **ป้ายชื่อ** ก็ยังเน่าได้ถ้าป้ายถูกเติม suffix)](#tests-เทสต์-export-ที่-assert-ด้วย-index-ของคอลัมน์แถว-เน่าเงียบ-ๆ-เมื่อ-layout-ขยับ-แต่-assert-ด้วย-ป้ายชื่อ-ก็ยังเน่าได้ถ้าป้ายถูกเติม-suffix)
+- [🧪 Tests — `clean_database` เป็น autouse + `TRUNCATE ... CASCADE` ⇒ fixture ที่สร้าง room/user ต้อง **function-scoped** และห้าม hardcode id](#tests-cleandatabase-เป็น-autouse-truncate-cascade-fixture-ที่สร้าง-roomuser-ต้อง-function-scoped-และห้าม-hardcode-id)
+- [🕐 Dates — แก้ขอบเขตเวลาแบบ **ไม่ครบทุกจุดในไฟล์เดียวกัน** ทำให้ไฟล์ที่เคย "ผิดเหมือนกันทั้งไฟล์" กลายเป็น "ขัดแย้งกันเองในไฟล์เดียว"](#dates-แก้ขอบเขตเวลาแบบ-ไม่ครบทุกจุดในไฟล์เดียวกัน-ทำให้ไฟล์ที่เคย-ผิดเหมือนกันทั้งไฟล์-กลายเป็น-ขัดแย้งกันเองในไฟล์เดียว)
+- [🧭 Timezone — **`TIMESTAMP DEFAULT CURRENT_TIMESTAMP` ไม่ได้แปลว่า "เวลาไทย"** และการแก้ TZ บางส่วนทำให้ **คนละ endpoint ใช้ปฏิทินคนละใบ**](#timezone-timestamp-default-currenttimestamp-ไม่ได้แปลว่า-เวลาไทย-และการแก้-tz-บางส่วนทำให้-คนละ-endpoint-ใช้ปฏิทินคนละใบ)
+- [🧾 Tests — ก่อนเชื่อว่า "เทสต์ที่ล้มเป็นของเดิม" ต้อง **A/B ด้วย subset** และ **อย่าเชื่อจำนวนที่บันทึกไว้ก่อนหน้า**](#tests-ก่อนเชื่อว่า-เทสต์ที่ล้มเป็นของเดิม-ต้อง-ab-ด้วย-subset-และ-อย่าเชื่อจำนวนที่บันทึกไว้ก่อนหน้า)
+- [🕐 Timezone — หลังตัดสินใจยึด "เวลาไทย" ต้องแก้ **สองทิศทาง**: ขาเข้า (SQL) และขาออก (API) — ขาออกนี่คือตัวที่ผู้ใช้ **เห็น** ผิด](#timezone-หลังตัดสินใจยึด-เวลาไทย-ต้องแก้-สองทิศทาง-ขาเข้า-sql-และขาออก-api-ขาออกนี่คือตัวที่ผู้ใช้-เห็น-ผิด)
+- [📊 Finance — เทียบ `date` กับคอลัมน์ `timestamptz` = Postgres แปลงเป็น **เที่ยงคืน UTC (07:00 ไทย)** ⇒ ยอด "เดือนนี้" ของ dashboard ไม่ตรงกับงบกำไรขาดทุน](#finance-เทียบ-date-กับคอลัมน์-timestamptz-postgres-แปลงเป็น-เที่ยงคืน-utc-0700-ไทย-ยอด-เดือนนี้-ของ-dashboard-ไม่ตรงกับงบกำไรขาดทุน)
+- [🧪 Tests — เทสต์ Excel export ที่ผูกกับ "ชื่อ/ลำดับแผ่น + index ของแถวรวม" เน่าพร้อมกัน **6 ตัวจาก commit เดียว** และวิธีซ่อมให้ไม่เน่าซ้ำ](#tests-เทสต์-excel-export-ที่ผูกกับ-ชื่อลำดับแผ่น-index-ของแถวรวม-เน่าพร้อมกัน-6-ตัวจาก-commit-เดียว-และวิธีซ่อมให้ไม่เน่าซ้ำ)
+- [⚠️ Finance — **KNOWN GAP**: แถว legacy-only ที่ "วันที่ไทย" ข้ามเส้นตัด มองไม่เห็นจากทั้งสองผู้อ่าน (ช่วงเปลี่ยนผ่าน ~7 ชั่วโมง)](#finance-known-gap-แถว-legacy-only-ที่-วันที่ไทย-ข้ามเส้นตัด-มองไม่เห็นจากทั้งสองผู้อ่าน-ช่วงเปลี่ยนผ่าน-7-ชั่วโมง)
+- [📅 Frontend — ค่าเริ่มต้นของตัวกรองเดือนจาก `new Date().getMonth()` = **ปฏิทินของอุปกรณ์ผู้ใช้** ไม่ใช่ของไทย (เปิดหน้ามาผิดเดือนทั้งหน้า)](#frontend-ค่าเริ่มต้นของตัวกรองเดือนจาก-new-dategetmonth-ปฏิทินของอุปกรณ์ผู้ใช้-ไม่ใช่ของไทย-เปิดหน้ามาผิดเดือนทั้งหน้า)
+- [🩹 Finance — แถว Legacy ที่ "วันที่ไทย" ข้ามเส้นตัดแล้วแต่ไม่มี journal = **แถวที่ไม่มีผู้อ่านฝั่งใดรับ** (หายจากประวัติทั้งที่ข้อมูลอยู่ครบ)](#finance-แถว-legacy-ที่-วันที่ไทย-ข้ามเส้นตัดแล้วแต่ไม่มี-journal-แถวที่ไม่มีผู้อ่านฝั่งใดรับ-หายจากประวัติทั้งที่ข้อมูลอยู่ครบ)
+- [🤖 Discord bot — `get_target` มี default `target_type="room"` ⇒ บอทที่ลืมส่ง `target_type=server` ได้ **404 "ไม่พบห้อง"** ทั้งที่ห้องมีอยู่](#discord-bot-gettarget-มี-default-targettyperoom-บอทที่ลืมส่ง-targettypeserver-ได้-404-ไม่พบห้อง-ทั้งที่ห้องมีอยู่)
+- [🧪 Tests — ลืม prefix `/api/classroom` ⇒ **ทุกเทสต์ได้ 404 `{"detail":"Not Found"}` ของ FastAPI เอง** และตัวที่ "ผ่าน" คือตัวที่ผ่านด้วยเหตุผลผิด](#tests-ลืม-prefix-apiclassroom-ทุกเทสต์ได้-404-detailnot-found-ของ-fastapi-เอง-และตัวที่-ผ่าน-คือตัวที่ผ่านด้วยเหตุผลผิด)
+- [🐛 Routers — `rooms.id` เป็น SERIAL (int4) ⇒ เอา guild_id ของ Discord (~19 หลัก) ไปหา `WHERE id = $1` ได้ **HTTP 500 `OverflowError`** ไม่ใช่ 404](#routers-roomsid-เป็น-serial-int4-เอา-guildid-ของ-discord-19-หลัก-ไปหา-where-id-1-ได้-http-500-overflowerror-ไม่ใช่-404)
+- [💰 Finance — `finance_transactions` **ไม่ใช่ตาราง legacy** แต่เป็น dual-write mirror ที่ครบทั้งสองยุค ⇒ งบประมาณอ่านตารางนี้ตารางเดียว ห้าม clamp ที่ CUTOFF และห้ามอ่าน journal](#finance-financetransactions-ไม่ใช่ตาราง-legacy-แต่เป็น-dual-write-mirror-ที่ครบทั้งสองยุค-งบประมาณอ่านตารางนี้ตารางเดียว-ห้าม-clamp-ที่-cutoff-และห้ามอ่าน-journal)
+- [🕐 SQL — งบประมาณต้องเทียบ "วันไทย" กับ **สองชนิดคอลัมน์ที่เก็บโซนต่างกัน** ในคำสั่งเดียว ⇒ `LEFT JOIN LATERAL` เดียวมีสองนิพจน์เวลา](#sql-งบประมาณต้องเทียบ-วันไทย-กับ-สองชนิดคอลัมน์ที่เก็บโซนต่างกัน-ในคำสั่งเดียว-left-join-lateral-เดียวมีสองนิพจน์เวลา)
+- [🐛 Finance — guard `delete_category` ที่กรอง `deleted_at IS NULL` **ไม่ตรงกับ FK `ON DELETE RESTRICT`** ⇒ ลบงบก่อนแล้วลบหมวด = HTTP 500 ดิบ](#finance-guard-deletecategory-ที่กรอง-deletedat-is-null-ไม่ตรงกับ-fk-on-delete-restrict-ลบงบก่อนแล้วลบหมวด-http-500-ดิบ)
+- [🧪 Tests — เทสต์ที่พิสูจน์ว่า SQL clause "มีผลจริง" ต้องหาทรงข้อมูลที่ **clause เดียวเปลี่ยนคำตอบได้** ไม่งั้นเทสต์ผ่านทั้งที่ถอด clause ออก](#tests-เทสต์ที่พิสูจน์ว่า-sql-clause-มีผลจริง-ต้องหาทรงข้อมูลที่-clause-เดียวเปลี่ยนคำตอบได้-ไม่งั้นเทสต์ผ่านทั้งที่ถอด-clause-ออก)
+- [🎨 Frontend — `npm run format` **ไม่ปลอดภัยกับ repo นี้**: โค้ดทั้ง repo ไม่เคยถูกจัดฟอร์มด้วย Prettier ภายใต้ config ใดเลย (ไม่ใช่แค่เรื่อง `semi`) ⇒ rewrite 67 ไฟล์เสมอ](#frontend-npm-run-format-ไม่ปลอดภัยกับ-repo-นี้-โค้ดทั้ง-repo-ไม่เคยถูกจัดฟอร์มด้วย-prettier-ภายใต้-config-ใดเลย-ไม่ใช่แค่เรื่อง-semi-rewrite-67-ไฟล์เสมอ)
+- [🔢 Finance — เลขรันเอกสารต้องมาจาก `ON CONFLICT DO UPDATE ... RETURNING` ไม่ใช่ `MAX(seq)+1` และต้อง **เก็บ** ไม่ใช่ **คำนวณ**](#finance-เลขรันเอกสารต้องมาจาก-on-conflict-do-update-returning-ไม่ใช่-maxseq1-และต้อง-เก็บ-ไม่ใช่-คำนวณ)
+- [🧾 Finance — ใบเสร็จ **idempotent** แต่ใบแจ้งหนี้ **point-in-time** — ความไม่สมมาตรนี้ถูกเข้ารหัสไว้ในรูปทรงของ partial unique index](#finance-ใบเสร็จ-idempotent-แต่ใบแจ้งหนี้-point-in-time-ความไม่สมมาตรนี้ถูกเข้ารหัสไว้ในรูปทรงของ-partial-unique-index)
+- [🗓️ Finance — ปี พ.ศ. ของเลขเอกสารต้องมาจาก **เหตุการณ์รับเงิน** ไม่ใช่ `student_payments.paid_at` (และต้องคิดเป็นเวลาไทย ไม่ใช่ UTC)](#finance-ปี-พศ-ของเลขเอกสารต้องมาจาก-เหตุการณ์รับเงิน-ไม่ใช่-studentpaymentspaidat-และต้องคิดเป็นเวลาไทย-ไม่ใช่-utc)
+- [🖨️ PDF — ฟอนต์ไทยต้อง **ส่งไปกับ request** และต้องเป็นฟอนต์ **static** (variable font → Chromium ถอยไปวาด glyph เป็น Type 3)](#pdf-ฟอนต์ไทยต้อง-ส่งไปกับ-request-และต้องเป็นฟอนต์-static-variable-font-chromium-ถอยไปวาด-glyph-เป็น-type-3)
+- [🧪 PDF — `grep /FontFile2` ในไฟล์ PDF ดิบ ๆ ได้ **false negative** เพราะ PDF 1.5+ บีบอัด dictionary ไว้ใน object stream (และ Skia เขียน ToUnicode เป็น `bfrange`)](#pdf-grep-fontfile2-ในไฟล์-pdf-ดิบ-ๆ-ได้-false-negative-เพราะ-pdf-15-บีบอัด-dictionary-ไว้ใน-object-stream-และ-skia-เขียน-tounicode-เป็น-bfrange)
+- [🧾 ใบเสร็จผูกกับ **งวดรับเงิน** ไม่ใช่ **บิล** — "ออกใบเสร็จทั้งหมด" จึงข้ามใบของงวดก่อนหน้าไป](#ใบเสร็จผูกกับ-งวดรับเงิน-ไม่ใช่-บิล-ออกใบเสร็จทั้งหมด-จึงข้ามใบของงวดก่อนหน้าไป)
+- [🔒 ล็อกสองทรัพยากรคนละระดับ = deadlock ที่กลายเป็น **500** เพราะ asyncpg โยน exception ที่ router ไม่รู้จัก](#ล็อกสองทรัพยากรคนละระดับ-deadlock-ที่กลายเป็น-500-เพราะ-asyncpg-โยน-exception-ที่-router-ไม่รู้จัก)
+- [🚧 `f"{seq:04d}"` **ไม่ error** เมื่อเกิน 9999 — มันกว้างขึ้นเอง แต่ path param ที่ผูกกับ pattern 4 หลักจะปฏิเสธตลอดกาล](#fseq04d-ไม่-error-เมื่อเกิน-9999-มันกว้างขึ้นเอง-แต่-path-param-ที่ผูกกับ-pattern-4-หลักจะปฏิเสธตลอดกาล)
+- [📄 เอกสาร "point-in-time" ต้องใช้วันที่ **ออกเอกสาร** ไม่ใช่เวลาของเหตุการณ์ล่าสุด (`paid_at` ถูกทับทุกงวด)](#เอกสาร-point-in-time-ต้องใช้วันที่-ออกเอกสาร-ไม่ใช่เวลาของเหตุการณ์ล่าสุด-paidat-ถูกทับทุกงวด)
+- [🔐 เส้นทางที่เปิดด้วย `require_member` = **สมาชิกทุกคนอ่านได้** ⇒ ข้อความ error ห้ามมี URL/hostname ภายใน](#เส้นทางที่เปิดด้วย-requiremember-สมาชิกทุกคนอ่านได้-ข้อความ-error-ห้ามมี-urlhostname-ภายใน)
+- [🏁 การ fetch ที่ผูกกับตัวกรองต้องมี "ตัวนับรุ่น" — ลำดับที่คำตอบกลับมาไม่รับประกัน](#การ-fetch-ที่ผูกกับตัวกรองต้องมี-ตัวนับรุ่น-ลำดับที่คำตอบกลับมาไม่รับประกัน)
+- [⏱️ `URL.revokeObjectURL` ต้อง **เลื่อนออกไปหนึ่งคาบ** — revoke ต่อจาก `click()` ทำให้ไฟล์ถูกยกเลิกเงียบ ๆ](#urlrevokeobjecturl-ต้อง-เลื่อนออกไปหนึ่งคาบ-revoke-ต่อจาก-click-ทำให้ไฟล์ถูกยกเลิกเงียบ-ๆ)
+- [🧬 เทสต์ regression ที่ "ผ่านทันที" ไม่ใช่หลักฐาน — ต้อง **mutation test** ก่อนเชื่อ](#เทสต์-regression-ที่-ผ่านทันที-ไม่ใช่หลักฐาน-ต้อง-mutation-test-ก่อนเชื่อ)
+- [🧬 mutation test ที่ "NOT-CAUGHT" **ไม่ได้แปลว่าเทสต์ไม่มีฟันเสมอไป** — ต้องแยก equivalent mutant ออกจากช่องโหว่จริงก่อนแก้](#mutation-test-ที่-not-caught-ไม่ได้แปลว่าเทสต์ไม่มีฟันเสมอไป-ต้องแยก-equivalent-mutant-ออกจากช่องโหว่จริงก่อนแก้)
+- [🛡️ Ops tool ที่บอกว่า "dry-run ไม่เขียนอะไรเลย" ต้องพิสูจน์ด้วย **ฐานข้อมูล** ไม่ใช่ด้วย **คำที่มันพิมพ์ออกมา**](#ops-tool-ที่บอกว่า-dry-run-ไม่เขียนอะไรเลย-ต้องพิสูจน์ด้วย-ฐานข้อมูล-ไม่ใช่ด้วย-คำที่มันพิมพ์ออกมา)
+- [🔬 ตอนพิสูจน์ว่าเกราะ read-only ทำงาน — "ได้ exception" ≠ "เกราะทำงาน" ต้อง assert **ชนิด** ของ exception และคำสั่งเขียนต้องเป็น SQL ที่ valid ก่อน](#ตอนพิสูจน์ว่าเกราะ-read-only-ทำงาน-ได้-exception-เกราะทำงาน-ต้อง-assert-ชนิด-ของ-exception-และคำสั่งเขียนต้องเป็น-sql-ที่-valid-ก่อน)
+- [🧪 เทสต์ที่ fixture เตรียมทางให้ครบ = เทสต์ที่ไม่เคยเดินบนเส้นทางที่มันอ้างว่าคุม](#เทสต์ที่-fixture-เตรียมทางให้ครบ-เทสต์ที่ไม่เคยเดินบนเส้นทางที่มันอ้างว่าคุม)
+- [🔁 "แก้เสร็จแล้ว" ≠ "แก้ครบ" — จุดที่รายงานมายกมา 1 จุด มักมีพี่น้องอีก N จุดที่ไม่มีใครพูดถึง](#แก้เสร็จแล้ว-แก้ครบ-จุดที่รายงานมายกมา-1-จุด-มักมีพี่น้องอีก-n-จุดที่ไม่มีใครพูดถึง)
+- [💰 `DECIMAL` เปล่า ๆ = **สเกลไม่จำกัด** ⇒ ยอดต่ำกว่าสตางค์ผ่าน guard มาได้ แล้วไปชน CHECK constraint = 500](#decimal-เปล่า-ๆ-สเกลไม่จำกัด-ยอดต่ำกว่าสตางค์ผ่าน-guard-มาได้-แล้วไปชน-check-constraint-500)
+- [🔒 advisory lock ที่ครอบแค่ "เส้นทางที่กำลังดูอยู่" ไม่ได้ปิดคลาส deadlock — และ `ORDER BY` + locking clause เชื่อลำดับไม่ได้](#advisory-lock-ที่ครอบแค่-เส้นทางที่กำลังดูอยู่-ไม่ได้ปิดคลาส-deadlock-และ-order-by-locking-clause-เชื่อลำดับไม่ได้)
+- [🏁 หน้าเดียวอาจต้องมี **หลาย guard** และ guard ต้องครอบ `catch`/`finally` ด้วย ไม่ใช่แค่ทางสำเร็จ](#หน้าเดียวอาจต้องมี-หลาย-guard-และ-guard-ต้องครอบ-catchfinally-ด้วย-ไม่ใช่แค่ทางสำเร็จ)
+- [⏱️ (แก้คำอธิบายเดิม) `setTimeout(..., 0)` **ไม่ได้** การันตีว่าเบราว์เซอร์อ่าน URL ไปแล้ว — และ 0 ms สั้นเกินไปสำหรับไฟล์ใหญ่](#แก้คำอธิบายเดิม-settimeout-0-ไม่ได้-การันตีว่าเบราว์เซอร์อ่าน-url-ไปแล้ว-และ-0-ms-สั้นเกินไปสำหรับไฟล์ใหญ่)
+- [🗂️ DDL — `IF NOT EXISTS` **ไม่ได้** แปลว่า "ทำให้ตรงกับที่เขียนไว้" — มันแปลว่า "ถ้ามีแล้วก็ผ่านไป"](#ddl-if-not-exists-ไม่ได้-แปลว่า-ทำให้ตรงกับที่เขียนไว้-มันแปลว่า-ถ้ามีแล้วก็ผ่านไป)
+- [💥 `except asyncpg.UniqueViolationError` ใน explicit transaction = **ต้องมี SAVEPOINT** ไม่งั้นคำสั่งถัดไปพังเป็น 500](#except-asyncpguniqueviolationerror-ใน-explicit-transaction-ต้องมี-savepoint-ไม่งั้นคำสั่งถัดไปพังเป็น-500)
+- [📤 `response_model` ตัดฟิลด์ที่ service คืนมาให้ **เงียบ ๆ** — ฟิลด์ใหม่ต้องประกาศที่โมเดล ไม่ใช่แค่ใน dict](#responsemodel-ตัดฟิลด์ที่-service-คืนมาให้-เงียบ-ๆ-ฟิลด์ใหม่ต้องประกาศที่โมเดล-ไม่ใช่แค่ใน-dict)
+- [🔒 สถานะที่ "ตันสองทาง" ต้องทำให้ **เกิดไม่ได้ที่ DB** (CHECK) ไม่ใช่พึ่งวินัยของคนเขียนโค้ด](#สถานะที่-ตันสองทาง-ต้องทำให้-เกิดไม่ได้ที่-db-check-ไม่ใช่พึ่งวินัยของคนเขียนโค้ด)
+- [🗓️ "วันที่ของเอกสาร" ต้องเป็น **ค่าเดียวกันกับที่มาของปีบนเลขเอกสาร** — ไม่ใช่สองนาฬิกาที่บังเอิญตรงกัน](#วันที่ของเอกสาร-ต้องเป็น-ค่าเดียวกันกับที่มาของปีบนเลขเอกสาร-ไม่ใช่สองนาฬิกาที่บังเอิญตรงกัน)
+- [🧪 เทสต์ที่ seed สองค่า "เกือบเท่ากัน" **แยกไม่ออก** ว่าโค้ดอ่านคอลัมน์ไหน — ต้องบังคับให้ต่างกันก่อน](#เทสต์ที่-seed-สองค่า-เกือบเท่ากัน-แยกไม่ออก-ว่าโค้ดอ่านคอลัมน์ไหน-ต้องบังคับให้ต่างกันก่อน)
+- [🔄 `init_db(pool)` รันใน lifespan ของ **ทุก replica** โดยไม่มี advisory lock ⇒ การ `DROP CONSTRAINT` + `ADD CONSTRAINT` มีช่วงแข่ง](#initdbpool-รันใน-lifespan-ของ-ทุก-replica-โดยไม่มี-advisory-lock-การ-drop-constraint-add-constraint-มีช่วงแข่ง)
+- [💰 ยอดบนเอกสารที่อ้าง "ยอดค้าง" ต้องมาจาก **predicate ชุดเดียวกับหน้าจอที่โชว์ยอดนั้น**](#ยอดบนเอกสารที่อ้าง-ยอดค้าง-ต้องมาจาก-predicate-ชุดเดียวกับหน้าจอที่โชว์ยอดนั้น)
+- [📋 เอกสารที่แจกแจงรายการต้อง **snapshot** บรรทัดไว้ — ห้าม recompute ตอนพิมพ์](#เอกสารที่แจกแจงรายการต้อง-snapshot-บรรทัดไว้-ห้าม-recompute-ตอนพิมพ์)
+- [🖨️ PDF หลายใบในไฟล์เดียว: `padding` ต้องอยู่ที่ element **ต่อใบ** ไม่ใช่ `body` — วัดได้ 14.0mm](#pdf-หลายใบในไฟล์เดียว-padding-ต้องอยู่ที่-element-ต่อใบ-ไม่ใช่-body-วัดได้-140mm)
+- [🔢 เทสต์ที่นับจำนวนครั้งของสตริงใน output — **คอมเมนต์ในเทมเพลตก็ถูกนับด้วย**](#เทสต์ที่นับจำนวนครั้งของสตริงใน-output-คอมเมนต์ในเทมเพลตก็ถูกนับด้วย)
+- [💰 เงินรับล่วงหน้า = **หนี้สิน** ไม่ใช่รายได้ — และระบบนี้เพิ่งมี liability ledger ตัวแรก](#เงินรับล่วงหน้า-หนี้สิน-ไม่ใช่รายได้-และระบบนี้เพิ่งมี-liability-ledger-ตัวแรก)
+- [🔇 งบประมาณ (หลัง CUTOFF) อ่าน journal ตาม `reference_type` ⇒ เพิ่ม `reference_type` ใหม่ต้องแก้ `budgets.py` ด้วย ไม่งั้น **ยอดหายเงียบ**](#งบประมาณ-หลัง-cutoff-อ่าน-journal-ตาม-referencetype-เพิ่ม-referencetype-ใหม่ต้องแก้-budgetspy-ด้วย-ไม่งั้น-ยอดหายเงียบ)
+- [🕳️ เอกสารที่ `student_payment_id IS NULL` **ไม่ถูกกันซ้ำ** โดย `idx_finance_receipts_tx_active`](#เอกสารที่-studentpaymentid-is-null-ไม่ถูกกันซ้ำ-โดย-idxfinancereceiptstxactive)
+- [🧩 Pydantic `response_model` บังคับฟิลด์ที่ **ตัวสร้าง dict ไม่ได้ใส่** ⇒ 500 ทุกครั้ง (และตัวเลขใน error ชี้ผิดที่)](#pydantic-responsemodel-บังคับฟิลด์ที่-ตัวสร้าง-dict-ไม่ได้ใส่-500-ทุกครั้ง-และตัวเลขใน-error-ชี้ผิดที่)
+- [🗑️ อ่าน "ยอดคงเหลือแบบ snapshot" **หลัง** soft delete แถวที่เป็น snapshot ⇒ คืนเงินสองรอบ](#อ่าน-ยอดคงเหลือแบบ-snapshot-หลัง-soft-delete-แถวที่เป็น-snapshot-คืนเงินสองรอบ)
+- [🖨️ Jinja: `{% if d.x is not none %}` บนคีย์ที่ **หายไป** = `True` ⇒ `format(Undefined)` ระเบิด (ใบรับเงินล่วงหน้าดาวน์โหลดไม่ได้ 500)](#jinja-if-dx-is-not-none-บนคีย์ที่-หายไป-true-formatundefined-ระเบิด-ใบรับเงินล่วงหน้าดาวน์โหลดไม่ได้-500)
+- [🧾 เอกสารที่ "ไม่มีบิล" ต้องมีถ้อยคำของตัวเอง — `is_receipt`/`doc_type` ที่ไม่ครบจะพิมพ์ด้วยคำของใบแจ้งหนี้ทั้งใบ](#เอกสารที่-ไม่มีบิล-ต้องมีถ้อยคำของตัวเอง-isreceiptdoctype-ที่ไม่ครบจะพิมพ์ด้วยคำของใบแจ้งหนี้ทั้งใบ)
+- [🔗 อาร์เรย์ใน query string: axios ส่ง `student_ids\[\]=1` แต่ FastAPI ต้องการ `student_ids=1` ⇒ **422 ที่มองไม่เห็นจากฝั่ง backend เลย**](#อาร์เรย์ใน-query-string-axios-ส่ง-studentids1-แต่-fastapi-ต้องการ-studentids1-422-ที่มองไม่เห็นจากฝั่ง-backend-เลย)
+- [✂️ `truncate` บนบรรทัดที่มี **ตัวเลขเงิน** = ตัวเลขโกหก (฿1,500.00 อ่านเป็น ฿1,50…)](#truncate-บนบรรทัดที่มี-ตัวเลขเงิน-ตัวเลขโกหก-150000-อ่านเป็น-150)
+- [🔀 `origin/main` ที่ยังไม่ `git fetch` ⇒ สรุปผิดว่า PR จะมีกี่เรื่อง (และเนื้อหาอะไร)](#originmain-ที่ยังไม่-git-fetch-สรุปผิดว่า-pr-จะมีกี่เรื่อง-และเนื้อหาอะไร)
+- [🚫 `gh pr edit` ล้มด้วย GraphQL "Projects (classic) is being deprecated" — และการกลบ stderr ทำให้ดูเหมือนสำเร็จ](#gh-pr-edit-ล้มด้วย-graphql-projects-classic-is-being-deprecated-และการกลบ-stderr-ทำให้ดูเหมือนสำเร็จ)
+- [🧩 asyncpg คืนคอลัมน์ `jsonb` เป็น **สตริง** — `if not isinstance(x, dict): x = {}` คือการทิ้งข้อมูลจริงอย่างเงียบ ๆ](#asyncpg-คืนคอลัมน์-jsonb-เป็น-สตริง-if-not-isinstancex-dict-x-คือการทิ้งข้อมูลจริงอย่างเงียบ-ๆ)
+- [🎲 `hash()` ของสตริงใน Python ถูกใส่ salt **ต่อโปรเซส** — ห้ามใช้สร้างค่าที่ client อ้างอิง](#hash-ของสตริงใน-python-ถูกใส่-salt-ต่อโปรเซส-ห้ามใช้สร้างค่าที่-client-อ้างอิง)
+- [🧪 harness ของ mutation test ที่ "พังตอนสตาร์ท" ถูกรายงานเป็น "เทสต์จับได้" — vitest 4 ไม่มี `--reporter=basic`](#harness-ของ-mutation-test-ที่-พังตอนสตาร์ท-ถูกรายงานเป็น-เทสต์จับได้-vitest-4-ไม่มี---reporterbasic)
+- [🧬 รายการ mutation ที่ "เราเลือกเอง" ไม่ได้วัดความครอบคลุม — "14/14 · รอด 0" คือความมั่นใจปลอม](#รายการ-mutation-ที่-เราเลือกเอง-ไม่ได้วัดความครอบคลุม-1414-รอด-0-คือความมั่นใจปลอม)
+- [🖱️ `.click()` บนปุ่มที่ `disabled` ไม่ยิง event เลย (ทั้งเบราว์เซอร์และ jsdom) ⇒ เทสต์เขียวเพราะไม่ได้ทดสอบอะไร](#click-บนปุ่มที่-disabled-ไม่ยิง-event-เลย-ทั้งเบราว์เซอร์และ-jsdom-เทสต์เขียวเพราะไม่ได้ทดสอบอะไร)
+- [🧭 Safari (macOS) ไม่ย้ายโฟกัสมาที่ `<button>` เมื่อคลิกด้วยเมาส์ — อย่าผูก `Escape` กับ "โฟกัสอยู่ที่ปุ่ม"](#safari-macos-ไม่ย้ายโฟกัสมาที่-เมื่อคลิกด้วยเมาส์-อย่าผูก-escape-กับ-โฟกัสอยู่ที่ปุ่ม)
+- [✂️ เมนู `position: absolute` ใช้ไม่ได้กับตารางที่ `overflow-hidden` + `overflow-x-auto` — ต้อง Teleport ไป `body` + `fixed`](#เมนู-position-absolute-ใช้ไม่ได้กับตารางที่-overflow-hidden-overflow-x-auto-ต้อง-teleport-ไป-body-fixed)
+- [🎨 Tailwind arbitrary value ที่มี `calc()` ต้องใส่ `_` แทนเว้นวรรค ไม่งั้นถูกทิ้งเงียบ ๆ](#tailwind-arbitrary-value-ที่มี-calc-ต้องใส่-แทนเว้นวรรค-ไม่งั้นถูกทิ้งเงียบ-ๆ)
+- [🗡️ ฆ่า mutation harness กลางคัน = ไฟล์ที่กำลัง mutate ค้างอยู่ในสภาพพัง และ **กู้ไม่ได้ถ้ายังไม่ commit**](#ฆ่า-mutation-harness-กลางคัน-ไฟล์ที่กำลัง-mutate-ค้างอยู่ในสภาพพัง-และ-กู้ไม่ได้ถ้ายังไม่-commit)
+- [🧱 คอลัมน์ที่เพิ่มทีหลังต้อง ALTER และ **index ของมันต้องอยู่ในบล็อก ALTER ด้วย** — `CREATE TABLE IF NOT EXISTS` เป็น no-op บน DB ที่ deploy แล้ว](#คอลัมน์ที่เพิ่มทีหลังต้อง-alter-และ-index-ของมันต้องอยู่ในบล็อก-alter-ด้วย-create-table-if-not-exists-เป็น-no-op-บน-db-ที่-deploy-แล้ว)
+- [🔢 `COUNT(*) OVER (PARTITION BY …)` โกหกเมื่อมี `WHERE` กรองสมาชิกออก — "ขนาดชุด" ต้องมาจากคำขอที่สอง](#count-over-partition-by-โกหกเมื่อมี-where-กรองสมาชิกออก-ขนาดชุด-ต้องมาจากคำขอที่สอง)
+- [🔗 FK คู่ `(child_id, room_id)` + MATCH SIMPLE = กันเอกสารข้ามห้องที่ระดับ DB และ **ห้าม `ON DELETE SET NULL` เด็ดขาด**](#fk-คู่-childid-roomid-match-simple-กันเอกสารข้ามห้องที่ระดับ-db-และ-ห้าม-on-delete-set-null-เด็ดขาด)
+- [🧪 `noUncheckedIndexedAccess` ทำให้ **ไฟล์เทสต์** type-check ไม่ผ่านที่ `arr\[0\]` — ใช้ helper ที่ throw แทน `!`](#nouncheckedindexedaccess-ทำให้-ไฟล์เทสต์-type-check-ไม่ผ่านที่-arr0-ใช้-helper-ที่-throw-แทน)
+- [🗡️ (เสริม) mutation harness ภาษา Python ก็ต้องสำรอง **ไฟล์ที่ยังไม่ commit** ออกนอก repo — และงาน F5 mutate ไฟล์ใหม่ทั้งไฟล์](#เสริม-mutation-harness-ภาษา-python-ก็ต้องสำรอง-ไฟล์ที่ยังไม่-commit-ออกนอก-repo-และงาน-f5-mutate-ไฟล์ใหม่ทั้งไฟล์)
+- [🧪 mutation harness ที่ตัดสินผลจาก **exit code ของคำสั่งที่มี pipe** = ตาบอดทั้งรอบ — และ "ผลบวกลวง" มีสองโหมดตรงข้ามกัน](#mutation-harness-ที่ตัดสินผลจาก-exit-code-ของคำสั่งที่มี-pipe-ตาบอดทั้งรอบ-และ-ผลบวกลวง-มีสองโหมดตรงข้ามกัน)
+- [🚦 ด่านที่ **เทียบเท่า** (ถอดออกแล้วสถานะ DB เหมือนเดิมเป๊ะ) ต้องมี **"ข้อความ"** เป็น observable — ไม่งั้นเทสต์จับไม่ได้เลย](#ด่านที่-เทียบเท่า-ถอดออกแล้วสถานะ-db-เหมือนเดิมเป๊ะ-ต้องมี-ข้อความ-เป็น-observable-ไม่งั้นเทสต์จับไม่ได้เลย)
+- [🔁 ตัวนับที่เพิ่มเข้ามา "เผื่อไว้" ในเส้นทางที่ทุก iteration สร้าง transaction ใหม่ = สาขาที่ **ไม่มีทางเข้า**](#ตัวนับที่เพิ่มเข้ามา-เผื่อไว้-ในเส้นทางที่ทุก-iteration-สร้าง-transaction-ใหม่-สาขาที่-ไม่มีทางเข้า)
+- [🕳️ ด่านล่วงหน้าที่ "ดักก่อน" ทำให้เทสต์ atomicity ที่เคยมีฟัน **กลายเป็นเทสต์เปล่า** โดยไม่มีใครรู้](#ด่านล่วงหน้าที่-ดักก่อน-ทำให้เทสต์-atomicity-ที่เคยมีฟัน-กลายเป็นเทสต์เปล่า-โดยไม่มีใครรู้)
+- [🔑 "เพิ่ม route ที่ข้ามการตรวจสมาชิก" — ความเสี่ยงไม่ได้อยู่ที่ route ใหม่ แต่อยู่ที่ route เก่าที่ **ไม่มีเทสต์คุมสัญญา**](#เพิ่ม-route-ที่ข้ามการตรวจสมาชิก-ความเสี่ยงไม่ได้อยู่ที่-route-ใหม่-แต่อยู่ที่-route-เก่าที่-ไม่มีเทสต์คุมสัญญา)
+- [🏷️ `get_audit_context(request, {"user_id": None})` เขียน `"user_id:None"` ลง DB — ตรวจด้วย `in` ไม่ใช่ truthiness](#getauditcontextrequest-userid-none-เขียน-useridnone-ลง-db-ตรวจด้วย-in-ไม่ใช่-truthiness)
+- [📄 นับ "หน้า" ในไฟล์ PDF ที่รวมจาก HTML — `'<div class="doc'` นับได้ 2 ต่อหน้า เพราะไปโดน `doc-title`](#นับ-หน้า-ในไฟล์-pdf-ที่รวมจาก-html-div-classdoc-นับได้-2-ต่อหน้า-เพราะไปโดน-doc-title)
+- [🧬 เทสต์ "ห้ามมี SQL ใน router" ต้องใช้ `ast` — `grep` จะฟ้องโค้ดที่ถูก เพราะ docstring ของไฟล์นั้น **พูดถึง** คำต้องห้าม](#เทสต์-ห้ามมี-sql-ใน-router-ต้องใช้-ast-grep-จะฟ้องโค้ดที่ถูก-เพราะ-docstring-ของไฟล์นั้น-พูดถึง-คำต้องห้าม)
+- [⏱️ ใส่ `asyncio.create_task` ให้ลูปฟัง Redis = เปลี่ยนสัญญาของ **ทั้งระบบ** ไม่ใช่แค่จุดที่แก้](#ใส่-asynciocreatetask-ให้ลูปฟัง-redis-เปลี่ยนสัญญาของ-ทั้งระบบ-ไม่ใช่แค่จุดที่แก้)
+- [🐳 เทสต์ฝั่งบอท: image ของบอท **ไม่มี pytest** ⇒ ใช้ stdlib `unittest` ใน image เดิม ไม่ต้องสร้าง image ใหม่](#เทสต์ฝั่งบอท-image-ของบอท-ไม่มี-pytest-ใช้-stdlib-unittest-ใน-image-เดิม-ไม่ต้องสร้าง-image-ใหม่)
+- [⚠️ `pytestmark = pytest.mark.asyncio` ระดับโมดูล + เทสต์ **sync** = warning ที่ไม่มีไฟล์ไหนในรีโปเป็นแบบนั้น](#pytestmark-pytestmarkasyncio-ระดับโมดูล-เทสต์-sync-warning-ที่ไม่มีไฟล์ไหนในรีโปเป็นแบบนั้น)
+- [🧾 เทสต์ "ห้าม `None` ขึ้นกระดาษ" ที่เขียนว่า `">None<" not in html` **แคบเกินไป** — mutation harness จับได้ว่าเทสต์หลอกตัวเอง](#เทสต์-ห้าม-none-ขึ้นกระดาษ-ที่เขียนว่า-none-not-in-html-แคบเกินไป-mutation-harness-จับได้ว่าเทสต์หลอกตัวเอง)
+- [🔑 การยุบเอกสารด้วย `student_id` (FK) ไม่ใช่ `issued_to_name` (สตริง snapshot) — และเหตุใด `student_id IS NULL` ต้องมีด่านของตัวเอง](#การยุบเอกสารด้วย-studentid-fk-ไม่ใช่-issuedtoname-สตริง-snapshot-และเหตุใด-studentid-is-null-ต้องมีด่านของตัวเอง)
+- [📄 การยุบเอกสารเปลี่ยน **ลำดับหน้า** — ต้องล็อกด้วยเทสต์ ไม่ใช่ปล่อยเป็นพฤติกรรมบังเอิญ](#การยุบเอกสารเปลี่ยน-ลำดับหน้า-ต้องล็อกด้วยเทสต์-ไม่ใช่ปล่อยเป็นพฤติกรรมบังเอิญ)
+- [🖨️ ตรวจ "ใบเดี่ยวไม่เปลี่ยนแม้แต่ไบต์" ด้วย `git show HEAD:<ไฟล์>` + Jinja ตัวที่สอง — และทำไมมันเป็นได้แค่การตรวจด้วยมือ](#ตรวจ-ใบเดี่ยวไม่เปลี่ยนแม้แต่ไบต์-ด้วย-git-show-head-jinja-ตัวที่สอง-และทำไมมันเป็นได้แค่การตรวจด้วยมือ)
+- [🧩 `{%-` / `-%}` ใน Jinja ต้องเลือก **ด้าน** ให้ถูก — และคอมเมนต์ที่อ้างตัวปิดคอมเมนต์จะปิดตัวเองกลางคัน](#----ใน-jinja-ต้องเลือก-ด้าน-ให้ถูก-และคอมเมนต์ที่อ้างตัวปิดคอมเมนต์จะปิดตัวเองกลางคัน)
+- [🧬 Mutant ที่ **ไม่คอมไพล์** ไม่ได้แปลว่า "จับไม่ได้" — มันแปลว่า **ไม่มีอะไรถูกทดสอบเลย** และ `infra` ก็อ่านไม่ออกว่าเป็นแบบนั้น](#mutant-ที่-ไม่คอมไพล์-ไม่ได้แปลว่า-จับไม่ได้-มันแปลว่า-ไม่มีอะไรถูกทดสอบเลย-และ-infra-ก็อ่านไม่ออกว่าเป็นแบบนั้น)
+- [🎯 Mutant ที่วาง **ผิดตำแหน่ง** = dead code ⇒ รายงาน SURVIVE ปลอม และทำให้เข้าใจผิดว่าเทสต์อ่อน](#mutant-ที่วาง-ผิดตำแหน่ง-dead-code-รายงาน-survive-ปลอม-และทำให้เข้าใจผิดว่าเทสต์อ่อน)
+- [🗓️ เทสต์ที่ให้ **อินพุตสองตัวเป็นค่าเดียวกัน** จะพิสูจน์ "แหล่งที่มา" ของค่าไม่ได้เลย](#เทสต์ที่ให้-อินพุตสองตัวเป็นค่าเดียวกัน-จะพิสูจน์-แหล่งที่มา-ของค่าไม่ได้เลย)
+- [🖥️ อย่าต่อ `| tail -N` ท้าย mutation harness — ตารางสรุปพิมพ์ไว้ **ก่อน** รายละเอียดของ mutant ที่มีปัญหา](#อย่าต่อ-tail--n-ท้าย-mutation-harness-ตารางสรุปพิมพ์ไว้-ก่อน-รายละเอียดของ-mutant-ที่มีปัญหา)
+- [🔍 ห้ามรันการตรวจแบบ static ใส่ไฟล์ ขณะที่ mutation harness กำลังรันอยู่ — mutant ที่ live จะอ่านเป็น "โค้ดจริง"](#ห้ามรันการตรวจแบบ-static-ใส่ไฟล์-ขณะที่-mutation-harness-กำลังรันอยู่-mutant-ที่-live-จะอ่านเป็น-โค้ดจริง)
+- [🧰 `backend/tests/_mutation_*.py` **ไม่ได้ใช้วิธีรันเดียวกัน** — ต้องอ่าน docstring ของแต่ละตัว](#backendtestsmutationpy-ไม่ได้ใช้วิธีรันเดียวกัน-ต้องอ่าน-docstring-ของแต่ละตัว)
+- [🧷 `@classmethod` ที่พารามิเตอร์แรก **ไม่ได้ชื่อ `cls`** ⇒ `TypeError` ตอน **เรียก** ไม่ใช่ตอน import](#classmethod-ที่พารามิเตอร์แรก-ไม่ได้ชื่อ-cls-typeerror-ตอน-เรียก-ไม่ใช่ตอน-import)
+- [🗓️ ส่ง `str` ให้พารามิเตอร์ SQL ที่ปลายทางเป็น `DATE` ⇒ `'str' object has no attribute 'toordinal'`](#ส่ง-str-ให้พารามิเตอร์-sql-ที่ปลายทางเป็น-date-str-object-has-no-attribute-toordinal)
+- [🎭 `except UniqueViolationError` ชั้นที่ 2 ของ issuer ใหม่ = mutant ที่ **รอดอย่างชอบธรรม** (equivalent) — ต้องพิสูจน์ก่อนสรุปว่าเทสต์หลอกตัวเอง](#except-uniqueviolationerror-ชั้นที่-2-ของ-issuer-ใหม่-mutant-ที่-รอดอย่างชอบธรรม-equivalent-ต้องพิสูจน์ก่อนสรุปว่าเทสต์หลอกตัวเอง)
+- [🧨 `_issue_deposit` **ยัง** จับ `UniqueViolationError` โดยไม่มี SAVEPOINT — กับดักที่ยัง live และเป็นเหตุผลที่ issuer ใหม่ต้องลอกรูปจาก `_issue_one`](#issuedeposit-ยัง-จับ-uniqueviolationerror-โดยไม่มี-savepoint-กับดักที่ยัง-live-และเป็นเหตุผลที่-issuer-ใหม่ต้องลอกรูปจาก-issueone)
+- [📮 `response_model` ตัดฟิลด์ที่ service คืน **เงียบ ๆ** — เจอเป็นครั้งที่ 3 และเป็นคลาสของบั๊กที่หาไม่เจอด้วยเทสต์ service](#responsemodel-ตัดฟิลด์ที่-service-คืน-เงียบ-ๆ-เจอเป็นครั้งที่-3-และเป็นคลาสของบั๊กที่หาไม่เจอด้วยเทสต์-service)
+- [🧩 เทมเพลตที่แตกเป็น partial + `{% include %}`: **ทุกคีย์ที่ partial อ้างต้องถูกตั้งเสมอ** และ **ต้องเปิด `keep_trailing_newline`**](#เทมเพลตที่แตกเป็น-partial-include-ทุกคีย์ที่-partial-อ้างต้องถูกตั้งเสมอ-และ-ต้องเปิด-keeptrailingnewline)
+- [🕳️ `{% include Undefined %}` **โยน error** แต่ `{{ Undefined }}` เรนเดอร์เป็นช่องว่าง — และ "default ที่ปลอดภัย" อาจเป็นการทำลายด่านกันความผิดพลาด](#include-undefined-โยน-error-แต่-undefined-เรนเดอร์เป็นช่องว่าง-และ-default-ที่ปลอดภัย-อาจเป็นการทำลายด่านกันความผิดพลาด)
+- [🎯 เทสต์ที่คาด **400 ด้วยเหตุ A** จะกลายเป็น **false positive** ทันทีที่มีการเพิ่มด่าน B ก่อนถึง A](#เทสต์ที่คาด-400-ด้วยเหตุ-a-จะกลายเป็น-false-positive-ทันทีที่มีการเพิ่มด่าน-b-ก่อนถึง-a)
+- [📦 **ย้าย/แตกไฟล์เทมเพลต = ทำให้ mutation harness กลายเป็น STALE เงียบ ๆ** — และ STALE อ่านเผิน ๆ เหมือน "ผ่าน"](#ย้ายแตกไฟล์เทมเพลต-ทำให้-mutation-harness-กลายเป็น-stale-เงียบ-ๆ-และ-stale-อ่านเผิน-ๆ-เหมือน-ผ่าน)
+- [🔁 บทเรียนที่บันทึกไว้แล้ว **ไม่ได้บังคับใช้ตัวเอง** — ต้องผูกมันเข้ากับขั้นตอน ไม่ใช่ไว้ในหัว](#บทเรียนที่บันทึกไว้แล้ว-ไม่ได้บังคับใช้ตัวเอง-ต้องผูกมันเข้ากับขั้นตอน-ไม่ใช่ไว้ในหัว)
+- [🙈 `cmd || echo "✅ สำเร็จ"` **โกหกได้** — เมื่อ `cmd` ล้มเหลวด้วยเหตุอื่นที่ไม่ใช่ "ไม่มีอะไรให้ทำ"](#cmd-echo-สำเร็จ-โกหกได้-เมื่อ-cmd-ล้มเหลวด้วยเหตุอื่นที่ไม่ใช่-ไม่มีอะไรให้ทำ)
+- [🏷️ ฟังก์ชันที่ถูกใช้ร่วมสองเส้นทาง ซ่อน "ค่าคงที่ที่ผูกกับความหมายของเส้นทางแรก" ไว้](#ฟังก์ชันที่ถูกใช้ร่วมสองเส้นทาง-ซ่อน-ค่าคงที่ที่ผูกกับความหมายของเส้นทางแรก-ไว้)
+- [🎛️ handler ที่ฮาร์ดโค้ดไว้ในฟังก์ชัน generic = "ทางแยกที่สอง" ที่เงียบสนิท — เทสต์ที่ยืนยันแค่ "มี call" จับไม่ได้](#handler-ที่ฮาร์ดโค้ดไว้ในฟังก์ชัน-generic-ทางแยกที่สอง-ที่เงียบสนิท-เทสต์ที่ยืนยันแค่-มี-call-จับไม่ได้)
+- [💥 mutant ที่ **syntax พัง** รายงานเป็น INFRA — ซึ่งอ่านเผิน ๆ เหมือน "เทสต์จับได้" ทั้งที่ไม่มีเทสต์ตัวไหนได้รันเลย](#mutant-ที่-syntax-พัง-รายงานเป็น-infra-ซึ่งอ่านเผิน-ๆ-เหมือน-เทสต์จับได้-ทั้งที่ไม่มีเทสต์ตัวไหนได้รันเลย)
+- [🪤 anchor สั้นที่ **เหมือนกันเป๊ะในสองฟังก์ชัน** ⇒ AMBIG · harness จะ "ไม่ทดสอบอะไรเลย" แต่รายงานว่าผ่าน](#anchor-สั้นที่-เหมือนกันเป๊ะในสองฟังก์ชัน-ambig-harness-จะ-ไม่ทดสอบอะไรเลย-แต่รายงานว่าผ่าน)
+- [🧱 "จอขาว" ที่ไม่มี error ฝั่งเซิร์ฟเวอร์ = `response_model` ตัดคีย์ → Vue **throw ตอน render** → ทิ้งทั้งหน้า (ครั้งที่ 4 และเป็นครั้งแรกที่ถึงมือผู้ใช้)](#จอขาว-ที่ไม่มี-error-ฝั่งเซิร์ฟเวอร์-responsemodel-ตัดคีย์-vue-throw-ตอน-render-ทิ้งทั้งหน้า-ครั้งที่-4-และเป็นครั้งแรกที่ถึงมือผู้ใช้)
+- [🪤 `d.x === null` **ไม่จับ** `undefined` — ด่านที่เขียนว่า "ถ้าไม่มีค่า" แต่คืนสาขาผิดให้ **ทุกแถว**](#dx-null-ไม่จับ-undefined-ด่านที่เขียนว่า-ถ้าไม่มีค่า-แต่คืนสาขาผิดให้-ทุกแถว)
+- [🪤 router ที่ **สร้าง response เอง** แทนที่จะคืน dict ของ service = คีย์ใหม่หายเงียบ ๆ ตลอดไป](#router-ที่-สร้าง-response-เอง-แทนที่จะคืน-dict-ของ-service-คีย์ใหม่หายเงียบ-ๆ-ตลอดไป)
+- [🎭 "ด่านกันซ้ำสองชั้นที่คืนผลเหมือนกันเป๊ะในระดับ API" — mutant ที่ปิดชั้นแรกจะ **รอด** ทั้งที่ช่องว่างไม่ได้อยู่ที่เทสต์](#ด่านกันซ้ำสองชั้นที่คืนผลเหมือนกันเป๊ะในระดับ-api-mutant-ที่ปิดชั้นแรกจะ-รอด-ทั้งที่ช่องว่างไม่ได้อยู่ที่เทสต์)
+- [🟡 harness ที่ไม่มีสถานะ "เทียบเท่า" จะรายงาน equivalent mutant เป็น **ความล้มเหลว** — และคอมเมนต์ที่พิสูจน์ไว้จะไม่มีผลอะไรเลย](#harness-ที่ไม่มีสถานะ-เทียบเท่า-จะรายงาน-equivalent-mutant-เป็น-ความล้มเหลว-และคอมเมนต์ที่พิสูจน์ไว้จะไม่มีผลอะไรเลย)
+- [🛠️ เปรียบเทียบกิจกรรม (Intersection/Union/ลบ) + แผนภาพเวน - **ค่า `datetime-local` ถูกเก็บเป็นสตริงดิบใน JSONB ⇒ ต้องจัดรูปแบบตอน "อ่าน" โดยยึด declared type ไม่ใช่เดาจากรูปร่างค่า**](#เปรียบเทียบกิจกรรม-intersectionunionลบ-แผนภาพเวน---ค่า-datetime-local-ถูกเก็บเป็นสตริงดิบใน-jsonb-ต้องจัดรูปแบบตอน-อ่าน-โดยยึด-declared-type-ไม่ใช่เดาจากรูปร่างค่า)
+- [🛠️ เปรียบเทียบกิจกรรม (Intersection/Union/ลบ) + แผนภาพเวน - **endpoint ที่เปิดด้วย `require_member` ต้องคืน "allowlist ของชื่อ" ไม่ใช่ participant record แล้วหวังว่า `response_model` จะกรอง**](#เปรียบเทียบกิจกรรม-intersectionunionลบ-แผนภาพเวน---endpoint-ที่เปิดด้วย-requiremember-ต้องคืน-allowlist-ของชื่อ-ไม่ใช่-participant-record-แล้วหวังว่า-responsemodel-จะกรอง)
+- [🛠️ เปรียบเทียบกิจกรรม (Intersection/Union/ลบ) + แผนภาพเวน - **`flatten_members` อ่าน metadata ผิดกิจกรรม เพราะ record ที่ติดมากับ region มีแค่ของ "กิจกรรมแรกที่เจอ"**](#เปรียบเทียบกิจกรรม-intersectionunionลบ-แผนภาพเวน---flattenmembers-อ่าน-metadata-ผิดกิจกรรม-เพราะ-record-ที่ติดมากับ-region-มีแค่ของ-กิจกรรมแรกที่เจอ)
+- [🛠️ เปรียบเทียบกิจกรรม - **พิกัดป้ายบนแผนภาพต้อง "พิสูจน์ด้วยคณิตศาสตร์" ไม่ใช่ดูจากภาพ — ป้ายชี้ผิดภูมิภาคคือบั๊กที่หน้าจอดูปกติทุกอย่าง**](#เปรียบเทียบกิจกรรม---พิกัดป้ายบนแผนภาพต้อง-พิสูจน์ด้วยคณิตศาสตร์-ไม่ใช่ดูจากภาพ-ป้ายชี้ผิดภูมิภาคคือบั๊กที่หน้าจอดูปกติทุกอย่าง)
+- [🛠️ เปรียบเทียบกิจกรรม - **ข้อความไทยไม่มีช่องว่างระหว่างคำ ⇒ เบราว์เซอร์ตัดบรรทัด "กลางชื่อ" ได้ — และ compiler ของ Vue ตัดช่องว่างตัวคั่นทิ้งจนไม่เหลือจุดตัดบรรทัดเลย**](#เปรียบเทียบกิจกรรม---ข้อความไทยไม่มีช่องว่างระหว่างคำ-เบราว์เซอร์ตัดบรรทัด-กลางชื่อ-ได้-และ-compiler-ของ-vue-ตัดช่องว่างตัวคั่นทิ้งจนไม่เหลือจุดตัดบรรทัดเลย)
+- [🛠️ เปรียบเทียบกิจกรรม - **ป้ายบน SVG ต้องมี "เพดานความกว้าง/ความสูง" และพิสูจน์ว่าทุกคู่ไม่ทับกันได้โดยไม่ต้องรู้ข้อมูล**](#เปรียบเทียบกิจกรรม---ป้ายบน-svg-ต้องมี-เพดานความกว้างความสูง-และพิสูจน์ว่าทุกคู่ไม่ทับกันได้โดยไม่ต้องรู้ข้อมูล)
+- [🕶️ `tsconfig` ที่ `extends` แล้ว **เขียน `include` ทับ** ⇒ ambient declaration หายจากโปรเจกต์ทดสอบ — type-check แดงแต่ `dev` ทำงานปกติ](#tsconfig-ที่-extends-แล้ว-เขียน-include-ทับ-ambient-declaration-หายจากโปรเจกต์ทดสอบ-type-check-แดงแต่-dev-ทำงานปกติ)
+- [🫥 ฟังก์ชันที่ "กลืน error แล้วไม่บอกใคร" = **สถานะว่างสองความหมายที่แยกออกจากกันไม่ได้**](#ฟังก์ชันที่-กลืน-error-แล้วไม่บอกใคร-สถานะว่างสองความหมายที่แยกออกจากกันไม่ได้)
+- [🔢 `ast` `col_offset` เป็น **byte offset (UTF-8)** ไม่ใช่ offset ตัวอักษร — พังเงียบในไฟล์ภาษาไทย](#ast-coloffset-เป็น-byte-offset-utf-8-ไม่ใช่-offset-ตัวอักษร-พังเงียบในไฟล์ภาษาไทย)
+- [💬 ข้อความ error ที่ความยาวมาจากปลายทาง = ข้อความที่ Discord ปฏิเสธ **ทั้งใบ**](#ข้อความ-error-ที่ความยาวมาจากปลายทาง-ข้อความที่-discord-ปฏิเสธ-ทั้งใบ)
+- [🛠️ `SELECT *` ไหลลง `audit_logs` - **ตาราง audit คือสำเนาข้อมูลส่วนบุคคลทั้งก้อน และผู้เรียกมี 31 จุด ⇒ ต้องดักที่ "ขอบเขตการเขียน log" ไม่ใช่ที่ผู้เรียก**](#select-ไหลลง-auditlogs---ตาราง-audit-คือสำเนาข้อมูลส่วนบุคคลทั้งก้อน-และผู้เรียกมี-31-จุด-ต้องดักที่-ขอบเขตการเขียน-log-ไม่ใช่ที่ผู้เรียก)
+- [🕳️ `except:` เปล่าไม่ได้แปลว่า "ดัก error" — มันแปลว่า "ดักทุกอย่างที่โยนได้"](#except-เปล่าไม่ได้แปลว่า-ดัก-error-มันแปลว่า-ดักทุกอย่างที่โยนได้)
+- [🕳️ `except Exception as e: raise HTTPException(500, detail=str(e))` — โค้ดที่ "อ่านแล้วถูกต้องที่สุด" ในไฟล์ และเป็นบั๊กที่แพงที่สุด](#except-exception-as-e-raise-httpexception500-detailstre-โค้ดที่-อ่านแล้วถูกต้องที่สุด-ในไฟล์-และเป็นบั๊กที่แพงที่สุด)
+- [🐍 `await response.json()` **ก่อน** เช็ค status = ปล่อย exception ที่ **ไม่ใช่** `APIException` หลุดผ่านทุก `except APIException`](#await-responsejson-ก่อน-เช็ค-status-ปล่อย-exception-ที่-ไม่ใช่-apiexception-หลุดผ่านทุก-except-apiexception)
+- [🎫 แถว `students` ที่ `status='pending'` **มี `user_id` ผูกอยู่แล้ว** ⇒ ด่าน "เป็นสมาชิกไหม" ที่ไม่กรอง `status` เปิดให้ "คนที่แค่ถูกเชิญ" อ่านข้อมูลทั้งห้อง](#แถว-students-ที่-statuspending-มี-userid-ผูกอยู่แล้ว-ด่าน-เป็นสมาชิกไหม-ที่ไม่กรอง-status-เปิดให้-คนที่แค่ถูกเชิญ-อ่านข้อมูลทั้งห้อง)
+- [🍬 SweetAlert2: argument ที่ 2 ของ `Swal.fire(a, b, c)` คือ **`html`** และ `title:` ก็เป็น innerHTML sink — ส่วน `text:` / `titleText:` ปลอดภัยโดยธรรมชาติ](#sweetalert2-argument-ที่-2-ของ-swalfirea-b-c-คือ-html-และ-title-ก็เป็น-innerhtml-sink-ส่วน-text-titletext-ปลอดภัยโดยธรรมชาติ)
+- [🧪 jsdom ไม่ implement `innerText` ⇒ เทสต์ที่ยืนยัน `titleText:` ของ SweetAlert2 **เขียวแบบหลอก ๆ**](#jsdom-ไม่-implement-innertext-เทสต์ที่ยืนยัน-titletext-ของ-sweetalert2-เขียวแบบหลอก-ๆ)
+- [🗃️ `students` **ไม่มีคอลัมน์ชื่อ** — ชื่อ-นามสกุลมาจาก `users` ผ่าน `LEFT JOIN` ใน `BASE_STUDENT_SELECT`](#students-ไม่มีคอลัมน์ชื่อ-ชื่อ-นามสกุลมาจาก-users-ผ่าน-left-join-ใน-basestudentselect)
+- [🧩 discord.py **ไม่ตรวจเพดานของ `Embed` ฝั่ง client เลย** ⇒ เทสต์ที่รอ `ValueError` จะเขียวแบบหลอก ๆ (M11)](#discordpy-ไม่ตรวจเพดานของ-embed-ฝั่ง-client-เลย-เทสต์ที่รอ-valueerror-จะเขียวแบบหลอก-ๆ-m11)
+- [🔌 `while True` ที่สร้าง connection ใหม่ทุกรอบโดยไม่มี `finally` = รั่ว connection ทุกครั้งที่ reconnect (M12)](#while-true-ที่สร้าง-connection-ใหม่ทุกรอบโดยไม่มี-finally-รั่ว-connection-ทุกครั้งที่-reconnect-m12)
+- [🔒 `followup.send()` **ไม่สืบทอด** `ephemeral` จาก `defer()` (M9)](#followupsend-ไม่สืบทอด-ephemeral-จาก-defer-m9)
+- [🌿 ไฟล์ "หายไป" จากแบรนช์ ≠ ไฟล์หาย — commit ที่ถูก cherry-pick ไปอยู่คนละเส้นทาง](#ไฟล์-หายไป-จากแบรนช์-ไฟล์หาย-commit-ที่ถูก-cherry-pick-ไปอยู่คนละเส้นทาง)
+- [⚙️ GitHub Actions อ่าน `.github/workflows/` **ที่ราก repo เท่านั้น** — ไฟล์ในโฟลเดอร์ย่อยไม่เคยถูกรัน](#github-actions-อ่าน-githubworkflows-ที่ราก-repo-เท่านั้น-ไฟล์ในโฟลเดอร์ย่อยไม่เคยถูกรัน)
+- [🧹 ลบโมดูลแล้วทิ้ง DDL ไว้ = ตาราง "งอกใหม่" ทุกครั้งที่บูต (L8)](#ลบโมดูลแล้วทิ้ง-ddl-ไว้-ตาราง-งอกใหม่-ทุกครั้งที่บูต-l8)
+- [🩺 `/health` ที่คืน **200** ตอน DB ล่ม = healthcheck ที่โกหก (H9)](#health-ที่คืน-200-ตอน-db-ล่ม-healthcheck-ที่โกหก-h9)
+- [🏷️ `docker stack deploy` ที่ไม่ได้ `export IMAGE_TAG` = ถอยหลังเงียบ ๆ 8 สัปดาห์](#docker-stack-deploy-ที่ไม่ได้-export-imagetag-ถอยหลังเงียบ-ๆ-8-สัปดาห์)
+- [🪤 ตัวตรวจที่ยิง "ใช้เครื่องมือนี้ได้ไหม" **ตอนที่กับดักยังติดอยู่** ⇒ ถอยไปใช้ทางสำรองเงียบ ๆ](#ตัวตรวจที่ยิง-ใช้เครื่องมือนี้ได้ไหม-ตอนที่กับดักยังติดอยู่-ถอยไปใช้ทางสำรองเงียบ-ๆ)
+- [🔍 `grep` ทั้งไฟล์บน config ที่ **เอกสารตัวเอง** ⇒ นับเกิน เพราะคอมเมนต์มีแพตเทิร์นจริงอยู่](#grep-ทั้งไฟล์บน-config-ที่-เอกสารตัวเอง-นับเกิน-เพราะคอมเมนต์มีแพตเทิร์นจริงอยู่)
+- [⏰ `default` ในโค้ด ≠ ค่าที่มีผลจริง — และค่าที่ "ดูสมเหตุสมผล" ใน `.env.example` คือต้นทางที่ทำให้มันผิดต่อกันเป็นปี](#default-ในโค้ด-ค่าที่มีผลจริง-และค่าที่-ดูสมเหตุสมผล-ใน-envexample-คือต้นทางที่ทำให้มันผิดต่อกันเป็นปี)
+- [🧊 เปลี่ยน `ref` เป็น `computed` แล้ววิว ~20 ไฟล์ **ไม่รู้ตัว** — เพราะมันก็อปค่าใส่ `const` ตอน `setup()`](#เปลี่ยน-ref-เป็น-computed-แล้ววิว-20-ไฟล์-ไม่รู้ตัว-เพราะมันก็อปค่าใส่-const-ตอน-setup)
+- [🚦 `pull_all.sh` คืน exit 0 แล้ว **ยังตรวจไม่ได้** — ระหว่าง rollout มี replica เก่ากับใหม่ปนกัน](#pullallsh-คืน-exit-0-แล้ว-ยังตรวจไม่ได้-ระหว่าง-rollout-มี-replica-เก่ากับใหม่ปนกัน)
+- [🧱 `CREATE TABLE IF NOT EXISTS` ไม่เคยสร้างคอลัมน์ใหม่บน DB จริง — และ migration ที่ไม่มี lock จะชนกันตอน 3 replica บูต](#create-table-if-not-exists-ไม่เคยสร้างคอลัมน์ใหม่บน-db-จริง-และ-migration-ที่ไม่มี-lock-จะชนกันตอน-3-replica-บูต)
+- [🧪 E2E ที่ "ผ่าน" ต้องยิง API จริง — และ `docker compose run > ไฟล์.json` พังเงียบเมื่อเครื่องไม่มี buildx](#e2e-ที่-ผ่าน-ต้องยิง-api-จริง-และ-docker-compose-run-ไฟล์json-พังเงียบเมื่อเครื่องไม่มี-buildx)
+- [🎨 Codemod สีทั้งระบบ: hex ไม่ได้อยู่ใน `class=` อย่างที่คิด — และด่านที่ไม่ได้พิสูจน์ว่าจับได้ คือด่านที่ไม่มี](#codemod-สีทั้งระบบ-hex-ไม่ได้อยู่ใน-class-อย่างที่คิด-และด่านที่ไม่ได้พิสูจน์ว่าจับได้-คือด่านที่ไม่มี)
+- [⏰ เทสต์ที่ hardcode ช่วงวันที่ + ข้อมูลถูกสร้างที่ `NOW()` = ระเบิดเวลา (และ error ชี้ผิดที่)](#เทสต์ที่-hardcode-ช่วงวันที่-ข้อมูลถูกสร้างที่-now-ระเบิดเวลา-และ-error-ชี้ผิดที่)
+- [🗺️ แยก `router/routes.ts` ออกมาแล้วเทสต์ได้ — แต่ import cycle ทำให้ `createRouter(undefined)` ระเบิดเฉพาะตอนเทสต์](#แยก-routerroutests-ออกมาแล้วเทสต์ได้-แต่-import-cycle-ทำให้-createrouterundefined-ระเบิดเฉพาะตอนเทสต์)
+- [📖 เอกสารที่เขียนมือจะเน่า — สารบัญ 228 หัวข้อต้องสร้างด้วยสคริปต์ + ด่าน CI และ glossary ต้องยอมรับว่า UI ยังไม่ตรง](#เอกสารที่เขียนมือจะเน่า-สารบัญ-228-หัวข้อต้องสร้างด้วยสคริปต์-ด่าน-ci-และ-glossary-ต้องยอมรับว่า-ui-ยังไม่ตรง)
+
+<!-- TOC:END -->
 
 ## 🛠 Lessons Learned & Audits
 
@@ -3145,3 +3381,128 @@
 - **Rule:** (1) 🔴 **`docker service ls` ขึ้น `3/3` ไม่ได้แปลว่า deploy จบ** — `start-first` มีช่วงที่เก่า+ใหม่ปนกัน (2) 🔴 **คำสั่งที่ `exit 0` แล้ว ยังไม่ใช่หลักฐานว่าโค้ดใหม่รับงาน** ต้องยืนยันที่ container จริง (`docker inspect` / `docker ps`) (3) ⚠️ **ผลตรวจที่ "ดูเหมือนพัง" ต้องตรวจซ้ำก่อนสรุป** โดยเฉพาะก่อนตัดสินใจอย่างกลับไม่ได้ (4) ✅ **ตรวจด้วย endpoint ที่ "ก่อน deploy ต้อง 404"** เป็นวิธีพิสูจน์ว่าโค้ดใหม่ขึ้นจริงโดยไม่ต้องมี credential ใด ๆ — ใช้ได้กับทุก deploy ที่เพิ่ม route
 - **Tests:** ไม่มี (บทเรียน infra) — พิสูจน์ด้วย `docker ps` เทียบจำนวน container กับ `desired`, `docker inspect` เทียบ env ต่อ container, และยิง endpoint ซ้ำจนได้ค่าคงที่ · deploy 2026-09-27 (PR #92)
 - **Date Added:** 2026-09-27
+
+### 🧱 `CREATE TABLE IF NOT EXISTS` ไม่เคยสร้างคอลัมน์ใหม่บน DB จริง — และ migration ที่ไม่มี lock จะชนกันตอน 3 replica บูต
+- **Context/Problem:** ระบบนี้ไม่มีระบบ migration มาเลย สคีมาทั้งหมดอยู่ใน `core/init_db.py` (958 บรรทัด, `CREATE TABLE IF NOT EXISTS` ทั้งไฟล์) ⇒ บน DB โปรดักชันที่มีตารางอยู่แล้ว ทุกบล็อกเป็น **no-op** สิ่งที่เพิ่ม "ข้างใน CREATE TABLE" จึงไม่ถูกสร้าง — เคยเจอจริงกับ `finance_receipts.batch_id` (มีเทสต์ล็อกไว้ที่ `test_init_db_upgrade_path.py`) แต่ไม่มีที่ให้เพิ่มคอลัมน์ยุคหน้า
+- **Root Cause:** `IF NOT EXISTS` แปลว่า "ถ้าตารางมีอยู่ ไม่ต้องทำอะไร" ไม่ใช่ "ถ้าคอลัมน์ขาด ให้เติม" — และการ "แก้ init_db ให้มีของใหม่" ยังพังเงียบอีกชั้น: เทสต์ทุกตัวรันบน DB ที่ `init_db` สร้างใหม่เอี่ยม ⇒ เขียวหมด ขณะที่ DB จริงไม่ถูกแตะ
+  🔎 กับดักที่สอง: backend รัน **3 replica** และทุกตัวเรียก setup ตอนบูตพร้อมกัน ⇒ runner ที่อ่าน "ยังไม่มีใคร apply" แล้วทุกตัวลงมือ รัน SQL ซ้ำและตายที่ PK ของตารางบันทึก version ทั้งที่สคีมาเรียบร้อยแล้ว
+  🔎 กับดักที่สาม: ตั้ง regex ชื่อไฟล์เป็น `\d{3}` แต่เขียนไฟล์จริงเป็น `0001_` (4 หลัก) ⇒ loader คืนลิสต์ว่าง **ไม่มี error** — เทสต์ loader เป็นตัวจับ (ถ้าไม่มีเทสต์นี้ "ไม่มี migration" จะดูเหมือน "ระบบยังไม่ต้องมี migration")
+- **Correct Pattern/Solution:**
+  ```python
+  # backend/core/migrations/runner.py
+  await conn.execute("SELECT pg_try_advisory_lock($1)", APPLY_LOCK_KEY)  # ลูป 60 วิ
+  applied = {r["version"]: r["checksum"] for r in await conn.fetch(...)}
+  for m in pending:
+      if stored := applied.get(m.version):
+          if stored != m.checksum: raise MigrationDriftError(...)  # แก้ของเก่า = บูตไม่ขึ้น
+          continue
+      async with conn.transaction():          # ต่อไฟล์ ⇒ ล้มกลางทางไม่ทิ้งครึ่ง ๆ
+          for stmt in m.statements: await conn.execute(stmt)
+          await conn.execute("INSERT INTO schema_migrations ...")
+  ```
+  - `init_db()` = "DB ใหม่ต้องได้ทุกตาราง"; `apply_migrations()` = "DB เดิมต้องได้ของใหม่" — เรียกตามลำดับนี้ใน `main.py` lifespan
+  - `conftest.py` ต้องเรียกทั้งสองด้วย ไม่งั้นตารางที่มาจาก migration ไม่มีในเทสต์
+  - loader ปฏิเสธ `DROP TABLE`/`DROP COLUMN`/`TRUNCATE` และเลขไฟล์ซ้ำ ก่อนแตะ DB เลย
+- **Rule:** (1) 🔴 **เปลี่ยนสคีมา = เขียน migration ใหม่เท่านั้น** ห้ามแก้ `init_db.py` ให้ตารางที่มีอยู่แล้วได้คอลัมน์ใหม่ (2) 🔴 **ห้ามแก้ migration ที่ apply แล้ว** — เขียนเลขถัดไป (3) 🔴 **ทุก runner ต้องถือ lock ก่อนอ่านสถานะ** ไม่ใช่แค่ตอนเขียน (4) 🔴 **`0` ที่คืนมาต้องแยกออกจาก "ไม่เคยรัน"** — log ให้เห็นจำนวนไฟล์ในโค้ดด้วย (5) ⚠️ **loader ที่ค้นไฟล์ผิดแบบคืนลิสต์ว่าง = ฟีเจอร์ที่ไม่มีใครรู้ว่าหาย** ต้องมีเทสต์ที่อ่านไฟล์จริงและ assert ว่าลิสต์ที่ได้เรียงถูก
+- **Tests:** `backend/tests/test_migrations.py` — idempotent (รันซ้ำได้ 0 + แถวเดียว), rollback ต่อไฟล์, drift, **สอง pool apply พร้อมกันแล้วได้ `[0, 1]`**, loader ปฏิเสธคำสั่งทำลายข้อมูล/เลขซ้ำ/`SQL` ว่าง · `test_init_db_upgrade_path.py` ยังต้องเขียว
+- **Date Added:** 2026-10-24
+
+### 🧪 E2E ที่ "ผ่าน" ต้องยิง API จริง — และ `docker compose run > ไฟล์.json` พังเงียบเมื่อเครื่องไม่มี buildx
+- **Context/Problem:** ก่อนงานนี้ `frontend/e2e/vue.spec.ts` เป็น scaffold ของ Vite (`h1 = "You did it!"`) ที่ตกทุกครั้ง ⇒ ไม่มีใครรัน e2e เลย ("e2e เขียว" ไม่เคยถูกพิสูจน์). ระบบล็อกอินด้วย OAuth เท่านั้น จึงไม่มีทางกดปุ่ม login ในเทสต์ได้โดยไม่พึ่ง provider จริง
+- **Root Cause:**
+  1. **ล็อกอิน:** OAuth callback ต้องมี secret + โดเมนจริง ⇒ e2e ที่เริ่มจากหน้า login จะเปราะและช้าโดยไม่ได้ทดสอบอะไรเพิ่ม
+  2. **`docker compose run … > session.json`:** compose ใช้ **legacy builder** เมื่อเครื่องไม่มี buildx (VPS นี้และ runner ทั่วไป) ⇒ `#0 building with "default" instance…` ถูกพิมพ์ลง **stdout** ปนหัวไฟล์ JSON → `JSON.parse` ล้มด้วย `Unexpected end of JSON input` ทั้งที่ exit code ยังเป็น 0 บางครั้ง. รอบแรก "ดูเหมือนผ่าน" เพราะ image ถูก build ไปแล้วและ compose ไม่พิมพ์อะไร
+  3. **project name:** compose ตั้งชื่อ project ตามชื่อโฟลเดอร์ ⇒ `docker-compose.e2e.yml` กับ `docker-compose.test.yml` อยู่โฟลเดอร์เดียวกัน = **project เดียวกัน** ⇒ `down --remove-orphans` ของฝั่งหนึ่งไปลบ container ของอีกฝั่ง (เห็นจริง: `up` เตือน orphan `classroom_test_postgres`) และชื่อ image/network ทับกัน
+- **Correct Pattern/Solution:**
+  ```yaml
+  # docker-compose.e2e.yml
+  name: classroom-e2e          # แยก project จาก docker-compose.test.yml
+  e2e_seed:
+    profiles: ["seed"]
+    command: ["python", "/app/scripts/e2e_seed.py", "/out/session.json"]
+    volumes:
+      - ./frontend/e2e/.auth:/out
+  ```
+  ```bash
+  mkdir -p frontend/e2e/.auth && rm -f frontend/e2e/.auth/session.json
+  docker compose -f docker-compose.e2e.yml --profile seed run --rm --no-deps \
+      --user "$(id -u):$(id -g)" e2e_seed        # เขียนไฟล์เอง ไม่พึ่ง stdout
+  node -e "const s=require('./frontend/e2e/.auth/session.json'); if(!s.token) process.exit(1)"
+  ```
+  - ข้ามเฉพาะ OAuth: seed user/room/สมาชิกใน DB ของ E2E แล้วออก JWT ด้วย `create_access_token` **ตัวเดียวกับที่ login ใช้จริง**; `page.addInitScript` เขียน localStorage/sessionStorage ก่อนแอปโหลด ⇒ router guard, room bootstrap, API call, ฟอร์ม ถูกทดสอบจริงทั้งหมด
+  - `--user $(id -u):$(id -g)` จำเป็นเพราะ image รันเป็น `appuser` (uid 1000) ซึ่งเขียนโฟลเดอร์ที่ runner สร้างไม่ได้
+  - `sessionStorage` ใส่ผ่าน `page.addInitScript` ได้ (Playwright `storageState` รองรับแค่ localStorage)
+- **Rule:** (1) 🔴 **อย่า redirect stdout ของคำสั่ง docker ลงไฟล์ข้อมูล** — ใช้ bind mount และให้โปรแกรมเขียนไฟล์เอง (2) 🔴 **compose ทุกไฟล์ในโฟลเดอร์เดียวกันต้องมี `name:`** ถ้าเป็นคนละ stack (3) 🔴 **เทสต์ที่ไม่มีข้อมูลต้อง skip พร้อมเหตุผล ไม่ใช่ผ่านหลอก** และต้องมีขั้นตอน validate ไฟล์ก่อนรันไม่งั้น skip จะกลายเป็นความเงียบ (4) ⚠️ `CI=1` เปลี่ยน `vite preview` เป็นพอร์ต 4173 ⇒ backend ต้อง allow origin นี้ใน CORS (ยิง API ตรง ไม่ผ่าน proxy)
+- **Tests:** `frontend/e2e/smoke.spec.ts` (2 เคส: `/` → dashboard ไม่เด้ง login · สร้างงานแล้วเห็นในรายการ) รันกับ Postgres + backend image จริงผ่าน `docker-compose.e2e.yml` — ผ่าน 2/2 ด้วย `CI=1 npx playwright test --project=chromium`
+- **Date Added:** 2026-10-24
+
+### 🎨 Codemod สีทั้งระบบ: hex ไม่ได้อยู่ใน `class=` อย่างที่คิด — และด่านที่ไม่ได้พิสูจน์ว่าจับได้ คือด่านที่ไม่มี
+- **Context/Problem:** ระบบมีชื่อสีดิบ `emerald-*`(100) `amber-*`(87) `red-*`(159) `sky-*`(13) `rose-*`(10) `blue-*`(3) กระจาย 45 ไฟล์ และ hex อีก 191 จุด — ต้องเปลี่ยนเป็น `ok/warn/danger/info` เพื่อให้ "สี" กลายเป็น "ความหมาย" และมีด่านกันถอยหลัง
+- **Root Cause:**
+  1. **hex ไม่ได้อยู่ในคลาส** — ค้น `class="…[#rrggbb]…"` ได้ **0 จุด** ตัวเลข 184 ที่คิดไว้มาจาก hex ทั้งหมด ซึ่งจริง ๆ อยู่ที่ `confirmButtonColor: '#1d4ed8'` (96 ครั้ง, 33 ไฟล์), `cancelButtonColor: '#78716c'` (38), HTML ที่ประกอบเองใน `Swal.fire({ html })` และสีกราฟ Chart.js ⇒ **Tailwind ไม่มีทางแตะค่าพวกนี้** ต้องมีไฟล์ค่าสีฝั่ง JS แยก (`src/constants/theme.ts`)
+  2. **`#1d4ed8` vs `#1D4ED8`** — ตัวสะกดต่างกันสองแบบ จึง grep ตรง ๆ พลาดครึ่งหนึ่ง
+  3. **แทรก import ผิดที่** — สคริปต์แทรกหลัง "บรรทัดที่ขึ้นต้นด้วย `import` บรรทัดสุดท้าย" ⇒ ไปตกกลาง `import type {\n  ThaiAddressModule,\n} from …` ทำให้ vue-tsc ฟ้อง `TS1003 Identifier expected` หลายไฟล์ ต้องยึด **บรรทัดที่จบคำสั่ง import จริง** (`^\s*\} from ['"]…['"];?$`) ไม่ใช่บรรทัดแรกของ import
+  4. **สคริปต์ตรวจที่เขียนเองก็ผิดได้** — ตัว parse mutation fixture ที่ผมเขียนจับ description มาปนกับ code ⇒ รายงาน "77 จุดไม่ตรง" ทั้งที่ของจริงตรงหมด ต้องใช้ harness จริง (`node …/_mutation_row_action_menu.mjs` → 39/39) ไม่ใช่ script ad-hoc
+- **Correct Pattern/Solution:**
+  ```js
+  // tailwind.config.js
+  import colors from 'tailwindcss/colors'
+  colors: { ok: colors.emerald, warn: colors.amber, danger: colors.red, info: colors.sky }
+  ```
+  ```ts
+  // src/constants/theme.ts — ค่าที่ JS ต้องใช้ (Swal/Chart.js/inline style)
+  export const UI_COLOR = { brand: '#1d4ed8', danger: '#dc2626', neutral: '#78716c', … }
+  ```
+  - codemod แทน `\b(emerald|amber|red|sky|rose|blue)-(\d{2,3})\b` → ชื่อความหมาย (ค่า hex เท่าเดิมทุกเฉด — ตรวจได้จาก CSS ที่ build แล้ว: `bg-ok-50` = `rgb(236 253 245)`)
+  - ด่าน `scripts/check-brand-colors.mjs` (hex) และ `check-status-palette.mjs` (ชื่อสี) **ตัดคอมเมนต์ก่อนตรวจโดยรักษาจำนวนบรรทัด** ⇒ เลขบรรทัดที่รายงานยังตรง
+  - ไฟล์ที่อนุญาตให้มี hex มี 3 ไฟล์เท่านั้น: `tailwind.config.js`, `src/constants/theme.ts`, `src/assets/main.css` (+ `Login.vue` สำหรับ SVG โลโก้ Google)
+- **Rule:** (1) 🔴 **ด่านใหม่ต้องพิสูจน์ว่าจับได้จริง** — สร้างไฟล์ probe ที่ละเมิดกฎ, รัน, เห็น exit 1, ลบ probe (ทำทั้งสองด่านก่อนเชื่อ) (2) 🔴 **แทรก import ด้วย anchor ที่เป็นคำสั่งสมบูรณ์** ไม่ใช่ "บรรทัดล่าสุดที่ขึ้นต้นด้วย import" (3) ⚠️ ก่อน codemod ต้องนับของจริงด้วย regex ที่ตรงกับ **บริบทที่ค่าไม่ได้อยู่ในคลาส** — อย่าเชื่อตัวเลขจากความจำ (4) ⚠️ สีของบุคคลที่สาม (โลโก้ Google/Discord) เป็นข้อยกเว้นถูกต้อง — ใส่ `PROVIDER_COLOR` ไม่ใช่ปรับให้เข้ากับพาเลตต์เรา
+- **Tests:** `npm run lint` (มี `lint:colors` + `lint:palette` ต่อท้าย), probe ยืนยันสองทาง (ไฟล์ละเมิด → exit 1 · คอมเมนต์เท่านั้น → exit 0), type-check/build/unit 215/215, mutation harness 39/39
+- **Date Added:** 2026-10-24
+
+### ⏰ เทสต์ที่ hardcode ช่วงวันที่ + ข้อมูลถูกสร้างที่ `NOW()` = ระเบิดเวลา (และ error ชี้ผิดที่)
+- **Context/Problem:** `test_budget_overview_counts_revenue_from_credit_application` ตกเป็นตัวเดียวจาก 1,141 ตัว (ตรวจเมื่อ 2026-10-24) ด้วยข้อความ *"รายได้จากการหักเครดิตต้องถูกนับเข้างบ — ถ้าได้ 0 แปลว่าลืมแก้ `reference_type IN (...)`"* ⇒ ดูเหมือนโค้ดบั๊ก แต่ `budgets.py:488` มี `'student_credit_apply'` ครบแล้ว
+- **Root Cause:** ตัวเทสต์สร้างงบ+ถาม overview ด้วยช่วง `2026-09-01 → 2026-09-30` **ตายตัว** ขณะที่รายการบัญชีจากการหักเครดิตถูกบันทึกด้วย `NOW()` ของ DB ⇒ เทสต์ผ่านเฉพาะเดือน ก.ย. 2026 และตกเองเมื่อเวลาเดินพ้นช่วง. อันตรายคือ **ข้อความ error ถูกเขียนไว้ให้ชี้ไปที่สาเหตุที่พบได้บ่อย** ซึ่งไม่ใช่สาเหตุจริงในครั้งนี้ — คนอ่าน log จะไปแก้ `budgets.py` ที่ถูกอยู่แล้ว
+- **Correct Pattern/Solution:**
+  ```python
+  window_start = (date.today() - timedelta(days=7)).isoformat()
+  window_end   = (date.today() + timedelta(days=7)).isoformat()
+  ```
+  ใช้ทั้งตอนสร้างงบและตอนถาม overview · ±7 วันกันเคสเทสต์รันข้ามเที่ยงคืน
+- **Rule:** (1) 🔴 **ห้าม hardcode วันที่ในเทสต์ที่ข้อมูลถูกสร้างด้วย `NOW()`** — คำนวณจาก `date.today()` เสมอ (เหมือน `_make_bill(due_date=...)` ที่ต้องเป็นอนาคต) (2) ⚠️ **ข้อความ assert ต้องบอกอาการที่เห็น ไม่ใช่สาเหตุที่เดา** — ถ้าต้องชี้สาเหตุ ให้ขึ้นต้นด้วย "ถ้าได้ 0 **ทั้งที่** ช่วงวันที่ครอบคลุมวันนี้" (3) ⚠️ เทสต์ที่ "ผ่านมาตลอด" ไม่ได้พิสูจน์ว่ายังถูก — ต้องรันเต็มชุดเป็นรอบ ๆ (รอบนี้ใช้ 27 นาที)
+- **Tests:** `test_finance_credits.py::test_budget_overview_counts_revenue_from_credit_application` ผ่าน · ชุดเต็ม 1140 passed / 1 skipped (ก่อนแก้) — ตัวที่ตกคือตัวนี้ตัวเดียว
+- **Date Added:** 2026-10-24
+
+### 🗺️ แยก `router/routes.ts` ออกมาแล้วเทสต์ได้ — แต่ import cycle ทำให้ `createRouter(undefined)` ระเบิดเฉพาะตอนเทสต์
+- **Context/Problem:** P0.4 ย้ายตาราง route ออกจาก `router/index.ts` เป็น `router/routes.ts` เพื่อให้เทสต์ไล่ตรวจได้ว่า "ทุก route มี `meta.title` / เมนูชี้ path ที่มีจริง / catch-all อยู่ท้ายสุด" — พอ import `@/router/routes` ใน vitest ปรากฏ `TypeError: Cannot read properties of undefined (reading 'forEach')` ที่ `createRouterMatcher` ⇒ `routes` เป็น `undefined` ตอนสร้าง router
+- **Root Cause:** วงจร import ที่ **มีอยู่ก่อนแล้ว** แต่ไม่เคยถูกเปิดเผย:
+  `router/index.ts` → `router/routes.ts` → (static import) `MainLayout.vue` → `stores/auth.ts` → `router/index.ts`
+  ในแอปจริง `main.ts` import router ก่อน จึงไม่พัง แต่เมื่อ **เทสต์ import `routes.ts` เป็นตัวแรก** ลำดับการประเมินกลายเป็น routes → layout → store → index ⇒ `index.ts` ถูกประเมิน **ระหว่างที่ `routes` ยังไม่ถูกกำหนดค่า** ⇒ `createRouter({ routes: undefined })`
+  (เดิม `index.ts` import layout แบบ static เหมือนกัน แต่ไม่มีใคร import `routes.ts` ก่อน `index.ts`)
+- **Correct Pattern/Solution:**
+  ```ts
+  // router/routes.ts — layout เป็น lazy chunk ด้วย (ไม่ใช่แค่ view)
+  {
+    path: '/',
+    component: () => import('@/layouts/MainLayout.vue'),
+    children: [ … ],
+  }
+  ```
+  - `routes.ts` กลายเป็นข้อมูลล้วน (import แค่ `routeTitles`) ⇒ ไม่มีทางเกิดวงจรตอน module load
+  - `router/index.ts` เหลือแค่ `createRouter` + guard + `document.title` (`afterEach` อ่าน `meta.title`)
+  - เพิ่ม `router/__tests__/routes.spec.ts` ที่ตรวจ: title ครบ, `routeTitles` ไม่มีคีย์ค้าง/ไม่ขาด, เมนูชี้ path จริง, catch-all เป็นตัวสุดท้ายและมีตัวเดียว, ทุกหน้าในแอปมี `navTab`
+- **Rule:** (1) 🔴 **ไฟล์ที่เป็น "ข้อมูล" (route table/menu) ต้องไม่ import layout/component แบบ static** — ใช้ `() => import()` เสมอ ไม่งั้นเทสต์ที่ import ไฟล์ข้อมูลจะลากทั้งแอปเข้ามาและชนวงจร (2) 🔴 **`createRouter` รับ `routes: undefined` ได้โดยไม่ฟ้อง type ถ้าค่ามาจาก import ที่ยังไม่ init** — อาการคือ error ที่ `vue-router` ไม่ใช่ที่ไฟล์เรา ให้สงสัย import cycle ทันที (3) ⚠️ `lib` ของ tsconfig ยังเป็นชุดที่ไม่มี `Array.prototype.at` — ใช้ `arr[arr.length - 1]` ในโค้ด/เทสต์ (4) ⚠️ อย่าเขียนตัวอักษรควบคุมลงในซอร์สตรง ๆ (เช่นทำ regex แทนเรนจ์รหัสอักขระด้วยตัวอักษรจริง) — ไฟล์จะถูกมองเป็น binary (`file` ตอบ `data`) และเครื่องมือค้นหาจะเงียบ; ใช้ฟังก์ชัน `charCodeAt` แทน regex
+- **Tests:** `src/router/__tests__/routes.spec.ts` (0→pass), `redirect.spec.ts` (37 เคส: `//evil.com`, `https://…`, backslash, encode, CR/LF, `/login`, path ยาวเกิน), `services/__tests__/apiStatus.spec.ts`, e2e `smoke.spec.ts` เพิ่ม 2 เคส: 404 (หน้าขาว → "ไม่พบหน้าที่ต้องการ" + ชื่อแท็บ) และ deep link ตอนยังไม่เลือกห้อง (`/students` → `/lobby?next=/students` → เลือกห้อง → กลับ `/students`) — unit 311/311 · e2e 4/4 · type-check/lint/build ผ่าน · ⚠️ vue-router **ไม่ encode `/` ใน query** ⇒ assert ต้องเป็น `?next=/students` ไม่ใช่ `%2Fstudents`
+- **Date Added:** 2026-10-24
+
+### 📖 เอกสารที่เขียนมือจะเน่า — สารบัญ 228 หัวข้อต้องสร้างด้วยสคริปต์ + ด่าน CI และ glossary ต้องยอมรับว่า UI ยังไม่ตรง
+- **Context/Problem:** P0.5 ตรวจ `docs/` แล้วพบสามแบบของ "เอกสารไม่ตรงของจริง": (1) `docs/system_prompt.md` สั่งว่า frontend ใช้ **DaisyUI** (ไม่ได้ติดตั้งเลย) และเรียกระบบว่า "4-Layer" ทั้งที่มี `stores/`, `layouts/`, `router/`, `utils/`, `constants/`, `components/ui/` รวม 9 ชั้น (2) เอกสารอ้าง `docs/skill.md` (ไม่มีไฟล์ — ชื่อจริง `skills.md`) 4 จุด และมี `[cite: N]` หลงเหลือจาก PDF ต้นทางใน `system_prompt.md` + `rules/testing.md` (3) `docs/skills.md` โตถึง 3,260 บรรทัด / 228 หัวข้อโดยไม่มีสารบัญ ⇒ หาเรื่องที่เคยแก้ไม่เจอ = กลับไปทำผิดซ้ำ
+- **Root Cause:** เอกสารถูกเขียนครั้งเดียวตอนตั้งโปรเจกต์ แล้วโค้ดเดินต่อโดยไม่มีด่านใดตรวจความสอดคล้อง ⇒ ข้อความที่ผิด "อ่านแล้วสมเหตุสมผล" จึงอยู่รอดได้นานกว่าบั๊ก (บั๊กมีเทสต์จับ เอกสารไม่มี). สารบัญแบบเขียนมือก็เป็นปัญหาเดียวกัน: ทุกงานใหม่เพิ่มหัวข้อ 1 อัน ⇒ สารบัญเน่าทันทีที่ลืมอัปเดต
+- **Correct Pattern/Solution:**
+  - `scripts/skills-toc.mjs` — อ่านหัวข้อ `###` จริง (ข้าม code fence), สร้างลิงก์ anchor แบบ GitHub (ตัด emoji/เครื่องหมาย, คง `\p{M}` ของไทย, ซ้ำเติม `-1`), เขียนทับเฉพาะช่วง `<!-- TOC:START -->` … `<!-- TOC:END -->`
+  - `.github/workflows/ci-docs.yml` รัน `node scripts/skills-toc.mjs --check` เมื่อ `docs/**` เปลี่ยน ⇒ ลืมอัปเดตสารบัญ = PR แดง (ไม่มี `npm ci` — สคริปต์ใช้ Node ล้วน)
+  - `docs/glossary.md` = แหล่งเดียวของคำที่ผู้ใช้เห็น พร้อมตารางแปลง "ค่าใน DB → คำไทย" จาก constants จริง (`STATUS_LABELS`, `ACTIVITY_STATUS_LABELS`, `DOC_TYPE_LABELS`) ไม่ใช่คิดคำขึ้นเอง
+  - `docs/system_prompt.md` §6 เพิ่มกฎ "append only ไฟล์เดียว" + "งานหนึ่งงาน = PR หนึ่งอัน" และ §8 แทนข้อบังคับ webhook ด้วยข้อความว่า n8n ตายแล้ว (รายงานในแชทแทน)
+- **Rule:** (1) 🔴 **เอกสารที่อ้างว่า "ต้องทำแบบนี้" ต้องชี้ไฟล์/ฟังก์ชันจริงได้** — ถ้าเขียนชื่อ tool/โฟลเดอร์ ให้ `grep` ยืนยันก่อน (DaisyUI ผ่านมาได้เพราะไม่มีใครเช็ค) (2) 🔴 **รายการที่โตทุกงาน (สารบัญ, glossary, changelog) ต้องมีตัวสร้าง + `--check`** อย่าฝากไว้กับความจำ (3) ⚠️ **glossary ต้องบันทึกความไม่ตรงที่ยังแก้ไม่เสร็จด้วย** — เจอจริง: `StudentList.vue` ใช้ "ใช้งาน/ปิดใช้งาน" ขณะที่ backend ใช้ "กำลังเรียน/พ้นสภาพ" และ `TaskList.vue` เรียก `done` ว่า "ส่งแล้ว" ขณะที่ toast เรียก "เสร็จแล้ว" ⇒ เขียนกำกับว่า "ยังไม่ตรง (แก้ใน P1)" ดีกว่าเขียนคำที่ยังไม่มีในระบบแล้วอ้างว่าถูกต้อง (4) ⚠️ `docs/skill.md` ≠ `docs/skills.md` — ชื่อไฟล์ผิดหนึ่งตัวอักษรทำให้ agent ใหม่หาความรู้ไม่เจอและเริ่มจากศูนย์
+- **Tests:** `node scripts/skills-toc.mjs --check` → `✅ สารบัญตรงกับหัวข้อจริง (229 หัวข้อ)` · `grep -rn "DaisyUI\|docs/skill\.md\|\[cite:" docs/ CLAUDE.md frontend/src` เหลือเฉพาะข้อความในหัวข้อนี้ที่เล่าเรื่องเดิม (ไฟล์จริง = 0) · สคริปต์รันซ้ำได้ผลเท่าเดิม (idempotent) · พิสูจน์ด่าน: เติมหัวข้อปลอม 1 บรรทัด → `--check` exit 1 แล้วคืนไฟล์ → exit 0
+- **Date Added:** 2026-10-24

@@ -198,7 +198,7 @@ const asOfDate = computed({
               v-model="startDate"
               type="date"
               class="field sm:w-44"
-              :class="isReversed ? 'border-red-300 focus:ring-red-500/15' : ''"
+              :class="isReversed ? 'border-danger-300 focus:ring-danger-500/15' : ''"
             />
           </div>
           <div>
@@ -208,7 +208,7 @@ const asOfDate = computed({
               v-model="endDate"
               type="date"
               class="field sm:w-44"
-              :class="isReversed ? 'border-red-300 focus:ring-red-500/15' : ''"
+              :class="isReversed ? 'border-danger-300 focus:ring-danger-500/15' : ''"
             />
           </div>
         </template>
@@ -222,7 +222,7 @@ const asOfDate = computed({
       </div>
     </div>
 
-    <p v-if="isReversed" class="mt-2 text-xs font-bold text-red-600">
+    <p v-if="isReversed" class="mt-2 text-xs font-bold text-danger-600">
       วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด
     </p>
   </div>

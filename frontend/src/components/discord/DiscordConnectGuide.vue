@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
 
@@ -33,7 +34,7 @@ const copyRoomCode = async () => {
       icon: 'error',
       title: 'ไม่สามารถคัดลอกได้',
       text: 'กรุณาคัดลอกด้วยตนเอง',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     });
   }
 };
@@ -90,7 +91,7 @@ const copyRoomCode = async () => {
                 <i class="bi bi-discord" aria-hidden="true"></i>
                 เพิ่มบอทลง Discord
               </button>
-              <p class="mt-2 text-xs leading-relaxed text-amber-700">
+              <p class="mt-2 text-xs leading-relaxed text-warn-700">
                 <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>
                 ยังไม่ได้ตั้งค่าลิงก์เชิญบอทในระบบ กรุณาแจ้งผู้ดูแลระบบ
               </p>
@@ -114,10 +115,10 @@ const copyRoomCode = async () => {
 
             <div class="mt-3 space-y-2.5 rounded-xl bg-stone-50 p-3.5">
               <div
-                class="overflow-x-auto whitespace-nowrap rounded-xl bg-stone-900 px-3.5 py-3 font-mono text-sm text-emerald-300"
+                class="overflow-x-auto whitespace-nowrap rounded-xl bg-stone-900 px-3.5 py-3 font-mono text-sm text-ok-300"
               >
                 <span class="text-stone-500">/</span>sync_room
-                <span class="text-amber-300">{{ currentRoomCode }}&nbsp;</span><span
+                <span class="text-warn-300">{{ currentRoomCode }}&nbsp;</span><span
                   class="text-brand-300"
                   >5</span
                 >

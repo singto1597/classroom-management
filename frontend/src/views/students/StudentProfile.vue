@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
+import { UI_COLOR } from '@/constants/theme'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,7 +91,7 @@ const fetchStudent = async () => {
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
       text: apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลนักเรียนได้',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
   } finally {
     loading.value = false
@@ -176,7 +177,7 @@ onMounted(() => {
               <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
                 <span
                   class="chip"
-                  :class="student.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+                  :class="student.status === 'active' ? 'bg-ok-50 text-ok-700' : 'bg-danger-50 text-danger-700'"
                 >
                   <i
                     class="bi"
@@ -188,7 +189,7 @@ onMounted(() => {
 
                 <span class="chip bg-brand-50 text-brand-700">{{ roleLabel(student.class_role) }}</span>
 
-                <span v-if="student.is_admin" class="chip bg-amber-50 text-amber-700">
+                <span v-if="student.is_admin" class="chip bg-warn-50 text-warn-700">
                   <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ผู้ดูแลระบบ
                 </span>
               </div>
@@ -240,7 +241,7 @@ onMounted(() => {
           <!-- ผู้ติดต่อฉุกเฉิน -->
           <section class="page-card overflow-hidden">
             <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-danger-50 text-danger-600">
                 <i class="bi bi-shield-plus" aria-hidden="true"></i>
               </span>
               <h3 class="section-title">ผู้ติดต่อฉุกเฉิน</h3>
@@ -294,7 +295,7 @@ onMounted(() => {
                   <p v-if="student.blood_group === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-400">
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                   </p>
-                  <p v-else class="num font-display text-lg font-bold text-red-600">{{ student.blood_group || '-' }}</p>
+                  <p v-else class="num font-display text-lg font-bold text-danger-600">{{ student.blood_group || '-' }}</p>
                 </div>
 
                 <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-3">

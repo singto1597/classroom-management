@@ -15,6 +15,7 @@ import type {
   ThaiAddressRecord,
   ThaiAddressSearchFn,
 } from 'thai-address-database';
+import { UI_COLOR } from '@/constants/theme'
 
 interface AddressOption {
   subDistrict: string;
@@ -165,8 +166,8 @@ const loadProfile = async () => {
         confirmButtonText: 'ลองใหม่',
         cancelButtonText: 'กรอกเอง',
         showCancelButton: true,
-        confirmButtonColor: '#1d4ed8',
-        cancelButtonColor: '#6b7280',
+        confirmButtonColor: UI_COLOR.brand,
+        cancelButtonColor: UI_COLOR.neutral,
       });
 
       // กด "กรอกเอง" = ยอมรับความเสี่ยงเอง ⇒ ไปต่อด้วยฟอร์มว่าง
@@ -210,7 +211,7 @@ const submitProfile = async () => {
       icon: 'warning',
       title: 'ข้อมูลไม่ครบ',
       text: 'กรุณากรอกข้อมูลให้ครบถ้วน',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     });
     return;
   }
@@ -232,7 +233,7 @@ const submitProfile = async () => {
       icon: 'error',
       title: 'ข้อผิดพลาด',
       text: message || 'ไม่สามารถบันทึกข้อมูลได้',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     });
   } finally {
     isSubmitting.value = false;
@@ -261,7 +262,7 @@ const submitProfile = async () => {
           <div class="mt-3 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
             <div class="sm:col-span-2">
               <label class="field-label" for="prefix">
-                คำนำหน้า <span class="text-red-500">*</span>
+                คำนำหน้า <span class="text-danger-500">*</span>
               </label>
               <div class="relative">
                 <select
@@ -285,7 +286,7 @@ const submitProfile = async () => {
 
             <div>
               <label class="field-label" for="first_name">
-                ชื่อจริง <span class="text-red-500">*</span>
+                ชื่อจริง <span class="text-danger-500">*</span>
               </label>
               <input
                 id="first_name"
@@ -298,7 +299,7 @@ const submitProfile = async () => {
             </div>
             <div>
               <label class="field-label" for="last_name">
-                นามสกุล <span class="text-red-500">*</span>
+                นามสกุล <span class="text-danger-500">*</span>
               </label>
               <input
                 id="last_name"
@@ -339,7 +340,7 @@ const submitProfile = async () => {
 
             <div>
               <label class="field-label" for="nickname">
-                ชื่อเล่น <span class="text-red-500">*</span>
+                ชื่อเล่น <span class="text-danger-500">*</span>
               </label>
               <input
                 id="nickname"
@@ -366,7 +367,7 @@ const submitProfile = async () => {
 
             <div>
               <label class="field-label" for="birthday">
-                วันเกิด <span class="text-red-500">*</span>
+                วันเกิด <span class="text-danger-500">*</span>
               </label>
               <input id="birthday" v-model="form.birthday" type="date" required class="field" />
             </div>
@@ -380,7 +381,7 @@ const submitProfile = async () => {
           <div class="mt-3 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
             <div>
               <label class="field-label" for="phone_number">
-                เบอร์โทรศัพท์ <span class="text-red-500">*</span>
+                เบอร์โทรศัพท์ <span class="text-danger-500">*</span>
               </label>
               <input
                 id="phone_number"
@@ -393,7 +394,7 @@ const submitProfile = async () => {
             </div>
             <div>
               <label class="field-label" for="line_id">
-                Line ID <span class="text-red-500">*</span>
+                Line ID <span class="text-danger-500">*</span>
               </label>
               <input
                 id="line_id"
@@ -414,7 +415,7 @@ const submitProfile = async () => {
           <div class="mt-3 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4">
             <div>
               <label class="field-label" for="address_house_no">
-                บ้านเลขที่/หมู่ <span class="text-red-500">*</span>
+                บ้านเลขที่/หมู่ <span class="text-danger-500">*</span>
               </label>
               <input
                 id="address_house_no"
@@ -438,7 +439,7 @@ const submitProfile = async () => {
 
             <div>
               <label class="field-label" for="address_sub_district">
-                ตำบล/แขวง <span class="text-red-500">*</span>
+                ตำบล/แขวง <span class="text-danger-500">*</span>
               </label>
               <div class="relative">
                 <input
@@ -475,7 +476,7 @@ const submitProfile = async () => {
 
             <div>
               <label class="field-label" for="address_district">
-                อำเภอ/เขต <span class="text-red-500">*</span>
+                อำเภอ/เขต <span class="text-danger-500">*</span>
               </label>
               <div class="relative">
                 <input
@@ -512,7 +513,7 @@ const submitProfile = async () => {
 
             <div>
               <label class="field-label" for="address_province">
-                จังหวัด <span class="text-red-500">*</span>
+                จังหวัด <span class="text-danger-500">*</span>
               </label>
               <div class="relative">
                 <input
@@ -549,7 +550,7 @@ const submitProfile = async () => {
 
             <div>
               <label class="field-label" for="address_post_code">
-                รหัสไปรษณีย์ <span class="text-red-500">*</span>
+                รหัสไปรษณีย์ <span class="text-danger-500">*</span>
               </label>
               <div class="relative">
                 <input

@@ -8,6 +8,7 @@
 import { ref, computed } from 'vue'
 import Swal from 'sweetalert2'
 import type { DynamicFieldDef, DynamicFieldType } from '@/types/activity'
+import { UI_COLOR } from '@/constants/theme'
 
 const props = defineProps<{
   /** รายการ def ปัจจุบัน */
@@ -92,8 +93,8 @@ function removeField(def: DynamicFieldDef) {
     text: `"${def.label}" จะถูกลบออกจากกิจกรรม — ค่าที่กรอกไว้แล้วในผู้เข้าร่วมจะไม่แสดงอีก`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ลบฟิลด์',
     cancelButtonText: 'ยกเลิก',
   }).then((result) => {
@@ -128,7 +129,7 @@ function removeField(def: DynamicFieldDef) {
           @click="removeField(def)"
           title="ลบฟิลด์"
           aria-label="ลบฟิลด์"
-          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:h-9 sm:w-9"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
         >
           <i class="bi bi-x-lg text-base sm:text-sm" aria-hidden="true"></i>
         </button>

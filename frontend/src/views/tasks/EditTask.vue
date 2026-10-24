@@ -7,6 +7,7 @@ import { TaskService } from '@/services/task'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter()
 const route = useRoute()
@@ -76,7 +77,7 @@ const handleUpdateTask = async () => {
       title: 'แก้ไขงานเรียบร้อย!',
       timer: 1500,
       showConfirmButton: false,
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
     router.push('/tasks')
   } catch (error: unknown) {
@@ -116,7 +117,7 @@ onMounted(fetchTask)
         <form v-else class="space-y-4" @submit.prevent="handleUpdateTask">
           <div>
             <label class="field-label" for="taskName">
-              ชื่องาน <span class="text-red-600">*</span>
+              ชื่องาน <span class="text-danger-600">*</span>
             </label>
             <input
               id="taskName"
@@ -141,7 +142,7 @@ onMounted(fetchTask)
 
           <div>
             <label class="field-label" for="taskDueDate">
-              กำหนดส่ง <span class="text-red-600">*</span>
+              กำหนดส่ง <span class="text-danger-600">*</span>
             </label>
             <input
               id="taskDueDate"

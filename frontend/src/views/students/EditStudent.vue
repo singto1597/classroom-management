@@ -256,7 +256,7 @@ onMounted(() => {
             </span>
             ผู้ดูแลระบบ (Admin Zone)
           </h2>
-          <span class="chip shrink-0 bg-red-50 text-red-700">
+          <span class="chip shrink-0 bg-danger-50 text-danger-700">
             <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> โซนอันตราย
           </span>
         </div>
@@ -406,11 +406,11 @@ onMounted(() => {
 
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
-                <label class="field-label" for="firstName">ชื่อจริง <span class="text-red-500">*</span></label>
+                <label class="field-label" for="firstName">ชื่อจริง <span class="text-danger-500">*</span></label>
                 <input id="firstName" :disabled="!isEditMode" v-model="form.first_name" type="text" class="field" required />
               </div>
               <div>
-                <label class="field-label" for="lastName">นามสกุล <span class="text-red-500">*</span></label>
+                <label class="field-label" for="lastName">นามสกุล <span class="text-danger-500">*</span></label>
                 <input id="lastName" :disabled="!isEditMode" v-model="form.last_name" type="text" class="field" required />
               </div>
               <div>

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import { linkGoogleAccount, loginWithGoogle } from '@/services/auth';
 import Swal from 'sweetalert2';
 import StateBlock from '@/components/ui/StateBlock.vue';
+import { UI_COLOR } from '@/constants/theme'
 
 const route = useRoute();
 const router = useRouter();
@@ -33,7 +34,7 @@ onMounted(async () => {
         icon: 'success',
         title: 'สำเร็จ!',
         text: response?.message || 'ผูกบัญชี Google เข้ากับระบบสำเร็จแล้ว',
-        confirmButtonColor: '#1d4ed8',
+        confirmButtonColor: UI_COLOR.brand,
       }).then(() => router.push('/dashboard'));
 
     } else {

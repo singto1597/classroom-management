@@ -237,10 +237,10 @@ export const ACTIVITY_STATUS_LABELS: Record<string, string> = {
 }
 
 export const ACTIVITY_STATUS_BADGE: Record<string, string> = {
-  upcoming: 'bg-blue-50 text-blue-600 border-blue-200',
-  ongoing: 'bg-amber-50 text-amber-600 border-amber-200',
-  completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-  cancelled: 'bg-rose-50 text-rose-600 border-rose-200',
+  upcoming: 'bg-info-50 text-info-600 border-info-200',
+  ongoing: 'bg-warn-50 text-warn-600 border-warn-200',
+  completed: 'bg-ok-50 text-ok-600 border-ok-200',
+  cancelled: 'bg-danger-50 text-danger-600 border-danger-200',
 }
 
 export const ROLE_TYPE_LABELS: Record<string, string> = {

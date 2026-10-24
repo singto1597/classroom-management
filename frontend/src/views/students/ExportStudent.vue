@@ -7,6 +7,7 @@ import { downloadBlob } from '@/utils/download';
 import { todayIso } from '@/utils/period';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import Swal from 'sweetalert2';
+import { UI_COLOR } from '@/constants/theme'
 import draggable from 'vuedraggable'; // 📦 vuedraggable สำหรับ Vue 3
 
 const router = useRouter();
@@ -141,7 +142,7 @@ const handleExport = async () => {
       icon: 'warning',
       title: 'แจ้งเตือน',
       text: 'กรุณาเลือกข้อมูลอย่างน้อย 1 คอลัมน์ครับ!',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
   }
 
@@ -184,7 +185,7 @@ const handleExport = async () => {
       text: error instanceof Error && error.message
         ? error.message
         : 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
   }
 };
@@ -337,7 +338,7 @@ const handleExport = async () => {
                 <!-- ปุ่มลบ — พื้นที่แตะ 44px (-my-1.5 คุมความสูงแถวไม่ให้บวม) -->
                 <button
                   type="button"
-                  class="-my-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-[0.97]"
+                  class="-my-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
                   title="ลบออก"
                   aria-label="ลบออก"
                   @click.stop="toggleField(element, { color: element.catColor })"

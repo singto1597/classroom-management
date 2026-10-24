@@ -138,7 +138,7 @@ function handleApply() {
             </select>
             <p
               v-if="dutyPosition"
-              class="mt-1.5 flex items-start gap-1 text-xs font-semibold leading-relaxed text-amber-700"
+              class="mt-1.5 flex items-start gap-1 text-xs font-semibold leading-relaxed text-warn-700"
             >
               <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> จะแทนที่หน้าที่เดิมทั้งหมดของ
               {{ count }} คนนี้

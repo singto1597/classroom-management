@@ -215,7 +215,7 @@ const handleSaveOverride = async () => {
         <form v-else class="space-y-4" @submit.prevent="handleSaveOverride">
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="section-title flex items-center gap-2">
-              <i class="bi bi-exclamation-triangle text-amber-600" aria-hidden="true"></i>
+              <i class="bi bi-exclamation-triangle text-warn-600" aria-hidden="true"></i>
               ตั้งข้อยกเว้นฉุกเฉิน (เปลี่ยนชุด/กิจกรรมพิเศษ)
             </h2>
           </div>

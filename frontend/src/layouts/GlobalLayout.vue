@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
+import { PROVIDER_COLOR, UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -83,19 +84,19 @@ const goToProfileSettings = async () => {
   const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${import.meta.env.VITE_GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(import.meta.env.VITE_GOOGLE_REDIRECT_URI)}&response_type=code&scope=${googleScope}`;
 
   const row = (linked: boolean, label: string, icon: string, href: string, brandColor: string) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:14px;border:1px solid ${linked ? '#A7F3D0' : '#E7E5E4'};background:${linked ? '#ECFDF5' : '#FFFFFF'}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-radius:14px;border:1px solid ${linked ? UI_COLOR.okBorder : UI_COLOR.border};background:${linked ? UI_COLOR.okSoft : UI_COLOR.white}">
       <div style="display:flex;align-items:center;gap:12px;min-width:0">
-        <div style="width:40px;height:40px;border-radius:12px;background:#F5F5F4;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <div style="width:40px;height:40px;border-radius:12px;background:${UI_COLOR.surface};display:flex;align-items:center;justify-content:center;flex-shrink:0">
           <i class="${icon}" style="font-size:18px;color:${brandColor}"></i>
         </div>
         <div style="text-align:left;min-width:0">
-          <p style="font-weight:700;color:#1C1917;margin:0;font-size:14px">${label}</p>
-          <p style="font-size:11px;font-weight:700;margin:2px 0 0;color:${linked ? '#059669' : '#A8A29E'}">
+          <p style="font-weight:700;color:${UI_COLOR.ink};margin:0;font-size:14px">${label}</p>
+          <p style="font-size:11px;font-weight:700;margin:2px 0 0;color:${linked ? UI_COLOR.ok : UI_COLOR.subtle}">
             ${linked ? 'เชื่อมต่อแล้ว' : 'ยังไม่ได้เชื่อมต่อ'}
           </p>
         </div>
       </div>
-      ${!linked ? `<a href="${href}" style="flex-shrink:0;padding:8px 16px;background:#1D4ED8;color:#fff;font-size:12px;font-weight:700;border-radius:10px;text-decoration:none">ผูกบัญชี</a>` : ''}
+      ${!linked ? `<a href="${href}" style="flex-shrink:0;padding:8px 16px;background:${UI_COLOR.brand};color:${UI_COLOR.white};font-size:12px;font-weight:700;border-radius:10px;text-decoration:none">ผูกบัญชี</a>` : ''}
     </div>
   `;
 
@@ -104,14 +105,14 @@ const goToProfileSettings = async () => {
       '<span style="font-family:Anuphan;font-weight:700;font-size:19px">จัดการบัญชีและการเชื่อมต่อ</span>',
     html: `
       <div style="text-align:left;display:flex;flex-direction:column;gap:12px;margin-top:16px">
-        <p style="font-size:13px;color:#78716C;margin:0">เชื่อมต่อแพลตฟอร์มต่างๆ เพื่อรวมข้อมูลของคุณให้เป็นหนึ่งเดียว ป้องกันการสูญหาย</p>
-        ${row(isGoogleLinked, 'Google Account', 'bi bi-google', googleUrl, '#EA4335')}
-        ${row(isDiscordLinked, 'Discord Account', 'bi bi-discord', discordUrl, '#5865F2')}
+        <p style="font-size:13px;color:${UI_COLOR.neutral};margin:0">เชื่อมต่อแพลตฟอร์มต่างๆ เพื่อรวมข้อมูลของคุณให้เป็นหนึ่งเดียว ป้องกันการสูญหาย</p>
+        ${row(isGoogleLinked, 'Google Account', 'bi bi-google', googleUrl, PROVIDER_COLOR.google)}
+        ${row(isDiscordLinked, 'Discord Account', 'bi bi-discord', discordUrl, PROVIDER_COLOR.discord)}
       </div>
     `,
     showConfirmButton: true,
     confirmButtonText: 'ปิดหน้าต่าง',
-    confirmButtonColor: '#1d4ed8',
+    confirmButtonColor: UI_COLOR.brand,
   });
 };
 </script>
@@ -229,7 +230,7 @@ const goToProfileSettings = async () => {
           <div class="border-t border-stone-100 bg-stone-50/60 p-2">
             <button
               type="button"
-              class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50"
+              class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-danger-600 transition-colors hover:border-danger-200 hover:bg-danger-50"
               @click.stop="logout"
             >
               ออกจากระบบ

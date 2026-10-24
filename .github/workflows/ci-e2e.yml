@@ -1,0 +1,97 @@
+# ============================================================
+# CI · E2E (Playwright + API จริง + Postgres จริง)
+# ============================================================
+#
+# 🎯 ทำไมต้องมี: ก่อนหน้านี้ `frontend/e2e/vue.spec.ts` เป็น scaffold ของ Vite
+#    (`h1 = "You did it!"`) ที่ **ตกทุกครั้ง** และไม่มีใครรัน ⇒ "e2e เขียว" ไม่เคยถูกพิสูจน์
+#
+# 🧱 stack ที่ใช้: `docker-compose.e2e.yml` (repo root) — Postgres + backend image จริง
+#    ⇒ frontend ที่ build แล้วยิง API จริง ไม่ใช่ mock
+#
+# 🔑 ล็อกอิน: ระบบใช้ OAuth เท่านั้น ⇒ `backend/scripts/e2e_seed.py` สร้าง user/room
+#    และออก JWT ด้วยฟังก์ชันเดียวกับ login แล้วเขียน session ให้ Playwright
+#    (รายละเอียดอยู่ใน docstring ของสคริปต์)
+name: CI · E2E
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'docker-compose.e2e.yml'
+      - '.github/workflows/ci-e2e.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'docker-compose.e2e.yml'
+      - '.github/workflows/ci-e2e.yml'
+
+concurrency:
+  group: ci-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: ติดตั้ง dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # ⚠️ ต้อง build ก่อน — `vite preview` เสิร์ฟแค่ dist (ถ้าไม่ build จะ 404 ทั้งเว็บ)
+      - name: build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: ติดตั้งเบราว์เซอร์ Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: ยก stack E2E (Postgres + API)
+        run: |
+          # build ล่วงหน้าทั้ง api และ seed (profile) — `run` จะ build ให้อยู่แล้ว
+          # แต่การแยกมาทำตรงนี้ทำให้ log ของ build ไม่ปนกับขั้นตอน seed
+          docker compose -f docker-compose.e2e.yml --profile seed build
+          docker compose -f docker-compose.e2e.yml up -d --wait
+
+      # ⚠️ เขียน session ลงไฟล์ผ่าน bind mount — **ห้าม redirect stdout**
+      #    runner ที่ไม่มี buildx จะให้ compose ใช้ legacy builder ที่พิมพ์ build log
+      #    ลง stdout (เจอจริงบนเครื่องเจ้าของ: `#0 building with "default" instance…`
+      #    โผล่หัวไฟล์ session) ⇒ ต้อง `--user $(id -u):$(id -g)` เพราะ image รันเป็น
+      #    appuser ซึ่งเขียนโฟลเดอร์ที่ runner สร้างไม่ได้
+      - name: seed session สำหรับ E2E
+        run: |
+          mkdir -p frontend/e2e/.auth
+          rm -f frontend/e2e/.auth/session.json
+          docker compose -f docker-compose.e2e.yml --profile seed run --rm --no-deps \
+            --user "$(id -u):$(id -g)" e2e_seed
+          # พิสูจน์ว่าได้ JSON จริง ไม่ใช่ error message หลุดเข้าไฟล์ (ไม่งั้นเทสต์จะ skip เงียบ ๆ)
+          node -e "const s=require('./frontend/e2e/.auth/session.json'); if(!s.token||!s.room?.id) process.exit(1)"
+
+      - name: Playwright
+        working-directory: frontend
+        run: npm run test:e2e -- --project=chromium
+
+      - name: เก็บ report เมื่อตก
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+      - name: เก็บกวาด stack
+        if: always()
+        run: docker compose -f docker-compose.e2e.yml down -v --remove-orphans

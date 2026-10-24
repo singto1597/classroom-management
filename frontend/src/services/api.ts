@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, isAxiosError } from 'axios';
 import type { PydanticValidationError } from '@/types/api';
 import {
   ACCESS_TOKEN_KEY,
@@ -115,5 +115,25 @@ api.interceptors.response.use(
   (response) => response.data,
   normalizeApiError
 );
+
+/**
+ * อ่าน HTTP status จาก error ที่ผ่าน interceptor มาแล้ว
+ *
+ * ใช้แทนการไล่เขียน `if (isAxiosError(e) && e.response?.status === 409)` กระจาย
+ * ทั่วทุกวิว — ที่นี่แปลง "ไม่ใช่ AxiosError" ให้เป็น `undefined` ที่เดียว
+ *
+ * ⚠️ ต้องคืน `undefined` (ไม่ใช่ `0`) เมื่อไม่มี status เพราะ:
+ *   • `error.response` หายไปเมื่อต่อ backend ไม่ได้ (network error) ⇒ ไม่มี status จริง
+ *   • `0` จะหลุด `=== 409` ทุกเงื่อนไขเงียบ ๆ แต่กลับดูเหมือน "มีค่า" ใน log
+ *     ⇒ bug ที่อ่าน log แล้วเดาไม่ออก
+ *
+ * @example
+ * const status = apiStatus(error);
+ * if (status === 409) router.push('/students'); // เลขที่ซ้ำ — พาไปช่องที่ผิด
+ */
+export function apiStatus(error: unknown): number | undefined {
+  if (!isAxiosError(error)) return undefined;
+  return error.response?.status;
+}
 
 export default api;

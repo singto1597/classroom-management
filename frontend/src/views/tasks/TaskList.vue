@@ -10,6 +10,7 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore()
 
@@ -121,9 +122,9 @@ const getStatusBadgeClass = (task: Task) => {
 
   const diffDays = diffDaysFromToday(task.due_date)
 
-  if (diffDays < 0) return 'bg-red-50 text-red-700'
-  if (diffDays === 0 || diffDays === 1) return 'bg-amber-50 text-amber-700'
-  return 'bg-emerald-50 text-emerald-700'
+  if (diffDays < 0) return 'bg-danger-50 text-danger-700'
+  if (diffDays === 0 || diffDays === 1) return 'bg-warn-50 text-warn-700'
+  return 'bg-ok-50 text-ok-700'
 }
 
 // ไอคอนในป้ายสถานะ — คู่กับเงื่อนไขเดียวกับ getStatusBadgeClass
@@ -175,8 +176,8 @@ const deleteTask = async (taskId: number) => {
     text: "คุณจะไม่สามารถกู้คืนข้อมูลได้!",
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ลบข้อมูล',
     cancelButtonText: 'ยกเลิก'
   })
@@ -282,7 +283,7 @@ onMounted(fetchData)
     <!-- โน้ตรายวันล่าสุด (แสดง 3 รายการแรก) -->
     <section v-if="notes.length > 0" class="space-y-3">
       <div class="flex items-center gap-2">
-        <i class="bi bi-sticky-fill text-base text-amber-500" aria-hidden="true"></i>
+        <i class="bi bi-sticky-fill text-base text-warn-500" aria-hidden="true"></i>
         <h2 class="section-title">โน้ตรายวันล่าสุด</h2>
       </div>
 
@@ -290,11 +291,11 @@ onMounted(fetchData)
         <article
           v-for="note in notes.slice(0, 3)"
           :key="note.id"
-          class="page-card border-s-4 border-s-amber-400 p-3.5 sm:p-5"
+          class="page-card border-s-4 border-s-warn-400 p-3.5 sm:p-5"
         >
           <!-- ป้ายวันอยู่ซ้าย ข้อความอยู่ขวา — การ์ดเตี้ยลงและใช้ความกว้างคุ้มขึ้นบนมือถือ -->
           <div class="flex items-start gap-3">
-            <span class="chip shrink-0 bg-amber-50 text-amber-700">
+            <span class="chip shrink-0 bg-warn-50 text-warn-700">
               <i class="bi bi-calendar3" aria-hidden="true"></i>
               {{ formatDueDate(note.target_date) }}
             </span>
@@ -348,7 +349,7 @@ onMounted(fetchData)
           task.status === 'done' ? 'opacity-70' : '',
           // งานที่เลยกำหนดแล้วและยังไม่ส่ง — เน้นด้วยแถบแดงด้านซ้าย
           task.status === 'pending' && diffDaysFromToday(task.due_date) < 0
-            ? 'border-s-4 border-s-red-500'
+            ? 'border-s-4 border-s-danger-500'
             : '',
         ]"
       >

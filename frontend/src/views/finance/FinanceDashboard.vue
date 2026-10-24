@@ -15,6 +15,7 @@ import { monthToRange, todayThaiYearMonth } from '@/utils/period';
 import { downloadBlob } from '@/utils/download';
 import { createLatestGuard } from '@/utils/latest';
 import Swal from 'sweetalert2';
+import { CHART_COLORS, UI_COLOR } from '@/constants/theme'
 
 ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale);
 
@@ -93,7 +94,7 @@ const chartData = computed(() => {
       labels: ['ยังไม่มีรายจ่าย'],
       datasets: [{
         data: [1],
-        backgroundColor: ['#e7e5e4'], // stone-200
+        backgroundColor: [UI_COLOR.border],
         borderWidth: 0
       }]
     };
@@ -105,7 +106,7 @@ const chartData = computed(() => {
       data: summary.value.expense_breakdown.map(item => item.total_amount),
       // 🎨 ธีม Academic Ledger: เฉดน้ำเงิน brand ไล่ระดับ + เทา stone (ไม่ใช้สีรุ้ง)
       backgroundColor: [
-        '#1D4ED8', '#2563EB', '#3B82F6', '#93C5FD', '#78716C', '#A8A29E', '#D6D3D1'
+        ...CHART_COLORS
       ],
       borderWidth: 0,
       hoverOffset: 6
@@ -128,7 +129,7 @@ const chartOptions: ChartOptions<'doughnut'> = {
           size: 11,
           weight: 'bold'
         },
-        color: '#78716c' // stone-500
+        color: UI_COLOR.neutral
       }
     },
     tooltip: {
@@ -249,7 +250,7 @@ const runExport = async (kind: ExportKind) => {
       text: error instanceof Error && error.message
         ? error.message
         : 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
   } finally {
     isExporting.value = false;
@@ -371,13 +372,13 @@ watch([selectedMonth, selectedYear], () => {
     <RouterLink
       v-if="!isLoadingBudget && !isBudgetError && (budgetOverview?.over_count ?? 0) > 0"
       to="/finance/budgets"
-      class="page-card flex items-center gap-3 border-s-4 border-s-red-500 p-3.5 transition-colors hover:bg-red-50/40 active:scale-[0.99] sm:p-4"
+      class="page-card flex items-center gap-3 border-s-4 border-s-danger-500 p-3.5 transition-colors hover:bg-danger-50/40 active:scale-[0.99] sm:p-4"
     >
-      <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
+      <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-danger-50 text-danger-600">
         <i class="bi bi-exclamation-octagon-fill text-xl" aria-hidden="true"></i>
       </span>
       <span class="min-w-0 flex-1">
-        <span class="block text-sm font-bold text-red-700">
+        <span class="block text-sm font-bold text-danger-700">
           มี {{ budgetOverview?.over_count }} หมวดที่ใช้เกินงบเดือนนี้
         </span>
         <span class="block truncate text-xs text-stone-500">
@@ -385,7 +386,7 @@ watch([selectedMonth, selectedYear], () => {
           {{ formatNumber(budgetOverview?.total_budget ?? 0) }} บาท — กดเพื่อดูรายละเอียด
         </span>
       </span>
-      <i class="bi bi-chevron-right shrink-0 text-red-400" aria-hidden="true"></i>
+      <i class="bi bi-chevron-right shrink-0 text-danger-400" aria-hidden="true"></i>
     </RouterLink>
 
     <!-- สถานะโหลด / ผิดพลาด -->
@@ -404,30 +405,30 @@ watch([selectedMonth, selectedYear], () => {
 
         <div class="page-card col-span-2 p-3.5 sm:p-5 lg:col-span-1">
           <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
-            <i class="bi bi-hourglass-split text-amber-600" aria-hidden="true"></i>
+            <i class="bi bi-hourglass-split text-warn-600" aria-hidden="true"></i>
             ยอดที่เพื่อนค้างจ่ายรวม
           </p>
-          <p class="font-display num mt-2 break-words text-2xl font-bold text-amber-700 sm:text-3xl">
-            <span class="me-1 text-lg text-amber-500/70">฿</span>{{ formatNumber(summary.pending_collection_amount) }}
+          <p class="font-display num mt-2 break-words text-2xl font-bold text-warn-700 sm:text-3xl">
+            <span class="me-1 text-lg text-warn-500/70">฿</span>{{ formatNumber(summary.pending_collection_amount) }}
           </p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
           <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
-            <i class="bi bi-graph-up-arrow text-emerald-600" aria-hidden="true"></i>
+            <i class="bi bi-graph-up-arrow text-ok-600" aria-hidden="true"></i>
             รายรับเดือนนี้
           </p>
-          <p class="font-display num mt-2 break-words text-base font-bold text-emerald-600 sm:text-2xl">
+          <p class="font-display num mt-2 break-words text-base font-bold text-ok-600 sm:text-2xl">
             +{{ formatNumber(summary.total_income) }}
           </p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
           <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
-            <i class="bi bi-graph-down-arrow text-red-600" aria-hidden="true"></i>
+            <i class="bi bi-graph-down-arrow text-danger-600" aria-hidden="true"></i>
             รายจ่ายเดือนนี้
           </p>
-          <p class="font-display num mt-2 break-words text-base font-bold text-red-600 sm:text-2xl">
+          <p class="font-display num mt-2 break-words text-base font-bold text-danger-600 sm:text-2xl">
             -{{ formatNumber(summary.total_expense) }}
           </p>
         </div>
@@ -525,7 +526,7 @@ watch([selectedMonth, selectedYear], () => {
           <!-- ตัวเลขเกินงบเป็นสัญญาณ ไม่ใช่ป้ายตกแต่ง — โชว์เฉพาะเมื่อมีของจริง -->
           <span
             v-if="!isLoadingBudget && !isBudgetError && (budgetOverview?.over_count ?? 0) > 0"
-            class="chip shrink-0 bg-red-50 text-red-700"
+            class="chip shrink-0 bg-danger-50 text-danger-700"
           >
             เกิน {{ budgetOverview?.over_count }}
           </span>

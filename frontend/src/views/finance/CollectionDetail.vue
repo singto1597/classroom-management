@@ -12,6 +12,7 @@ import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import { UI_COLOR } from '@/constants/theme'
 
 const route = useRoute()
 const router = useRouter()
@@ -87,8 +88,8 @@ const handlePay = async (student: StudentPaymentDetail) => {
     showCancelButton: true,
     confirmButtonText: '✅ ยืนยันการรับเงิน',
     cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     preConfirm: () => {
       const accId = (document.getElementById('swal-acc') as HTMLSelectElement).value
       const amount = (document.getElementById('swal-amt') as HTMLInputElement).value
@@ -139,8 +140,8 @@ const handleRemoveStudent = async (student: StudentPaymentDetail) => {
     html: `คุณต้องการลบรายชื่อ <b>${escapeHtml(displayName(student))}</b> ออกจากการเก็บเงินนี้ใช่หรือไม่?`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ลบรายชื่อออก',
     cancelButtonText: 'ยกเลิก',
   })
@@ -253,8 +254,8 @@ const handleIssueAllReceipts = async () => {
            ใบที่เคยออกไปแล้วจะได้ <b>เลขเดิม</b> (ไม่กินเลขใหม่)`,
     icon: 'question',
     showCancelButton: true,
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ออกใบเสร็จ',
     cancelButtonText: 'ยกเลิก',
   })
@@ -280,14 +281,14 @@ const handleIssueAllReceipts = async () => {
       html:
         `ออกใหม่ <b>${res.issued_count}</b> ใบ · ใช้เลขเดิม <b>${res.reused_count}</b> ใบ` +
         (canDownload
-          ? `<br><br><span style="font-size:0.85em;color:#78716c">รวมเป็นไฟล์เดียวได้ ` +
+          ? `<br><br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">รวมเป็นไฟล์เดียวได้ ` +
             `(${nos.length} หน้า — หน้าละบิล) เหมาะสำหรับพิมพ์แจก</span>`
           : ''),
       showCancelButton: canDownload,
       confirmButtonText: 'ดาวน์โหลด PDF รวม',
       cancelButtonText: 'ปิด',
-      confirmButtonColor: '#1d4ed8',
-      cancelButtonColor: '#78716c',
+      confirmButtonColor: UI_COLOR.brand,
+      cancelButtonColor: UI_COLOR.neutral,
     })
     if (canDownload && after.isConfirmed) await downloadCombined(nos)
   } catch (error: unknown) {
@@ -349,8 +350,8 @@ const showIssued = (receiptNo: string, reused: boolean, allowOpen: boolean) => {
     showCancelButton: allowOpen,
     confirmButtonText: allowOpen ? 'ดูเอกสาร' : 'ตกลง',
     cancelButtonText: 'ปิด',
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
   }).then((r) => {
     if (allowOpen && r.isConfirmed) {
       router.push(`/finance/receipts/${receiptNo}`)
@@ -395,7 +396,7 @@ onMounted(() => {
           type="button"
           :class="
             isEditMode
-              ? 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 transition-colors active:scale-[0.97]'
+              ? 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-warn-300 bg-warn-50 px-4 py-2.5 text-sm font-bold text-warn-700 transition-colors active:scale-[0.97]'
               : 'btn-ghost-ui'
           "
           @click="isEditMode = !isEditMode"
@@ -416,11 +417,11 @@ onMounted(() => {
           <span class="num">{{ data.summary.total }}</span>
           คน)
         </p>
-        <p class="num font-display shrink-0 text-lg font-bold text-emerald-600">{{ progress }}%</p>
+        <p class="num font-display shrink-0 text-lg font-bold text-ok-600">{{ progress }}%</p>
       </div>
       <div class="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-stone-100">
         <div
-          class="h-full bg-emerald-500 transition-all duration-1000"
+          class="h-full bg-ok-500 transition-all duration-1000"
           :style="{ width: `${progress}%` }"
         ></div>
       </div>
@@ -470,7 +471,7 @@ onMounted(() => {
           v-for="s in data.students"
           :key="s.payment_id"
           class="page-card p-4"
-          :class="isEditMode ? 'border-s-4 border-s-amber-400' : ''"
+          :class="isEditMode ? 'border-s-4 border-s-warn-400' : ''"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-3">
@@ -492,7 +493,7 @@ onMounted(() => {
 
             <!-- สถานะ -->
             <div v-if="s.status === 'paid'" class="flex shrink-0 flex-col items-end gap-1">
-              <span class="chip bg-emerald-50 text-emerald-700">
+              <span class="chip bg-ok-50 text-ok-700">
                 <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                 จ่ายครบแล้ว
               </span>
@@ -501,15 +502,15 @@ onMounted(() => {
               </small>
             </div>
             <div v-else-if="s.paid_amount > 0" class="flex shrink-0 flex-col items-end gap-1">
-              <span class="chip bg-amber-50 text-amber-700">
+              <span class="chip bg-warn-50 text-warn-700">
                 <i class="bi bi-hourglass-split" aria-hidden="true"></i>
                 ฿{{ formatNumber(s.paid_amount) }}
               </span>
-              <small class="num text-[10px] font-bold text-red-600">
+              <small class="num text-[10px] font-bold text-danger-600">
                 ค้างอีก ฿{{ formatNumber(s.total_amount - s.paid_amount) }}
               </small>
             </div>
-            <span v-else class="chip shrink-0 bg-red-50 text-red-700">
+            <span v-else class="chip shrink-0 bg-danger-50 text-danger-700">
               <i class="bi bi-clock-fill" aria-hidden="true"></i>
               ค้าง ฿{{ formatNumber(s.total_amount) }}
             </span>
@@ -575,7 +576,7 @@ onMounted(() => {
 
       <!-- 🖥️ เดสก์ท็อป: ตาราง -->
       <div class="page-card hidden overflow-hidden lg:block">
-        <div v-if="isEditMode" class="h-1 w-full bg-amber-400" aria-hidden="true"></div>
+        <div v-if="isEditMode" class="h-1 w-full bg-warn-400" aria-hidden="true"></div>
         <div class="overflow-x-auto">
           <table class="data-table">
             <thead>
@@ -597,7 +598,7 @@ onMounted(() => {
                 </td>
                 <td>
                   <div v-if="s.status === 'paid'" class="flex flex-col items-start gap-1">
-                    <span class="chip bg-emerald-50 text-emerald-700">
+                    <span class="chip bg-ok-50 text-ok-700">
                       <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                       จ่ายครบแล้ว
                     </span>
@@ -606,15 +607,15 @@ onMounted(() => {
                     </small>
                   </div>
                   <div v-else-if="s.paid_amount > 0" class="flex flex-col items-start gap-1">
-                    <span class="chip bg-amber-50 text-amber-700">
+                    <span class="chip bg-warn-50 text-warn-700">
                       <i class="bi bi-hourglass-split" aria-hidden="true"></i>
                       ทยอยจ่ายแล้ว ฿{{ formatNumber(s.paid_amount) }}
                     </span>
-                    <small class="num text-[10px] font-bold text-red-600">
+                    <small class="num text-[10px] font-bold text-danger-600">
                       (ค้างอีก ฿{{ formatNumber(s.total_amount - s.paid_amount) }})
                     </small>
                   </div>
-                  <span v-else class="chip bg-red-50 text-red-700">
+                  <span v-else class="chip bg-danger-50 text-danger-700">
                     <i class="bi bi-clock-fill" aria-hidden="true"></i>
                     ค้างจ่าย (฿{{ formatNumber(s.total_amount) }})
                   </span>
@@ -659,7 +660,7 @@ onMounted(() => {
                       <button
                         v-if="s.paid_amount === 0"
                         type="button"
-                        class="flex h-11 w-11 items-center justify-center rounded-xl border border-red-200 bg-white text-red-600 transition-colors hover:bg-red-50 active:scale-[0.97]"
+                        class="flex h-11 w-11 items-center justify-center rounded-xl border border-danger-200 bg-white text-danger-600 transition-colors hover:bg-danger-50 active:scale-[0.97]"
                         title="ลบออกจากแคมเปญ"
                         @click="handleRemoveStudent(s)"
                       >

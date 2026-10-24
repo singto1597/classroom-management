@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { StudentService } from '@/services/student'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import Swal from 'sweetalert2'
+import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -52,12 +53,12 @@ const submitSingle = async () => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
   }
 
   if (!singleForm.value.student_no || !singleForm.value.first_name || !singleForm.value.last_name) {
-    Swal.fire({ icon: 'warning', title: 'กรุณากรอกข้อมูลให้ครบ', confirmButtonColor: '#1d4ed8' })
+    Swal.fire({ icon: 'warning', title: 'กรุณากรอกข้อมูลให้ครบ', confirmButtonColor: UI_COLOR.brand })
     return
   }
 
@@ -77,7 +78,7 @@ const submitSingle = async () => {
       icon: 'success',
       title: 'สำเร็จ!',
       text: 'เพิ่มนักเรียนเรียบร้อยแล้ว (ถ้าเป็นผู้ใช้จริง ระบบจะส่งคำเชิญให้เขายืนยันตัวตนก่อนถึงเปิดข้อมูลส่วนตัว)',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
     router.push('/students')
   } catch (error: unknown) {
@@ -85,7 +86,7 @@ const submitSingle = async () => {
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
       text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มข้อมูลได้',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
   } finally {
     isSubmitting.value = false
@@ -98,12 +99,12 @@ const submitBulk = async () => {
       icon: 'error',
       title: 'ไม่มีสิทธิ์',
       text: 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
   }
 
   if (!bulkData.value.trim()) {
-    Swal.fire({ icon: 'warning', title: 'กรุณาใส่ข้อมูล', confirmButtonColor: '#1d4ed8' })
+    Swal.fire({ icon: 'warning', title: 'กรุณาใส่ข้อมูล', confirmButtonColor: UI_COLOR.brand })
     return
   }
 
@@ -133,7 +134,7 @@ const submitBulk = async () => {
       icon: 'success',
       title: 'สำเร็จ!',
       text: `เพิ่มนักเรียนรวดเดียว ${students.length} คน เรียบร้อยแล้ว (ผู้ใช้จริงจะได้รับคำเชิญให้ยืนยันตัวตนก่อนเปิดข้อมูลส่วนตัว)`,
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
     router.push('/students')
   } catch (error: unknown) {
@@ -142,7 +143,7 @@ const submitBulk = async () => {
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
       text: errorMessage || apiErrorDetail(error) || 'ไม่สามารถเพิ่มข้อมูลได้',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     })
   } finally {
     isSubmitting.value = false
@@ -198,17 +199,17 @@ const submitBulk = async () => {
       <div v-if="activeTab === 'single'" class="space-y-4 p-4 sm:p-6">
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           <div>
-            <label class="field-label" for="studentNo">เลขที่ <span class="text-red-500">*</span></label>
+            <label class="field-label" for="studentNo">เลขที่ <span class="text-danger-500">*</span></label>
             <input id="studentNo" v-model="singleForm.student_no" type="number" class="field" placeholder="เช่น 1" />
           </div>
 
           <div>
-            <label class="field-label" for="firstName">ชื่อจริง <span class="text-red-500">*</span></label>
+            <label class="field-label" for="firstName">ชื่อจริง <span class="text-danger-500">*</span></label>
             <input id="firstName" v-model="singleForm.first_name" type="text" class="field" placeholder="สมชาย" />
           </div>
 
           <div>
-            <label class="field-label" for="lastName">นามสกุล <span class="text-red-500">*</span></label>
+            <label class="field-label" for="lastName">นามสกุล <span class="text-danger-500">*</span></label>
             <input id="lastName" v-model="singleForm.last_name" type="text" class="field" placeholder="รักเรียน" />
           </div>
 
@@ -261,19 +262,19 @@ const submitBulk = async () => {
             v-else
             class="flex items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm font-bold text-stone-500"
           >
-            <i class="bi bi-lock-fill text-red-500" aria-hidden="true"></i> เฉพาะแอดมินเท่านั้น
+            <i class="bi bi-lock-fill text-danger-500" aria-hidden="true"></i> เฉพาะแอดมินเท่านั้น
           </div>
         </div>
       </div>
 
       <!-- ฟอร์ม: นำเข้ารวดเดียว -->
       <div v-else class="space-y-4 p-4 sm:p-6">
-        <div class="rounded-xl border border-sky-200 bg-sky-50 p-4">
-          <p class="flex items-center gap-1.5 text-sm font-bold text-sky-800">
+        <div class="rounded-xl border border-info-200 bg-info-50 p-4">
+          <p class="flex items-center gap-1.5 text-sm font-bold text-info-800">
             <i class="bi bi-info-circle-fill" aria-hidden="true"></i> คำแนะนำการใช้งาน
           </p>
-          <p class="mt-1 text-xs text-sky-700">
-            วางข้อมูลในรูปแบบ: <code class="rounded bg-sky-100 px-1 font-bold">เลขที่,ชื่อ,นามสกุล</code> (หนึ่งคนต่อหนึ่งบรรทัด)
+          <p class="mt-1 text-xs text-info-700">
+            วางข้อมูลในรูปแบบ: <code class="rounded bg-info-100 px-1 font-bold">เลขที่,ชื่อ,นามสกุล</code> (หนึ่งคนต่อหนึ่งบรรทัด)
           </p>
         </div>
 
@@ -308,7 +309,7 @@ const submitBulk = async () => {
             v-else
             class="flex items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm font-bold text-stone-500"
           >
-            <i class="bi bi-lock-fill text-red-500" aria-hidden="true"></i> เฉพาะแอดมินเท่านั้น
+            <i class="bi bi-lock-fill text-danger-500" aria-hidden="true"></i> เฉพาะแอดมินเท่านั้น
           </div>
         </div>
       </div>

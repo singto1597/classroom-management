@@ -2,7 +2,7 @@
 defineOptions({ name: 'LobbyView' });
 
 import { ref, onMounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ClassroomService } from '@/services/classroom';
 import { StudentService } from '@/services/student';
@@ -12,9 +12,18 @@ import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import type { UserRoom } from '@/types/classroom';
 import type { Invite } from '@/types/student';
 import Swal from 'sweetalert2';
+import { UI_COLOR } from '@/constants/theme'
+import { unavailableTarget } from '@/router/unavailable';
 
 const authStore = useAuthStore();
 const router = useRouter();
+const route = useRoute();
+
+/**
+ * ปลายทางที่ผู้ใช้ตั้งใจจะไปก่อนถูกพามาเลือกห้อง (`/lobby?next=/finance/debtors`)
+ * — ผ่าน `safeRedirect()` มาแล้วเท่านั้น ⇒ ใช้ได้โดยไม่ต้องตรวจซ้ำ
+ */
+const nextTarget = computed(() => unavailableTarget(route.query));
 
 const isLoadingRooms = ref(true);
 const rooms = ref<UserRoom[]>([]);
@@ -44,7 +53,7 @@ const acceptInvite = async (invite: Invite) => {
       title: 'รับคำเชิญแล้ว!',
       text: `เข้าร่วมห้อง "${invite.room_name}" แล้ว`,
       confirmButtonText: 'รับทราบ',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     });
   } catch (error: unknown) {
     Swal.fire({
@@ -138,8 +147,8 @@ const STATUS_FALLBACK: StatusMeta = {
 };
 
 const STATUS_META: Record<string, StatusMeta> = {
-  active: { chip: 'bg-emerald-50 text-emerald-700', icon: 'bi-check-circle-fill', label: 'ใช้งาน' },
-  pending: { chip: 'bg-amber-50 text-amber-700', icon: 'bi-clock-fill', label: 'รออนุมัติ' },
+  active: { chip: 'bg-ok-50 text-ok-700', icon: 'bi-check-circle-fill', label: 'ใช้งาน' },
+  pending: { chip: 'bg-warn-50 text-warn-700', icon: 'bi-clock-fill', label: 'รออนุมัติ' },
   inactive: STATUS_FALLBACK,
 };
 
@@ -153,7 +162,8 @@ const selectRoom = (room: UserRoom) => {
   // 🎯 เปิดห้องนี้ใน "แท็บนี้" — สิทธิ์ (is_admin/permissions) อยู่ในรายการห้องแล้ว
   //    ไม่ต้องยัดซ้ำทีละค่าอย่างเดิม และไม่กระทบแท็บอื่นที่อาจเปิดห้องอื่นอยู่
   authStore.setActiveRoom(room.room_id);
-  router.push('/dashboard');
+  // 🚧 กลับไปหน้าที่ตั้งใจไว้ (ถ้ามี) — เช่นลิงก์ลึกจาก Discord ที่พามาถึง Lobby
+  router.push(nextTarget.value ?? '/dashboard');
 };
 
 const openJoinModal = () => {
@@ -209,7 +219,7 @@ const submitJoinRoom = async () => {
         title: 'ส่งคำขอแล้ว!',
         text: 'รอหัวหน้าห้อง / ผู้ดูแลอนุมัติคำขอของคุณ',
         confirmButtonText: 'รับทราบ',
-        confirmButtonColor: '#1d4ed8'
+        confirmButtonColor: UI_COLOR.brand
       });
     }
 
@@ -219,7 +229,7 @@ const submitJoinRoom = async () => {
       title: 'สำเร็จ!',
       text: result.message || 'เข้าสู่ห้องเรียนสำเร็จ',
       confirmButtonText: 'เข้าสู่แดชบอร์ด',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     }).then(async () => {
       showJoinModal.value = false;
 
@@ -245,7 +255,7 @@ const submitJoinRoom = async () => {
         ]);
       }
       authStore.setActiveRoom(result.room_id);
-      router.push('/dashboard');
+      router.push(nextTarget.value ?? '/dashboard');
     });
 
   } catch (error: unknown) {
@@ -254,7 +264,7 @@ const submitJoinRoom = async () => {
       icon: 'error',
       title: 'ไม่สามารถเข้าร่วมได้',
       text: message || 'รหัสห้องผิด หรือเลขที่นี้มีผู้ใช้งานแล้ว',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
       confirmButtonText: 'รับทราบ'
     });
   }
@@ -270,7 +280,7 @@ const submitCreateRoom = async () => {
       title: 'สร้างห้องเรียนสำเร็จ!',
       text: `นำรหัสห้อง ${result.room_code} ไปแชร์ให้นักเรียนได้เลย`,
       confirmButtonText: 'ตกลง',
-      confirmButtonColor: '#1d4ed8'
+      confirmButtonColor: UI_COLOR.brand
     }).then(() => {
       showCreateModal.value = false;
       fetchRooms();
@@ -324,7 +334,7 @@ const submitCreateRoom = async () => {
     <section v-if="invites.length > 0" class="space-y-2.5">
       <div class="flex flex-wrap items-center gap-2">
         <h2 class="section-title">คำเชิญเข้าร่วมห้อง</h2>
-        <span class="chip bg-amber-50 text-amber-700">{{ invites.length }} ฉบับ</span>
+        <span class="chip bg-warn-50 text-warn-700">{{ invites.length }} ฉบับ</span>
       </div>
 
       <div class="space-y-2.5">
@@ -332,7 +342,7 @@ const submitCreateRoom = async () => {
           <div class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex min-w-0 items-start gap-2.5">
               <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warn-50 text-warn-600"
               >
                 <i class="bi bi-building-add text-lg" aria-hidden="true"></i>
               </div>
@@ -341,7 +351,7 @@ const submitCreateRoom = async () => {
                 <p class="num mt-0.5 truncate text-xs text-stone-500">
                   เลขที่ {{ invite.student_no }} · เชิญโดย {{ inviterName(invite) }}
                 </p>
-                <p class="mt-1 text-[11px] font-medium text-amber-600">
+                <p class="mt-1 text-[11px] font-medium text-warn-600">
                   รับคำเชิญแล้วระบบจะเปิดข้อมูลส่วนตัวของคุณให้ห้องนี้ดู
                 </p>
               </div>
@@ -402,7 +412,7 @@ const submitCreateRoom = async () => {
             </span>
             <span
               v-else-if="room.permissions && room.permissions.length > 0"
-              class="chip shrink-0 bg-sky-50 text-sky-700"
+              class="chip shrink-0 bg-info-50 text-info-700"
             >
               <i class="bi bi-key-fill" aria-hidden="true"></i> เจ้าหน้าที่
             </span>
@@ -451,7 +461,7 @@ const submitCreateRoom = async () => {
           <form class="mt-4 space-y-4" @submit.prevent="submitJoinRoom">
             <div>
               <label class="field-label" for="joinRoomCode">
-                รหัสเข้าห้อง <span class="text-red-500">*</span>
+                รหัสเข้าห้อง <span class="text-danger-500">*</span>
               </label>
               <input
                 id="joinRoomCode"
@@ -466,7 +476,7 @@ const submitCreateRoom = async () => {
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
               <div class="sm:col-span-1">
                 <label class="field-label" for="joinStudentNo">
-                  เลขที่ <span class="text-red-500">*</span>
+                  เลขที่ <span class="text-danger-500">*</span>
                 </label>
                 <input
                   id="joinStudentNo"
@@ -478,7 +488,7 @@ const submitCreateRoom = async () => {
               </div>
               <div class="sm:col-span-2">
                 <label class="field-label" for="joinFirstName">
-                  ชื่อจริง <span class="text-red-500">*</span>
+                  ชื่อจริง <span class="text-danger-500">*</span>
                 </label>
                 <input id="joinFirstName" v-model="joinForm.first_name" type="text" required class="field" />
               </div>
@@ -486,7 +496,7 @@ const submitCreateRoom = async () => {
 
             <div>
               <label class="field-label" for="joinLastName">
-                นามสกุล <span class="text-red-500">*</span>
+                นามสกุล <span class="text-danger-500">*</span>
               </label>
               <input id="joinLastName" v-model="joinForm.last_name" type="text" required class="field" />
             </div>
@@ -538,7 +548,7 @@ const submitCreateRoom = async () => {
           <form class="mt-4" @submit.prevent="submitCreateRoom">
             <div>
               <label class="field-label" for="createRoomName">
-                ชื่อห้องเรียน <span class="text-red-500">*</span>
+                ชื่อห้องเรียน <span class="text-danger-500">*</span>
               </label>
               <input
                 id="createRoomName"

@@ -33,7 +33,7 @@
 ⚠️ ห้าม hardcode id — ทุกอย่างมาจาก fixture/seed ของเทสต์ตัวเอง
 """
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -448,6 +448,11 @@ async def test_budget_overview_counts_revenue_from_credit_application(
 
     🔴 นี่คือเทสต์ที่จะ **ล้มถ้าลืมเติม `'student_credit_apply'`** เข้า
        `JE.reference_type IN (...)` ที่ `budgets.py` (ยอดจะหายเงียบ ไม่มี error)
+
+    ⚠️ ช่วงงบ **ต้องคำนวณจากวันนี้** — รายการบัญชีจากการหักเครดิตถูกบันทึกที่ NOW()
+       ของ DB ถ้า hardcode ช่วงตายตัว (เคยเป็น ก.ย. 2026) เทสต์จะผ่านแค่เดือนนั้น
+       แล้วตกเองเมื่อเวลาเดินพ้นช่วง — โดยข้อความ error ชี้ผิดที่ (ดูเหมือนลืมแก้
+       `reference_type` ทั้งที่โค้ดถูก) · ช่วง ±7 วันกันปัญหาเทสต์ข้ามเที่ยงคืน
     """
     room_id = admin_headers.room_id
     account_id = await _insert_account(db_pool, room_id)
@@ -455,17 +460,22 @@ async def test_budget_overview_counts_revenue_from_credit_application(
     category_id = await _seed_income_category(db_pool, room_id)
     await _make_bill(db_pool, room_id, student_id, amount=600.0)
 
+    window_start = (date.today() - timedelta(days=7)).isoformat()
+    window_end = (date.today() + timedelta(days=7)).isoformat()
+
     budget = client.post(
         _url(BUDGETS_PATH, room_id),
         json={
             "category_id": category_id, "amount": 5000.0,
-            "start_date": "2026-09-01", "end_date": "2026-09-30",
+            "start_date": window_start, "end_date": window_end,
             "user_name": "Tester",
         },
         headers=admin_headers,
     )
     assert budget.status_code == 200, budget.text
-    overview_url = _url(BUDGET_OVERVIEW_PATH, room_id) + "&start_date=2026-09-01&end_date=2026-09-30"
+    overview_url = _url(BUDGET_OVERVIEW_PATH, room_id) + (
+        f"&start_date={window_start}&end_date={window_end}"
+    )
 
     def used() -> float:
         rows = client.get(overview_url, headers=admin_headers).json()["items"]

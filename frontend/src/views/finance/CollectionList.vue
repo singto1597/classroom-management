@@ -10,6 +10,7 @@ import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore()
 const currentServerId = authStore.currentRoomId!
@@ -149,8 +150,8 @@ const handleEditCollection = async (col: Collection) => {
     `,
     focusConfirm: false,
     showCancelButton: true,
-    confirmButtonColor: '#1d4ed8',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.brand,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'บันทึกการตั้งค่า',
     cancelButtonText: 'ยกเลิก',
     customClass: {
@@ -256,7 +257,7 @@ onMounted(() => {
               class="chip shrink-0"
               :class="
                 col.status === 'active'
-                  ? 'bg-emerald-50 text-emerald-700'
+                  ? 'bg-ok-50 text-ok-700'
                   : 'bg-stone-100 text-stone-600'
               "
             >

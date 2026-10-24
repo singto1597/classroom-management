@@ -220,7 +220,7 @@ const itemClass = (item: RowActionItem) => [
   item.disabled
     ? 'cursor-not-allowed text-stone-400'
     : item.tone === 'danger'
-      ? 'text-red-600 hover:bg-red-50'
+      ? 'text-danger-600 hover:bg-danger-50'
       : 'text-stone-700 hover:bg-stone-50',
 ];
 

@@ -356,13 +356,13 @@ onMounted(() => {
                   ({{ formatMoney(budget.amount) }})
                 </li>
               </ul>
-              <span v-else class="text-amber-700">
+              <span v-else class="text-warn-700">
                 ไม่อยู่ในงบประมาณที่ตั้งไว้ (หมวด: {{ detail.category_name || 'ไม่ระบุ' }})
               </span>
               <!-- ⚠️ งบซ้อนช่วงกันได้จริง (unique index คือ (room_id, category_id,
                    start_date, end_date) เท่านั้น) ⇒ ถ้าแสดงหลายก้อนโดยไม่เตือน
                    ผู้ใช้จะบวกเองแล้วได้ยอดที่ถูกนับซ้ำ -->
-              <p v-if="detail.budgets.length > 1" class="mt-1 text-xs text-amber-700">
+              <p v-if="detail.budgets.length > 1" class="mt-1 text-xs text-warn-700">
                 <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                 รายการนี้อยู่ในงบมากกว่าหนึ่งช่วง — ยอดอาจถูกนับซ้ำในการสรุปรวม
               </p>
@@ -394,7 +394,7 @@ onMounted(() => {
             </dt>
             <dd
               class="num mt-0.5 font-bold"
-              :class="remaining > 0 ? 'text-red-600' : 'text-emerald-700'"
+              :class="remaining > 0 ? 'text-danger-600' : 'text-ok-700'"
             >
               {{ formatMoney(remaining) }}
             </dd>

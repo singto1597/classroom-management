@@ -12,6 +12,7 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
 const currentServerId = authStore.currentRoomId!;
@@ -103,11 +104,11 @@ const handleRevert = async (transaction: Transaction, key: string) => {
     title: 'ต้องการยกเลิก?',
     // ใช้ inline style เพราะ SweetAlert2 ไม่ผ่าน Tailwind JIT
     // 🔒 escape เฉพาะคำอธิบายที่ interpolate — มาร์กอัป/สไตล์ที่ตั้งใจไว้คงเดิม
-    html: `คุณกำลังจะยกเลิกรายการ:<br><b style="display:block;margin-top:8px;font-size:16px;color:#1c1917">"${escapeHtml(transaction.description)}"</b><span style="display:block;margin-top:8px;padding:8px 12px;border-radius:10px;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:13px;font-weight:600">ยอดเงินจะถูกคืนกลับกระเป๋าเดิม<br>หากเป็นรายการรับเงินจากเพื่อน สถานะบิลจะถูกตีกลับเป็น "ค้างจ่าย" ทันที</span>`,
+    html: `คุณกำลังจะยกเลิกรายการ:<br><b style="display:block;margin-top:8px;font-size:16px;color:${UI_COLOR.ink}">"${escapeHtml(transaction.description)}"</b><span style="display:block;margin-top:8px;padding:8px 12px;border-radius:10px;border:1px solid ${UI_COLOR.dangerBorder};background:${UI_COLOR.dangerSoft};color:${UI_COLOR.dangerStrong};font-size:13px;font-weight:600">ยอดเงินจะถูกคืนกลับกระเป๋าเดิม<br>หากเป็นรายการรับเงินจากเพื่อน สถานะบิลจะถูกตีกลับเป็น "ค้างจ่าย" ทันที</span>`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#dc2626',
-    cancelButtonColor: '#78716c',
+    confirmButtonColor: UI_COLOR.danger,
+    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ยืนยันการยกเลิก',
     cancelButtonText: 'ปิด'
   });
@@ -286,7 +287,7 @@ const resetFilters = () => {
           v-for="t in transactions"
           :key="t.id"
           class="page-card border-s-4 p-4"
-          :class="t.transaction_type === 'income' ? 'border-s-emerald-500' : 'border-s-red-500'"
+          :class="t.transaction_type === 'income' ? 'border-s-ok-500' : 'border-s-danger-500'"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -298,7 +299,7 @@ const resetFilters = () => {
             </div>
             <p
               class="num font-display shrink-0 text-base font-bold"
-              :class="t.transaction_type === 'income' ? 'text-emerald-600' : 'text-red-600'"
+              :class="t.transaction_type === 'income' ? 'text-ok-600' : 'text-danger-600'"
             >
               {{ t.transaction_type === 'income' ? '+' : '-' }}฿{{ formatNumber(t.amount) }}
             </p>
@@ -318,7 +319,7 @@ const resetFilters = () => {
             <div class="shrink-0">
               <span
                 v-if="t.transfer_group_id && t.transaction_type === 'income'"
-                class="chip bg-sky-50 text-sky-700"
+                class="chip bg-info-50 text-info-700"
                 title="ยกเลิกได้ที่รายการขาออก"
               >
                 <i class="bi bi-link-45deg" aria-hidden="true"></i> โอนเข้า
@@ -377,7 +378,7 @@ const resetFilters = () => {
                 <td class="text-right">
                   <span
                     class="num font-display font-bold"
-                    :class="t.transaction_type === 'income' ? 'text-emerald-600' : 'text-red-600'"
+                    :class="t.transaction_type === 'income' ? 'text-ok-600' : 'text-danger-600'"
                   >
                     {{ t.transaction_type === 'income' ? '+' : '-' }} ฿{{ formatNumber(t.amount) }}
                   </span>
@@ -385,7 +386,7 @@ const resetFilters = () => {
                 <td class="text-center">
                   <span
                     v-if="t.transfer_group_id && t.transaction_type === 'income'"
-                    class="chip bg-sky-50 text-sky-700"
+                    class="chip bg-info-50 text-info-700"
                     title="ยกเลิกได้ที่รายการขาออก"
                   >
                     <i class="bi bi-link-45deg" aria-hidden="true"></i> โอนเงิน

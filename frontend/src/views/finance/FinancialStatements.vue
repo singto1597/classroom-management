@@ -46,6 +46,7 @@ import type {
   TrialBalance,
   TrialBalanceLedgerRow,
 } from '@/types/finance';
+import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
 const currentRoomId = authStore.currentRoomId!;
@@ -340,7 +341,7 @@ const exportExcel = async () => {
       text: error instanceof Error && error.message
         ? error.message
         : 'ไม่สามารถสร้างไฟล์ Excel ได้ กรุณาลองใหม่อีกครั้ง',
-      confirmButtonColor: '#1d4ed8',
+      confirmButtonColor: UI_COLOR.brand,
     });
   } finally {
     isExporting.value = false;
@@ -392,13 +393,13 @@ const exportExcel = async () => {
     <!-- ⚠️ note = ตัวเลขครอบช่วงแคบกว่าที่ผู้ใช้เลือก → ต้องเด่นพอที่จะไม่ถูกอ่านข้าม -->
     <div
       v-if="activeNote"
-      class="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 p-3.5 sm:p-4"
+      class="flex items-start gap-2.5 rounded-2xl border border-warn-200 bg-warn-50 p-3.5 sm:p-4"
       role="status"
     >
-      <i class="bi bi-exclamation-triangle-fill mt-0.5 shrink-0 text-amber-600" aria-hidden="true"></i>
+      <i class="bi bi-exclamation-triangle-fill mt-0.5 shrink-0 text-warn-600" aria-hidden="true"></i>
       <div class="min-w-0">
-        <p class="text-sm font-bold text-amber-800">ช่วงเวลาถูกปรับโดยระบบ</p>
-        <p class="mt-0.5 text-sm leading-relaxed text-amber-700">{{ activeNote }}</p>
+        <p class="text-sm font-bold text-warn-800">ช่วงเวลาถูกปรับโดยระบบ</p>
+        <p class="mt-0.5 text-sm leading-relaxed text-warn-700">{{ activeNote }}</p>
       </div>
     </div>
 
@@ -447,8 +448,8 @@ const exportExcel = async () => {
                 class="chip"
                 :class="
                   trialBalance.is_balanced
-                    ? 'bg-emerald-50 text-emerald-700'
-                    : 'bg-red-50 text-red-700'
+                    ? 'bg-ok-50 text-ok-700'
+                    : 'bg-danger-50 text-danger-700'
                 "
               >
                 <i
@@ -465,13 +466,13 @@ const exportExcel = async () => {
         <template v-else-if="activeTab === 'income-statement' && incomeStatement">
           <div class="page-card p-3.5 sm:p-5">
             <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">รายได้รวม</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-emerald-600 sm:text-2xl">
+            <p class="font-display num mt-2 break-words text-lg font-bold text-ok-600 sm:text-2xl">
               {{ formatMoney(incomeStatement.total_revenue) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
             <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">ค่าใช้จ่ายรวม</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-red-600 sm:text-2xl">
+            <p class="font-display num mt-2 break-words text-lg font-bold text-danger-600 sm:text-2xl">
               {{ formatMoney(incomeStatement.total_expense) }}
             </p>
           </div>
@@ -481,7 +482,7 @@ const exportExcel = async () => {
             </p>
             <p
               class="font-display num mt-2 break-words text-lg font-bold sm:text-2xl"
-              :class="incomeStatement.net_income < 0 ? 'text-red-600' : 'text-stone-900'"
+              :class="incomeStatement.net_income < 0 ? 'text-danger-600' : 'text-stone-900'"
             >
               {{ formatMoney(incomeStatement.net_income) }}
             </p>
@@ -516,7 +517,7 @@ const exportExcel = async () => {
               <span
                 class="chip"
                 :class="
-                  balanceSheet.is_balanced ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                  balanceSheet.is_balanced ? 'bg-ok-50 text-ok-700' : 'bg-danger-50 text-danger-700'
                 "
               >
                 <i

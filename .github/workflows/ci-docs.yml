@@ -1,0 +1,46 @@
+# ============================================================
+# CI · Docs
+# ============================================================
+#
+# 📚 ตรวจว่า `docs/skills.md` ยังมีสารบัญตรงกับหัวข้อจริง
+#
+# ทำไมต้องมี: skills.md โตทุกงานที่แก้บั๊ก (ตอนนี้ >229 หัวข้อ) สารบัญที่เขียนมือ
+# จะเน่าทันทีที่ลืมอัปเดต ⇒ ลิงก์ชี้ผิดหัวข้อ ซึ่งแย่กว่าไม่มีสารบัญ
+# ตัวสร้างอยู่ที่ `scripts/skills-toc.mjs` (Node ล้วน — ไม่ต้อง `npm ci`)
+#
+# ℹ️ แยกไฟล์จาก ci-frontend เพราะ `paths` กรองระดับ workflow: PR ที่แก้แค่ docs
+# ไม่ควรต้องรอ type-check/build ของ frontend
+name: CI · Docs
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'scripts/skills-toc.mjs'
+      - '.github/workflows/ci-docs.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'docs/**'
+      - 'scripts/skills-toc.mjs'
+      - '.github/workflows/ci-docs.yml'
+
+concurrency:
+  group: ci-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skills-toc:
+    name: สารบัญ skills.md ตรงกับหัวข้อ
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # อ่านไฟล์อย่างเดียว ไม่เขียน ⇒ ถ้าไม่ตรงจะพิมพ์ส่วนที่ขาด/เกินแล้ว exit 1
+      - name: ตรวจสารบัญ
+        run: node scripts/skills-toc.mjs --check

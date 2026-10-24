@@ -205,7 +205,7 @@ const MUTATIONS = [
   ],
   [
     'แยกโทน danger ออก ⇒ ปุ่มลบไม่แดง (ผู้ใช้แยกไม่ออกว่าอันไหนทำลายข้อมูล)',
-    "      ? 'text-red-600 hover:bg-red-50'",
+    "      ? 'text-danger-600 hover:bg-danger-50'",
     "      ? 'text-stone-700 hover:bg-stone-50'",
   ],
   [

@@ -30,12 +30,21 @@
 | ตัวอักษรรอง | `text-stone-600` / `text-stone-500` | เนื้อหา |
 | ตัวอักษรเบา | `text-stone-400` | คำอธิบาย, placeholder |
 | **สีเน้น** | `text-brand-700` / `bg-brand-700` / `bg-brand-50` / `border-brand-200` | |
-| สำเร็จ | `emerald-*` | เฉพาะสถานะบวก |
-| เตือน | `amber-*` | เฉพาะสถานะรอ |
-| อันตราย | `red-*` | เฉพาะลบ/ผิดพลาด |
-| ข้อมูล | `sky-*` | เฉพาะป้ายข้อมูล |
+| สำเร็จ / ชำระแล้ว / อนุมัติ | `ok-*` | เฉพาะสถานะบวก |
+| รอ / ค้าง / ใกล้ครบกำหนด | `warn-*` | เฉพาะสถานะรอ |
+| ลบ / ผิดพลาด / ยกเลิก / ค้างชำระ | `danger-*` | เฉพาะการกระทำที่ทำลายหรือล้มเหลว |
+| ข้อมูล / กำลังจะมา | `info-*` | เฉพาะป้ายข้อมูล |
 
-**ห้ามใช้เด็ดขาด:** `slate-*`, `gray-*`, `zinc-*`, `neutral-*` (ใช้ `stone-*` แทนทั้งหมด), `indigo-*`, `violet-*`, `purple-*`, `blue-*` (ใช้ `brand-*` แทนทั้งหมด)
+> 🎨 **สีสถานะใช้ชื่อความหมาย ไม่ใช่ชื่อสี** — `ok` / `warn` / `danger` / `info`
+> แทน `emerald` / `amber` / `red` / `sky` (ค่า hex เท่าเดิมทุกเฉด ดู
+> `tailwind.config.js`) เพื่อให้เปลี่ยนโทนสถานะทั้งระบบได้ที่เดียว และให้โค้ดอ่านออกว่า
+> "อันนี้คืออันตราย" ไม่ใช่ "อันนี้คือสีแดง"
+> ด่าน `npm run lint:palette` บล็อกชื่อสีดิบ และ `npm run lint:colors` บล็อก hex
+> ที่หลุดออกมานอก `tailwind.config.js` / `src/constants/theme.ts` /
+> `src/assets/main.css` — ค่าที่ JS ต้องใช้ (SweetAlert2, Chart.js, inline style)
+> ให้ `import { UI_COLOR } from '@/constants/theme'`
+
+**ห้ามใช้เด็ดขาด:** `slate-*`, `gray-*`, `zinc-*`, `neutral-*` (ใช้ `stone-*` แทนทั้งหมด), `indigo-*`, `violet-*`, `purple-*`, `blue-*` (ใช้ `brand-*` หรือ `info-*` แทน), และชื่อสีดิบทุกตระกูล (`emerald-*`, `amber-*`, `red-*`, `rose-*`, `sky-*`) ใน `src/`
 
 ### ฟอนต์
 
@@ -230,10 +239,10 @@ Tailwind เรียง base → `sm:` → `lg:` ดังนั้น `sm:p-6`
 ## 7. ชุดป้ายสถานะ (chip)
 
 ```vue
-<span class="chip bg-emerald-50 text-emerald-700"><i class="bi bi-check-circle-fill" /> ชำระแล้ว</span>
-<span class="chip bg-amber-50 text-amber-700"><i class="bi bi-clock-fill" /> ค้างชำระ</span>
-<span class="chip bg-red-50 text-red-700"><i class="bi bi-x-circle-fill" /> ยกเลิก</span>
-<span class="chip bg-sky-50 text-sky-700"><i class="bi bi-info-circle-fill" /> ข้อมูล</span>
+<span class="chip bg-ok-50 text-ok-700"><i class="bi bi-check-circle-fill" /> ชำระแล้ว</span>
+<span class="chip bg-warn-50 text-warn-700"><i class="bi bi-clock-fill" /> ค้างชำระ</span>
+<span class="chip bg-danger-50 text-danger-700"><i class="bi bi-x-circle-fill" /> ยกเลิก</span>
+<span class="chip bg-info-50 text-info-700"><i class="bi bi-info-circle-fill" /> ข้อมูล</span>
 <span class="chip bg-stone-100 text-stone-600">ทั่วไป</span>
 <span class="chip bg-brand-50 text-brand-700">บทบาท</span>
 ```
@@ -249,7 +258,7 @@ Tailwind เรียง base → `sm:` → `lg:` ดังนั้น `sm:p-6`
 
 ```ts
 // แจ้งผล
-Swal.fire({ icon: 'success', title: 'บันทึกแล้ว', text: '...', confirmButtonColor: '#1d4ed8' })
+Swal.fire({ icon: 'success', title: 'บันทึกแล้ว', text: '...', confirmButtonColor: UI_COLOR.brand  // import { UI_COLOR } from '@/constants/theme' })
 
 // ยืนยันลบ
 const ok = await Swal.fire({
@@ -264,7 +273,7 @@ Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOuts
 ```
 
 **ห้ามใส่ `customClass.popup` เป็น `rounded-[2rem] shadow-2xl`** — ปล่อยค่าเริ่มต้น หรือใช้ `rounded-2xl` เท่านั้น
-ถ้าใส่ HTML เอง ให้ใช้ inline style (Swal ไม่ผ่าน Tailwind JIT) — ฟอนต์ใช้ `font-family:Anuphan`, สีปุ่ม `#1d4ed8`
+ถ้าใส่ HTML เอง ให้ใช้ inline style (Swal ไม่ผ่าน Tailwind JIT) — ฟอนต์ใช้ `font-family:Anuphan`, สีปุ่ม `UI_COLOR.brand` (หรือ `#1d4ed8` เมื่อเขียน HTML ภายนอก Vue)
 
 ---
 
@@ -289,7 +298,7 @@ Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOuts
 </div>
 ```
 
-- ฟิลด์ที่ผิด → `class="field border-red-300 focus:ring-red-500/15"` + `<p class="mt-1 text-xs font-bold text-red-600">`
+- ฟิลด์ที่ผิด → `class="field border-danger-300 focus:ring-danger-500/15"` + `<p class="mt-1 text-xs font-bold text-danger-600">`
 - ฟิลด์ที่ห้ามแก้ → `disabled` (`.field` จัดสีให้แล้ว)
 - ปุ่ม submit ต้อง `:disabled="isSaving"` และแสดง spinner ระหว่างบันทึก
 
@@ -302,7 +311,7 @@ Swal.fire({ title: 'กำลังโหลดข้อมูล...', allowOuts
   <div class="page-card p-4 sm:p-5">
     <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">นักเรียนทั้งหมด</p>
     <p class="font-display num mt-2 text-2xl font-bold text-stone-900 sm:text-3xl">42</p>
-    <p class="mt-1 text-xs font-bold text-emerald-600"><i class="bi bi-arrow-up-short" /> +3 เดือนนี้</p>
+    <p class="mt-1 text-xs font-bold text-ok-600"><i class="bi bi-arrow-up-short" /> +3 เดือนนี้</p>
   </div>
 </div>
 ```
