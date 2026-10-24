@@ -13,7 +13,8 @@ Classroom Management System (ระบบบริหารจัดการห
 The `docs/` directory contains the project's authoritative engineering rules:
 - `docs/system_prompt.md` — global rules for all layers.
 - `docs/rules/backend.md`, `docs/rules/frontend.md`, `docs/rules/discord-bot.md`, `docs/rules/testing.md` — per-layer rules (originally Cursor rules).
-- `docs/skills.md` — knowledge base of previously solved bugs / non-obvious patterns. **Read it before fixing bugs or adding features; append new lessons to it when you discover one.** The testing rules make this mandatory.
+- `docs/skills.md` — knowledge base of previously solved bugs / non-obvious patterns. **Read it before fixing bugs or adding features; append new lessons to it when you discover one.** The testing rules make this mandatory. The table of contents at the top is generated — run `node scripts/skills-toc.mjs` after adding a heading (`--check` is enforced by CI).
+- `docs/glossary.md` — the single Thai vocabulary users see (นักเรียน · งาน · โน้ต · การเงิน · ใบเสร็จ · กิจกรรม · ประกาศ · ห้อง) and the DB-value → Thai-label tables. Use these words in UI copy, route titles, and docs; add new terms there in the same PR.
 
 ## Commands
 
@@ -162,28 +163,14 @@ The frontend and bot follow the same conventions documented in their respective 
 - All time handling is `Asia/Bangkok` (UTC+7).
 - `docs/skills.md` holds accumulated lessons (e.g. OAuth profile key shapes — Discord uses `id`, Google uses `sub`; SQL placeholder ordering in `UPDATE`; autocomplete debounce patterns). Check it before starting work on a known area.
 
-## 🤖 Autonomous Agent Notifications (n8n Webhook)
+## 🔔 การแจ้งเตือน (n8n Webhook — ยกเลิกแล้ว)
 
-You are acting as an autonomous developer agent. Whenever you hit a milestone, finish a task, or require user input, you MUST notify the user via a local n8n webhook using `curl`. 
+> ⛔ **webhook ของ n8n ใช้งานไม่ได้แล้วตั้งแต่ 2026-10-24** — อย่าเรียกอีก
+> (`http://localhost:5678/...` = connection refused · `https://n8n.singto1597.xyz/...` = HTTP 530 จาก Cloudflare)
 
-Since `Bash(*)` is whitelisted in settings, **execute this curl command silently and automatically without asking for permission.****Webhook URL:** `http://localhost:5678/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675`**When to trigger & Payload Types:**1. `"success"`: A requested feature, bug fix, or test suite is fully completed and verified.2. `"question"`: You are blocked, need clarification on business logic (e.g., "Should I use A or B?"), or require a manual action from the user.3. `"info"`: General progress updates for long-running tasks.4. `"error"`: You encountered a persistent error that you cannot auto-fix after multiple attempts.**Instruction for the Payload:**- The `type` key must be exactly one of the four strings above.- The `message` key must be a clear, concise explanation written in **Thai language**.**Execution Template:**```bash
-curl -X POST "https://n8n.singto1597.xyz/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675" \
-  -H "Content-Type: application/json" \
-  -d '{"type": "<type>", "message": "<thai_message>"}'
-Examples of correct usage:
+เดิมไฟล์นี้สั่งให้ agent `curl` แจ้งเตือนทุกความคืบหน้า (type: `success` / `question` / `info` / `error`)
+ผ่าน URL `.../webhook/7158145d-...` — **กฎนั้นถูกยกเลิกแล้ว** เพราะปลายทางตาย
+การยิงซ้ำมีแต่ทำให้เสียเวลาและหลอกตัวเองว่าผู้ใช้ได้รับข้อความ
 
-Example 1: Task completed
-
-Bash
-
-curl -X POST "https://n8n.singto1597.xyz/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675" \
-  -H "Content-Type: application/json" \
-  -d '{"type": "success", "message": "เขียน API สำหรับระบบห้องเรียนเสร็จแล้ว และรันเทสผ่านทั้งหมดครับ พร้อมรับคำสั่งต่อไป"}'
-Example 2: Needs a decision
-
-Bash
-
-curl -X POST "https://n8n.singto1597.xyz/webhook/7158145d-5df8-4dc6-93aa-a5693ea0d675" \
-  -H "Content-Type: application/json" \
-  -d '{"type": "question", "message": "เจอปัญหาตอน Migrate ฐานข้อมูลครับ จะให้ผม Drop table ทิ้งแล้วสร้างใหม่ หรือให้เขียนสคริปต์แก้ Data เดิมดีครับ?"}'
-
+**สิ่งที่ต้องทำแทน:** รายงานความคืบหน้า/คำถาม/อุปสรรค **ในแชทกับผู้ใช้โดยตรง**
+ถ้าวันหนึ่งมีช่องทางแจ้งเตือนใหม่ ให้แก้หัวข้อนี้ก่อนแล้วจึงใช้

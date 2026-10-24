@@ -9,13 +9,23 @@
 - **Styling:** `Tailwind CSS` (ไม่มี DaisyUI ในโปรเจกต์นี้) — ดูสัญญาการออกแบบที่ [`frontend/DESIGN.md`](../../frontend/DESIGN.md)
 - **HTTP Client:** `Axios` (ผ่าน `src/services/api.ts`)
 
-## 2. โครงสร้างและการแยก Layer (4-Layer Architecture)
+## 2. โครงสร้างและการแยก Layer
 - **Types (`src/types/`):** นิยาม Interface สำหรับ Data Model ทั้งหมด
 - **Services (`src/services/`):** 
   - ศูนย์รวม Logic การเรียก API (ห้ามเรียก `api.get/post` ใน View โดยตรง)
   - จัดการข้อมูลก่อนส่งหรือหลังรับจาก Backend
 - **Views (`src/views/`):** จัดการ UI Logic, Lifecycle และการแสดงผล
 - **Components (`src/components/`):** UI ชิ้นส่วนที่ใช้ซ้ำได้
+  - `src/components/ui/`: primitive กลางของทั้งแอป (`PageHeader`, `StateBlock`, `SkeletonRows`, `RowActionMenu`) — เพิ่มที่นี่ก่อนสร้างใหม่ในวิว
+- **Stores (`src/stores/`):** Pinia — เฉพาะสถานะที่ใช้ร่วมข้ามหน้า (ตอนนี้คือ `auth.ts`)
+- **Layouts (`src/layouts/`):** โครงหน้าของแอป (`MainLayout` = หลังล็อกอิน, `GlobalLayout` = lobby)
+- **Router (`src/router/`):** `routes.ts` (ข้อมูลเส้นทางล้วน), `meta.ts` (สัญญา `route.meta`), `redirect.ts`/`unavailable.ts` (ปลายทางหลัง redirect), `index.ts` (guard + title)
+- **Utils (`src/utils/`):** ฟังก์ชันบริสุทธิ์ที่ทดสอบได้ (เงิน, วันที่, ชื่อ, ดาวน์โหลด)
+- **Constants (`src/constants/`):** ค่าคงที่ใช้ร่วม (`nav.ts` = ชื่อหน้า/เมนูแหล่งเดียว, `storageKeys.ts`, `theme.ts`)
+
+> ทิศทาง dependency: `views` → `components`/`services`/`stores`/`utils` → `constants`/`types`
+> ย้อนทางไม่ได้ — ไฟล์ใน `services`/`utils`/`constants` **ห้าม import จาก `views` หรือ layout**
+> (การ import layout/component แบบ static ในโมดูลข้อมูลก่อ import cycle จริงมาแล้ว ดู `docs/skills.md`)
 
 ## 3. Data Flow & API Standard
 - **No Direct DB Access:** ห้ามเชื่อมต่อ Database โดยตรง ต้องผ่าน API ของ Backend เท่านั้น

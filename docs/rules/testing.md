@@ -12,13 +12,13 @@ This project uses:
 - **Pytest** with `pytest-asyncio` for async tests.
 
 ## 🚨 RULE 1: ABSOLUTE STATE ISOLATION
-Tests MUST NEVER share state or hardcode IDs. Tests run in a shared database where data might overlap if not isolated properly[cite: 1, 2, 3].
-- Always use a randomized `server_id` (e.g., `random.randint(1_000_000, 9_999_999)`) to isolate classroom data[cite: 1, 2, 3].
+Tests MUST NEVER share state or hardcode IDs. Tests run in a shared database where data might overlap if not isolated properly.
+- Always use a randomized `server_id` (e.g., `random.randint(1_000_000, 9_999_999)`) to isolate classroom data.
 - Never hardcode primary keys (`id = 1`). Retrieve them dynamically after `INSERT`.
 - Rely on the `clean_database` fixture in `conftest.py` which truncates master tables automatically before each test.
 
 ## 🚨 RULE 2: DEEP DATABASE VERIFICATION (MANDATORY)
-Do NOT just assert the HTTP response (`res.status_code == 200`). You MUST directly query the database to verify the state mutation[cite: 1, 2].
+Do NOT just assert the HTTP response (`res.status_code == 200`). You MUST directly query the database to verify the state mutation.
 - Use the `db_pool` fixture to acquire a connection:
   ```python
   async def test_example(client, db_pool, admin_headers):
