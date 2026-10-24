@@ -74,7 +74,11 @@ class ExportMixin:
         if field == "status":
             return PARTICIPANT_STATUS_LABELS.get(str(value), value)
         if field == "activity_date":
-            return ActivityService._format_buddhist_date(value)
+            # ⚠️ เดิมเรียก `ActivityService._format_buddhist_date` ซึ่ง **ไม่มีอยู่จริง**
+            #    (ชื่อนั้นไม่ถูก import ที่นี่ด้วย) ⇒ ถ้ามีแถวที่ field เป็น activity_date
+            #    ใน export แบบ metadata จะระเบิด `NameError` ตอนผู้ใช้กดดาวน์โหลด
+            #    ตัวจริงคือ staticmethod ใน mixin นี้เอง (ดูกฎ ruff F821)
+            return ExportMixin._format_buddhist_date(value)
         if field == "is_paid":
             # Boolean Checkbox → ไทย
             if isinstance(value, bool):

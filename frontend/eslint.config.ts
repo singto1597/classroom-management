@@ -25,6 +25,13 @@ export default defineConfigWithVueTs(
   {
     ...pluginPlaywright.configs['flat/recommended'],
     files: ['e2e/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+    rules: {
+      ...pluginPlaywright.configs['flat/recommended'].rules,
+      // skip ที่ **มีเงื่อนไข + เหตุผล** คือพฤติกรรมที่เราต้องการโดยเจตนา: ถ้าไม่มี
+      // session จาก `docker-compose.e2e.yml` + `e2e_seed` เทสต์ทดสอบอะไรไม่ได้เลย
+      // การผ่านหลอกแย่กว่าการ skip ที่บอกวิธีแก้ (กฎยังจับ `test.skip()` เปล่า ๆ อยู่)
+      'playwright/no-skipped-test': ['warn', { allowConditional: true }],
+    },
   },
 
   {

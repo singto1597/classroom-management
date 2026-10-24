@@ -1,0 +1,88 @@
+# ============================================================
+# E2E stack — Postgres + API จริง สำหรับ Playwright
+# ============================================================
+#
+# 🔁 ใช้คู่กับ `frontend/e2e/smoke.spec.ts`:
+#    docker compose -f docker-compose.e2e.yml up -d --build --wait
+#    mkdir -p frontend/e2e/.auth
+#    docker compose -f docker-compose.e2e.yml --profile seed run --rm --no-deps \
+#        --user "$(id -u):$(id -g)" e2e_seed
+#    cd frontend && npm run build && npm run test:e2e
+#
+# ⚠️ ทำไมไม่ใช้ `docker-compose.test.yml`: ตัวนั้นเป็น pytest runner แบบ one-shot
+#    (ไม่มี port, ไม่รอ healthy) ⇒ ใช้เป็น API ที่ Playwright ยิงไม่ได้
+#
+# 🔒 ผูกพอร์ตกับ 127.0.0.1 เท่านั้น (เหตุผลเดียวกับ docker-compose.test.yml)
+#
+# 🏷️ ต้องมี `name:` — compose ตั้งชื่อ project ตามชื่อโฟลเดอร์ ถ้าไม่ระบุ ไฟล์นี้จะไป
+#    ปนกับ `docker-compose.test.yml` (คนละ stack) ⇒ `down --remove-orphans` ของฝั่งหนึ่ง
+#    ลบ container ของอีกฝั่งทิ้ง และ `up` จะเตือน orphan ทุกครั้ง
+name: classroom-e2e
+
+x-e2e-env: &e2e-env
+  DATABASE_URL: postgresql://e2e:e2e@e2e_db:5432/e2e
+  API_KEY: e2e-api-key
+  SECRET_KEY: e2e-secret
+  JWT_SECRET: e2e-jwt-secret
+  SUPER_ADMIN_ID: "999999999999999"
+  # Redis ไม่ได้ใช้ใน E2E (ActionService จะไม่ publish เมื่อห้องไม่ผูก Discord)
+  REDIS_URL: redis://127.0.0.1:6379/15
+  DISCORD_CLIENT_ID: dummy_discord_id
+  DISCORD_CLIENT_SECRET: dummy_discord_secret
+  DISCORD_REDIRECT_URI: http://localhost/dummy_discord_callback
+  GOOGLE_CLIENT_ID: dummy_google_id
+  GOOGLE_CLIENT_SECRET: dummy_google_secret
+  GOOGLE_REDIRECT_URI: http://localhost/dummy_google_callback
+  PYTHONPATH: /app
+
+services:
+  e2e_db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e
+      POSTGRES_DB: e2e
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e -d e2e"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  e2e_api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment: *e2e-env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      e2e_db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # one-shot — `docker compose --profile seed run --rm e2e_seed`
+  # (ไม่ขึ้นตอน `up` เพราะอยู่ใน profile)
+  #
+  # ⚠️ เขียนไฟล์ลง bind mount **ไม่ใช่ redirect stdout** — เครื่องที่ไม่มี buildx
+  #    (เช่น CI runner / VPS นี้) จะให้ compose ใช้ legacy builder ที่พิมพ์ build log
+  #    ลง **stdout** ⇒ ไฟล์ session กลายเป็น JSON ปน log และ Playwright พังแบบสับสน
+  #    `--user $(id -u):$(id -g)` จำเป็นเพราะ image รันเป็น appuser (uid 1000)
+  #    ซึ่งเขียนโฟลเดอร์ของ runner ไม่ได้
+  e2e_seed:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles: ["seed"]
+    environment: *e2e-env
+    command: ["python", "/app/scripts/e2e_seed.py", "/out/session.json"]
+    volumes:
+      - ./frontend/e2e/.auth:/out
+    depends_on:
+      e2e_api:
+        condition: service_healthy

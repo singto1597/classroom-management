@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   frontend:
-    name: type-check + unit tests
+    name: type-check + lint + unit tests + build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -62,6 +62,15 @@ jobs:
       - name: type-check
         run: npm run type-check
 
+      # lint เดิม **ไม่เคยรันบน CI เลย** ⇒ กฎที่เขียนไว้ถูกบังคับเฉพาะคนที่จำได้
+      # (สคริปต์มี `--fix` แต่บน CI ยังเหลือ error ที่แก้ไม่ได้ = ตกตามปกติ)
+      - name: lint
+        run: npm run lint
+
       # ⚠️ ต้องมี `--run` ไม่งั้น vitest จะเข้า watch mode แล้ว job ค้างจนหมดเวลา
       - name: unit tests
         run: npm run test:unit -- --run
+
+      # build จริง (ไม่ใช่แค่ type-check) — จับ import/asset ที่ type ผ่านแต่ Vite ตก
+      - name: build
+        run: npm run build

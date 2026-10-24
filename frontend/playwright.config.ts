@@ -27,14 +27,17 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: 'html',
+  /* Reporter to use. See https://playwright.dev/docs/test-reporters
+     `list` ทำให้ log บน CI อ่านได้ทันที, `html` เก็บไว้เปิดดูตอนตก (ไม่เปิดเบราว์เซอร์เอง) */
+  reporter: [['list'], ['html', { open: 'never' }]],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
     actionTimeout: 0,
-    /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.CI ? 'http://localhost:4173' : 'http://localhost:5173',
+    /* Base URL to use in actions like `await page.goto('/')`.
+       `E2E_BASE_URL` ชี้ staging/production ที่ deploy จริงได้ (เช่น classts.singto1597.xyz) */
+    baseURL:
+      process.env.E2E_BASE_URL || (process.env.CI ? 'http://localhost:4173' : 'http://localhost:5173'),
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -96,15 +99,19 @@ export default defineConfig({
   /* Folder for test artifacts such as screenshots, videos, traces, etc. */
   // outputDir: 'test-results/',
 
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    /**
-     * Use the dev server by default for faster feedback loop.
-     * Use the preview server on CI for more realistic testing.
-     * Playwright will re-use the local server if there is already a dev-server running.
-     */
-    command: process.env.CI ? 'npm run preview' : 'npm run dev',
-    port: process.env.CI ? 4173 : 5173,
-    reuseExistingServer: !process.env.CI,
-  },
+  /* Run your local dev server before starting the tests
+     ⚠️ ถ้าตั้ง `E2E_BASE_URL` (ยิง staging/production) ต้องไม่สตาร์ทเซิร์ฟเวอร์ในเครื่อง —
+     ไม่งั้นเทสต์จะยิง localhost แทนปลายทางที่ตั้งใจ เงียบ ๆ */
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        /**
+         * Use the dev server by default for faster feedback loop.
+         * Use the preview server on CI for more realistic testing.
+         * Playwright will re-use the local server if there is already a dev-server running.
+         */
+        command: process.env.CI ? 'npm run preview' : 'npm run dev',
+        port: process.env.CI ? 4173 : 5173,
+        reuseExistingServer: !process.env.CI,
+      },
 })

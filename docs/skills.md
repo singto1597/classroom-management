@@ -3170,3 +3170,32 @@
 - **Rule:** (1) 🔴 **เปลี่ยนสคีมา = เขียน migration ใหม่เท่านั้น** ห้ามแก้ `init_db.py` ให้ตารางที่มีอยู่แล้วได้คอลัมน์ใหม่ (2) 🔴 **ห้ามแก้ migration ที่ apply แล้ว** — เขียนเลขถัดไป (3) 🔴 **ทุก runner ต้องถือ lock ก่อนอ่านสถานะ** ไม่ใช่แค่ตอนเขียน (4) 🔴 **`0` ที่คืนมาต้องแยกออกจาก "ไม่เคยรัน"** — log ให้เห็นจำนวนไฟล์ในโค้ดด้วย (5) ⚠️ **loader ที่ค้นไฟล์ผิดแบบคืนลิสต์ว่าง = ฟีเจอร์ที่ไม่มีใครรู้ว่าหาย** ต้องมีเทสต์ที่อ่านไฟล์จริงและ assert ว่าลิสต์ที่ได้เรียงถูก
 - **Tests:** `backend/tests/test_migrations.py` — idempotent (รันซ้ำได้ 0 + แถวเดียว), rollback ต่อไฟล์, drift, **สอง pool apply พร้อมกันแล้วได้ `[0, 1]`**, loader ปฏิเสธคำสั่งทำลายข้อมูล/เลขซ้ำ/`SQL` ว่าง · `test_init_db_upgrade_path.py` ยังต้องเขียว
 - **Date Added:** 2026-10-24
+
+### 🧪 E2E ที่ "ผ่าน" ต้องยิง API จริง — และ `docker compose run > ไฟล์.json` พังเงียบเมื่อเครื่องไม่มี buildx
+- **Context/Problem:** ก่อนงานนี้ `frontend/e2e/vue.spec.ts` เป็น scaffold ของ Vite (`h1 = "You did it!"`) ที่ตกทุกครั้ง ⇒ ไม่มีใครรัน e2e เลย ("e2e เขียว" ไม่เคยถูกพิสูจน์). ระบบล็อกอินด้วย OAuth เท่านั้น จึงไม่มีทางกดปุ่ม login ในเทสต์ได้โดยไม่พึ่ง provider จริง
+- **Root Cause:**
+  1. **ล็อกอิน:** OAuth callback ต้องมี secret + โดเมนจริง ⇒ e2e ที่เริ่มจากหน้า login จะเปราะและช้าโดยไม่ได้ทดสอบอะไรเพิ่ม
+  2. **`docker compose run … > session.json`:** compose ใช้ **legacy builder** เมื่อเครื่องไม่มี buildx (VPS นี้และ runner ทั่วไป) ⇒ `#0 building with "default" instance…` ถูกพิมพ์ลง **stdout** ปนหัวไฟล์ JSON → `JSON.parse` ล้มด้วย `Unexpected end of JSON input` ทั้งที่ exit code ยังเป็น 0 บางครั้ง. รอบแรก "ดูเหมือนผ่าน" เพราะ image ถูก build ไปแล้วและ compose ไม่พิมพ์อะไร
+  3. **project name:** compose ตั้งชื่อ project ตามชื่อโฟลเดอร์ ⇒ `docker-compose.e2e.yml` กับ `docker-compose.test.yml` อยู่โฟลเดอร์เดียวกัน = **project เดียวกัน** ⇒ `down --remove-orphans` ของฝั่งหนึ่งไปลบ container ของอีกฝั่ง (เห็นจริง: `up` เตือน orphan `classroom_test_postgres`) และชื่อ image/network ทับกัน
+- **Correct Pattern/Solution:**
+  ```yaml
+  # docker-compose.e2e.yml
+  name: classroom-e2e          # แยก project จาก docker-compose.test.yml
+  e2e_seed:
+    profiles: ["seed"]
+    command: ["python", "/app/scripts/e2e_seed.py", "/out/session.json"]
+    volumes:
+      - ./frontend/e2e/.auth:/out
+  ```
+  ```bash
+  mkdir -p frontend/e2e/.auth && rm -f frontend/e2e/.auth/session.json
+  docker compose -f docker-compose.e2e.yml --profile seed run --rm --no-deps \
+      --user "$(id -u):$(id -g)" e2e_seed        # เขียนไฟล์เอง ไม่พึ่ง stdout
+  node -e "const s=require('./frontend/e2e/.auth/session.json'); if(!s.token) process.exit(1)"
+  ```
+  - ข้ามเฉพาะ OAuth: seed user/room/สมาชิกใน DB ของ E2E แล้วออก JWT ด้วย `create_access_token` **ตัวเดียวกับที่ login ใช้จริง**; `page.addInitScript` เขียน localStorage/sessionStorage ก่อนแอปโหลด ⇒ router guard, room bootstrap, API call, ฟอร์ม ถูกทดสอบจริงทั้งหมด
+  - `--user $(id -u):$(id -g)` จำเป็นเพราะ image รันเป็น `appuser` (uid 1000) ซึ่งเขียนโฟลเดอร์ที่ runner สร้างไม่ได้
+  - `sessionStorage` ใส่ผ่าน `page.addInitScript` ได้ (Playwright `storageState` รองรับแค่ localStorage)
+- **Rule:** (1) 🔴 **อย่า redirect stdout ของคำสั่ง docker ลงไฟล์ข้อมูล** — ใช้ bind mount และให้โปรแกรมเขียนไฟล์เอง (2) 🔴 **compose ทุกไฟล์ในโฟลเดอร์เดียวกันต้องมี `name:`** ถ้าเป็นคนละ stack (3) 🔴 **เทสต์ที่ไม่มีข้อมูลต้อง skip พร้อมเหตุผล ไม่ใช่ผ่านหลอก** และต้องมีขั้นตอน validate ไฟล์ก่อนรันไม่งั้น skip จะกลายเป็นความเงียบ (4) ⚠️ `CI=1` เปลี่ยน `vite preview` เป็นพอร์ต 4173 ⇒ backend ต้อง allow origin นี้ใน CORS (ยิง API ตรง ไม่ผ่าน proxy)
+- **Tests:** `frontend/e2e/smoke.spec.ts` (2 เคส: `/` → dashboard ไม่เด้ง login · สร้างงานแล้วเห็นในรายการ) รันกับ Postgres + backend image จริงผ่าน `docker-compose.e2e.yml` — ผ่าน 2/2 ด้วย `CI=1 npx playwright test --project=chromium`
+- **Date Added:** 2026-10-24

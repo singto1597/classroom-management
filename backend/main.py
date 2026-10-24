@@ -68,8 +68,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173", 
+        "http://localhost:5173",
         "http://127.0.0.1:5173",
+        # 🧪 `vite preview` (พอร์ต 4173) — ใช้โดย E2E (`npm run build && npm run test:e2e`)
+        #    ถ้าไม่ใส่ตรงนี้ เบราว์เซอร์จะถูก CORS บล็อกทุกคำขอ แล้วเทสต์ล้มด้วยสาเหตุที่อ่านไม่ออก
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
         "https://classtestts.singto1597.xyz",
         "https://classts.singto1597.xyz",
         "https://class.singto1597.xyz"

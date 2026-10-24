@@ -44,6 +44,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 🔎 ด่านแรกที่เร็วที่สุด: จับ "ชื่อที่ไม่มีจริง" (F821) และ syntax พัง (E9)
+      #    ทำไมไม่ใช้ `--select F` ทั้งชุด: โค้ดเดิมมี unused import/stray variable อยู่แล้ว
+      #    ⇒ ด่านจะแดงตั้งแต่วันแรกแล้วกลายเป็นเสียงรบกวนที่ทุกคนเมิน
+      #    ชุดนี้คือ subset ที่ **ไม่มี false positive** (pyflakes เจอแล้วของพังจริงแน่)
+      #    ⚠️ ruff ตัวนี้จับ `ActivityService._format_buddhist_date` ที่ไม่มีอยู่จริงได้จริง
+      #       (services/activity/export.py) — บั๊กที่ type checker/เทสต์ไม่เคยแตะ
+      - name: ruff (E9,F63,F7,F82)
+        uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.17.2"
+          args: "check --select E9,F63,F7,F82 --output-format concise backend"
+
       # คำสั่งเดียวกับใน CLAUDE.md ทุกตัวอักษร — ถ้าจะแก้ ให้แก้ทั้งสองที่พร้อมกัน
       # (test_db = Postgres 16 บนพอร์ต 5433, conftest.py สร้าง DB ชื่อสุ่มต่อ session
       #  แล้ว drop ทิ้ง ⇒ ไม่มีสถานะค้างระหว่างรอบ)

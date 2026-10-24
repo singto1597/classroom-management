@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { Debtor, Account, StudentDebtItem, InvoiceBatchIssueResult } from '@/types/finance'
@@ -13,7 +12,6 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 
-const router = useRouter()
 const authStore = useAuthStore()
 const currentServerId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
