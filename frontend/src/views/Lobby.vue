@@ -2,7 +2,7 @@
 defineOptions({ name: 'LobbyView' });
 
 import { ref, onMounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ClassroomService } from '@/services/classroom';
 import { StudentService } from '@/services/student';
@@ -13,9 +13,17 @@ import type { UserRoom } from '@/types/classroom';
 import type { Invite } from '@/types/student';
 import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
+import { unavailableTarget } from '@/router/unavailable';
 
 const authStore = useAuthStore();
 const router = useRouter();
+const route = useRoute();
+
+/**
+ * ปลายทางที่ผู้ใช้ตั้งใจจะไปก่อนถูกพามาเลือกห้อง (`/lobby?next=/finance/debtors`)
+ * — ผ่าน `safeRedirect()` มาแล้วเท่านั้น ⇒ ใช้ได้โดยไม่ต้องตรวจซ้ำ
+ */
+const nextTarget = computed(() => unavailableTarget(route.query));
 
 const isLoadingRooms = ref(true);
 const rooms = ref<UserRoom[]>([]);
@@ -154,7 +162,8 @@ const selectRoom = (room: UserRoom) => {
   // 🎯 เปิดห้องนี้ใน "แท็บนี้" — สิทธิ์ (is_admin/permissions) อยู่ในรายการห้องแล้ว
   //    ไม่ต้องยัดซ้ำทีละค่าอย่างเดิม และไม่กระทบแท็บอื่นที่อาจเปิดห้องอื่นอยู่
   authStore.setActiveRoom(room.room_id);
-  router.push('/dashboard');
+  // 🚧 กลับไปหน้าที่ตั้งใจไว้ (ถ้ามี) — เช่นลิงก์ลึกจาก Discord ที่พามาถึง Lobby
+  router.push(nextTarget.value ?? '/dashboard');
 };
 
 const openJoinModal = () => {
@@ -246,7 +255,7 @@ const submitJoinRoom = async () => {
         ]);
       }
       authStore.setActiveRoom(result.room_id);
-      router.push('/dashboard');
+      router.push(nextTarget.value ?? '/dashboard');
     });
 
   } catch (error: unknown) {

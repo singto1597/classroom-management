@@ -3236,3 +3236,25 @@
 - **Rule:** (1) 🔴 **ห้าม hardcode วันที่ในเทสต์ที่ข้อมูลถูกสร้างด้วย `NOW()`** — คำนวณจาก `date.today()` เสมอ (เหมือน `_make_bill(due_date=...)` ที่ต้องเป็นอนาคต) (2) ⚠️ **ข้อความ assert ต้องบอกอาการที่เห็น ไม่ใช่สาเหตุที่เดา** — ถ้าต้องชี้สาเหตุ ให้ขึ้นต้นด้วย "ถ้าได้ 0 **ทั้งที่** ช่วงวันที่ครอบคลุมวันนี้" (3) ⚠️ เทสต์ที่ "ผ่านมาตลอด" ไม่ได้พิสูจน์ว่ายังถูก — ต้องรันเต็มชุดเป็นรอบ ๆ (รอบนี้ใช้ 27 นาที)
 - **Tests:** `test_finance_credits.py::test_budget_overview_counts_revenue_from_credit_application` ผ่าน · ชุดเต็ม 1140 passed / 1 skipped (ก่อนแก้) — ตัวที่ตกคือตัวนี้ตัวเดียว
 - **Date Added:** 2026-10-24
+
+### 🗺️ แยก `router/routes.ts` ออกมาแล้วเทสต์ได้ — แต่ import cycle ทำให้ `createRouter(undefined)` ระเบิดเฉพาะตอนเทสต์
+- **Context/Problem:** P0.4 ย้ายตาราง route ออกจาก `router/index.ts` เป็น `router/routes.ts` เพื่อให้เทสต์ไล่ตรวจได้ว่า "ทุก route มี `meta.title` / เมนูชี้ path ที่มีจริง / catch-all อยู่ท้ายสุด" — พอ import `@/router/routes` ใน vitest ปรากฏ `TypeError: Cannot read properties of undefined (reading 'forEach')` ที่ `createRouterMatcher` ⇒ `routes` เป็น `undefined` ตอนสร้าง router
+- **Root Cause:** วงจร import ที่ **มีอยู่ก่อนแล้ว** แต่ไม่เคยถูกเปิดเผย:
+  `router/index.ts` → `router/routes.ts` → (static import) `MainLayout.vue` → `stores/auth.ts` → `router/index.ts`
+  ในแอปจริง `main.ts` import router ก่อน จึงไม่พัง แต่เมื่อ **เทสต์ import `routes.ts` เป็นตัวแรก** ลำดับการประเมินกลายเป็น routes → layout → store → index ⇒ `index.ts` ถูกประเมิน **ระหว่างที่ `routes` ยังไม่ถูกกำหนดค่า** ⇒ `createRouter({ routes: undefined })`
+  (เดิม `index.ts` import layout แบบ static เหมือนกัน แต่ไม่มีใคร import `routes.ts` ก่อน `index.ts`)
+- **Correct Pattern/Solution:**
+  ```ts
+  // router/routes.ts — layout เป็น lazy chunk ด้วย (ไม่ใช่แค่ view)
+  {
+    path: '/',
+    component: () => import('@/layouts/MainLayout.vue'),
+    children: [ … ],
+  }
+  ```
+  - `routes.ts` กลายเป็นข้อมูลล้วน (import แค่ `routeTitles`) ⇒ ไม่มีทางเกิดวงจรตอน module load
+  - `router/index.ts` เหลือแค่ `createRouter` + guard + `document.title` (`afterEach` อ่าน `meta.title`)
+  - เพิ่ม `router/__tests__/routes.spec.ts` ที่ตรวจ: title ครบ, `routeTitles` ไม่มีคีย์ค้าง/ไม่ขาด, เมนูชี้ path จริง, catch-all เป็นตัวสุดท้ายและมีตัวเดียว, ทุกหน้าในแอปมี `navTab`
+- **Rule:** (1) 🔴 **ไฟล์ที่เป็น "ข้อมูล" (route table/menu) ต้องไม่ import layout/component แบบ static** — ใช้ `() => import()` เสมอ ไม่งั้นเทสต์ที่ import ไฟล์ข้อมูลจะลากทั้งแอปเข้ามาและชนวงจร (2) 🔴 **`createRouter` รับ `routes: undefined` ได้โดยไม่ฟ้อง type ถ้าค่ามาจาก import ที่ยังไม่ init** — อาการคือ error ที่ `vue-router` ไม่ใช่ที่ไฟล์เรา ให้สงสัย import cycle ทันที (3) ⚠️ `lib` ของ tsconfig ยังเป็นชุดที่ไม่มี `Array.prototype.at` — ใช้ `arr[arr.length - 1]` ในโค้ด/เทสต์ (4) ⚠️ อย่าเขียนตัวอักษรควบคุมลงในซอร์สตรง ๆ (เช่นทำ regex แทนเรนจ์รหัสอักขระด้วยตัวอักษรจริง) — ไฟล์จะถูกมองเป็น binary (`file` ตอบ `data`) และเครื่องมือค้นหาจะเงียบ; ใช้ฟังก์ชัน `charCodeAt` แทน regex
+- **Tests:** `src/router/__tests__/routes.spec.ts` (0→pass), `redirect.spec.ts` (37 เคส: `//evil.com`, `https://…`, backslash, encode, CR/LF, `/login`, path ยาวเกิน), `services/__tests__/apiStatus.spec.ts`, e2e `smoke.spec.ts` เพิ่ม 2 เคส: 404 (หน้าขาว → "ไม่พบหน้าที่ต้องการ" + ชื่อแท็บ) และ deep link ตอนยังไม่เลือกห้อง (`/students` → `/lobby?next=/students` → เลือกห้อง → กลับ `/students`) — unit 311/311 · e2e 4/4 · type-check/lint/build ผ่าน · ⚠️ vue-router **ไม่ encode `/` ใน query** ⇒ assert ต้องเป็น `?next=/students` ไม่ใช่ `%2Fstudents`
+- **Date Added:** 2026-10-24

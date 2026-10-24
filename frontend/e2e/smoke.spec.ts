@@ -30,6 +30,41 @@ test('เปิด / แล้วไป dashboard ได้โดยไม่ถ
   await expect(page.getByText('ไม่สามารถโหลดข้อมูลได้')).toHaveCount(0)
 })
 
+test('เปิด path ที่ไม่มีอยู่จริง ⇒ หน้า 404 ไม่ใช่จอขาว', async ({ page }) => {
+  // 🕳️ ก่อนมี catch-all route ระบบจะ render อะไรไม่ออกเลย (หน้าจอว่าง)
+  // เทสต์นี้พิสูจน์ทั้ง route, ข้อความ และชื่อแท็บเบราว์เซอร์ที่มาจาก meta.title
+  await page.goto('/this-page-does-not-exist')
+
+  await expect(page.getByRole('heading', { level: 1, name: 'ไม่พบหน้าที่ต้องการ' })).toBeVisible()
+  await expect(page).toHaveTitle(/ไม่พบหน้านี้/)
+  await expect(page).toHaveURL(/\/this-page-does-not-exist$/)
+
+  await page.getByRole('link', { name: 'กลับหน้าหลัก' }).click()
+  await expect(page).toHaveURL(/\/dashboard$/)
+})
+
+test('เปิดลิงก์ลึกตอนยังไม่เลือกห้อง ⇒ เลือกห้องแล้วกลับไปหน้านั้น', async ({ page }) => {
+  test.skip(!session, MISSING_SESSION)
+
+  // จำลอง "ล็อกอินแล้วแต่ยังไม่ได้เลือกห้อง" — ล้างคีย์ห้องที่ seedSession ใส่ไว้
+  // (init script นี้ทำงานหลัง seedSession เพราะถูกเพิ่มทีหลัง)
+  await page.addInitScript(() => {
+    sessionStorage.removeItem('active_room_id')
+    localStorage.removeItem('last_room_id')
+  })
+
+  await page.goto('/students')
+
+  // guard พาไป Lobby พร้อมพกปลายทางเดิมไว้ (ไม่ใช่ทิ้งไปเฉย ๆ)
+  // ⚠️ vue-router ไม่ encode `/` ใน query ⇒ URL จริงคือ `?next=/students` ไม่ใช่ `%2Fstudents`
+  await expect(page).toHaveURL(/\/lobby\?next=\/students$/)
+
+  await page.getByRole('button', { name: new RegExp(session.room.name) }).first().click()
+
+  // เลือกห้องเสร็จกลับไปหน้าปลายทางที่ตั้งใจ ไม่ใช่ dashboard
+  await expect(page).toHaveURL(/\/students$/)
+})
+
 test('สร้างงานใหม่แล้วเห็นในรายการทันที', async ({ page }) => {
   test.skip(!session, MISSING_SESSION)
 

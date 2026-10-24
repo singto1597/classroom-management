@@ -1,226 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import MainLayout from '@/layouts/MainLayout.vue';
-import GlobalLayout from '@/layouts/GlobalLayout.vue';
+import { pageTitle } from '@/router/meta';
+import { routes } from '@/router/routes';
+import { toLobbyFor } from '@/router/unavailable';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [
-    {
-      path: '/login',
-      name: 'login',
-      component: () => import('@/views/auth/Login.vue'),
-      meta: { requiresAuth: false }
-    },
-    {
-      path: '/auth/google/callback',
-      name: 'google-callback',
-      component: () => import('@/views/auth/GoogleCallback.vue'), 
-      meta: { requiresAuth: false }
-    },
-    {
-      path: '/auth/discord/callback',
-      name: 'discord-callback',
-      component: () => import('@/views/auth/DiscordCallback.vue'), 
-      meta: { requiresAuth: false }
-    },
-    // 🌟 เพิ่มหน้า Onboarding (บังคับกรอกชื่อ)
-    {
-      path: '/onboarding',
-      name: 'onboarding',
-      component: () => import('@/views/auth/Onboarding.vue'),
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/lobby',
-      component: GlobalLayout,
-      meta: { requiresAuth: true },
-      children: [
-        {
-          path: '',
-          name: 'lobby',
-          component: () => import('@/views/Lobby.vue'),
-        }
-      ]
-    },
-    {
-      path: '/',
-      component: MainLayout,
-      meta: { requiresAuth: true },
-      redirect: '/dashboard',
-      children: [
-        {
-          path: 'dashboard',
-          name: 'dashboard',
-          component: () => import('@/views/Dashboard.vue'),
-        },
-        {
-          path: 'students',
-          name: 'students', 
-          component: () => import('@/views/students/StudentList.vue'),
-        },
-        {
-          path: 'students/add',
-          name: 'add-student',
-          component: () => import('@/views/students/AddStudent.vue'),
-        },
-        {
-          path: 'students/export',
-          name: 'export-students',
-          component: () => import('@/views/students/ExportStudent.vue'),
-        },
-        {
-          path: 'students/:id',
-          name: 'student-profile',
-          component: () => import('@/views/students/StudentProfile.vue'),
-        },
-        {
-          path: 'students/:id/edit',
-          name: 'edit-student',
-          component: () => import('@/views/students/EditStudent.vue'),
-        },
-        {
-          path: 'roadmap',
-          name: 'roadmap',
-          component: () => import('@/views/roadmap/RoadmapView.vue'),
-        },
-        {
-          path: 'schedules',
-          name: 'schedules',
-          component: () => import('@/views/schedules/ScheduleManager.vue'),
-        },
-        {
-          path: 'tasks',
-          name: 'tasks',
-          component: () => import('@/views/tasks/TaskList.vue'),
-        },
-        {
-          path: 'tasks/add',
-          name: 'add-task',
-          component: () => import('@/views/tasks/AddTask.vue'),
-        },
-        {
-          path: 'tasks/:id/edit',
-          name: 'edit-task',
-          component: () => import('@/views/tasks/EditTask.vue'),
-        },
-        {
-          path: 'finance',
-          name: 'finance-dashboard',
-          component: () => import('@/views/finance/FinanceDashboard.vue'),
-        },
-        {
-          path: 'finance/settings',
-          name: 'finance-settings',
-          component: () => import('@/views/finance/FinanceSettings.vue'),
-        },
-        {
-          path: 'finance/transactions/add',
-          name: 'finance-add-transaction',
-          component: () => import('@/views/finance/AddTransaction.vue'),
-        },
-        {
-          path: 'finance/transactions',
-          name: 'finance-transaction-history',
-          component: () => import('@/views/finance/TransactionHistory.vue'),
-        },
-        {
-          path: 'finance/collections',
-          name: 'finance-collections',
-          component: () => import('@/views/finance/CollectionList.vue'),
-        },
-        {
-          path: 'finance/collections/:id',
-          name: 'finance-collection-detail',
-          component: () => import('@/views/finance/CollectionDetail.vue'),
-        },
-        {
-          path: 'finance/debtors',
-          name: 'finance-debtors',
-          component: () => import('@/views/finance/DebtorList.vue'),
-        },
-        {
-          // 💰 [F4] เงินรับล่วงหน้า — อ่านเปิดให้สมาชิก (ตรงกับ require_member ฝั่ง backend)
-          // ส่วนปุ่มเขียน (เติม/หัก/ยกเลิก) gate ด้วย `canManageFinance` ในตัวหน้า
-          // ⚠️ ห้าม gate ที่นี่ด้วย `isAdmin` — เหรัญญิกที่มี MANAGE_FINANCE จะเข้าหน้าไม่ได้
-          //    (กับดักเดียวกับที่ DebtorList.vue อธิบายไว้เรื่องโมดัลรับเงิน)
-          path: 'finance/credits',
-          name: 'finance-credits',
-          component: () => import('@/views/finance/CreditList.vue'),
-        },
-        {
-          // งบการเงิน — อ่านอย่างเดียว ไม่มี RBAC gate (ตรงกับ require_member ฝั่ง backend)
-          path: 'finance/statements',
-          name: 'finance-statements',
-          component: () => import('@/views/finance/FinancialStatements.vue'),
-        },
-        {
-          // งบประมาณ — อ่านเปิดให้สมาชิก ปุ่มเขียน gate ด้วย canManageFinance ในตัวหน้า
-          // (backend บังคับ MANAGE_FINANCE อยู่แล้ว — gate ที่นี่เป็นแค่การซ่อนปุ่ม)
-          path: 'finance/budgets',
-          name: 'finance-budgets',
-          component: () => import('@/views/finance/BudgetList.vue'),
-        },
-        {
-          // ทะเบียนเอกสาร — อ่านเปิดให้สมาชิก ปุ่มออกเอกสารอยู่ในหน้าที่ยื่นบริบทให้
-          // (CollectionDetail สำหรับใบเสร็จ · DebtorList สำหรับใบแจ้งหนี้) ไม่ใช่ที่นี่
-          path: 'finance/receipts',
-          name: 'finance-receipts',
-          component: () => import('@/views/finance/ReceiptList.vue'),
-        },
-        {
-          // ⚠️ ต้องประกาศ **หลัง** `finance/receipts` — ไม่งั้น vue-router จะพยายาม
-          //    match `receipts` เป็นค่า `:receiptNo` (route แรกที่ตรงกว่าชนะ แต่ลำดับ
-          //    ของ static-before-dynamic คือสิ่งที่อ่านแล้วไม่ต้องเดา)
-          // `receiptNo` เป็น string รูป REC-2569-0042 — backend validate pattern ให้อีกชั้น
-          path: 'finance/receipts/:receiptNo',
-          name: 'finance-receipt-detail',
-          component: () => import('@/views/finance/ReceiptDetail.vue'),
-        },
-        {
-          path: 'discord-connect',
-          name: 'DiscordConnect',
-          component: () => import('@/components/discord/DiscordConnectGuide.vue'),
-        },
-        {
-          path: 'messages',
-          name: 'send-message',
-          component: () => import('@/views/actions/SendMessage.vue'),
-        },
-        {
-          path: 'activities',
-          name: 'activities',
-          component: () => import('@/views/activities/ActivityList.vue'),
-        },
-        {
-          path: 'activities/create',
-          name: 'create-activity',
-          component: () => import('@/views/activities/CreateActivity.vue'),
-        },
-        {
-          // 🔴 ต้องมาก่อน `activities/:id` ไม่งั้น 'compare' จะถูกตีความเป็น id ของกิจกรรม
-          path: 'activities/compare',
-          name: 'compare-activities',
-          component: () => import('@/views/activities/CompareActivities.vue'),
-        },
-        {
-          path: 'activities/:id/edit',
-          name: 'edit-activity',
-          component: () => import('@/views/activities/EditActivity.vue'),
-        },
-        {
-          path: 'activities/:id/manage',
-          name: 'manage-activity',
-          component: () => import('@/views/activities/ManageActivity.vue'),
-        },
-        {
-          path: 'activities/:id',
-          name: 'activity-detail',
-          component: () => import('@/views/activities/ActivityDetail.vue'),
-        },
-      ]
-    }
-  ],
+  routes,
 });
 
 router.beforeEach((to, _from) => {
@@ -228,7 +14,11 @@ router.beforeEach((to, _from) => {
   const isAuthenticated = authStore.isAuthenticated;
   const isOnboarded = authStore.isOnboarded;
   const currentRoomId = authStore.currentRoomId;
-  const currentRole = authStore.currentRole; 
+  const currentRole = authStore.currentRole;
+
+  // 404 ไม่ต้องล็อกอิน — "ไม่มีหน้านี้" ไม่ได้รั่วข้อมูลใด ๆ และผู้ที่พิมพ์ URL ผิด
+  // ควรได้คำตอบทันที ไม่ใช่ถูกพาไปหน้า login เพื่อกลับมาเจอ 404 อีกครั้ง
+  const isNotFound = to.name === 'not-found';
 
   if (to.meta.requiresAuth && !isAuthenticated) {
     return { name: 'login' };
@@ -239,8 +29,12 @@ router.beforeEach((to, _from) => {
 
   if (isAuthenticated) {
     // 🔓 บังคับออนบอร์ด (กรอกโปรไฟล์) เฉพาะเมื่อเข้าพื้นที่ที่ต้องมีห้อง
-    // แต่ lobby / callback / login ยังเข้าถึงได้ เพื่อให้เลือกห้องก่อน
-    const isRoomlessGlobal = to.path.startsWith('/lobby') || to.path.startsWith('/auth/') || to.path === '/login';
+    // แต่ lobby / callback / login / 404 ยังเข้าถึงได้ เพื่อให้เลือกห้องก่อน
+    const isRoomlessGlobal =
+      to.path.startsWith('/lobby') ||
+      to.path.startsWith('/auth/') ||
+      to.path === '/login' ||
+      isNotFound;
     if (!isOnboarded && !isRoomlessGlobal) {
       if (to.name !== 'onboarding') {
         return { name: 'onboarding' };
@@ -252,11 +46,26 @@ router.beforeEach((to, _from) => {
     }
   }
 
-  // 🌐 เส้นทาง Global (ไม่ต้องมีห้อง): lobby, login, onboarding, OAuth callback
+  // 🌐 เส้นทาง Global (ไม่ต้องมีห้อง): lobby, login, onboarding, OAuth callback, 404
   // (สำคัญ: callback ใช้ผูกบัญชีตอนยังไม่มีห้องได้ — ต้องไม่ถูก redirect ไป lobby)
-  const isGlobalRoute = to.path.startsWith('/lobby') || to.path === '/login' || to.path === '/onboarding' || to.path.startsWith('/auth/');
+  const isGlobalRoute =
+    to.path.startsWith('/lobby') ||
+    to.path === '/login' ||
+    to.path === '/onboarding' ||
+    to.path.startsWith('/auth/') ||
+    isNotFound;
   if (isAuthenticated && (!currentRoomId || !currentRole) && !isGlobalRoute) {
-    return { name: 'lobby' };
+    // 🚧 พกปลายทางเดิมไปด้วย (`/lobby?next=...`) ⇒ เลือกห้องเสร็จกลับมาที่หน้าที่ตั้งใจ
+    //    (ต้องผ่าน `safeRedirect()` เท่านั้น — ดู router/unavailable.ts)
+    return toLobbyFor(to.fullPath);
+  }
+});
+
+// ชื่อแท็บเบราว์เซอร์มาจาก `meta.title` ที่เดียว — ทุก route ประกาศไว้แล้ว
+// (เทสต์ `router/__tests__/routes.spec.ts` กันไม่ให้มี route ที่ลืม)
+router.afterEach((to) => {
+  if (typeof document !== 'undefined') {
+    document.title = pageTitle(to.meta.title);
   }
 });
 

@@ -7,6 +7,13 @@ import { StudentService } from '@/services/student';
 import { ClassroomService } from '@/services/classroom';
 import type { UserRoom } from '@/types/classroom';
 import { UI_COLOR } from '@/constants/theme'
+import {
+  NAV_ITEMS,
+  NAV_TABS,
+  MORE_NAV_ITEMS,
+  isNavItemActive,
+  navSectionName,
+} from '@/constants/nav';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -127,48 +134,20 @@ const toggleSidebarCollapse = () => {
 };
 
 // ---------------- เมนู ----------------
-type MenuItem = { name: string; path: string; icon: string };
-
-const menuItems: MenuItem[] = [
-  { name: 'แดชบอร์ด', path: '/dashboard', icon: 'bi-grid' },
-  { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
-  { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check' },
-  { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
-  { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
-  { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
-  { name: 'ประกาศ Discord', path: '/messages', icon: 'bi-megaphone' },
-  { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
-];
-
-// แท็บบนมือถือ 4 ช่อง (ช่องกลางเป็น FAB)
-const bottomTabs = computed<MenuItem[]>(() => [
-  { name: 'หน้าแรก', path: '/dashboard', icon: 'bi-house-door' },
-  { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
-  { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
-]);
+// 🧭 รายการเมนู/แท็บ/breadcrumb มาจาก `constants/nav.ts` ที่เดียว
+// (เดิมเขียนไว้ในไฟล์นี้ ⇒ เพิ่มหน้าใหม่แล้วลืมใส่เมนูไม่มีอะไรฟ้อง)
+const menuItems = NAV_ITEMS;
+const bottomTabs = NAV_TABS;
+const moreItems = MORE_NAV_ITEMS;
 
 const canManageTasks = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_TASKS'),
 );
 
-// เมนูที่เหลือในชีต "เพิ่มเติม" (มือถือ) — ตัดตัวที่อยู่ในแท็บล่างออกแล้ว
-const moreItems = computed<MenuItem[]>(() =>
-  menuItems.filter((i) => !['/dashboard', '/students', '/finance'].includes(i.path)),
-);
-
-const isItemActive = (path: string) =>
-  path === '/dashboard'
-    ? route.path === '/dashboard' || route.path === '/'
-    : route.path.startsWith(path);
+const isItemActive = (path: string) => isNavItemActive(path, route.path);
 
 // ชื่อเมนูย่อยสำหรับ breadcrumb
-const currentSubMenuName = computed(() => {
-  if (route.path === '/dashboard' || route.path === '/') return null;
-  const matchedMenu = menuItems.find(
-    (item) => item.path !== '/dashboard' && route.path.startsWith(item.path),
-  );
-  return matchedMenu ? matchedMenu.name : null;
-});
+const currentSubMenuName = computed(() => navSectionName(route.path));
 
 // ---------------- การทำงาน ----------------
 /**

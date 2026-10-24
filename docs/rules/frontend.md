@@ -41,3 +41,14 @@
   - ใช้คอมโพเนนต์กลางใน `src/components/ui/`: `PageHeader`, `StateBlock`, `SkeletonRows`
   - **ห้ามใช้:** `bg-gradient-*`, `backdrop-blur*`, `blur-[*]`, `shadow-{color}`, `rounded-[2rem]`, `animate-bounce`, `animate-ping`, และสี `slate/gray/zinc/neutral/indigo/violet/purple/blue` (ใช้ `stone-*` กับ `brand-*` แทน)
   - ทุก view ที่มี fetch ต้องมีครบ 3 สถานะ: `SkeletonRows` → `StateBlock variant="error"` → `StateBlock variant="empty"`
+
+## 7. Routing & Navigation
+- **แหล่งเดียวของชื่อหน้า/เมนู:** `src/constants/nav.ts` — `routeTitles` (ชื่อหน้า ต่อจากชื่อ route) · `NAV_ITEMS` (เมนูหลัก) · `NAV_TABS` (แท็บบนมือถือ)
+  - ทุก route ต้องมี `name` และ `meta.title` (อ้างจาก `routeTitles`); `router/index.ts` ตั้ง `document.title` ให้เองจาก meta
+  - ห้ามเขียนรายการเมนูซ้ำใน layout — ใช้ `NAV_ITEMS` / `NAV_TABS` / `MORE_NAV_ITEMS`
+- **สัญญาของ `route.meta`** ประกาศไว้ที่ `src/router/meta.ts` (`title`, `navTab`, `headerBack`, `headerHidden`, `fullscreen`) — เพิ่มฟิลด์ใหม่ต้องประกาศใน interface ก่อน
+- **`router/routes.ts` เป็นข้อมูลล้วน:** import layout/component ด้วย `() => import()` เท่านั้น ไม่งั้นเทสต์/router จะชน import cycle (ดู `docs/skills.md`)
+- **catch-all `/:pathMatch(.*)*` → `views/NotFound.vue` ต้องเป็นรายการสุดท้ายเสมอ** และห้ามมีมากกว่าหนึ่งตัว
+- **ปลายทางหลัง redirect:** ค่าที่มาจาก URL (`?next=`) ต้องผ่าน `safeRedirect()` จาก `src/router/redirect.ts` — **ห้าม `router.push()` หรือ `window.location` กับค่าดิบจาก query เด็ดขาด**
+- **อ่าน HTTP status:** ใช้ `apiStatus(error)` จาก `services/api.ts` (คืน `number | undefined`) — ห้ามไล่ `isAxiosError` เองในวิว
+- **เทสต์บังคับ:** `src/router/__tests__/routes.spec.ts` ตรวจ title ครบ / เมนูชี้ path จริง/catch-all อยู่ท้าย — เพิ่มหน้าใหม่แล้ว CI แดงคือสิ่งที่ถูกต้อง
