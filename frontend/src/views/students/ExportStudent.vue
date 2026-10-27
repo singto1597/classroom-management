@@ -296,7 +296,7 @@ const handleExport = async () => {
           <!-- กล่องว่างเปล่า -->
           <div
             v-if="selectedColumns.length === 0"
-            class="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-stone-300 px-5 py-8 text-center sm:px-6 sm:py-12"
+            class="flex flex-col items-center justify-center gap-3 rounded-2xl border border-stone-300 px-5 py-8 text-center sm:px-6 sm:py-12"
           >
             <i class="bi bi-cursor text-3xl text-stone-300" aria-hidden="true"></i>
             <p class="text-sm leading-normal text-stone-500">

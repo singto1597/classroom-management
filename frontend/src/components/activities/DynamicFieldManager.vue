@@ -137,7 +137,7 @@ function removeField(def: DynamicFieldDef) {
     </div>
     <div
       v-else
-      class="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400"
+      class="rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400"
     >
       ยังไม่มีฟิลด์เพิ่มเติม — กด "เพิ่มฟิลด์" เพื่อเริ่มต้น
     </div>

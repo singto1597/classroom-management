@@ -1,7 +1,10 @@
 <script setup lang="ts">
 /**
  * StateBlock — สถานะ "ผิดพลาด" และ "ไม่มีข้อมูล" ในรูปแบบเดียวกันทั้งระบบ
- * กรอบเส้นประ + ไอคอน + ข้อความ + ปุ่มลองใหม่ (เฉพาะ error)
+ * การ์ดขอบทึบ + ไอคอน + ข้อความ + ปุ่มลองใหม่ (เฉพาะ error)
+ *
+ * ⚠️ ห้ามใส่กรอบเส้นประ (`border-dashed`) — ทุกกล่องในแอปเป็นการ์ดขอบทึบ
+ * เพื่อไม่ให้สถานะว่างดูเหมือน "ช่องที่ยังกรอกไม่ครบ" (DoD P1: border-dashed = 0)
  *
  * @example
  * <StateBlock v-if="hasError" variant="error" @retry="load" />
@@ -34,8 +37,8 @@ const emit = defineEmits<{ retry: [] }>();
     class="flex flex-col items-center justify-center gap-2 rounded-2xl px-5 py-9 text-center sm:gap-2.5 sm:px-6 sm:py-12"
     :class="
       variant === 'error'
-        ? 'border border-dashed border-stone-300 bg-white'
-        : 'border border-dashed border-stone-200 bg-stone-50/60'
+        ? 'border border-danger-200 bg-white'
+        : 'border border-stone-200 bg-white'
     "
     :role="variant === 'error' ? 'alert' : undefined"
   >

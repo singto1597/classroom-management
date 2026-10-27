@@ -146,6 +146,44 @@ const filteredStudents = computed(() => {
   });
 });
 
+// 🚪 รายชื่อว่างมีสามสาเหตุ — แต่ละสาเหตุต้องมี "ทางออก" คนละปุ่ม
+// (เดิมใช้ hint ก้อนเดียว ⇒ คนที่กรองจนไม่เจอได้รับคำแนะนำให้ "เพิ่มนักเรียนคนแรก")
+const inactiveCount = computed(
+  () => students.value.filter((student) => student.status === 'inactive').length
+);
+
+const emptyState = computed(() => {
+  if (searchQuery.value.trim()) {
+    return {
+      title: 'ไม่พบนักเรียนที่ค้นหา',
+      hint: 'ลองใช้คำสั้นลง หรือล้างคำค้นหาเพื่อดูรายชื่อทั้งหมด',
+      action: 'clearSearch' as const,
+      actionLabel: 'ล้างคำค้นหา'
+    };
+  }
+
+  if (!showInactive.value && inactiveCount.value > 0) {
+    return {
+      title: 'ยังไม่มีนักเรียนที่กำลังเรียน',
+      hint: `มีนักเรียนที่พ้นสภาพ ${inactiveCount.value} คนซ่อนอยู่ใต้ตัวกรอง เปิดตัวกรองเพื่อดูรายชื่อ`,
+      action: 'showInactive' as const,
+      actionLabel: 'แสดงนักเรียนที่พ้นสภาพ'
+    };
+  }
+
+  return {
+    title: 'ยังไม่มีนักเรียนในห้องนี้',
+    hint: 'เพิ่มนักเรียนคนแรกเพื่อเริ่มต้นทะเบียนห้องนี้',
+    action: null,
+    actionLabel: ''
+  };
+});
+
+const runEmptyAction = () => {
+  if (emptyState.value.action === 'clearSearch') searchQuery.value = '';
+  else if (emptyState.value.action === 'showInactive') showInactive.value = true;
+};
+
 const confirmDelete = async (student: Student) => {
   closeDropdown();
   if (!canManageStudents.value) return;
@@ -297,9 +335,18 @@ const rejectJoin = async (studentNo: number) => {
       <StateBlock
         v-if="filteredStudents.length === 0"
         variant="empty"
-        title="ไม่พบข้อมูลนักเรียน"
-        :hint="searchQuery ? 'ลองปรับคำค้นหา หรือเปิดตัวกรองที่พ้นสภาพดูอีกครั้ง' : 'เพิ่มนักเรียนคนแรกเพื่อเริ่มต้นทะเบียนห้องนี้'"
-      />
+        :title="emptyState.title"
+        :hint="emptyState.hint"
+      >
+        <button
+          v-if="emptyState.action"
+          type="button"
+          class="btn-ghost-ui mt-1"
+          @click="runEmptyAction"
+        >
+          {{ emptyState.actionLabel }}
+        </button>
+      </StateBlock>
 
       <template v-else>
         <!-- 🖥️ Desktop: ตารางเต็ม (ไม่ครอบ overflow เพื่อให้เมนูจัดการล้นออกได้) -->

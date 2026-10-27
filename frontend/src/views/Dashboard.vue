@@ -197,7 +197,7 @@ const goToMyProfile = async () => {
 
           <div
             v-else
-            class="rounded-xl border border-dashed border-stone-200 px-3.5 py-3 text-center text-xs font-bold text-stone-400"
+            class="rounded-xl border border-stone-200 px-3.5 py-3 text-center text-xs font-bold text-stone-400"
           >
             <i class="bi bi-lock-fill me-1.5" aria-hidden="true"></i> เฉพาะผู้ดูแลที่เพิ่มงานได้
           </div>
