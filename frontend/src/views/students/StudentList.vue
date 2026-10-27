@@ -11,6 +11,7 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
+import { studentStatusLabel } from '@/constants/statusLabels'
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -227,7 +228,7 @@ const rejectJoin = async (studentNo: number) => {
       </template>
     </PageHeader>
 
-    <!-- แท็บ: นักเรียนปัจจุบัน / รออนุมัติ -->
+    <!-- แท็บ: ทะเบียนนักเรียน / คำขอรออนุมัติ -->
     <div v-if="canManageStudents" class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-stone-50 p-1">
       <button
         type="button"
@@ -237,7 +238,7 @@ const rejectJoin = async (studentNo: number) => {
           : 'border-transparent text-stone-500 hover:text-stone-800'"
         @click="switchTab('active')"
       >
-        นักเรียนปัจจุบัน
+        นักเรียน
       </button>
       <button
         type="button"
@@ -280,7 +281,7 @@ const rejectJoin = async (studentNo: number) => {
             class="relative h-5 w-10 shrink-0 rounded-full bg-stone-200 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-700 peer-checked:after:translate-x-full"
             aria-hidden="true"
           ></span>
-          <span class="ms-2.5 text-sm font-bold text-stone-600">แสดงนักเรียนที่ปิดใช้งาน</span>
+          <span class="ms-2.5 text-sm font-bold text-stone-600">แสดงนักเรียนที่พ้นสภาพ</span>
         </label>
       </div>
     </div>
@@ -297,7 +298,7 @@ const rejectJoin = async (studentNo: number) => {
         v-if="filteredStudents.length === 0"
         variant="empty"
         title="ไม่พบข้อมูลนักเรียน"
-        :hint="searchQuery ? 'ลองปรับคำค้นหา หรือเปิดตัวกรองที่ปิดใช้งานดูอีกครั้ง' : 'เพิ่มนักเรียนคนแรกเพื่อเริ่มต้นทะเบียนห้องนี้'"
+        :hint="searchQuery ? 'ลองปรับคำค้นหา หรือเปิดตัวกรองที่พ้นสภาพดูอีกครั้ง' : 'เพิ่มนักเรียนคนแรกเพื่อเริ่มต้นทะเบียนห้องนี้'"
       />
 
       <template v-else>
@@ -379,7 +380,7 @@ const rejectJoin = async (studentNo: number) => {
                       }"
                       aria-hidden="true"
                     ></i>
-                    {{ student.status === 'active' ? 'ใช้งาน' : student.status === 'pending' ? 'รออนุมัติ' : 'ปิดใช้งาน' }}
+                    {{ studentStatusLabel(student.status) }}
                   </span>
                 </td>
 
@@ -489,7 +490,7 @@ const rejectJoin = async (studentNo: number) => {
                       }"
                       aria-hidden="true"
                     ></i>
-                    {{ student.status === 'active' ? 'ใช้งาน' : student.status === 'pending' ? 'รออนุมัติ' : 'ปิดใช้งาน' }}
+                    {{ studentStatusLabel(student.status) }}
                   </span>
 
                   <!-- 🛡️ Consent Model: ยังไม่ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->

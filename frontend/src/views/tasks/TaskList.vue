@@ -11,6 +11,7 @@ import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 import { UI_COLOR } from '@/constants/theme'
+import { TASK_STATUS_LABELS } from '@/constants/statusLabels'
 
 const authStore = useAuthStore()
 
@@ -138,8 +139,9 @@ const getStatusIcon = (task: Task) => {
   return 'bi-clock'
 }
 
+// ป้ายงานที่ปิดแล้วใช้คำจาก glossary ("เสร็จแล้ว") — ที่เหลือเป็นคำอธิบายกำหนดส่ง
 const getStatusText = (task: Task) => {
-  if (task.status === 'done') return 'ส่งแล้ว'
+  if (task.status === 'done') return TASK_STATUS_LABELS.done
 
   const diffDays = diffDaysFromToday(task.due_date)
 
@@ -245,7 +247,7 @@ onMounted(fetchData)
           :class="filter === 'pending' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
           @click="filter = 'pending'"
         >
-          กำลังทำ
+          {{ TASK_STATUS_LABELS.pending }}
           <span
             class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
             :class="filter === 'pending' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
@@ -258,7 +260,7 @@ onMounted(fetchData)
           :class="filter === 'done' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
           @click="filter = 'done'"
         >
-          เสร็จแล้ว
+          {{ TASK_STATUS_LABELS.done }}
           <span
             class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
             :class="filter === 'done' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
