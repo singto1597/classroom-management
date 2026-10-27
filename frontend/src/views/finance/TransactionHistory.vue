@@ -260,7 +260,7 @@ const resetFilters = () => {
         รายการ
       </p>
       <div class="flex shrink-0 items-center gap-2">
-        <span class="text-xs font-bold uppercase tracking-wider text-stone-400">แสดง</span>
+        <span class="text-xs font-bold text-stone-400">แสดง</span>
         <select v-model="filters.limit" class="field w-auto" aria-label="จำนวนแถวต่อหน้า">
           <option :value="10">10 แถว</option>
           <option :value="50">50 แถว</option>

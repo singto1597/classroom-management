@@ -316,7 +316,7 @@ const goToProfileSettings = async () => {
         <div class="flex flex-1 flex-col overflow-y-auto overflow-x-hidden py-4">
           <p
             v-if="!isSidebarCollapsed"
-            class="mb-2 px-5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+            class="mb-2 px-5 text-[10px] font-bold text-stone-400"
           >
             เมนูหลัก
           </p>
@@ -686,7 +686,7 @@ const goToProfileSettings = async () => {
 
           <div class="my-4 h-px bg-stone-200"></div>
 
-          <p class="mb-2 px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">
+          <p class="mb-2 px-1 text-[10px] font-bold text-stone-400">
             บัญชี
           </p>
           <div class="space-y-1">
@@ -741,7 +741,7 @@ const goToProfileSettings = async () => {
           :style="dropdownStyle"
         >
           <p
-            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold text-stone-400"
           >
             การจัดการบัญชี
           </p>
@@ -789,7 +789,7 @@ const goToProfileSettings = async () => {
           :style="dropdownStyle"
         >
           <p
-            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold text-stone-400"
           >
             เมนูด่วน
           </p>
@@ -814,7 +814,7 @@ const goToProfileSettings = async () => {
           :style="dropdownStyle"
         >
           <p
-            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400"
+            class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold text-stone-400"
           >
             ห้องเรียนของฉัน
           </p>

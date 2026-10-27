@@ -183,7 +183,7 @@ onMounted(() => {
 
         <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div>
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+            <dt class="text-xs font-bold text-stone-400">
               <!-- ⚠️ ใบแจ้งหนี้ "ยังไม่ได้รับเงิน" — ใช้ "ได้รับเงินจาก" ไม่ได้ (ความหมายผิด)
                    💸 ใบสำคัญจ่าย "จ่ายออก" — ใช้ได้แค่ "ผู้เบิก/ผู้รับเงิน" -->
               {{ isVoucher ? 'ผู้เบิก/ผู้รับเงิน' : isReceipt ? 'ได้รับเงินจาก' : 'เรียกเก็บจาก' }}
@@ -197,7 +197,7 @@ onMounted(() => {
           </div>
 
           <div>
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+            <dt class="text-xs font-bold text-stone-400">
               <!-- 💸 ใบสำคัญจ่ายไม่มีแคมเปญ — สิ่งที่ต้องรู้คือ "หมวดหมู่" ที่ตัดงบ -->
               {{ isVoucher ? 'หมวดหมู่งบประมาณ' : 'รายการ' }}
             </dt>
@@ -217,14 +217,14 @@ onMounted(() => {
           </div>
 
           <div v-if="detail.collection_due_date">
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">กำหนดชำระ</dt>
+            <dt class="text-xs font-bold text-stone-400">กำหนดชำระ</dt>
             <dd class="num mt-0.5 text-stone-700">
               {{ formatThaiDate(detail.collection_due_date) }}
             </dd>
           </div>
 
           <div>
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">ผู้ออกเอกสาร</dt>
+            <dt class="text-xs font-bold text-stone-400">ผู้ออกเอกสาร</dt>
             <dd class="mt-0.5 text-stone-700">{{ detail.issued_by_name || '—' }}</dd>
           </div>
         </dl>
@@ -237,7 +237,7 @@ onMounted(() => {
                 ส่วนจอนี้ **ไม่ตัด** เพราะเลื่อนดูได้ ⇒ จอนี้คือ "รายละเอียดทั้งหมด"
                 ที่กระดาษอ้างถึง — ข้อมูลชุดเดียวกัน แค่กระดาษเห็นไม่ครบทุกบรรทัด -->
         <section v-if="detail.line_items?.length" class="mt-4">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-stone-400">
+          <h3 class="text-xs font-bold text-stone-400">
             รายการที่ค้างชำระ ({{ detail.line_items.length }} โครงการ)
           </h3>
 
@@ -316,7 +316,7 @@ onMounted(() => {
                 ช่องว่างบนใบจ่ายอ่านได้ว่า "ไม่มีงบ" ซึ่งต่างจาก "ยังไม่ได้ตั้งงบ" -->
         <dl v-if="isVoucher" class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div v-if="voucherChannel">
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">จ่ายเงินผ่าน</dt>
+            <dt class="text-xs font-bold text-stone-400">จ่ายเงินผ่าน</dt>
             <dd class="mt-0.5 text-stone-700">
               {{ voucherChannel }}
               <span v-if="detail.account_name" class="text-stone-500">({{ detail.account_name }})</span>
@@ -324,12 +324,12 @@ onMounted(() => {
           </div>
 
           <div v-if="detail.approver_name">
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">ผู้อนุมัติ</dt>
+            <dt class="text-xs font-bold text-stone-400">ผู้อนุมัติ</dt>
             <dd class="mt-0.5 text-stone-700">{{ detail.approver_name }}</dd>
           </div>
 
           <div>
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">เอกสารแนบ</dt>
+            <dt class="text-xs font-bold text-stone-400">เอกสารแนบ</dt>
             <dd class="mt-0.5 text-stone-700">
               <template v-if="detail.attachment_count > 0">
                 แนบมาด้วย <span class="num">{{ detail.attachment_count }}</span> ใบ
@@ -340,7 +340,7 @@ onMounted(() => {
           </div>
 
           <div class="sm:col-span-2">
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+            <dt class="text-xs font-bold text-stone-400">
               หมวดหมู่งบประมาณ (F2)
             </dt>
             <dd class="mt-0.5 text-stone-700">
@@ -375,7 +375,7 @@ onMounted(() => {
                 (`collection_amount` เป็น NULL) ⇒ แสดงไปก็มีแต่ทำให้อ่านผิด -->
         <dl v-else class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div v-if="detail.collection_amount !== null">
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+            <dt class="text-xs font-bold text-stone-400">
               ยอดเต็มของรายการ
             </dt>
             <dd class="num mt-0.5 text-stone-700">{{ formatMoney(detail.collection_amount) }}</dd>
@@ -389,7 +389,7 @@ onMounted(() => {
           </div>
 
           <div v-if="remaining !== null">
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-400">
+            <dt class="text-xs font-bold text-stone-400">
               {{ isReceipt ? 'คงเหลือ' : 'ยอดค้างชำระ' }}
             </dt>
             <dd

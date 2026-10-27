@@ -128,19 +128,19 @@ const handleEditCollection = async (col: Collection) => {
     html: `
       <div class="flex flex-col gap-3 mt-4 text-left">
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">ชื่อรายการ</label>
+          <label class="text-xs font-bold text-stone-400 ms-2">ชื่อรายการ</label>
           <input id="swal-title" class="swal2-input custom-swal-input mt-1" placeholder="ชื่อรายการ" value="${escapeHtml(col.title)}">
         </div>
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">ยอดเรียกเก็บ (฿)</label>
+          <label class="text-xs font-bold text-stone-400 ms-2">ยอดเรียกเก็บ (฿)</label>
           <input id="swal-amount" type="number" class="swal2-input custom-swal-input mt-1" placeholder="ยอดเรียกเก็บ" value="${escapeHtml(col.amount)}">
         </div>
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">ครบกำหนดชำระ</label>
+          <label class="text-xs font-bold text-stone-400 ms-2">ครบกำหนดชำระ</label>
           <input id="swal-date" type="date" class="swal2-input custom-swal-input mt-1" value="${escapeHtml(col.due_date)}">
         </div>
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2 uppercase tracking-wider">สถานะแคมเปญ</label>
+          <label class="text-xs font-bold text-stone-400 ms-2">สถานะแคมเปญ</label>
           <select id="swal-status" class="swal2-select custom-swal-input mt-1">
             <option value="active" ${col.status === 'active' ? 'selected' : ''}>🟢 เปิดรับเงิน</option>
             <option value="closed" ${col.status === 'closed' ? 'selected' : ''}>🔴 ปิดแคมเปญ</option>

@@ -71,17 +71,17 @@ const handlePay = async (student: StudentPaymentDetail) => {
     titleText: `รับเงิน: ${displayName(student)}`,
     html:
       '<div class="mb-3 text-left">' +
-      '<label class="block text-xs font-bold text-stone-400 mb-1 uppercase">รับเงินเข้าบัญชีห้อง</label>' +
+      '<label class="block text-xs font-bold text-stone-400 mb-1">รับเงินเข้าบัญชีห้อง</label>' +
       `<select id="swal-acc" class="swal2-input w-full">
         ${accounts.value.map((acc) => `<option value="${escapeHtml(acc.id)}">${escapeHtml(acc.account_name)}</option>`).join('')}
       </select>` +
       '</div>' +
       '<div class="mb-3 text-left">' +
-      '<label class="block text-xs font-bold text-stone-400 mb-1 uppercase">จำนวนเงินที่จ่าย (฿)</label>' +
+      '<label class="block text-xs font-bold text-stone-400 mb-1">จำนวนเงินที่จ่าย (฿)</label>' +
       `<input id="swal-amt" type="number" class="swal2-input w-full" value="${escapeHtml(remaining)}" step="0.01">` +
       '</div>' +
       '<div class="text-left">' +
-      '<label class="block text-xs font-bold text-stone-400 mb-1 uppercase">URL รูปสลิป (ถ้ามี)</label>' +
+      '<label class="block text-xs font-bold text-stone-400 mb-1">URL รูปสลิป (ถ้ามี)</label>' +
       '<input id="swal-slip" type="url" class="swal2-input w-full" placeholder="https://...">' +
       '</div>',
     focusConfirm: false,

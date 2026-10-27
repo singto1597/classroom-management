@@ -397,7 +397,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
       <!-- KPI: งบรวม / ใช้ไป / คงเหลือ / เกินงบ -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งบรวม</p>
+          <p class="text-[11px] font-bold text-stone-400">งบรวม</p>
           <p
             class="font-display num mt-2 break-words text-2xl font-bold text-stone-900 sm:text-3xl"
           >
@@ -407,7 +407,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">ใช้ไป</p>
+          <p class="text-[11px] font-bold text-stone-400">ใช้ไป</p>
           <p
             class="font-display num mt-2 break-words text-2xl font-bold text-brand-700 sm:text-3xl"
           >
@@ -417,7 +417,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">คงเหลือ</p>
+          <p class="text-[11px] font-bold text-stone-400">คงเหลือ</p>
           <p
             class="font-display num mt-2 break-words text-2xl font-bold sm:text-3xl"
             :class="isTotalOver ? 'text-danger-600' : 'text-ok-600'"
@@ -433,7 +433,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           class="page-card p-3.5 sm:p-5"
           :class="(overview?.over_count ?? 0) > 0 ? 'border-s-4 border-s-danger-500' : ''"
         >
-          <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">เกินงบ</p>
+          <p class="text-[11px] font-bold text-stone-400">เกินงบ</p>
           <p
             class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
             :class="(overview?.over_count ?? 0) > 0 ? 'text-danger-600' : 'text-stone-900'"

@@ -111,7 +111,7 @@ const goToMyProfile = async () => {
     <!-- บทบาทของฉัน ย้ายไปอยู่ที่การ์ด "ภาพรวมห้อง" ที่เดียว ไม่ซ้ำสามที่เหมือนเดิม -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
       <div class="page-card p-3.5 sm:p-5">
-        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งานทั้งหมด</p>
+        <p class="text-[11px] font-bold text-stone-400">งานทั้งหมด</p>
         <p
           v-if="isTaskCountLoading"
           class="mt-2 h-7 w-12 rounded-lg bg-stone-100 sm:h-9 sm:w-16"
@@ -128,7 +128,7 @@ const goToMyProfile = async () => {
       </div>
 
       <div class="page-card p-3.5 sm:p-5">
-        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">งานค้าง</p>
+        <p class="text-[11px] font-bold text-stone-400">งานค้าง</p>
         <p
           v-if="isTaskCountLoading"
           class="mt-2 h-7 w-12 rounded-lg bg-stone-100 sm:h-9 sm:w-16"
@@ -145,7 +145,7 @@ const goToMyProfile = async () => {
       </div>
 
       <div class="page-card col-span-2 p-3.5 sm:col-span-1 sm:p-5">
-        <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">รหัสห้องเรียน</p>
+        <p class="text-[11px] font-bold text-stone-400">รหัสห้องเรียน</p>
         <p class="font-display num mt-2 truncate text-2xl font-bold tracking-widest text-stone-900 sm:text-3xl">
           {{ roomCode }}
         </p>
