@@ -29,9 +29,10 @@
 | `pending` | **รออนุมัติ** |
 | `inactive` | **พ้นสภาพ** |
 
-> แหล่งอ้างอิง: `backend/services/student/constants.py` → `STATUS_LABELS`
-> ⚠️ **ยังไม่ตรง:** `views/students/StudentList.vue` ใช้ "ใช้งาน / รออนุมัติ / ปิดใช้งาน" อยู่
-> (ต้องแก้ให้ตรงชุดนี้ใน P1 — อย่าลอกคำจากหน้านั้นไปใช้ที่อื่นจนกว่าจะแก้)
+> แหล่งอ้างอิง: `backend/services/student/constants.py` → `STATUS_LABELS` ·
+> ฝั่ง Vue: `frontend/src/constants/statusLabels.ts` → `STUDENT_STATUS_LABELS`
+> (`StudentList`, `StudentProfile`, `Lobby` ใช้ร่วมกัน — **ห้ามเขียนข้อความสถานะซ้ำในวิว**)
+> เทสต์ `frontend/src/constants/__tests__/statusLabels.spec.ts` ล็อกคำชุดนี้ไว้
 
 ## 2. เนื้อหาของห้อง
 
@@ -52,8 +53,9 @@
 | `pending` | **ยังไม่เสร็จ** |
 | `done` | **เสร็จแล้ว** |
 
-> ⚠️ **ยังไม่ตรง:** `views/tasks/TaskList.vue` แสดงป้าย `done` ว่า "ส่งแล้ว"
-> (ต้องแก้ให้ตรงชุดนี้ใน P1)
+> ฝั่ง Vue: `frontend/src/constants/statusLabels.ts` → `TASK_STATUS_LABELS` (`TaskList` ใช้)
+> — ส่วน "ส่งวันนี้ / ส่งพรุ่งนี้ / เลยกำหนดมา N วัน" เป็น **คำอธิบายกำหนดส่ง** ไม่ใช่ป้ายสถานะ
+> จึงคงรูปเดิมได้
 
 ### ป้ายสถานะกิจกรรม
 

@@ -13,6 +13,7 @@ import type { UserRoom } from '@/types/classroom';
 import type { Invite } from '@/types/student';
 import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
+import { STUDENT_STATUS_LABELS, UNKNOWN_STATUS_LABEL } from '@/constants/statusLabels';
 import { unavailableTarget } from '@/router/unavailable';
 
 const authStore = useAuthStore();
@@ -143,13 +144,14 @@ type StatusMeta = { chip: string; icon: string; label: string };
 const STATUS_FALLBACK: StatusMeta = {
   chip: 'bg-stone-100 text-stone-600',
   icon: 'bi-slash-circle-fill',
-  label: 'ปิดใช้งาน',
+  label: UNKNOWN_STATUS_LABEL,
 };
 
+// คำไทยมาจาก constants/statusLabels.ts — ชุดเดียวกับ StudentList/StudentProfile
 const STATUS_META: Record<string, StatusMeta> = {
-  active: { chip: 'bg-ok-50 text-ok-700', icon: 'bi-check-circle-fill', label: 'ใช้งาน' },
-  pending: { chip: 'bg-warn-50 text-warn-700', icon: 'bi-clock-fill', label: 'รออนุมัติ' },
-  inactive: STATUS_FALLBACK,
+  active: { chip: 'bg-ok-50 text-ok-700', icon: 'bi-check-circle-fill', label: STUDENT_STATUS_LABELS.active },
+  pending: { chip: 'bg-warn-50 text-warn-700', icon: 'bi-clock-fill', label: STUDENT_STATUS_LABELS.pending },
+  inactive: { chip: 'bg-stone-100 text-stone-600', icon: 'bi-dash-circle-fill', label: STUDENT_STATUS_LABELS.inactive },
 };
 
 const statusMeta = (status: string) => STATUS_META[status] ?? STATUS_FALLBACK;

@@ -11,6 +11,7 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
+import { STUDENT_STATUS_LABELS, UNKNOWN_STATUS_LABEL } from '@/constants/statusLabels'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,6 +48,22 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเรียน';
+
+// 🏷️ ป้ายสถานะ 3 ทาง — เดิมเขียน ternary 2 ทาง ทำให้ "รออนุมัติ" ถูกแสดงเป็น "พ้นสภาพ"
+// โทนสีเดียวกับ StudentList: เขียว = กำลังเรียน · เหลือง = รออนุมัติ · เทา = พ้นสภาพ
+const statusMeta = computed(() => {
+  const status = student.value?.status;
+  if (status === 'active') {
+    return { chip: 'bg-ok-50 text-ok-700', icon: 'bi-check-circle-fill', label: STUDENT_STATUS_LABELS.active };
+  }
+  if (status === 'pending') {
+    return { chip: 'bg-warn-50 text-warn-700', icon: 'bi-clock-fill', label: STUDENT_STATUS_LABELS.pending };
+  }
+  if (status === 'inactive') {
+    return { chip: 'bg-stone-100 text-stone-600', icon: 'bi-dash-circle-fill', label: STUDENT_STATUS_LABELS.inactive };
+  }
+  return { chip: 'bg-stone-100 text-stone-600', icon: 'bi-question-circle', label: UNKNOWN_STATUS_LABEL };
+});
 
 // 🏠 ประกอบที่อยู่จากส่วนที่มีข้อมูลจริง — ไม่ปล่อยให้เหลือ "ถ.- ต.- อ.-" เมื่อฟิลด์ว่าง
 const addressText = computed(() => {
@@ -175,16 +192,9 @@ onMounted(() => {
               </p>
 
               <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-                <span
-                  class="chip"
-                  :class="student.status === 'active' ? 'bg-ok-50 text-ok-700' : 'bg-danger-50 text-danger-700'"
-                >
-                  <i
-                    class="bi"
-                    :class="student.status === 'active' ? 'bi-check-circle-fill' : 'bi-x-circle-fill'"
-                    aria-hidden="true"
-                  ></i>
-                  {{ student.status === 'active' ? 'กำลังศึกษา' : 'พ้นสภาพ' }}
+                <span class="chip" :class="statusMeta.chip">
+                  <i class="bi" :class="statusMeta.icon" aria-hidden="true"></i>
+                  {{ statusMeta.label }}
                 </span>
 
                 <span class="chip bg-brand-50 text-brand-700">{{ roleLabel(student.class_role) }}</span>
