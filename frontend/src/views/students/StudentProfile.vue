@@ -301,7 +301,7 @@ onMounted(() => {
             <div class="p-4 sm:p-5">
               <div class="grid grid-cols-2 gap-3">
                 <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-                  <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">กรุ๊ปเลือด</p>
+                  <p class="text-[11px] font-bold text-stone-400">กรุ๊ปเลือด</p>
                   <p v-if="student.blood_group === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-400">
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                   </p>
@@ -309,7 +309,7 @@ onMounted(() => {
                 </div>
 
                 <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-                  <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">ไซส์เสื้อ</p>
+                  <p class="text-[11px] font-bold text-stone-400">ไซส์เสื้อ</p>
                   <p v-if="student.shirt_size === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-400">
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                   </p>
@@ -318,7 +318,7 @@ onMounted(() => {
               </div>
 
               <div class="mt-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-                <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">แพ้อาหาร / โรคประจำตัว</p>
+                <p class="text-[11px] font-bold text-stone-400">แพ้อาหาร / โรคประจำตัว</p>
                 <p v-if="student.food_allergy === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-400">
                   <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                 </p>
@@ -361,7 +361,7 @@ onMounted(() => {
 
             <div class="space-y-4 p-4 sm:p-5">
               <div>
-                <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">คณะที่ใฝ่ฝัน</p>
+                <p class="text-[11px] font-bold text-stone-400">คณะที่ใฝ่ฝัน</p>
                 <p v-if="student.target_faculty === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-1 text-sm font-bold text-stone-400">
                   <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                 </p>
@@ -372,14 +372,14 @@ onMounted(() => {
 
               <div class="grid grid-cols-1 gap-3 border-t border-stone-100 pt-3 sm:gap-4 sm:pt-4 md:grid-cols-2">
                 <div>
-                  <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">สอวน. / ค่ายวิชาการ</p>
+                  <p class="text-[11px] font-bold text-stone-400">สอวน. / ค่ายวิชาการ</p>
                   <p class="mt-1.5 whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700 md:min-h-[100px]">
                     {{ student.olympic_camp || '-' }}
                   </p>
                 </div>
 
                 <div>
-                  <p class="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">ผลงาน / รางวัล</p>
+                  <p class="text-[11px] font-bold text-stone-400">ผลงาน / รางวัล</p>
                   <p class="mt-1.5 whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700 md:min-h-[100px]">
                     {{ student.portfolio || '-' }}
                   </p>

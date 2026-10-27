@@ -397,14 +397,14 @@ watch([selectedMonth, selectedYear], () => {
       <!-- KPI การเงิน: ยอดคงเหลือ / ค้างชำระ / รายรับ / รายจ่าย -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="page-card col-span-2 border-s-4 border-s-brand-700 p-3.5 sm:p-5 lg:col-span-1">
-          <p class="text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">เงินคงเหลือรวม</p>
+          <p class="text-[11px] font-bold text-stone-400">เงินคงเหลือรวม</p>
           <p class="font-display num mt-2 break-words text-2xl font-bold text-stone-900 sm:text-3xl">
             <span class="me-1 text-lg text-stone-400">฿</span>{{ formatNumber(summary.net_worth) }}
           </p>
         </div>
 
         <div class="page-card col-span-2 p-3.5 sm:p-5 lg:col-span-1">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-400">
             <i class="bi bi-hourglass-split text-warn-600" aria-hidden="true"></i>
             ยอดที่เพื่อนค้างจ่ายรวม
           </p>
@@ -414,7 +414,7 @@ watch([selectedMonth, selectedYear], () => {
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-400">
             <i class="bi bi-graph-up-arrow text-ok-600" aria-hidden="true"></i>
             รายรับเดือนนี้
           </p>
@@ -424,7 +424,7 @@ watch([selectedMonth, selectedYear], () => {
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-400">
             <i class="bi bi-graph-down-arrow text-danger-600" aria-hidden="true"></i>
             รายจ่ายเดือนนี้
           </p>

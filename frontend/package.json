@@ -14,6 +14,7 @@
     "lint": "run-s lint:*",
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
+    "lint:thai": "node scripts/check-thai-typography.mjs",
     "format": "prettier --write --experimental-cli src/",
     "lint:colors": "node scripts/check-brand-colors.mjs",
     "lint:palette": "node scripts/check-status-palette.mjs"

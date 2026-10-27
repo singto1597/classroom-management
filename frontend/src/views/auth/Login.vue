@@ -44,7 +44,7 @@ const handleGoogleLogin = () => {
               <p class="eyebrow text-brand-300">Syncroom Classroom</p>
 
               <p
-                class="font-display mt-3 text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl"
+                class="font-display mt-3 text-3xl font-bold leading-tight text-white sm:text-4xl lg:text-5xl"
               >
                 จัดการห้องเรียน<br class="hidden sm:block" />
                 อย่างเป็นระบบ

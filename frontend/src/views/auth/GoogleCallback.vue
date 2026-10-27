@@ -94,7 +94,7 @@ const goBackToLogin = () => router.push('/login');
             aria-hidden="true"
           ></i>
         </div>
-        <h1 class="font-display text-xl font-bold tracking-tight text-stone-900">
+        <h1 class="font-display text-xl font-bold text-stone-900">
           {{ authStore.isAuthenticated ? 'กำลังผูกบัญชี Google...' : 'กำลังเข้าสู่ระบบ...' }}
         </h1>
         <p class="mt-1 text-sm leading-relaxed text-stone-500">

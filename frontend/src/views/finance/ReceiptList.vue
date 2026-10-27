@@ -516,31 +516,31 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
     <!-- สรุปช่วงที่กำลังดู — ตัวเลขมาจากชุดที่กรองแล้วตรง ๆ ไม่ใช่ยอดสะสมของห้อง -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">เอกสาร</p>
+        <p class="text-[11px] font-bold text-stone-400">เอกสาร</p>
         <p class="font-display num mt-1 text-xl font-bold text-stone-900">{{ items.length }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">{{ describePeriod(period) }}</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ยอดรับเงิน</p>
+        <p class="text-[11px] font-bold text-stone-400">ยอดรับเงิน</p>
         <p class="font-display num mt-1 text-xl font-bold text-ok-700">
           {{ formatMoney(receivedTotal) }}
         </p>
         <p class="mt-0.5 text-[11px] text-stone-500">เฉพาะที่แสดงอยู่ (ไม่รวมใบแจ้งหนี้)</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ยอดจ่ายเงิน</p>
+        <p class="text-[11px] font-bold text-stone-400">ยอดจ่ายเงิน</p>
         <p class="font-display num mt-1 text-xl font-bold text-stone-900">
           {{ formatMoney(paidTotal) }}
         </p>
         <p class="mt-0.5 text-[11px] text-stone-500">ใบสำคัญจ่ายที่แสดงอยู่</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">เอกสารรับเงิน</p>
+        <p class="text-[11px] font-bold text-stone-400">เอกสารรับเงิน</p>
         <p class="font-display num mt-1 text-xl font-bold text-ok-700">{{ receiptCount }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">ใบเสร็จ · รับล่วงหน้า · ใบรับเงิน</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">ใบแจ้งหนี้</p>
+        <p class="text-[11px] font-bold text-stone-400">ใบแจ้งหนี้</p>
         <p class="font-display num mt-1 text-xl font-bold text-warn-700">{{ invoiceCount }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">เอกสารเรียกเก็บ</p>
       </div>

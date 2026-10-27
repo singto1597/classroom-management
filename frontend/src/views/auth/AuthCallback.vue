@@ -83,7 +83,7 @@ const goBackToLogin = () => {
             aria-hidden="true"
           ></i>
         </div>
-        <h1 class="font-display text-xl font-bold tracking-tight text-stone-900">
+        <h1 class="font-display text-xl font-bold text-stone-900">
           กำลังยืนยันตัวตน...
         </h1>
         <p class="mt-1 text-sm leading-relaxed text-stone-500">

@@ -797,7 +797,7 @@ onMounted(() => {
           </div>
 
           <div v-else class="space-y-3">
-            <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">
+            <p class="text-[11px] font-bold text-stone-400">
               เลือกรายการบิลที่ต้องการชำระ
             </p>
 
@@ -919,7 +919,7 @@ onMounted(() => {
           class="flex shrink-0 flex-col gap-3 border-t border-stone-200 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:pt-4 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
         >
           <div class="flex items-center justify-between gap-3 sm:block">
-            <p class="text-[11px] font-bold uppercase tracking-wider text-stone-400">
+            <p class="text-[11px] font-bold text-stone-400">
               ยอดรวมที่เลือกชำระ
             </p>
             <p class="font-display num text-2xl font-bold text-danger-600">
