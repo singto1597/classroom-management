@@ -193,7 +193,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             หัวหน้าห้อง · ว่าง
@@ -239,7 +239,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
               <div
                 v-else
-                class="flex items-center gap-2 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+                class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
               >
                 <i class="bi bi-dash-circle" aria-hidden="true"></i>
                 {{ slot.config.label }} · ว่าง
@@ -281,7 +281,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             {{ rolesConfig[dept.role]?.label || dept.label }} · ว่าง
@@ -346,7 +346,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             ตำแหน่งว่าง

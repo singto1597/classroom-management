@@ -117,6 +117,25 @@ const filteredTasks = computed(() => {
   })
 })
 
+// 🚪 ว่างเพราะ "ยังไม่มีงาน" กับ "กรองแล้วไม่เจอ" คนละเรื่อง
+// เดิมใช้ข้อความเดียว ⇒ ห้องที่มีแต่งานเสร็จแล้วเห็น "ยังไม่มีงานในหมวดหมู่นี้เลย"
+const emptyState = computed(() => {
+  if (tasks.value.length === 0) {
+    return {
+      filteredOut: false,
+      title: 'ยังไม่มีงานในห้องนี้',
+      hint: 'เพิ่มงานแรกเพื่อเริ่มต้นติดตามการบ้านและการประกาศ',
+    }
+  }
+
+  const label = filter.value === 'done' ? TASK_STATUS_LABELS.done : TASK_STATUS_LABELS.pending
+  return {
+    filteredOut: true,
+    title: filter.value === 'all' ? 'ไม่พบงานที่ตรงกับตัวกรอง' : `ไม่มีงานสถานะ "${label}"`,
+    hint: 'สลับไปดูงานทั้งหมดเพื่อตรวจว่างานยังอยู่ หรือสร้างงานใหม่',
+  }
+})
+
 // โทนสีป้ายสถานะตาม Design Contract (โทนพาสเทล + ตัวอักษรเข้ม)
 const getStatusBadgeClass = (task: Task) => {
   if (task.status === 'done') return 'bg-stone-100 text-stone-600'
@@ -333,10 +352,19 @@ onMounted(fetchData)
     <StateBlock
       v-else-if="filteredTasks.length === 0"
       variant="empty"
-      title="ยังไม่มีงานในหมวดหมู่นี้เลย"
-      hint="พักผ่อนให้สบาย หรือเพิ่มงานใหม่เพื่อเริ่มต้นกันเถอะ!"
+      :title="emptyState.title"
+      :hint="emptyState.hint"
     >
-      <RouterLink v-if="canManageTasks" to="/tasks/add" class="btn-primary mt-1">
+      <button
+        v-if="emptyState.filteredOut"
+        type="button"
+        class="btn-ghost-ui mt-1"
+        @click="filter = 'all'"
+      >
+        <i class="bi bi-list-ul" aria-hidden="true" />
+        ดูงานทั้งหมด
+      </button>
+      <RouterLink v-else-if="canManageTasks" to="/tasks/add" class="btn-primary mt-1">
         <i class="bi bi-plus-lg" aria-hidden="true" />
         สร้างงานใหม่
       </RouterLink>

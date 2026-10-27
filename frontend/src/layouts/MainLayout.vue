@@ -358,7 +358,7 @@ const goToProfileSettings = async () => {
           <div class="mt-4 px-3">
             <button
               type="button"
-              class="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-stone-200 py-2.5 text-xs font-bold text-stone-400 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700"
+              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 py-2.5 text-xs font-bold text-stone-400 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700"
               :title="isSidebarCollapsed ? 'ขยายเมนู' : 'ย่อเมนู'"
               @click="toggleSidebarCollapse"
             >

@@ -47,7 +47,7 @@ function removeRow(index: number) {
     <template v-if="readOnly">
       <div
         v-if="rows.length === 0"
-        class="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
+        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
       >
         ไม่มีข้อมูลเพิ่มเติม
       </div>
@@ -81,7 +81,7 @@ function removeRow(index: number) {
       <!-- Rows -->
       <div
         v-if="rows.length === 0"
-        class="rounded-xl border border-dashed border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
+        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
       >
         ยังไม่มีข้อมูลเพิ่มเติม — กดปุ่มด้านล่างเพื่อเพิ่ม
       </div>

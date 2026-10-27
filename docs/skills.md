@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 231 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 232 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -235,6 +235,7 @@
 - [📖 เอกสารที่เขียนมือจะเน่า — สารบัญ 228 หัวข้อต้องสร้างด้วยสคริปต์ + ด่าน CI และ glossary ต้องยอมรับว่า UI ยังไม่ตรง](#เอกสารที่เขียนมือจะเน่า-สารบัญ-228-หัวข้อต้องสร้างด้วยสคริปต์-ด่าน-ci-และ-glossary-ต้องยอมรับว่า-ui-ยังไม่ตรง)
 - [🏷️ ป้ายสถานะเดียวกันถูกเขียนซ้ำ 3 วิว — ternary สองทางทำให้ "รออนุมัติ" กลายเป็น "พ้นสภาพ"](#ป้ายสถานะเดียวกันถูกเขียนซ้ำ-3-วิว-ternary-สองทางทำให้-รออนุมัติ-กลายเป็น-พ้นสภาพ)
 - [🔤 ภาษาไทยไม่มีตัวพิมพ์ใหญ่ — `uppercase` ไม่ทำอะไร แต่ `tracking-*` แยกสระออกจากพยัญชนะ](#ภาษาไทยไม่มีตัวพิมพ์ใหญ่-uppercase-ไม่ทำอะไร-แต่-tracking--แยกสระออกจากพยัญชนะ)
+- [🚪 "รายการว่าง" มีสามสาเหตุ — ทางออกต้องตรงกับสาเหตุ ไม่ใช่ข้อความเดียว](#รายการว่าง-มีสามสาเหตุ-ทางออกต้องตรงกับสาเหตุ-ไม่ใช่ข้อความเดียว)
 
 <!-- TOC:END -->
 
@@ -3539,4 +3540,22 @@
   - พิสูจน์ด่านด้วยไฟล์ปลอม 1 บรรทัด → exit 1 แล้วลบไฟล์ทิ้ง
 - **Rule:** (1) 🔴 **ข้อความไทยห้ามมี `uppercase` หรือ `tracking-*`** — ไม่ใช่เพราะมันเปลี่ยนตัวอักษร แต่เพราะ letter-spacing ทำให้สระ/วรรณยุกต์ห่างจากพยัญชนะ (2) ⚠️ เขียน `class` ให้อยู่บรรทัดเดียวกับหรือติดกับข้อความไทย — ด่านตรวจแบบ window 2 บรรทัด ถ้าข้อความอยู่ไกลกว่านั้นจะหลุด (3) ⚠️ อย่าแก้ด้วยการยุบช่องว่างทั้งบรรทัด (`re.sub(r'  +', ' ')`) เพราะจะลบ **indentation** ของ template — ยุบเฉพาะช่องว่างภายในบรรทัด (`(?<=\S) {2,}`) และจัด `class="... "` ให้ปิด quote ติดคำสุดท้าย
 - **Tests:** `npm run lint` → `lint:thai` ผ่าน (115 ไฟล์) · `lint:colors` 117 · `lint:palette` 117 · type-check · unit 315/315 · build ผ่าน
+- **Date Added:** 2026-10-27
+
+### 🚪 "รายการว่าง" มีสามสาเหตุ — ทางออกต้องตรงกับสาเหตุ ไม่ใช่ข้อความเดียว
+- **Context/Problem:** P1 ตาม DoD "0 `border-dashed`" พบกล่องเส้นประ 14 จุดใน 10 ไฟล์ (ActivityForm, ExtraInfoRows ×2, DynamicFieldManager, BatchApplyModal, MainLayout, Dashboard, ExportStudent, RoadmapView ×4, FinanceDashboard, StateBlock ×2) และพบว่า `StateBlock` ใช้กรอบเส้นประทั้ง "ผิดพลาด" และ "ไม่มีข้อมูล" ส่วน `StudentList` ใช้ hint ก้อนเดียวตัดสินจาก `searchQuery` ตัวเดียว และ `TaskList` ขึ้นว่า "ยังไม่มีงานในหมวดหมู่นี้เลย" แม้ห้องจะมีงานเสร็จแล้วเต็มไปหมด
+- **Root Cause:** (1) สถานะว่างถูกตัดสินจาก `filtered.length === 0` ซึ่งรวม "ยังไม่มีข้อมูลจริง" กับ "มีข้อมูลแต่ถูกกรองออก" เป็นก้อนเดียว ⇒ ข้อความ/ปุ่มทางออกจึงผิดสำหรับอย่างน้อยหนึ่งกรณี (StudentList บอกให้ "เพิ่มนักเรียนคนแรก" ทั้งที่แค่พิมพ์คำค้นผิด) (2) เส้นประถูกใช้เป็นภาษาภาพของ "ช่องที่ยังกรอกไม่ครบ" (เหมือน placeholder ของฟอร์ม) ⇒ กล่องข้อมูลว่างดูเหมือนฟอร์มที่รอ input ไม่ใช่คำตอบสุดท้ายของระบบ
+- **Correct Pattern/Solution:**
+  - `StateBlock` เป็นการ์ดขอบทึบทั้งสอง variant: error = `border-danger-200 bg-white`, empty = `border-stone-200 bg-white` — ลบ `border-dashed` ออกจาก `src/` ทั้งหมด (14 จุด)
+  - empty state เป็น computed ที่แยกสาเหตุและให้ "ทางออก 1 ปุ่ม":
+    ```ts
+    // StudentList: ค้นหาไม่เจอ → ล้างคำค้นหา | ซ่อนพ้นสภาพทั้งหมด → เปิดตัวกรอง | ว่างจริง → เพิ่มคนแรก
+    if (searchQuery.value.trim()) return { action: 'clearSearch', … }
+    if (!showInactive.value && inactiveCount.value > 0) return { action: 'showInactive', … }
+    return { action: null, … }
+    ```
+    `TaskList` ใช้ `tasks.length === 0` (ว่างจริง → สร้างงาน) เทียบกับ `filteredTasks.length === 0` (กรองแล้วไม่เจอ → ปุ่ม "ดูงานทั้งหมด" ตั้ง `filter = 'all'`)
+  - ห้ามซ่อนทางออก: ถ้าไม่มีปุ่มใน `StateBlock` slot อย่างน้อยต้องมีลิงก์/ปุ่มเดียวที่พาผู้ใช้ออกจากภาวะว่าง
+- **Rule:** (1) 🔴 **`filtered.length === 0` ใช้ตัดสิน "ไม่มีข้อมูล" ไม่ได้** — ต้องแยกด้วยข้อมูลตั้งต้น (`all.length === 0`) ก่อนเสมอ (2) 🔴 **ห้ามใช้ `border-dashed` ใน `src/`** — ขอบทึบคือภาษาของการ์ด; เส้นประสื่อ "ยังกรอกไม่ครบ" ซึ่งผิดความหมายของ empty/error (3) ⚠️ empty state ต้องมีทางออกที่ตรงสาเหตุ (ล้างตัวกรอง/เปิดตัวกรอง/สร้างรายการแรก) ไม่ใช่ข้อความปลอบอย่างเดียว
+- **Tests:** `npm run type-check` · `npm run lint` (`lint:thai` 115 ไฟล์, `lint:colors`/`lint:palette` 117 ไฟล์) · `npm run test:unit -- --run` → 17 ไฟล์ / 315 passed · `npm run build-only` ผ่าน · `grep -rn border-dashed src/` = 0 (เหลือเฉพาะคอมเมนต์ห้ามใช้ใน `StateBlock.vue`)
 - **Date Added:** 2026-10-27

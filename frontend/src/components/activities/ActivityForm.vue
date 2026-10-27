@@ -588,7 +588,7 @@ const submit = async () => {
 
           <p
             v-if="positions.length === 0"
-            class="mt-3 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400 sm:mt-4"
+            class="mt-3 rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400 sm:mt-4"
           >
             ยังไม่มีตำแหน่ง — เพิ่มด้านบน หรือใช้ค่าเริ่มต้น
           </p>

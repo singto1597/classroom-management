@@ -470,7 +470,7 @@ watch([selectedMonth, selectedYear], () => {
           <!-- Admin Only: ถ้าไม่ใช่แอดมิน ช่องนี้แสดงแบบปิดการใช้งาน -->
           <div
             v-if="!authStore.isAdmin"
-            class="flex flex-col items-center gap-1.5 rounded-xl border border-dashed border-stone-200 bg-stone-50/60 px-2 py-2.5 text-center"
+            class="flex flex-col items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50/60 px-2 py-2.5 text-center"
           >
             <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-stone-400">
               <i class="bi bi-gear text-xl" aria-hidden="true"></i>

@@ -246,7 +246,7 @@ function handleApply() {
               !showEarnedHours &&
               !(dynamicFields && dynamicFields.length > 0)
             "
-            class="rounded-2xl border border-dashed border-stone-200 bg-stone-50/60 p-4 text-center text-sm leading-relaxed text-stone-500"
+            class="rounded-2xl border border-stone-200 bg-stone-50/60 p-4 text-center text-sm leading-relaxed text-stone-500"
           >
             ยังไม่มีค่าที่ตั้งค่าแบบกลุ่มได้ — เพิ่มตำแหน่ง/หน้าที่ หรือเลือกฟิลด์ในส่วน Required
             Data ก่อน
