@@ -518,10 +518,6 @@ onMounted(() => {
           <i class="bi bi-piggy-bank" aria-hidden="true"></i>
           เงินรับล่วงหน้า
         </RouterLink>
-        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าภาพรวม
-        </RouterLink>
       </template>
     </PageHeader>
 

@@ -211,14 +211,6 @@ const resetFilters = () => {
       description="รายการรับ จ่าย และโอนเงินทั้งหมดของห้อง"
     >
       <template #actions>
-        <RouterLink
-          to="/finance"
-          class="btn-ghost-ui h-11 w-11 shrink-0 px-0"
-          title="กลับหน้าภาพรวม"
-          aria-label="กลับหน้าภาพรวม"
-        >
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-        </RouterLink>
         <RouterLink v-if="isAdmin" to="/finance/transactions/add" class="btn-primary">
           <i class="bi bi-plus-lg" aria-hidden="true"></i>
           บันทึกรายการใหม่

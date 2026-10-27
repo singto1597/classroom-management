@@ -211,10 +211,6 @@ onMounted(() => {
       description="จัดการแคมเปญระดมทุนและการเก็บเงินเพื่อนในห้อง"
     >
       <template #actions>
-        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าภาพรวม
-        </RouterLink>
         <button v-if="authStore.isAdmin" type="button" class="btn-primary" @click="openCreateModal">
           <i class="bi bi-plus-lg" aria-hidden="true"></i>
           สร้างโปรเจกต์ใหม่

@@ -44,12 +44,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
 ];
 
 /**
- * แท็บบนมือถือ (แถบล่าง) — ช่องตรงกลางใน `MainLayout` เป็น FAB สร้างงาน
- * จึงมีแค่ 3 ปลายทาง และต้องมีอยู่จริงใน `NAV_ITEMS` (เทสต์ตรวจ)
+ * แท็บบนมือถือ (แถบล่าง) — 4 ปลายทางหลัก + ปุ่ม "เพิ่มเติม" = 5 ช่อง
+ *
+ * ⚠️ เดิมมี FAB สร้างงานอยู่กลางแถบ ทำให้ "งาน" ไม่มีแท็บของตัวเอง
+ *    และปุ่มสร้างงานไปซ้ำกับปุ่มในหน้า TaskList ⇒ P1 เปลี่ยนเป็นแท็บ "งาน"
+ *    แล้วพาปุ่มสร้างกลับไปอยู่ที่หัวหน้า TaskList ที่เดียว
+ * ทุก path ต้องมีอยู่จริงใน `NAV_ITEMS` (เทสต์ตรวจ)
  */
 export const NAV_TABS: readonly NavItem[] = [
-  { name: 'หน้าแรก', path: '/dashboard', icon: 'bi-house-door' },
+  { name: 'หน้าหลัก', path: '/dashboard', icon: 'bi-house-door' },
   { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
+  { name: 'งาน', path: '/tasks', icon: 'bi-clipboard-check' },
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
 ];
 

@@ -515,9 +515,6 @@ onMounted(() => {
           :description="activity.title"
         >
           <template #actions>
-            <router-link :to="`/activities/${activityId}`" class="btn-ghost-ui w-full sm:w-auto">
-              <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ารายละเอียด
-            </router-link>
             <router-link
               :to="`/activities/${activityId}/edit`"
               class="btn-primary w-full sm:w-auto"

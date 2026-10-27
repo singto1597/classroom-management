@@ -136,14 +136,7 @@ onMounted(() => {
       eyebrow="Finance Document"
       :title="detail?.receipt_no || 'รายละเอียดเอกสาร'"
       :description="detail?.doc_type_label || 'เอกสารการเงิน'"
-    >
-      <template #actions>
-        <RouterLink to="/finance/receipts" class="btn-ghost-ui" title="กลับทะเบียนเอกสาร">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับทะเบียนเอกสาร
-        </RouterLink>
-      </template>
-    </PageHeader>
+    ></PageHeader>
 
     <SkeletonRows v-if="isLoading" :rows="4" height="h-20" />
 

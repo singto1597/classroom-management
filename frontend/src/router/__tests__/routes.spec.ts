@@ -149,7 +149,7 @@ describe('navTab ใต้ MainLayout', () => {
   });
 
   it('navTab ใช้ค่าในชุดที่กำหนด', () => {
-    const allowed = new Set(['home', 'students', 'finance', 'more']);
+    const allowed = new Set(['home', 'students', 'tasks', 'finance', 'more']);
     for (const route of appPages) {
       expect(allowed.has(route.navTab ?? '')).toBe(true);
     }

@@ -362,10 +362,6 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           <i class="bi bi-plus-lg" aria-hidden="true"></i>
           ตั้งงบประมาณ
         </button>
-        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าภาพรวม
-        </RouterLink>
       </template>
     </PageHeader>
 

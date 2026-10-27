@@ -158,13 +158,7 @@ const submitBulk = async () => {
       eyebrow="New Student"
       title="เพิ่มนักเรียนใหม่"
       description="เพิ่มรายชื่อเพื่อนในห้องคนเดียว หรือนำเข้าแบบรวดเดียว"
-    >
-      <template #actions>
-        <button type="button" class="btn-ghost-ui" @click="router.back()">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับ
-        </button>
-      </template>
-    </PageHeader>
+    ></PageHeader>
 
     <div class="page-card overflow-hidden">
       <!-- แท็บ -->

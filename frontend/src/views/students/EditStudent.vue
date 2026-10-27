@@ -206,10 +206,6 @@ onMounted(() => {
       :description="`รหัสนักเรียน #${studentNo}`"
     >
       <template #actions>
-        <button type="button" class="btn-ghost-ui" :disabled="saving" @click="router.back()">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับ
-        </button>
-
         <template v-if="canEdit">
           <!-- 🎯 ปุ่มเปิด-ปิดโหมด -->
           <button type="button" class="btn-ghost-ui" :disabled="saving" @click="toggleEditMode">
