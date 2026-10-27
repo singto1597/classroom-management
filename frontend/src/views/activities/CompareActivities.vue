@@ -341,13 +341,7 @@ onMounted(() => {
       eyebrow="Activity Comparison"
       title="เปรียบเทียบกิจกรรม"
       description="เลือก 2–3 กิจกรรม ดูว่าใครอยู่ร่วมกันบ้าง แล้ว export เฉพาะภูมิภาคที่ต้องการ"
-    >
-      <template #actions>
-        <router-link to="/activities" class="btn-ghost-ui">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ากิจกรรม
-        </router-link>
-      </template>
-    </PageHeader>
+    ></PageHeader>
 
     <!-- ── เลือกกิจกรรม ─────────────────────────────────────────── -->
     <section class="page-card p-4 sm:p-5">

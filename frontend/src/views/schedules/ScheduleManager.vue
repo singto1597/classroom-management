@@ -111,7 +111,7 @@ const handleSaveOverride = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <!-- ไม่มีปุ่มใน #actions: ปุ่ม "กลับหน้าหลัก" ที่ท้ายฟอร์มเป็นทางออกเดียวของหน้านี้ -->
+    <!-- ไม่มีปุ่มใน #actions: ทางออกมาจากปุ่มย้อนของ header (route meta `headerBack`) -->
     <PageHeader
       eyebrow="Class Schedule"
       title="จัดการตารางเรียน"
@@ -184,9 +184,6 @@ const handleSaveOverride = async () => {
           </div>
 
           <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
-            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
-              กลับหน้าหลัก
-            </RouterLink>
             <template v-if="canManageSchedule">
               <button
                 type="submit"
@@ -257,9 +254,6 @@ const handleSaveOverride = async () => {
           </div>
 
           <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
-            <RouterLink to="/dashboard" class="btn-ghost-ui w-full sm:w-auto">
-              กลับหน้าหลัก
-            </RouterLink>
             <template v-if="canManageSchedule">
               <button
                 type="submit"

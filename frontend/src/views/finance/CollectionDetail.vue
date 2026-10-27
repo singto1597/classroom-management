@@ -387,10 +387,6 @@ onMounted(() => {
       description="ติดตามความคืบหน้าการเก็บเงินและบันทึกการรับชำระของนักเรียนแต่ละคน"
     >
       <template #actions>
-        <RouterLink to="/finance/collections" class="btn-ghost-ui" title="กลับหน้าโครงการ">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าโครงการ
-        </RouterLink>
         <button
           v-if="isAdmin"
           type="button"

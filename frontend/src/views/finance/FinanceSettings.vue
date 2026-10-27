@@ -386,14 +386,7 @@ const formatNumber = (num: number) => {
       eyebrow="Finance Settings"
       title="ตั้งค่าระบบการเงิน"
       description="จัดการกระเป๋าเงินห้องและหมวดหมู่สำหรับบันทึกรายรับ/รายจ่าย"
-    >
-      <template #actions>
-        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าภาพรวม
-        </RouterLink>
-      </template>
-    </PageHeader>
+    ></PageHeader>
 
     <!-- สถานะโหลด / ผิดพลาด -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />

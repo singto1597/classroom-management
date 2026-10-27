@@ -78,25 +78,25 @@ export const routes: RouteRecordRaw[] = [
         path: 'students/add',
         name: 'add-student',
         component: () => import('@/views/students/AddStudent.vue'),
-        meta: { title: routeTitles['add-student'], navTab: 'students' },
+        meta: { title: routeTitles['add-student'], navTab: 'students', headerBack: true },
       },
       {
         path: 'students/export',
         name: 'export-students',
         component: () => import('@/views/students/ExportStudent.vue'),
-        meta: { title: routeTitles['export-students'], navTab: 'students' },
+        meta: { title: routeTitles['export-students'], navTab: 'students', headerBack: true },
       },
       {
         path: 'students/:id',
         name: 'student-profile',
         component: () => import('@/views/students/StudentProfile.vue'),
-        meta: { title: routeTitles['student-profile'], navTab: 'students' },
+        meta: { title: routeTitles['student-profile'], navTab: 'students', headerBack: true },
       },
       {
         path: 'students/:id/edit',
         name: 'edit-student',
         component: () => import('@/views/students/EditStudent.vue'),
-        meta: { title: routeTitles['edit-student'], navTab: 'students' },
+        meta: { title: routeTitles['edit-student'], navTab: 'students', headerBack: true },
       },
       {
         path: 'roadmap',
@@ -108,25 +108,25 @@ export const routes: RouteRecordRaw[] = [
         path: 'schedules',
         name: 'schedules',
         component: () => import('@/views/schedules/ScheduleManager.vue'),
-        meta: { title: routeTitles.schedules, navTab: 'more' },
+        meta: { title: routeTitles.schedules, navTab: 'more', headerBack: true },
       },
       {
         path: 'tasks',
         name: 'tasks',
         component: () => import('@/views/tasks/TaskList.vue'),
-        meta: { title: routeTitles.tasks, navTab: 'more' },
+        meta: { title: routeTitles.tasks, navTab: 'tasks' },
       },
       {
         path: 'tasks/add',
         name: 'add-task',
         component: () => import('@/views/tasks/AddTask.vue'),
-        meta: { title: routeTitles['add-task'], navTab: 'more' },
+        meta: { title: routeTitles['add-task'], navTab: 'tasks', headerBack: true },
       },
       {
         path: 'tasks/:id/edit',
         name: 'edit-task',
         component: () => import('@/views/tasks/EditTask.vue'),
-        meta: { title: routeTitles['edit-task'], navTab: 'more' },
+        meta: { title: routeTitles['edit-task'], navTab: 'tasks', headerBack: true },
       },
       {
         path: 'finance',
@@ -138,37 +138,37 @@ export const routes: RouteRecordRaw[] = [
         path: 'finance/settings',
         name: 'finance-settings',
         component: () => import('@/views/finance/FinanceSettings.vue'),
-        meta: { title: routeTitles['finance-settings'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-settings'], navTab: 'finance', headerBack: true },
       },
       {
         path: 'finance/transactions/add',
         name: 'finance-add-transaction',
         component: () => import('@/views/finance/AddTransaction.vue'),
-        meta: { title: routeTitles['finance-add-transaction'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-add-transaction'], navTab: 'finance', headerBack: true },
       },
       {
         path: 'finance/transactions',
         name: 'finance-transaction-history',
         component: () => import('@/views/finance/TransactionHistory.vue'),
-        meta: { title: routeTitles['finance-transaction-history'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-transaction-history'], navTab: 'finance', headerBack: true },
       },
       {
         path: 'finance/collections',
         name: 'finance-collections',
         component: () => import('@/views/finance/CollectionList.vue'),
-        meta: { title: routeTitles['finance-collections'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-collections'], navTab: 'finance', headerBack: true },
       },
       {
         path: 'finance/collections/:id',
         name: 'finance-collection-detail',
         component: () => import('@/views/finance/CollectionDetail.vue'),
-        meta: { title: routeTitles['finance-collection-detail'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-collection-detail'], navTab: 'finance', headerBack: true },
       },
       {
         path: 'finance/debtors',
         name: 'finance-debtors',
         component: () => import('@/views/finance/DebtorList.vue'),
-        meta: { title: routeTitles['finance-debtors'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-debtors'], navTab: 'finance', headerBack: true },
       },
       {
         // 💰 [F4] เงินรับล่วงหน้า — อ่านเปิดให้สมาชิก (ตรงกับ require_member ฝั่ง backend)
@@ -178,14 +178,14 @@ export const routes: RouteRecordRaw[] = [
         path: 'finance/credits',
         name: 'finance-credits',
         component: () => import('@/views/finance/CreditList.vue'),
-        meta: { title: routeTitles['finance-credits'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-credits'], navTab: 'finance', headerBack: true },
       },
       {
         // งบการเงิน — อ่านอย่างเดียว ไม่มี RBAC gate (ตรงกับ require_member ฝั่ง backend)
         path: 'finance/statements',
         name: 'finance-statements',
         component: () => import('@/views/finance/FinancialStatements.vue'),
-        meta: { title: routeTitles['finance-statements'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-statements'], navTab: 'finance', headerBack: true },
       },
       {
         // งบประมาณ — อ่านเปิดให้สมาชิก ปุ่มเขียน gate ด้วย canManageFinance ในตัวหน้า
@@ -193,7 +193,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'finance/budgets',
         name: 'finance-budgets',
         component: () => import('@/views/finance/BudgetList.vue'),
-        meta: { title: routeTitles['finance-budgets'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-budgets'], navTab: 'finance', headerBack: true },
       },
       {
         // ทะเบียนเอกสาร — อ่านเปิดให้สมาชิก ปุ่มออกเอกสารอยู่ในหน้าที่ยื่นบริบทให้
@@ -201,7 +201,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'finance/receipts',
         name: 'finance-receipts',
         component: () => import('@/views/finance/ReceiptList.vue'),
-        meta: { title: routeTitles['finance-receipts'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-receipts'], navTab: 'finance', headerBack: true },
       },
       {
         // ⚠️ ต้องประกาศ **หลัง** `finance/receipts` — ไม่งั้น vue-router จะพยายาม
@@ -211,13 +211,13 @@ export const routes: RouteRecordRaw[] = [
         path: 'finance/receipts/:receiptNo',
         name: 'finance-receipt-detail',
         component: () => import('@/views/finance/ReceiptDetail.vue'),
-        meta: { title: routeTitles['finance-receipt-detail'], navTab: 'finance' },
+        meta: { title: routeTitles['finance-receipt-detail'], navTab: 'finance', headerBack: true },
       },
       {
         path: 'discord-connect',
         name: 'DiscordConnect',
         component: () => import('@/components/discord/DiscordConnectGuide.vue'),
-        meta: { title: routeTitles.DiscordConnect, navTab: 'more' },
+        meta: { title: routeTitles.DiscordConnect, navTab: 'more', headerBack: true },
       },
       {
         path: 'messages',
@@ -235,32 +235,32 @@ export const routes: RouteRecordRaw[] = [
         path: 'activities/create',
         name: 'create-activity',
         component: () => import('@/views/activities/CreateActivity.vue'),
-        meta: { title: routeTitles['create-activity'], navTab: 'more' },
+        meta: { title: routeTitles['create-activity'], navTab: 'more', headerBack: true },
       },
       {
         // 🔴 ต้องมาก่อน `activities/:id` ไม่งั้น 'compare' จะถูกตีความเป็น id ของกิจกรรม
         path: 'activities/compare',
         name: 'compare-activities',
         component: () => import('@/views/activities/CompareActivities.vue'),
-        meta: { title: routeTitles['compare-activities'], navTab: 'more' },
+        meta: { title: routeTitles['compare-activities'], navTab: 'more', headerBack: true },
       },
       {
         path: 'activities/:id/edit',
         name: 'edit-activity',
         component: () => import('@/views/activities/EditActivity.vue'),
-        meta: { title: routeTitles['edit-activity'], navTab: 'more' },
+        meta: { title: routeTitles['edit-activity'], navTab: 'more', headerBack: true },
       },
       {
         path: 'activities/:id/manage',
         name: 'manage-activity',
         component: () => import('@/views/activities/ManageActivity.vue'),
-        meta: { title: routeTitles['manage-activity'], navTab: 'more' },
+        meta: { title: routeTitles['manage-activity'], navTab: 'more', headerBack: true },
       },
       {
         path: 'activities/:id',
         name: 'activity-detail',
         component: () => import('@/views/activities/ActivityDetail.vue'),
-        meta: { title: routeTitles['activity-detail'], navTab: 'more' },
+        meta: { title: routeTitles['activity-detail'], navTab: 'more', headerBack: true },
       },
     ],
   },

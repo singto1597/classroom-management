@@ -229,14 +229,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader eyebrow="New Transaction" title="บันทึกรายการเงิน">
-      <template #actions>
-        <RouterLink to="/finance/transactions" class="btn-ghost-ui" title="กลับหน้าประวัติ">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าประวัติ
-        </RouterLink>
-      </template>
-    </PageHeader>
+    <PageHeader eyebrow="New Transaction" title="บันทึกรายการเงิน"></PageHeader>
 
     <!-- สถานะโหลด / ผิดพลาด / ยังไม่มีกระเป๋าเงิน -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-14" />

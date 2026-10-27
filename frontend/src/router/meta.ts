@@ -21,7 +21,7 @@
  * แท็บหลักของแอปบนมือถือ — route ที่อยู่ใต้แท็บเดียวกันจะไฮไลต์แท็บนั้น
  * (เช่น `/students/:id` ยังไฮไลต์แท็บ "นักเรียน")
  */
-export type NavTabKey = 'home' | 'students' | 'finance' | 'more';
+export type NavTabKey = 'home' | 'students' | 'tasks' | 'finance' | 'more';
 
 declare module 'vue-router' {
   interface RouteMeta {

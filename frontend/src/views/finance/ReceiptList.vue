@@ -472,14 +472,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
       eyebrow="Finance Documents"
       title="ใบเสร็จ / ใบแจ้งหนี้"
       description="ทะเบียนเอกสารที่ออกแล้วของห้อง — เลขที่เอกสารเรียงตามปี พ.ศ. ของวันรับเงิน"
-    >
-      <template #actions>
-        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าภาพรวม
-        </RouterLink>
-      </template>
-    </PageHeader>
+    ></PageHeader>
 
     <PeriodPicker v-model="period" :modes="['month', 'range']" />
 

@@ -129,9 +129,6 @@ onMounted(() => {
       description="ข้อมูลส่วนตัว การติดต่อ และข้อมูลสุขภาพ"
     >
       <template #actions>
-        <button type="button" class="btn-ghost-ui w-full sm:w-auto" @click="router.push('/students')">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับหน้ารายชื่อ
-        </button>
         <RouterLink
           v-if="canEdit && student"
           :to="`/students/${student.student_no}/edit`"

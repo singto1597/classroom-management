@@ -351,9 +351,6 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           description="รายละเอียดกิจกรรม ผู้เข้าร่วม และการเช็คอิน"
         >
           <template #actions>
-            <router-link to="/activities" class="btn-ghost-ui w-full sm:w-auto">
-              <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับรายการกิจกรรม
-            </router-link>
             <template v-if="canManage">
               <!-- ปุ่มหลัก: จัดการผู้เข้าร่วม -->
               <router-link

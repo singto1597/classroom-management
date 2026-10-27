@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import { downloadBlob } from '@/utils/download';
@@ -10,7 +9,6 @@ import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
 import draggable from 'vuedraggable'; // 📦 vuedraggable สำหรับ Vue 3
 
-const router = useRouter();
 const authStore = useAuthStore();
 const roomId = computed(() => authStore.currentRoomId!);
 const userName = computed(() => authStore.currentUserName || 'ผู้ดูแลระบบ');
@@ -200,9 +198,6 @@ const handleExport = async () => {
       description="เลือกหมวดหมู่ และลากวางคอลัมน์เพื่อจัดลำดับไฟล์ Excel"
     >
       <template #actions>
-        <button type="button" class="btn-ghost-ui" @click="router.back()">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับ
-        </button>
         <button type="button" class="btn-primary" @click="handleExport">
           <i class="bi bi-file-earmark-excel-fill" aria-hidden="true"></i>
           สร้างไฟล์ Excel

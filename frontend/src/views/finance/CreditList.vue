@@ -473,10 +473,6 @@ onMounted(() => {
           <i class="bi bi-people" aria-hidden="true"></i>
           ยอดค้างชำระ
         </RouterLink>
-        <RouterLink to="/finance" class="btn-ghost-ui" title="กลับหน้าภาพรวม">
-          <i class="bi bi-arrow-left" aria-hidden="true"></i>
-          กลับหน้าภาพรวม
-        </RouterLink>
       </template>
     </PageHeader>
 
