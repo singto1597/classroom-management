@@ -1,0 +1,96 @@
+# ============================================================
+# CI · Version
+# ============================================================
+# 🎯 กัน "เวอร์ชันแตก": VERSION (root) ต้องเท่ากับ PROJECT_VERSION,
+#    package.json, package-lock.json และต้องมี section ใน CHANGELOG
+#    + manifest ต้องยังผ่านด่านของตัวเอง (56 แถว / PR ครบ / cut reachable)
+#
+# 📌 ตรวจอย่างเดียว ไม่ deploy
+name: CI · Version
+
+on:
+  pull_request:
+    paths:
+      - 'VERSION'
+      - 'CHANGELOG.md'
+      - 'backend/core/config.py'
+      - 'backend/routers/version_router.py'
+      - 'backend/models/version_schemas.py'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/vite.config.ts'
+      - 'scripts/version-manifest.tsv'
+      - 'scripts/version-manifest.mjs'
+      - 'release.sh'
+      - 'rollback.sh'
+      - '.github/workflows/ci-version.yml'
+  push:
+    branches: [main, staging]
+    paths:
+      - 'VERSION'
+      - 'CHANGELOG.md'
+      - 'backend/core/config.py'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'scripts/version-manifest.tsv'
+      - '.github/workflows/ci-version.yml'
+
+concurrency:
+  group: ci-version-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    name: ตรวจเวอร์ชันตรงกันทุกไฟล์
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # manifest ต้องตรวจ ancestry ของ cut
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: VERSION = PROJECT_VERSION = package.json = package-lock.json
+        shell: python
+        run: |
+          import json, re, sys
+          from pathlib import Path
+
+          version = Path('VERSION').read_text(encoding='utf-8').strip()
+          cfg = Path('backend/core/config.py').read_text(encoding='utf-8')
+          m = re.search(r'PROJECT_VERSION: str = "([^"]+)"', cfg)
+          pkg = json.loads(Path('frontend/package.json').read_text(encoding='utf-8'))
+          lock = json.loads(Path('frontend/package-lock.json').read_text(encoding='utf-8'))
+
+          found = {
+              'VERSION': version,
+              'config.py': m.group(1) if m else None,
+              'package.json': pkg.get('version'),
+              'package-lock.json': lock.get('version'),
+              'package-lock.packages[""]': lock.get('packages', {}).get('', {}).get('version'),
+          }
+          bad = {k: v for k, v in found.items() if v != version}
+          if bad:
+              print('❌ เวอร์ชันไม่ตรงกัน:', bad, file=sys.stderr)
+              sys.exit(1)
+          print(f'✅ ทุกไฟล์เป็น {version}')
+
+      - name: CHANGELOG มี section ของเวอร์ชันนี้
+        run: |
+          set -euo pipefail
+          v="$(tr -d '[:space:]' < VERSION)"
+          grep -q "^## \[${v}\]" CHANGELOG.md
+          echo "✅ CHANGELOG มี ## [${v}]"
+
+      - name: manifest ผ่านด่าน (56 แถว / PR ครบ / cut reachable)
+        run: node scripts/version-manifest.mjs
+
+      - name: release.sh / rollback.sh parse ได้
+        run: |
+          set -euo pipefail
+          bash -n release.sh
+          bash -n rollback.sh
+          echo "✅ bash -n ผ่าน"
