@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 237 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 238 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -241,6 +241,7 @@
 - [🚩 `gh release create` โยน tag ให้ที่ HEAD ถ้าไม่ใส่ `--verify-tag` — และมันจะขโมย "Latest" ให้กับ release ย้อนหลัง](#gh-release-create-โยน-tag-ให้ที่-head-ถ้าไม่ใส่---verify-tag-และมันจะขโมย-latest-ให้กับ-release-ย้อนหลัง)
 - [🔢 เลขเวอร์ชันถูกเขียนไว้ 5 ที่ — ถ้าไม่มีด่าน มันจะเพี้ยนภายในสองงาน](#เลขเวอร์ชันถูกเขียนไว้-5-ที่-ถ้าไม่มีด่าน-มันจะเพี้ยนภายในสองงาน)
 - [🧪 `monkeypatch.setattr(app.state, …)` พังตอน teardown บน pytest 9 — และ CI ที่ `pip install pytest` ไม่ pin จะเปลี่ยนใต้เท้าคุณเอง](#monkeypatchsetattrappstate-พังตอน-teardown-บน-pytest-9-และ-ci-ที่-pip-install-pytest-ไม่-pin-จะเปลี่ยนใต้เท้าคุณเอง)
+- [🚀 สคริปต์ deploy ที่ `git reset --hard` ตัวเอง จะรัน “สำเนาเก่า” ต่อจนจบ — และ rebuild image ด้วย tag เดิมไม่ทำให้ Swarm recreate task](#สคริปต์-deploy-ที่-git-reset---hard-ตัวเอง-จะรัน-สำเนาเก่า-ต่อจนจบ-และ-rebuild-image-ด้วย-tag-เดิมไม่ทำให้-swarm-recreate-task)
 
 <!-- TOC:END -->
 
@@ -3645,4 +3646,23 @@
   - pin เวอร์ชันของเครื่องมือเทสต์ใน `docker-compose.test.yml` entrypoint: `pytest==9.2.0`, `pytest-asyncio==1.4.1`, `httpx==0.28.1` (ยืนยันด้วย `pip index versions` และรันซ้ำแล้วเขียว)
 - **Rule:** (1) 🔴 **toolchain ของเทสต์ต้อง pin** — `pip install pytest` เปล่า ๆ ทำให้ผลของ "เทสต์เดิม" เปลี่ยนได้เอง (2) 🔴 **ห้าม monkeypatch attribute ของ Starlette `State`** — ใช้ fixture ที่จด/คืนค่าเอง (3) ⚠️ อ่านบรรทัดสรุปให้ครบ: `PASSED [ 82%] ERROR [ 82%]` แปลว่า logic ถูกแต่ teardown พัง — อย่าดูแค่จำนวน passed
 - **Tests:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "… pytest -q /app/tests/test_health_check.py"` → `5 passed` และ **ไม่มี ERROR** · รันทั้งชุดซ้ำแบบไม่มี `errors` ใน summary · `grep -rn "monkeypatch.setattr(app.state" backend/tests` → ว่าง
+- **Date Added:** 2026-10-31
+
+### 🚀 สคริปต์ deploy ที่ `git reset --hard` ตัวเอง จะรัน “สำเนาเก่า” ต่อจนจบ — และ rebuild image ด้วย tag เดิมไม่ทำให้ Swarm recreate task
+- **Context/Problem:** deploy staging ด้วย `pull_all.sh` จาก checkout ที่ยังอยู่ commit เก่า (`d6ef166`) ทั้งที่บน `main` มี `--build-arg GIT_SHA=${IMAGE_TAG}` อยู่แล้ว ผลคือ `/api/version` ตอบ `{"version":"1.29.0","git_sha":"unknown"}` — ตัวเลขเวอร์ชันถูก แต่ **provenance หลอก** ต่อให้ build image ใหม่ด้วย tag เดียวกันแล้ว `docker stack deploy` ซ้ำ ก็ยังได้ `unknown` เพราะ task ไม่ถูกสร้างใหม่
+- **Root Cause:** สองชั้นซ้อนกัน (1) `pull_all.sh` เรียก `git reset --hard origin/$BRANCH` **บน repo ที่ตัวเองกำลังรันอยู่** — bash อ่านสคริปต์แบบ incremental จาก file descriptor เดิม ⇒ ไฟล์ถูกแทนที่ (inode ใหม่) แต่ process ยังอ่านสำเนาเก่าจนจบ ⇒ build ที่รันคือคำสั่งเวอร์ชันเก่า (ไม่มี build-arg) (2) Docker Swarm ตัดสินใจ update service จาก **spec** (ชื่อ image:tag) ไม่ใช่ digest ของ image ในเครื่อง ⇒ เขียนทับ tag เดิมด้วย image ใหม่ไม่ทำให้ task ใหม่เกิด — `docker inspect <container>` ยังเป็น env เก่า
+- **Correct Pattern/Solution:**
+  ```bash
+  # ① reset checkout “ก่อน” เรียกสคริปต์ — แล้วสคริปต์จะรันตัวที่ต้องการจริง
+  cd ~/ops/deploy/classroom-staging
+  git fetch origin && git reset --hard origin/main
+  ./pull_all.sh
+
+  # ② ถ้าจำเป็นต้อง rebuild ด้วย tag เดิม ให้บังคับ recreate
+  docker service update --force --image classroom-${ENV_NAME}-backend:${IMAGE_TAG} ${ENV_NAME}_app_backend
+  ```
+  - ตรวจด้วย **หลักฐานจากของที่รันอยู่** ไม่ใช่จาก log ที่อ่านว่า “success”: `curl -s .../api/version` และ `docker inspect <container> --format '{{json .Config.Env}}' | grep GIT_SHA`
+  - สคริปต์ deploy ที่ดีไม่ควรแก้ไฟล์ของตัวเองระหว่างรัน — ถ้าจำเป็น ให้ pre-step อยู่ข้างนอก (แบบข้อ ①) และคง idempotent ไว้
+- **Rule:** (1) 🔴 **ห้าม `git reset/checkout` repo ที่สคริปต์กำลังรันอยู่** — รันสคริปต์ที่อัปเดตแล้วจาก checkout ใหม่แทน (2) 🔴 **image tag เดิม ≠ deploy ใหม่** — Swarm เทียบ spec ไม่เทียบ digest (3) ⚠️ `git_sha` เป็นค่าเดียวที่พิสูจน์ได้ว่า “ภาพที่รันอยู่คือ commit ที่คิดหรือเปล่า” — ถ้าเป็น `unknown` ให้ถือว่า deploy ยังไม่สำเร็จ
+- **Tests:** `curl -s https://<api>/api/version` → `git_sha` = `git rev-parse --short HEAD` ของ checkout · `docker ps -q -f name=<stack>_app_backend | xargs docker inspect --format '{{json .Config.Env}}' | grep -c 'GIT_SHA=<sha>'` = จำนวน replica
 - **Date Added:** 2026-10-31
