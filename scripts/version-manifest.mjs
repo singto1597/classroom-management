@@ -5,7 +5,7 @@
  *   node scripts/version-manifest.mjs
  *
  * ตรวจ: จำนวนแถว, SemVer, วันที่เรียงขึ้น, cut มีจริง/reachable จาก HEAD,
- * ความต่อเนื่องหลัง 1.0.0, และ PR ที่ merge แล้ว (1–98 ยกเว้น 3/4/91) ถูกนับครบพอดีครั้งเดียว
+ * ความต่อเนื่องตั้งแต่ monorepo root repo (2026-06-01), และ PR ที่ merge แล้ว (1–98 ยกเว้น 3/4/91) ถูกนับครบพอดีครั้งเดียว
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
@@ -60,11 +60,9 @@ for (const [i, r] of rows.entries()) {
 }
 ok.push(`manifest ${rows.length} แถว, วันที่เรียงขึ้น, cut มีจริงและ reachable`);
 
-// หลัง 1.0.0 ประวัติต้องเป็นเส้นเดียว
-const linear = rows.filter((r) => {
-  const [maj] = r.version.split('.').map(Number);
-  return maj >= 1 && r.cut !== 'RELEASE';
-});
+// ตั้งแต่ V1 release (2026-06-30) ประวัติต้องเป็นเส้นเดียว — ก่อนหน้านี้มี 4 root
+const MONOREPO_START = '2026-06-30';
+const linear = rows.filter((r) => r.date >= MONOREPO_START && r.cut !== 'RELEASE');
 for (let i = 1; i < linear.length; i++) {
   const a = linear[i - 1];
   const b = linear[i];
@@ -74,7 +72,7 @@ for (let i = 1; i < linear.length; i++) {
     errors.push(`ความต่อเนื่อง: ${a.version} (${a.cut}) ไม่ใช่ ancestor ของ ${b.version} (${b.cut})`);
   }
 }
-ok.push(`ความต่อเนื่องหลัง 1.0.0: ${linear.length - 1} คู่`);
+ok.push(`ความต่อเนื่องตั้งแต่ ${MONOREPO_START}: ${linear.length - 1} คู่`);
 
 // PR coverage — นับเฉพาะ refs ที่ขึ้นต้นด้วย "PR #" (component PR ใช้ "bot PR", "backend PR" ฯลฯ)
 const assigned = [];

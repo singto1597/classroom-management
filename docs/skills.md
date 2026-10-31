@@ -3571,11 +3571,11 @@
 - **Root Cause:** `--is-ancestor` ตอบคำถาม "A มาก่อน B ใน DAG นี้หรือเปล่า" ไม่ใช่ "A เกิดก่อน B ตามปฏิทิน" — พอมีหลาย root ที่ถูก import เข้ามา ความสัมพันธ์เชิงบรรพบุรุษจึงมีเฉพาะ **ภายใน root เดียวกัน** และเริ่มเชื่อมข้าม root ได้ก็ต่อเมื่อถึงจุด subtree merge (28 ก.ค.) เท่านั้น ฝั่ง PR ก็เป็นปัญหา namespace: ทั้ง 4 repo ย่อยและ monorepo ต่างนับ PR ตั้งแต่ 1 ⇒ `#12` มีสองความหมาย และถ้าเขียนรวมกันจะตรวจ coverage ไม่ได้เลย
 - **Correct Pattern/Solution:**
   - แยกด่านตรวจเป็นสองระดับ: **ทุก cut** ต้อง `git cat-file -e <cut>^{commit}` + `merge-base --is-ancestor <cut> HEAD` (ต้อง checkout ได้จาก HEAD จริง) · **ความต่อเนื่องเชิงเส้น** บังคับเฉพาะคู่ที่ major ≥ 1 เท่านั้น (หลัง monorepo แล้ว 38 คู่เรียงกันจริง) — โค้ดจริงอยู่ใน `scripts/version-manifest.mjs:63-77`
-  - tag ก่อน 1.0.0 ชี้ **snapshot ของ component ที่ represent ที่สุดของวันนั้น** และ CHANGELOG/Release body ต้องระบุ component tips ของวันนั้นด้วย ไม่ใช่ปล่อยให้คนอ่านเข้าใจว่ามันคือ snapshot ของทั้งระบบ
+  - tag ก่อน 5.0.0 ชี้ **snapshot ของ component ที่ represent ที่สุดของวันนั้น** และ CHANGELOG/Release body ต้องระบุ component tips ของวันนั้นด้วย ไม่ใช่ปล่อยให้คนอ่านเข้าใจว่ามันคือ snapshot ของทั้งระบบ
   - refs ของ component ใช้ prefix ที่แยก namespace ชัดเจน (`bot PR #1`, `backend PR #9-#11`) และ regex ที่ตรวจ coverage นับเฉพาะ `/^PR #(\d+)/` (`version-manifest.mjs:82`) ⇒ component PR ไม่ถูกนับซ้ำกับ PR ของ root
   - เมื่อเลข PR ขัดกัน ให้ **ยืนยันกับ GitHub** ทีละอัน (`gh pr view 12 --json title,mergedAt,body`) อย่าเชื่อไฟล์ที่ dump ไว้ก่อนหน้า
 - **Rule:** (1) 🔴 **อย่าใช้ ancestry ตอบคำถามเรื่องเวลา/ลำดับใน repo ที่มีหลาย root** — ใช้ cut commit + วันที่ + component tip แทน และจำกัดด่าน linearity ไว้หลังจุดที่ประวัติรวมเป็นเส้นเดียว (2) 🔴 **เลข PR ไม่ unique ข้าม repo** — ถ้าโปรเจกต์เคยเป็นหลาย repo ให้ใส่ prefix ของ component ทุกครั้งที่อ้าง PR ย่อย (3) ⚠️ tag ย้อนหลังที่ชี้ commit ของ component เดียว ต้องบอกในข้อความ tag/Release ว่าเป็น snapshot บางส่วน ไม่ใช่ของทั้งระบบ
-- **Tests:** `node scripts/version-manifest.mjs` → `manifest 56 แถว, วันที่เรียงขึ้น, cut มีจริงและ reachable` · `ความต่อเนื่องหลัง 1.0.0: 38 คู่` · `PR coverage: 95 merged PR ถูกนับครบพอดีครั้งเดียว` · `CHANGELOG มี section ครบ 56 versions` · `gh pr view 12/15/16/19` ยืนยันว่า #12 = Redis fix (6 ส.ค.) และ #15–#19 = web→Discord page + 404 auth saga
+- **Tests:** `node scripts/version-manifest.mjs` → `manifest 56 แถว, วันที่เรียงขึ้น, cut มีจริงและ reachable` · `ความต่อเนื่องหลัง 5.0.0: 38 คู่` · `PR coverage: 95 merged PR ถูกนับครบพอดีครั้งเดียว` · `CHANGELOG มี section ครบ 56 versions` · `gh pr view 12/15/16/19` ยืนยันว่า #12 = Redis fix (6 ส.ค.) และ #15–#19 = web→Discord page + 404 auth saga
 - **Date Added:** 2026-10-31
 
 ### 🐳 `ARG GIT_SHA` ต้องอยู่ *หลัง* `COPY . .` — provenance ที่ทำ cache พังทุก commit คือ provenance ที่ไม่มีใครอยาก deploy
@@ -3593,11 +3593,11 @@
   - `backend/routers/version_router.py` ตอบ `{version, git_sha, service}` พร้อม `Cache-Control: no-store` — ถ้า proxy แคช response ไว้ จะได้ sha เก่าข้าม deploy ซึ่งแย่กว่าไม่มี endpoint
   - เทสต์ต้อง assert ทั้งค่าและ header (`test_version.py`) ไม่ใช่แค่ status 200
 - **Rule:** (1) 🔴 **build arg ที่เปลี่ยนทุก commit ต้องอยู่หลัง layer ที่แพงที่สุดเสมอ** — วางไว้ต้นไฟล์ = ปิด cache โดยไม่รู้ตัว (2) 🔴 **endpoint บอกเวอร์ชันต้อง `no-store`** ไม่งั้น Cloudflare/Traefik ที่แคชอยู่จะตอบข้อมูลเก่าข้าม deploy (3) ⚠️ ค่า default ของ provenance ต้องเป็นค่าที่ทำให้ระบบยังรันได้ (`unknown`) ไม่ใช่ `""` หรือไม่มี default ซึ่งจะพังตอนรัน local/test
-- **Tests:** `docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t … ./backend` แล้ว `curl /api/version` → `{"version":"1.29.0","git_sha":"<short sha>","service":"backend"}` · build รอบสองโดยไม่เปลี่ยนโค้ด → ทุก layer cache hit (ดู `CACHED` ที่ `COPY`) · `pytest backend/tests/test_version.py` ผ่าน
+- **Tests:** `docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t … ./backend` แล้ว `curl /api/version` → `{"version":"9.13.0","git_sha":"<short sha>","service":"backend"}` · build รอบสองโดยไม่เปลี่ยนโค้ด → ทุก layer cache hit (ดู `CACHED` ที่ `COPY`) · `pytest backend/tests/test_version.py` ผ่าน
 - **Date Added:** 2026-10-31
 
 ### 🚩 `gh release create` โยน tag ให้ที่ HEAD ถ้าไม่ใส่ `--verify-tag` — และมันจะขโมย "Latest" ให้กับ release ย้อนหลัง
-- **Context/Problem:** ต้องสร้าง GitHub Release ย้อนหลัง 55 อันจาก tag ที่ชี้ commit เก่า ๆ ถ้าใช้ `gh release create v0.1.0 --notes-file …` ตรง ๆ บน tag ที่มีอยู่แล้ว gh จะสร้าง tag **ใหม่ที่ HEAD ของ default branch** ถ้า tag นั้นยังไม่มี — ซึ่งในงาน backfill ที่สร้าง tag ไปก่อนแล้วจะไม่พัง แต่ในกรณีที่สคริปต์รันซ้ำ/ข้ามขั้น มันจะผลิต release ที่ผูกกับ commit ผิดแบบเงียบ ๆ อีกปัญหาคือ GitHub ตัดสิน "Latest" จาก **วันที่สร้าง release** ไม่ใช่วันที่ tag ⇒ การ backfill ย้อนหลังทำให้ release เก่ากลายเป็น Latest และกลบ v1.29.0 ตัวจริง
+- **Context/Problem:** ต้องสร้าง GitHub Release ย้อนหลัง 55 อันจาก tag ที่ชี้ commit เก่า ๆ ถ้าใช้ `gh release create v0.1.0 --notes-file …` ตรง ๆ บน tag ที่มีอยู่แล้ว gh จะสร้าง tag **ใหม่ที่ HEAD ของ default branch** ถ้า tag นั้นยังไม่มี — ซึ่งในงาน backfill ที่สร้าง tag ไปก่อนแล้วจะไม่พัง แต่ในกรณีที่สคริปต์รันซ้ำ/ข้ามขั้น มันจะผลิต release ที่ผูกกับ commit ผิดแบบเงียบ ๆ อีกปัญหาคือ GitHub ตัดสิน "Latest" จาก **วันที่สร้าง release** ไม่ใช่วันที่ tag ⇒ การ backfill ย้อนหลังทำให้ release เก่ากลายเป็น Latest และกลบ v9.13.0 ตัวจริง
 - **Root Cause:** `gh release create` มีพฤติกรรม "create tag if missing" เป็นค่าเริ่มต้น เพื่อความสะดวกของเคสปกติ (tag ใหม่ที่ HEAD) — ซึ่งเป็นสิ่งที่ตรงข้ามกับความต้องการของ backfill ที่ tag ต้องชี้ commit ในอดีตทุกกรณี ส่วน "Latest" เป็นสถานะที่ GitHub คำนวณจาก release ล่าสุดที่สร้าง ไม่ได้ผูกกับ SemVer และไม่มีทางแก้ย้อนหลังได้ในคำสั่งเดียว (ต้อง `gh release edit --latest=false`)
 - **Correct Pattern/Solution:**
   ```bash
@@ -3609,16 +3609,16 @@
     ${is_zero_major:+--prerelease}
   ```
   - `--verify-tag` = ถ้าไม่มี tag ให้ **ล้มเหลว** ไม่ใช่สร้าง tag เอง ⇒ ป้องกัน release ผูก commit ผิด
-  - `--latest=false` ทุกอัน แล้วค่อยสร้าง/แก้ release ล่าสุดจริงด้วย `--latest` เฉพาะ v1.29.0
+  - `--latest=false` ทุกอัน แล้วค่อยสร้าง/แก้ release ล่าสุดจริงด้วย `--latest` เฉพาะ v9.13.0
   - v0.x ใส่ `--prerelease` — ตรงกับความหมาย SemVer และ GitHub จะไม่เอาไปเป็น Latest
   - **backdate ไม่ได้**: `createdAt` เป็นค่าฝั่งเซิร์ฟเวอร์ ⇒ ต้องเขียนวันที่เดิมไว้ในหัวข้อ และใส่บรรทัด `_Backfilled on 2026-10-31 from commit <sha>_` ใน body เพื่อไม่ให้เข้าใจผิดว่า release เกิดวันนั้นจริง
   - สคริปต์ต้อง **idempotent**: เช็ค `git rev-parse -q --verify "refs/tags/$tag"` และ `gh release view "$tag"` ก่อนสร้าง ⇒ รันซ้ำไม่พังและไม่สร้างซ้ำ
 - **Rule:** (1) 🔴 **backfill release ต้องมี `--verify-tag` เสมอ** — ปล่อยให้ gh สร้าง tag เองคือการเสี่ยงผูก release กับ commit ผิดโดยไม่มี error (2) 🔴 **release ย้อนหลังต้อง `--latest=false`** และเฉพาะตัวล่าสุดจริงเท่านั้นที่ได้ `--latest` (3) ⚠️ อย่าแก้ `createdAt` ด้วย API เพื่อให้ดูย้อนหลัง — มันไม่ใช่ความจริง และทำให้ timeline ของ repo อ่านผิด
-- **Tests:** `bash -n scripts/backfill-releases.sh` · รัน `tags` ซ้ำสองครั้ง → จำนวน tag เท่าเดิม (idempotent) · `gh release view v0.1.0 --json tagName,isPrerelease,isLatest` → tag ชี้ `1fc2e0d`, `isPrerelease: true`, `isLatest: false` · หลังออก v1.29.0 → `isLatest: true` และ release ที่เหลือยัง `false`
+- **Tests:** `bash -n scripts/backfill-releases.sh` · รัน `tags` ซ้ำสองครั้ง → จำนวน tag เท่าเดิม (idempotent) · `gh release view v0.1.0 --json tagName,isPrerelease,isLatest` → tag ชี้ `1fc2e0d`, `isPrerelease: true`, `isLatest: false` · หลังออก v9.13.0 → `isLatest: true` และ release ที่เหลือยัง `false`
 - **Date Added:** 2026-10-31
 
 ### 🔢 เลขเวอร์ชันถูกเขียนไว้ 5 ที่ — ถ้าไม่มีด่าน มันจะเพี้ยนภายในสองงาน
-- **Context/Problem:** หลังเพิ่มระบบ versioning เลข `1.29.0` ต้องตรงกันใน `VERSION`, `backend/core/config.py :: PROJECT_VERSION`, `frontend/package.json :: version`, `frontend/package-lock.json :: version` และ `frontend/package-lock.json :: packages[""].version` รวมถึงต้องมี `## [1.29.0]` ใน `CHANGELOG.md` — แก้มือทั่วไปจะลืม `packages[""]` (ซึ่ง `npm install` เขียนเองแต่การแก้มือไม่แตะ) และลืม config.py ที่ทำให้ `/api/version` ตอบเลขเก่า
+- **Context/Problem:** หลังเพิ่มระบบ versioning เลข `9.13.0` ต้องตรงกันใน `VERSION`, `backend/core/config.py :: PROJECT_VERSION`, `frontend/package.json :: version`, `frontend/package-lock.json :: version` และ `frontend/package-lock.json :: packages[""].version` รวมถึงต้องมี `## [9.13.0]` ใน `CHANGELOG.md` — แก้มือทั่วไปจะลืม `packages[""]` (ซึ่ง `npm install` เขียนเองแต่การแก้มือไม่แตะ) และลืม config.py ที่ทำให้ `/api/version` ตอบเลขเก่า
 - **Root Cause:** เลขเวอร์ชันเป็นข้อมูลเดียวกันที่ถูกคัดลอกไว้หลาย ecosystem (Python settings, npm manifest, npm lockfile, เอกสาร) โดยไม่มีใครเป็นเจ้าของ ⇒ "แก้ที่เดียว" เป็นเรื่องของวินัย ไม่ใช่ของโครงสร้าง และไม่มีอะไรฟ้องเมื่อไม่ตรง เพราะทุกฝ่ายยังรันได้ปกติ (แค่รายงานเลขผิด)
 - **Correct Pattern/Solution:**
   - `VERSION` ที่ root เป็นแหล่งเดียว — `release.sh` เป็นตัว sync ไปยัง 4 จุดที่เหลือ (Python อ่าน/เขียน JSON ตรง ๆ ไม่ใช้ `npm version` เพื่อไม่ให้เกิด commit/tag ของ npm เอง)
@@ -3649,7 +3649,7 @@
 - **Date Added:** 2026-10-31
 
 ### 🚀 สคริปต์ deploy ที่ `git reset --hard` ตัวเอง จะรัน “สำเนาเก่า” ต่อจนจบ — และ rebuild image ด้วย tag เดิมไม่ทำให้ Swarm recreate task
-- **Context/Problem:** deploy staging ด้วย `pull_all.sh` จาก checkout ที่ยังอยู่ commit เก่า (`d6ef166`) ทั้งที่บน `main` มี `--build-arg GIT_SHA=${IMAGE_TAG}` อยู่แล้ว ผลคือ `/api/version` ตอบ `{"version":"1.29.0","git_sha":"unknown"}` — ตัวเลขเวอร์ชันถูก แต่ **provenance หลอก** ต่อให้ build image ใหม่ด้วย tag เดียวกันแล้ว `docker stack deploy` ซ้ำ ก็ยังได้ `unknown` เพราะ task ไม่ถูกสร้างใหม่
+- **Context/Problem:** deploy staging ด้วย `pull_all.sh` จาก checkout ที่ยังอยู่ commit เก่า (`d6ef166`) ทั้งที่บน `main` มี `--build-arg GIT_SHA=${IMAGE_TAG}` อยู่แล้ว ผลคือ `/api/version` ตอบ `{"version":"9.13.0","git_sha":"unknown"}` — ตัวเลขเวอร์ชันถูก แต่ **provenance หลอก** ต่อให้ build image ใหม่ด้วย tag เดียวกันแล้ว `docker stack deploy` ซ้ำ ก็ยังได้ `unknown` เพราะ task ไม่ถูกสร้างใหม่
 - **Root Cause:** สองชั้นซ้อนกัน (1) `pull_all.sh` เรียก `git reset --hard origin/$BRANCH` **บน repo ที่ตัวเองกำลังรันอยู่** — bash อ่านสคริปต์แบบ incremental จาก file descriptor เดิม ⇒ ไฟล์ถูกแทนที่ (inode ใหม่) แต่ process ยังอ่านสำเนาเก่าจนจบ ⇒ build ที่รันคือคำสั่งเวอร์ชันเก่า (ไม่มี build-arg) (2) Docker Swarm ตัดสินใจ update service จาก **spec** (ชื่อ image:tag) ไม่ใช่ digest ของ image ในเครื่อง ⇒ เขียนทับ tag เดิมด้วย image ใหม่ไม่ทำให้ task ใหม่เกิด — `docker inspect <container>` ยังเป็น env เก่า
 - **Correct Pattern/Solution:**
   ```bash

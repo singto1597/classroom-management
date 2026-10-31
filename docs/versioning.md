@@ -11,12 +11,28 @@
 
 | ระดับ | ใช้เมื่อ |
 |---|---|
-| **MAJOR** | เปลี่ยนความหมายของข้อมูล/การใช้งานแบบ breaking — ครั้งเดียวในประวัติ: `1.0.0` (30 มิ.ย. 2026) |
+| **MAJOR** | เปลี่ยนสถาปัตยกรรมหรือโครงสร้างข้อมูล จนของเดิมตีความด้วยกติกาใหม่ไม่ได้ — เลขหน้าเปลี่ยนทันที ประวัติมี 9 ครั้ง (1.0.0–9.0.0) |
 | **MINOR** | ผู้ใช้เห็นความสามารถใหม่ หรือ milestone เชิงโครงสร้างที่เปลี่ยนวิธีพัฒนา (monorepo, migrations, versioning) |
 | **PATCH** | fix / UI / docs / infra ล้วน |
 
 **1 version = 1 ช่วงงานที่ coherent** — ตัดตามเหตุการณ์ ไม่ตัดตามปฏิทิน
 รายละเอียดการนับและเหตุผลของทั้ง 56 versions อยู่ใน `CHANGELOG.md`
+
+จุดที่ major เปลี่ยน (ตัดจาก CHANGELOG §นับเวอร์ชัน):
+
+| major | ตัดที่ | เปลี่ยนอะไร |
+|---|---|---|
+| 1.0.0 | 2026-05-17 | bot → API client (backend เป็นเจ้าของ DB เดียว) |
+| 2.0.0 | 2026-05-24 | PHP → Vue 3 + TypeScript SPA |
+| 3.0.0 | 2026-06-01 | 4 repo + submodule → root repo เดียว |
+| 4.0.0 | 2026-06-21 | `server_id` → `room_id` จบ |
+| 5.0.0 | 2026-06-30 | ประกาศ V1 (major เพราะเป็น release ประกาศ publicly) |
+| 6.0.0 | 2026-07-28 | 4 repo หลอมเป็น monorepo ด้วย git subtree |
+| 7.0.0 | 2026-08-05 | บัญชีเดี่ยว → บัญชีคู่ |
+| 8.0.0 | 2026-08-18 | English-primary identity + `nickname_en` |
+| 9.0.0 | 2026-08-25 | Consent Model |
+
+กฎนี้ใช้ย้อนหลังกับทั้ง 56 versions — tag ที่ตรงกันคือ `v1.0.0` … `v9.13.0`
 
 ---
 
@@ -61,10 +77,10 @@ docker build --build-arg GIT_SHA=${IMAGE_TAG}
    ▼
 backend/core/config.py :: GIT_SHA
    ▼
-GET /api/version → { "version": "1.29.0", "git_sha": "ab4daa7", "service": "backend" }
+GET /api/version → { "version": "9.13.0", "git_sha": "ab4daa7", "service": "backend" }
    ▼
 frontend (vite define __APP_VERSION__ = package.json.version)
-   └─ เมนูโปรไฟล์แสดง  v1.29.0 · ab4daa7
+   └─ เมนูโปรไฟล์แสดง  v9.13.0 · ab4daa7
 ```
 
 กติกา:
@@ -146,7 +162,7 @@ Release body ต้องบอกข้อนี้ และ `CHANGELOG` ร�
 - `backend/core/migrations/` เป็น **additive เท่านั้น** — ห้าม DROP/ALTER ทำลาย
 - ไฟล์ที่ apply แล้วห้ามแก้ (checksum ตรวจเจอ → บูตไม่ขึ้นโดยเจตนา)
 - การเปลี่ยน schema ที่ breaking ต้องมี migration ใหม่ + บันทึกใน `**Migration:**` ของ version นั้น
-- ณ v1.29.0 ยังไม่มี migration file — schema ยังมาจาก `init_db.py` (ดู `docs/rules/backend.md` §7)
+- ณ v9.13.0 ยังไม่มี migration file — schema ยังมาจาก `init_db.py` (ดู `docs/rules/backend.md` §7)
 
 ---
 
