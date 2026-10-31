@@ -34,6 +34,21 @@
 
 กฎนี้ใช้ย้อนหลังกับทั้ง 56 versions — tag ที่ตรงกันคือ `v1.0.0` … `v9.13.0`
 
+### การนับเลขใหม่ย้อนหลัง (31 ต.ค. 2026)
+
+รอบแรกที่ตั้งระบบนี้ (PR #99) นับ MAJOR แบบ "breaking change ของ API" เลยมี major ตัวเดียวคือ `1.0.0` (V1)
+ต่อมาเปลี่ยนกติกาเป็น "เปลี่ยนรากของระบบ" (ภาษา/แพลตฟอร์ม, โครงสร้างข้อมูล, โครง repo) จึงนับใหม่ทั้งประวัติ:
+
+- เลขเก่า `0.1.0`–`1.29.0` → เลขใหม่ `0.1.0`–`9.13.0` · major 9 ตัวตามตารางข้างบน
+- tag + GitHub Release ชุดเก่า **ถูกลบทั้งหมด** แล้วสร้างใหม่ใต้เลขใหม่ (`gh release delete --cleanup-tag` ทุกอัน)
+  เพราะ GitHub ไม่ให้เปลี่ยนชื่อ tag ของ Release ที่มีอยู่ — ทางเดียวคือลบแล้วสร้าง
+- ด่าน linearity ของ manifest เริ่มที่ V1 release (`2026-06-30`) ไม่ใช่ `1.0.0` เพราะก่อนหน้านั้นมี 4 root
+- tag `v9.13.0` ชี้ `41dee13` (merge ของ PR #101) — ไม่มี commit `chore(release)` แยก
+  เพราะ `VERSION`/`config.py`/`package.json` ถูก sync ไปก่อนหน้าแล้ว `release.sh` จึงไม่ต้อง commit เพิ่ม
+
+ถ้าต้องนับใหม่แบบนี้อีก: แก้ `scripts/version-manifest.tsv` → รัน `node scripts/version-manifest.mjs` ให้ผ่าน →
+ลบ Release/tag เก่าทั้งหมด → `./release.sh` สำหรับตัวล่าสุด → `./scripts/backfill-releases.sh tags --push` → `... releases`
+
 ---
 
 ## 2. แหล่งความจริง
