@@ -156,6 +156,7 @@ echo 1.30.0 > VERSION
 ./scripts/backfill-releases.sh tags            # สร้าง annotated tag ในเครื่อง
 ./scripts/backfill-releases.sh tags --push     # push tags
 ./scripts/backfill-releases.sh releases        # สร้าง GitHub Releases
+./scripts/backfill-releases.sh releases --update  # เขียน notes ของ Release ที่มีอยู่ใหม่จาก CHANGELOG
 ```
 
 กติกา:

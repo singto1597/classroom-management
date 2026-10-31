@@ -8,8 +8,9 @@
 #   ./scripts/backfill-releases.sh tags            # สร้าง tag ในเครื่อง
 #   ./scripts/backfill-releases.sh tags --push     # + push tags ขึ้น origin
 #   ./scripts/backfill-releases.sh releases        # สร้าง GitHub Release (ต้องมี tag บน origin)
+#   ./scripts/backfill-releases.sh releases --update  # เขียน notes ของ Release ที่มีอยู่ใหม่จาก CHANGELOG
 #
-# idempotent: มี tag/release แล้วข้าม
+# idempotent: มี tag/release แล้วข้าม (ยกเว้น --update ที่ตั้งใจเขียนทับ notes)
 # ============================================================
 set -euo pipefail
 
@@ -22,7 +23,10 @@ MANIFEST="scripts/version-manifest.tsv"
 BACKFILL_DATE="2026-10-31"
 
 [[ "$MODE" == "tags" || "$MODE" == "releases" ]] || {
-  echo "ใช้: $0 tags [--push] | releases" >&2; exit 1; }
+  echo "ใช้: $0 tags [--push] | releases [--update]" >&2; exit 1; }
+if [[ "$MODE" == "releases" && "$PUSH" != "" && "$PUSH" != "--update" ]]; then
+  echo "ใช้: $0 releases [--update]" >&2; exit 1
+fi
 
 section_for() {
   python3 - "$1" <<'PY'
@@ -80,12 +84,24 @@ fi
 # ---- releases ----
 missing=0
 while IFS=$'\t' read -r version date cut bump theme refs; do
-  [[ "$cut" == "RELEASE" ]] && continue
+  if [[ "$cut" == "RELEASE" ]]; then
+    [[ "$PUSH" == "--update" ]] || continue
+    tag="v${version}"
+    notes="$(mktemp)"
+    section_for "$version" > "$notes"
+    gh release edit "$tag" --notes-file "$notes"
+    echo "🔁 อัปเดต notes ${tag} (release จริง)"
+    rm -f "$notes"
+    continue
+  fi
   tag="v${version}"
   git rev-parse -q --verify "refs/tags/${tag}" >/dev/null || {
     echo "❌ ไม่มี tag ${tag} — รัน '$0 tags --push' ก่อน" >&2; missing=1; continue; }
 
-  if gh release view "$tag" >/dev/null 2>&1; then
+  exists=0
+  gh release view "$tag" >/dev/null 2>&1 && exists=1
+
+  if [[ "$exists" -eq 1 && "$PUSH" != "--update" ]]; then
     echo "⏭️  Release ${tag} มีอยู่แล้ว"
     continue
   fi
@@ -101,9 +117,14 @@ while IFS=$'\t' read -r version date cut bump theme refs; do
     fi
   } > "$notes"
 
-  args=(release create "$tag" --verify-tag --title "v${version} — ${theme}" --notes-file "$notes" --latest=false)
-  [[ "${version%%.*}" == "0" ]] && args+=(--prerelease)
-  gh "${args[@]}"
+  if [[ "$exists" -eq 1 ]]; then
+    gh release edit "$tag" --notes-file "$notes"
+    echo "🔁 อัปเดต notes ${tag}"
+  else
+    args=(release create "$tag" --verify-tag --title "v${version} — ${theme}" --notes-file "$notes" --latest=false)
+    [[ "${version%%.*}" == "0" ]] && args+=(--prerelease)
+    gh "${args[@]}"
+  fi
   rm -f "$notes"
 done < <(rows)
 
