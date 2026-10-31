@@ -139,7 +139,7 @@ chmod +x pull_all.sh
 หลัง deploy ทุกครั้งควรตรวจด้วย:
 
 ```bash
-curl -s http://localhost:8000/api/version   # {"version":"1.29.0","git_sha":"ab4daa7","service":"backend"}
+curl -s http://localhost:8000/api/version   # {"version":"9.13.0","git_sha":"ab4daa7","service":"backend"}
 ```
 
 หน้าเว็บแสดง `v<version> · <short sha>` ที่ท้ายเมนูโปรไฟล์ และถ้า `git_sha` เป็น `unknown`

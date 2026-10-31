@@ -1,5 +1,5 @@
 # version	date	cut	bump	theme	refs
-# cut = commit ที่ tag ชี้ไป (RELEASE = commit ของ release.sh ตอนออก v1.29.0)
+# cut = commit ที่ tag ชี้ไป (RELEASE = commit ของ release.sh ตอนออก v9.13.0)
 # refs = PR #a-#b หรือคำอธิบายช่วง commit — ใช้ตรวจว่า PR ที่ merge แล้วถูกนับครบ
 0.1.0	2026-03-20	1fc2e0d	minor	Discord bot v1: ตาราง, automation, tag	bot commits 35bcbba..1fc2e0d
 0.2.0	2026-04-22	ea6e768	minor	/help + UI + readme	bot commits a553624..ea6e768
@@ -7,53 +7,53 @@
 0.4.0	2026-05-08	3e24246	minor	FastAPI เกิด: student info, log/restore, export permission	backend commits 71ef439..3e24246
 0.5.0	2026-05-10	2a054a2	minor	Discord login + room selection, student CRUD, hard delete	backend/php commits
 0.6.0	2026-05-11	7097381	minor	เริ่มระบบการเงิน	backend/php commits
-0.7.0	2026-05-17	4d4df15	minor	audit log, soft delete, security/UX, bot migrate-to-api	bot PR #1
-0.8.0	2026-05-24	e41808f	minor	Vue 3 + TS SPA เกิด; JSON refactor; roles; timezone	ts commits b4c12c0..e41808f
-0.9.0	2026-05-31	ab8b515	minor	deploy ทุก component, task module, mobile/animations	backend PR #3
-0.10.0	2026-06-01	af54701	minor	root repo + submodules + Docker + Redis→Discord	main b1870d9..af54701
-0.11.0	2026-06-02	8facffa	minor	protect friends info + backend test suite แรก	main e009ec9..8facffa
-0.12.0	2026-06-03	6e0c0fe	minor	breadcrumbs/sidebar, migrate_user, Google token phases	main 96fdaeb..6e0c0fe
-0.13.0	2026-06-07	7fde8b9	minor	Google Login สมบูรณ์ + user_id int/string + room_id	backend 8e1d920..7fde8b9
-0.14.0	2026-06-21	7f9f5db	minor	lobby, create/join room, room_code, refactor user_id/room_id	backend 3e2558c..7f9f5db
-0.15.0	2026-06-22	5c3f6cb	minor	Sync Profile + name onboarding; bot web-centric	backend PR #7
-0.16.0	2026-06-23	a79fd94	minor	PR แรกของ root repo: อัปเดตโปรเจกต์หลัก + Submodules	PR #1
-1.0.0	2026-06-30	dc411ef	major	V1 release: export students, logo, fixes	PR #2
-1.1.0	2026-07-14	da859a5	minor	collection per person + sync submodule pointers	backend PR #9
-1.1.1	2026-07-17	b18be80	patch	fix แก้โปรไฟล์ไม่ได้ / Optional update	backend PR #10-#11
-1.2.0	2026-07-18	0ade717	minor	Permissions Function (RBAC)	backend PR #12
-1.2.1	2026-07-26	93eee76	patch	refactor log services + read-only command	commits 132bb59..93eee76
-1.3.0	2026-07-28	fea3afe	minor	รวม 4 repo เป็น monorepo (subtree) + archive PHP	commits a7c721c..fea3afe
-1.3.1	2026-07-29	69a2365	patch	ลอง Adminer/Bytebase, replicas, DB memory, finance dashboard	commits 65fb274..69a2365
-1.4.0	2026-07-30	e0042dd	minor	bot เป็น notification-only + Discord sync + connect guide	commits e675af9..e0042dd
-1.5.0	2026-08-02	dee4bbe	minor	test suite ใหม่, Roadmap, Onboarding	PR #5-#7
-1.6.0	2026-08-04	6cf37a5	minor	task sort/counts + Trans Export	PR #8-#9
-1.7.0	2026-08-05	ce682b9	minor	บัญชีคู่ (double-entry)	PR #10
-1.7.1	2026-08-06	3b8c486	patch	Thai export/prefix/date fixes + docs git workflow	PR #11-#14
-1.8.0	2026-08-07	2bf07b6	minor	fix Redis pub/sub + web→Discord message + bot auth	PR #15-#19
-1.9.0	2026-08-07	632254f	minor	Discord notifications + mention/category	PR #20-#21
-1.10.0	2026-08-07	c57c722	minor	ตำแหน่งใหม่, edit profile ครบ, birthday room	PR #22-#24
-1.11.0	2026-08-09	f16d5f6	minor	batch debt settlement	PR #25
-1.11.1	2026-08-09	f1a701d	patch	mobile-responsive overhaul	PR #26
-1.12.0	2026-08-14	f4a76c7	minor	Activity & Role Management 3 layers	PR #27-#29
-1.13.0	2026-08-16	865b0c9	minor	activity UX, smart forms, roster	PR #30-#33
-1.14.0	2026-08-18	27e139f	minor	English-primary identity + nickname_en	PR #34
-1.15.0	2026-08-21	e5a2ae2	minor	activity manage/attendance + export polish	PR #35-#37
-1.16.0	2026-08-25	f5c7b3f	minor	Consent Model ปิดช่องโหว่ PII	PR #38
-1.17.0	2026-09-03	612717f	minor	General Journal, reconciliation, era split 1 ก.ย.	PR #39-#42
-1.18.0	2026-09-03	e70be76	minor	reconcile --all + void ออกจากยอด	PR #43-#45
-1.19.0	2026-09-04	4a0c985	minor	Excel export ERP-grade + ลูกหนี้รายคน	PR #46-#48
-1.19.1	2026-09-05	ced8be8	patch	แยก service/router ที่บวมเป็น package	PR #49
-1.20.0	2026-09-12	1a29188	minor	Design System Academic Ledger	PR #50
-1.20.1	2026-09-12	ac4775e	patch	แก้ UI มือถือทั้งระบบ	PR #51
-1.21.0	2026-09-14	747f428	minor	งบการเงิน F1–F3, ใบเสร็จ/ใบแจ้งหนี้, Discord, เวลาไทย	PR #52-#53
-1.22.0	2026-09-14	4ac09cb	minor	ใบแจ้งหนี้รวมยอด + เงินรับล่วงหน้า F4	PR #54-#55
-1.23.0	2026-09-15	d205a43	minor	ชุดเอกสาร F5 + ใบเสร็จอัตโนมัติ + PDF ไป Discord	PR #56-#60
-1.24.0	2026-09-16	732198b	minor	ใบสำคัญจ่าย/ใบรับเงิน F6 + fixes	PR #61-#65
-1.25.0	2026-09-19	f95554f	minor	เปรียบเทียบกิจกรรม + Venn + export รวม	PR #66-#67
-1.25.1	2026-09-25	38ec9e6	patch	ปิดผลตรวจระบบ 2026-09-23	PR #68-#83
-1.25.2	2026-09-26	9108613	patch	healthcheck 503, IMAGE_TAG trap, CI compose	PR #84-#90
-1.26.0	2026-09-27	7282e2f	minor	session ต่ออายุอัตโนมัติ + หลายห้องพร้อมกัน	PR #92-#93
-1.27.0	2026-10-24	86d6ec7	minor	P0 ฐานราก: migrations, CI 5 ด่าน, tokens, router meta	PR #94
-1.27.1	2026-10-27	dad8bec	patch	UX P1.1–P1.3	PR #95-#97
-1.28.0	2026-10-27	ab4daa7	minor	P1.4 แยก shell components + IA มือถือ 5 ช่อง	PR #98
-1.29.0	2026-10-31	RELEASE	minor	ระบบ versioning + ประวัติย้อนหลัง 55 versions	PR ถัดไป
+1.0.0	2026-05-17	4d4df15	major	audit log, soft delete, security/UX, bot migrate-to-api	bot PR #1
+2.0.0	2026-05-24	e41808f	major	Vue 3 + TS SPA เกิด; JSON refactor; roles; timezone	ts commits b4c12c0..e41808f
+2.1.0	2026-05-31	ab8b515	minor	deploy ทุก component, task module, mobile/animations	backend PR #3
+3.0.0	2026-06-01	af54701	major	root repo + submodules + Docker + Redis→Discord	main b1870d9..af54701
+3.1.0	2026-06-02	8facffa	minor	protect friends info + backend test suite แรก	main e009ec9..8facffa
+3.2.0	2026-06-03	6e0c0fe	minor	breadcrumbs/sidebar, migrate_user, Google token phases	main 96fdaeb..6e0c0fe
+3.3.0	2026-06-07	7fde8b9	minor	Google Login สมบูรณ์ + user_id int/string + room_id	backend 8e1d920..7fde8b9
+4.0.0	2026-06-21	7f9f5db	major	lobby, create/join room, room_code, refactor user_id/room_id	backend 3e2558c..7f9f5db
+4.1.0	2026-06-22	5c3f6cb	minor	Sync Profile + name onboarding; bot web-centric	backend PR #7
+4.2.0	2026-06-23	a79fd94	minor	PR แรกของ root repo: อัปเดตโปรเจกต์หลัก + Submodules	PR #1
+5.0.0	2026-06-30	dc411ef	major	V1 release: export students, logo, fixes	PR #2
+5.1.0	2026-07-14	da859a5	minor	collection per person + sync submodule pointers	backend PR #9
+5.1.1	2026-07-17	b18be80	patch	fix แก้โปรไฟล์ไม่ได้ / Optional update	backend PR #10-#11
+5.2.0	2026-07-18	0ade717	minor	Permissions Function (RBAC)	backend PR #12
+5.2.1	2026-07-26	93eee76	patch	refactor log services + read-only command	commits 132bb59..93eee76
+6.0.0	2026-07-28	fea3afe	major	รวม 4 repo เป็น monorepo (subtree) + archive PHP	commits a7c721c..fea3afe
+6.0.1	2026-07-29	69a2365	patch	ลอง Adminer/Bytebase, replicas, DB memory, finance dashboard	commits 65fb274..69a2365
+6.1.0	2026-07-30	e0042dd	minor	bot เป็น notification-only + Discord sync + connect guide	commits e675af9..e0042dd
+6.2.0	2026-08-02	dee4bbe	minor	test suite ใหม่, Roadmap, Onboarding	PR #5-#7
+6.3.0	2026-08-04	6cf37a5	minor	task sort/counts + Trans Export	PR #8-#9
+7.0.0	2026-08-05	ce682b9	major	บัญชีคู่ (double-entry)	PR #10
+7.0.1	2026-08-06	3b8c486	patch	Thai export/prefix/date fixes + docs git workflow	PR #11-#14
+7.1.0	2026-08-07	2bf07b6	minor	fix Redis pub/sub + web→Discord message + bot auth	PR #15-#19
+7.2.0	2026-08-07	632254f	minor	Discord notifications + mention/category	PR #20-#21
+7.3.0	2026-08-07	c57c722	minor	ตำแหน่งใหม่, edit profile ครบ, birthday room	PR #22-#24
+7.4.0	2026-08-09	f16d5f6	minor	batch debt settlement	PR #25
+7.4.1	2026-08-09	f1a701d	patch	mobile-responsive overhaul	PR #26
+7.5.0	2026-08-14	f4a76c7	minor	Activity & Role Management 3 layers	PR #27-#29
+7.6.0	2026-08-16	865b0c9	minor	activity UX, smart forms, roster	PR #30-#33
+8.0.0	2026-08-18	27e139f	major	English-primary identity + nickname_en	PR #34
+8.1.0	2026-08-21	e5a2ae2	minor	activity manage/attendance + export polish	PR #35-#37
+9.0.0	2026-08-25	f5c7b3f	major	Consent Model ปิดช่องโหว่ PII	PR #38
+9.1.0	2026-09-03	612717f	minor	General Journal, reconciliation, era split 1 ก.ย.	PR #39-#42
+9.2.0	2026-09-03	e70be76	minor	reconcile --all + void ออกจากยอด	PR #43-#45
+9.3.0	2026-09-04	4a0c985	minor	Excel export ERP-grade + ลูกหนี้รายคน	PR #46-#48
+9.3.1	2026-09-05	ced8be8	patch	แยก service/router ที่บวมเป็น package	PR #49
+9.4.0	2026-09-12	1a29188	minor	Design System Academic Ledger	PR #50
+9.4.1	2026-09-12	ac4775e	patch	แก้ UI มือถือทั้งระบบ	PR #51
+9.5.0	2026-09-14	747f428	minor	งบการเงิน F1–F3, ใบเสร็จ/ใบแจ้งหนี้, Discord, เวลาไทย	PR #52-#53
+9.6.0	2026-09-14	4ac09cb	minor	ใบแจ้งหนี้รวมยอด + เงินรับล่วงหน้า F4	PR #54-#55
+9.7.0	2026-09-15	d205a43	minor	ชุดเอกสาร F5 + ใบเสร็จอัตโนมัติ + PDF ไป Discord	PR #56-#60
+9.8.0	2026-09-16	732198b	minor	ใบสำคัญจ่าย/ใบรับเงิน F6 + fixes	PR #61-#65
+9.9.0	2026-09-19	f95554f	minor	เปรียบเทียบกิจกรรม + Venn + export รวม	PR #66-#67
+9.9.1	2026-09-25	38ec9e6	patch	ปิดผลตรวจระบบ 2026-09-23	PR #68-#83
+9.9.2	2026-09-26	9108613	patch	healthcheck 503, IMAGE_TAG trap, CI compose	PR #84-#90
+9.10.0	2026-09-27	7282e2f	minor	session ต่ออายุอัตโนมัติ + หลายห้องพร้อมกัน	PR #92-#93
+9.11.0	2026-10-24	86d6ec7	minor	P0 ฐานราก: migrations, CI 5 ด่าน, tokens, router meta	PR #94
+9.11.1	2026-10-27	dad8bec	patch	UX P1.1–P1.3	PR #95-#97
+9.12.0	2026-10-27	ab4daa7	minor	P1.4 แยก shell components + IA มือถือ 5 ช่อง	PR #98
+9.13.0	2026-10-31	RELEASE	minor	ระบบ versioning + ประวัติย้อนหลัง 55 versions	PR ถัดไป
