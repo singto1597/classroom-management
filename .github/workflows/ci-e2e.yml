@@ -35,7 +35,10 @@ concurrency:
 jobs:
   e2e:
     name: Playwright (chromium)
-    runs-on: ubuntu-latest
+    # ⚠️ pin 24.04 — `ubuntu-latest` กลายเป็น 26.04 และ Playwright 1.60 ยังไม่รองรับ
+    #    ("Playwright does not support chromium on ubuntu26.04-x64", 31 ต.ค. 2026)
+    #    เปลี่ยนกลับเป็น ubuntu-latest ได้เมื่อ Playwright รองรับ 26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

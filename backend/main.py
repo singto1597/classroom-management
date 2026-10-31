@@ -15,6 +15,7 @@ from routers import auth_router
 from routers import room_router
 from routers import action_router
 from routers import activity_router
+from routers import version_router
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -90,6 +91,7 @@ app.include_router(student_router.router, prefix="/api/classroom", tags=["Studen
 app.include_router(finance_router.router, prefix="/api/classroom", tags=["Finance"])
 app.include_router(action_router.router, prefix="/api/classroom", tags=["Actions"])
 app.include_router(activity_router.router, prefix="/api/classroom", tags=["Activities"])
+app.include_router(version_router.router, prefix="/api", tags=["Version"])
 
 
 @app.get("/health", tags=["Health"])

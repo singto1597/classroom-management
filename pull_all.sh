@@ -30,7 +30,7 @@ cp .env frontend/.env
 
 # 4. Build Image (ใช้เลข Commit เป็น Tag แทน latest)
 echo "🔨 กำลังสร้าง Docker Image เวอร์ชัน: ${IMAGE_TAG}..."
-docker build -t classroom-${ENV_NAME}-backend:${IMAGE_TAG} ./backend
+docker build --build-arg GIT_SHA=${IMAGE_TAG} -t classroom-${ENV_NAME}-backend:${IMAGE_TAG} ./backend
 docker build -t classroom-${ENV_NAME}-frontend:${IMAGE_TAG} ./frontend
 docker build -t classroom-${ENV_NAME}-bot:${IMAGE_TAG} ./bot_discord
 

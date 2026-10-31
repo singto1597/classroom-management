@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 232 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 237 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -236,6 +236,11 @@
 - [🏷️ ป้ายสถานะเดียวกันถูกเขียนซ้ำ 3 วิว — ternary สองทางทำให้ "รออนุมัติ" กลายเป็น "พ้นสภาพ"](#ป้ายสถานะเดียวกันถูกเขียนซ้ำ-3-วิว-ternary-สองทางทำให้-รออนุมัติ-กลายเป็น-พ้นสภาพ)
 - [🔤 ภาษาไทยไม่มีตัวพิมพ์ใหญ่ — `uppercase` ไม่ทำอะไร แต่ `tracking-*` แยกสระออกจากพยัญชนะ](#ภาษาไทยไม่มีตัวพิมพ์ใหญ่-uppercase-ไม่ทำอะไร-แต่-tracking--แยกสระออกจากพยัญชนะ)
 - [🚪 "รายการว่าง" มีสามสาเหตุ — ทางออกต้องตรงกับสาเหตุ ไม่ใช่ข้อความเดียว](#รายการว่าง-มีสามสาเหตุ-ทางออกต้องตรงกับสาเหตุ-ไม่ใช่ข้อความเดียว)
+- [🌳 ประวัติแบบ multi-root: `--is-ancestor` ใช้ตอบ "ลำดับ" ได้หลัง monorepo เท่านั้น — และ PR ของ component ชนเลขกับ PR ของ root](#ประวัติแบบ-multi-root---is-ancestor-ใช้ตอบ-ลำดับ-ได้หลัง-monorepo-เท่านั้น-และ-pr-ของ-component-ชนเลขกับ-pr-ของ-root)
+- [🐳 `ARG GIT_SHA` ต้องอยู่ *หลัง* `COPY . .` — provenance ที่ทำ cache พังทุก commit คือ provenance ที่ไม่มีใครอยาก deploy](#arg-gitsha-ต้องอยู่-หลัง-copy-provenance-ที่ทำ-cache-พังทุก-commit-คือ-provenance-ที่ไม่มีใครอยาก-deploy)
+- [🚩 `gh release create` โยน tag ให้ที่ HEAD ถ้าไม่ใส่ `--verify-tag` — และมันจะขโมย "Latest" ให้กับ release ย้อนหลัง](#gh-release-create-โยน-tag-ให้ที่-head-ถ้าไม่ใส่---verify-tag-และมันจะขโมย-latest-ให้กับ-release-ย้อนหลัง)
+- [🔢 เลขเวอร์ชันถูกเขียนไว้ 5 ที่ — ถ้าไม่มีด่าน มันจะเพี้ยนภายในสองงาน](#เลขเวอร์ชันถูกเขียนไว้-5-ที่-ถ้าไม่มีด่าน-มันจะเพี้ยนภายในสองงาน)
+- [🧪 `monkeypatch.setattr(app.state, …)` พังตอน teardown บน pytest 9 — และ CI ที่ `pip install pytest` ไม่ pin จะเปลี่ยนใต้เท้าคุณเอง](#monkeypatchsetattrappstate-พังตอน-teardown-บน-pytest-9-และ-ci-ที่-pip-install-pytest-ไม่-pin-จะเปลี่ยนใต้เท้าคุณเอง)
 
 <!-- TOC:END -->
 
@@ -3559,3 +3564,85 @@
 - **Rule:** (1) 🔴 **`filtered.length === 0` ใช้ตัดสิน "ไม่มีข้อมูล" ไม่ได้** — ต้องแยกด้วยข้อมูลตั้งต้น (`all.length === 0`) ก่อนเสมอ (2) 🔴 **ห้ามใช้ `border-dashed` ใน `src/`** — ขอบทึบคือภาษาของการ์ด; เส้นประสื่อ "ยังกรอกไม่ครบ" ซึ่งผิดความหมายของ empty/error (3) ⚠️ empty state ต้องมีทางออกที่ตรงสาเหตุ (ล้างตัวกรอง/เปิดตัวกรอง/สร้างรายการแรก) ไม่ใช่ข้อความปลอบอย่างเดียว
 - **Tests:** `npm run type-check` · `npm run lint` (`lint:thai` 115 ไฟล์, `lint:colors`/`lint:palette` 117 ไฟล์) · `npm run test:unit -- --run` → 17 ไฟล์ / 315 passed · `npm run build-only` ผ่าน · `grep -rn border-dashed src/` = 0 (เหลือเฉพาะคอมเมนต์ห้ามใช้ใน `StateBlock.vue`)
 - **Date Added:** 2026-10-27
+
+### 🌳 ประวัติแบบ multi-root: `--is-ancestor` ใช้ตอบ "ลำดับ" ได้หลัง monorepo เท่านั้น — และ PR ของ component ชนเลขกับ PR ของ root
+- **Context/Problem:** งาน backfill 56 versions ตั้งแต่ commit แรก `35bcbba` (19 มี.ค. 2026) ต้องเลือก commit ให้ tag ทุก version ก่อนมี tag อะไรเลย และต้องพิสูจน์ว่าตัวเลขที่เขียนใน CHANGELOG มีหลักฐาน ตอนตรวจครั้งแรกมีสองกับดัก: (1) manifest ที่ใช้ `git merge-base --is-ancestor` ตรวจ "cut ก่อนหน้านี้เป็นบรรพบุรุษของ cut ถัดไป" กับ **ทุกคู่** จะฟ้องผิดเกือบทั้งช่วงต้น เพราะประวัติช่วงนั้นมี 4 root (bot, backend, frontend_php, frontend_ts) ซึ่ง imported เข้า monorepo ด้วย `git subtree` เมื่อ 28 ก.ค. 2026 (`backend` ← `3bdc233` จาก `9cc4f78` · `frontend_ts` ← `1f5a670` จาก `5e91fb1` · `frontend_php` ← `0042242` จาก `6517051` · `bot` ← `474330e` จาก `68eb30f`) ⇒ commit ของ bot วันที่ 20 มี.ค. กับ commit ของ backend วันที่ 8 พ.ค. **ไม่เคยเป็นบรรพบุรุษของกันและกัน** (2) `gh pr view 12` คืน "fix Redis pub/sub" ที่ merge 6 ส.ค. แต่ manifest เขียนว่า PR #15–#19 คือช่วงนั้น — เพราะเลข PR ของ repo ย่อย (`bot PR #1`, `backend PR #9`–`#12`) เป็นเลขชุดเดียวกันกับ PR ของ monorepo (ซึ่งก็มี #1–#12 ของตัวเอง)
+- **Root Cause:** `--is-ancestor` ตอบคำถาม "A มาก่อน B ใน DAG นี้หรือเปล่า" ไม่ใช่ "A เกิดก่อน B ตามปฏิทิน" — พอมีหลาย root ที่ถูก import เข้ามา ความสัมพันธ์เชิงบรรพบุรุษจึงมีเฉพาะ **ภายใน root เดียวกัน** และเริ่มเชื่อมข้าม root ได้ก็ต่อเมื่อถึงจุด subtree merge (28 ก.ค.) เท่านั้น ฝั่ง PR ก็เป็นปัญหา namespace: ทั้ง 4 repo ย่อยและ monorepo ต่างนับ PR ตั้งแต่ 1 ⇒ `#12` มีสองความหมาย และถ้าเขียนรวมกันจะตรวจ coverage ไม่ได้เลย
+- **Correct Pattern/Solution:**
+  - แยกด่านตรวจเป็นสองระดับ: **ทุก cut** ต้อง `git cat-file -e <cut>^{commit}` + `merge-base --is-ancestor <cut> HEAD` (ต้อง checkout ได้จาก HEAD จริง) · **ความต่อเนื่องเชิงเส้น** บังคับเฉพาะคู่ที่ major ≥ 1 เท่านั้น (หลัง monorepo แล้ว 38 คู่เรียงกันจริง) — โค้ดจริงอยู่ใน `scripts/version-manifest.mjs:63-77`
+  - tag ก่อน 1.0.0 ชี้ **snapshot ของ component ที่ represent ที่สุดของวันนั้น** และ CHANGELOG/Release body ต้องระบุ component tips ของวันนั้นด้วย ไม่ใช่ปล่อยให้คนอ่านเข้าใจว่ามันคือ snapshot ของทั้งระบบ
+  - refs ของ component ใช้ prefix ที่แยก namespace ชัดเจน (`bot PR #1`, `backend PR #9-#11`) และ regex ที่ตรวจ coverage นับเฉพาะ `/^PR #(\d+)/` (`version-manifest.mjs:82`) ⇒ component PR ไม่ถูกนับซ้ำกับ PR ของ root
+  - เมื่อเลข PR ขัดกัน ให้ **ยืนยันกับ GitHub** ทีละอัน (`gh pr view 12 --json title,mergedAt,body`) อย่าเชื่อไฟล์ที่ dump ไว้ก่อนหน้า
+- **Rule:** (1) 🔴 **อย่าใช้ ancestry ตอบคำถามเรื่องเวลา/ลำดับใน repo ที่มีหลาย root** — ใช้ cut commit + วันที่ + component tip แทน และจำกัดด่าน linearity ไว้หลังจุดที่ประวัติรวมเป็นเส้นเดียว (2) 🔴 **เลข PR ไม่ unique ข้าม repo** — ถ้าโปรเจกต์เคยเป็นหลาย repo ให้ใส่ prefix ของ component ทุกครั้งที่อ้าง PR ย่อย (3) ⚠️ tag ย้อนหลังที่ชี้ commit ของ component เดียว ต้องบอกในข้อความ tag/Release ว่าเป็น snapshot บางส่วน ไม่ใช่ของทั้งระบบ
+- **Tests:** `node scripts/version-manifest.mjs` → `manifest 56 แถว, วันที่เรียงขึ้น, cut มีจริงและ reachable` · `ความต่อเนื่องหลัง 1.0.0: 38 คู่` · `PR coverage: 95 merged PR ถูกนับครบพอดีครั้งเดียว` · `CHANGELOG มี section ครบ 56 versions` · `gh pr view 12/15/16/19` ยืนยันว่า #12 = Redis fix (6 ส.ค.) และ #15–#19 = web→Discord page + 404 auth saga
+- **Date Added:** 2026-10-31
+
+### 🐳 `ARG GIT_SHA` ต้องอยู่ *หลัง* `COPY . .` — provenance ที่ทำ cache พังทุก commit คือ provenance ที่ไม่มีใครอยาก deploy
+- **Context/Problem:** ต้องการให้ `GET /api/version` ตอบได้ว่ารัน commit ไหนอยู่จริง ไม่ใช่แค่เลข version ที่เขียนในไฟล์ ซึ่งต้องส่ง commit hash เข้าไปตอน `docker build` (`pull_all.sh` ตั้ง `IMAGE_TAG=$(git rev-parse --short HEAD)` แล้วส่ง `--build-arg GIT_SHA=${IMAGE_TAG}`) ถ้าวาง `ARG GIT_SHA` ไว้ต้นไฟล์ Dockerfile ก่อน `COPY --chown=appuser:appuser . .` ทุก commit ที่เปลี่ยนค่า build arg จะทำให้ layer ของ `COPY` + `pip install` เป็น cache miss ⇒ build backend ช้าใหม่ทุกครั้ง แม้เปลี่ยนแค่คอมเมนต์
+- **Root Cause:** ค่าของ `ARG`/`ENV` ที่ประกาศก่อนคำสั่งหนึ่ง ๆ เป็นส่วนหนึ่งของ cache key ของคำสั่งนั้น ๆ — commit hash เปลี่ยนทุก commit ⇒ layer ที่อยู่ใต้ `ARG` ถูก invalidate ทั้งหมด และเพราะ backend image เป็นตัวที่ `pip install` หนักที่สุด อาการจึงเป็น "deploy ช้าลงทั้งระบบเพราะเพิ่มฟีเจอร์ดู version"
+- **Correct Pattern/Solution:**
+  ```dockerfile
+  COPY --chown=appuser:appuser . .
+
+  # 🔖 provenance — วางหลัง COPY เพื่อไม่ให้ cache พังทุกครั้งที่ commit เปลี่ยน
+  ARG GIT_SHA=unknown
+  ENV GIT_SHA=$GIT_SHA
+  ```
+  - `backend/core/config.py` อ่าน `os.getenv("GIT_SHA", "unknown")` ⇒ รันนอก container ได้ค่า `unknown` โดยไม่ crash และ UI แสดง `dev`
+  - `backend/routers/version_router.py` ตอบ `{version, git_sha, service}` พร้อม `Cache-Control: no-store` — ถ้า proxy แคช response ไว้ จะได้ sha เก่าข้าม deploy ซึ่งแย่กว่าไม่มี endpoint
+  - เทสต์ต้อง assert ทั้งค่าและ header (`test_version.py`) ไม่ใช่แค่ status 200
+- **Rule:** (1) 🔴 **build arg ที่เปลี่ยนทุก commit ต้องอยู่หลัง layer ที่แพงที่สุดเสมอ** — วางไว้ต้นไฟล์ = ปิด cache โดยไม่รู้ตัว (2) 🔴 **endpoint บอกเวอร์ชันต้อง `no-store`** ไม่งั้น Cloudflare/Traefik ที่แคชอยู่จะตอบข้อมูลเก่าข้าม deploy (3) ⚠️ ค่า default ของ provenance ต้องเป็นค่าที่ทำให้ระบบยังรันได้ (`unknown`) ไม่ใช่ `""` หรือไม่มี default ซึ่งจะพังตอนรัน local/test
+- **Tests:** `docker build --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t … ./backend` แล้ว `curl /api/version` → `{"version":"1.29.0","git_sha":"<short sha>","service":"backend"}` · build รอบสองโดยไม่เปลี่ยนโค้ด → ทุก layer cache hit (ดู `CACHED` ที่ `COPY`) · `pytest backend/tests/test_version.py` ผ่าน
+- **Date Added:** 2026-10-31
+
+### 🚩 `gh release create` โยน tag ให้ที่ HEAD ถ้าไม่ใส่ `--verify-tag` — และมันจะขโมย "Latest" ให้กับ release ย้อนหลัง
+- **Context/Problem:** ต้องสร้าง GitHub Release ย้อนหลัง 55 อันจาก tag ที่ชี้ commit เก่า ๆ ถ้าใช้ `gh release create v0.1.0 --notes-file …` ตรง ๆ บน tag ที่มีอยู่แล้ว gh จะสร้าง tag **ใหม่ที่ HEAD ของ default branch** ถ้า tag นั้นยังไม่มี — ซึ่งในงาน backfill ที่สร้าง tag ไปก่อนแล้วจะไม่พัง แต่ในกรณีที่สคริปต์รันซ้ำ/ข้ามขั้น มันจะผลิต release ที่ผูกกับ commit ผิดแบบเงียบ ๆ อีกปัญหาคือ GitHub ตัดสิน "Latest" จาก **วันที่สร้าง release** ไม่ใช่วันที่ tag ⇒ การ backfill ย้อนหลังทำให้ release เก่ากลายเป็น Latest และกลบ v1.29.0 ตัวจริง
+- **Root Cause:** `gh release create` มีพฤติกรรม "create tag if missing" เป็นค่าเริ่มต้น เพื่อความสะดวกของเคสปกติ (tag ใหม่ที่ HEAD) — ซึ่งเป็นสิ่งที่ตรงข้ามกับความต้องการของ backfill ที่ tag ต้องชี้ commit ในอดีตทุกกรณี ส่วน "Latest" เป็นสถานะที่ GitHub คำนวณจาก release ล่าสุดที่สร้าง ไม่ได้ผูกกับ SemVer และไม่มีทางแก้ย้อนหลังได้ในคำสั่งเดียว (ต้อง `gh release edit --latest=false`)
+- **Correct Pattern/Solution:**
+  ```bash
+  gh release create "$tag" \
+    --verify-tag \
+    --title "v$version — $theme" \
+    --notes-file "$notes" \
+    --latest=false \
+    ${is_zero_major:+--prerelease}
+  ```
+  - `--verify-tag` = ถ้าไม่มี tag ให้ **ล้มเหลว** ไม่ใช่สร้าง tag เอง ⇒ ป้องกัน release ผูก commit ผิด
+  - `--latest=false` ทุกอัน แล้วค่อยสร้าง/แก้ release ล่าสุดจริงด้วย `--latest` เฉพาะ v1.29.0
+  - v0.x ใส่ `--prerelease` — ตรงกับความหมาย SemVer และ GitHub จะไม่เอาไปเป็น Latest
+  - **backdate ไม่ได้**: `createdAt` เป็นค่าฝั่งเซิร์ฟเวอร์ ⇒ ต้องเขียนวันที่เดิมไว้ในหัวข้อ และใส่บรรทัด `_Backfilled on 2026-10-31 from commit <sha>_` ใน body เพื่อไม่ให้เข้าใจผิดว่า release เกิดวันนั้นจริง
+  - สคริปต์ต้อง **idempotent**: เช็ค `git rev-parse -q --verify "refs/tags/$tag"` และ `gh release view "$tag"` ก่อนสร้าง ⇒ รันซ้ำไม่พังและไม่สร้างซ้ำ
+- **Rule:** (1) 🔴 **backfill release ต้องมี `--verify-tag` เสมอ** — ปล่อยให้ gh สร้าง tag เองคือการเสี่ยงผูก release กับ commit ผิดโดยไม่มี error (2) 🔴 **release ย้อนหลังต้อง `--latest=false`** และเฉพาะตัวล่าสุดจริงเท่านั้นที่ได้ `--latest` (3) ⚠️ อย่าแก้ `createdAt` ด้วย API เพื่อให้ดูย้อนหลัง — มันไม่ใช่ความจริง และทำให้ timeline ของ repo อ่านผิด
+- **Tests:** `bash -n scripts/backfill-releases.sh` · รัน `tags` ซ้ำสองครั้ง → จำนวน tag เท่าเดิม (idempotent) · `gh release view v0.1.0 --json tagName,isPrerelease,isLatest` → tag ชี้ `1fc2e0d`, `isPrerelease: true`, `isLatest: false` · หลังออก v1.29.0 → `isLatest: true` และ release ที่เหลือยัง `false`
+- **Date Added:** 2026-10-31
+
+### 🔢 เลขเวอร์ชันถูกเขียนไว้ 5 ที่ — ถ้าไม่มีด่าน มันจะเพี้ยนภายในสองงาน
+- **Context/Problem:** หลังเพิ่มระบบ versioning เลข `1.29.0` ต้องตรงกันใน `VERSION`, `backend/core/config.py :: PROJECT_VERSION`, `frontend/package.json :: version`, `frontend/package-lock.json :: version` และ `frontend/package-lock.json :: packages[""].version` รวมถึงต้องมี `## [1.29.0]` ใน `CHANGELOG.md` — แก้มือทั่วไปจะลืม `packages[""]` (ซึ่ง `npm install` เขียนเองแต่การแก้มือไม่แตะ) และลืม config.py ที่ทำให้ `/api/version` ตอบเลขเก่า
+- **Root Cause:** เลขเวอร์ชันเป็นข้อมูลเดียวกันที่ถูกคัดลอกไว้หลาย ecosystem (Python settings, npm manifest, npm lockfile, เอกสาร) โดยไม่มีใครเป็นเจ้าของ ⇒ "แก้ที่เดียว" เป็นเรื่องของวินัย ไม่ใช่ของโครงสร้าง และไม่มีอะไรฟ้องเมื่อไม่ตรง เพราะทุกฝ่ายยังรันได้ปกติ (แค่รายงานเลขผิด)
+- **Correct Pattern/Solution:**
+  - `VERSION` ที่ root เป็นแหล่งเดียว — `release.sh` เป็นตัว sync ไปยัง 4 จุดที่เหลือ (Python อ่าน/เขียน JSON ตรง ๆ ไม่ใช้ `npm version` เพื่อไม่ให้เกิด commit/tag ของ npm เอง)
+  - `.github/workflows/ci-version.yml` เป็นด่าน: เทียบ `VERSION` กับทั้ง 4 จุด + ตรวจว่ามี `## [<version>]` ใน CHANGELOG + รัน `scripts/version-manifest.mjs` + `bash -n release.sh rollback.sh` — ใช้ `paths` filter ให้รันเฉพาะเมื่อแตะไฟล์ที่เกี่ยวข้อง
+  - `release.sh` ตรวจก่อน commit: SemVer ถูกต้อง · อยู่บน `main` · tree สะอาด · `HEAD == origin/main` · มี section ใน CHANGELOG · tag ยังไม่มี ⇒ **ถ้า Release notes ว่างจะไม่มีการ tag เกิดขึ้นเลย**
+  - `--dry-run` ต้องทำงานโดยไม่เขียนไฟล์/ไม่ push เพื่อให้ตรวจก่อนได้
+- **Rule:** (1) 🔴 **ข้อมูลเดียวกันที่ต้องอยู่หลายไฟล์ ต้องมีแหล่งเดียว + ตัว sync + ด่าน CI** (2) 🔴 **ออก release ต้องตรวจ CHANGELOG ก่อน tag** — tag ที่มี release notes ว่างแก้ไม่ได้โดยไม่ลบ tag ซึ่งแย่กว่าการรอ 1 นาที (3) ⚠️ `package-lock.json` มี `version` สองที่ (`version` และ `packages[""].version`) — แก้ที่เดียวจะไม่ตรงกัน
+- **Tests:** `echo 1.29.1 > VERSION && ./release.sh --dry-run` → sync ครบ 4 ไฟล์, ไม่ commit/tag · แก้ `VERSION` เป็น `1.30.0` โดยไม่เพิ่ม CHANGELOG section → ล้มทันทีพร้อมบอกชื่อ section ที่ขาด · CI `ci-version.yml` เขียวบน PR ที่เพิ่มงานนี้
+- **Date Added:** 2026-10-31
+
+### 🧪 `monkeypatch.setattr(app.state, …)` พังตอน teardown บน pytest 9 — และ CI ที่ `pip install pytest` ไม่ pin จะเปลี่ยนใต้เท้าคุณเอง
+- **Context/Problem:** `test_health_check.py` สลับ `app.state.db_pool` เป็น pool ปลอมเพื่อจำลอง DB ล่มด้วย `monkeypatch.setattr(app.state, "db_pool", …)` เทสต์ทั้ง 3 ตัว **PASSED** แต่สรุปออกมาเป็น `2 failed, 1140 passed, 3 errors` เพราะ ERROR ตอน teardown: lifespan shutdown ใน fixture `client` เรียก `await app.state.db_pool.close()` แล้วได้ `KeyError: 'db_pool'`
+- **Root Cause:** pytest 9 เปลี่ยน `MonkeyPatch.setattr` ให้จดค่าเดิมด้วย `inspect.getattr_static` แทน `getattr` เพื่อไม่ให้แตะ descriptor แต่ Starlette `State` เก็บ attribute ใน dict `_state` และเปิดให้เข้าถึงผ่าน `__getattr__` เท่านั้น ⇒ `getattr_static` **มองไม่เห็น** `db_pool` ⇒ monkeypatch ถือว่า "เดิมไม่มี attribute นี้" แล้วตอน undo สั่ง `delattr(obj, "db_pool")` ลบของจริงทิ้ง ปัญหาไม่ได้มาจากโค้ดที่ทดสอบเลย — เกิดจากพฤติกรรมของ pytest รุ่นใหม่ + image ที่ติดตั้ง `pytest` แบบไม่ pin (entrypoint เดิม: `pip install pytest pytest-asyncio httpx`) ⇒ CI ที่เคยเขียวเมื่อสัปดาห์ก่อนพังเองโดยไม่มีใครแก้โค้ด
+- **Correct Pattern/Solution:**
+  ```python
+  @pytest.fixture
+  def swap_db_pool():
+      original = app.state.db_pool
+      def _swap(pool):
+          app.state.db_pool = pool
+      yield _swap
+      app.state.db_pool = original   # คืนด้วย setattr ตรง ๆ ไม่พึ่ง monkeypatch undo
+  ```
+  - ห้าม `monkeypatch.setattr` กับ object ที่ attribute ถูกซ่อนหลัง `__getattr__` (Starlette `State`, `SimpleNamespace` แบบ custom, ORM proxy) — ถ้าจะสลับ ให้จดค่าเดิมและคืนเองด้วย `setattr` เสมอ
+  - pin เวอร์ชันของเครื่องมือเทสต์ใน `docker-compose.test.yml` entrypoint: `pytest==9.2.0`, `pytest-asyncio==1.4.1`, `httpx==0.28.1` (ยืนยันด้วย `pip index versions` และรันซ้ำแล้วเขียว)
+- **Rule:** (1) 🔴 **toolchain ของเทสต์ต้อง pin** — `pip install pytest` เปล่า ๆ ทำให้ผลของ "เทสต์เดิม" เปลี่ยนได้เอง (2) 🔴 **ห้าม monkeypatch attribute ของ Starlette `State`** — ใช้ fixture ที่จด/คืนค่าเอง (3) ⚠️ อ่านบรรทัดสรุปให้ครบ: `PASSED [ 82%] ERROR [ 82%]` แปลว่า logic ถูกแต่ teardown พัง — อย่าดูแค่จำนวน passed
+- **Tests:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "… pytest -q /app/tests/test_health_check.py"` → `5 passed` และ **ไม่มี ERROR** · รันทั้งชุดซ้ำแบบไม่มี `errors` ใน summary · `grep -rn "monkeypatch.setattr(app.state" backend/tests` → ว่าง
+- **Date Added:** 2026-10-31

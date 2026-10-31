@@ -106,12 +106,34 @@ async def test_health_ok_when_db_reachable(client):
 # =============================================================================
 
 
-async def test_health_returns_503_when_acquire_fails(client, monkeypatch):
+@pytest.fixture
+def swap_db_pool():
+    """สลับ `app.state.db_pool` แล้วคืนค่าเดิมตอนจบเทสต์
+
+    ⚠️ **ห้ามใช้ `monkeypatch.setattr(app.state, ...)`** — ตั้งแต่ pytest 9
+    `MonkeyPatch` จดค่าเดิมด้วย `inspect.getattr_static` ซึ่ง **ไม่เห็น** attribute
+    ที่ Starlette `State` เก็บใน dict `_state` (เข้าถึงผ่าน `__getattr__` อย่างเดียว)
+    ⇒ ตอน undo มันถือว่า "เดิมไม่มี attribute นี้" แล้วสั่ง `delattr`
+    ⇒ lifespan shutdown (`await app.state.db_pool.close()`) เจอ `KeyError: 'db_pool'`
+    (เกิดจริงบน CI 2026-10-31: 3 เทสต์ PASSED แต่ ERROR ตอน teardown)
+
+    fixture นี้จดค่าเดิมเองและคืนด้วย `setattr` ตรง ๆ — ทำงานเหมือนกันทุก pytest
+    """
+    original = app.state.db_pool
+
+    def _swap(pool):
+        app.state.db_pool = pool
+
+    yield _swap
+    app.state.db_pool = original
+
+
+async def test_health_returns_503_when_acquire_fails(client, swap_db_pool):
     """🔴 เทสต์หลัก — `acquire()` พัง → ต้องได้ 503 ไม่ใช่ 200
 
     ถ้าบั๊กเดิมกลับมา เทสต์นี้จะ fail ด้วยข้อความ `503 != 200`
     """
-    monkeypatch.setattr(app.state, "db_pool", _AcquireFailsPool())
+    swap_db_pool(_AcquireFailsPool())
 
     res = client.get("/health")
 
@@ -122,21 +144,21 @@ async def test_health_returns_503_when_acquire_fails(client, monkeypatch):
     )
 
 
-async def test_health_returns_503_when_query_fails(client, monkeypatch):
+async def test_health_returns_503_when_query_fails(client, swap_db_pool):
     """pool ยังอยู่แต่ connection ตายกลางทาง → ก็ต้องเป็น 503 เหมือนกัน"""
-    monkeypatch.setattr(app.state, "db_pool", _QueryFailsPool())
+    swap_db_pool(_QueryFailsPool())
 
     res = client.get("/health")
 
     assert res.status_code == 503, f"คาดว่า 503 แต่ได้ {res.status_code}: {res.text}"
 
 
-async def test_health_does_not_leak_exception_detail(client, monkeypatch):
+async def test_health_does_not_leak_exception_detail(client, swap_db_pool):
     """body ต้องไม่พา exception จริงออกไป — `/health` เป็น public route (ไม่มี auth)
 
     ข้อความจาก asyncpg อาจมี host/port/user ของ DB ติดมา ⇒ ต้องคืนค่าคงที่เท่านั้น
     """
-    monkeypatch.setattr(app.state, "db_pool", _AcquireFailsPool())
+    swap_db_pool(_AcquireFailsPool())
 
     res = client.get("/health")
     body = res.text

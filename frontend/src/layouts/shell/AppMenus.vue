@@ -4,8 +4,10 @@
  *
  * รวมไว้ไฟล์เดียวเพราะใช้สไตล์/การวางตำแหน่งชุดเดียวกัน และถูกเปิดจาก header ที่เดียว
  */
+import { onMounted, ref } from 'vue';
 import type { UserRoom } from '@/types/classroom';
 import type { ShellMenu } from './useAppShell';
+import { VersionService } from '@/services/version';
 
 defineProps<{
   which: ShellMenu | null;
@@ -16,6 +18,19 @@ defineProps<{
   roleLabel: string;
   avatarChar: string;
 }>();
+
+// แสดง v<version> · <sha> จาก backend จริง — ถ้าเรียกไม่ได้ใช้ค่าที่ฝังตอน build
+const versionLabel = ref(`v${__APP_VERSION__}`);
+
+onMounted(async () => {
+  try {
+    const info = await VersionService.getVersion();
+    const sha = info.git_sha === 'unknown' ? 'dev' : info.git_sha.slice(0, 7);
+    versionLabel.value = `v${info.version} · ${sha}`;
+  } catch {
+    // backend ไม่ตอบ — คงเวอร์ชันจาก package.json ไว้
+  }
+});
 
 const emit = defineEmits<{
   close: [];
@@ -143,6 +158,9 @@ const emit = defineEmits<{
           >
             ออกจากระบบ
           </button>
+          <p class="mt-2 text-center text-[10px] font-medium text-stone-400">
+            {{ versionLabel }}
+          </p>
         </div>
       </div>
     </Transition>
