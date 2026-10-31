@@ -54,8 +54,8 @@ jobs:
           node-version: '20'
 
       - name: VERSION = PROJECT_VERSION = package.json = package-lock.json
-        shell: python
         run: |
+          python3 - <<'PY'
           import json, re, sys
           from pathlib import Path
 
@@ -77,6 +77,7 @@ jobs:
               print('❌ เวอร์ชันไม่ตรงกัน:', bad, file=sys.stderr)
               sys.exit(1)
           print(f'✅ ทุกไฟล์เป็น {version}')
+          PY
 
       - name: CHANGELOG มี section ของเวอร์ชันนี้
         run: |
