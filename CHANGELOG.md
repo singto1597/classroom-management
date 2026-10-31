@@ -2090,6 +2090,11 @@ advisory-lock migration ที่มีอยู่แล้ว
 **พังแล้วแก้อย่างไร** — การนับ version ข้าม 4 root ต้องใช้ทั้ง ancestry และ PR state
 (เพราะ squash merge ทำให้ ancestry ตรวจไม่ครบ) — และ PR component ใช้เลขซ้ำกับ
 monorepo PR จึงต้องกำกับด้วย "bot PR #1", "backend PR #12" ไม่ใช่ "PR #12"
+ตอนเปิด CI จริงยังเจออีกสองเรื่อง: `/api/version` เป็น route ที่ 129 ทำให้ด่าน
+`test_route_auth_audit` แดง (ตั้งใจให้ public — เพิ่มใน allowlist พร้อมเหตุผล)
+และ pytest 9 เปลี่ยนวิธี undo ของ `monkeypatch` จนเทสต์ `/health` ทั้งสามตัว
+`PASSED` แล้ว `ERROR` ตอน teardown (`KeyError: 'db_pool'`) — แก้ด้วย fixture
+ที่จด/คืนค่าเองและ pin `pytest==9.2.0` ให้เครื่องมือเทสต์ไม่เปลี่ยนใต้เท้าอีก
 
 **เพิ่ม**
 - CHANGELOG 56 versions
