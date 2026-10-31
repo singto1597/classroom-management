@@ -43,6 +43,9 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
         "OAuth callback ของ Google — เหตุผลเดียวกับ discord/login",
     ("GET", "/health"):
         "health check ของ Traefik/load balancer — ต้องไม่ต้องมี credential",
+    ("GET", "/api/version"):
+        "provenance ของระบบ (version + git sha) — ไม่มีข้อมูลผู้ใช้; ต้องเช็กได้จาก"
+        "นอกแอปโดยไม่ต้องมี credential ทั้งตอนตรวจ deploy และตอนไล่ incident",
 }
 
 
@@ -135,7 +138,10 @@ def test_route_count_is_not_silently_shrinking():
     # 127 → 128 (2026-09-27): เพิ่ม `POST /api/auth/refresh` (ต่ออายุ session)
     #   route ใหม่มี `Depends(get_current_user)` ⇒ ผ่าน `test_every_route_declares_auth_dependency`
     #   ไม่ต้องเพิ่มลง PUBLIC_ROUTES (และไม่ควร — ต้องล็อกอินอยู่เท่านั้นจึงต่ออายุได้)
-    expected = 128
+    # 128 → 129 (2026-10-31): เพิ่ม `GET /api/version` (provenance — version + git sha)
+    #   route นี้ **ตั้งใจให้ public** ⇒ อยู่ใน PUBLIC_ROUTES พร้อมเหตุผล
+    #   (ใช้ตรวจ deploy และไล่ incident ได้โดยไม่ต้องมี credential)
+    expected = 129
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

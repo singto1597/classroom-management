@@ -60,7 +60,12 @@ services:
       - GOOGLE_CLIENT_SECRET=dummy_google_secret
       - GOOGLE_REDIRECT_URI=http://localhost/dummy_google_callback
       - PYTHONPATH=/app
-    entrypoint: ["/bin/sh","-c", "export PYTHONDONTWRITEBYTECODE=1 && python -m pip install --no-cache-dir pytest pytest-asyncio httpx && exec \"$@\"", "test_runner"]
+    # ⚠️ pin เวอร์ชัน — image สร้างใหม่ทุก CI run และ `pip install pytest` ไม่มี pin
+    #    ⇒ 2026-10-31 pytest 9 ขึ้นไปแล้วทำให้เทสต์ 3 ตัวของ `test_health_check.py`
+    #    ERROR ตอน teardown (MonkeyPatch ใช้ getattr_static แล้วเห็น Starlette State
+    #    ไม่ครบ ⇒ undo สั่ง delattr `db_pool` ⇒ lifespan shutdown เจอ KeyError)
+    #    เทสต์ถูกแก้ให้ไม่พึ่งพฤติกรรมนั้นแล้ว แต่การ pin ยังกัน surprise รอบหน้า
+    entrypoint: ["/bin/sh","-c", "export PYTHONDONTWRITEBYTECODE=1 && python -m pip install --no-cache-dir 'pytest==9.2.0' 'pytest-asyncio==1.4.1' 'httpx==0.28.1' && exec \"$@\"", "test_runner"]
     command: ["pytest", "/app/tests", "-v"]
     depends_on:
       test_db:

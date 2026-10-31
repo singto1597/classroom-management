@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 236 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 237 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -240,6 +240,7 @@
 - [🐳 `ARG GIT_SHA` ต้องอยู่ *หลัง* `COPY . .` — provenance ที่ทำ cache พังทุก commit คือ provenance ที่ไม่มีใครอยาก deploy](#arg-gitsha-ต้องอยู่-หลัง-copy-provenance-ที่ทำ-cache-พังทุก-commit-คือ-provenance-ที่ไม่มีใครอยาก-deploy)
 - [🚩 `gh release create` โยน tag ให้ที่ HEAD ถ้าไม่ใส่ `--verify-tag` — และมันจะขโมย "Latest" ให้กับ release ย้อนหลัง](#gh-release-create-โยน-tag-ให้ที่-head-ถ้าไม่ใส่---verify-tag-และมันจะขโมย-latest-ให้กับ-release-ย้อนหลัง)
 - [🔢 เลขเวอร์ชันถูกเขียนไว้ 5 ที่ — ถ้าไม่มีด่าน มันจะเพี้ยนภายในสองงาน](#เลขเวอร์ชันถูกเขียนไว้-5-ที่-ถ้าไม่มีด่าน-มันจะเพี้ยนภายในสองงาน)
+- [🧪 `monkeypatch.setattr(app.state, …)` พังตอน teardown บน pytest 9 — และ CI ที่ `pip install pytest` ไม่ pin จะเปลี่ยนใต้เท้าคุณเอง](#monkeypatchsetattrappstate-พังตอน-teardown-บน-pytest-9-และ-ci-ที่-pip-install-pytest-ไม่-pin-จะเปลี่ยนใต้เท้าคุณเอง)
 
 <!-- TOC:END -->
 
@@ -3625,4 +3626,23 @@
   - `--dry-run` ต้องทำงานโดยไม่เขียนไฟล์/ไม่ push เพื่อให้ตรวจก่อนได้
 - **Rule:** (1) 🔴 **ข้อมูลเดียวกันที่ต้องอยู่หลายไฟล์ ต้องมีแหล่งเดียว + ตัว sync + ด่าน CI** (2) 🔴 **ออก release ต้องตรวจ CHANGELOG ก่อน tag** — tag ที่มี release notes ว่างแก้ไม่ได้โดยไม่ลบ tag ซึ่งแย่กว่าการรอ 1 นาที (3) ⚠️ `package-lock.json` มี `version` สองที่ (`version` และ `packages[""].version`) — แก้ที่เดียวจะไม่ตรงกัน
 - **Tests:** `echo 1.29.1 > VERSION && ./release.sh --dry-run` → sync ครบ 4 ไฟล์, ไม่ commit/tag · แก้ `VERSION` เป็น `1.30.0` โดยไม่เพิ่ม CHANGELOG section → ล้มทันทีพร้อมบอกชื่อ section ที่ขาด · CI `ci-version.yml` เขียวบน PR ที่เพิ่มงานนี้
+- **Date Added:** 2026-10-31
+
+### 🧪 `monkeypatch.setattr(app.state, …)` พังตอน teardown บน pytest 9 — และ CI ที่ `pip install pytest` ไม่ pin จะเปลี่ยนใต้เท้าคุณเอง
+- **Context/Problem:** `test_health_check.py` สลับ `app.state.db_pool` เป็น pool ปลอมเพื่อจำลอง DB ล่มด้วย `monkeypatch.setattr(app.state, "db_pool", …)` เทสต์ทั้ง 3 ตัว **PASSED** แต่สรุปออกมาเป็น `2 failed, 1140 passed, 3 errors` เพราะ ERROR ตอน teardown: lifespan shutdown ใน fixture `client` เรียก `await app.state.db_pool.close()` แล้วได้ `KeyError: 'db_pool'`
+- **Root Cause:** pytest 9 เปลี่ยน `MonkeyPatch.setattr` ให้จดค่าเดิมด้วย `inspect.getattr_static` แทน `getattr` เพื่อไม่ให้แตะ descriptor แต่ Starlette `State` เก็บ attribute ใน dict `_state` และเปิดให้เข้าถึงผ่าน `__getattr__` เท่านั้น ⇒ `getattr_static` **มองไม่เห็น** `db_pool` ⇒ monkeypatch ถือว่า "เดิมไม่มี attribute นี้" แล้วตอน undo สั่ง `delattr(obj, "db_pool")` ลบของจริงทิ้ง ปัญหาไม่ได้มาจากโค้ดที่ทดสอบเลย — เกิดจากพฤติกรรมของ pytest รุ่นใหม่ + image ที่ติดตั้ง `pytest` แบบไม่ pin (entrypoint เดิม: `pip install pytest pytest-asyncio httpx`) ⇒ CI ที่เคยเขียวเมื่อสัปดาห์ก่อนพังเองโดยไม่มีใครแก้โค้ด
+- **Correct Pattern/Solution:**
+  ```python
+  @pytest.fixture
+  def swap_db_pool():
+      original = app.state.db_pool
+      def _swap(pool):
+          app.state.db_pool = pool
+      yield _swap
+      app.state.db_pool = original   # คืนด้วย setattr ตรง ๆ ไม่พึ่ง monkeypatch undo
+  ```
+  - ห้าม `monkeypatch.setattr` กับ object ที่ attribute ถูกซ่อนหลัง `__getattr__` (Starlette `State`, `SimpleNamespace` แบบ custom, ORM proxy) — ถ้าจะสลับ ให้จดค่าเดิมและคืนเองด้วย `setattr` เสมอ
+  - pin เวอร์ชันของเครื่องมือเทสต์ใน `docker-compose.test.yml` entrypoint: `pytest==9.2.0`, `pytest-asyncio==1.4.1`, `httpx==0.28.1` (ยืนยันด้วย `pip index versions` และรันซ้ำแล้วเขียว)
+- **Rule:** (1) 🔴 **toolchain ของเทสต์ต้อง pin** — `pip install pytest` เปล่า ๆ ทำให้ผลของ "เทสต์เดิม" เปลี่ยนได้เอง (2) 🔴 **ห้าม monkeypatch attribute ของ Starlette `State`** — ใช้ fixture ที่จด/คืนค่าเอง (3) ⚠️ อ่านบรรทัดสรุปให้ครบ: `PASSED [ 82%] ERROR [ 82%]` แปลว่า logic ถูกแต่ teardown พัง — อย่าดูแค่จำนวน passed
+- **Tests:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "… pytest -q /app/tests/test_health_check.py"` → `5 passed` และ **ไม่มี ERROR** · รันทั้งชุดซ้ำแบบไม่มี `errors` ใน summary · `grep -rn "monkeypatch.setattr(app.state" backend/tests` → ว่าง
 - **Date Added:** 2026-10-31
