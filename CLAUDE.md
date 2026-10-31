@@ -14,6 +14,7 @@ The `docs/` directory contains the project's authoritative engineering rules:
 - `docs/system_prompt.md` — global rules for all layers.
 - `docs/rules/backend.md`, `docs/rules/frontend.md`, `docs/rules/discord-bot.md`, `docs/rules/testing.md` — per-layer rules (originally Cursor rules).
 - `docs/skills.md` — knowledge base of previously solved bugs / non-obvious patterns. **Read it before fixing bugs or adding features; append new lessons to it when you discover one.** The testing rules make this mandatory. The table of contents at the top is generated — run `node scripts/skills-toc.mjs` after adding a heading (`--check` is enforced by CI).
+- `docs/versioning.md` — version policy: `VERSION` as the single source, release/tag rules, backfill, and the `GIT_SHA` → `/api/version` provenance chain.
 - `docs/glossary.md` — the single Thai vocabulary users see (นักเรียน · งาน · โน้ต · การเงิน · ใบเสร็จ · กิจกรรม · ประกาศ · ห้อง) and the DB-value → Thai-label tables. Use these words in UI copy, route titles, and docs; add new terms there in the same PR.
 
 ## Commands
@@ -74,9 +75,13 @@ cp .env.example .env            # single root .env consumed by everything
 docker stack deploy -c docker-compose.infra.yml ${ENV_NAME}_infra   # Postgres + Redis
 ./pull_all.sh                   # fetch → build images tagged by git commit hash → zero-downtime deploy
 ./oh_shit.sh                    # emergency rollback to previous commit's images
+./rollback.sh <image-tag>       # roll back several PRs to a known-good image tag (does not touch git)
+./release.sh [--dry-run]        # sync VERSION→code, commit chore(release), annotated tag, push, GitHub Release
+curl -s http://localhost:8000/api/version   # {version, git_sha, service} — proof of what is running
 ```
 - **Never hardcode/commit real secrets.** `.env` is gitignored; everything reads from the root `.env`.
 - `docker-compose.app.yml` runs backend ×3 replicas behind Traefik; the bot runs as 1 replica (stop-first).
+- **Version bumps touch 5 places** (`VERSION`, `backend/core/config.py`, `frontend/package.json`, `frontend/package-lock.json` ×2) — never edit by hand, use `release.sh`; `ci-version.yml` fails the PR if they drift. Rules: `docs/versioning.md`.
 
 ## Architecture
 

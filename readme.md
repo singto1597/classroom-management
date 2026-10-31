@@ -121,6 +121,31 @@ chmod +x pull_all.sh
 ```
 
 สคริปต์นี้จะทำการดึงโค้ดล่าสุด -> Build Image ตามเลข Commit ล่าสุด -> สลับสวิตช์ตู้คอนเทนเนอร์แบบ Zero Downtime ทันที!
+ภาพที่ build จะถูกฝัง commit hash ไว้ (`--build-arg GIT_SHA`) => เปิด `GET /api/version` แล้วเห็นได้ทันทีว่ากำลังรันโค้ดชุดไหน
+
+---
+
+## 🏷️ เวอร์ชัน (Versioning)
+
+โปรเจกต์นี้ใช้ [Semantic Versioning](https://semver.org/) — เลขเวอร์ชันเดียวใน `VERSION` ที่ root
+ซิงก์ไปยัง `backend/core/config.py`, `frontend/package.json`, `frontend/package-lock.json`
+และทุก version มีเรื่องเล่าเต็มอยู่ใน [`CHANGELOG.md`](./CHANGELOG.md) (56 versions ตั้งแต่ commit แรก)
+
+```bash
+./release.sh --dry-run     # ตรวจว่าจะออกอะไร (ไม่เขียนไฟล์/ไม่ push)
+./release.sh               # sync ไฟล์ → commit chore(release) → annotated tag → push → GitHub Release
+```
+
+หลัง deploy ทุกครั้งควรตรวจด้วย:
+
+```bash
+curl -s http://localhost:8000/api/version   # {"version":"1.29.0","git_sha":"ab4daa7","service":"backend"}
+```
+
+หน้าเว็บแสดง `v<version> · <short sha>` ที่ท้ายเมนูโปรไฟล์ และถ้า `git_sha` เป็น `unknown`
+(รันนอก container) จะแสดง `dev`
+
+> รายละเอียดนโยบาย วิธีออก version, backfill tag ย้อนหลัง และ provenance chain: [`docs/versioning.md`](./docs/versioning.md)
 
 ---
 
@@ -152,6 +177,18 @@ chmod +x oh_shit.sh
 ```
 
 สคริปต์นี้จะดึง Image ของ Commit ก่อนหน้าที่อยู่ในเครื่องขึ้นมารันทันที **โดยไม่ต้องเสียเวลา Build ใหม่** ระบบจะกลับสู่สภาวะปกติ 100%
+
+### วิธีที่ 3: ถอยไป Image ที่ระบุ (ข้ามหลาย Commit)
+
+`oh_shit.sh` ถอยได้แค่ commit เดิม 1 ก้าว — ถ้า deploy ข้ามหลาย PR แล้วเพิ่งเจอปัญหาทีหลัง ใช้ `rollback.sh` ระบุ image tag ตรง ๆ:
+
+```bash
+./rollback.sh d6ef166          # ถามยืนยันก่อน deploy
+./rollback.sh d6ef166 --yes    # ข้ามการถาม (เช่นในสคริปต์)
+```
+
+สคริปต์ตรวจว่ามี image ครบทั้ง backend/frontend/bot ของ tag นั้นก่อน แล้วจึง `docker stack deploy`
+ด้วย `IMAGE_TAG` ที่ระบุ — **ไม่แตะ git** (โค้ดใน checkout ยังเป็น HEAD เดิม)
 
 
 ## การเทส 
