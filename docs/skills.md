@@ -3614,7 +3614,7 @@
   - **backdate ไม่ได้**: `createdAt` เป็นค่าฝั่งเซิร์ฟเวอร์ ⇒ ต้องเขียนวันที่เดิมไว้ในหัวข้อ และใส่บรรทัด `_Backfilled on 2026-10-31 from commit <sha>_` ใน body เพื่อไม่ให้เข้าใจผิดว่า release เกิดวันนั้นจริง
   - สคริปต์ต้อง **idempotent**: เช็ค `git rev-parse -q --verify "refs/tags/$tag"` และ `gh release view "$tag"` ก่อนสร้าง ⇒ รันซ้ำไม่พังและไม่สร้างซ้ำ
 - **Rule:** (1) 🔴 **backfill release ต้องมี `--verify-tag` เสมอ** — ปล่อยให้ gh สร้าง tag เองคือการเสี่ยงผูก release กับ commit ผิดโดยไม่มี error (2) 🔴 **release ย้อนหลังต้อง `--latest=false`** และเฉพาะตัวล่าสุดจริงเท่านั้นที่ได้ `--latest` (3) ⚠️ อย่าแก้ `createdAt` ด้วย API เพื่อให้ดูย้อนหลัง — มันไม่ใช่ความจริง และทำให้ timeline ของ repo อ่านผิด
-- **Tests:** `bash -n scripts/backfill-releases.sh` · รัน `tags` ซ้ำสองครั้ง → จำนวน tag เท่าเดิม (idempotent) · `gh release view v0.1.0 --json tagName,isPrerelease,isLatest` → tag ชี้ `1fc2e0d`, `isPrerelease: true`, `isLatest: false` · หลังออก v9.13.0 → `isLatest: true` และ release ที่เหลือยัง `false`
+- **Tests:** `bash -n scripts/backfill-releases.sh` · รัน `tags` ซ้ำสองครั้ง → จำนวน tag เท่าเดิม (idempotent) · `gh release view v0.1.0 --json tagName,isPrerelease` → tag ชี้ `1fc2e0d`, `isPrerelease: true` · `gh release list --limit 200 --json tagName,isLatest --jq '[.[]|select(.isLatest)]|length'` → `1` และเป็น `v9.13.0` (⚠️ `gh release view --json isLatest` ใช้ไม่ได้ — ไม่มี field นี้ ต้องใช้ `gh release list` หรือ `gh api .../releases/latest`)
 - **Date Added:** 2026-10-31
 
 ### 🔢 เลขเวอร์ชันถูกเขียนไว้ 5 ที่ — ถ้าไม่มีด่าน มันจะเพี้ยนภายในสองงาน
