@@ -4,7 +4,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Central API (Classroom & Finance)"
-    PROJECT_VERSION: str = "1.0.0"
+    PROJECT_VERSION: str = "1.29.0"
+
+    # 🔖 Provenance: Commit SHA ของ image ที่รันอยู่ — ใส่มาจาก Docker build arg
+    #    (ดู Dockerfile + pull_all.sh) ถ้ารันนอก container จะเป็น "unknown"
+    GIT_SHA: str = os.getenv("GIT_SHA", "unknown")
     
     DATABASE_URL: str
     API_KEY: str

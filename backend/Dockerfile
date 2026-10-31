@@ -30,6 +30,11 @@ USER appuser
 # คัดลอก Source Code ทั้งหมดเข้าสู่ Container
 COPY --chown=appuser:appuser . .
 
+# 🔖 Provenance — วาง *หลัง* COPY เพื่อไม่ให้ cache พังทุกครั้งที่ commit เปลี่ยน
+#    pull_all.sh ส่ง --build-arg GIT_SHA=${IMAGE_TAG} (commit hash 7 หลัก)
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+
 # กำหนด Port ที่ Container จะเปิดรับการเชื่อมต่อ
 EXPOSE 8000
 
