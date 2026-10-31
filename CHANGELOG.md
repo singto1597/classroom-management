@@ -356,8 +356,8 @@ PostgreSQL advisory lock, design tokens, Playwright e2e ใน CI
 
 # ยุคที่ 5 — การเงิน ERP-grade + audit (ก.ย. 2026)
 
-> กันยายนคือเดือนที่ระบบการเงินกลายเป็น "ระบบบัญชี" จริง ๆ
-> และเป็นเดือนที่ผลตรวจระบบภายนอก (2026-09-23) ถูกปิดทีละข้อจนครบ
+> กันยายน: การเงินกลายเป็นระบบบัญชีจริง (General Journal, reconciliation, เอกสาร F1–F6)
+> และปิดผลตรวจระบบภายนอก 23 ก.ย. ทีละข้อจนครบ
 
 ---
 
@@ -828,8 +828,8 @@ Legacy ↔ บัญชีคู่, PR #42 ให้การอ่านหล
 
 # ยุคที่ 4 — บัญชีคู่, กิจกรรม, consent (ส.ค. 2026)
 
-> สิงหาคมคือเดือนที่ระบบเปลี่ยนจาก "จัดการห้อง" เป็น "บริหารห้อง"
-> มีการเงินที่ตรวจสอบได้ มีกิจกรรมที่จัดคนได้ และมีโมเดลความเป็นส่วนตัวที่แท้จริง
+> สิงหาคม: เพิ่มบัญชีคู่ กิจกรรม 3 ชั้น และโมเดล consent — ระบบเริ่มเก็บข้อมูลส่วนตัว
+> ในแบบที่อธิบายได้ว่าข้อมูลแต่ละชิ้นมีไว้ทำอะไร
 
 ---
 
@@ -1297,30 +1297,35 @@ skills.md ใน system prompt
 
 # ยุคที่ 3 — สิทธิ์, การรวมประวัติ, bot ใหม่ (ก.ค. 2026)
 
-> เดือนนี้คือเดือนที่โปรเจกต์ "โตเป็นระบบ" — มี RBAC, รวม 4 ประวัติเข้า monorepo,
-> และยอมถอดของที่ตัวเองสร้าง (PHP, bot UI) ออก
+> กรกฎาคม: RBAC, หลอม 4 ประวัติเป็น monorepo และถอดของที่เคยสร้างเองออก (PHP, bot UI)
 
 ---
 
 ## [6.1.0] — 2026-07-30 — bot เป็น notification-only + Discord sync
 
-**บริบท ณ ตอนนั้น** — bot ยังมีคำสั่งแอดมินซ้ำกับเว็บ ทำให้ต้องแก้สองที่ทุกครั้ง
-และผู้ใช้ยังผูกบัญชี Discord กับระบบไม่ได้ด้วยตัวเอง
+**บริบท ณ ตอนนั้น** — bot ยังถือคำสั่งแอดมินชุดเดียวกับเว็บ ทุกครั้งที่แก้ฟีเจอร์จึงต้องแก้สองที่
+แล้วพอเวลาผ่านไปสองฝั่งก็เริ่มเพี้ยนกัน อีกเรื่องคือผู้ใช้ผูกบัญชี Discord กับระบบเองไม่ได้
+ต้องรอแอดมินทำให้
 
-**สิ่งที่ทำ** — `refactor: remove admin commands and migrate to notification-only bot`
-— bot เหลือหน้าที่แจ้งเตือนและลิงก์ไปเว็บ
-เพิ่ม endpoint **Discord sync ผูกบัญชีด้วย `room_code`**, หน้า/โมดัล "คู่มือเชื่อมต่อ Discord"
-(glassmorphism), ปุ่ม invite bot ที่ URL มาจาก env, และเพิ่ม db network ใน infra
-พร้อมอัปเดตกฎ `.cursor/rules` ให้ตรงสถาปัตยกรรมใหม่
+**สิ่งที่ทำ**
+- ลบคำสั่งแอดมินออกจาก bot ทั้งชุดใน commit
+  `refactor: remove admin commands and migrate to notification-only bot`
+  bot เหลือหน้าที่แจ้งเตือนและลิงก์กลับไปเว็บ
+- เพิ่ม endpoint Discord sync ที่ผูกบัญชีด้วย `room_code` ผู้ใช้กรอกเองได้
+- หน้าคู่มือเชื่อมต่อ Discord พร้อมโมดัล (glassmorphism)
+- ปุ่ม invite bot โดย URL มาจาก env ไม่ฝังในโค้ด
+- เพิ่ม db network ใน infra ให้ service คุยกันได้
+- อัปเดต `.cursor/rules` ให้ตรงสถาปัตยกรรมใหม่
 
-**ตัดสินใจเพราะ** — bot ไม่ควรเป็น UI คู่ขนาน — ทุกฟีเจอร์ต้องมีเจ้าของเดียว
-และ bot ควรทำสิ่งที่เว็บทำไม่ได้: อยู่ในช่องแชทที่คนเห็นตลอดเวลา
-— `> ที่มา: ชื่อ commit refactor: remove admin commands and migrate to notification-only bot`
+**ตัดสินใจเพราะ** — bot ไม่ควรมี UI คู่ขนาน เพราะฟีเจอร์หนึ่งควรมีเจ้าของเดียว
+ถ้ามีสองที่ วันหนึ่งจะแก้ไม่ครบ และงานที่ bot ทำได้ดีกว่าคืออยู่ในช่องแชทที่คนเห็นตลอดเวลา
+`> ที่มา: ชื่อ commit refactor: remove admin commands and migrate to notification-only bot`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — Notification-only bot, room_code-based account linking,
-glassmorphism UI
+**เทคโนโลยีที่เปลี่ยน/ลอง** — bot แบบ notification-only, การผูกบัญชีผ่าน `room_code`,
+UI แบบ glassmorphism
 
-**พังแล้วแก้อย่างไร** — `add missing closing div tag` ทำให้หน้าคู่มือเพี้ยน — แก้ทันที
+**พังแล้วแก้อย่างไร** — commit `add missing closing div tag` แปลว่าหน้าคู่มือเพี้ยน
+เพราะแท็กปิดไม่ครบ แก้ทันทีในรอบเดียวกัน
 
 **เปลี่ยน**
 - bot เป็น notification-only
@@ -1330,35 +1335,41 @@ glassmorphism UI
 - Discord sync endpoint
 - ปุ่ม invite bot
 
-**สิ่งที่ยาก / ภูมิใจ** — การลดขอบเขตของ bot ทำให้มันเชื่อถือได้ขึ้นมาก
-และ sync ด้วย `room_code` ทำให้ผู้ใช้ผูกบัญชีเองได้โดยไม่ต้องรอแอดมิน
+**สิ่งที่ยาก / ภูมิใจ** — การลดขอบเขตของ bot ทำให้มันเชื่อถือได้ขึ้น เพราะสิ่งที่เหลือ
+มีจุดเดียวให้ตรวจ และ sync ด้วย `room_code` ทำให้ผู้ใช้ผูกบัญชีเองได้โดยไม่ต้องรอแอดมิน
 
-**Migration:** เพิ่มการผูก `discord_id` กับ user ผ่าน room_code
+**Migration:** เพิ่มการผูก `discord_id` กับ user ผ่าน `room_code`
 **อ้างอิง:** commits `e675af9..e0042dd` · main `e0042dd`
-
+---
 ---
 
 ## [6.0.1] — 2026-07-29 — ลอง Adminer/Bytebase, replicas, DB memory
 
-**บริบท ณ ตอนนั้น** — หลังรวม monorepo ต้องดูแล DB ด้วยตัวเองมากขึ้น และเครื่อง 12 GB
+**บริบท ณ ตอนนั้น** — หลังรวม monorepo เราต้องดูแล DB เองมากขึ้น และเครื่อง 12 GB
 เริ่มตึงเมื่อ backend รัน 3 replicas
 
-**สิ่งที่ทำ** — เพิ่ม Adminer และ Bytebase เข้า infra, ปรับ replicas 3 → 1,
-แก้ "Backend database don't give memory back" (connection pool ค้าง),
-แก้ finance dashboard ที่ใหญ่เกินจนพัง, archive `frontend_php` ไป branch
-`archive/frontend_php` และลบออกจาก main, rename frontend, ปรับ readme/docker naming
+**สิ่งที่ทำ**
+- เพิ่ม Adminer และ Bytebase เข้า infra
+- ปรับ replicas 3 → 1
+- แก้ "Backend database don't give memory back" ซึ่งคือ connection pool ค้างไม่คืนหน่วยความจำ
+- แก้ finance dashboard ที่ query ใหญ่เกินจนพัง
+- archive `frontend_php` ไป branch `archive/frontend_php` แล้วลบออกจาก main
+- rename frontend และปรับ readme/docker naming ให้ตรงกัน
 
-**ตัดสินใจเพราะ** — Bytebase ถูกถอดออก **วันเดียวกัน** เพราะกินทรัพยากรเกินประโยชน์
-เมื่อเทียบกับ Adminer ที่เบากว่า — `> ที่มา: commits "Feature: Add Bytebase" และ "Feature: Remove Bytebase"`
+**ตัดสินใจเพราะ** — Bytebase ถูกถอดออกวันเดียวกันกับที่เพิ่มเข้ามา มี commit
+"Feature: Add Bytebase" แล้วตามด้วย "Feature: Remove Bytebase" เพราะกินทรัพยากร
+เกินประโยชน์เมื่อเทียบกับ Adminer ที่เบากว่า
+`> ที่มา: commits "Feature: Add Bytebase" และ "Feature: Remove Bytebase"`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — Adminer (เก็บ), Bytebase (ถอด), replicas tuning, pool tuning
+**เทคโนโลยีที่เปลี่ยน/ลอง** — Adminer (เก็บไว้ใช้), Bytebase (ลองแล้วถอด),
+การจูนจำนวน replicas, การจูน connection pool
 
-**พังแล้วแก้อย่างไร** — memory ไม่คืนเพราะ pool ไม่ถูกปิดเมื่อ idle — แก้ด้วยการตั้งค่า pool
-และลด replicas
+**พังแล้วแก้อย่างไร** — memory ไม่คืนเพราะ pool ไม่ถูกปิดตอน idle แก้ด้วยการตั้งค่า pool
+ให้คืน connection และลด replicas จาก 3 เหลือ 1 ไปพร้อมกัน
 
 **เพิ่ม**
 - Adminer
-- archive branch ของ PHP
+- branch archive ของ PHP
 
 **เปลี่ยน**
 - replicas 3 → 1
@@ -1367,64 +1378,75 @@ glassmorphism UI
 **ถอด**
 - Bytebase
 
-**สิ่งที่ยาก / ภูมิใจ** — การกล้าถอดสิ่งที่เพิ่งใส่เข้าไปในวันเดียว คือการเรียนรู้ที่ถูกที่สุด
-— และการ archive PHP อย่างมีศักดิ์ศรี (เก็บ branch ไว้) ทำให้ย้อนดูได้ตลอด
+**สิ่งที่ยาก / ภูมิใจ** — การถอดสิ่งที่เพิ่งใส่เข้าไปในวันเดียวเป็นบทเรียนที่ราคาถูกที่สุด
+อีกเรื่องคือการ archive PHP แบบเก็บ branch ไว้ ทำให้ยังย้อนดูของเก่าได้ตลอด
 
 **Migration:** ไม่มี
 **อ้างอิง:** commits `65fb274..69a2365` · main `69a2365`
-
+---
 ---
 
 ## [6.0.0] — 2026-07-28 — รวม 4 repo เป็น monorepo (subtree)
 
-**บริบท ณ ตอนนั้น** — submodule ทำให้ PR ข้าม component เป็นไปไม่ได้
-การอัปเดต pointer ลืมบ่อย และ `git clone` ต้อง `--recursive` ทุกครั้ง
+**บริบท ณ ตอนนั้น** — submodule ทำให้ทำ PR ข้าม component ไม่ได้ ต้องเปิด PR แยก
+แล้วกลับมาอัปเดต pointer ทีหลัง ซึ่งลืมบ่อย และ `git clone` ต้องใส่ `--recursive` ทุกครั้ง
 
-**สิ่งที่ทำ** — ใช้ `git subtree` นำประวัติของทั้ง 4 repo เข้ามาเป็นโฟลเดอร์
-`backend/`, `frontend/`, `bot_discord/` (และ `frontend_php/` ก่อน archive)
-โดย **เก็บประวัติเดิมครบ** — import commit `3bdc233` (backend 114 commits),
-`1f5a670` (frontend_ts 117), `474330e` (bot 32), `0042242` (frontend_php 41)
+**สิ่งที่ทำ** — ใช้ `git subtree` ดึงประวัติของทั้ง 4 repo เข้ามาเป็นโฟลเดอร์
+`backend/`, `frontend/`, `bot_discord/` และ `frontend_php/` (ก่อนจะ archive ใน 6.0.1)
+โดยเก็บประวัติเดิมครบ:
+- import commit `3bdc233` — backend 114 commits
+- import commit `1f5a670` — frontend_ts 117 commits
+- import commit `474330e` — bot 32 commits
+- import commit `0042242` — frontend_php 41 commits
+
 ลบ `.gitmodules` และปรับ Docker structure ให้ build จาก root เดียว
 
-**ตัดสินใจเพราะ** — subtree ต่างจาก "copy ไฟล์" ตรงที่ commit เก่ายังตรวจย้อนได้
-ซึ่งสำคัญมากเพราะนี่คือประวัติที่ต้องการ — `> ที่มา: import commits ทั้ง 4 อยู่ใน history`
+**ตัดสินใจเพราะ** — subtree ต่างจากการ copy ไฟล์ตรงที่ commit เก่ายังตรวจย้อนได้
+และประวัตินี้คือของที่ต้องใช้จริงเวลาสืบว่าโค้ดบรรทัดหนึ่งมาจากไหน
+`> ที่มา: import commits ทั้ง 4 อยู่ใน history`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — git subtree, Docker context เดียว, `.env` กลางที่ root
+**เทคโนโลยีที่เปลี่ยน/ลอง** — `git subtree`, Docker context เดียว, `.env` กลางที่ root
 
-**พังแล้วแก้อย่างไร** — path ใน Dockerfile/CI อ้างโฟลเดอร์เก่า — แก้ทั้งชุด
-(`Refactor: Edit Docker Structure`)
+**พังแล้วแก้อย่างไร** — path ใน Dockerfile/CI ยังอ้างโฟลเดอร์เก่า แก้ทั้งชุดใน
+`Refactor: Edit Docker Structure` ถ้าไม่แก้ build หรือ CI จะหาของไม่เจอ
 
 **เปลี่ยน**
 - 4 repo → 1 monorepo
 - Docker build context
 - CI ทั้งหมด
 
-**สิ่งที่ยาก / ภูมิใจ** — การรวมประวัติ 304 commits โดยไม่ทำให้หายไปแม้ตัวเดียว
-คือเหตุที่ CHANGELOG นี้เขียนได้ละเอียดถึงเดือนมีนาคม
+**สิ่งที่ยาก / ภูมิใจ** — การรวม 304 commits (114 + 117 + 32 + 41) โดยไม่ให้หายไปแม้ตัวเดียว
+เป็นเหตุที่ CHANGELOG นี้เขียนย้อนถึงเดือนมีนาคมได้
 
 **Migration:** ไม่มี
 **อ้างอิง:** main `a7c721c..fea3afe`
-
+---
 ---
 
 ## [5.2.1] — 2026-07-26 — Refactor log service + กฎของ AI agent เกิดขึ้น
 
-**บริบท ณ ตอนนั้น** — audit log ถูกเขียนกระจายทุก service ด้วยรูปแบบต่างกัน
-และเริ่มใช้ AI agent (Cursor/Claude) ช่วยเขียนโค้ดมากขึ้น จึงต้องมีกฎกลาง
+**บริบท ณ ตอนนั้น** — audit log ถูกเขียนกระจายอยู่ในหลาย service ด้วยรูปแบบไม่ตรงกัน
+ทำให้ตรวจย้อนหลังยาก และช่วงนี้เริ่มใช้ AI agent (Cursor/Claude) ช่วยเขียนโค้ดมากขึ้น
+จึงต้องมีกฎกลางที่ทุกคนอ่านเจอ
 
-**สิ่งที่ทำ** — แยก `core/logger.py` (`AuditLogger`) ให้เป็นที่เดียว, ให้ bot
-ไม่เขียน log ซ้ำซ้อน, แก้ router/database ให้ใช้ logger ใหม่, และเพิ่ม
-`.cursor/rules/*.mdc` (backend, frontend, discord-bot, website-php) +
-`Refactor: logs services` ครบวงจร พร้อม commit `Backward one step` เมื่อพบว่าการ refactor
-ไปไกลเกิน
+**สิ่งที่ทำ**
+- แยก `core/logger.py` (`AuditLogger`) ให้เขียน log อยู่ที่เดียว
+- ให้ bot ไม่เขียน log ซ้ำซ้อนกับ backend
+- แก้ router/database ให้เรียก logger ใหม่
+- เพิ่ม `.cursor/rules/*.mdc` สำหรับ backend, frontend, discord-bot และ website-php
+- รวมทุกอย่างเป็น `Refactor: logs services` ครบวงจร
 
-**ตัดสินใจเพราะ** — log ที่รูปแบบไม่ตรงกันทำให้ตรวจย้อนหลังไม่ได้
-และกฎ agent ต้องอยู่ใน repo ไม่ใช่ในหัวคน — `> ที่มา: ไฟล์ .cursor/rules ถูกเพิ่มในรอบนี้`
+ระหว่างทางมี commit `Backward one step` เมื่อพบว่าการ refactor ไปไกลเกินจุดที่ควร
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — Cursor rules → ต่อมากลายเป็น `docs/rules/*.md` ที่ยังใช้อยู่
+**ตัดสินใจเพราะ** — log ที่รูปแบบไม่ตรงกันทำให้ตรวจย้อนหลังไม่ได้เลย และกฎของ agent
+ควรอยู่ใน repo ไม่ใช่ในหัวคน เพราะ agent รอบใหม่ไม่มีทางรู้ว่าคนก่อนคิดอะไรไว้
+`> ที่มา: ไฟล์ .cursor/rules ถูกเพิ่มในรอบนี้`
+
+**เทคโนโลยีที่เปลี่ยน/ลอง** — Cursor rules ซึ่งต่อมากลายเป็น `docs/rules/*.md`
+ที่ยังใช้อยู่ถึงทุกวันนี้
 
 **พังแล้วแก้อย่างไร** — `Backward one step` คือการยอมถอยเมื่อ refactor ทำให้ behavior เปลี่ยน
-— เป็นตัวอย่างที่ดีของการไม่ฝืนต่อ
+แทนที่จะฝืนทำต่อ
 
 **เปลี่ยน**
 - โครง audit logging
@@ -1434,32 +1456,33 @@ glassmorphism UI
 - log ซ้ำเมื่อ action มาจาก bot
 
 **สิ่งที่ยาก / ภูมิใจ** — การเขียนกฎให้ AI ทำตามคือการเขียนกฎให้ตัวเองทำตามด้วย
-— `docs/rules` กลายเป็นเอกสารที่ทำให้โค้ดทั้ง repo พูดภาษาเดียวกัน
+`docs/rules` ทำให้โค้ดทั้ง repo พูดภาษาเดียวกัน
 
 **Migration:** ไม่มี
 **อ้างอิง:** commits `132bb59..93eee76` · main `93eee76`
 **Component tips:** backend `9d827c9` · frontend_ts `5e91fb1` · frontend_php `6517051` · bot `68eb30f`
-
+---
 ---
 
 ## [5.2.0] — 2026-07-18 — RBAC: สิทธิ์แบบละเอียด
 
-**บริบท ณ ตอนนั้น** — ทุกคนในห้องเห็นทุกอย่าง หรือไม่ก็ต้องให้แอดมินทำ
-ไม่มีแนวคิด "ประธานห้องทำได้ แต่กรรมการทำไม่ได้"
+**บริบท ณ ตอนนั้น** — ทุกคนในห้องเห็นทุกอย่างเหมือนกัน หรือไม่ก็ต้องให้แอดมินเป็นคนทำ
+ไม่มีแนวคิดว่า "ประธานห้องทำได้ แต่กรรมการทำไม่ได้"
 
-**สิ่งที่ทำ** — เพิ่ม Permissions Function: `core/rbac.py` + `require_permission`
+**สิ่งที่ทำ** — เพิ่ม Permissions Function ที่ `core/rbac.py` พร้อม `require_permission`
 โดยเก็บ permission เป็น JSONB array บนแถว `students` ของห้องนั้น
-มี `SUPER_ADMIN_ID` และ `is_admin` ที่ข้ามการตรวจ
+มี `SUPER_ADMIN_ID` และ `is_admin` ที่ข้ามการตรวจทั้งหมด
 
-**ตัดสินใจเพราะ** — เก็บ permission บน membership (students row) ไม่ใช่บน user
-เพราะคนเดียวกันเป็นประธานห้องหนึ่งแต่เป็นสมาชิกธรรมดาอีกห้อง — สิทธิ์ต้องผูกกับ "ห้อง"
-— `> อนุมานจาก diff: require_permission(conn, room_id, user_id, permission)`
+**ตัดสินใจเพราะ** — permission เก็บบน membership (แถว `students`) ไม่ใช่บน user
+เพราะคนเดียวกันเป็นประธานห้องหนึ่งแต่เป็นสมาชิกธรรมดาอีกห้องได้ สิทธิ์จึงต้องผูกกับ "ห้อง"
+ไม่ใช่กับตัวคน
+`> อนุมานจาก diff: require_permission(conn, room_id, user_id, permission)`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — Permission-based แทน Role-based ล้วน
-(บทบาทเป็นเพียง preset ของ permission)
+**เทคโนโลยีที่เปลี่ยน/ลอง** — เปลี่ยนจาก role-based ล้วนเป็น permission-based
+โดยบทบาทเหลือแค่ preset ของ permission ชุดหนึ่ง
 
-**พังแล้วแก้อย่างไร** — endpoint เก่าบางตัวยังไม่เรียก `require_permission`
-ทำให้ bypass ได้ — แก้ทีละ router
+**พังแล้วแก้อย่างไร** — endpoint เก่าบางตัวยังไม่เรียก `require_permission` จึง bypass ได้
+แก้ทีละ router จนครบ
 
 **เพิ่ม**
 - `require_permission`
@@ -1470,58 +1493,63 @@ glassmorphism UI
 - ตรวจสิทธิ์ระดับ endpoint
 
 **สิ่งที่ยาก / ภูมิใจ** — RBAC เป็นรากของทุกอย่างหลังจากนี้ (กิจกรรม การเงิน เอกสาร)
-การวางให้ถูกตั้งแต่แรกทำให้เพิ่ม permission ใหม่ได้โดยไม่ต้องรื้อ
+การวางให้ถูกตั้งแต่แรกทำให้เพิ่ม permission ใหม่ได้โดยไม่ต้องรื้อของเดิม
 
 **Migration:** เพิ่มคอลัมน์ `permissions` JSONB
 **อ้างอิง:** backend PR #12 · main `0ade717`
 **Component tips:** backend `3e68447` · frontend_ts `8a325e7` · frontend_php `6517051` · bot `68eb30f`
-
+---
 ---
 
 ## [5.1.1] — 2026-07-17 — แก้โปรไฟล์ไม่ได้
 
-**บริบท ณ ตอนนั้น** — ผู้ใช้แก้โปรไฟล์ไม่ได้หลังเปลี่ยน schema เป็น Optional
-— ฟอร์มส่งค่าบางฟิลด์ว่าง แล้ว API reject
+**บริบท ณ ตอนนั้น** — หลังเปลี่ยน schema ให้ฟิลด์โปรไฟล์เป็น Optional ผู้ใช้กลับแก้โปรไฟล์ไม่ได้
+ฟอร์มส่งค่าบางฟิลด์ว่างมา แล้ว API reject ทั้งที่ผู้ใช้แค่ไม่กรอกช่องนั้น
 
-**สิ่งที่ทำ** — แก้การอัปเดตโปรไฟล์ให้รองรับ Optional จริง (`Fix: cant edit profile` 3 รอบ)
-ปรับ `docker-compose.yml` และ `.env` ให้ตรงกับ environment
+**สิ่งที่ทำ**
+- แก้การอัปเดตโปรไฟล์ให้รองรับ Optional จริง ใน `Fix: cant edit profile` 3 รอบ
+- ปรับ `docker-compose.yml` และ `.env` ให้ตรงกับ environment ที่รันอยู่
 
-**ตัดสินใจเพราะ** — ทางแรกคือบังคับกรอกทุกช่อง (ง่ายแต่ผู้ใช้แย่) — เลือกแก้ที่ schema
-ให้ optional และให้ service ใช้ `exclude_unset` — `> อนุมานจาก diff: PATCH update แบบ exclude_unset`
+**ตัดสินใจเพราะ** — ทางที่ง่ายกว่าคือบังคับกรอกทุกช่อง แต่ผู้ใช้จะแย่ลง
+จึงเลือกแก้ที่ schema ให้ optional และให้ service อัปเดตด้วย `exclude_unset`
+`> อนุมานจาก diff: PATCH update แบบ exclude_unset`
 
-**พังแล้วแก้อย่างไร** — แก้สามรอบเพราะแต่ละรอบเจอฟิลด์ถัดไปที่ยัง required อยู่
-— บทเรียน: **PATCH ต้องแยก "ไม่ส่งมา" กับ "ส่งค่าว่าง" ให้ชัด**
+**พังแล้วแก้อย่างไร** — แก้ถึงสามรอบเพราะแต่ละรอบเจอฟิลด์ถัดไปที่ยัง required อยู่
+บทเรียนคือ **PATCH ต้องแยก "ไม่ส่งมา" กับ "ส่งค่าว่าง" ให้ชัด** สองอย่างนี้ต้องได้ผลต่างกัน
 
 **แก้ไข**
 - แก้โปรไฟล์ไม่ได้
-- docker-compose / .env ไม่ตรงกัน
+- `docker-compose` / `.env` ไม่ตรงกัน
 
-**สิ่งที่ยาก / ภูมิใจ** — bug เล็กที่กระทบทุกคน และใช้เวลาเป็นวัน — แต่หลังแก้แล้ว
-โปรไฟล์กลายเป็นสิ่งที่แก้ได้ตลอด ซึ่งจำเป็นมากสำหรับข้อมูลที่เปลี่ยนทุกปีการศึกษา
+**สิ่งที่ยาก / ภูมิใจ** — bug เล็กที่กระทบทุกคนและกินเวลาเป็นวัน หลังแก้แล้วโปรไฟล์
+กลายเป็นสิ่งที่แก้ได้ตลอด ซึ่งสำคัญเพราะข้อมูลเปลี่ยนทุกปีการศึกษา
 
 **Migration:** ไม่มี
 **อ้างอิง:** backend PR #10–#11 · frontend PR #11 · main `b18be80`
 **Component tips:** backend `3e68447` · frontend_ts `8a325e7` · frontend_php `6517051` · bot `68eb30f`
-
+---
 ---
 
 ## [5.1.0] — 2026-07-14 — เก็บเงินรายคน + ซิงก์ submodule
 
 **บริบท ณ ตอนนั้น** — การเงินมีรายการรับ–จ่ายแล้ว แต่การเก็บเงินค่ากิจกรรมยังต้องจดแยก
-และอีกปัญหาที่เจ็บเงียบ ๆ: submodule pointer ใน root repo ชี้ commit เก่า ทำให้ deploy
-ได้โค้ดที่ไม่มีฟีเจอร์ล่าสุด
+อีกปัญหาที่เจ็บเงียบ ๆ คือ submodule pointer ใน root repo ชี้ commit เก่า
+ทำให้ deploy ได้โค้ดที่ไม่มีฟีเจอร์ล่าสุด
 
-**สิ่งที่ทำ** — เพิ่มการเก็บเงินรายคน (collection per person) ฝั่ง backend + frontend
-(backend PR #9, frontend PR #6) และซิงก์ submodule pointer ให้ตรงกับ remote main
+**สิ่งที่ทำ**
+- เพิ่มการเก็บเงินรายคน (collection per person) ฝั่ง backend และ frontend
+  (backend PR #9, frontend PR #6)
+- ซิงก์ submodule pointer ให้ตรงกับ remote main
 
-**ตัดสินใจเพราะ** — การเก็บเงินต้องตอบว่า "ใครจ่ายแล้ว ใครยังไม่จ่าย" ที่ระดับบุคคล
-ไม่ใช่ยอดรวม — `> อนุมานจาก diff: fee_collections + student_payments`
+**ตัดสินใจเพราะ** — การเก็บเงินต้องตอบคำถามว่า "ใครจ่ายแล้ว ใครยังไม่จ่าย" ที่ระดับบุคคล
+ไม่ใช่ดูแค่ยอดรวม
+`> อนุมานจาก diff: fee_collections + student_payments`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — เริ่มเห็นปัญหา submodule ชัดขึ้น: การอัปเดต pointer
-เป็นงาน manual ที่ลืมได้ง่าย — เมล็ดของ decision ที่จะนำไปสู่ subtree merge ใน v6.0.0
+**เทคโนโลยีที่เปลี่ยน/ลอง** — ปัญหา submodule เริ่มชัดขึ้น: การอัปเดต pointer เป็นงาน manual
+ที่ลืมได้ง่าย นี่คือเมล็ดของ decision ที่จะพาไปถึง subtree merge ใน v6.0.0
 
 **พังแล้วแก้อย่างไร** — `update submodule refs to latest main` ต้องรันซ้ำ
-เพราะ pointer ถูกแก้ระหว่างที่ component ยังมี commit ใหม่เข้ามา
+เพราะ pointer ถูกแก้ในจังหวะที่ component ยังมี commit ใหม่เข้ามา
 
 **เพิ่ม**
 - การเก็บเงินรายคน
@@ -1529,37 +1557,42 @@ glassmorphism UI
 **แก้ไข**
 - submodule pointer ค้าง
 
-**สิ่งที่ยาก / ภูมิใจ** — ระบบการเงินเริ่มตอบคำถามจริงของห้องเรียนได้ ไม่ใช่แค่บันทึกรายรับรายจ่าย
+**สิ่งที่ยาก / ภูมิใจ** — ระบบการเงินเริ่มตอบคำถามจริงของห้องเรียนได้ ไม่ได้แค่บันทึกรายรับรายจ่าย
 
 **Migration:** เพิ่มตาราง/คอลัมน์การเก็บเงิน (DDL ใน init_db)
 **อ้างอิง:** backend PR #9 · frontend PR #6 · main `da859a5`
 **Component tips:** backend `66511d7` · frontend_ts `995a117` · frontend_php `6517051` · bot `68eb30f`
-
+---
 ---
 
 # ยุคที่ 2 — monorepo, identity, V1 (มิ.ย. 2026)
 
-> ยุคที่ระบบเลิกเป็น "ชุดโปรเจกต์ที่บังเอิญทำงานด้วยกัน" และเริ่มเป็น "ระบบเดียว"
+> มิถุนายน: รวม repo ด้วย submodule, Google Login, ระบบห้อง/ผู้ใช้ แล้วประกาศ V1
 > ราคาที่จ่ายคือ dependency hell ของ submodule และ refactor identity ที่แตะทุกชั้น
 
 ---
 
 ## [5.0.0] — 2026-06-30 — V1: ระบบพร้อมใช้จริง
 
-**บริบท ณ ตอนนั้น** — ผ่านมา 3 เดือนครึ่ง มี 4 component, ระบบห้อง, login 2 เจ้า,
-การเงิน, งาน, โน้ต, ตารางสอน — แต่ยังขาดสิ่งที่ทำให้ "ใช้งานจริงจบวงจร" เช่น การ export ข้อมูล
-และอัตลักษณ์ของผลิตภัณฑ์ (โลโก้)
+**บริบท ณ ตอนนั้น** — ผ่านมา 3 เดือนครึ่ง มี 4 component, ระบบห้อง, login 2 เจ้า
+(Discord กับ Google), การเงิน, งาน, โน้ต และตารางสอน แต่ยังขาดสองอย่างที่ทำให้
+ใช้งานจริงจบวงจร: การ export ข้อมูลออกไปใช้ต่อ และอัตลักษณ์ของผลิตภัณฑ์ (โลโก้)
 
-**สิ่งที่ทำ** — PR #2 `staging` รวม: **Export Students** (หน้าใหม่ + `vuedraggable` สำหรับจัดลำดับคอลัมน์),
-โลโก้, แก้บั๊กหลายจุด และอัปเดต `docker-compose.yml`
+**สิ่งที่ทำ** — PR #2 `staging` รวมงานไว้ในรอบเดียว:
+- **Export Students** — หน้าใหม่ + ใช้ `vuedraggable` จัดลำดับคอลัมน์ก่อน export
+- โลโก้ผลิตภัณฑ์
+- แก้บั๊กหน้าเว็บหลายจุด
+- อัปเดต `docker-compose.yml`
 
-**ตัดสินใจเพราะ** — การ export คือสิ่งที่โรงเรียนต้องการก่อนใช้งานจริง (ส่งรายชื่อให้ฝ่ายทะเบียน,
-สำรองข้อมูล) และเป็น feature แรกที่ผู้ใช้ภายนอกขอ — `> อนุมานจาก diff: ExportStudent.vue + dependency vuedraggable`
+**ตัดสินใจเพราะ** — โรงเรียนต้องการ export ก่อนเริ่มใช้จริง: ส่งรายชื่อให้ฝ่ายทะเบียน
+และเก็บสำรองข้อมูลไว้เอง นี่เป็น feature แรกที่คนนอกทีมขอเข้ามา
+`> อนุมานจาก diff: ExportStudent.vue + dependency vuedraggable`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — `vuedraggable` สำหรับเลือก/จัดลำดับคอลัมน์ export
+**เทคโนโลยีที่เปลี่ยน/ลอง** — `vuedraggable` สำหรับเลือกและจัดลำดับคอลัมน์ export
 
-**พังแล้วแก้อย่างไร** — build ล้มเพราะ dependency ใหม่ + type ของ export — แก้ก่อน merge
-(`Fix: edit bug` 2 commits)
+**พังแล้วแก้อย่างไร** — build ล้มตอนเพิ่ม dependency ใหม่ เพราะ type ของ export
+ยังไม่ตรงกับข้อมูลจริง แก้ก่อน merge (`Fix: edit bug` 2 commits)
+ไม่ได้ปล่อยเข้า `staging` ทั้งที่ยัง build ไม่ผ่าน
 
 **เพิ่ม**
 - Export นักเรียน
@@ -1567,64 +1600,69 @@ glassmorphism UI
 
 **แก้ไข**
 - บั๊กหน้าเว็บหลายจุด
-- docker-compose
+- `docker-compose`
 
-**สิ่งที่ยาก / ภูมิใจ** — การประกาศ 5.0.0 ไม่ได้หมายความว่าโค้ดสมบูรณ์
-แต่หมายความว่า **มีคนใช้จริงและเราพร้อมรับผิดชอบ** — นี่คือจุดที่โปรเจกต์ส่วนตัว
+**สิ่งที่ยาก / ภูมิใจ** — การออกเลข 5.0.0 ไม่ได้แปลว่าโค้ดสมบูรณ์
+แต่แปลว่า **มีคนใช้จริงและเราพร้อมรับผิดชอบ** — ตรงนี้เองที่โปรเจกต์ส่วนตัว
 กลายเป็นระบบของโรงเรียน
 
 **Migration:** ไม่มี
 **อ้างอิง:** PR #2 · commits `a79fd94..dc411ef`
 **Component tips:** backend `02a2fa5` · frontend_ts `35484c5` · frontend_php `6517051` · bot `68eb30f`
-
 ---
 
 ## [4.2.0] — 2026-06-23 — PR แรกของ root repo
 
 **บริบท ณ ตอนนั้น** — งานทั้งหมดเกิดขึ้นใน repo ย่อย แต่ root repo ยังไม่มี PR flow
-ของตัวเอง — การอัปเดต pointer ของ submodule ทำด้วยมือ
+ของตัวเอง การอัปเดต pointer ของ submodule ทำด้วยมือทุกครั้ง และไม่มีที่ไหนบอกว่า
+ระบบทั้งระบบอยู่ที่ commit ไหน
 
 **สิ่งที่ทำ** — PR #1 ของ root (`refactor/web-centric`) รวมการอัปเดต submodule pointer
-ให้ชี้ commit ล่าสุดของทุก component พร้อม `🚀 chore: sync all submodules to latest staging`
-และแก้ `pull_all.sh`
+ให้ชี้ commit ล่าสุดของทุก component พร้อม commit
+`🚀 chore: sync all submodules to latest staging` และแก้ `pull_all.sh`
+ให้สอดคล้องกับ flow ใหม่
 
-**ตัดสินใจเพราะ** — root repo ควรเป็นที่เดียวที่บอกว่า "ระบบทั้งระบบอยู่ที่ commit ไหน"
-— `> อนุมานจาก diff: PR นี้แตะเฉพาะ submodule pointer + script`
+**ตัดสินใจเพราะ** — root repo ควรเป็นที่เดียวที่บอกว่าระบบอยู่ commit ไหน
+ไม่ต้องไปไล่ดูทีละ component
+`> อนุมานจาก diff: PR นี้แตะเฉพาะ submodule pointer + script`
 
 **พังแล้วแก้อย่างไร** — submodule pointer ชี้ commit ที่ยังไม่ push ขึ้น remote
-ทำให้ `git clone --recursive` ล้ม — แก้โดย push component ก่อนแล้วค่อยอัปเดต pointer
+ทำให้ `git clone --recursive` ล้ม แก้โดย push component ให้เสร็จก่อน
+แล้วค่อยอัปเดต pointer ตามลำดับ
 
 **เพิ่ม**
 - PR flow ของ root
 - sync submodule อัตโนมัติ
 
-**สิ่งที่ยาก / ภูมิใจ** — เป็นครั้งแรกที่ "ทั้งระบบ" ถูก merge เป็นหน่วยเดียว
+**สิ่งที่ยาก / ภูมิใจ** — เป็นครั้งแรกที่ทั้งระบบถูก merge เป็นหน่วยเดียว
 แม้ยังเป็น submodule อยู่ก็ตาม
 
 **Migration:** ไม่มี
 **อ้างอิง:** PR #1 · commits `5c3f6cb..a79fd94`
 **Component tips:** backend `5c3f6cb` · frontend_ts `bc5aa1b` · frontend_php `6517051` · bot `fe2e36b`
-
 ---
 
 ## [4.1.0] — 2026-06-22 — Sync Profile, Onboarding, bot กลายเป็นลูกค้าเว็บ
 
-**บริบท ณ ตอนนั้น** — ผู้ใช้ใหม่เข้ามาแล้วไม่มีชื่อที่ถูกต้อง (ได้ชื่อจาก Google/Discord
-ซึ่งไม่ใช่ชื่อที่เพื่อนเรียก) และ bot ยังมีฟังก์ชัน UI ที่ซ้ำกับเว็บ
+**บริบท ณ ตอนนั้น** — ผู้ใช้ใหม่เข้ามาแล้วไม่มีชื่อที่ถูกต้อง เพราะได้ชื่อจาก Google
+หรือ Discord ซึ่งไม่ใช่ชื่อที่เพื่อนเรียก และ bot ยังมีฟังก์ชัน UI ที่ซ้ำกับเว็บ
+ทำให้ต้องแก้สองที่ทุกครั้ง
 
-**สิ่งที่ทำ** — เพิ่มหน้า `Onboarding` ให้กรอกชื่อเล่น/คำนำหน้า/เบอร์เมื่อสมัครครั้งแรก,
-`Sync Profile` ให้ดึงข้อมูลจาก provider มาช่วยกรอก, และ PR #7 `refactor/web-centric`
-ทำให้ bot เปลี่ยนเป็น "ทางลัดไปเว็บ" ไม่ใช่ที่ทำงานหลัก
+**สิ่งที่ทำ**
+- เพิ่มหน้า `Onboarding` ให้กรอกชื่อเล่น/คำนำหน้า/เบอร์ตอนสมัครครั้งแรก
+- เพิ่ม `Sync Profile` ให้ดึงข้อมูลจาก provider มาช่วยกรอก
+- PR #7 `refactor/web-centric` ทำให้ bot เปลี่ยนเป็นทางลัดไปเว็บ ไม่ใช่ที่ทำงานหลัก
 
 **ตัดสินใจเพราะ** — การกรอกข้อมูลซ้ำคือสาเหตุอันดับหนึ่งที่ผู้ใช้ทิ้งระบบ
-จึงดึงชื่อจาก provider มาเป็นค่าเริ่มต้น แล้วให้แก้เฉพาะที่ไม่ตรง
-— `> ที่มา: commit "Feature: add name form when new account" + "Add Sync Profile"`
+จึงดึงชื่อจาก provider มาเป็นค่าเริ่มต้น แล้วให้ผู้ใช้แก้เฉพาะช่องที่ไม่ตรง
+`> ที่มา: commit "Feature: add name form when new account" + "Add Sync Profile"`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — onboarding guard ใน router (ยังอยู่ถึงวันนี้),
-การแยก "ข้อมูลจาก provider" กับ "ข้อมูลที่ผู้ใช้ยืนยัน"
+**เทคโนโลยีที่เปลี่ยน/ลอง** — onboarding guard ใน router (ยังอยู่ถึงวันนี้)
+และการแยก "ข้อมูลจาก provider" กับ "ข้อมูลที่ผู้ใช้ยืนยัน" ออกจากกัน
 
-**พังแล้วแก้อย่างไร** — "name did not show" และ "cant click sync" — ปัญหา state
-ระหว่าง onboarding กับ auth store แก้ด้วยการโหลดโปรไฟล์ก่อนเข้า guard
+**พังแล้วแก้อย่างไร** — เจอ "name did not show" และ "cant click sync"
+ทั้งคู่มาจาก state ระหว่าง onboarding กับ auth store ไม่ตรงกัน
+แก้ด้วยการโหลดโปรไฟล์ให้เสร็จก่อนเข้า guard
 
 **เพิ่ม**
 - Onboarding
@@ -1636,32 +1674,35 @@ glassmorphism UI
 - ปุ่ม sync กดไม่ได้
 
 **สิ่งที่ยาก / ภูมิใจ** — การยอมรับว่า bot ไม่ควรเป็น UI หลัก คือการตัดของที่ตัวเองสร้าง
-— แต่ทำให้ bot เบาลงและเว็บเป็นแหล่งความจริงเดียว
+ผลคือ bot เบาลง และเว็บกลายเป็นแหล่งความจริงเดียว
 
 **Migration:** เพิ่มฟิลด์โปรไฟล์ (prefix, nickname, phone)
 **อ้างอิง:** backend PR #7 · frontend `bc5aa1b`
 **Component tips:** backend `5c3f6cb` · frontend_ts `bc5aa1b` · frontend_php `6517051` · bot `fe2e36b`
-
 ---
 
 ## [4.0.0] — 2026-06-21 — Lobby, สร้างห้อง, เข้าห้องด้วยรหัส
 
-**บริบท ณ ตอนนั้น** — ผู้ใช้ใหม่ต้องถูกเพิ่มเข้าห้องโดยแอดมินเท่านั้น ระบบยังไม่มีแนวคิด
-"ห้องหลายห้องที่ผู้ใช้เลือกเองได้" อย่างจริงจัง
+**บริบท ณ ตอนนั้น** — ผู้ใช้ใหม่ต้องถูกเพิ่มเข้าห้องโดยแอดมินเท่านั้น
+ระบบยังไม่มีแนวคิด "ห้องหลายห้องที่ผู้ใช้เลือกเองได้" อย่างจริงจัง
 
-**สิ่งที่ทำ** — เพิ่มหน้า `Lobby` (รายการห้อง), สร้างห้องใหม่, เข้าห้องด้วย `room_code`,
-แสดงรหัสห้อง, กำหนดบทบาท `president`, และ refactor ทั้งระบบให้ยึด `user_id` + `room_id`
-(`Refactor all function to user_id and room_id base`) รวมถึงแก้บั๊ก join room
-และ "get user in room"
+**สิ่งที่ทำ**
+- หน้า `Lobby` แสดงรายการห้อง
+- สร้างห้องใหม่ และเข้าห้องด้วย `room_code`
+- แสดงรหัสห้อง และกำหนดบทบาท `president`
+- refactor ทั้งระบบให้ยึด `user_id` + `room_id`
+  (`Refactor all function to user_id and room_id base`)
+- แก้บั๊ก join room และ "get user in room"
 
 **ตัดสินใจเพราะ** — `room_code` สั้นและจำง่าย ทำให้แชร์ห้องได้โดยไม่ต้องมีสิทธิ์แอดมิน
-— `> อนุมานจาก diff: เพิ่มคอลัมน์ room_code และหน้าแสดงรหัส`
+`> อนุมานจาก diff: เพิ่มคอลัมน์ room_code และหน้าแสดงรหัส`
 
 **เทคโนโลยีที่เปลี่ยน/ลอง** — แนวคิด multi-tenant ระดับห้อง (room-scoped data)
 ที่ทุก query ต้องกรองด้วย `room_id`
 
-**พังแล้วแก้อย่างไร** — join room ล้มเพราะ role ไม่ตรง (`edit role to president`),
-และ "classrooms" vs "classroom" ใน API path ทำให้ 404 — แก้ทั้งสองจุดในรอบเดียว
+**พังแล้วแก้อย่างไร** — join room ล้มเพราะ role ไม่ตรง (`edit role to president`)
+และ API path ที่ใช้ "classrooms" ปนกับ "classroom" ทำให้เรียกแล้วได้ 404
+แก้ทั้งสองจุดในรอบเดียว
 
 **เพิ่ม**
 - Lobby
@@ -1673,35 +1714,39 @@ glassmorphism UI
 - บั๊ก join room
 - ชื่อ path/role ไม่ตรงกัน
 
-**สิ่งที่ยาก / ภูมิใจ** — ระบบกลายเป็น multi-room จริง ๆ — ห้องหนึ่งไม่เห็นข้อมูลอีกห้อง
-และผู้ใช้สลับห้องได้เอง นี่คือจุดที่โปรเจกต์เริ่มรองรับ "ทั้งโรงเรียน" ไม่ใช่ "ห้องเดียว"
+**สิ่งที่ยาก / ภูมิใจ** — ระบบกลายเป็น multi-room จริง ๆ ห้องหนึ่งไม่เห็นข้อมูลอีกห้อง
+และผู้ใช้สลับห้องได้เอง ตรงนี้คือจุดที่โปรเจกต์เริ่มรองรับทั้งโรงเรียน ไม่ใช่ห้องเดียว
 
 **Migration:** เพิ่ม `room_code`; เปลี่ยนความหมายของ `room_id`
 **อ้างอิง:** backend `3e2558c..7f9f5db` · frontend `033a3e2`
 **Component tips:** backend `89f3adc` · frontend_ts `033a3e2` · frontend_php `6517051` · bot `fe2e36b`
-
 ---
 
 ## [3.3.0] — 2026-06-07 — Google Login สมบูรณ์ + สงคราม user_id และ room_id
 
-**บริบท ณ ตอนนั้น** — Discord login ใช้ได้ แต่ไม่ใช่ทุกคนมี Discord; ครูจำนวนมากมี Google
-และระบบยังใช้ `server_id` (ห้องใน Discord) เป็นกุญแจหลัก ซึ่งผิดความหมายของ "ห้องเรียน"
+**บริบท ณ ตอนนั้น** — Discord login ใช้ได้ แต่ไม่ใช่ทุกคนมี Discord ขณะที่ครูจำนวนมาก
+มี Google และระบบยังใช้ `server_id` (ห้องใน Discord) เป็นกุญแจหลัก
+ซึ่งผิดความหมายของ "ห้องเรียน"
 
-**สิ่งที่ทำ** — Google Login ครบวงจร (OAuth callback, ผูกบัญชี, หน้า `GoogleCallback`,
-`DiscordCallback`), refactor frontend ให้ใช้ `room_id`, และแก้ปัญหา `user_id`
-ไปกลับระหว่าง string กับ int หลายรอบ (`change user_id to string` 4 commits →
-`change to int before keep in db` 4 commits) พร้อม `phase 4: refactor student/classroom/finance`
+**สิ่งที่ทำ**
+- Google Login ครบวงจร: OAuth callback, ผูกบัญชี, หน้า `GoogleCallback`
+  และ `DiscordCallback`
+- refactor frontend ให้ใช้ `room_id`
+- แก้ปัญหา `user_id` ไปกลับระหว่าง string กับ int หลายรอบ
+  (`change user_id to string` 4 commits → `change to int before keep in db` 4 commits)
+- `phase 4: refactor student/classroom/finance`
 
-**ตัดสินใจเพราะ** — Discord ID เป็นตัวเลข 64-bit ที่ใหญ่กว่า int32 และบาง library
-ส่งมาเป็น string — ต้องเลือกจุดเดียวที่แปลง และเก็บเป็นชนิดเดียวตลอด
-— `> ที่มา: commit subjects ระหว่าง 2026-06-07`
+**ตัดสินใจเพราะ** — Discord ID เป็นตัวเลข 64-bit ที่ใหญ่กว่า int32
+และบาง library ส่งมาเป็น string จึงต้องเลือกจุดเดียวที่แปลงค่า
+แล้วเก็บเป็นชนิดเดียวตลอดทั้งระบบ
+`> ที่มา: commit subjects ระหว่าง 2026-06-07`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — Google OAuth, JWT แบบมี `user_id` claim,
+**เทคโนโลยีที่เปลี่ยน/ลอง** — Google OAuth, JWT ที่มี `user_id` claim,
 การแยก identity provider ออกจากตัวผู้ใช้
 
 **พังแล้วแก้อย่างไร** — ปัญหา `user_id` int/string ทำให้ login บางคนได้ บางคนไม่ได้
 แก้โดย normalize เป็น string ที่ขอบระบบ แล้วแปลงเป็น int ตอนเก็บ
-— เป็น bug ที่กินเวลาเป็นวัน และกลายเป็นบทเรียนใน docs/skills.md
+เป็น bug ที่กินเวลาเป็นวัน และถูกบันทึกเป็นบทเรียนใน `docs/skills.md`
 
 **เพิ่ม**
 - Google Login
@@ -1713,31 +1758,32 @@ glassmorphism UI
 - path/link/variable เก่าที่ค้าง
 
 **สิ่งที่ยาก / ภูมิใจ** — การเปลี่ยน "ห้อง" จากแนวคิด Discord เป็นแนวคิดห้องเรียน
-แตะทุกหน้าจอและทุก endpoint — แต่หลังรอบนี้ ระบบพูดภาษาเดียวกันทั้งระบบ
+แตะทุกหน้าจอและทุก endpoint หลังรอบนี้ระบบพูดภาษาเดียวกันทั้งระบบ
 
 **Migration:** ตาราง `users` ใช้งานเต็มรูปแบบ; เพิ่ม `room_id` ใน flow
 **อ้างอิง:** backend `8e1d920..7fde8b9` · frontend `0daa897`
 **Component tips:** backend `7fde8b9` · frontend_ts `0daa897` · frontend_php `6517051` · bot `c6e8895`
-
 ---
 
 ## [3.2.0] — 2026-06-03 — breadcrumbs, sidebar, migrate_user
 
 **บริบท ณ ตอนนั้น** — หน้าเว็บเริ่มมีหลายชั้น (dashboard → นักเรียน → โปรไฟล์)
-ผู้ใช้หลงทาง และระบบยังไม่มีตาราง `users` ที่เป็นของตัวเอง — identity ผูกกับ Discord ตรง ๆ
+ผู้ใช้หลงทาง และระบบยังไม่มีตาราง `users` ที่เป็นของตัวเอง identity ผูกกับ Discord ตรง ๆ
 
-**สิ่งที่ทำ** — เพิ่ม breadcrumb navigation (2 รอบ) + sidebar + แก้ z-index
-และเริ่ม `migrate_user for user system` พร้อม `phase 2: add to support google token`
-ฝั่ง backend เพิ่ม `room_router` และตาราง `users` (จาก 15 → 16 ตาราง)
+**สิ่งที่ทำ**
+- เพิ่ม breadcrumb navigation (2 รอบ) + sidebar และแก้ z-index
+- เริ่ม `migrate_user for user system` พร้อม `phase 2: add to support google token`
+- ฝั่ง backend เพิ่ม `room_router` และตาราง `users` (จาก 15 → 16 ตาราง)
 
 **ตัดสินใจเพราะ** — ต้องมี `users` กลางก่อนจะรองรับผู้ให้บริการ login หลายเจ้า
-มิฉะนั้นทุก provider จะต้องมีตารางของตัวเอง — `> อนุมานจาก diff: users table + google token phase`
+มิฉะนั้นทุก provider จะต้องมีตารางของตัวเอง
+`> อนุมานจาก diff: users table + google token phase`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — โครง navigation ใหม่ (sidebar + breadcrumb) ที่ยังอยู่ถึงปัจจุบัน
-และการเตรียม OAuth หลายเจ้า
+**เทคโนโลยีที่เปลี่ยน/ลอง** — โครง navigation ใหม่ (sidebar + breadcrumb)
+ที่ยังอยู่ถึงปัจจุบัน และการเตรียม OAuth หลายเจ้า
 
-**พังแล้วแก้อย่างไร** — z-index ของ sidebar ทับ modal — แก้ด้วยการกำหนด layer ให้ชัด
-(`Fix: Z-index Adjust`)
+**พังแล้วแก้อย่างไร** — z-index ของ sidebar ทับ modal
+แก้ด้วยการกำหนด layer ให้ชัด (`Fix: Z-index Adjust`)
 
 **เพิ่ม**
 - breadcrumb + sidebar
@@ -1748,31 +1794,33 @@ glassmorphism UI
 **แก้ไข**
 - z-index
 
-**สิ่งที่ยาก / ภูมิใจ** — การ migrate identity จาก "Discord ID คือตัวตน" เป็น "users คือตัวตน"
-เป็น refactor ที่ต้องทำโดยไม่ทำให้คนที่ login อยู่หลุด
+**สิ่งที่ยาก / ภูมิใจ** — การ migrate identity จาก "Discord ID คือตัวตน"
+เป็น "users คือตัวตน" เป็น refactor ที่ต้องทำโดยไม่ทำให้คนที่ login อยู่หลุด
 
 **Migration:** เพิ่มตาราง `users` (ยังไม่มี migration runner — DDL อยู่ใน init_db)
 **อ้างอิง:** main commits `96fdaeb..6e0c0fe`
 **Component tips:** backend `c622952` · frontend_ts `3a03589` · frontend_php `6517051` · bot `c6e8895`
-
 ---
 
 ## [3.1.0] — 2026-06-02 — ป้องกันข้อมูลเพื่อน + test suite แรกของ backend
 
-**บริบท ณ ตอนนั้น** — ระบบเริ่มเก็บข้อมูลส่วนตัว (ชื่อ เบอร์ โปรไฟล์) และเริ่มมีคนอื่น
-นอกจากเจ้าของใช้ — ความเสี่ยง PII กลายเป็นเรื่องจริง
+**บริบท ณ ตอนนั้น** — ระบบเริ่มเก็บข้อมูลส่วนตัว (ชื่อ เบอร์ โปรไฟล์)
+และเริ่มมีคนอื่นนอกจากเจ้าของใช้ ความเสี่ยงเรื่อง PII กลายเป็นเรื่องจริง
 
-**สิ่งที่ทำ** — เพิ่มการปกป้องข้อมูลเพื่อน (ไม่ให้เห็นข้อมูลติดต่อของคนอื่นโดยไม่จำเป็น)
-ทั้งฝั่ง API และ UI และ commit `Feature: add test case of backend` — **pytest ชุดแรกของโปรเจกต์**
+**สิ่งที่ทำ**
+- เพิ่มการปกป้องข้อมูลเพื่อน ไม่ให้เห็นข้อมูลติดต่อของคนอื่นโดยไม่จำเป็น
+  ทั้งฝั่ง API และ UI
+- commit `Feature: add test case of backend` — **pytest ชุดแรกของโปรเจกต์**
 
-**ตัดสินใจเพราะ** — test ถูกเขียนตอนที่ยังมี endpoint ไม่กี่ตัว เพราะถ้ารอให้ครบจะไม่มีวันเริ่ม
-— `> อนุมานจาก diffstat: test file แรกมาพร้อมกับ endpoint student/classroom`
+**ตัดสินใจเพราะ** — test ถูกเขียนตอนที่ยังมี endpoint ไม่กี่ตัว
+เพราะถ้ารอให้ครบจะไม่มีวันเริ่ม
+`> อนุมานจาก diffstat: test file แรกมาพร้อมกับ endpoint student/classroom`
 
 **เทคโนโลยีที่เปลี่ยน/ลอง** — pytest + FastAPI TestClient + Postgres จริง
 (แนวทาง integration test ที่ยังใช้ถึงวันนี้)
 
 **พังแล้วแก้อย่างไร** — การซ่อนข้อมูลต้องทำที่ **response model** ไม่ใช่แค่ UI
-เพราะ client อ่าน API ตรงได้ — บทเรียนที่กลายเป็นกฎ "declare response_model เสมอ"
+เพราะ client เรียก API ตรงได้ บทเรียนนี้กลายเป็นกฎ "declare response_model เสมอ"
 
 **เพิ่ม**
 - การปกป้องข้อมูลติดต่อส่วนตัว
@@ -1781,38 +1829,37 @@ glassmorphism UI
 **ความปลอดภัย**
 - จำกัดการมองเห็นข้อมูลเพื่อน
 
-**สิ่งที่ยาก / ภูมิใจ** — การเขียน test แรกเจ็บเพราะต้องสร้าง/ล้าง DB ทุกครั้ง
+**สิ่งที่ยาก / ภูมิใจ** — การเขียน test แรกเจ็บเพราะต้องสร้างและล้าง DB ทุกครั้ง
 แต่มันคือจุดเริ่มของ CI ที่จะตามมาในอีกหลายเดือน
 
 **Migration:** ไม่มี
 **อ้างอิง:** main commits `e009ec9..8facffa`
 **Component tips:** backend `6763263` · frontend_ts `64a4124` · frontend_php `6517051` · bot `c345dc8`
-
 ---
 
 ## [3.0.0] — 2026-06-01 — root repo + submodules + Docker + Redis → Discord
 
-**บริบท ณ ตอนนั้น** — สี่ repo แยกกัน (bot, api, php, ts) แต่ละอันมี CI ของตัวเอง
-การ deploy พร้อมกันเป็นเรื่องที่ต้องทำด้วยมือ และเวอร์ชันหลุดจากกันเรื่อย ๆ
+**บริบท ณ ตอนนั้น** — มีสี่ repo แยกกัน (bot, api, php, ts) แต่ละอันมี CI ของตัวเอง
+การ deploy พร้อมกันต้องทำด้วยมือ และเวอร์ชันหลุดจากกันเรื่อย ๆ
 นอกจากนี้การแจ้งเตือนจากเว็บไป Discord ยังไม่มีทางไป
 
-**สิ่งที่ทำ** — เกิด repo ที่ห้า: `classroom-management` (root) ที่รวมทุกอย่างด้วย
+**สิ่งที่ทำ** — เกิด repo ที่ห้า `classroom-management` (root) ที่รวมทุกอย่างด้วย
 **git submodule** — commit `b1870d9 feat: setup infrastructure with git submodules`
-พร้อม `pull_all.sh`, `.env.example`, readme กลาง, Dockerfile ของแต่ละ component
-และ commit `feat: add notify from Backend to Discord with Redis` — backend publish
-เข้า Redis channel แล้ว bot มี `cogs/redis_listener.py` คอยฟัง
-ปิดท้ายด้วย `make it can run with terminal` และ `add custom message`
+พร้อม `pull_all.sh`, `.env.example`, readme กลาง และ Dockerfile ของแต่ละ component
+- commit `feat: add notify from Backend to Discord with Redis` — backend publish
+  เข้า Redis channel แล้ว bot มี `cogs/redis_listener.py` คอยฟัง
+- ปิดท้ายด้วย `make it can run with terminal` และ `add custom message`
 
-**ตัดสินใจเพราะ** — submodule ถูกเลือกเพราะ "ไม่ต้องเขียนประวัติใหม่" — repo ย่อยยังเป็น
+**ตัดสินใจเพราะ** — submodule ถูกเลือกเพราะไม่ต้องเขียนประวัติใหม่ repo ย่อยยังเป็น
 repo จริงที่ clone เดี่ยวได้ และ root แค่ชี้ไปที่ commit หนึ่ง
-— `> ที่มา: commit message "setup infrastructure with git submodules"`
+`> ที่มา: commit message "setup infrastructure with git submodules"`
 
-**เทคโนโลยีที่เปลี่ยน/ลอง** — Docker ครั้งแรกของโปรเจกต์, Docker Compose, Redis pub/sub,
-submodule workflow — ทั้งหมดนี้จะถูกแทนที่ในอีก 2 เดือน (v6.0.0 subtree merge)
+**เทคโนโลยีที่เปลี่ยน/ลอง** — Docker ครั้งแรกของโปรเจกต์, Docker Compose, Redis pub/sub
+และ submodule workflow ทั้งหมดนี้จะถูกแทนที่ในอีก 2 เดือน (v6.0.0 subtree merge)
 
 **พังแล้วแก้อย่างไร** — Redis listener ไม่ส่งข้อความช่วงแรก (`edit redis listener` 4 commits)
 สาเหตุคือรูปแบบ payload/channel ไม่ตรงกันระหว่างผู้ส่งกับผู้รับ
-— บทเรียน: **สัญญาระหว่าง service ต้องเขียนไว้ที่เดียว ไม่ใช่เดาจากโค้ดอีกฝั่ง**
+บทเรียนคือ **สัญญาระหว่าง service ต้องเขียนไว้ที่เดียว ไม่ใช่เดาจากโค้ดอีกฝั่ง**
 
 **เพิ่ม**
 - root repo + submodules
@@ -1825,12 +1872,11 @@ submodule workflow — ทั้งหมดนี้จะถูกแทนท
 - Redis listener
 
 **สิ่งที่ยาก / ภูมิใจ** — การมี repo เดียวที่ `git clone --recursive` แล้วได้ทั้งระบบ
-คือความรู้สึกว่า "นี่คือผลิตภัณฑ์" ไม่ใช่แค่โฟลเดอร์ทดลอง
+ทำให้รู้สึกว่านี่คือผลิตภัณฑ์ ไม่ใช่โฟลเดอร์ทดลอง
 
 **Migration:** ไม่มี
 **อ้างอิง:** main commits `b1870d9..af54701`
 **Component tips ณ วันนั้น:** backend `af032b8` · frontend_ts `f317057` · frontend_php `6517051` · bot `c345dc8`
-
 ---
 
 # ยุคที่ 1 — bot ตัวเดียว และการเกิดเว็บ (มี.ค.–พ.ค. 2026)
