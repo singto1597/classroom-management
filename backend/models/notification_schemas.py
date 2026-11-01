@@ -95,3 +95,50 @@ class PushSubscriptionResponse(BaseModel):
 
 class PushUnsubscribeResponse(BaseModel):
     removed: bool
+
+
+# ── [P6.5] สถิติการส่ง push ───────────────────────────────────────────────────
+class PushQueueStats(BaseModel):
+    """สถานะคิว **ของห้องนี้** ณ ตอนที่ถาม — อ่านจาก DB โดยตรง
+
+    🔑 แยก "จะลองใหม่" ออกจาก "ยอมแพ้" ตามกฎเหล็กข้อ 5 ของแผน:
+    `retry` ยังมีโอกาสสำเร็จ · `dropped`/`stale` คือหมดหวังแล้ว (อุปกรณ์ถูกลบ
+    หรือครบจำนวนครั้ง) ⇒ สองกลุ่มนี้ไม่ควรถูกรวมเป็นตัวเลขเดียว
+    """
+
+    pending: int = Field(..., description="รอส่ง (ยังไม่ถึงเวลาส่ง)")
+    retry: int = Field(..., description="จะลองใหม่ — ยังไม่ยอมแพ้")
+    dropped: int = Field(..., description="ยอมแพ้แล้ว — ครบจำนวนครั้งที่ลอง")
+    stale: int = Field(..., description="ยอมแพ้แล้ว — อุปกรณ์ถูกลบ/ไม่ถูกต้อง")
+    sent_24h: int = Field(..., description="ส่งสำเร็จในช่วง 24 ชม. ล่าสุด (จำกัดช่วงเพื่อให้ตัวเลขไม่โตตลอดกาล)")
+    due_now: int = Field(..., description="ถึงกำหนดส่งแล้วแต่ยังไม่ได้ส่ง (pending+retry ที่ next_attempt_at <= NOW())")
+    oldest_due_seconds: int = Field(..., description="แถวที่ถึงกำหนดแล้วรอนานที่สุดกี่วินาที (0 = ไม่มีของค้าง)")
+
+
+class PushLastRoundStats(BaseModel):
+    """ผลของรอบล่าสุดของ worker — **ทั้งระบบ ไม่ใช่เฉพาะห้องนี้** (worker ตัวเดียวส่งให้ทุกห้อง)
+
+    `deferred` (เลื่อนเพราะช่วงงดรบกวน) อยู่ในนี้เท่านั้น: มันไม่ใช่สถานะใน DB
+    เพราะแถวยังเป็น `pending`/`retry` แค่ถูกเลื่อนเวลา ⇒ ดูจาก DB แยกไม่ได้
+    """
+
+    at: datetime
+    claimed: int
+    sent: int
+    retry: int
+    gone: int
+    dropped: int
+    deferred: int
+    stale: int
+    enabled: bool = Field(..., description="ตอนนั้น worker เปิดส่งอยู่ไหม (false = ยังไม่ได้ตั้ง VAPID)")
+
+
+class PushDeliveryStatsResponse(BaseModel):
+    room_id: int
+    queue: PushQueueStats
+    # null = ไม่รู้ (worker ยังไม่เคยรัน หรือ key หมดอายุ/Redis ต่อไม่ได้) — ต่างจาก "0"
+    last_round: Optional[PushLastRoundStats] = None
+    worker_heartbeat_age_seconds: Optional[int] = Field(
+        None, description="worker ติดต่อครั้งล่าสุดกี่วินาทีที่แล้ว — null = ไม่รู้"
+    )
+    generated_at: datetime

@@ -18,6 +18,7 @@ import type {
   NotificationPreference,
   MutableNotificationGroup,
   PreferenceListResponse,
+  PushDeliveryStats,
   QuietHours,
   UnreadCountResponse,
 } from '@/types/notification';
@@ -71,6 +72,14 @@ export const NotificationService = {
   /** ต้องมี `MANAGE_CLASSROOM_SETTINGS` — backend ตอบ 403 ให้สมาชิกทั่วไป */
   async setQuietHours(roomId: number, payload: QuietHours): Promise<QuietHours> {
     return await api.put(`${base(roomId)}/quiet-hours`, payload, { params: roomParams });
+  },
+
+  /**
+   * สถิติการส่ง push — ต้องมี `MANAGE_CLASSROOM_SETTINGS` (backend ตอบ 403 ให้สมาชิกทั่วไป)
+   * `queue` = ของห้องนี้ · `last_round` = ของ worker ทั้งระบบ (อาจเป็น `null` = ไม่รู้)
+   */
+  async getPushStats(roomId: number): Promise<PushDeliveryStats> {
+    return await api.get(`${base(roomId)}/push/stats`, { params: roomParams });
   },
 
   /** URL ของสตรีม SSE — ใช้กับ `openNotificationStream()` (ต้องแนบ header เอง) */

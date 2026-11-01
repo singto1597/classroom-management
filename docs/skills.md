@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 265 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 266 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -269,6 +269,7 @@
 - [🔍 หน้าดู audit_logs: OFFSET ใช้กับตารางที่โตตลอดเวลาไม่ได้ และ "สิทธิ์ใหม่" ไม่ถึงคนที่มีบทบาทอยู่แล้ว](#หน้าดู-auditlogs-offset-ใช้กับตารางที่โตตลอดเวลาไม่ได้-และ-สิทธิ์ใหม่-ไม่ถึงคนที่มีบทบาทอยู่แล้ว)
 - [🚦 จำกัดความเร็วต้อง fail-open — และ `/health` ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง](#จำกัดความเร็วต้อง-fail-open-และ-health-ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง)
 - [🛡️ nginx `add_header` ไม่ merge ระหว่างระดับ — security header หายเงียบเฉพาะ location ที่ตั้ง Cache-Control](#nginx-addheader-ไม่-merge-ระหว่างระดับ-security-header-หายเงียบเฉพาะ-location-ที่ตั้ง-cache-control)
+- [📊 สถิติของ worker ต้องแยก "รอบล่าสุด" ออกจาก "สถานะคิว" — และ `null` ≠ `0`](#สถิติของ-worker-ต้องแยก-รอบล่าสุด-ออกจาก-สถานะคิว-และ-null-0)
 
 <!-- TOC:END -->
 
@@ -4482,4 +4483,46 @@
   - ตรวจของจริงก่อน merge: `nginx -t` ในคอนเทนเนอร์ที่เมานต์ไฟล์เข้า path จริง **และ** `wget -S` ยิงทุก path (`/`, `/assets/x`, `/sw.js`) — ไม่ใช่ดูแค่ `/`
 - **Rule:** (1) 🔴 ใช้ `add_header` ที่ระดับ `server {}` ไม่ปลอดภัยถ้ามี `location` ที่ตั้ง header เอง — ต้อง `include` snippet เป็นราย location (2) 🔴 header ที่ "ตั้งแล้วไม่มีผล" คือความล้มเหลวที่มองไม่เห็น — ต้องมีด่านกับดักตรวจ ไม่ใช่พึ่งความจำ (3) 🔴 CSP ขึ้นก่อนด้วย `-Report-Only` เสมอ แล้วค่อยเปลี่ยนชื่อ header เมื่อรายงานเงียบจริง (4) `server_tokens off;` ไม่ปิด `Server: nginx` แต่ปิดเวอร์ชัน — อย่าคาดว่าจะหายไปทั้ง header
 - **Tests:** `.github/workflows/ci-compose.yml` step "nginx security headers ต้องครบทุก location" (ไฟล์/ค่า header/CSP report-only + directive ครบ/`connect-src` มี API/`server_tokens`/include ครบทุก location/`COPY` path ตรง) · ตรวจมือก่อน merge: `docker run … nginx -t` + `wget -S` ทั้ง 4 path เห็น header ครบและ `Cache-Control` ไม่หาย
+- **Date Added:** 2026-11-01
+
+### 📊 สถิติของ worker ต้องแยก "รอบล่าสุด" ออกจาก "สถานะคิว" — และ `null` ≠ `0`
+
+- **Context/Problem:** P6.5 ต้องการการ์ดให้ผู้ดูแลเห็นการส่ง push (`sent/retry/dropped/stale/quiet`) ตามแผน P6 ถ้าอ่านจากตาราง `push_outbox` อย่างเดียวจะได้ "สถานะปัจจุบัน" แต่ตอบคำถามที่ผู้ดูแลถามจริงไม่ได้สองข้อ: (1) รอบล่าสุดเกิดอะไรขึ้น (2) มีอะไรถูก *เลื่อน* เพราะช่วงงดรบกวนกี่รายการ
+- **Root Cause:**
+  1. **`deferred` ไม่ใช่สถานะใน DB** — quiet hours เลื่อน `next_attempt_at` เฉย ๆ โดยไม่แตะ `status`/`attempts` (ตั้งใจ: การเลื่อนไม่ใช่ความล้มเหลว) ⇒ แถวยังเป็น `pending`/`retry` และแยกจาก "รอส่งปกติ" ด้วย SQL ไม่ออก ⇒ ตัวเลขนี้มีได้จาก worker รอบล่าสุดเท่านั้น
+  2. **`gone` (410 อุปกรณ์หาย) ถูกแปลงเป็น `stale`** ซึ่งเป็นสถานะเดียวกับอุปกรณ์ที่ถูกลบฝั่งเรา ⇒ อยากเห็น "ถูกถอดเพราะ 410" ต้องมาจากสถิติรอบของ worker ไม่ใช่ `GROUP BY status`
+  3. **"ยังไม่เคยรัน" กับ "รันแล้วแต่ไม่มีงาน" ให้ตัวเลขชุดเดียวกันถ้าใช้ 0 แทนทั้งคู่** — การ์ดจะดูปกติทั้งที่ worker ตายมาเป็นชั่วโมง (กฎเหล็กข้อ 5)
+  4. **`last_round` เป็นของทั้งระบบ ไม่ใช่ของห้อง** — worker ตัวเดียวส่งให้ทุกห้อง ⇒ ถ้าเอาไปวางข้างตัวเลขคิวรายห้องโดยไม่กำกับ ผู้ป่วยอ่านผิดทันที (การ์ด "34 กดแล้วเจอ 5" เวอร์ชันสถิติ)
+  5. **ไม่มี TTL = ค่าค้างหลอก** — worker ตายตอน 02:00 แต่หน้าเว็บตอนเที่ยงยังขึ้น "รอบล่าสุดส่งสำเร็จ 20 ครั้ง"
+  6. **worker ที่ปิดอยู่เพราะยังไม่ตั้ง VAPID ก็ยังวนลูป** ⇒ รายงานเลขศูนย์ทุก 5 วิ ซึ่งอ่านเหมือน "ทำงานปกติแต่ไม่มีงาน" ทั้งที่ push ทั้งระบบไม่ทำงาน
+- **Correct Pattern/Solution:**
+  ```python
+  # core/worker_stats.py — worker เขียน, API อ่าน (container คนละตัว)
+  LAST_ROUND_KEY = "push_worker:stats:last_round"
+  LAST_ROUND_TTL_SECONDS = 3600
+  await redis.set(LAST_ROUND_KEY, json.dumps({"at": now, "enabled": push_enabled, **totals}), ex=TTL)
+
+  # read: payload ไม่ครบ = None ทั้งก้อน (ไม่เดาเป็นศูนย์)
+  try:   data = json.loads(raw); counts = {k: int(data[k]) for k in KEYS}
+  except (ValueError, KeyError, TypeError): return None
+  ```
+  ```sql
+  -- services/push_stats_service.py — ตัวนับของ "ห้องนี้" จาก DB (query เดียว)
+  SELECT COUNT(*) FILTER (WHERE o.status = 'retry')   AS retry,     -- จะลองใหม่
+         COUNT(*) FILTER (WHERE o.status = 'dropped') AS dropped,   -- ยอมแพ้
+         COUNT(*) FILTER (WHERE o.status = 'stale')   AS stale,     -- ยอมแพ้ (อุปกรณ์)
+         COUNT(*) FILTER (WHERE o.status = 'sent'
+                            AND o.sent_at >= NOW() - make_interval(hours => 24)) AS sent_24h,
+         COUNT(*) FILTER (WHERE o.status IN ('pending','retry')
+                            AND o.next_attempt_at <= NOW()) AS due_now
+  FROM push_outbox o JOIN notifications n ON n.id = o.notification_id
+  WHERE n.room_id = $1
+  ```
+  - `oldest_due_seconds` วัดจาก `created_at` (รอมานานแค่ไหน) **ไม่ใช่** `next_attempt_at` (เลยกำหนดกี่วินาที) — คนละคำถาม
+  - `sent` แบบสะสมตลอดชีพโตตลอดกาล ⇒ ใช้หน้าต่าง 24 ชม. ให้ตัวเลขมีความหมาย
+  - worker เรียก `record_last_round(...)` **ทุกรอบ รวมรอบที่ไม่มีงาน** และใส่ `enabled = push_service.push_enabled()` ไปด้วย
+  - API: `redis = getattr(request.app.state, "redis", None)` + `try/except` แยกรอบละค่า ⇒ Redis ล่มได้การ์ดยังแสดงคิวจาก DB (200)
+  - UI: `last_round === null` → "ยังไม่ได้รับรายงาน" · `enabled === false` → "ยังไม่ได้เปิดระบบส่ง" · heartbeat เก่า > 600 วิ → "เงียบผิดปกติ" — สามข้อความนี้ต้องไม่ซ้ำกัน
+- **Rule:** (1) 🔴 สถานะที่ "ไม่ถูกบันทึกใน DB โดยเจตนา" (deferral) ต้องมีช่องทางรายงานของตัวเอง อย่าฝืนเพิ่มสถานะลงตารางเพื่อให้รายงานง่าย (2) 🔴 `0` กับ `null` ต้องแยกความหมายทุกชั้น: Redis → Pydantic (`Optional`) → UI (ข้อความ ไม่ใช่เลข 0) (3) 🔴 ตัวเลขระดับระบบที่วางข้างตัวเลขระดับห้องต้องมีป้ายกำกับในหน้าจอ ไม่ใช่แค่ใน comment (4) 🔴 สถิติ/observability ต้อง fail-open — Redis ล่มห้ามทำให้หน้าตั้งค่าล้ม
+- **Tests:** `backend/tests/test_push_stats.py` (15 — สิทธิ์ 403/200 · retry แยกจาก dropped/stale · pending อนาคตไม่นับ due · `oldest_due` วัดเวลารอ · `sent_24h` กรองหน้าต่าง · ไม่ข้ามห้อง · last_round มี `deferred`/`enabled`/`at` · ไม่มีรายงาน = null · รายงานศูนย์ = 0 · Redis ล่มยัง 200 · TTL คงอยู่ · payload เสีย/ไม่ครบ = null) · `frontend/src/components/settings/__tests__/PushStatsCard.spec.ts` (7 — ตัวเลขแยกกลุ่ม · null ≠ ตารางศูนย์ · กำกับ "ใช้ร่วมทุกห้อง" · disabled ≠ silent · heartbeat เก่า · ของค้าง · error block)
 - **Date Added:** 2026-11-01
