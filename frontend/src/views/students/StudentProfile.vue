@@ -10,6 +10,7 @@ import { avatarInitial } from '@/utils/avatar'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import AppChip from '@/components/ui/AppChip.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
 import { STUDENT_STATUS_LABELS, UNKNOWN_STATUS_LABEL } from '@/constants/statusLabels'
@@ -52,18 +53,18 @@ const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเ�
 
 // 🏷️ ป้ายสถานะ 3 ทาง — เดิมเขียน ternary 2 ทาง ทำให้ "รออนุมัติ" ถูกแสดงเป็น "พ้นสภาพ"
 // โทนสีเดียวกับ StudentList: เขียว = กำลังเรียน · เหลือง = รออนุมัติ · เทา = พ้นสภาพ
-const statusMeta = computed(() => {
+const statusMeta = computed<{ tone: 'ok' | 'warn' | 'neutral'; icon: string; label: string }>(() => {
   const status = student.value?.status;
   if (status === 'active') {
-    return { chip: 'bg-ok-50 text-ok-700', icon: 'bi-check-circle-fill', label: STUDENT_STATUS_LABELS.active };
+    return { tone: 'ok', icon: 'bi-check-circle-fill', label: STUDENT_STATUS_LABELS.active };
   }
   if (status === 'pending') {
-    return { chip: 'bg-warn-50 text-warn-700', icon: 'bi-clock-fill', label: STUDENT_STATUS_LABELS.pending };
+    return { tone: 'warn', icon: 'bi-clock-fill', label: STUDENT_STATUS_LABELS.pending };
   }
   if (status === 'inactive') {
-    return { chip: 'bg-stone-100 text-stone-600', icon: 'bi-dash-circle-fill', label: STUDENT_STATUS_LABELS.inactive };
+    return { tone: 'neutral', icon: 'bi-dash-circle-fill', label: STUDENT_STATUS_LABELS.inactive };
   }
-  return { chip: 'bg-stone-100 text-stone-600', icon: 'bi-question-circle', label: UNKNOWN_STATUS_LABEL };
+  return { tone: 'neutral', icon: 'bi-question-circle', label: UNKNOWN_STATUS_LABEL };
 });
 
 // 🏠 ประกอบที่อยู่จากส่วนที่มีข้อมูลจริง — ไม่ปล่อยให้เหลือ "ถ.- ต.- อ.-" เมื่อฟิลด์ว่าง
@@ -190,24 +191,24 @@ onMounted(() => {
               </p>
 
               <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-                <span class="chip" :class="statusMeta.chip">
-                  <i class="bi" :class="statusMeta.icon" aria-hidden="true"></i>
+                <AppChip :tone="statusMeta.tone" :icon="statusMeta.icon">
                   {{ statusMeta.label }}
-                </span>
+                </AppChip>
 
-                <span class="chip bg-brand-50 text-brand-700">{{ roleLabel(student.class_role) }}</span>
+                <AppChip tone="brand">{{ roleLabel(student.class_role) }}</AppChip>
 
-                <span v-if="student.is_admin" class="chip bg-warn-50 text-warn-700">
-                  <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ผู้ดูแลระบบ
-                </span>
+                <AppChip v-if="student.is_admin" tone="warn" icon="bi-shield-lock-fill">
+                  ผู้ดูแลระบบ
+                </AppChip>
 
-                <span
+                <AppChip
                   v-if="student.identity_claimed === false"
-                  class="chip bg-stone-100 text-stone-600"
+                  tone="neutral"
+                  icon="bi-person-dash"
                   title="ข้อมูลนี้เป็นของห้อง — เจ้าตัวยังไม่ยืนยันตัวตน (ข้อมูลจากบัญชีกลางจะทับเมื่อยืนยัน)"
                 >
-                  <i class="bi bi-person-dash" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
-                </span>
+                  ยังไม่ยืนยันตัวตน
+                </AppChip>
               </div>
             </div>
           </div>

@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 239 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 240 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -243,6 +243,7 @@
 - [🧪 `monkeypatch.setattr(app.state, …)` พังตอน teardown บน pytest 9 — และ CI ที่ `pip install pytest` ไม่ pin จะเปลี่ยนใต้เท้าคุณเอง](#monkeypatchsetattrappstate-พังตอน-teardown-บน-pytest-9-และ-ci-ที่-pip-install-pytest-ไม่-pin-จะเปลี่ยนใต้เท้าคุณเอง)
 - [🚀 สคริปต์ deploy ที่ `git reset --hard` ตัวเอง จะรัน “สำเนาเก่า” ต่อจนจบ — และ rebuild image ด้วย tag เดิมไม่ทำให้ Swarm recreate task](#สคริปต์-deploy-ที่-git-reset---hard-ตัวเอง-จะรัน-สำเนาเก่า-ต่อจนจบ-และ-rebuild-image-ด้วย-tag-เดิมไม่ทำให้-swarm-recreate-task)
 - [🗓️ วันที่ date-only กับ timestamp ต้องใช้ตัวจัดรูปคนละตัว — และอักษรย่อไทยต้องข้ามสระนำ](#วันที่-date-only-กับ-timestamp-ต้องใช้ตัวจัดรูปคนละตัว-และอักษรย่อไทยต้องข้ามสระนำ)
+- [🧩 prop ชื่อ `ariaLabel` ไม่ผูกกับ attribute `aria-label` ในเทมเพลต — vue-tsc มองเป็น attribute ธรรมดา](#prop-ชื่อ-arialabel-ไม่ผูกกับ-attribute-aria-label-ในเทมเพลต-vue-tsc-มองเป็น-attribute-ธรรมดา)
 
 <!-- TOC:END -->
 
@@ -3684,4 +3685,23 @@
   - view ห้ามเรียก `toLocaleDateString` / `toLocaleTimeString` ตรง ๆ อีก — ถ้าต้องการรูปแบบใหม่ ให้เพิ่มฟังก์ชันใน `datetime.ts` แล้วมีเทสต์ล็อกโซนเวลา
 - **Rule:** (1) 🔴 **date-only → `formatThaiDate`; timestamp → `formatThaiDateTime`** ห้ามใช้ข้ามกัน (2) 🔴 **ห้าม `charAt(0)` กับชื่อไทย** — ใช้ `avatarInitial` (3) ⚠️ "วันนี้" ของระบบคือ `todayIso()` ไม่ใช่ `new Date().toDateString()` ของอุปกรณ์
 - **Tests:** `src/utils/__tests__/datetime.spec.ts` (UTC ข้ามวัน/ข้ามเดือน, fake timer ของ `bangkokHour`/`daysFromThaiToday`) · `avatar.spec.ts` (เก่ง→ก, โอม→อ, ใหม่→ห, แอน→อ, Aomsin→A, ค่าว่าง→fallback) · `grep -rn "toLocaleDateString" frontend/src/views` → ไม่เหลือ
+- **Date Added:** 2026-11-01
+
+### 🧩 prop ชื่อ `ariaLabel` ไม่ผูกกับ attribute `aria-label` ในเทมเพลต — vue-tsc มองเป็น attribute ธรรมดา
+- **Context/Problem:** สร้าง `AppTabs` ที่ประกาศ prop `ariaLabel: string` แล้วเรียกใช้เป็น `aria-label="กรองสถานะงาน"` — runtime ใช้งานได้ แต่ `vue-tsc` ฟ้อง `TS2345: Property 'ariaLabel' is missing` เพราะตัวแปลงเทมเพลตของ Vue ไม่ map kebab-case attribute ที่ขึ้นต้นด้วย `aria-` ไปเป็น prop แบบ camelCase ให้ (attribute `aria-*` ถูกถือเป็น DOM attribute ตามสเปก)
+- **Root Cause:** ชื่อ prop ชนกับ namespace ของ attribute ที่ HTML กำหนดความหมายไว้แล้ว — `aria-label` มีความหมายของมันเอง (มีผลกับ accessibility) การใช้ชื่อเดียวกันเป็น prop ทำให้เกิดความกำกวมระหว่าง "prop ของคอมโพเนนต์" กับ "attribute ที่ต้องส่งต่อ"
+- **Correct Pattern/Solution:**
+  ```vue
+  <!-- ❌ prop: ariaLabel → เทมเพลต :aria-label ไม่ถูก map -->
+  <!-- ✅ ตั้งชื่อ prop ให้ไม่ชน แล้วผูกเองข้างใน -->
+  <script setup lang="ts">
+  defineProps<{ groupLabel: string }>()
+  </script>
+  <template>
+    <div role="group" :aria-label="groupLabel">…</div>
+  </template>
+  ```
+  - ถ้าต้องการให้ผู้เรียกส่ง `aria-label` ได้จริง ให้ประกาศ `aria-label` เป็น **attribute** (fallthrough attrs) ไม่ใช่ prop — หรือใช้ `useAttrs()` แล้วผูก `v-bind="$attrs"` ที่ element ที่ถูกต้อง
+- **Rule:** (1) 🔴 **ห้ามตั้งชื่อ prop เป็น `ariaLabel`/`a11yLabel` แล้วหวังว่า `aria-label` จะผูกให้** (2) ⚠️ prop ที่เกี่ยวกับ accessibility ให้ตั้งชื่อเชิงบทบาท (`label`, `groupLabel`, `closeLabel`) แล้วผูก `aria-*` ภายในคอมโพเนนต์ (3) ทุกครั้งที่สร้างคอมโพเนนต์ใหม่ ให้รัน `npm run type-check` — ของแบบนี้ผ่าน runtime แต่ตกตอน build
+- **Tests:** `src/components/ui/__tests__/uiPrimitives.spec.ts` — ตรวจ `role="group"` มี `aria-label` จาก prop `groupLabel` และ `IconButton` มี `aria-label` จาก `label`
 - **Date Added:** 2026-11-01
