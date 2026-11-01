@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 240 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 241 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -244,6 +244,7 @@
 - [🚀 สคริปต์ deploy ที่ `git reset --hard` ตัวเอง จะรัน “สำเนาเก่า” ต่อจนจบ — และ rebuild image ด้วย tag เดิมไม่ทำให้ Swarm recreate task](#สคริปต์-deploy-ที่-git-reset---hard-ตัวเอง-จะรัน-สำเนาเก่า-ต่อจนจบ-และ-rebuild-image-ด้วย-tag-เดิมไม่ทำให้-swarm-recreate-task)
 - [🗓️ วันที่ date-only กับ timestamp ต้องใช้ตัวจัดรูปคนละตัว — และอักษรย่อไทยต้องข้ามสระนำ](#วันที่-date-only-กับ-timestamp-ต้องใช้ตัวจัดรูปคนละตัว-และอักษรย่อไทยต้องข้ามสระนำ)
 - [🧩 prop ชื่อ `ariaLabel` ไม่ผูกกับ attribute `aria-label` ในเทมเพลต — vue-tsc มองเป็น attribute ธรรมดา](#prop-ชื่อ-arialabel-ไม่ผูกกับ-attribute-aria-label-ในเทมเพลต-vue-tsc-มองเป็น-attribute-ธรรมดา)
+- [🔄 หน้ารายละเอียด/แก้ไข: โหลดไม่สำเร็จต้องเป็นการ์ดในหน้า — ไม่ใช่ `router.push` ออกพร้อม Swal](#หน้ารายละเอียดแก้ไข-โหลดไม่สำเร็จต้องเป็นการ์ดในหน้า-ไม่ใช่-routerpush-ออกพร้อม-swal)
 
 <!-- TOC:END -->
 
@@ -3704,4 +3705,22 @@
   - ถ้าต้องการให้ผู้เรียกส่ง `aria-label` ได้จริง ให้ประกาศ `aria-label` เป็น **attribute** (fallthrough attrs) ไม่ใช่ prop — หรือใช้ `useAttrs()` แล้วผูก `v-bind="$attrs"` ที่ element ที่ถูกต้อง
 - **Rule:** (1) 🔴 **ห้ามตั้งชื่อ prop เป็น `ariaLabel`/`a11yLabel` แล้วหวังว่า `aria-label` จะผูกให้** (2) ⚠️ prop ที่เกี่ยวกับ accessibility ให้ตั้งชื่อเชิงบทบาท (`label`, `groupLabel`, `closeLabel`) แล้วผูก `aria-*` ภายในคอมโพเนนต์ (3) ทุกครั้งที่สร้างคอมโพเนนต์ใหม่ ให้รัน `npm run type-check` — ของแบบนี้ผ่าน runtime แต่ตกตอน build
 - **Tests:** `src/components/ui/__tests__/uiPrimitives.spec.ts` — ตรวจ `role="group"` มี `aria-label` จาก prop `groupLabel` และ `IconButton` มี `aria-label` จาก `label`
+- **Date Added:** 2026-11-01
+
+### 🔄 หน้ารายละเอียด/แก้ไข: โหลดไม่สำเร็จต้องเป็นการ์ดในหน้า — ไม่ใช่ `router.push` ออกพร้อม Swal
+- **Context/Problem:** `EditTask` และ `EditStudent` เดิมจัดการ error ตอนโหลดด้วย `Swal.fire(...)` แล้ว `router.push('/tasks'|'/students')` ทันที ⇒ ผู้ใช้ที่เน็ตสะดุดกะพริบเดียวถูกพาออกไปโดยไม่ทันอ่านข้อความ ไม่มีทางลองใหม่ และไม่รู้ว่า "ไม่มีข้อมูล" หรือ "โหลดพลาด"
+- **Root Cause:** ใช้รูปแบบของ "ผลของการกระทำ" (Swal + นำทาง) กับ "สภาพของการโหลดหน้า" ซึ่งควรเป็นสถานะที่แสดงค้างในหน้า — ต่างกันที่ผู้ใช้ยังมีตัวเลือก (ลองใหม่/ออกเอง) ในกรณีหลัง
+- **Correct Pattern/Solution:**
+  ```vue
+  <SkeletonRows v-if="isLoading" … />
+  <StateBlock v-else-if="hasError" variant="error" hint="…" @retry="fetchItem">
+    <RouterLink to="/items" class="btn-ghost-ui">กลับรายการ</RouterLink>
+  </StateBlock>
+  <form v-else …>
+  ```
+  - ตั้ง `hasError.value = false` **ตอนเริ่ม** ทุกรอบที่โหลด และ `isLoading.value = true` ด้วย (retry ต้องเห็น skeleton อีกครั้ง)
+  - `catch` ไม่ต้องเด้งออก · เก็บข้อความดิบไว้ใน console ถ้าต้อง debug แต่ผู้ใช้เห็นข้อความไทยที่บอกทางแก้
+  - ปุ่มย้อนในกล่อง error เป็น **ทางออกของสถานะนั้น** ไม่ใช่ปุ่มย้อนซ้ำกับ `headerBack` (ข้อยกเว้นเดียวที่ P1.4 อนุญาต)
+- **Rule:** (1) 🔴 **ห้าม `router.push` ออกจากหน้าเพราะโหลดข้อมูลพลาด** — ให้ผู้ใช้เห็นและกดลองใหม่ (2) ⚠️ Swal สงวนไว้กับผลลัพธ์ที่ต้องตัดสินใจ (ยืนยันลบ, เลือกกรอกเอง/ลองใหม่) (3) ทุกหน้ารายละเอียดต้องมีครบ 3 สถานะ: skeleton → error(StateBlock) → เนื้อหา/ว่าง
+- **Tests:** ตรวจด้วย `npm run type-check` + เปิดหน้าแก้ไขงานด้วย id ที่ไม่มีอยู่ (backend ตอบ 404) → ต้องเห็นการ์ด error พร้อมปุ่ม "ลองอีกครั้ง" และ "กลับรายการงาน" โดย URL ยังอยู่ที่เดิม
 - **Date Added:** 2026-11-01

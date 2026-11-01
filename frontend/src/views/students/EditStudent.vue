@@ -7,6 +7,7 @@ import StudentService from '@/services/student'
 import type { Student, StudentForm, StudentUpdatePayload } from '@/types/student'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import StateBlock from '@/components/ui/StateBlock.vue'
 import Swal from 'sweetalert2'
 
 const route = useRoute()
@@ -15,6 +16,8 @@ const authStore = useAuthStore()
 
 const studentNo = route.params.id as string
 const loading = ref(true)
+// โหลดไม่สำเร็จ → แสดงการ์ดในหน้า (ลองใหม่ได้) แทนการเด้งกลับรายชื่อทันที
+const hasError = ref(false)
 const saving = ref(false)
 
 // 🎯 สถานะควบคุมการเปิด-ปิดฟอร์ม
@@ -93,6 +96,7 @@ const form = ref<StudentForm>({
 const fetchStudent = async () => {
   try {
     loading.value = true
+    hasError.value = false
 
     // โหลดข้อมูลโปรไฟล์ของคนที่คลิกเข้ามาดู
     const data = await StudentService.getStudentByNo(currentRoomId, studentNo)
@@ -120,8 +124,8 @@ const fetchStudent = async () => {
     }
 
   } catch {
-    Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด', text: 'ไม่สามารถโหลดข้อมูลได้' })
-    router.push('/students')
+    // สถานะโหลดล้มเหลวเป็นสภาพของหน้า ไม่ใช่การตัดสินใจ — จึงเป็นการ์ดในหน้า ไม่ใช่ Swal
+    hasError.value = true
   } finally {
     loading.value = false
   }
@@ -240,6 +244,17 @@ onMounted(() => {
     </PageHeader>
 
     <SkeletonRows v-if="loading" :rows="5" height="h-24" />
+
+    <StateBlock
+      v-else-if="hasError"
+      variant="error"
+      hint="ตรวจสอบการเชื่อมต่อแล้วลองโหลดข้อมูลนักเรียนอีกครั้ง"
+      @retry="fetchStudent"
+    >
+      <RouterLink to="/students" class="btn-ghost-ui mt-1.5">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับรายชื่อนักเรียน
+      </RouterLink>
+    </StateBlock>
 
     <form v-else id="edit-student-form" class="space-y-4 sm:space-y-5" @submit.prevent="handleSubmit">
 

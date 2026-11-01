@@ -7,6 +7,7 @@ import { TaskService } from '@/services/task'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import StateBlock from '@/components/ui/StateBlock.vue'
 import { UI_COLOR } from '@/constants/theme'
 
 const router = useRouter()
@@ -34,6 +35,8 @@ const taskId = Number(route.params.id)
 
 const isLoading = ref(true)
 const isSubmitting = ref(false)
+// สถานะโหลดไม่สำเร็จ — แสดงการ์ดในหน้าแทนการเด้งออกทันที เพื่อให้ลองใหม่ได้
+const hasError = ref(false)
 
 const form = reactive({
   task_name: '',
@@ -42,18 +45,16 @@ const form = reactive({
 })
 
 const fetchTask = async () => {
+  isLoading.value = true
+  hasError.value = false
   try {
     const task = await TaskService.getTaskById(currentRoomId, taskId)
     form.task_name = task.task_name
     form.task_detail = task.task_detail || ''
     form.due_date = task.due_date
-  } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลงานได้'
-    })
-    router.push('/tasks')
+  } catch {
+    // ไม่เด้งออกและไม่ใช้ Swal — สถานะโหลดล้มเหลวเป็นสภาพของหน้า ไม่ใช่การตัดสินใจ
+    hasError.value = true
   } finally {
     isLoading.value = false
   }
@@ -113,6 +114,17 @@ onMounted(fetchTask)
 
       <div class="p-4 sm:p-6">
         <SkeletonRows v-if="isLoading" :rows="3" height="h-14" />
+
+        <StateBlock
+          v-else-if="hasError"
+          variant="error"
+          hint="ตรวจสอบการเชื่อมต่อแล้วลองโหลดข้อมูลงานอีกครั้ง"
+          @retry="fetchTask"
+        >
+          <RouterLink to="/tasks" class="btn-ghost-ui mt-1.5">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> กลับรายการงาน
+          </RouterLink>
+        </StateBlock>
 
         <form v-else class="space-y-4" @submit.prevent="handleUpdateTask">
           <div>
