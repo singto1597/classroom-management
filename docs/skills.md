@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 254 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 255 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -258,6 +258,7 @@
 - [🏠 หน้าหลัก "คำขอเดียว" — ทุกตัวเลขต้องนับด้วย predicate เดียวกับลิสต์ปลายทาง](#หน้าหลัก-คำขอเดียว-ทุกตัวเลขต้องนับด้วย-predicate-เดียวกับลิสต์ปลายทาง)
 - [🔎 ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า — ต้องกรองฝั่ง backend และต้องเป็น "แกนที่สอง" ไม่ใช่แท็บที่ห้า](#ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า-ต้องกรองฝั่ง-backend-และต้องเป็น-แกนที่สอง-ไม่ใช่แท็บที่ห้า)
 - [🤖 บอทสร้างช่องเองตอนเข้าร่วม — "เติมเฉพาะค่าว่าง" และ mute ต้องบังคับที่ backend](#บอทสร้างช่องเองตอนเข้าร่วม-เติมเฉพาะค่าว่าง-และ-mute-ต้องบังคับที่-backend)
+- [👤 "ของฉัน" ต้องมีคอลัมน์ผู้ทำก่อน — ฟีด/สถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น](#ของฉัน-ต้องมีคอลัมน์ผู้ทำก่อน-ฟีดสถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น)
 
 <!-- TOC:END -->
 
@@ -4093,4 +4094,39 @@
   - **รับ mute เฉพาะช่องที่เป็นช่องแจ้งเตือนของห้องอยู่แล้ว** — กัน `muted_channel_ids` กลายเป็นถังขยะ ID ที่ไม่มีใครตรวจ และกัน mute ช่องของห้องอื่น
 - **Rule:** (1) 🔴 งานอัตโนมัติที่เกิดเอง (webhook/join) ต้อง idempotent และ **ไม่ overwrite ค่าที่มนุษย์ตั้งไว้** (2) 🔴 mute/quiet ต้องบังคับที่แหล่งข้อมูล (SQL/service) ไม่ใช่แค่ฝั่ง UI (3) ⚠️ ระบบที่ "ไม่มีผู้ใช้ในบริบท" ให้ใช้ system RPC ที่มี auth แยก (API key) ไม่ใช่ปลอม identity ของเจ้าของเซิร์ฟเวอร์
 - **Tests:** `bot_discord/tests/test_guild_setup.py` (7 ตัว: สร้างครบ/ใช้ช่องเดิม/ช่องเดียวล้มไม่ลากทั้งชุด/ไม่มีสิทธิ์/บันทึกถูก path/404 = False/ไม่ยิงเปล่า) · `bot_discord/tests/test_action_service_mute.py` (8 ตัว: mute แล้วเงียบ, **ไม่ fallback**, ข้อมูลเก่าไม่มีคีย์) · `backend/tests/test_room_channels_auto.py` (10 ตัว: เติมเฉพาะว่าง, ไม่ทับของแอดมิน, info channel, mute/unmute, 400/403, ลูปข้ามช่อง mute)
+- **Date Added:** 2026-11-01
+
+### 👤 "ของฉัน" ต้องมีคอลัมน์ผู้ทำก่อน — ฟีด/สถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น
+- **Context/Problem:** P3.3 ต้องทำ `GET /me/activity` (ไทม์ไลน์ของฉัน) และ `GET /me/stats` (งานเสร็จ/ชั่วโมงกิจกรรม/จ่ายแล้ว) ตามแผนที่ยกมาจากระบบอื่น — แต่ตรวจสคีมาจริงแล้ว `tasks` ไม่มี `completed_by`/`done_at` (งานเป็นของทั้งห้อง) และ `daily_notes` ไม่มีทั้งผู้เขียนและ `created_at` ⇒ สองตัวเลขแรกของแผน **คำนวณไม่ได้เลย**
+- **Root Cause:** แผนจากระบบอื่นถือว่าทุกแถวมีเจ้าของ แต่ระบบนี้มีโมดูลระดับห้อง (ตารางเรียน/งาน/โน้ต) ที่ทุกคนใช้ร่วมกันโดยออกแบบ — ถ้าฝืนนับ "งานของฉัน" จะได้ตัวเลขที่แต่งขึ้น ซึ่งแย่กว่าไม่มีตัวเลข เพราะผู้ใช้เอาไปใช้ตัดสินใจได้ทันทีที่เห็น
+- **Correct Pattern/Solution:**
+  ```python
+  # backend/services/me_activity_service.py — ฟีดรวมเฉพาะแหล่งที่ map ถึง students.user_id ได้
+  SELECT 'payment' AS kind, R.id, COALESCE(FC.title,'ชำระเงิน') AS title,
+         R.receipt_no AS reference, COALESCE(R.event_at, R.issued_at) AS happened_at, ...
+    FROM finance_receipts R
+    JOIN students S ON S.id = R.student_id AND S.user_id = $2 AND S.room_id = $1
+   WHERE R.room_id = $1 AND R.deleted_at IS NULL
+     AND R.doc_type = 'receipt' AND R.status = 'active'
+  UNION ALL
+  SELECT 'activity', A.id, A.title, ... , P.created_at, ...
+    FROM activity_participants P
+    JOIN activities A ON A.id = P.activity_id
+    JOIN students S ON S.id = P.student_id AND S.user_id = $2
+   WHERE A.room_id = $1 AND A.deleted_at IS NULL
+     AND P.deleted_at IS NULL AND P.status <> 'cancelled'
+  ```
+  ```python
+  # keyset 3 คีย์ — สองตารางมี id คนละชุด จึงต้องมี kind คั่น
+  ORDER BY happened_at DESC, kind DESC, entity_id DESC
+  WHERE ($3::timestamptz IS NULL
+         OR (happened_at, kind, entity_id) < ($3::timestamptz, $4::text, $5::integer))
+  # cursor = base64("ISO|kind|id") — decode ผิด = 400 ไม่ใช่ 500
+  ```
+  - **ชื่อฟิลด์บอกขอบเขต:** ตัวเลขระดับห้องที่ใส่เพื่อบริบทตั้งชื่อ `room_tasks_done` / `room_tasks_pending` — ห้ามเรียก `tasks_done` เฉย ๆ (แอปจะเข้าใจว่าเป็นของฉันทันที)
+  - **ไม่มีแถว `students` ≠ error:** คืน `has_profile: False` + ตัวเลขส่วนตัว 0 (ผ่าน `require_member` ได้เฉพาะ SUPER_ADMIN ถ้าไม่มีแถว ⇒ เทสต์ต้อง monkeypatch `SUPER_ADMIN_ID`)
+  - **`voided` และ `cancelled` ต้องกรองใน predicate ของฟีด** — ใบเสร็จที่ยกเลิกยังมี `amount` เต็มจำนวน ถ้าหลุดจะทำให้ยอด "จ่ายแล้ว" สูงเกินจริง
+  - **`NULL::date` / `NULL::float8` / `NULL::text` ใน `UNION ALL`** เพื่อให้ asyncpg รู้ชนิดคอลัมน์ของ branch ที่ไม่มีค่านั้น
+- **Rule:** (1) 🔴 ก่อนสร้างฟีด/สถิติ "ของฉัน" ให้ตรวจว่าตารางต้นทางมีคีย์ระบุตัวตนจริง — ไม่มี = ตัดออก ไม่ใช่เดา (2) 🔴 `UNION ALL` ที่ต้องแบ่งหน้าต้องมีคีย์ที่ทำให้เรียงลำดับได้ทั้งหมด (timestamp + kind + id) (3) 🔴 cursor ที่ถอดไม่ได้ = 400 (4) ⚠️ ตัวเลขต่างระดับ (ห้อง vs คน) ต้องต่างชื่อ
+- **Tests:** `backend/tests/test_me_endpoints.py` (9 ตัว: ของฉันเท่านั้น · cancelled/voided หาย · เดินหน้าครบ 5 แถวไม่ซ้ำ · cursor เสีย = 400 · 403 · สถิติตรง DB รวม Decimal→float · ไม่มีโปรไฟล์ = 0 แต่เห็นงานของห้อง)
 - **Date Added:** 2026-11-01
