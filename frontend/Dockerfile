@@ -37,6 +37,13 @@ COPY --from=build-stage /app/dist /usr/share/nginx/html
 # ⚠️ เดิม config ถูกสร้างด้วย `RUN echo …` ⇒ แก้ไม่ได้/ตรวจ diff ไม่ได้ · ย้ายเป็นไฟล์จริง
 COPY nginx.default.conf /etc/nginx/conf.d/default.conf
 
+# 🛡️ [P6.4] security headers — ต้องอยู่ที่ path นี้ให้ตรงกับ `include` ใน
+#    nginx.default.conf · **ถ้าไม่ COPY ไฟล์นี้ nginx จะ start ไม่ขึ้น**
+#    ("open() .../snippets/security-headers.conf failed") ⇒ container crash-loop
+#    ⚠️ ห้ามวางไว้ใน /etc/nginx/conf.d/ — ไฟล์ *.conf ที่นั่นถูก include ทั้งหมด
+#       ระดับ http{} (จะกลายเป็นค่าเริ่มต้นที่ location ทับได้อยู่ดี)
+COPY nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
+
 # เปิดรับการเชื่อมต่อที่ Port 80
 EXPOSE 80
 

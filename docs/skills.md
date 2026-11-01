@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 264 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 265 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -268,6 +268,7 @@
 - [🧾 audit_logs มีคอลัมน์ `ip_address`/`user_agent` ครบแต่ไม่มีโค้ดเขียน — และกับดัก TestClient ตัวที่สอง](#auditlogs-มีคอลัมน์-ipaddressuseragent-ครบแต่ไม่มีโค้ดเขียน-และกับดัก-testclient-ตัวที่สอง)
 - [🔍 หน้าดู audit_logs: OFFSET ใช้กับตารางที่โตตลอดเวลาไม่ได้ และ "สิทธิ์ใหม่" ไม่ถึงคนที่มีบทบาทอยู่แล้ว](#หน้าดู-auditlogs-offset-ใช้กับตารางที่โตตลอดเวลาไม่ได้-และ-สิทธิ์ใหม่-ไม่ถึงคนที่มีบทบาทอยู่แล้ว)
 - [🚦 จำกัดความเร็วต้อง fail-open — และ `/health` ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง](#จำกัดความเร็วต้อง-fail-open-และ-health-ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง)
+- [🛡️ nginx `add_header` ไม่ merge ระหว่างระดับ — security header หายเงียบเฉพาะ location ที่ตั้ง Cache-Control](#nginx-addheader-ไม่-merge-ระหว่างระดับ-security-header-หายเงียบเฉพาะ-location-ที่ตั้ง-cache-control)
 
 <!-- TOC:END -->
 
@@ -4446,4 +4447,39 @@
   - FakeRedis ใน `tests/_fake_redis.py` (ขึ้นต้น `_` ⇒ pytest ไม่เก็บ) รองรับเฉพาะคำสั่งที่ใช้จริง; ถ้าโค้ดใช้คำสั่งใหม่จะ `AttributeError` แทนการแอบต่อ Redis จริง
 - **Rule:** (1) 🔴 ชั้นลดโหลดต้อง fail-open; ชั้นยืนยันตัวตนเท่านั้นที่ fail-closed (2) 🔴 ตัวนับใน Redis ต้องมี TTL ทุกเส้นทาง — `INCR` เดี่ยว ๆ ไม่ใช่ (3) 🔴 `/health` เป็น 503 เฉพาะเมื่อ "ให้บริการไม่ได้จริง"; Redis/worker ที่ตายแค่ทำให้ฟีเจอร์ลดลง (4) 🔴 `RATE_LIMIT_ENABLED=false` เป็นทางปิดฉุกเฉิน — ไม่ต้องแก้โค้ด
 - **Tests:** `backend/tests/test_rate_limit.py` (19 — เพดาน/remaining/ไม่ปนบัคเก็ต/TTL หายแล้วตั้งคืน · 429 + `Retry-After` ≥ 1 · นับตาม `user_id` · ปิดด้วย setting · Redis ล่ม = ผ่าน · route จริงมี dependency ครบทั้ง 4 (กรองตาม method) · ยิง app จริงแล้วเห็นตัวนับ · heartbeat: TTL/อายุ/นาฬิกาเพี้ยน/ไม่มี redis · `/health` ยัง 200 เมื่อ Redis ล่ม)
+- **Date Added:** 2026-11-01
+
+### 🛡️ nginx `add_header` ไม่ merge ระหว่างระดับ — security header หายเงียบเฉพาะ location ที่ตั้ง Cache-Control
+
+- **Context/Problem:** P6.4 เพิ่ม security headers ของ frontend (nosniff · X-Frame-Options · Referrer-Policy · Permissions-Policy · CSP report-only) โดยเขียนครั้งเดียวที่ระดับ `server {}` ใน `frontend/nginx.default.conf` ซึ่งอ่านแล้วดูถูกต้อง — แต่จะไม่มีผลกับเกือบทุก response จริง
+- **Root Cause:**
+  1. **`add_header` ของ nginx สืบทอดแบบ all-or-nothing** — directive จะถูกรับช่วงก็ต่อเมื่อระดับลูก **ไม่มี** `add_header` ของตัวเองเลย ถ้า `location /assets/ { add_header Cache-Control …; }` มีแม้แต่บรรทัดเดียว **ทั้งชุดจาก `server {}` หายหมด** ⇒ หน้าหลักมี CSP แต่ JS/ฟอนต์ไม่มี และ `curl -I /` ที่คนใช้ตรวจก็เห็นครบ (ตรวจผิดจุดแล้วผ่าน)
+  2. **`include` ไฟล์ที่ไม่ได้ COPY เข้า image = nginx start ไม่ขึ้น** (`open() "/etc/nginx/snippets/security-headers.conf" failed`) ⇒ crash-loop ตอน deploy ซึ่งแรงกว่าปัญหาที่จะแก้
+  3. **คอมเมนต์ที่อธิบาย header ทำให้ด่านตรวจหลอกตัวเองได้** — ไฟล์อธิบายมี `add_header … nosniff` อยู่ในคอมเมนต์ ⇒ สคริปต์ที่ grep ทั้งไฟล์จะผ่านแม้ directive จริงหาย
+  4. **CSP ในหน้า SPA ต้องคิดถึง `style-src`** — Vue ผูก `:style="…"` เป็น style attribute ซึ่งถูกจัดอยู่ใต้ `style-src` ⇒ policy ที่ไม่มี `'unsafe-inline'` จะรายงานทุกแถบความคืบหน้า (report-only จึงไม่บล็อก แต่รายงานจะท่วมจนดูของจริงไม่ออก)
+  5. `<script type="application/ld+json">` ใน `index.html` **ไม่ใช่สคริปต์ที่รัน** ⇒ ไม่ต้อง hash/nonce และไม่ทำให้ `script-src 'self'` ล้มเหลว
+- **Correct Pattern/Solution:**
+  ```nginx
+  # snippets/security-headers.conf — include ทุกที่ที่มี add_header
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), display-capture=()" always;
+  add_header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://classapi.singto1597.xyz https://classtestapi.singto1597.xyz; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+  ```
+  ```nginx
+  server {
+      server_tokens off;
+      include /etc/nginx/snippets/security-headers.conf;   # เผื่อ location ใหม่ที่ไม่มี add_header
+      location /assets/ {
+          include /etc/nginx/snippets/security-headers.conf;  # 🔴 ต้องมี ไม่งั้น Cache-Control ทำให้ header หายทั้งชุด
+          add_header Cache-Control "public, max-age=31536000, immutable" always;
+      }
+  }
+  ```
+  - `Dockerfile`: `COPY nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf` — **ห้ามวางใน `/etc/nginx/conf.d/`** เพราะ `*.conf` ที่นั่นถูก include ระดับ `http {}` ทั้งหมด
+  - ด่าน CI (`ci-compose.yml`): ตัดคอมเมนต์ก่อนตรวจ · เดินหา block ด้วยการนับปีกกา · ตรวจว่า **ทุก `location` + `server` มี `include`** · ตรวจ `server_tokens off` · ตรวจว่าไม่มี `Content-Security-Policy` (บังคับใช้) หลุดเข้ามาก่อนกำหนด · ตรวจ `COPY` ใน Dockerfile ไป path เดียวกับ `include`
+  - ตรวจของจริงก่อน merge: `nginx -t` ในคอนเทนเนอร์ที่เมานต์ไฟล์เข้า path จริง **และ** `wget -S` ยิงทุก path (`/`, `/assets/x`, `/sw.js`) — ไม่ใช่ดูแค่ `/`
+- **Rule:** (1) 🔴 ใช้ `add_header` ที่ระดับ `server {}` ไม่ปลอดภัยถ้ามี `location` ที่ตั้ง header เอง — ต้อง `include` snippet เป็นราย location (2) 🔴 header ที่ "ตั้งแล้วไม่มีผล" คือความล้มเหลวที่มองไม่เห็น — ต้องมีด่านกับดักตรวจ ไม่ใช่พึ่งความจำ (3) 🔴 CSP ขึ้นก่อนด้วย `-Report-Only` เสมอ แล้วค่อยเปลี่ยนชื่อ header เมื่อรายงานเงียบจริง (4) `server_tokens off;` ไม่ปิด `Server: nginx` แต่ปิดเวอร์ชัน — อย่าคาดว่าจะหายไปทั้ง header
+- **Tests:** `.github/workflows/ci-compose.yml` step "nginx security headers ต้องครบทุก location" (ไฟล์/ค่า header/CSP report-only + directive ครบ/`connect-src` มี API/`server_tokens`/include ครบทุก location/`COPY` path ตรง) · ตรวจมือก่อน merge: `docker run … nginx -t` + `wget -S` ทั้ง 4 path เห็น header ครบและ `Cache-Control` ไม่หาย
 - **Date Added:** 2026-11-01
