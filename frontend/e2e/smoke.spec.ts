@@ -74,6 +74,11 @@ test('สร้างงานใหม่แล้วเห็นในรา�
   await page.locator('#taskName').fill(title)
   await page.getByRole('button', { name: 'บันทึกงานใหม่' }).click()
 
+  // 📌 P1.9: ฟอร์มไม่ redirect เองแล้ว — แสดงหน้ายืนยันค้างบนจอ (แทน Swal ที่ปิดใน 1.5 วิ)
+  //    ⇒ เทสต์ต้องอ่านผลลัพธ์แล้วกดทางไปต่อเอง เหมือนผู้ใช้จริง
+  await expect(page.getByText('เพิ่มงานเรียบร้อยแล้ว')).toBeVisible()
+  await page.getByRole('link', { name: 'ดูรายการงาน' }).click()
+
   await page.waitForURL(/\/tasks$/)
   await expect(page.getByText(title)).toBeVisible()
 })
