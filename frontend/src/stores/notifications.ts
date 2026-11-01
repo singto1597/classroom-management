@@ -7,7 +7,7 @@
  *   1. **ตัวเลขบนกระดิ่งมาจาก backend** (`unread_count` ของ response) ไม่นับเอง
  *      — ถ้านับเองหลัง `markRead` ตัวเลขจะเพี้ยนทันทีที่มีแถวหลุดจากการแบ่งหน้า
  *   2. **สลับห้อง = ล้างของเดิมทันที** ก่อนโหลดชุดใหม่ (ไม่ใช่โชว์ของห้องเก่า
- *      ค้างไว้ระหว่างรอネットワーク — ผู้ใช้อาจอ่านผิดห้อง)
+ *      ค้างไว้ระหว่างรอเครือข่าย — ผู้ใช้อาจอ่านผิดห้อง)
  *   3. **สตรีมเป็นแค่สัญญาณ** ⇒ ได้สัญญาณแล้วเรียก `load()` ใหม่ ไม่ patch จาก payload
  *      (payload มีแค่ id — และการ patch จาก id เดียวทำให้ลำดับ/ตัวนับไม่ตรง)
  *   4. คำขอที่แข่งกัน (สลับห้องเร็ว ๆ) ใช้ `seq` ทิ้งผลของรอบเก่า
@@ -117,7 +117,7 @@ export const useNotificationStore = defineStore('notifications', () => {
   /** โหลดหน้าเก่าต่อจากท้ายรายการ (cursor = id ของแถวสุดท้าย) */
   const loadMore = async (): Promise<void> => {
     const currentRoom = roomId.value;
-    const last = items.value.at(-1);
+    const last = items.value[items.value.length - 1];
     if (!currentRoom || !hasMore.value || isLoading.value || !last) return;
 
     const mySeq = seq; // ต้องเท่าเดิม — ถ้าสลับห้องระหว่างนี้จะถูกทิ้ง

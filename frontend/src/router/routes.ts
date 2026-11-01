@@ -220,10 +220,31 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: routeTitles.DiscordConnect, navTab: 'more', headerBack: true },
       },
       {
+        // 📢 หน้ารายการประกาศ — ปลายทางของ deep link ที่ backend สร้างใน
+        // `announcement_service.create_announcement` (`url=f"/announcements/{id}"`)
+        path: 'announcements',
+        name: 'announcements',
+        component: () => import('@/views/announcements/AnnouncementList.vue'),
+        meta: { title: routeTitles.announcements, navTab: 'more' },
+      },
+      {
+        path: 'announcements/:id',
+        name: 'announcement-detail',
+        component: () => import('@/views/announcements/AnnouncementDetail.vue'),
+        meta: { title: routeTitles['announcement-detail'], navTab: 'more', headerBack: true },
+      },
+      {
+        // 🔔 ตั้งค่าการแจ้งเตือน — อุปกรณ์นี้ · กลุ่ม · ช่วงงดรบกวน
+        path: 'settings/notifications',
+        name: 'notification-settings',
+        component: () => import('@/views/settings/NotificationSettings.vue'),
+        meta: { title: routeTitles['notification-settings'], navTab: 'more', headerBack: true },
+      },
+      {
         path: 'messages',
         name: 'send-message',
         component: () => import('@/views/actions/SendMessage.vue'),
-        meta: { title: routeTitles['send-message'], navTab: 'more' },
+        meta: { title: routeTitles['send-message'], navTab: 'more', headerBack: true },
       },
       {
         path: 'activities',
