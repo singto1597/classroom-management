@@ -16,7 +16,12 @@ import type {
 export const AnnouncementService = {
   async list(
     roomId: number,
-    params: { limit?: number; before_id?: number; include_archived?: boolean } = {}
+    params: {
+      limit?: number;
+      before_id?: number;
+      include_archived?: boolean;
+      unread_only?: boolean;
+    } = {}
   ): Promise<AnnouncementListResponse> {
     return await api.get(`/api/classroom/${roomId}/announcements`, {
       params: { target_type: 'room', ...params },

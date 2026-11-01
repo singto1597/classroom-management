@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
@@ -15,7 +15,7 @@ import type { AppTabItem } from '@/components/ui/AppTabs.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 import { UI_COLOR } from '@/constants/theme'
 import { TASK_STATUS_LABELS } from '@/constants/statusLabels'
-import { daysFromThaiToday, formatThaiDate, relativeThaiDay } from '@/utils/datetime'
+import { daysFromThaiToday, formatThaiDate, relativeThaiDay, todayIso } from '@/utils/datetime'
 
 const authStore = useAuthStore()
 
@@ -55,8 +55,37 @@ const parseFilter = (value: unknown): TaskFilter =>
     ? (value as TaskFilter)
     : 'pending'
 
+/**
+ * 📅 ตัวกรอง "ตามกำหนดส่ง" — มาจากการ์ด "ครบกำหนดวันนี้"/"เลยกำหนด" บนหน้าหลัก
+ *
+ * 🔑 predicate ต้อง **เหมือน `home_summary_service._load_tasks` คำต่อคำ**:
+ *    `status='pending' AND due_date = today` / `due_date < today` (วันที่ไทย)
+ *    ⇒ ตัวเลขบนการ์ด = จำนวนแถวที่กรองได้ที่นี่เสมอ ไม่ใช่ "34 กดแล้วเจอ 5"
+ */
+type TaskDueFilter = 'today' | 'overdue'
+
+const parseDueFilter = (value: unknown): TaskDueFilter | null =>
+  value === 'today' || value === 'overdue' ? value : null
+
 const route = useRoute()
-const filter = ref<TaskFilter>(parseFilter(route.query.filter))
+const router = useRouter()
+const initialDue = parseDueFilter(route.query.filter)
+const dueFilter = ref<TaskDueFilter | null>(initialDue)
+// ตัวกรองกำหนดส่งเป็น "มุมมองของงานค้าง" ⇒ สถานะต้องเป็น pending เสมอ
+const filter = ref<TaskFilter>(initialDue ? 'pending' : parseFilter(route.query.filter))
+
+/**
+ * 🔁 เปลี่ยน query ระหว่างอยู่หน้าเดิม (เช่นกดการ์ดอีกใบจากหน้าหลักผ่าน back/forward)
+ *    Vue Router ไม่ remount component ⇒ ต้องอ่าน query ใหม่เอง ไม่งั้นตัวกรองค้างของเก่า
+ */
+watch(
+  () => route.query.filter,
+  (raw) => {
+    const due = parseDueFilter(raw)
+    dueFilter.value = due
+    filter.value = due ? 'pending' : parseFilter(raw)
+  }
+)
 
 // สถานะผิดพลาด — เดิมแจ้งด้วย toast อย่างเดียว ตอนนี้ใช้โชว์ StateBlock ด้วย
 const hasError = ref(false)
@@ -108,6 +137,20 @@ const filterTabs = computed<AppTabItem[]>(() => [
 
 const setFilter = (value: string) => {
   if (value === 'all' || value === 'pending' || value === 'done') filter.value = value
+  // เลือกสถานะเอง = ออกจากมุมมองกำหนดส่ง (สองตัวกรองซ้อนกันจะอ่านยากและตัวเลขไม่ตรง)
+  dueFilter.value = null
+}
+
+/** ป้ายชื่อของตัวกรองกำหนดส่งที่กำลังใช้ (ใช้ทั้งในชิปและข้อความ empty) */
+const dueFilterLabel = computed(() =>
+  dueFilter.value === 'today' ? 'ครบกำหนดวันนี้' : dueFilter.value === 'overdue' ? 'เลยกำหนดแล้ว' : null
+)
+
+const clearDueFilter = () => {
+  dueFilter.value = null
+  filter.value = 'pending'
+  // ล้างใน URL ด้วย เพื่อให้ refresh/แชร์ลิงก์แล้วเห็นเหมือนกัน
+  void router.replace({ query: { ...route.query, filter: 'pending' } })
 }
 
 // 🗓️ คำนวณจำนวนวันห่างจาก "วันนี้ตามเวลาไทย" — ไม่ใช้ปฏิทินของอุปกรณ์
@@ -122,7 +165,14 @@ const formatDueDate = (dateStr: string): string => {
 const filteredTasks = computed(() => {
   let result = tasks.value
   if (filter.value !== 'all') {
-    result = tasks.value.filter(task => task.status === filter.value)
+    result = result.filter(task => task.status === filter.value)
+  }
+  // 📅 วันที่เทียบแบบ ISO string (YYYY-MM-DD) — เรียงตรงกันตามตัวอักษรโดยไม่ต้องแปลง Date
+  if (dueFilter.value) {
+    const today = todayIso()
+    result = result.filter(task =>
+      dueFilter.value === 'today' ? task.due_date === today : task.due_date < today
+    )
   }
   return [...result].sort((a, b) => {
     // แท็บ "ทั้งหมด": งานที่ยังไม่เสร็จขึ้นก่อนเสมอ (ไม่ให้จมอยู่ข้างล่าง)
@@ -142,6 +192,22 @@ const emptyState = computed(() => {
       filteredOut: false,
       title: 'ยังไม่มีงานในห้องนี้',
       hint: 'เพิ่มงานแรกเพื่อเริ่มต้นติดตามการบ้านและการประกาศ',
+    }
+  }
+
+  // มุมมองตามกำหนดส่งมีข้อความของตัวเอง — "ไม่มีงานสถานะ ..." จะชี้ผิดสาเหตุ
+  if (dueFilter.value === 'today') {
+    return {
+      filteredOut: true,
+      title: 'ไม่มีงานที่ครบกำหนดวันนี้',
+      hint: 'งานที่เลยกำหนดแล้วหรือยังไม่ถึงกำหนดอยู่ในแท็บอื่น',
+    }
+  }
+  if (dueFilter.value === 'overdue') {
+    return {
+      filteredOut: true,
+      title: 'ไม่มีงานที่เลยกำหนด',
+      hint: 'งานที่ยังไม่ถึงกำหนดจะแสดงในแท็บ "ยังไม่เสร็จ"',
     }
   }
 
@@ -273,6 +339,21 @@ onMounted(fetchData)
         </RouterLink>
       </template>
     </PageHeader>
+
+    <!--
+      📅 ตัวกรองกำหนดส่ง — มาจากการ์ดหน้าหลัก (filter=today|overdue)
+         แสดงเป็นชิปแยกจากแท็บสถานะ เพราะเป็น "คนละแกน" กับการกรอง status
+    -->
+    <div v-if="dueFilter && !isLoading && !hasError" class="flex flex-wrap items-center gap-2">
+      <span class="chip bg-brand-50 text-brand-700">
+        <i class="bi bi-funnel-fill" aria-hidden="true"></i>
+        {{ dueFilterLabel }} · {{ filteredTasks.length }} รายการ
+      </span>
+      <button type="button" class="btn-ghost-ui" @click="clearDueFilter">
+        <i class="bi bi-x-lg" aria-hidden="true"></i>
+        ล้างตัวกรองวันที่
+      </button>
+    </div>
 
     <!-- ตัวกรองสถานะ — ซ่อนระหว่างโหลด/ผิดพลาด ไม่ให้เห็นตัวเลข 0 หลอกตา -->
     <AppTabs

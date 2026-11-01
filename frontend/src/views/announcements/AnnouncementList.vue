@@ -13,7 +13,7 @@
  *  4. กดแถว = ไปหน้ารายละเอียด (ที่นั่นเป็นตัวทำเครื่องหมายว่าอ่านแล้ว)
  */
 import { computed, onMounted, ref, watch } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppEmptyState from '@/components/ui/AppEmptyState.vue';
@@ -31,6 +31,7 @@ const PAGE_SIZE = 20;
 
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
+const route = useRoute();
 const roomId = authStore.currentRoomId ?? 0;
 
 const canSend = computed(
@@ -46,6 +47,23 @@ const hasLoaded = ref(false);
 const error = ref<string | null>(null);
 const includeArchived = ref(false);
 
+/**
+ * 🔵 "ยังไม่อ่านเท่านั้น" — ปลายทางของการ์ด "ประกาศยังไม่อ่าน" บนหน้าหลัก
+ *
+ * ตัวกรองนี้ **ต้องกรองที่ backend** (ไม่ใช่ซ่อนแถวที่โหลดมา) เพราะรายการแบ่งหน้า:
+ * ซ่อนฝั่งหน้าจะได้หน้าแรกที่เหลือ 2 ใบทั้งที่ยังมีอีก 10 ใบรออยู่หน้า 2
+ * ⇒ ตัวเลขบนการ์ดกับจำนวนที่เห็นจะไม่ตรงกัน (กฎ "34 กดแล้วเจอ 5")
+ */
+const unreadOnly = ref(route.query.unread === '1');
+
+/** กดการ์ดหน้าหลักซ้ำระหว่างอยู่หน้านี้ — query เปลี่ยนแต่ component ไม่ remount */
+watch(
+  () => route.query.unread,
+  (value) => {
+    unreadOnly.value = value === '1';
+  },
+);
+
 let seq = 0;
 
 const messageOf = (err: unknown): string =>
@@ -59,6 +77,7 @@ const load = async () => {
     const response = await AnnouncementService.list(roomId, {
       limit: PAGE_SIZE,
       include_archived: includeArchived.value,
+      unread_only: unreadOnly.value,
     });
     if (mySeq !== seq) return;
     pinned.value = response.pinned;
@@ -76,7 +95,7 @@ const load = async () => {
 onMounted(load);
 
 // เปลี่ยนตัวกรอง = โหลดใหม่ทั้งชุด (ไม่ patch รายการเดิม เพราะการเก็บถาวรเปลี่ยนชุดข้อมูล)
-watch(includeArchived, () => {
+watch([includeArchived, unreadOnly], () => {
   pinned.value = [];
   items.value = [];
   hasMore.value = false;
@@ -130,12 +149,21 @@ const refreshUnread = () => {
       </template>
     </PageHeader>
 
-    <label
-      class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-stone-200 bg-white px-3"
-    >
-      <input v-model="includeArchived" type="checkbox" class="h-4 w-4 accent-brand-700" />
-      <span class="text-xs font-bold text-stone-700">รวมที่เก็บถาวรแล้ว</span>
-    </label>
+    <div class="flex flex-wrap items-center gap-2">
+      <label
+        class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-stone-200 bg-white px-3"
+      >
+        <input v-model="unreadOnly" type="checkbox" class="h-4 w-4 accent-brand-700" />
+        <span class="text-xs font-bold text-stone-700">ยังไม่อ่านเท่านั้น</span>
+      </label>
+
+      <label
+        class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-stone-200 bg-white px-3"
+      >
+        <input v-model="includeArchived" type="checkbox" class="h-4 w-4 accent-brand-700" />
+        <span class="text-xs font-bold text-stone-700">รวมที่เก็บถาวรแล้ว</span>
+      </label>
+    </div>
 
     <SkeletonRows v-if="isLoading && !hasLoaded" :rows="4" height="h-20" />
 
@@ -150,14 +178,29 @@ const refreshUnread = () => {
     <AppEmptyState
       v-else-if="hasLoaded && pinned.length === 0 && items.length === 0"
       icon="bi-megaphone"
-      :title="includeArchived ? 'ยังไม่มีประกาศ' : 'ยังไม่มีประกาศของห้องนี้'"
+      :title="
+        unreadOnly
+          ? 'อ่านครบทุกประกาศแล้ว'
+          : includeArchived
+            ? 'ยังไม่มีประกาศ'
+            : 'ยังไม่มีประกาศของห้องนี้'
+      "
       :hint="
-        includeArchived
-          ? 'ห้องนี้ยังไม่เคยมีประกาศ รวมถึงที่เก็บถาวรแล้ว'
-          : 'เมื่อมีประกาศ จะขึ้นที่นี่และแจ้งเตือนสมาชิกอัตโนมัติ'
+        unreadOnly
+          ? 'ปิดตัวกรอง &quot;ยังไม่อ่านเท่านั้น&quot; เพื่อดูประกาศเก่าที่อ่านแล้ว'
+          : includeArchived
+            ? 'ห้องนี้ยังไม่เคยมีประกาศ รวมถึงที่เก็บถาวรแล้ว'
+            : 'เมื่อมีประกาศ จะขึ้นที่นี่และแจ้งเตือนสมาชิกอัตโนมัติ'
       "
     >
-      <AppButton v-if="canSend" variant="primary" to="/messages">ส่งประกาศแรก</AppButton>
+      <AppButton
+        v-if="unreadOnly"
+        variant="secondary"
+        @click="unreadOnly = false"
+      >
+        ดูประกาศทั้งหมด
+      </AppButton>
+      <AppButton v-else-if="canSend" variant="primary" to="/messages">ส่งประกาศแรก</AppButton>
     </AppEmptyState>
 
     <div v-else class="space-y-5">

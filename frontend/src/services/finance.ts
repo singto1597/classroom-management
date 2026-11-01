@@ -208,6 +208,17 @@ export const FinanceService = {
     return await api.get(`/api/classroom/${roomId}/finance/students/${studentId}/debts?target_type=room`) as unknown as StudentDebtProfile;
   },
 
+  /**
+   * 💰 หนี้ค้างของ **ตัวเอง** — ปลายทางของการ์ด "บิลค้างชำระ" บนหน้าหลัก (P3.2)
+   *
+   * predicate ตรงกับตัวนับใน `home/summary` (`SP.status='pending'` ของห้องนี้)
+   * ⇒ จำนวนแถวในหน้านี้ = `finance.unpaid_bills` บนการ์ดเสมอ
+   * 404 = ยังไม่ได้ผูกโปรไฟล์นักเรียน (ไม่ใช่ "ไม่มีหนี้") — หน้าเรียกต้องแยกสองกรณีนี้
+   */
+  async getMyDebts(roomId: number): Promise<StudentDebtProfile> {
+    return await api.get(`/api/classroom/${roomId}/finance/me/debts?target_type=room`) as unknown as StudentDebtProfile;
+  },
+
   // 📊 งบทดลอง (Trial Balance) — ยอดสะสมถึง asOfDate (ไม่ระบุ = ทั้งหมดจนถึงตอนนี้)
   async getTrialBalance(roomId: number, asOfDate?: string): Promise<TrialBalance> {
     const params: Record<string, unknown> = { target_type: 'room' };
