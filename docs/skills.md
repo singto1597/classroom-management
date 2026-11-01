@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 257 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 258 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -261,6 +261,7 @@
 - [👤 "ของฉัน" ต้องมีคอลัมน์ผู้ทำก่อน — ฟีด/สถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น](#ของฉัน-ต้องมีคอลัมน์ผู้ทำก่อน-ฟีดสถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น)
 - [🔖 ปุ่ม "บันทึกไว้" ที่กดซ้ำได้ — partial unique + soft delete ต้อง "คืนชีพ" แถวเดิม ไม่ใช่ INSERT ซ้ำ](#ปุ่ม-บันทึกไว้-ที่กดซ้ำได้-partial-unique-soft-delete-ต้อง-คืนชีพ-แถวเดิม-ไม่ใช่-insert-ซ้ำ)
 - [🪑 ความจุกิจกรรม + คิวสำรอง: ที่นั่งต้องถูกจองใต้ `FOR UPDATE` ของแถวกิจกรรม ไม่ใช่ในหน่วยความจำ](#ความจุกิจกรรม-คิวสำรอง-ที่นั่งต้องถูกจองใต้-for-update-ของแถวกิจกรรม-ไม่ใช่ในหน่วยความจำ)
+- [🎟️ เช็คอินด้วย QR: บัตรต้องผูกกับกิจกรรม และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง](#เช็คอินด้วย-qr-บัตรต้องผูกกับกิจกรรม-และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง)
 
 <!-- TOC:END -->
 
@@ -4217,4 +4218,42 @@
   - ระบบนี้ **ไม่มีการลงทะเบียนเอง** ⇒ คิวเกิดจาก "ผู้ดูแลเพิ่มเกินความจุ" และไม่ต้องมี endpoint ให้ผู้เรียนกด join
 - **Rule:** (1) 🔴 สถานะที่ "กินที่นั่ง" ต้องประกาศครั้งเดียว (`SEATED_STATUSES`) ทุกที่อ้างค่านั้น (2) 🔴 การนับ+จองต้องอยู่ใน transaction ที่ถือ `FOR UPDATE` บนแถวแม่ (3) 🔴 ทุกทางที่ปล่อยที่นั่ง (ลบ/ยกเลิก/ลดจำนวน/แทนที่ทั้งชุด) ต้องผ่านฟังก์ชันเลื่อนคิวตัวเดียว (4) ⚠️ ฟิลด์ตัวเลขที่ API คืน ต้องพิสูจน์ว่า query ที่ให้ค่านั้นรันจริงในเส้นทางนั้น (ลิสต์ vs รายละเอียด)
 - **Tests:** `backend/tests/test_activity_capacity.py` (22 ตัว: `plan_seats` 4 · สร้าง/batch/เพิ่มทีละคนเกินความจุ · ลบ/ยกเลิก/`attended` · แทนที่ทั้งชุดแล้ว demote ใหม่สุด · PATCH เพิ่ม/ลด/`0` · ลิสต์และรายละเอียดคืนตัวเลขถูก · HTTP 400 · **concurrency 5 คำขอพร้อมกันเข้าความจุ 2 → นั่ง 2 คิว 1..3 ไม่ซ้ำ**)
+- **Date Added:** 2026-11-01
+
+### 🎟️ เช็คอินด้วย QR: บัตรต้องผูกกับกิจกรรม และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง
+- **Context/Problem:** P4.2 เพิ่ม `POST /activities/{id}/checkin/qr` (สแกนบัตรหรือส่ง `participant_id`) ให้ทีมงานหน้างานกดยืนยันว่า "มาแล้ว" — ต้องตอบได้ว่า **เมื่อไร** และ **ใครกด** (`activity_participants.checked_in_at` / `checked_in_by`) เพราะก่อนหน้านี้มีแต่ `status='attended'` ที่ตอบย้อนหลังไม่ได้เลย
+- **Root Cause:** สถานะ `attended` ถูกตั้งได้จาก **3 ทาง** (QR · PATCH ผู้เข้าร่วม · batch update) ถ้าเติมเวลาเฉพาะทาง QR รายงานจะได้ "มาแล้วแต่ไม่มีเวลา" แบบสุ่ม และถ้าบัตรผูกแค่ `participant_id` ใครแก้ตัวเลขก็สแกนข้ามกิจกรรม/ข้ามห้องได้
+- **Correct Pattern/Solution:**
+  ```python
+  # backend/services/activity/qr.py — บัตร = ข้อมูล + ลายเซ็นที่ผูกทั้ง "กิจกรรม" และ "คน"
+  PREFIX = "CLS-EVT1"
+  key = sha256(f"cls-activity-qr:v1:{settings.SECRET_KEY}".encode()).digest()  # แยกโดเมน ไม่ต้องมี env ใหม่
+  sig = hmac.new(key, f"{activity_id}:{participant_id}".encode(), sha256).hexdigest()
+  token = f"{PREFIX}:{activity_id}:{participant_id}:{sig}"
+  ok   = hmac.compare_digest(sig_from_token, expected_sig)                     # ไม่ใช่ ==
+  ```
+  ```python
+  # สแกนซ้ำ = สำเร็จ (200) ไม่ใช่ error · ไม่ทับเวลาครั้งแรก
+  if participant["status"] == "attended":
+      return {..., "already_checked_in": True}
+  UPDATE activity_participants
+     SET status = 'attended', queue_position = NULL,
+         checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP),
+         checked_in_by = $2, updated_at = CURRENT_TIMESTAMP
+  ```
+  ```python
+  # PATCH ผู้เข้าร่วม / batch — เติม/ล้างเวลาในคำสั่งเดียวกับที่เปลี่ยน status
+  #   ${len(values) + 1} ← ต้องใช้ placeholder สำหรับ user_name ห้าม f-string ชื่อลง SQL
+  if new_status == "attended":
+      set_clauses += ["checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP)", f"checked_in_by = ${n}"]
+  elif old_status == "attended":
+      set_clauses += ["checked_in_at = NULL", "checked_in_by = NULL"]
+  ```
+  - **ไม่มี CHECK (attended) ⟺ (checked_in_at IS NOT NULL)** — แถว `attended` ยุคก่อน P4.2 ไม่มีเวลาจริง `ADD CONSTRAINT` ต้องสแกนทั้งตารางใต้ ACCESS EXCLUSIVE และถ้าจะให้ผ่านต้อง **แต่งเวลา** ⇒ ประกาศกติกาใน service แทน: `checked_in_at` = เวลาของการเช็คอินที่บันทึกเวลาได้จริง; แถวเก่า NULL โดยเจตนา
+  - **ไม่มีวันหมดอายุของบัตร** เพราะบัตรอาจพิมพ์ติดป้ายชื่อ — แลกด้วยการออกบัตรต้องมี `MANAGE_ACTIVITIES` และทุกสแกนบันทึกว่าใครกด (บัตรที่หลุดต้องใช้ผ่านบัญชีทีมงาน) · **หมุน `SECRET_KEY` = บัตรที่พิมพ์ไว้ทั้งหมดใช้ไม่ได้**
+  - **คิวสำรองสแกนได้เฉพาะเมื่อมีที่นั่งจริง** — ไม่งั้น 400 "กิจกรรมเต็ม" (ไม่ใช่แอบเกินเพดาน) · การเช็คอินของคนในคิว **ไม่ทำให้ที่ว่างเพิ่ม** ⇒ ไม่เรียกเลื่อนคิว
+  - **คำขอที่ไม่มีทั้ง token และ participant_id = 422 ที่ schema** (`model_validator`) ไม่ใช่ปล่อยลงไปถึง service
+  - ใช้พาธ `checkin` (เอกพจน์) แยกจาก `checkins` (แผ่นเช็คชื่อเดิม) — ตัวหลังคือการเช็คชื่อออฟไลน์บนกระดาษ ยังอยู่ครบ
+- **Rule:** (1) 🔴 ฟิลด์ที่ต้อง "เดินคู่กับสถานะ" (เวลา/ผู้กด) ต้องถูกเขียนใน **ทุก** เส้นทางที่เปลี่ยนสถานะนั้น — เขียน helper ไม่ได้ก็ต้องมีเทสต์ยืนยันทีละทาง (2) 🔴 token ที่ผูกกับ entity ต้องตรวจทั้งค่าใน token และ entity ที่ URL ชี้มา (3) 🔴 สแกนซ้ำต้อง idempotent และคืน 200 + flag ไม่ใช่ 4xx (4) ⚠️ อย่าเพิ่ม CHECK constraint ที่ทำให้ต้องเดาข้อมูลย้อนหลัง
+- **Tests:** `backend/tests/test_activity_qr_checkin.py` (24 ตัว: roundtrip · token กิจกรรมอื่น/แก้ลายเซ็น/รูปแบบผิด · ออกบัตรข้าม `cancelled` · สแกนครั้งแรกบันทึกเวลา+ผู้กด+audit · **สแกนซ้ำ 200 `already_checked_in` แถวเดียว เวลาเดิม** · สแกนด้วย `participant_id` · `cancelled` 400 · คิวสำรองมีที่นั่ง/เต็ม · PATCH attended เติมและย้อนกลับล้าง · batch เติม · HTTP 200/400/404/422)
 - **Date Added:** 2026-11-01

@@ -211,6 +211,21 @@ class ParticipantsMixin:
                         else:
                             set_clauses.append(f"{key} = ${i}")
                             values.append(fields[key])
+                    # 🎟️ P4.2 — เปลี่ยนสถานะผ่าน PATCH ก็คือ "เช็คอินด้วยมือ" เช่นกัน:
+                    #    เข้า attended ⇒ ประทับเวลา/ผู้กดครั้งแรก (COALESCE ไม่ทับเวลาสแกนเดิม)
+                    #    ออกจาก attended ⇒ ล้างเวลา (ไม่ใช่ "มาแล้ว" อีกต่อไป ⇒ ไม่มีเวลาที่มา)
+                    checkin_changed: Optional[bool] = None
+                    if new_status is not None and new_status != old_status:
+                        if new_status == "attended":
+                            set_clauses.append("checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP)")
+                            set_clauses.append(f"checked_in_by = ${len(values) + 1}")
+                            values.append(user_name)
+                            checkin_changed = True
+                        elif old_status == "attended":
+                            set_clauses.append("checked_in_at = NULL")
+                            set_clauses.append("checked_in_by = NULL")
+                            checkin_changed = False
+
                     set_clauses.append("updated_at = CURRENT_TIMESTAMP")
                     values.extend([participant_id, activity_id])
                     sql = (
@@ -222,6 +237,10 @@ class ParticipantsMixin:
                         raise ParticipantNotFoundError(f"ไม่พบผู้เข้าร่วม ID: {participant_id}")
 
                     new_values = {k: cls._serializable(v) for k, v in fields.items()}
+                    if checkin_changed is not None:
+                        new_values["checked_in"] = checkin_changed
+                        if checkin_changed:
+                            new_values["checked_in_by"] = user_name
 
                     # 🪑 P4.1 — คืนที่นั่งเมื่อคนที่เคยได้ที่นั่งถูกยกเลิก/ย้ายลงคิว
                     promoted: List[dict] = []
@@ -491,6 +510,10 @@ class ParticipantsMixin:
                         if new_role_type is not None:
                             set_clauses.append(f"role_type = ${len(values) + 1}")
                             values.append(new_role_type)
+                        # 🎟️ P4.2 — เวลาเช็คอินเดินคู่กับสถานะ attended เสมอ (กติกาเดียวกับ
+                        #    update_participant / checkin_by_qr): เข้า attended = ประทับครั้งแรก,
+                        #    ออกจาก attended = ล้าง — ทำในคำสั่งเดียวกับที่เปลี่ยน status
+                        checkin_changed: Optional[bool] = None
                         if new_status is not None:
                             set_clauses.append(f"status = ${len(values) + 1}")
                             values.append(new_status)
@@ -498,6 +521,15 @@ class ParticipantsMixin:
                             if new_status != old["status"]:
                                 set_clauses.append(f"queue_position = ${len(values) + 1}")
                                 values.append(queue_position)
+                                if new_status == "attended":
+                                    set_clauses.append("checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP)")
+                                    set_clauses.append(f"checked_in_by = ${len(values) + 1}")
+                                    values.append(user_name)
+                                    checkin_changed = True
+                                elif old["status"] == "attended":
+                                    set_clauses.append("checked_in_at = NULL")
+                                    set_clauses.append("checked_in_by = NULL")
+                                    checkin_changed = False
                         if new_earned_hours is not None:
                             set_clauses.append(f"earned_hours = ${len(values) + 1}")
                             values.append(new_earned_hours)
@@ -516,6 +548,8 @@ class ParticipantsMixin:
                             new_vals["role_type"] = new_role_type
                         if new_status is not None:
                             new_vals["status"] = new_status
+                        if checkin_changed is not None:
+                            new_vals["checked_in"] = checkin_changed
                         if new_earned_hours is not None:
                             new_vals["earned_hours"] = float(new_earned_hours)
                         updated.append({

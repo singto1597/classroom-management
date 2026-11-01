@@ -51,6 +51,10 @@ class ActivityParticipantResponse(BaseModel):
     queue_position: Optional[int] = None
     metadata: Dict[str, Any] = {}
     recorded_by: Optional[str] = None
+    # 🎟️ P4.2 — เช็คอินด้วย QR: เวลาที่ "มาแล้ว" ถูกบันทึก + ใครเป็นคนกด
+    #    NULL = ยังไม่เคยเช็คอินผ่านทางที่บันทึกเวลาได้ (แถว attended ยุคก่อน P4.2 ก็ NULL)
+    checked_in_at: Optional[datetime] = None
+    checked_in_by: Optional[str] = None
     # 🌟 Type A — อ่านจากโปรไฟล์ users โดยตรง (READ ONLY ในบริบทกิจกรรม — ห้ามบันทึกซ้ำลง metadata)
     blood_group: Optional[str] = None
     shirt_size: Optional[str] = None
@@ -191,6 +195,54 @@ class CheckinSheetDetailResponse(BaseModel):
     """แผ่น + ผู้เข้าร่วมทุกคนพร้อมเครื่องหมายเช็ค (is_present/checked_at/recorded_by)"""
     sheet: CheckinSheetResponse
     participants: List[dict] = []
+
+
+# --- 🎟️ เช็คอินด้วย QR (P4.2) ---
+class QrCodeItem(BaseModel):
+    """บัตรของ 1 คน — `token` คือข้อความที่เข้ารหัสเป็น QR (พิมพ์ติดป้ายหรือแสดงบนจอ)"""
+    participant_id: int
+    student_no: int
+    full_name: str = ""
+    status: str
+    # 🪑 เลขคิวสำรอง (None = ไม่ได้อยู่ในคิว) — หน้าจอใช้บอกว่า "คนนี้ยังไม่มีการ์ดที่นั่ง"
+    queue_position: Optional[int] = None
+    checked_in_at: Optional[datetime] = None
+    token: str
+
+
+class QrCodeListResponse(BaseModel):
+    """รายการบัตรของกิจกรรม — ต้องมี MANAGE_ACTIVITIES ถึงจะขอได้"""
+    activity_id: int
+    title: str
+    codes: List[QrCodeItem] = Field(default_factory=list)
+
+
+class QrCheckinRequest(BaseModel):
+    """สแกนบัตร QR — ส่ง `token` (จากกล้อง) หรือ `participant_id` (โหมดกดชื่อ/กรอกรหัส)
+
+    ⚠️ `user_name` = ผู้ที่กดสแกน (ทีมงาน) ไม่ใช่ผู้เข้าร่วม — ถูกบันทึกใน `checked_in_by`
+    """
+    token: Optional[str] = Field(None, max_length=512)
+    participant_id: Optional[int] = None
+    user_name: str = Field(..., min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def _require_proof(self):
+        if not (self.token or "").strip() and self.participant_id is None:
+            raise ValueError("ต้องส่ง token หรือ participant_id อย่างใดอย่างหนึ่ง")
+        return self
+
+
+class QrCheckinResponse(BaseModel):
+    """ผลการสแกน — `already_checked_in=True` คือ "สำเร็จแบบซ้ำ" (HTTP 200 ไม่ใช่ error)"""
+    participant_id: int
+    student_no: int
+    full_name: str = ""
+    status: str
+    checked_in_at: Optional[datetime] = None
+    checked_in_by: Optional[str] = None
+    already_checked_in: bool = False
+    was_waitlisted: bool = False
 
 
 # --- Add students (available + batch add) ---
