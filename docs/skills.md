@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 251 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 252 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -255,6 +255,7 @@
 - [📲 `beforeinstallprompt` ยิงครั้งเดียวตอนโหลดหน้า — ฟังให้ทัน และ iOS ไม่มี event เลย](#beforeinstallprompt-ยิงครั้งเดียวตอนโหลดหน้า-ฟังให้ทัน-และ-ios-ไม่มี-event-เลย)
 - [📡 สตรีม SSE ฝั่ง browser: `EventSource` แนบ `Authorization` ไม่ได้ — ใช้ `fetch()` แล้วแยก frame เอง](#สตรีม-sse-ฝั่ง-browser-eventsource-แนบ-authorization-ไม่ได้-ใช้-fetch-แล้วแยก-frame-เอง)
 - [🧹 `vue-tsc` ผ่าน ≠ `npm run lint` ผ่าน — oxlint เข้มกว่าเรื่อง mock และ catch ที่ไม่ใช้ค่า](#vue-tsc-ผ่าน-npm-run-lint-ผ่าน-oxlint-เข้มกว่าเรื่อง-mock-และ-catch-ที่ไม่ใช้ค่า)
+- [🏠 หน้าหลัก "คำขอเดียว" — ทุกตัวเลขต้องนับด้วย predicate เดียวกับลิสต์ปลายทาง](#หน้าหลัก-คำขอเดียว-ทุกตัวเลขต้องนับด้วย-predicate-เดียวกับลิสต์ปลายทาง)
 
 <!-- TOC:END -->
 
@@ -3987,4 +3988,34 @@
   - **`oxlint --fix` ลบ `/* eslint-disable */` ที่ไม่ตรง rule ออกได้** ⇒ อย่าพึ่ง disable comment เป็นทางแก้
 - **Rule:** (1) 🔴 ทุก `vi.fn()` ต้องมี type parameter (2) 🔴 `catch` ที่ไม่ใช้ค่าให้เขียน `catch {` (3) ⚠️ `public/` ไม่ถูก type-check — ต้อง `node --check` + lint อย่างน้อย
 - **Tests:** CI job `type-check + lint + unit tests + build` · `npm run lint` ในเครื่อง
+- **Date Added:** 2026-11-01
+
+### 🏠 หน้าหลัก "คำขอเดียว" — ทุกตัวเลขต้องนับด้วย predicate เดียวกับลิสต์ปลายทาง
+- **Context/Problem:** `Dashboard.vue` เดิมเรียก `getAllTasks()` แล้วนับ `status === 'pending'` ฝั่งเบราว์เซอร์ ⇒ (ก) ดึงงานทั้งห้องมาเพื่อใช้แค่ 2 ตัวเลข (ข) ตัวเลขบนการ์ดกับลิสต์ที่กดเข้าไปใช้โค้ดคนละชุด — วันที่มีคนแก้ filter ที่หน้างาน ตัวเลขจะไม่ตรงโดยไม่มีอะไรฟ้อง
+- **Root Cause:** "นับ" กับ "แสดงรายการ" แยกกันคนละที่ และทั้งคู่ไม่มีใครผูกกับคนที่สาม ⇒ ไม่มี invariant ที่ DB บังคับ ⇒ ตัวเลขเป็นเพียง *ความเห็น* ของโค้ด ณ ขณะนั้น
+- **Correct Pattern/Solution:**
+  ```python
+  async with pool.acquire() as conn:
+      # snapshot เดียว: COUNT กับรายการ/ตัวเลขอื่น ๆ เห็น DB ณ จุดเวลาเดียวกัน
+      async with conn.transaction(isolation="repeatable_read", readonly=True):
+          await require_member(conn, room_id, user_id)   # ← ก่อนทุก query
+          today = await conn.fetchval("SELECT (NOW() AT TIME ZONE 'Asia/Bangkok')::date")
+          counts = await conn.fetchrow(
+              """
+              SELECT COUNT(*) FILTER (WHERE status = 'pending')                    AS pending_total,
+                     COUNT(*) FILTER (WHERE status = 'pending' AND due_date = $2)   AS due_today,
+                     COUNT(*) FILTER (WHERE status = 'pending' AND due_date < $2)   AS overdue
+              FROM tasks WHERE room_id = $1 AND deleted_at IS NULL
+              """,
+              room_id, today,
+          )
+  ```
+  - **`COUNT(*) FILTER` หลายก้อนใน query เดียว** — ไม่ใช่ 3 query (ซึ่งใน read-committed จะเห็น snapshot คนละใบ) และ predicate ทุกก้อนต้อง **คัดลอกจาก `WHERE` ของ endpoint ปลายทาง** คำต่อคำ
+  - **`readonly=True`** กันเผลอเขียนใน path อ่านทั้งก้อน — ถ้า service หลุดเขียน จะ error ทันทีไม่ใช่มีผลข้างเคียงเงียบ ๆ
+  - **ตัวอย่าง ≠ ความยาวของตัวเลข:** `items … LIMIT 3` ใช้โชว์ตัวอย่าง ส่วน `pending_total` นับทั้งหมด — อย่าให้ฝั่งหน้าใช้ `items.length` แทนตัวเลข
+  - **"วันนี้" คำนวณใน SQL** (`NOW() AT TIME ZONE 'Asia/Bangkok')::date`) ไม่ใช่วันที่จาก Python/นาฬิกาเซิร์ฟเวอร์ — งานที่ครบกำหนด "วันนี้" ตามเวลาไทยจะถูกนับแม้ UTC ยังเป็นเมื่อวาน (เทสต์ `test_today_uses_bangkok_date` ล็อกไว้)
+  - **ไม่มีแถวของตัวเอง ≠ error:** ผู้ดูแลที่ไม่มีแถว `students` ยังเปิดหน้าหลักได้ ⇒ คืน `{"has_profile": False, ...}` ไม่ใช่ 403/404
+  - **`NUMERIC` จาก asyncpg เป็น `Decimal`** ⇒ `float(row["base_hours"])` ก่อนส่งเข้า Pydantic
+- **Rule:** (1) 🔴 endpoint สรุปต้องอ่านใน `repeatable_read` + `readonly` (2) 🔴 ตัวเลขทุกตัวต้องมีเทสต์ที่สร้างข้อมูลขอบเขตไว้ (done / soft-deleted / ของคนอื่น / เก็บถาวรแล้ว) แล้วยืนยันว่านับตรง (3) ⚠️ การ์ดที่ไม่มี endpoint รองรับให้ **ไม่กด** ดีกว่ากดไปหน้าว่าง
+- **Tests:** `backend/tests/test_home_summary_router.py` (8 ตัว: นับตรง predicate, Bangkok date, note/activities/schedule, `has_profile=False`, บิลของฉันเท่านั้น, ประกาศยังไม่อ่าน, คนนอก 403)
 - **Date Added:** 2026-11-01

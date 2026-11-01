@@ -149,7 +149,9 @@ def test_route_count_is_not_silently_shrinking():
     #   ทั้งสามมี `Depends(get_current_user)` และ subscribe/unsubscribe ผูกกับเจ้าของอุปกรณ์
     # 139 → 147 (2026-11-01): quiet hours GET/PUT + ประกาศ 6 route (P2.4)
     #   อ่านประกาศ = สมาชิกห้อง; สร้าง/แก้/เก็บถาวร = MANAGE_CLASSROOM_SETTINGS (ตรวจใน service)
-    expected = 147
+    # 147 → 148 (2026-11-01): `GET /{target_id}/home/summary` (P3.1)
+    #   มี `Depends(get_current_user)` + `require_member` ใน service (คนนอกห้องได้ 403)
+    expected = 148
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (
