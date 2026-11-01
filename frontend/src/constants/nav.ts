@@ -135,6 +135,7 @@ export const routeTitles = {
   'finance-collections': 'โปรเจกต์เก็บเงิน',
   'finance-collection-detail': 'รายละเอียดโปรเจกต์',
   'finance-debtors': 'ผู้ค้างชำระ',
+  'finance-my-debts': 'ยอดค้างชำระของฉัน',
   'finance-credits': 'เงินรับล่วงหน้า',
   'finance-statements': 'งบการเงิน',
   'finance-budgets': 'งบประมาณ',

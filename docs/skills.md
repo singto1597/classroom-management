@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 252 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 253 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -256,6 +256,7 @@
 - [📡 สตรีม SSE ฝั่ง browser: `EventSource` แนบ `Authorization` ไม่ได้ — ใช้ `fetch()` แล้วแยก frame เอง](#สตรีม-sse-ฝั่ง-browser-eventsource-แนบ-authorization-ไม่ได้-ใช้-fetch-แล้วแยก-frame-เอง)
 - [🧹 `vue-tsc` ผ่าน ≠ `npm run lint` ผ่าน — oxlint เข้มกว่าเรื่อง mock และ catch ที่ไม่ใช้ค่า](#vue-tsc-ผ่าน-npm-run-lint-ผ่าน-oxlint-เข้มกว่าเรื่อง-mock-และ-catch-ที่ไม่ใช้ค่า)
 - [🏠 หน้าหลัก "คำขอเดียว" — ทุกตัวเลขต้องนับด้วย predicate เดียวกับลิสต์ปลายทาง](#หน้าหลัก-คำขอเดียว-ทุกตัวเลขต้องนับด้วย-predicate-เดียวกับลิสต์ปลายทาง)
+- [🔎 ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า — ต้องกรองฝั่ง backend และต้องเป็น "แกนที่สอง" ไม่ใช่แท็บที่ห้า](#ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า-ต้องกรองฝั่ง-backend-และต้องเป็น-แกนที่สอง-ไม่ใช่แท็บที่ห้า)
 
 <!-- TOC:END -->
 
@@ -4018,4 +4019,40 @@
   - **`NUMERIC` จาก asyncpg เป็น `Decimal`** ⇒ `float(row["base_hours"])` ก่อนส่งเข้า Pydantic
 - **Rule:** (1) 🔴 endpoint สรุปต้องอ่านใน `repeatable_read` + `readonly` (2) 🔴 ตัวเลขทุกตัวต้องมีเทสต์ที่สร้างข้อมูลขอบเขตไว้ (done / soft-deleted / ของคนอื่น / เก็บถาวรแล้ว) แล้วยืนยันว่านับตรง (3) ⚠️ การ์ดที่ไม่มี endpoint รองรับให้ **ไม่กด** ดีกว่ากดไปหน้าว่าง
 - **Tests:** `backend/tests/test_home_summary_router.py` (8 ตัว: นับตรง predicate, Bangkok date, note/activities/schedule, `has_profile=False`, บิลของฉันเท่านั้น, ประกาศยังไม่อ่าน, คนนอก 403)
+- **Date Added:** 2026-11-01
+
+### 🔎 ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า — ต้องกรองฝั่ง backend และต้องเป็น "แกนที่สอง" ไม่ใช่แท็บที่ห้า
+- **Context/Problem:** P3.2 ต้องทำให้การ์ดบนหน้าหลัก ("ครบกำหนดวันนี้"/"เลยกำหนด"/"ประกาศยังไม่อ่าน") กดแล้วเห็นของครบตามตัวเลข แต่ `/tasks` มีแท็บสถานะ 3 แท็บอยู่แล้ว และ `/announcements` แบ่งหน้าด้วย `before_id` — ถ้าตัวกรองใหม่ไปปนกับแท็บสถานะ หรือกรองฝั่งเบราว์เซอร์หลังโหลดหน้าแรก ตัวเลขบนการ์ดกับจำนวนที่ผู้ใช้เห็นจะไม่ตรงกันทันที
+- **Root Cause:** (1) "สถานะ" กับ "กำหนดส่ง" เป็นคนละแกนของข้อมูล — รวมเป็นแท็บเดียวจะได้ 5 แท็บบนจอ 360px และเลือกสถานะ+วันที่พร้อมกันจะกลายเป็นชุดค่าผสมที่ต้องอธิบาย (2) ลิสต์ที่โหลดมาแค่ 20 แถวแรกเป็น *หน้าต่าง* ไม่ใช่ *ทั้งหมด* — กรองในหน่วยความจำจึงได้ "เหลือ 2 ใบ" ทั้งที่ยังมีอีก 10 ใบรออยู่หน้า 2 และ `has_more` ก็ยังบอกว่า "มีต่อ" ทั้งที่ผู้ใช้เห็นว่าหมด
+- **Correct Pattern/Solution:**
+  ```python
+  # backend/services/announcement_service.py — predicate เดียว ใช้ซ้ำทั้ง WHERE และ is_unread
+  _UNREAD_PREDICATE = """
+      EXISTS (
+          SELECT 1 FROM notifications n
+          WHERE n.room_id = a.room_id
+            AND n.user_id = $2                 -- ⚠️ เลข placeholder ต้องตรงกับลำดับ args ของ **ทุก** query ที่ฝัง fragment นี้
+            AND n.entity_type = 'announcement'
+            AND n.entity_id = a.id::text
+            AND n.read_at IS NULL
+      )
+  """
+  # เงื่อนไขเปิด/ปิดตัวกรองแบบไม่ต้องมี query สองชุด
+  #   AND (NOT $5::boolean OR {_UNREAD_PREDICATE})
+  #   ⇒ ระบุ ::boolean ให้ชัด ไม่งั้น asyncpg เดา type ของ $5 ไม่ได้เมื่ออยู่ใน OR กับ subquery
+  ```
+  ```ts
+  // frontend/src/views/tasks/TaskList.vue — แกนที่สองเป็น "ชิปเหนือแท็บ" + ผูกกับ URL
+  const dueFilter = ref<TaskDueFilter | null>(parseDueFilter(route.query.filter))
+  const filter = ref<TaskFilter>(dueFilter.value ? 'pending' : parseFilter(route.query.filter))
+  // ตัวกรองกำหนดส่งเป็น "มุมมองของงานค้าง" ⇒ สถานะต้องเป็น pending เสมอ
+  watch(() => route.query.filter, (raw) => { /* อ่าน query ใหม่ — component ไม่ remount */ })
+  ```
+  - **ตัวกรองที่เปลี่ยน "ชุดข้อมูล" ต้องไปที่ backend** (`unread_only`); ตัวกรองที่เปลี่ยนแค่ "มุมมองของชุดเดิม" ทำฝั่งหน้าได้ (`today`/`overdue` บนลิสต์งานที่ไม่แบ่งหน้า)
+  - **predicate ฝั่งหน้าต้องคัดลอก SQL ฝั่ง backend คำต่อคำ** (`status='pending' AND due_date = today`) และเทียบวันที่แบบ **ISO string** ไม่แปลง `Date` (กัน TZ เลื่อนวัน)
+  - **เปลี่ยนตัวกรอง = โหลดใหม่ทั้งชุด** ไม่ patch รายการเดิม — การเก็บถาวร/อ่านแล้วเปลี่ยนชุดข้อมูล ไม่ใช่แค่ซ่อนแถว
+  - **กดการ์ดซ้ำระหว่างอยู่หน้าเดิม** → `watch(route.query.*)` เพราะ Vue Router ไม่ remount component
+  - **404 ≠ ไม่มีข้อมูล:** `GET /finance/me/debts` ตอบ 404 เมื่อผู้ใช้ยังไม่มีแถว `students` (ยังไม่ผูกบัญชี) — หน้า `MyDebts.vue` ต้องแยกข้อความนี้จาก "ค้างชำระ 0 บิล" ไม่งั้นนักเรียนใหม่จะอ่านว่า "จ่ายครบแล้ว"
+- **Rule:** (1) 🔴 ลิสต์ที่แบ่งหน้า ห้ามกรองในหน่วยความจำ — เพิ่ม query param ที่ backend และนับด้วย predicate เดียวกัน (2) 🔴 filter fragment ที่มี placeholder ต้องมีเลข parameter ตรงกันทุก query ที่ฝัง fragment (3) 🔴 `$n::boolean` ใน `(NOT $n OR ...)` เสมอ (4) ⚠️ แกนที่สองของตัวกรอง = ชิปแยก ไม่ใช่แท็บเพิ่ม (5) ⚠️ 404 จาก endpoint "ของฉัน" = ยังไม่มีโปรไฟล์ ไม่ใช่ไม่มีข้อมูล
+- **Tests:** `backend/tests/test_announcement_router.py::test_list_unread_only_matches_home_summary_count` (ลิสต์กรอง = ตัวเลขการ์ด, เก็บถาวรไม่ถูกนับทั้งสองฝั่ง) · `frontend/src/services/__tests__/home.spec.ts` (6 ตัว: home/summary คำขอเดียว, `/finance/me/debts` ไม่หลุดไป `/debtors`, `unread_only` ไปถึง backend)
 - **Date Added:** 2026-11-01

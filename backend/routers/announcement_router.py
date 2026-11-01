@@ -50,6 +50,7 @@ async def list_announcements(
     ),
     before_id: int | None = Query(None, ge=1, description="ดึงหน้าเก่ากว่านี้"),
     include_archived: bool = Query(False, description="รวมประกาศที่เก็บถาวรแล้ว"),
+    unread_only: bool = Query(False, description="เฉพาะที่ผู้ใช้คนนี้ยังไม่อ่าน"),
 ):
     user_id = int(user_ctx["user_id"])
     try:
@@ -64,6 +65,7 @@ async def list_announcements(
         limit=limit,
         before_id=before_id,
         include_archived=include_archived,
+        unread_only=unread_only,
     )
     return AnnouncementListResponse(
         pinned=[_to_item(row) for row in pinned],

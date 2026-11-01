@@ -171,6 +171,15 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: routeTitles['finance-debtors'], navTab: 'finance', headerBack: true },
       },
       {
+        // 💰 หนี้ของ **ตัวเอง** — ปลายทางของการ์ด "บิลค้างชำระ" บนหน้าหลัก (P3.2)
+        // ⚠️ ต้องแยกจาก `finance/debtors` (ทุกคนในห้อง) — การ์ดนับเฉพาะบิลของฉัน
+        //    ⇒ ปลายทางต้องกรองชุดเดียวกัน ไม่งั้นจำนวนไม่ตรงกับที่กดมา
+        path: 'finance/my-debts',
+        name: 'finance-my-debts',
+        component: () => import('@/views/finance/MyDebts.vue'),
+        meta: { title: routeTitles['finance-my-debts'], navTab: 'finance', headerBack: true },
+      },
+      {
         // 💰 [F4] เงินรับล่วงหน้า — อ่านเปิดให้สมาชิก (ตรงกับ require_member ฝั่ง backend)
         // ส่วนปุ่มเขียน (เติม/หัก/ยกเลิก) gate ด้วย `canManageFinance` ในตัวหน้า
         // ⚠️ ห้าม gate ที่นี่ด้วย `isAdmin` — เหรัญญิกที่มี MANAGE_FINANCE จะเข้าหน้าไม่ได้

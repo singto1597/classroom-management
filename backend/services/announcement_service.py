@@ -193,7 +193,7 @@ async def create_announcement(
 # สถานะ "ยังไม่อ่าน" ของประกาศ = อ่านจาก **แถวแจ้งเตือนของผู้ใช้เอง**
 # ไม่สร้างตาราง read-tracking ที่สอง ⇒ กระดิ่งกับหน้าประกาศใช้แหล่งเดียวกันเสมอ
 # (คนที่เข้าห้องมาหลังประกาศออก ไม่มีแถวแจ้งเตือน ⇒ ถือว่าอ่านแล้ว ไม่ใช่ค้างไม่อ่านตลอดกาล)
-_IS_UNREAD = """
+_UNREAD_PREDICATE = """
     EXISTS (
         SELECT 1 FROM notifications n
         WHERE n.room_id = a.room_id
@@ -201,8 +201,10 @@ _IS_UNREAD = """
           AND n.entity_type = 'announcement'
           AND n.entity_id = a.id::text
           AND n.read_at IS NULL
-    ) AS is_unread
+    )
 """
+
+_IS_UNREAD = f"{_UNREAD_PREDICATE} AS is_unread"
 
 _ITEM_COLUMNS = f"""
     a.id, a.title, a.body, a.priority, a.pinned, a.archived_at,
@@ -225,12 +227,15 @@ async def list_announcements(
     limit: int = notification_service.DEFAULT_PAGE_SIZE,
     before_id: Optional[int] = None,
     include_archived: bool = False,
+    unread_only: bool = False,
 ) -> tuple[list[asyncpg.Record], list[asyncpg.Record], bool]:
     """คืน (ปักหมุด, รายการ, ยังมีหน้าเก่าไหม)
 
     - **ปักหมุด** ส่งกลับเฉพาะหน้าแรก (`before_id` ว่าง) เพราะถ้าปนกับการแบ่งหน้า
       ด้วย id จะมีใบที่ id ต่ำกว่าตัวชี้ค้างไม่เคยถูกส่งมา
     - รายการปกติเรียงใหม่สุดก่อน + cursor `before_id`
+    - `unread_only=True` = ปลายทางของการ์ด "ประกาศยังไม่อ่าน" บนหน้าหลัก
+      (ใช้ predicate ตัวเดียวกับ `_IS_UNREAD` ⇒ นับกับแสดงตรงกันเสมอ)
     """
     page_size = _normalize_limit(limit)
 
@@ -245,6 +250,7 @@ async def list_announcements(
                     WHERE a.room_id = $1
                       AND a.pinned
                       AND ($3 OR a.archived_at IS NULL)
+                      AND (NOT $5::boolean OR {_UNREAD_PREDICATE})
                     ORDER BY a.id DESC
                     LIMIT $4
                     """,
@@ -252,6 +258,7 @@ async def list_announcements(
                     user_id,
                     include_archived,
                     MAX_PINNED,
+                    unread_only,
                 )
             )
 
@@ -263,6 +270,7 @@ async def list_announcements(
               AND NOT a.pinned
               AND ($3::bigint IS NULL OR a.id < $3)
               AND ($5 OR a.archived_at IS NULL)
+              AND (NOT $6::boolean OR {_UNREAD_PREDICATE})
             ORDER BY a.id DESC
             LIMIT $4
             """,
@@ -271,6 +279,7 @@ async def list_announcements(
             before_id,
             page_size + 1,
             include_archived,
+            unread_only,
         )
 
     has_more = len(rows) > page_size

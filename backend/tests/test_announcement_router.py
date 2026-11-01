@@ -271,6 +271,52 @@ async def test_list_marks_unread_then_read(client, db_pool, discord_calls):
     assert other_list["items"][0]["is_unread"] is True
 
 
+async def test_list_unread_only_matches_home_summary_count(client, db_pool, discord_calls):
+    """🔢 "34 กดแล้วเจอ 5" — ตัวเลขการ์ดหน้าหลักต้องเท่าจำนวนในลิสต์ปลายทาง
+
+    การ์ด "ประกาศยังไม่อ่าน" พาไป `/announcements?unread=1` ⇒ สอง endpoint ต้อง
+    นับด้วย predicate เดียวกัน (`_IS_UNREAD` + `archived_at IS NULL`):
+      - กรองฝั่งหน้าไม่ได้ เพราะรายการแบ่งหน้า (จะเห็นแค่ที่โหลดมาแล้ว)
+      - ไม่กรอง `archived_at` ตามหน้า → การ์ดนับแต่ลิสต์ไม่นับ (หรือกลับกัน)
+    """
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    member = await _insert_user(db_pool)
+    await _insert_student(db_pool, room_id, member, 1)
+
+    first = await _create(client, room_id, owner, title="ประกาศที่ 1")
+    second = await _create(client, room_id, owner, title="ประกาศที่ 2")
+    archived = await _create(client, room_id, owner, title="ประกาศที่เก็บถาวร")
+    client.post(
+        _api(room_id, f"/announcements/{archived['id']}/archive"), headers=_headers(owner)
+    )
+    # อ่านใบแรกแล้ว ⇒ เหลือยังไม่อ่าน 1 ใบ (ใบที่เก็บถาวรไม่ถูกนับทั้งสองฝั่ง)
+    client.post(_api(room_id, f"/announcements/{first['id']}/read"), headers=_headers(member))
+
+    unread = client.get(
+        _api(room_id, "/announcements") + "&unread_only=true", headers=_headers(member)
+    ).json()
+    assert [item["id"] for item in unread["items"]] == [second["id"]]
+
+    summary = client.get(_api(room_id, "/home/summary"), headers=_headers(member)).json()
+    assert summary["announcements"]["unread_count"] == len(unread["items"])
+
+    # คนที่อ่านหมดแล้วเห็นลิสต์ว่าง และการ์ดต้องเป็น 0 ตรงกัน
+    client.post(_api(room_id, f"/announcements/{second['id']}/read"), headers=_headers(member))
+    assert (
+        client.get(
+            _api(room_id, "/announcements") + "&unread_only=true", headers=_headers(member)
+        ).json()["items"]
+        == []
+    )
+    assert (
+        client.get(_api(room_id, "/home/summary"), headers=_headers(member)).json()[
+            "announcements"
+        ]["unread_count"]
+        == 0
+    )
+
+
 async def test_mark_read_is_idempotent(client, db_pool, discord_calls):
     """กด "อ่านแล้ว" ซ้ำต้องไม่เปลี่ยนเวลาเดิม และไม่ error"""
     owner = await _insert_user(db_pool)
