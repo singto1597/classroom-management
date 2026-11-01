@@ -92,6 +92,7 @@ async def _load_tasks(
     counts = await conn.fetchrow(
         """
         SELECT
+            COUNT(*) AS total,
             COUNT(*) FILTER (WHERE status = 'pending') AS pending_total,
             COUNT(*) FILTER (WHERE status = 'pending' AND due_date = $2) AS due_today,
             COUNT(*) FILTER (WHERE status = 'pending' AND due_date < $2) AS overdue
@@ -113,6 +114,7 @@ async def _load_tasks(
         TASK_PREVIEW_LIMIT,
     )
     return {
+        "total": int(counts["total"] or 0),
         "pending_total": int(counts["pending_total"] or 0),
         "due_today": int(counts["due_today"] or 0),
         "overdue": int(counts["overdue"] or 0),

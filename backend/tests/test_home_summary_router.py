@@ -133,6 +133,8 @@ async def test_task_counts_match_the_list_predicate(client, db_pool):
     assert response.status_code == 200, response.text
     body = response.json()
 
+    # 4 งานค้าง + 1 งานเสร็จ = 5 (งานที่ soft-delete แล้วไม่ถูกนับในก้อนไหนเลย)
+    assert body["tasks"]["total"] == 5
     assert body["tasks"]["pending_total"] == 4
     assert body["tasks"]["due_today"] == 2
     assert body["tasks"]["overdue"] == 1

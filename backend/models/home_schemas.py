@@ -20,6 +20,7 @@ class HomeTaskItem(BaseModel):
 
 
 class HomeTaskSummary(BaseModel):
+    total: int = Field(description="งานทั้งหมดในห้อง (ทุกสถานะ ไม่รวมที่ลบแล้ว) → /tasks?filter=all")
     pending_total: int = Field(description="งานที่ยังไม่เสร็จทั้งห้อง → /tasks?filter=pending")
     due_today: int = Field(description="งานที่ยังไม่เสร็จและครบกำหนดวันนี้ (เวลาไทย)")
     overdue: int = Field(description="งานที่ยังไม่เสร็จและเลยกำหนดแล้ว")
