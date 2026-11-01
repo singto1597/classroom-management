@@ -148,5 +148,5 @@ export const routeTitles = {
 
   // ── อื่น ๆ ──────────────────────────────────────────────────────────────
   DiscordConnect: 'เชื่อมต่อ Discord',
-  'send-message': 'ประกาศเข้า Discord',
+  'send-message': 'ประกาศ',
 } as const satisfies Readonly<Record<string, string>>;

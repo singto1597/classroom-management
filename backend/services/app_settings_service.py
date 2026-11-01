@@ -28,8 +28,12 @@ from typing import Any, Optional
 import asyncpg
 
 from core.exceptions import ValidationError
+from core.logger import AuditLogger
+from core.rbac import require_permission
 
 logger = logging.getLogger("API_APP_SETTINGS")
+
+settings_logger = AuditLogger(service_name="APP_SETTINGS")
 
 QUIET_HOURS_KEY = "quiet_hours"
 
@@ -155,6 +159,41 @@ async def get_quiet_hours(
     return normalize_quiet_hours(stored if stored is not None else _DEFAULT_QUIET_HOURS)
 
 
+async def _upsert_quiet_hours(
+    conn: asyncpg.Connection,
+    *,
+    room_id: int,
+    enabled: bool,
+    start: str,
+    end: str,
+    updated_by: Optional[int],
+) -> dict[str, Any]:
+    """เขียนค่าลง `app_settings` บน conn ที่ผู้เรียกถืออยู่ (ไม่เปิด transaction เอง)"""
+    if _parse_hhmm(start) is None:
+        raise ValidationError("เวลาเริ่มต้องอยู่ในรูปแบบ HH:MM (00:00–23:59)")
+    if _parse_hhmm(end) is None:
+        raise ValidationError("เวลาสิ้นสุดต้องอยู่ในรูปแบบ HH:MM (00:00–23:59)")
+
+    value = {"enabled": bool(enabled), "start": start, "end": end}
+    import json
+
+    await conn.execute(
+        """
+        INSERT INTO app_settings (room_id, key, value, updated_by, updated_at)
+        VALUES ($1, $2, $3::jsonb, $4, NOW())
+        ON CONFLICT (room_id, key)
+        DO UPDATE SET value = EXCLUDED.value,
+                      updated_by = EXCLUDED.updated_by,
+                      updated_at = NOW()
+        """,
+        room_id,
+        QUIET_HOURS_KEY,
+        json.dumps(value),
+        updated_by,
+    )
+    return normalize_quiet_hours(value)
+
+
 async def set_quiet_hours(
     pool: asyncpg.Pool,
     *,
@@ -168,28 +207,68 @@ async def set_quiet_hours(
 
     `start == end` **ไม่ใช่ error**: เป็นวิธีมาตรฐานที่ UI ใช้แทนสวิตช์ปิด
     ⇒ เก็บตามที่ส่งมา แต่ `normalize_quiet_hours` จะตีความเป็นปิด
-    """
-    if _parse_hhmm(start) is None:
-        raise ValidationError("เวลาเริ่มต้องอยู่ในรูปแบบ HH:MM (00:00–23:59)")
-    if _parse_hhmm(end) is None:
-        raise ValidationError("เวลาสิ้นสุดต้องอยู่ในรูปแบบ HH:MM (00:00–23:59)")
 
-    value = {"enabled": bool(enabled), "start": start, "end": end}
-    import json
+    ⚠️ ไม่ตรวจสิทธิ์โดยเจตนา — worker/เทสต์ใช้เป็น "ที่เก็บ" ตรง ๆ
+    เส้นทางของผู้ใช้ต้องผ่าน `update_quiet_hours` (ตรวจสิทธิ์ + audit)
+    """
+    async with pool.acquire() as conn:
+        return await _upsert_quiet_hours(
+            conn,
+            room_id=room_id,
+            enabled=enabled,
+            start=start,
+            end=end,
+            updated_by=updated_by,
+        )
+
+
+async def update_quiet_hours(
+    pool: asyncpg.Pool,
+    *,
+    room_id: int,
+    user_id: int,
+    enabled: bool,
+    start: str,
+    end: str,
+    client_source: str = "WEB_APP",
+    actor_identifier: str = "",
+) -> dict[str, Any]:
+    """เส้นทางที่ **route ใช้จริง** — ตรวจสิทธิ์ + บันทึก + audit ในทรานแซกชันเดียว
+
+    ทั้งสามอย่างอยู่ใน transaction เดียวกันเพราะ "ตั้งค่าแล้วแต่ไม่มีร่องรอย"
+    หรือ "audit บอกว่าเปลี่ยนแล้วแต่ค่าไม่เปลี่ยน" ล้วนเป็นสถานะที่ตรวจย้อนไม่ได้
+    """
+    import time
+
+    start_time = time.time()
 
     async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO app_settings (room_id, key, value, updated_by, updated_at)
-            VALUES ($1, $2, $3::jsonb, $4, NOW())
-            ON CONFLICT (room_id, key)
-            DO UPDATE SET value = EXCLUDED.value,
-                          updated_by = EXCLUDED.updated_by,
-                          updated_at = NOW()
-            """,
-            room_id,
-            QUIET_HOURS_KEY,
-            json.dumps(value),
-            updated_by,
-        )
-    return normalize_quiet_hours(value)
+        async with conn.transaction():
+            await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+            old = await get_quiet_hours(conn, room_id=room_id)
+            saved = await _upsert_quiet_hours(
+                conn,
+                room_id=room_id,
+                enabled=enabled,
+                start=start,
+                end=end,
+                updated_by=user_id,
+            )
+
+            exec_time = int((time.time() - start_time) * 1000)
+            await settings_logger.log(
+                conn=conn,
+                action="UPDATE",
+                actor_identifier=actor_identifier,
+                client_source=client_source,
+                room_id=room_id,
+                user_id=user_id,
+                entity_type="APP_SETTING",
+                entity_id=QUIET_HOURS_KEY,
+                old_values=old,
+                new_values=saved,
+                endpoint_or_command="update_quiet_hours",
+                execution_time_ms=exec_time,
+            )
+
+    return saved

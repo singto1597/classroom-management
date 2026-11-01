@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import { ActionService } from '@/services/action';
+import { AnnouncementService } from '@/services/announcement';
 import { ClassroomService } from '@/services/classroom';
 import { escapeHtml } from '@/utils/html';
 import Swal from 'sweetalert2';
@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import { UI_COLOR } from '@/constants/theme'
+import type { AnnouncementPriority } from '@/types/announcement';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -17,12 +18,12 @@ const authStore = useAuthStore();
 const currentRoomId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName!;
 
-// สิทธิ์: แอดมิน หรือผู้ที่มีสิทธิ์จัดการการตั้งค่าห้อง (ประกาศ @everyone ทั้งห้อง)
+// สิทธิ์: แอดมิน หรือผู้ที่มีสิทธิ์จัดการการตั้งค่าห้อง (ประกาศคือช่องทางราชการของห้อง)
 const canSendMessage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_SETTINGS')
 );
 
-// ✨ สถานะการผูก Discord ของห้อง (ถ้าไม่ผูก → บอทจะไม่มีปลายทางประกาศ)
+// ✨ สถานะการผูก Discord ของห้อง — ไม่ผูกก็ประกาศได้ (in-app + push) แค่ไม่ขึ้นใน Discord
 const isDiscordLinked = ref(false);
 const isLoadingRoom = ref(true);
 
@@ -48,12 +49,18 @@ onMounted(fetchRoomStatus);
 const messageForm = reactive({
   title: '',
   message: '',
-  // ✨ default ชื่อเป็นชื่อผู้ใช้ (แอดมินแก้ได้) — backend แสดงใน footer ของ embed
-  user_name: currentUserName
+  priority: 'normal' as AnnouncementPriority,
+  pinned: false,
 });
 
 const isSubmitting = ref(false);
 const charCount = computed(() => messageForm.message.length);
+
+const priorityLabel: Record<AnnouncementPriority, string> = {
+  normal: 'ปกติ',
+  high: 'สำคัญ',
+  urgent: 'ด่วน',
+};
 
 const handleSend = async () => {
   if (!canSendMessage.value) {
@@ -69,21 +76,25 @@ const handleSend = async () => {
 
   isSubmitting.value = true;
   try {
-    await ActionService.sendCustomMessage(currentRoomId, {
+    const result = await AnnouncementService.create(currentRoomId, {
       title: messageForm.title.trim(),
-      message: messageForm.message.trim(),
-      user_name: messageForm.user_name.trim() || currentUserName
+      body: messageForm.message.trim(),
+      priority: messageForm.priority,
+      pinned: messageForm.pinned,
     });
+    const extra = isDiscordLinked.value ? ' และใน Discord' : '';
     await Swal.fire({
       icon: 'success',
-      title: 'ส่งประกาศเรียบร้อยแล้ว!',
+      title: 'ประกาศเรียบร้อยแล้ว!',
       // 🔒 escape เฉพาะหัวข้อที่ผู้ใช้พิมพ์ — ข้อความรอบ ๆ เป็นข้อความล้วน ไม่มีมาร์กอัป
-      html: `ข้อความ "${escapeHtml(messageForm.title)}" จะถูกประกาศใน Discord ทันที 🎉`,
-      timer: 2000,
+      html: `"${escapeHtml(result.item.title)}" ถูกส่งถึงสมาชิก ${result.delivered_count} คน${extra} 🎉`,
+      timer: 2500,
       showConfirmButton: false
     });
     messageForm.title = '';
     messageForm.message = '';
+    messageForm.priority = 'normal';
+    messageForm.pinned = false;
   } catch (error: unknown) {
     Swal.fire({
       icon: 'error',
@@ -100,9 +111,9 @@ const handleSend = async () => {
 <template>
   <div class="space-y-4 sm:space-y-5">
     <PageHeader
-      eyebrow="Discord Announcement"
-      title="ประกาศเข้า Discord"
-      description="ส่งข้อความประกาศจากเว็บไปยังห้อง Discord ถึงเพื่อนทุกคน"
+      eyebrow="Announcement"
+      title="ประกาศ"
+      description="ส่งประกาศถึงเพื่อนทุกคน — ขึ้นในแอป แจ้งเตือนบนมือถือ และ Discord (ถ้าเชื่อมต่อไว้)"
     >
       <template #actions>
         <button
@@ -124,7 +135,7 @@ const handleSend = async () => {
       v-else-if="hasError"
       variant="error"
       title="ตรวจสอบสถานะ Discord ไม่สำเร็จ"
-      hint="ไม่สามารถดึงข้อมูลห้องได้ในขณะนี้"
+      hint="ไม่สามารถดึงข้อมูลห้องได้ในขณะนี้ — ประกาศยังส่งได้ แต่จะไม่ขึ้นใน Discord"
       @retry="fetchRoomStatus"
     />
 
@@ -140,7 +151,7 @@ const handleSend = async () => {
       <div class="min-w-0 flex-1">
         <p class="text-sm font-bold text-warn-800">ห้องนี้ยังไม่ได้เชื่อมต่อกับ Discord</p>
         <p class="mt-1 text-xs leading-relaxed text-warn-700">
-          ประกาศจะถูกส่งได้เฉพาะห้องที่มี Discord Server ผูกไว้แล้ว — กดเชื่อมต่อเพื่อให้บอทประกาศข้อความถึงเพื่อนทุกคนได้
+          ประกาศจะขึ้นในแอปและแจ้งเตือนบนมือถือของสมาชิกตามปกติ แต่จะไม่ปรากฏใน Discord
         </p>
         <RouterLink to="/discord-connect" class="btn-ghost-ui mt-3">
           <i class="bi bi-plug-fill" aria-hidden="true"></i>
@@ -161,7 +172,7 @@ const handleSend = async () => {
       <div class="min-w-0">
         <p class="text-sm font-bold text-ok-800">ห้องเชื่อมต่อ Discord เรียบร้อยแล้ว</p>
         <p class="mt-1 text-xs leading-relaxed text-ok-700">
-          ประกาศจะถูกส่งไปยังช่องประกาศของห้องทันที
+          ประกาศจะขึ้นในแอป แจ้งเตือนบนมือถือ และส่งเข้า Discord — ประกาศ "ด่วน" เท่านั้นที่ @ทุกคน
         </p>
       </div>
     </div>
@@ -179,7 +190,7 @@ const handleSend = async () => {
             <div class="min-w-0">
               <p class="section-title truncate">แบบฟอร์มประกาศ</p>
               <p class="truncate text-xs text-stone-500">
-                บอทจะประกาศเป็น Embed ในช่องที่กำหนดไว้
+                ประกาศโดย {{ currentUserName }}
               </p>
             </div>
           </div>
@@ -204,27 +215,46 @@ const handleSend = async () => {
               id="announceMessage"
               :disabled="!canSendMessage"
               v-model="messageForm.message"
-              maxlength="2000"
+              maxlength="5000"
               class="field h-32 resize-none sm:h-40"
               placeholder="รายละเอียดประกาศ เช่น วันเวลา สถานที่ หรือสิ่งที่ต้องเตรียม..."
               required
             ></textarea>
             <div class="num mt-1 text-right text-xs font-bold text-stone-500">
-              {{ charCount }} / 2000
+              {{ charCount }} / 5000
             </div>
           </div>
 
-          <div>
-            <label class="field-label" for="announceAuthor">ชื่อผู้ประกาศ</label>
-            <input
-              id="announceAuthor"
-              :disabled="!canSendMessage"
-              v-model="messageForm.user_name"
-              type="text"
-              maxlength="100"
-              class="field"
-              placeholder="ชื่อที่จะแสดงใต้ประกาศใน Discord"
-            />
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="field-label" for="announcePriority">ความสำคัญ</label>
+              <select
+                id="announcePriority"
+                v-model="messageForm.priority"
+                :disabled="!canSendMessage"
+                class="field"
+              >
+                <option value="normal">ปกติ</option>
+                <option value="high">สำคัญ</option>
+                <option value="urgent">ด่วน (ทะลุเวลางดรบกวน)</option>
+              </select>
+              <p class="mt-1 text-xs leading-relaxed text-stone-500">
+                ประกาศ "ด่วน" จะแจ้งเตือนแม้อยู่นอกเวลา และ @ทุกคนใน Discord
+              </p>
+            </div>
+
+            <div>
+              <span class="field-label">ปักหมุด</span>
+              <label class="flex min-h-11 items-center gap-2.5 rounded-xl border border-stone-200 px-3">
+                <input
+                  v-model="messageForm.pinned"
+                  type="checkbox"
+                  :disabled="!canSendMessage"
+                  class="h-4 w-4 accent-brand-700"
+                />
+                <span class="text-sm font-bold text-stone-700">ปักหมุดไว้บนสุดของหน้าประกาศ</span>
+              </label>
+            </div>
           </div>
 
           <div class="border-t border-stone-100 pt-3 sm:pt-4">
@@ -236,7 +266,7 @@ const handleSend = async () => {
                   aria-hidden="true"
                 ></span>
                 <i v-else class="bi bi-send-fill" aria-hidden="true"></i>
-                {{ isSubmitting ? 'กำลังส่งประกาศ...' : 'ส่งประกาศไป Discord' }}
+                {{ isSubmitting ? 'กำลังส่งประกาศ...' : 'ส่งประกาศ' }}
               </button>
             </template>
             <div
@@ -250,10 +280,26 @@ const handleSend = async () => {
         </form>
       </div>
 
-      <!-- ตัวอย่างที่จะปรากฏใน Discord -->
+      <!-- ตัวอย่างประกาศ -->
       <div class="page-card order-first h-fit p-4 sm:p-5 lg:order-none">
         <p class="mb-2 text-[11px] font-bold text-stone-500">ตัวอย่างประกาศ</p>
         <div class="rounded-xl border-s-4 border-s-brand-700 bg-stone-50 p-3.5">
+          <p class="mb-1.5 flex items-center gap-1.5">
+            <span
+              v-if="messageForm.pinned"
+              class="inline-flex items-center gap-1 rounded-full bg-warn-100 px-2 py-0.5 text-[11px] font-bold text-warn-800"
+            >
+              <i class="bi bi-pin-angle-fill" aria-hidden="true"></i>
+              ปักหมุด
+            </span>
+            <span
+              v-if="messageForm.priority !== 'normal'"
+              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
+              :class="messageForm.priority === 'urgent' ? 'bg-danger-100 text-danger-800' : 'bg-info-100 text-info-800'"
+            >
+              {{ priorityLabel[messageForm.priority] }}
+            </span>
+          </p>
           <p class="min-w-0 break-words font-display text-sm font-bold text-stone-900">
             {{ messageForm.title || 'หัวข้อประกาศ' }}
           </p>
@@ -263,7 +309,7 @@ const handleSend = async () => {
             {{ messageForm.message || 'รายละเอียดประกาศจะแสดงที่นี่' }}
           </p>
           <p class="mt-3 truncate border-t border-stone-200 pt-2.5 text-xs font-bold text-stone-500">
-            ประกาศโดย {{ messageForm.user_name || currentUserName }}
+            ประกาศโดย {{ currentUserName }}
           </p>
         </div>
       </div>
