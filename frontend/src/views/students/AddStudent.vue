@@ -77,7 +77,7 @@ const submitSingle = async () => {
     await Swal.fire({
       icon: 'success',
       title: 'สำเร็จ!',
-      text: 'เพิ่มนักเรียนเรียบร้อยแล้ว (ถ้าเป็นผู้ใช้จริง ระบบจะส่งคำเชิญให้เขายืนยันตัวตนก่อนถึงเปิดข้อมูลส่วนตัว)',
+      text: 'เพิ่มนักเรียนเรียบร้อยแล้ว · เข้าใช้งานห้องได้ทันที (บัญชีจริงจะได้รับคำเชิญให้ยืนยันตัวตน — ไม่บล็อกการใช้งาน)',
       confirmButtonColor: UI_COLOR.brand
     })
     router.push('/students')
@@ -133,7 +133,7 @@ const submitBulk = async () => {
     await Swal.fire({
       icon: 'success',
       title: 'สำเร็จ!',
-      text: `เพิ่มนักเรียนรวดเดียว ${students.length} คน เรียบร้อยแล้ว (ผู้ใช้จริงจะได้รับคำเชิญให้ยืนยันตัวตนก่อนเปิดข้อมูลส่วนตัว)`,
+      text: `เพิ่มนักเรียนรวดเดียว ${students.length} คน เรียบร้อยแล้ว · เข้าใช้งานห้องได้ทันที (บัญชีจริงจะได้รับคำเชิญให้ยืนยันตัวตน — ไม่บล็อก)`,
       confirmButtonColor: UI_COLOR.brand
     })
     router.push('/students')

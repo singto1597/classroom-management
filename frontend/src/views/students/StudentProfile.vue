@@ -199,6 +199,14 @@ onMounted(() => {
                 <span v-if="student.is_admin" class="chip bg-warn-50 text-warn-700">
                   <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ผู้ดูแลระบบ
                 </span>
+
+                <span
+                  v-if="student.identity_claimed === false"
+                  class="chip bg-stone-100 text-stone-600"
+                  title="ข้อมูลนี้เป็นของห้อง — เจ้าตัวยังไม่ยืนยันตัวตน (ข้อมูลจากบัญชีกลางจะทับเมื่อยืนยัน)"
+                >
+                  <i class="bi bi-person-dash" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
+                </span>
               </div>
             </div>
           </div>

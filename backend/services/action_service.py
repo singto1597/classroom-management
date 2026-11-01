@@ -188,8 +188,8 @@ class ActionService:
 
     @classmethod
     async def notify_student_invite(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str, first_name_en: str = "", last_name_en: str = ""):
-        """แจ้งว่ามีคำเชิญเข้าร่วมห้อง — เกิดเมื่อแอดมินแอดชื่อที่ตรงกับบัญชีจริง (Consent Model)
-        เจ้าตัวต้องกดรับคำเชิญ (accept_invite) ก่อนถึงเป็นสมาชิก + เปิดข้อมูลส่วนตัว"""
+        """แจ้งว่ามีคำเชิญยืนยันตัวตน — เกิดเมื่อแอดมินแอดชื่อที่ตรงกับบัญชีจริง
+        เข้าใช้งานห้องได้ทันที (ไม่บล็อก); เจ้าตัวกดยืนยันได้ภายหลังเพื่อ merge ข้อมูลบัญชี"""
         await cls._publish("STUDENT_INVITE", server_id, {
             "student_no": student_no,
             "first_name": first_name,
@@ -197,11 +197,11 @@ class ActionService:
             "first_name_en": first_name_en or None,
             "last_name_en": last_name_en or None,
             "user_name": user_name
-        }, mention=False, category="📨 มีคำเชิญเข้าร่วมห้อง", channel="minor")
+        }, mention=False, category="📨 คำเชิญยืนยันตัวตน", channel="minor")
 
     @classmethod
     async def notify_invite_accepted(cls, server_id: int, student_no: int, first_name: str, last_name: str, first_name_en: str = "", last_name_en: str = ""):
-        """แจ้งว่าเจ้าตัวยืนยันตัวตนแล้ว (accept_invite สำเร็จ) — ข้อมูลส่วนตัวเปิดให้ห้องดูได้แล้ว"""
+        """แจ้งว่าเจ้าตัวยืนยันตัวตนแล้ว (accept_invite สำเร็จ) — ข้อมูลบัญชีกลางทับ override ของห้อง"""
         await cls._publish("INVITE_ACCEPTED", server_id, {
             "student_no": student_no,
             "first_name": first_name,

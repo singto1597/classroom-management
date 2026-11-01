@@ -16,6 +16,11 @@ AVAILABLE_PERMISSIONS = [
     "MANAGE_ACTIVITIES"
 ]
 
+# 🏠 "ผู้จัดการห้อง" สำหรับข้อมูลนักเรียน = คนที่มีสิทธิ์ใดสิทธิ์หนึ่งในชุดนี้
+# (is_admin / super admin ผ่านอยู่แล้วผ่าน require_permission)
+MANAGER_PERMISSIONS = ("MANAGE_STUDENTS", "VIEW_ALL_STUDENTS")
+
+
 async def require_member(conn: asyncpg.Connection, room_id: int, user_id: int):
     """
     🔍 Membership check (ใช้สำหรับข้อมูลที่ต้องการความโปร่งใส เช่น Finance GET)
@@ -85,5 +90,25 @@ async def require_permission(conn: asyncpg.Connection, room_id: int, user_id: in
     # ถ้าสิทธิ์ที่ต้องการ (required_permission) ไม่มีใน Array ของ User คนนี้ ให้ดีดออกทันที
     if required_permission not in user_permissions:
         raise ForbiddenError(f"Access Denied: คุณไม่มีสิทธิ์ '{required_permission}'")
-    
+
     return True
+
+
+async def has_any_permission(
+    conn: asyncpg.Connection,
+    room_id: int,
+    user_id: int,
+    permissions: tuple[str, ...],
+) -> bool:
+    """True ถ้าผู้ใช้มีสิทธิ์อย่างน้อยหนึ่งในชุดที่ให้ (ใช้ตัดสิน "เป็นผู้จัดการห้องหรือไม่")
+
+    - is_admin / super admin ผ่านทันทีผ่าน require_permission
+    - ผู้ใช้ที่ยัง pending/ไม่ใช่สมาชิก → False (ไม่ raise)
+    """
+    for permission in permissions:
+        try:
+            await require_permission(conn, room_id, user_id, permission)
+            return True
+        except ForbiddenError:
+            continue
+    return False

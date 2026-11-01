@@ -552,12 +552,12 @@ class ExportCombinedMixin:
             settings.SUPER_ADMIN_ID and user_id and int(user_id) == int(settings.SUPER_ADMIN_ID)
         )
         for i, person in enumerate(people, start=2):
-            # 🛡️ Consent Model: participant ที่ยังไม่ยืนยันตัวตน → Type A (profile PII) เป็น ""
+            # 🛡️ endpoint นี้บังคับ MANAGE_ACTIVITIES อยู่แล้ว (สายผู้จัดการ) → เห็น Type A ได้
             can_view_type_a = can_view_activity_pii(
                 requester_user_id=user_id,
                 target_user_id=person.get("user_id"),
-                identity_claimed=person.get("identity_claimed"),
                 is_super_admin=is_super_admin,
+                viewer_is_manager=True,
             )
             person_activity_ids = set(person.get("activity_ids") or [])
             row_values: List[Any] = [

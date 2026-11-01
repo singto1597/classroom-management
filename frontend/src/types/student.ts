@@ -42,12 +42,13 @@ export interface Student {
 
   is_admin?: boolean;
   permissions?: string[];
-  // 🛡️ Consent Model: identity_claimed = เจ้าตัวยืนยันตัวตนการเป็นสมาชิกแล้ว (PII ถึงจะเปิดให้ห้องดู)
+  // 🧾 identity_claimed = เจ้าตัวยืนยันตัวตนแล้ว (แถวนั้นใช้ข้อมูลบัญชีกลางแทน override ของห้อง)
+  //    ไม่ได้คุมสิทธิ์ดู PII อีกต่อไป — PII เห็นได้เฉพาะผู้จัดการห้องเท่านั้น
   identity_claimed?: boolean;
   added_by?: number | null;
 }
 
-/** รายการคำขอที่รอจัดการ (Consent Model) — ตรงกับ PendingRequestResponse ใน backend/models/room_schemas.py
+/** รายการคำขอที่รอจัดการ (requests) — ตรงกับ PendingRequestResponse ใน backend/models/room_schemas.py
  *  หมายเหตุ: ฟิลด์ Optional ของ Pydantic มาทาง JSON ได้ทั้งแบบ null และแบบไม่ส่งมา จึงประกาศเป็น optional + nullable */
 export interface PendingStudentRequest {
   id: number
@@ -98,7 +99,7 @@ export interface StudentAddPayload extends StudentQuickAdd {
   user_name: string;
 }
 
-/** คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อเราให้ ต้องกดรับเองก่อนถึงเป็นสมาชิก */
+/** คำเชิญยืนยันตัวตน — ห้องแอดชื่อเราให้แล้ว (ใช้งานได้ทันที); กดยืนยันเพื่อ merge ข้อมูลบัญชีกลาง */
 export interface Invite {
   invite_id: number
   student_no: number

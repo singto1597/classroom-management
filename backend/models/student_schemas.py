@@ -144,7 +144,7 @@ class StudentResponse(BaseModel):
     address_province: Optional[str]
     address_post_code: Optional[str]
     status: str
-    # 🛡️ Consent Model: identity_claimed = เจ้าตัวยืนยันตัวตนการเป็นสมาชิกแล้ว (PII ถึงจะเปิดให้ห้องดู)
+    # 🧾 identity_claimed = เจ้าตัวยืนยันตัวตนแล้ว — ไม่ได้คุมสิทธิ์ดู PII อีก (ผู้จัดการห้องเท่านั้น)
     identity_claimed: bool = False
     added_by: Optional[int] = None
     created_at: Optional[datetime]
@@ -169,7 +169,8 @@ class StudentSummaryResponse(BaseModel):
     data_completion: Optional[StudentCompletionStatus] = None
 
 class InviteResponse(BaseModel):
-    """คำเชิญเข้าร่วมห้องที่แอดมินแอดชื่อเราให้ (Consent Model) — เจ้าตัวต้องกดรับก่อน"""
+    """คำเชิญยืนยันตัวตน — ห้องแอดชื่อเราไว้แล้ว (ใช้งานได้ทันที)
+    การกดยืนยันจะรวมข้อมูลบัญชีกลางทับข้อมูลที่ห้องกรอก (ช่องที่บัญชีว่างยังใช้ค่าของห้อง)"""
     invite_id: int
     student_no: int
     room_id: int

@@ -842,13 +842,14 @@ async def test_get_activity_returns_profile_fields_joined(db_pool):
         )
         activity_id = result["activity_id"]
 
+    # 👁️ ส่ง user_id ของผู้จัดการห้อง → Type A ไม่ถูก mask (นโยบาย 2026-11-01: PII เฉพาะผู้จัดการ)
     activity = await ActivityService.get_activity(
         pool=db_pool, activity_id=activity_id,
-        client_source="WEB_APP", actor_identifier="user_id:1", room_id=room_id,
+        client_source="WEB_APP", actor_identifier="user_id:1", room_id=room_id, user_id=owner,
     )
     assert len(activity["participants"]) == 1
     p = activity["participants"][0]
-    # 🌟 Type A — มาแบบ JOIN จาก users ไม่ต้องอยู่ใน metadata
+    # 🌟 Type A — มาแบบ JOIN จาก v_student_profiles ไม่ต้องอยู่ใน metadata
     assert p["blood_group"] == "B"
     assert p["shirt_size"] == "L"
     assert p["food_allergy"] == "ถั่ว"

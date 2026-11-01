@@ -315,7 +315,7 @@ class CreditsMixin:
         # 👤 ตรวจนักเรียน: ต้องเป็นของห้องนี้ ยังไม่ถูกลบ และยัง active
         student = await conn.fetchrow(
             """SELECT S.id, S.student_no, U.first_name, U.nickname, U.first_name_en
-               FROM students S LEFT JOIN users U ON S.user_id = U.id
+               FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = $1 AND S.room_id = $2 AND S.deleted_at IS NULL
                  AND S.status = 'active'""",
             student_id, target_room_id,
@@ -440,7 +440,7 @@ class CreditsMixin:
                       U.first_name, U.nickname, U.first_name_en
                FROM student_credits SC
                LEFT JOIN students S ON S.id = SC.student_id
-               LEFT JOIN users U ON U.id = S.user_id
+               LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE SC.id = $1 AND SC.room_id = $2 AND SC.deleted_at IS NULL""",
             credit_entry_id, room_id,
         )
@@ -570,7 +570,7 @@ class CreditsMixin:
             return {}
         rows = await conn.fetch(
             """SELECT S.id, S.student_no, U.first_name, U.nickname, U.first_name_en
-               FROM students S LEFT JOIN users U ON S.user_id = U.id
+               FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.room_id = $1 AND S.deleted_at IS NULL AND S.id = ANY($2::int[])""",
             target_room_id, student_ids,
         )
@@ -1045,7 +1045,7 @@ class CreditsMixin:
                               COALESCE(SC.balance_after, 0) AS credit_balance,
                               COALESCE(D.pending_amount, 0) AS total_pending_amount
                        FROM students S
-                       LEFT JOIN users U ON S.user_id = U.id
+                       LEFT JOIN v_student_profiles U ON U.student_id = S.id
                        LEFT JOIN LATERAL (
                            SELECT balance_after FROM student_credits
                            WHERE room_id = S.room_id AND student_id = S.id

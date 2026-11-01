@@ -183,7 +183,7 @@ class BaseMixin:
                     SELECT S.id, S.student_no, U.first_name, U.last_name, U.nickname,
                            U.first_name_en, U.last_name_en, U.nickname_en
                     FROM students S
-                    LEFT JOIN users U ON S.user_id = U.id
+                    LEFT JOIN v_student_profiles U ON U.student_id = S.id
                     WHERE S.room_id = $1 AND S.status = 'active' AND S.deleted_at IS NULL
                     ORDER BY S.student_no ASC
                 """, target_room_id)

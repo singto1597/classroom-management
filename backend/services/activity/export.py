@@ -425,12 +425,12 @@ class ExportMixin:
                     is_super_admin = settings.SUPER_ADMIN_ID and user_id and int(user_id) == int(settings.SUPER_ADMIN_ID)
                     for i, p in enumerate(participants, start=2):
                         final = []
-                        # 🛡️ Consent Model: participant ที่ยังไม่ยืนยันตัวตน → Type A (profile PII) เป็น ""
+                        # 🛡️ endpoint นี้บังคับ MANAGE_ACTIVITIES อยู่แล้ว (สายผู้จัดการ) → เห็น Type A ได้
                         p_can_view_type_a = can_view_activity_pii(
                             requester_user_id=user_id,
                             target_user_id=p.get("user_id"),
-                            identity_claimed=p.get("identity_claimed"),
                             is_super_admin=is_super_admin,
+                            viewer_is_manager=True,
                         )
                         for field in fields:
                             if field in BASE_READERS:

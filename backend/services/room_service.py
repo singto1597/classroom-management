@@ -13,6 +13,7 @@ from services.finance_service import (
     DEFAULT_FINANCE_ACCOUNTS,
 )
 from services.action_service import ActionService
+from services.student.profiles import merge_room_overrides_on_claim
 
 service_logger = AuditLogger(service_name="ROOM_MANAGEMENT")
 
@@ -299,7 +300,7 @@ class RoomManagementService:
                 rows = await conn.fetch(
                     "SELECT s.id, s.student_no, s.identity_claimed, s.added_by, s.claim_meta, "
                     "u.first_name, u.last_name, u.first_name_en, u.last_name_en, s.created_at "
-                    "FROM students s LEFT JOIN users u ON s.user_id = u.id "
+                    "FROM students s LEFT JOIN v_student_profiles u ON u.student_id = s.id "
                     "WHERE s.room_id = $1 AND s.status = 'pending' AND s.deleted_at IS NULL ORDER BY s.student_no ASC",
                     room_id
                 )
@@ -369,7 +370,7 @@ class RoomManagementService:
                     await require_permission(conn, room_id, user_id, "MANAGE_STUDENTS")
 
                     old_student = await conn.fetchrow(
-                        "SELECT id, status, added_by FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL",
+                        "SELECT id, user_id, status, added_by FROM students WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL",
                         room_id, student_no,
                     )
                     if not old_student:
@@ -377,8 +378,8 @@ class RoomManagementService:
                     old_values = dict(old_student)
                     new_values = {"status": "active", "identity_claimed": True}
 
-                    # 🛡️ Consent Model: คำเชิญที่แอดมินแอดให้ (added_by IS NOT NULL) ต้องให้เจ้าตัวกดรับเอง
-                    # — แอดมินอนุมัติแทนไม่ได้ ไม่งั้นแฮ็กเกอร์ก็แค่สร้างห้อง + แอดชื่อ + อนุมัติเอง
+                    # 🔒 คำเชิญยืนยันตัวตน (added_by IS NOT NULL) ต้องให้เจ้าตัวกดยืนยันเอง — แอดมินอนุมัติแทนไม่ได้
+                    # (แถวแบบนี้เป็น active อยู่แล้ว; การยืนยันมีไว้ merge ข้อมูลบัญชี + กันการสวมชื่อ)
                     if old_student["added_by"] is not None:
                         raise HTTPException(status_code=400, detail="คำเชิญนี้รอการยืนยันจากนักเรียน (ให้นักเรียนกดรับคำเชิญก่อน)")
 
@@ -388,7 +389,11 @@ class RoomManagementService:
                         WHERE room_id = $1 AND student_no = $2 AND status = 'pending' AND deleted_at IS NULL
                     """, room_id, student_no)
                     if res == "UPDATE 0": raise HTTPException(status_code=404, detail="ไม่พบคำขอ หรืออนุมัติไปแล้ว")
-                    
+
+                    # 🔀 คำขออ้างสิทธิ์ ghost: เจ้าตัวยืนยันแล้ว → บัญชีกลางชนะ override ที่ห้องกรอกไว้
+                    if old_student["user_id"] is not None:
+                        await merge_room_overrides_on_claim(conn, old_student["id"], old_student["user_id"])
+
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn,
@@ -498,8 +503,11 @@ class RoomManagementService:
 
     @classmethod
     async def list_my_invites(cls, pool: asyncpg.Pool, user_id: int, client_source: str, actor_identifier: str) -> list:
-        """รายการคำเชิญเข้าร่วมห้องของฉัน — แอดมินแอดชื่อฉันด้วยชื่อ (added_by IS NOT NULL) ที่ยัง pending.
-        เจ้าตัวต้องกดรับ (accept_invite) ถึงจะกลายเป็นสมาชิก + เปิดข้อมูลส่วนตัวให้ห้องดู (Consent Model)."""
+        """รายการเชิญยืนยันตัวตนของฉัน — แอดมินแอดชื่อฉัน (added_by IS NOT NULL) และยังไม่ยืนยัน.
+
+        ตั้งแต่ 2026-11-01 การมีชื่อในห้องไม่ต้องรอ consent: แถวเป็น active อยู่แล้ว
+        คำเชิญนี้เหลือไว้ให้เจ้าตัวกดยืนยัน เพื่อให้ข้อมูลบัญชีกลาง merge ทับข้อมูลที่ห้องกรอกไว้.
+        """
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
@@ -509,7 +517,7 @@ class RoomManagementService:
                     FROM students s
                     JOIN rooms r ON s.room_id = r.id AND r.deleted_at IS NULL
                     LEFT JOIN users au ON s.added_by = au.id
-                    WHERE s.user_id = $1 AND s.status = 'pending' AND s.identity_claimed = FALSE
+                    WHERE s.user_id = $1 AND s.status IN ('pending', 'active') AND s.identity_claimed = FALSE
                       AND s.added_by IS NOT NULL AND s.deleted_at IS NULL
                     ORDER BY s.created_at DESC
                 """, user_id)
@@ -534,7 +542,7 @@ class RoomManagementService:
 
     @classmethod
     async def accept_invite(cls, pool: asyncpg.Pool, invite_id: int, user_id: int, client_source: str, actor_identifier: str) -> dict:
-        """เจ้าตัวกดรับคำเชิญ → เป็นสมาชิก active + identity_claimed=TRUE (ข้อมูลส่วนตัวเปิดให้ห้องดูได้)."""
+        """เจ้าตัวกดยืนยันตัวตน → identity_claimed=TRUE + merge ข้อมูลบัญชีกลางทับ override ของห้อง."""
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
@@ -542,7 +550,7 @@ class RoomManagementService:
                     row = await conn.fetchrow("""
                         SELECT s.id, s.room_id, s.user_id, s.student_no, s.added_by, s.status, s.identity_claimed,
                                u.first_name, u.last_name, u.first_name_en, u.last_name_en
-                        FROM students s LEFT JOIN users u ON s.user_id = u.id
+                        FROM students s LEFT JOIN v_student_profiles u ON u.student_id = s.id
                         WHERE s.id = $1 AND s.deleted_at IS NULL
                     """, invite_id)
                     if not row:
@@ -551,13 +559,15 @@ class RoomManagementService:
                         raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์รับคำเชิญนี้")
                     if row["added_by"] is None:
                         raise HTTPException(status_code=400, detail="รายการนี้ไม่ใช่คำเชิญที่รอคุณยืนยัน")
-                    if row["status"] != "pending" or row["identity_claimed"]:
+                    if row["status"] not in ("pending", "active") or row["identity_claimed"]:
                         raise HTTPException(status_code=400, detail="คำเชิญนี้ถูกใช้ไปแล้วหรือถูกยกเลิก")
 
                     await conn.execute("""
                         UPDATE students SET status = 'active', identity_claimed = TRUE, updated_at = CURRENT_TIMESTAMP
                         WHERE id = $1
                     """, invite_id)
+                    # 🔀 merge: ค่าที่บัญชีกลางมีอยู่แล้วชนะ override ของห้อง (ค่าที่ยังว่างจึงเก็บของห้องไว้)
+                    await merge_room_overrides_on_claim(conn, invite_id, user_id)
 
                     old_values = {"status": row["status"], "identity_claimed": row["identity_claimed"]}
                     new_values = {"status": "active", "identity_claimed": True}
@@ -582,7 +592,7 @@ class RoomManagementService:
                             first_name_en=row["first_name_en"] or "",
                             last_name_en=row["last_name_en"] or "",
                         )
-                    return {"invite_id": invite_id, "room_id": row["room_id"], "message": "รับคำเชิญแล้ว ยินดีต้อนรับเข้าห้อง"}
+                    return {"invite_id": invite_id, "room_id": row["room_id"], "message": "ยืนยันตัวตนแล้ว ยินดีต้อนรับเข้าห้อง"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             async with pool.acquire() as err_conn:

@@ -19,7 +19,7 @@ import string
 import subprocess
 import sys
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import pytest
@@ -265,6 +265,13 @@ async def test_router_cross_period_merges_both_eras(db_pool):
                               payee_name="คู่กรณีทดสอบ"),
         user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
     )
+    # 🕒 add_transaction ไม่รับวันที่ (ใช้ NOW()) ⇒ วันจริงผ่านขอบเขต end_date ไปแล้ว
+    # (2026-11-01: เทสต์แดงทันทีที่วันจริงเลย 31 ต.ค.) → ยัดวันที่ยุค journal ให้ชัดแทนการพึ่ง "วันนี้"
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE journal_entries SET transaction_date = $1 WHERE room_id = $2 AND description = $3",
+            datetime(2026, 9, 15, 9, 0, tzinfo=timezone.utc), room_id, "journal หลังตัด",
+        )
 
     data = await FinanceService.get_transactions(
         pool=db_pool, client_source="test", actor_identifier="test",

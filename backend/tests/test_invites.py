@@ -1,8 +1,8 @@
 """
-Consent Model — คำเชิญเข้าร่วมห้อง (invites)
+คำเชิญยืนยันตัวตน (invites)
 
-- แอดมินแอดชื่อที่ตรงกับบัญชีจริง → สร้างแถว pending (added_by=admin, identity_claimed=FALSE)
-- เจ้าตัว login แล้วกดรับ (accept_invite) → active + identity_claimed=TRUE (PII ถึงเปิดให้ห้องดู)
+- ครูแอดชื่อที่ตรงกับบัญชีจริง → แถวเป็น active + identity_claimed=FALSE + added_by=admin (ใช้ห้องได้ทันที)
+- เจ้าตัว login แล้วกดยืนยัน (accept_invite) → identity_claimed=TRUE + merge ข้อมูลบัญชีทับ override
 - แอดมินอนุมัติแทนไม่ได้ (approve_join_request block ถ้า added_by IS NOT NULL)
 
 ครอบคลุม service-level (RoomManagementService.list_my_invites / accept_invite)
@@ -70,6 +70,19 @@ async def _insert_invite(pool, room_id: int, user_id: int, student_no: int, adde
         )
 
 
+async def _insert_active_invite(pool, room_id: int, user_id: int, student_no: int, added_by: int) -> int:
+    """แถวแบบที่ add_student สร้างจริงหลังนโยบาย 2026-11-01 — active แล้ว แต่ยังไม่ยืนยัน"""
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            """
+            INSERT INTO students (room_id, user_id, student_no, class_role, status, identity_claimed, added_by)
+            VALUES ($1, $2, $3, 'student', 'active', FALSE, $4)
+            RETURNING id
+            """,
+            room_id, user_id, student_no, added_by,
+        )
+
+
 def _make_web_headers(user_id: int) -> dict:
     from jose import jwt
     token = jwt.encode(
@@ -101,6 +114,22 @@ async def test_list_my_invites_returns_admin_added_pending(db_pool):
     assert inv["room_name"] == "M.4/1"
     assert inv["added_by_first"] == "Admin"
     assert inv["added_by_last"] == "Room"
+
+
+async def test_list_my_invites_includes_active_unclaimed(db_pool):
+    """แถวที่ครูเพิ่มหลังนโยบายใหม่เป็น active ทันที — ยังต้องโผล่เป็นการ์ดยืนยันตัวตน"""
+    admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
+    invitee = await _insert_user(db_pool, first_name="Somchai", last_name="Jaidee", email="s@example.com")
+    room_id = await _insert_room(db_pool, admin, room_name="M.4/2")
+    await _insert_active_invite(db_pool, room_id, invitee, student_no=6, added_by=admin)
+
+    invites = await RoomManagementService.list_my_invites(
+        pool=db_pool, user_id=invitee, client_source="test", actor_identifier="test",
+    )
+
+    assert len(invites) == 1
+    assert invites[0]["student_no"] == 6
+    assert invites[0]["room_name"] == "M.4/2"
 
 
 async def test_list_my_invites_excludes_self_join_pending(db_pool):
@@ -155,6 +184,39 @@ async def test_accept_invite_flips_active_and_claimed(db_pool):
         row = await conn.fetchrow("SELECT status, identity_claimed FROM students WHERE id = $1", invite_id)
         assert row["status"] == "active"
         assert row["identity_claimed"] is True
+
+
+async def test_accept_invite_on_active_row_merges_account_over_override(db_pool):
+    """ยืนยันตัวตนบนแถว active: บัญชีกลางชนะช่องที่มีค่า · ช่องที่บัญชีว่างยังใช้ค่าของห้อง"""
+    admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
+    invitee = await _insert_user(db_pool, first_name="Account", last_name="Name", email="s@example.com")
+    room_id = await _insert_room(db_pool, admin, server_id=random.randint(1_000_000, 9_999_999))
+    invite_id = await _insert_active_invite(db_pool, room_id, invitee, student_no=7, added_by=admin)
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO student_room_profiles (student_id, first_name, nickname) VALUES ($1, $2, $3)",
+            invite_id, "RoomTyped", "RoomNick",
+        )
+
+    with patch("services.room_service.ActionService.notify_invite_accepted", new_callable=AsyncMock):
+        await RoomManagementService.accept_invite(
+            pool=db_pool, invite_id=invite_id, user_id=invitee,
+            client_source="test", actor_identifier="test",
+        )
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT status, identity_claimed FROM students WHERE id = $1", invite_id
+        )
+        assert row["status"] == "active"
+        assert row["identity_claimed"] is True
+
+        resolved = await conn.fetchrow(
+            "SELECT first_name, nickname FROM v_student_profiles WHERE student_id = $1", invite_id
+        )
+        assert resolved["first_name"] == "Account"      # บัญชีชนะ
+        assert resolved["nickname"] == "RoomNick"       # บัญชีว่าง → เก็บค่าของห้อง
 
 
 async def test_accept_invite_other_users_invite_forbidden(db_pool):

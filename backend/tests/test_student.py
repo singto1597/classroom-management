@@ -510,6 +510,10 @@ async def test_export_students_excel_member_without_export_perm_forbidden(db_poo
 
 
 async def test_update_student_updates_user_global_fields(db_pool):
+    """เจ้าตัวแก้โปรไฟล์ของตัวเอง → ฟิลด์กลางเขียนลง users (บัญชีหลัก)
+
+    ตั้งแต่ 2026-11-01: ผู้จัดการแก้ข้อมูลคนอื่นจะเขียน override ของห้องแทน (ดู test_room_profiles.py)
+    """
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
     member = await _insert_user(db_pool, first_name="Old", last_name="Name")
@@ -518,7 +522,7 @@ async def test_update_student_updates_user_global_fields(db_pool):
     await StudentService.update_student(
         pool=db_pool, student_no=4,
         update_data={"first_name": "New", "last_name": "Name", "nickname": "NewNick"},
-        updater_user_id=owner, client_source="test", actor_identifier="test",
+        updater_user_id=member, client_source="test", actor_identifier="test",
         room_id=room_id,
     )
 

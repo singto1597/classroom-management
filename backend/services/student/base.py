@@ -17,7 +17,7 @@ from core.config import settings
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
 from core.logger import AuditLogger
 from core.name_utils import normalize_nfc, normalize_en, identity_pair
-from core.privacy import can_view_pii, mask_private_fields, is_real_claimed_account, PRIVATE_STUDENT_FIELDS
+from core.privacy import is_real_claimed_account
 from core.rbac import require_permission, require_member
 from services.action_service import ActionService
 
@@ -31,7 +31,8 @@ service_logger = AuditLogger(service_name="STUDENT")
 
 
 class BaseMixin:
-    # 🌟 SELECT ร่วมของ student (students JOIN users) — ใช้ทั้ง students และ export
+    # 🌟 SELECT ร่วมของ student — อ่านโปรไฟล์ผ่าน v_student_profiles
+    # (COALESCE(override ของห้อง, ค่าบัญชีกลาง); ดู migration 0001_room_roster_profiles)
     BASE_STUDENT_SELECT = """
         SELECT
             s.id, s.room_id, u.id as user_id, u.discord_id, s.student_no, s.student_id,
@@ -44,7 +45,7 @@ class BaseMixin:
             u.address_house_no, u.address_road, u.address_sub_district, u.address_district, u.address_province, u.address_post_code,
             s.status, s.is_admin, s.permissions, s.identity_claimed, s.added_by, s.created_at, s.updated_at
         FROM students s
-        LEFT JOIN users u ON s.user_id = u.id
+        LEFT JOIN v_student_profiles u ON u.student_id = s.id
     """
 
     @staticmethod
@@ -115,9 +116,9 @@ class BaseMixin:
         exact-match ตรงกันเสมอ.
 
         คืน (user_id, is_real_claimed_account):
-        - is_real=True → เจอบัญชีจริงที่เจ้าตัวยืนยันแล้ว (มี google/discord/email/phone)
-          caller ต้องสร้าง "คำเชิญ pending" แทนการ link ตรง ๆ (Consent Model — core/privacy.py)
-        - is_real=False → เจอ ghost ชื่อเท่านั้น หรือสร้าง ghost ใหม่ → สมาชิก active ได้ทันที (ไม่มี PII)
+        - is_real=True → เจอบัญชีจริง (มี google/discord/email/phone) — แถว roster ยังเป็น active
+          แต่ `identity_claimed=FALSE` ⇒ caller ส่ง "คำเชิญยืนยันตัวตน" แบบไม่บล็อก (ไม่รอก็ใช้ห้องได้)
+        - is_real=False → เจอ ghost ชื่อเท่านั้น หรือสร้าง ghost ใหม่ → สมาชิก active (ไม่มี PII ให้ merge)
         """
         th_first = normalize_nfc(first_name)
         th_last = normalize_nfc(last_name)

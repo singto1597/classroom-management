@@ -73,9 +73,9 @@ async def join_room(
     except HTTPException as e:
         raise e
 
-# 🛡️ Consent Model: คำเชิญเข้าร่วมห้องของฉัน (แอดมินแอดชื่อฉันให้) — ฉันต้องกดรับเอง
+# 📨 คำเชิญยืนยันตัวตนของฉัน (ห้องแอดชื่อฉันให้แล้ว — ใช้งานได้ทันที, กดยืนยันเพื่อ merge ข้อมูลบัญชี)
 # ⚠️ ต้องอยู่ใน room_router (mount อันแรกใน main.py) กันชนกับ `GET /{target_id}` ของ classroom_sync_router
-@router.get("/invites", response_model=List[InviteResponse], summary="ดึงคำเชิญเข้าร่วมห้องของฉัน (ต้องกดรับก่อน)")
+@router.get("/invites", response_model=List[InviteResponse], summary="ดึงคำเชิญยืนยันตัวตนของฉัน")
 async def get_my_invites(
     request: Request,
     pool: asyncpg.Pool = Depends(get_db_pool),
@@ -89,7 +89,7 @@ async def get_my_invites(
         actor_identifier=actor
     )
 
-@router.post("/invites/{invite_id}/accept", response_model=SuccessResponse, summary="รับคำเชิญเข้าร่วมห้อง")
+@router.post("/invites/{invite_id}/accept", response_model=SuccessResponse, summary="ยืนยันตัวตนกับห้อง")
 async def accept_invite(
     invite_id: int,
     request: Request,
@@ -105,7 +105,7 @@ async def accept_invite(
             client_source=client_source,
             actor_identifier=actor
         )
-        return SuccessResponse(message=result.get("message", "รับคำเชิญแล้ว"))
+        return SuccessResponse(message=result.get("message", "ยืนยันตัวตนแล้ว"))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 

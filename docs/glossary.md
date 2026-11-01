@@ -17,6 +17,10 @@
 | **ผู้ใช้** | พูดถึง **บัญชี** ที่ล็อกอิน (Google/Discord), การตั้งค่าบัญชี | `users` | user (ในข้อความไทย) |
 | **บทบาท** | ตำแหน่งในห้อง (หัวหน้าห้อง, เหรัญญิก, …) | `students.class_role` + `is_admin` | role (ในข้อความไทย) |
 | **สิทธิ์** | สิ่งที่ทำได้ตาม permission | `students.permissions` (JSONB) เช่น `MANAGE_FINANCE` | สิทธิ · อำนาจ |
+| **ผู้จัดการห้อง** | สมาชิกที่มีสิทธิ์ดูแลรายชื่อ/PII (`MANAGE_STUDENTS`, `VIEW_ALL_STUDENTS`, `is_admin`, super admin) — ใช้ในข้อความอธิบายสิทธิ์เท่านั้น | `MANAGER_PERMISSIONS` ใน `core/rbac.py` | แอดมิน (เมื่อหมายถึงหลายสิทธิ์) · ผู้ดูแลข้อมูล |
+| **ยืนยันตัวตน** | การที่เจ้าตัวกดยืนยันว่าตนคือคนในรายชื่อของห้องนั้น → ระบบใช้ข้อมูลบัญชีกลางทับค่าที่ห้องกรอก | `students.identity_claimed`, `accept_invite` | ยืนยันบัญชี · consent |
+| **คำเชิญยืนยันตัวตน** | การ์ดใน Lobby ที่แจ้งว่า "ห้องนี้มีชื่อคุณแล้ว" — ใช้ห้องได้ทันที ไม่บล็อก กดเพื่อ merge ข้อมูล | `list_my_invites`, `notify_student_invite` | คำเชิญเข้าร่วม (เมื่อหมายถึงการรอรับก่อนเข้า) |
+| **ข้อมูลเฉพาะห้อง** | ค่าโปรไฟล์ที่ห้องนั้นบันทึกทับบัญชีกลาง (มีผลเฉพาะห้องนั้น) | `student_room_profiles`, view `v_student_profiles` | override (ในข้อความผู้ใช้) · ข้อมูลสำรอง |
 
 > คนหนึ่งคนมี **บัญชีเดียว** (`users`) แต่เป็น **นักเรียนได้หลายห้อง** (หลายแถวใน `students`)
 > ⇒ ข้อความที่พูดถึง "นักเรียน" ต้องมีบริบทห้องกำกับเสมอเมื่ออาจกำกวม
@@ -29,6 +33,9 @@
 | `pending` | **รออนุมัติ** |
 | `inactive` | **พ้นสภาพ** |
 
+> **`pending` ใช้เฉพาะ:** คำขอเข้าร่วมห้อง (self-join) และคำขออ้างสิทธิ์ชื่อ ghost
+> ที่รอหัวหน้าห้องอนุมัติ — ครูเพิ่มนักเรียนแล้วแถวเป็น `active` ทันที (นโยบาย 2026-11-01)
+>
 > แหล่งอ้างอิง: `backend/services/student/constants.py` → `STATUS_LABELS` ·
 > ฝั่ง Vue: `frontend/src/constants/statusLabels.ts` → `STUDENT_STATUS_LABELS`
 > (`StudentList`, `StudentProfile`, `Lobby` ใช้ร่วมกัน — **ห้ามเขียนข้อความสถานะซ้ำในวิว**)
@@ -136,3 +143,6 @@
 | ใบเสร็จ / ใบแจ้งหนี้ / ใบรับเงินล่วงหน้า | `receipt` / `invoice` / `deposit` |
 | ผู้ค้างชำระ | `debtor` |
 | เงินรับล่วงหน้า | `credit` |
+| ยืนยันตัวตน | `identity_claimed` · `accept_invite` |
+| คำเชิญยืนยันตัวตน | `invite` (`list_my_invites`) |
+| ข้อมูลเฉพาะห้อง | `student_room_profiles` · resolved view = `v_student_profiles` |

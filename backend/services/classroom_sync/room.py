@@ -298,7 +298,7 @@ class RoomMixin:
                            u.first_name_en, u.last_name_en
                     FROM rooms r
                     JOIN students s ON s.room_id = r.id AND s.status = 'active' AND s.deleted_at IS NULL
-                    JOIN users u ON u.id = s.user_id AND u.deleted_at IS NULL
+                    JOIN v_student_profiles u ON u.student_id = s.id AND u.deleted_at IS NULL
                     WHERE r.deleted_at IS NULL
                       AND r.server_id IS NOT NULL
                       AND (r.birthday_channel_id IS NOT NULL OR r.announcement_channel_id IS NOT NULL)

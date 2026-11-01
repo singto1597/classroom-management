@@ -339,7 +339,7 @@ class ReceiptsMixin:
             JOIN fee_collections FC ON SP.collection_id = FC.id
             JOIN rooms R ON FC.room_id = R.id
             LEFT JOIN students S ON SP.student_id = S.id
-            LEFT JOIN users U ON S.user_id = U.id
+            LEFT JOIN v_student_profiles U ON U.student_id = S.id
             WHERE SP.id = $1 AND FC.room_id = $2
             FOR UPDATE OF SP
             """,
@@ -449,7 +449,7 @@ class ReceiptsMixin:
                    FC.due_date,
                    S.student_no, U.first_name, U.nickname, U.first_name_en
             FROM students S
-            LEFT JOIN users U ON S.user_id = U.id
+            LEFT JOIN v_student_profiles U ON U.student_id = S.id
             JOIN student_payments SP ON S.id = SP.student_id
             JOIN fee_collections FC ON SP.collection_id = FC.id
             WHERE S.id = $1 AND S.room_id = $2 AND SP.status = 'pending'
@@ -470,7 +470,7 @@ class ReceiptsMixin:
                    U.first_name, U.nickname, U.first_name_en,
                    SUM(FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
             FROM students S
-            LEFT JOIN users U ON S.user_id = U.id
+            LEFT JOIN v_student_profiles U ON U.student_id = S.id
             JOIN student_payments SP ON S.id = SP.student_id
             JOIN fee_collections FC ON SP.collection_id = FC.id
             WHERE S.room_id = $1 AND SP.status = 'pending'
@@ -906,7 +906,7 @@ class ReceiptsMixin:
         # 👤 snapshot ชื่อผู้ฝาก ณ เวลาที่ออก (เอกสารที่พิมพ์แล้วต้องไม่ย้อนเปลี่ยนตามชื่อในอนาคต)
         payer = await conn.fetchrow(
             """SELECT U.first_name, U.nickname, U.first_name_en
-               FROM students S LEFT JOIN users U ON S.user_id = U.id
+               FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = $1 AND S.room_id = $2""",
             student_id, target_room_id,
         )

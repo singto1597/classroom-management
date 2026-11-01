@@ -61,7 +61,7 @@
 - [🛠️ Activity Part 1 — เช็คชื่อแยกแผ่น + Bulk Update ขยาย + เพิ่มนักเรียน + Dynamic Fields](#activity-part-1-เช็คชื่อแยกแผ่น-bulk-update-ขยาย-เพิ่มนักเรียน-dynamic-fields)
 - [🛠️ Activity Excel Export ปรับปรุง — สถานะไทย + ชื่อไฟล์ + รูปแบบสวยงาม](#activity-excel-export-ปรับปรุง-สถานะไทย-ชื่อไฟล์-รูปแบบสวยงาม)
 - [🛠️ Global Font: Noto Sans Thai — ฟอนต์หลักของแอป (กัน fallback เป็น serif)](#global-font-noto-sans-thai-ฟอนต์หลักของแอป-กัน-fallback-เป็น-serif)
-- [🛠️ Consent Model — PII ของนักเรียนต้องผ่าน "การยืนยันตัวตน" (identity_claimed) ก่อนเปิดให้ห้องดู](#consent-model-pii-ของนักเรียนต้องผ่าน-การยืนยันตัวตน-identityclaimed-ก่อนเปิดให้ห้องดู)
+- [🏠 Room-owned roster + hybrid profile — รายชื่อเป็นของห้อง, โปรไฟล์ = บัญชีกลาง + override ต่อห้อง](#room-owned-roster-hybrid-profile-รายชื่อเป็นของห้อง-โปรไฟล์-บัญชีกลาง-override-ต่อห้อง)
 - [🛠️ สร้าง PR ตอน `gh` token หมดอายุ — ใช้ git credential store + GitHub REST API แทน](#สร้าง-pr-ตอน-gh-token-หมดอายุ-ใช้-git-credential-store-github-rest-api-แทน)
 - [🛠️ Excel สรุปรายการนับโอนเงินเป็นรายจ่าย + สร้าง export สมุดรายวัน (General Journal)](#excel-สรุปรายการนับโอนเงินเป็นรายจ่าย-สร้าง-export-สมุดรายวัน-general-journal)
 - [🛠️ เทส summary ที่ไม่ระบุเดือน "กลายเป็นเทสเก่า" เมื่อเวลาจริงเลย CUTOFF_DATE (2026-09-01) — ยกระดับเป็นบัญชีคู่ หรือยัดวันที่ยุคเก่าให้ชัด](#เทส-summary-ที่ไม่ระบุเดือน-กลายเป็นเทสเก่า-เมื่อเวลาจริงเลย-cutoffdate-2026-09-01-ยกระดับเป็นบัญชีคู่-หรือยัดวันที่ยุคเก่าให้ชัด)
@@ -213,7 +213,7 @@
 - [🎫 แถว `students` ที่ `status='pending'` **มี `user_id` ผูกอยู่แล้ว** ⇒ ด่าน "เป็นสมาชิกไหม" ที่ไม่กรอง `status` เปิดให้ "คนที่แค่ถูกเชิญ" อ่านข้อมูลทั้งห้อง](#แถว-students-ที่-statuspending-มี-userid-ผูกอยู่แล้ว-ด่าน-เป็นสมาชิกไหม-ที่ไม่กรอง-status-เปิดให้-คนที่แค่ถูกเชิญ-อ่านข้อมูลทั้งห้อง)
 - [🍬 SweetAlert2: argument ที่ 2 ของ `Swal.fire(a, b, c)` คือ **`html`** และ `title:` ก็เป็น innerHTML sink — ส่วน `text:` / `titleText:` ปลอดภัยโดยธรรมชาติ](#sweetalert2-argument-ที่-2-ของ-swalfirea-b-c-คือ-html-และ-title-ก็เป็น-innerhtml-sink-ส่วน-text-titletext-ปลอดภัยโดยธรรมชาติ)
 - [🧪 jsdom ไม่ implement `innerText` ⇒ เทสต์ที่ยืนยัน `titleText:` ของ SweetAlert2 **เขียวแบบหลอก ๆ**](#jsdom-ไม่-implement-innertext-เทสต์ที่ยืนยัน-titletext-ของ-sweetalert2-เขียวแบบหลอก-ๆ)
-- [🗃️ `students` **ไม่มีคอลัมน์ชื่อ** — ชื่อ-นามสกุลมาจาก `users` ผ่าน `LEFT JOIN` ใน `BASE_STUDENT_SELECT`](#students-ไม่มีคอลัมน์ชื่อ-ชื่อ-นามสกุลมาจาก-users-ผ่าน-left-join-ใน-basestudentselect)
+- [🗃️ `students` **ไม่มีคอลัมน์ชื่อ** — ชื่อ-นามสกุลมาจาก `users` ผ่าน `v_student_profiles` ใน `BASE_STUDENT_SELECT`](#students-ไม่มีคอลัมน์ชื่อ-ชื่อ-นามสกุลมาจาก-users-ผ่าน-vstudentprofiles-ใน-basestudentselect)
 - [🧩 discord.py **ไม่ตรวจเพดานของ `Embed` ฝั่ง client เลย** ⇒ เทสต์ที่รอ `ValueError` จะเขียวแบบหลอก ๆ (M11)](#discordpy-ไม่ตรวจเพดานของ-embed-ฝั่ง-client-เลย-เทสต์ที่รอ-valueerror-จะเขียวแบบหลอก-ๆ-m11)
 - [🔌 `while True` ที่สร้าง connection ใหม่ทุกรอบโดยไม่มี `finally` = รั่ว connection ทุกครั้งที่ reconnect (M12)](#while-true-ที่สร้าง-connection-ใหม่ทุกรอบโดยไม่มี-finally-รั่ว-connection-ทุกครั้งที่-reconnect-m12)
 - [🔒 `followup.send()` **ไม่สืบทอด** `ephemeral` จาก `defer()` (M9)](#followupsend-ไม่สืบทอด-ephemeral-จาก-defer-m9)
@@ -793,19 +793,23 @@
 - **Rule:** (1) ฟอนต์ไทยหลักของโปรเจกต์ = **Noto Sans Thai** โหลดผ่าน index.html global เท่านั้น (2) ทุก `font-family` stack ต้องลงท้าย `sans-serif` ไม่งั้น bot/มือถือ/โหลดช้า fallback ไป serif แตก UI (3) ห้ามฮาร์ดโค้ด font-family ใน `<style>` ของ .vue ที่ทับ global (4) เวลาเปลี่ยนฟอนต์หลัก ต้อง `grep` หา 'Sarabun'/'Inter'/`@import ...fonts.googleapis` ที่เหลือให้หมด (5) `dist/` เกิดจาก build — ใช้ `grep -r` ใน `src/` เป็นหลัก
 - **Date Added:** 2026-08-23
 
-### 🛠️ Consent Model — PII ของนักเรียนต้องผ่าน "การยืนยันตัวตน" (identity_claimed) ก่อนเปิดให้ห้องดู
-- **Context/Problem:** ช่องโหว่ PII — ใครก็ได้สร้างห้อง (ได้เป็น `is_admin` ทันที) แล้วแอดชื่อคนอื่นด้วยชื่อผ่าน `add_student` → `_find_or_create_user` (student_service.py) **link บัญชีจริงของเหยื่อเข้าห้องอัตโนมัติ** โดยไม่ยินยอม → admin เห็น PII เต็ม (profile/search/export); `search_students` เดิมให้สมาชิกคนไหนก็ได้ค้นชื่อแล้วเห็น PII เต็ม (ตรวจแค่ `require_member`); ส่วน `join_room` สวมรอยทันที (merge ข้ามทุกห้อง) เมื่อชื่อตรงกับ ghost → ถ้าเหยื่อถูกแอดชื่อไว้ในห้องแฮ็กเกอร์ แล้ว self-join ห้องไหนก็ตาม → โดน link เข้าห้องแฮ็กเกอร์
-- **Root Cause:** PII อยู่ที่ตาราง users อย่างเดียว, `students` เป็นแค่ลิงก์ room↔user; "เพิ่มด้วยชื่อ" ที่ reuse `user_id` เดิม = เปิดข้อมูลให้โดยไม่มี consent; `join_room` merge ข้ามห้องโดยไม่ถามเจ้าตัว
-- **Correct Pattern/Solution (Consent Model):**
-  1. **Schema:** `students.identity_claimed BOOLEAN DEFAULT FALSE` (PII gate ตัวเดียว) + `added_by INTEGER REFERENCES users(id)` (NULL=เจ้าตัวขอเอง, admin id=แอดมินแอดให้) + `claim_meta JSONB` (context ตอนขออ้างสิทธิ์ ghost: ghost_user_id/ชื่อเดิม/name_match) — ต้องมีทั้งใน `CREATE TABLE` และ `ALTER TABLE ADD COLUMN IF NOT EXISTS` + backfill `UPDATE students SET identity_claimed=TRUE WHERE status='active' AND deleted_at IS NULL AND identity_claimed=FALSE`
-  2. **กฎกลาง `core/privacy.py`:** `can_view_pii = super_admin OR ดูตัวเอง OR (identity_claimed AND VIEW_ALL_STUDENTS)` + `mask_private_fields(...)` ใช้ SENTINEL `"🔒 ไม่มีสิทธิ์เข้าถึง"` — ทุกจุดอ่าน PII import จากนี้ (ห้าม implement ซ้ำ): `get_student_profile`, `search_students`, `export_students_excel`, activities Type A (`PROFILE_TYPE_A_FIELDS`)
-  3. **`_find_or_create_user` คืน `(user_id, is_real)`** — is_real = มี google/discord/email/phone → `add_student`/`bulk_add_students` สร้าง **คำเชิญ pending** (`added_by=admin, identity_claimed=FALSE`) เจ้าตัวต้องกดรับ (`accept_invite`) ก่อนถึง active+claimed; ghost/ผู้ใช้ใหม่ → active ได้ทันที (ไม่มี PII)
-  4. **`join_room` ไม่สวมรอยทันที** — เจอ ghost → เปลี่ยนเป็น pending claim (เก็บ `claim_meta.name_match` ให้แอดมินตัดสิน) แล้วแอดมิน approve ถึงจะ link; ชื่อไม่ตรงไม่ error 400 แบบเดิม (ที่โชว์ชื่อ ghost); **ไม่ merge ข้ามห้อง** — approve ผูกเฉพาะห้องที่ขอ/ยอมรับ
-  5. **`approve_join_request` block คำเชิญ** (added_by IS NOT NULL → 400 "รอเจ้าตัวกดรับ"); **`reject_join_request` แยก 3 กรณี** (invite→DELETE, claim→กู้คืน ghost จาก claim_meta, join→DELETE)
-  6. **invites:** `GET /api/classroom/invites` + `POST /invites/{id}/accept` — **ต้องอยู่ใน `room_router`** (mount อันแรกใน main.py) กันชน `GET /{target_id}` ของ `classroom_sync_router` (mount ก่อน student_router → ถ้าใส่ใน student_router จะโดน shadow เป็น 422); `Lobby.vue` โชว์ section คำเชิญ; บอทเพิ่ม embed `notify_student_invite`/`notify_invite_accepted`
-  7. **`create_room` set `identity_claimed=TRUE`** ให้แถว president ของเจ้าของห้อง
-- **Rule:** (1) PII gate ต้องมีตัวเดียว (identity_claimed) + mask จุดเดียว (privacy.py) ไม่งั้นรั่วตามจุดที่ลืม (2) "เพิ่มด้วยชื่อ" ที่ match บัญชีจริง → ต้องเป็น invite/pending ไม่ใช่ link ตรง (3) การสวมรอย/merge ตัวตนต้องผ่านแอดมินอนุมัติเสมอ + ไม่ merge ข้ามห้อง (4) route ที่เป็น literal segment (เช่น `invites`) ต้อง mount ก่อน path param `/{target_id}` (5) JSONB (`claim_meta`) asyncpg คืน str/dict ตามเวอร์ชัน → normalize ในเทสก่อน `.get()` (6) เทสที่ insert student ที่ต้องเห็น PII ให้ `identity_claimed=True` (default ของ helper หลัง fix)
-- **Date Added:** 2026-08-24
+### 🏠 Room-owned roster + hybrid profile — รายชื่อเป็นของห้อง, โปรไฟล์ = บัญชีกลาง + override ต่อห้อง
+- **Context/Problem (นโยบายใหม่ 2026-11-01, แทน Consent Model เดิม):** ครูสร้างห้องใหม่แล้วเพิ่มนักเรียนที่มีบัญชีอยู่แล้ว → แถวถูกสร้างเป็น `pending` และมีแต่เจ้าตัวกด `accept_invite` ได้ ⇒ ครูแก้ข้อมูลไม่ได้ หน้าโปรไฟล์ 403 และนักเรียนที่ไม่เคยล็อกอินค้าง `pending` ตลอดกาล (นักเรียนหลายคนไม่ได้ใช้ระบบเป็นประจำ) — ผู้ใช้ตัดสิน: **"ถือเป็นข้อมูลของห้อง เอาความสะดวกก่อน"**
+- **โมเดลที่ใช้จริงตอนนี้:**
+  1. **ครูเพิ่มชื่อ (บัญชีจริงหรือ ghost) → แถว `students` เป็น `active` ทันที** + `identity_claimed=FALSE` + `added_by=actor`; บัญชีจริงได้ "คำเชิญยืนยันตัวตน" แบบ **ไม่บล็อก** (ใช้ห้องได้เลย) — `pending` เหลือเฉพาะ self-join และ claim ghost ที่รอหัวหน้าห้องอนุมัติ
+  2. **โปรไฟล์แบบกลาง + override:** ตาราง `student_room_profiles` (1:1 กับ `students`, nullable ทุกคอลัมน์) + view `v_student_profiles` ที่ `COALESCE(override, users)` ⇒ query เดิมที่ join `users AS u/U` เปลี่ยนเป็น `JOIN v_student_profiles u ON u.student_id = s.id` โดยไม่ต้องแก้ชื่อคอลัมน์
+  3. **กฎการเขียน:** ผู้จัดการแก้ให้นักเรียน → เขียน override ของห้องนั้น (**ห้ามแตะ `users`**); นักเรียนแก้โปรไฟล์ตัวเอง → เขียน `users` + `clear_room_overrides` ของฟิลด์นั้น; ยืนยันตัวตน → `merge_room_overrides_on_claim` (บัญชีชนะช่องที่มีค่า, ช่องที่บัญชีว่างเก็บค่าของห้อง)
+  4. **PII เห็นได้เฉพาะผู้จัดการห้อง** (`MANAGE_STUDENTS` / `VIEW_ALL_STUDENTS` / `is_admin` / super admin) + เจ้าตัวเอง — `identity_claimed` **ไม่ใช่ประตู PII อีก** (แค่สถานะยืนยันตัวตน + ตัวกระตุ้น merge)
+  5. **`join_room` ยังไม่สวมรอยทันที** — ghost claim → `pending` + `claim_meta` รออนุมัติ (คงเดิม); approve ของคำเชิญ (`added_by IS NOT NULL`) ยังถูก block ให้เจ้าตัวกดเอง
+  6. **route invites:** `GET /api/classroom/invites` + `POST /invites/{id}/accept` ต้องอยู่ใน `room_router` (mount ก่อน) กันชน `GET /{target_id}`
+- **กับดักที่เจอตอนทำ (สำคัญ):**
+  - 🔴 **`init_db.py` มี backfill `active → identity_claimed=TRUE` รันทุกบูต** — ลบทิ้งแล้ว (2026-11-01) ไม่งั้นแถวที่ครูเพิ่มใหม่จะกลายเป็น "ยืนยันแล้ว" เองทุกครั้งที่รีสตาร์ท ⇒ ต้องมีเทสต์เรียก `init_db` ซ้ำและ assert `identity_claimed` ยัง FALSE (`test_room_profiles.py`)
+  - 🔴 **`student/export.py` เคย blank PII เองด้วย `identity_claimed`** แยกจาก `can_view_pii` → export ของผู้จัดการได้ค่าว่างและไม่ตรงกับ profile ⇒ ลบบล็อกนั้น PII ต้องผ่าน `can_view_pii` จุดเดียว
+  - ⚠️ **view เปลี่ยนไม่ได้ด้วยการแก้ไฟล์ migration ที่ apply แล้ว** (checksum) — ต้องเขียน `0002_...` แล้ว `CREATE OR REPLACE VIEW`
+  - ⚠️ finance query ใช้ alias `U` และไม่มี `U.id` ใน output ⇒ เปลี่ยน join เป็น view ได้ปลอดภัย แต่ต้อง `grep` หา `JOIN users` ทั้งหมดและแก้เฉพาะ join ของโปรไฟล์นักเรียน (`added_by`, `created_by` ไม่แตะ)
+- **Rule:** (1) roster = ข้อมูลของห้อง ⇒ เพิ่มชื่อต้อง active ทันที ห้ามบล็อกด้วย invite (2) PII gate ต้องมีจุดเดียว (`core/privacy.py`) และเช็คผู้จัดการผ่าน `has_any_permission(..., MANAGER_PERMISSIONS)` (3) เขียนโปรไฟล์ผ่าน `services/student/profiles.py` เท่านั้น — ครูแก้ = override, self แก้ = `users` + clear override, claim = merge (4) อ่านโปรไฟล์จาก `v_student_profiles` เสมอ (5) `pending` ใช้เฉพาะคำขอเข้าร่วม/ขออ้างสิทธิ์ — ห้ามสร้าง pending จาก add_student (6) เทสต์ PII ต้องมีเคส "สมาชิกธรรมดาถูก mask" และ "ผู้จัดการเห็น" คู่กัน
+- **Tests:** `test_privacy_consent.py`, `test_invites.py`, `test_roster_active_only.py`, `test_room_profiles.py`
+- **Date Added:** 2026-11-01 (แทนหัวข้อ Consent Model เดิม 2026-08-24)
 
 ### 🛠️ สร้าง PR ตอน `gh` token หมดอายุ — ใช้ git credential store + GitHub REST API แทน
 - **Context/Problem:** `gh auth status` บอก token ใน `~/.config/gh/hosts.yml` invalid (`gh pr create` → `HTTP 401: Requires authentication (api.github.com/graphql)`) แต่ `git push` ยังทำงานได้ตามปกติ → อยากสร้าง PR ได้ทันทีโดยไม่ต้องรบกวนให้ user รัน `gh auth login` ใหม่
@@ -3082,6 +3086,9 @@
 - **Date Added:** 2026-09-24
 
 ### 🎫 แถว `students` ที่ `status='pending'` **มี `user_id` ผูกอยู่แล้ว** ⇒ ด่าน "เป็นสมาชิกไหม" ที่ไม่กรอง `status` เปิดให้ "คนที่แค่ถูกเชิญ" อ่านข้อมูลทั้งห้อง
+> 🔄 **อัปเดต 2026-11-01:** ครูเพิ่มนักเรียนแล้วแถวเป็น **`active`** ทันที (ไม่ใช่ `pending` อีก)
+> ⇒ `pending` เหลือเฉพาะ **คำขอเข้าร่วม (self-join)** และ **คำขออ้างสิทธิ์ ghost** ที่รออนุมัติ
+> **แต่บทเรียนนี้ยังใช้เต็มที่:** `pending` ยังมี `user_id` ผูกอยู่ และด่านที่เป็นสมาชิกต้องกรอง `status = 'active'` เสมอ
 - **Context/Problem:** ตรวจระบบ 2026-09-23 (H4) — `StudentService.get_all_students` เช็คสมาชิกด้วย `SELECT 1 FROM students WHERE room_id = $1 AND user_id = $2 AND deleted_at IS NULL` ⇒ **ไม่มี `status`**
   🔎 จุดที่หลอกตา: แถวของ "คนที่ถูกเชิญ" **ไม่ใช่แถวว่าง** — มี `room_id`, มี `user_id` ครบ ⇒ query แบบ "มีแถวไหม" ตอบว่าใช่ ⇒ อ่านจากโค้ดแล้วดูเหมือนเช็คถูก
 - **Root Cause:** ใน consent model นี้ `pending` = "คำเชิญที่ยังไม่รับ": แอดมินแอดชื่อที่ตรงกับบัญชีจริง ⇒ สร้างแถวที่มี `user_id` แล้ว แต่ `identity_claimed = FALSE` (ดู `RoomManagementService.accept_invite` ที่พลิกเป็น `active` + `identity_claimed=TRUE` เมื่อเจ้าตัวกดรับ) ⇒ **"ถูกเชิญ" ≠ "เป็นสมาชิก"**
@@ -3129,9 +3136,9 @@
 - **Tests:** `frontend/src/utils/__tests__/html.spec.ts` (polyfill อยู่หัวไฟล์)
 - **Date Added:** 2026-09-24
 
-### 🗃️ `students` **ไม่มีคอลัมน์ชื่อ** — ชื่อ-นามสกุลมาจาก `users` ผ่าน `LEFT JOIN` ใน `BASE_STUDENT_SELECT`
+### 🗃️ `students` **ไม่มีคอลัมน์ชื่อ** — ชื่อ-นามสกุลมาจาก `users` ผ่าน `v_student_profiles` ใน `BASE_STUDENT_SELECT`
 - **Context/Problem:** เขียนเทสต์ integration ของรายชื่อห้อง (H4) แล้ว insert `first_name, last_name` ลง `students` ตรง ๆ ⇒ `asyncpg.exceptions.UndefinedColumnError: column "first_name" of relation "students" does not exist` ทุกเทสต์
-- **Root Cause:** ตาราง `students` เก็บ **ความสัมพันธ์กับห้อง** (`room_id`, `student_no`, `class_role`, `status`, `is_admin`, `permissions`, `identity_claimed`, `added_by`) ส่วนข้อมูลตัวบุคคลอยู่ที่ `users` และ `BASE_STUDENT_SELECT` (`services/student/base.py:35-48`) ประกอบกลับด้วย `LEFT JOIN users u ON s.user_id = u.id`
+- **Root Cause:** ตาราง `students` เก็บ **ความสัมพันธ์กับห้อง** (`room_id`, `student_no`, `class_role`, `status`, `is_admin`, `permissions`, `identity_claimed`, `added_by`) ส่วนข้อมูลตัวบุคคลอยู่ที่ `users` และ `BASE_STUDENT_SELECT` (`services/student/base.py`) ประกอบกลับด้วย `LEFT JOIN v_student_profiles u ON u.student_id = s.id` — view นี้ `COALESCE(override ของห้อง, users)` (ตั้งแต่ 2026-11-01; เดิม join `users` ตรง ๆ)
   🔎 **ผลที่ตามมาในเทสต์:** แถว `students` ที่ไม่มี `user_id` จะให้ `first_name = NULL` — ถ้าใช้เป็น "เนื้อของรายชื่อ" ข้อมูลที่ทดสอบจะไม่เหมือนของจริง ⇒ helper ต้องสร้างแถว `users` คู่กันเสมอ
 - **Correct Pattern/Solution:** helper เดียวที่สร้างทั้ง `users` และ `students` พร้อมกัน แล้วคืน `(user_id, discord_id)` ให้เทสต์เอา `discord_id` ไปทำ header ได้เลย
   ```python

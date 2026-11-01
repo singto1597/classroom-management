@@ -1,8 +1,11 @@
 """
-Consent Model — PII gate ฝั่งอ่าน (profile / search / export) + ฝั่งเขียน (add / join / approve)
+PII gate ฝั่งอ่าน (profile / search / export) + ฝั่งเขียน (add / join / approve)
 
-ช่องโหว่ที่ปิด: แอดมินสร้างห้องแล้วแอดชื่อคนอื่น (ที่ตรงกับบัญชีจริง) → เห็น PII เต็ม
-กฎ: can_view_pii = super_admin OR ดูตัวเอง OR (identity_claimed AND VIEW_ALL_STUDENTS)
+นโยบาย (2026-11-01): roster เป็นข้อมูลของห้อง — เห็น PII ได้เฉพาะ
+- super admin
+- เจ้าตัวเอง
+- ผู้จัดการห้อง (MANAGE_STUDENTS / VIEW_ALL_STUDENTS / is_admin)
+⇒ `identity_claimed` **ไม่ใช่** ประตู PII อีกต่อไป เหลือหน้าที่ "สถานะยืนยันตัวตน" + ตัวกระตุ้น merge
 
 Pattern ตาม docs/rules/testing.md: async fixtures, deep-DB verify, mock ActionService กันแตะ Redis
 """
@@ -78,22 +81,24 @@ def _parse_claim_meta(raw) -> dict:
 
 
 async def _insert_student(pool, room_id: int, user_id: int, student_no: int, *, status="active",
-                          identity_claimed=False, added_by=None) -> int:
+                          identity_claimed=False, added_by=None, permissions=None) -> int:
     async with pool.acquire() as conn:
         return await conn.fetchval(
             """
-            INSERT INTO students (room_id, user_id, student_no, class_role, status, identity_claimed, added_by)
-            VALUES ($1, $2, $3, 'student', $4, $5, $6)
+            INSERT INTO students (room_id, user_id, student_no, class_role, status, identity_claimed, added_by, permissions)
+            VALUES ($1, $2, $3, 'student', $4, $5, $6, $7::jsonb)
             RETURNING id
             """,
             room_id, user_id, student_no, status, identity_claimed, added_by,
+            json.dumps(permissions or []),
         )
 
 
-# === profile: can_view_pii ===
+# === profile: can_view_pii = super admin / self / manager ===
 
 
-async def test_admin_cannot_read_pii_of_unclaimed_member(db_pool):
+async def test_manager_can_read_pii_of_unclaimed_member(db_pool):
+    """ข้อมูลของห้อง ⇒ ผู้จัดการเห็นได้ทันที ไม่ต้องรอเจ้าตัวยืนยัน"""
     admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
     victim = await _insert_user(db_pool, first_name="Victim", last_name="One", email="v1@example.com")
     room_id, _ = await _insert_room(db_pool, admin)
@@ -103,78 +108,105 @@ async def test_admin_cannot_read_pii_of_unclaimed_member(db_pool):
         pool=db_pool, student_no=5, requester_user_id=admin,
         client_source="test", actor_identifier="test", room_id=room_id,
     )
+    assert profile["phone_number"] != SENTINEL
+    assert profile["blood_group"] != SENTINEL
+    assert profile["email"] == "v1@example.com"
+
+
+async def test_ordinary_member_cannot_read_peer_pii(db_pool):
+    admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
+    member = await _insert_user(db_pool, first_name="Member", last_name="Plain")
+    victim = await _insert_user(db_pool, first_name="Victim", last_name="Two", email="v2@example.com")
+    room_id, _ = await _insert_room(db_pool, admin)
+    await _insert_student(db_pool, room_id, member, student_no=4, permissions=[])
+    await _insert_student(db_pool, room_id, victim, student_no=6, identity_claimed=True)
+
+    profile = await StudentService.get_student_profile(
+        pool=db_pool, student_no=6, requester_user_id=member,
+        client_source="test", actor_identifier="test", room_id=room_id,
+    )
     assert profile["phone_number"] == SENTINEL
-    assert profile["blood_group"] == SENTINEL
     assert profile["email"] == SENTINEL
 
 
-async def test_admin_can_read_pii_of_claimed_member(db_pool):
+async def test_member_with_manage_students_permission_sees_pii(db_pool):
+    """ผู้จัดการ = MIN permission ไม่ต้อง is_admin"""
     admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
-    victim = await _insert_user(db_pool, first_name="Victim", last_name="Two", email="v2@example.com", phone_number="089-999-9999")
+    manager = await _insert_user(db_pool, first_name="Manager", last_name="Staff")
+    victim = await _insert_user(db_pool, first_name="Victim", last_name="Three", email="v3@example.com")
     room_id, _ = await _insert_room(db_pool, admin)
-    await _insert_student(db_pool, room_id, victim, student_no=6, status="active", identity_claimed=True)
+    await _insert_student(db_pool, room_id, manager, student_no=3, permissions=["MANAGE_STUDENTS"])
+    await _insert_student(db_pool, room_id, victim, student_no=7, identity_claimed=False)
 
     profile = await StudentService.get_student_profile(
-        pool=db_pool, student_no=6, requester_user_id=admin,
+        pool=db_pool, student_no=7, requester_user_id=manager,
         client_source="test", actor_identifier="test", room_id=room_id,
     )
-    assert profile["phone_number"] is not None
-    assert profile["email"] == "v2@example.com"
-    assert profile["blood_group"] == "B"
+    assert profile["email"] == "v3@example.com"
 
 
 async def test_self_sees_own_pii_even_unclaimed(db_pool):
     admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
-    victim = await _insert_user(db_pool, first_name="Victim", last_name="Three", email="v3@example.com", phone_number="089-999-9999")
-    room_id, _ = await _insert_room(db_pool, admin)
-    await _insert_student(db_pool, room_id, victim, student_no=7, status="active", identity_claimed=False)
-
-    profile = await StudentService.get_student_profile(
-        pool=db_pool, student_no=7, requester_user_id=victim,
-        client_source="test", actor_identifier="test", room_id=room_id,
-    )
-    assert profile["phone_number"] is not None
-    assert profile["email"] == "v3@example.com"
-
-
-async def test_super_admin_sees_unclaimed_pii(db_pool, monkeypatch):
-    admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
-    victim = await _insert_user(db_pool, first_name="Victim", last_name="Four", email="v4@example.com")
+    victim = await _insert_user(db_pool, first_name="Victim", last_name="Four", email="v4@example.com", phone_number="089-999-9999")
     room_id, _ = await _insert_room(db_pool, admin)
     await _insert_student(db_pool, room_id, victim, student_no=8, status="active", identity_claimed=False)
-    monkeypatch.setattr(settings, "SUPER_ADMIN_ID", admin)
 
     profile = await StudentService.get_student_profile(
-        pool=db_pool, student_no=8, requester_user_id=admin,
+        pool=db_pool, student_no=8, requester_user_id=victim,
         client_source="test", actor_identifier="test", room_id=room_id,
     )
+    assert profile["phone_number"] == "089-999-9999"
     assert profile["email"] == "v4@example.com"
 
 
-# === search: mask per row ===
-
-
-async def test_search_masks_unclaimed_but_shows_claimed(db_pool):
+async def test_super_admin_sees_any_pii(db_pool, monkeypatch):
     admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
+    victim = await _insert_user(db_pool, first_name="Victim", last_name="Five", email="v5@example.com")
+    room_id, _ = await _insert_room(db_pool, admin)
+    await _insert_student(db_pool, room_id, victim, student_no=9, status="active", identity_claimed=False)
+    monkeypatch.setattr(settings, "SUPER_ADMIN_ID", admin)
+
+    profile = await StudentService.get_student_profile(
+        pool=db_pool, student_no=9, requester_user_id=admin,
+        client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    assert profile["email"] == "v5@example.com"
+
+
+# === search: manager เห็น PII / สมาชิกธรรมดาถูก mask ===
+
+
+async def test_search_manager_sees_pii_member_is_masked(db_pool):
+    admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
+    member = await _insert_user(db_pool, first_name="Member", last_name="Plain")
     unclaimed = await _insert_user(db_pool, first_name="Somchai", last_name="Unclaimed", email="u@example.com")
     claimed = await _insert_user(db_pool, first_name="Somchai", last_name="Claimed", email="c@example.com")
     room_id, _ = await _insert_room(db_pool, admin)
+    await _insert_student(db_pool, room_id, member, student_no=4, permissions=[])
     await _insert_student(db_pool, room_id, unclaimed, student_no=1, identity_claimed=False)
     await _insert_student(db_pool, room_id, claimed, student_no=2, identity_claimed=True)
 
-    results = await StudentService.search_students(
+    manager_view = await StudentService.search_students(
         pool=db_pool, query="Somchai", client_source="test", actor_identifier="test",
         room_id=room_id, user_id=admin,
     )
-    by_name = {r["last_name"]: r for r in results}
-    assert by_name["Unclaimed"]["email"] == SENTINEL
+    by_name = {r["last_name"]: r for r in manager_view}
+    assert by_name["Unclaimed"]["email"] == "u@example.com"
     assert by_name["Claimed"]["email"] == "c@example.com"
 
+    member_view = await StudentService.search_students(
+        pool=db_pool, query="Somchai", client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=member,
+    )
+    member_by_name = {r["last_name"]: r for r in member_view}
+    assert member_by_name["Unclaimed"]["email"] == SENTINEL
+    assert member_by_name["Claimed"]["email"] == SENTINEL
 
-# === export: blank PII of unclaimed ===
+
+# === export: ผู้จัดการ (route ต้อง EXPORT_STUDENTS) ได้ PII ครบตามค่าที่ resolve ===
 
 
-async def test_export_blanks_unclaimed_pii(db_pool):
+async def test_export_manager_receives_resolved_pii(db_pool):
     admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
     unclaimed = await _insert_user(db_pool, first_name="Somchai", last_name="Unclaimed", email="u@example.com")
     claimed = await _insert_user(db_pool, first_name="Somchai", last_name="Claimed", email="c@example.com")
@@ -193,27 +225,33 @@ async def test_export_blanks_unclaimed_pii(db_pool):
     email_idx = header.index("อีเมล")
     blood_idx = header.index("กรุ๊ปเลือด")
     data = {r[2]: r for r in rows[1:]}  # key by last_name
-    # unclaimed → blank
-    assert data["Unclaimed"][email_idx] in ("", None)
-    assert data["Unclaimed"][blood_idx] in ("", None)
-    # claimed → มีค่า
+    # ทั้งคู่มีค่า — ไม่มี blank เพราะ identity_claimed ไม่ใช่ประตู PII อีกแล้ว
+    assert data["Unclaimed"][email_idx] == "u@example.com"
+    assert data["Unclaimed"][blood_idx] == "B"
     assert data["Claimed"][email_idx] == "c@example.com"
 
 
-# === add_student: real account → invite, ghost → active ===
+# === add_student: บัญชีจริง → active + unclaimed + คำเชิญไม่บล็อก; ghost → active ===
 
 
-async def test_add_student_real_account_creates_pending_invite(db_pool):
+async def test_add_student_real_account_creates_active_unclaimed(db_pool):
     admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
     existing = await _insert_user(db_pool, first_name="Somchai", last_name="Jaidee", email="s@example.com")
     room_id, _ = await _insert_room(db_pool, admin)
+    # ต้องมี server_id ถึงจะยิงแจ้งเตือน Discord (ห้องที่ยังไม่ผูกเซิร์ฟเวอร์จะเงียบ)
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE rooms SET server_id = $1 WHERE id = $2",
+            random.randint(1_000_000, 9_999_999), room_id,
+        )
 
-    with patch("services.student_service.ActionService.notify_student_invite", new_callable=AsyncMock):
+    with patch("services.student_service.ActionService.notify_student_invite", new_callable=AsyncMock) as mock_invite:
         await StudentService.add_student(
             pool=db_pool, student_no=10, first_name="Somchai", last_name="Jaidee",
             user_name="Admin", client_source="test", actor_identifier="test",
             room_id=room_id, actor_user_id=admin,
         )
+        mock_invite.assert_awaited_once()
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -221,8 +259,8 @@ async def test_add_student_real_account_creates_pending_invite(db_pool):
             room_id,
         )
         assert row["user_id"] == existing
-        assert row["status"] == "pending"
-        assert row["identity_claimed"] is False
+        assert row["status"] == "active"          # 🏠 ใช้ห้องได้ทันที ไม่รอ consent
+        assert row["identity_claimed"] is False   # แต่ยังไม่ยืนยันตัวตน
         assert row["added_by"] == admin
 
 
@@ -246,10 +284,11 @@ async def test_add_student_ghost_creates_active(db_pool):
         assert row["identity_claimed"] is False
 
 
-# === approve: admin cannot approve a pending invite ===
+# === approve: admin cannot approve invite rows ===
 
 
 async def test_approve_join_request_blocks_admin_added_invite(db_pool):
+    """แถว pending ที่ added_by IS NOT NULL = คำเชิญยืนยันตัวตน — ต้องให้เจ้าตัวกดเอง"""
     admin = await _insert_user(db_pool, first_name="Admin", last_name="Room")
     invitee = await _insert_user(db_pool, first_name="Somchai", last_name="Jaidee", email="s@example.com")
     room_id, _ = await _insert_room(db_pool, admin)

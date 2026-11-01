@@ -39,7 +39,7 @@ class BaseMixin:
             u.phone_number, u.phone_number_parent
         FROM activity_participants ap
         JOIN students s ON ap.student_id = s.id
-        LEFT JOIN users u ON s.user_id = u.id
+        LEFT JOIN v_student_profiles u ON u.student_id = s.id
     """
 
     @staticmethod
@@ -139,17 +139,21 @@ class BaseMixin:
         return result
 
     @classmethod
-    def _mask_participants_pii(cls, participants: List[dict], requester_user_id: Optional[int]) -> List[dict]:
-        """🛡️ Consent Model: participant ที่ยังไม่ยืนยันตัวตน (identity_claimed=False) → Type A (PII)
-        ถูก 🔒 mask — สมาชิกห้องเห็น PII ได้เฉพาะคนที่ยืนยันตัวตนแล้ว (หรือดูตัวเอง / super admin).
-        ดู core/privacy.py"""
+    def _mask_participants_pii(
+        cls,
+        participants: List[dict],
+        requester_user_id: Optional[int],
+        viewer_is_manager: bool = False,
+    ) -> List[dict]:
+        """🛡️ Privacy Policy: Type A (PII) ในกิจกรรมเห็นได้เฉพาะผู้จัดการห้อง / ตัวเอง / super admin
+        — สมาชิกทั่วไปเห็นชื่อ/บทบาทได้ แต่เบอร์/ที่อยู่/ข้อมูลสุขภาพถูก 🔒 mask. ดู core/privacy.py"""
         is_super_admin = settings.SUPER_ADMIN_ID and requester_user_id and int(requester_user_id) == int(settings.SUPER_ADMIN_ID)
         for p in participants:
             can_view = can_view_activity_pii(
                 requester_user_id=requester_user_id,
                 target_user_id=p.get("user_id"),
-                identity_claimed=p.get("identity_claimed"),
                 is_super_admin=is_super_admin,
+                viewer_is_manager=viewer_is_manager,
             )
             mask_private_fields(p, can_view, fields=PROFILE_TYPE_A_FIELDS)
         return participants

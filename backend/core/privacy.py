@@ -1,10 +1,14 @@
 """ศูนย์กลางกฎความเป็นส่วนตัว (Privacy Gate) — ทุกจุดที่อ่าน PII ต้องใช้ฟังก์ชันจากไฟล์นี้
 
-ช่องโหว่เดิม: แอดมินแอดชื่อนักเรียนที่ตรงกับบัญชีจริง → ระบบ link บัญชีจริงให้อัตโนมัติ
-โดยไม่ยินยอม → เห็น PII เต็ม (profile/search/export/activities)
+นโยบายล่าสุด (2026-11-01, "ข้อมูลของห้อง เอาความสะดวกก่อน"):
+- รายชื่อนักเรียนเป็นข้อมูลของห้อง — ครูเพิ่ม/แก้ได้ทันที ไม่ต้องรอเจ้าตัวยืนยัน
+- PII (เบอร์/ที่อยู่/วันเกิด/ข้อมูลสุขภาพ) เห็นได้เฉพาะ **ผู้จัดการห้อง**
+  (MANAGE_STUDENTS / VIEW_ALL_STUDENTS / is_admin / super admin)
+- เจ้าตัวเห็น PII ของตัวเองได้เสมอ
+- นักเรียนทั่วไปเห็นชื่อเพื่อนได้ (transparency) แต่ PII ถูก mask
 
-กฎ (Consent Model): PII ของสมาชิกจะเปิดให้ห้องเห็นได้ ต่อเมื่อสมาชิก "อ้างสิทธิ์/ยืนยันตัวตน"
-การเป็นสมาชิกเอง (students.identity_claimed = TRUE) หรือผู้ขอดูเป็นตัวเจ้าตัวเอง / SUPER_ADMIN เท่านั้น
+`identity_claimed` ยังใช้เป็น "สถานะยืนยันตัวตน" ใน UI และเป็นตัวกระตุ้นการ merge
+ข้อมูลบัญชีกลางตอนเจ้าตัวกดยืนยัน — ไม่ใช่เงื่อนไขเปิด PII อีกต่อไป
 """
 
 SENTINEL = "🔒 ไม่มีสิทธิ์เข้าถึง"
@@ -17,7 +21,7 @@ PRIVATE_STUDENT_FIELDS = frozenset([
     "blood_group", "shirt_size", "food_allergy", "congenital_disease",
 ])
 
-# ข้อมูลส่วนตัว (Type A) ที่อ่านจากตาราง users ผ่าน JOIN — ใช้ในระบบกิจกรรม
+# ข้อมูลส่วนตัว (Type A) ที่อ่านจาก view v_student_profiles — ใช้ในระบบกิจกรรม
 PROFILE_TYPE_A_FIELDS = frozenset([
     "blood_group", "shirt_size", "food_allergy", "congenital_disease",
     "phone_number", "phone_number_parent",
@@ -29,24 +33,24 @@ def is_real_claimed_account(u: dict) -> bool:
     return bool(u.get("google_id") or u.get("discord_id") or u.get("email") or u.get("phone_number"))
 
 
-def can_view_pii(*, requester_user_id, target_user_id, identity_claimed,
-                 is_super_admin, viewer_has_view_all) -> bool:
-    """กฎกลางสำหรับ profile/search/export: PII เห็นได้ถ้า super admin / ดูตัวเอง / (claimed + มี VIEW_ALL_STUDENTS)."""
+def can_view_pii(*, requester_user_id, target_user_id, is_super_admin,
+                 viewer_is_manager) -> bool:
+    """กฎกลางสำหรับ profile/search/export: super admin / ดูตัวเอง / ผู้จัดการห้อง."""
     if is_super_admin:
         return True
     if requester_user_id is not None and target_user_id is not None and int(requester_user_id) == int(target_user_id):
         return True
-    return bool(identity_claimed) and bool(viewer_has_view_all)
+    return bool(viewer_is_manager)
 
 
-def can_view_activity_pii(*, requester_user_id, target_user_id, identity_claimed, is_super_admin) -> bool:
-    """กฎสำหรับ Type A fields ในกิจกรรม — สมาชิกห้องเห็นได้ (ต้องเป็น member อยู่แล้วผ่าน require_member)
-    แต่เฉพาะ participant ที่ claimed ถึงจะเห็น PII."""
+def can_view_activity_pii(*, requester_user_id, target_user_id, is_super_admin,
+                          viewer_is_manager) -> bool:
+    """กฎ Type A fields ในกิจกรรม — ผู้จัดการห้อง / ตัวเอง / super admin เท่านั้น."""
     if is_super_admin:
         return True
     if requester_user_id is not None and target_user_id is not None and int(requester_user_id) == int(target_user_id):
         return True
-    return bool(identity_claimed)
+    return bool(viewer_is_manager)
 
 
 def mask_private_fields(data: dict, can_view: bool, fields=PRIVATE_STUDENT_FIELDS) -> dict:

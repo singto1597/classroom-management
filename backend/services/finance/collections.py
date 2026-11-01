@@ -129,7 +129,7 @@ class CollectionsMixin:
                FROM student_payments SP
                JOIN fee_collections FC ON SP.collection_id = FC.id
                JOIN students S ON SP.student_id = S.id
-               LEFT JOIN users U ON S.user_id = U.id
+               LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE SP.id = $1 AND FC.room_id = $2 AND FC.status = 'active'""",
             payment_id, target_room_id
         )
@@ -473,7 +473,7 @@ class CollectionsMixin:
                         U.first_name_en, U.last_name_en, U.nickname_en, FC.amount as total_amount
                     FROM student_payments SP
                     JOIN students S ON SP.student_id = S.id
-                    LEFT JOIN users U ON S.user_id = U.id
+                    LEFT JOIN v_student_profiles U ON U.student_id = S.id
                     JOIN fee_collections FC ON SP.collection_id = FC.id
                     WHERE SP.collection_id = $1 AND S.room_id = $2
                     ORDER BY S.student_no ASC
@@ -572,7 +572,7 @@ class CollectionsMixin:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
-                student = await conn.fetchrow("SELECT S.id, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en FROM students S LEFT JOIN users U ON S.user_id = U.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
+                student = await conn.fetchrow("SELECT S.id, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
                 if not student: raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
 
                 rows = await conn.fetch("""
@@ -822,7 +822,7 @@ class CollectionsMixin:
                     SELECT S.id as student_id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en,
                            COUNT(SP.id) as overdue_count, SUM(FC.amount - SP.paid_amount) as total_pending_amount,
                            COALESCE(CR.balance_after, 0) as credit_balance
-                    FROM students S LEFT JOIN users U ON S.user_id = U.id
+                    FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                     JOIN student_payments SP ON S.id = SP.student_id JOIN fee_collections FC ON SP.collection_id = FC.id
                     LEFT JOIN LATERAL (
                         SELECT balance_after FROM student_credits

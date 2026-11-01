@@ -18,7 +18,7 @@ from core.exceptions import (
     ValidationError,
 )
 from core.logger import AuditLogger
-from core.rbac import require_member, require_permission
+from core.rbac import require_member, require_permission, has_any_permission, MANAGER_PERMISSIONS
 from core.privacy import can_view_activity_pii, mask_private_fields, PROFILE_TYPE_A_FIELDS
 from services.action_service import ActionService
 from .base import service_logger
@@ -330,7 +330,10 @@ class CheckinsMixin:
                     raise CheckinSheetNotFoundError(f"ไม่พบแผ่นเช็คชื่อ ID: {sheet_id}")
 
                 participants = await cls._fetch_participants(conn, activity_id)
-                cls._mask_participants_pii(participants, user_id)
+                viewer_is_manager = user_id is not None and await has_any_permission(
+                    conn, target_room_id, user_id, MANAGER_PERMISSIONS
+                )
+                cls._mask_participants_pii(participants, user_id, viewer_is_manager=viewer_is_manager)
                 records = await conn.fetch(
                     "SELECT participant_id, is_present, checked_at, recorded_by "
                     "FROM activity_checkin_records WHERE sheet_id = $1 AND deleted_at IS NULL",

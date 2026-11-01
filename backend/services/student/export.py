@@ -13,11 +13,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from core.config import settings
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError, ValidationError
 from core.logger import AuditLogger
 from core.name_utils import normalize_nfc, normalize_en, identity_pair
-from core.privacy import can_view_pii, mask_private_fields, is_real_claimed_account, PRIVATE_STUDENT_FIELDS
 from core.rbac import require_permission, require_member
 from services.action_service import ActionService
 
@@ -171,7 +169,6 @@ class ExportMixin:
                     seen = set()
                     fields = [f for f in fields if not (f in seen or seen.add(f))]
 
-                    is_super_admin = settings.SUPER_ADMIN_ID and user_id and int(user_id) == int(settings.SUPER_ADMIN_ID)
                     data = []
                     for r in rows:
                         row_dict = dict(r)
@@ -179,12 +176,8 @@ class ExportMixin:
                         # คีย์ภายในสำหรับ Sheet สรุป (ไม่ถูกเขียนลง Sheet รายชื่อ)
                         processed["_status"] = row_dict.get("status")
                         processed["_completion_percent"] = cls._calculate_completion(row_dict)["percentage"]
-                        # 🛡️ Consent Model: สมาชิกที่ยังไม่ยืนยันตัวตน → PII เป็น blank ในไฟล์ export
-                        # (คำนวณ completion จาก row_dict ดิบก่อนแล้ว — ไม่ให้ % เปลี่ยนเพราะ mask)
-                        if not (is_super_admin or row_dict.get("identity_claimed")):
-                            for f in PRIVATE_STUDENT_FIELDS:
-                                if f in processed:
-                                    processed[f] = ""
+                        # 🔓 PII ส่งออกได้เต็ม: ฟังก์ชันนี้บังคับ EXPORT_STUDENTS อยู่แล้ว (สายผู้จัดการ)
+                        # และค่าที่อ่านมาจาก v_student_profiles = override ของห้องก่อน แล้วค่อยบัญชีกลาง
                         data.append(processed)
 
                     output = cls._build_student_workbook(

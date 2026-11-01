@@ -18,7 +18,7 @@ from core.exceptions import (
     ValidationError,
 )
 from core.logger import AuditLogger
-from core.rbac import require_member, require_permission
+from core.rbac import require_member, require_permission, has_any_permission, MANAGER_PERMISSIONS
 from core.privacy import can_view_activity_pii, mask_private_fields, PROFILE_TYPE_A_FIELDS
 from services.action_service import ActionService
 from .base import service_logger
@@ -181,6 +181,11 @@ class ActivitiesMixin:
                 base_sql += " ORDER BY activity_date ASC, id DESC"
 
                 rows = await conn.fetch(base_sql, *params)
+                # เช็คสิทธิ์ผู้จัดการครั้งเดียว ไม่ใช่ต่อกิจกรรม
+                viewer_is_manager = bool(
+                    include_participants and user_id is not None
+                    and await has_any_permission(conn, target_room_id, user_id, MANAGER_PERMISSIONS)
+                )
                 activities = []
                 for row in rows:
                     data = dict(row)
@@ -189,7 +194,9 @@ class ActivitiesMixin:
                     data["_participants"] = []
                     if include_participants:
                         data["_participants"] = await cls._fetch_participants(conn, data["id"])
-                        cls._mask_participants_pii(data["_participants"], user_id)
+                        cls._mask_participants_pii(
+                            data["_participants"], user_id, viewer_is_manager=viewer_is_manager
+                        )
                     activities.append(cls._build_activity_response(data))
 
                 exec_time = int((time.time() - start_time) * 1000)
@@ -235,7 +242,10 @@ class ActivitiesMixin:
                 if not activity:
                     raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
                 participants = await cls._fetch_participants(conn, activity_id)
-                cls._mask_participants_pii(participants, user_id)
+                viewer_is_manager = user_id is not None and await has_any_permission(
+                    conn, target_room_id, user_id, MANAGER_PERMISSIONS
+                )
+                cls._mask_participants_pii(participants, user_id, viewer_is_manager=viewer_is_manager)
 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(
@@ -361,7 +371,12 @@ class ActivitiesMixin:
 
                     activity = await cls._fetch_activity_row(conn, target_room_id, activity_id)
                     participants = await cls._fetch_participants(conn, activity_id)
-                    cls._mask_participants_pii(participants, actor_user_id)
+                    viewer_is_manager = actor_user_id is not None and await has_any_permission(
+                        conn, target_room_id, actor_user_id, MANAGER_PERMISSIONS
+                    )
+                    cls._mask_participants_pii(
+                        participants, actor_user_id, viewer_is_manager=viewer_is_manager
+                    )
                     return cls._build_activity_response(activity, participants)
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -466,7 +481,7 @@ class ActivitiesMixin:
                            u.blood_group, u.shirt_size, u.food_allergy, u.congenital_disease,
                            u.phone_number, u.phone_number_parent
                     FROM students s
-                    LEFT JOIN users u ON s.user_id = u.id
+                    LEFT JOIN v_student_profiles u ON u.student_id = s.id
                     WHERE s.room_id = $1 AND s.status = 'active' AND s.deleted_at IS NULL
                       AND NOT EXISTS (
                           SELECT 1 FROM activity_participants ap
@@ -537,7 +552,7 @@ class ActivitiesMixin:
                     FROM activity_participants ap
                     JOIN activities a ON ap.activity_id = a.id
                     JOIN students s ON ap.student_id = s.id
-                    LEFT JOIN users u ON s.user_id = u.id
+                    LEFT JOIN v_student_profiles u ON u.student_id = s.id
                     WHERE ap.student_id = $1 AND ap.deleted_at IS NULL
                       AND a.deleted_at IS NULL AND a.room_id = $2
                     ORDER BY a.activity_date ASC

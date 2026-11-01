@@ -858,19 +858,16 @@ async def init_db(pool: asyncpg.Pool):
                 WHERE deleted_at IS NULL;
             """)
 
-            # 🌟 Consent Model — PII ของสมาชิกต้องผ่าน "การยืนยันตัวตน" (identity_claimed) ก่อนเปิดให้ห้องดู
-            # (กันแฮ็กเกอร์สร้างห้องแล้วแอดชื่อคนอื่นเข้าห้องเพื่อเก็บข้อมูลส่วนตัว — ดู docs/skills.md)
+            # 🌟 identity_claimed = เจ้าตัวยืนยันตัวตนแล้ว (เดิมใช้เป็นประตู PII — เปลี่ยนนโยบาย 2026-11-01:
+            #    PII เห็นได้เฉพาะผู้จัดการห้อง ⇒ คอลัมน์นี้เหลือหน้าที่ "สถานะยืนยันตัวตน" + ตัวกระตุ้น merge)
             # ต้องมีทั้งใน CREATE TABLE ด้านบน และ ALTER ตรงนี้ ตามกฎ skills.md
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS identity_claimed BOOLEAN NOT NULL DEFAULT FALSE;")
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS added_by INTEGER REFERENCES users(id) ON DELETE SET NULL;")
             await conn.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS claim_meta JSONB DEFAULT '{}'::jsonb;")
 
-            # Backfill: ห้องเดิมที่มีสมาชิก active อยู่แล้วให้ identity_claimed = TRUE (คงพฤติกรรมเดิม)
-            # — ปิดช่องโหว่สำหรับการแอดใหม่เป็นต้นไป โดยไม่ล็อกข้อมูลห้องเดิมทั้งระบบ
-            await conn.execute("""
-                UPDATE students SET identity_claimed = TRUE
-                WHERE status = 'active' AND deleted_at IS NULL AND identity_claimed = FALSE;
-            """)
+            # ⛔ ห้ามใส่ backfill "active → identity_claimed = TRUE" ตรงนี้
+            # (ลบ 2026-11-01) — มันรันทุกบูตและจะพลิกแถวที่ครูเพิ่มใหม่ (active + ยังไม่ยืนยัน)
+            # ให้กลายเป็น "ยืนยันแล้ว" เอง ⇒ การยืนยันตัวตนต้องมาจากเจ้าตัวเท่านั้น
 
             await conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_student_payments_active

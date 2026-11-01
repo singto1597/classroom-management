@@ -306,22 +306,23 @@ class BotActionService:
         await channel.send(content=self._build_content(data, "👤 มีสมาชิกใหม่"), embed=embed)
 
     async def notify_student_invite(self, server_id: int, data: dict):
-        """📨 คำเชิญเข้าร่วมห้อง (STUDENT_INVITE) — แอดมินแอดชื่อที่ตรงกับบัญชีจริง
-        เจ้าตัวต้องกดรับคำเชิญในเว็บก่อนถึงเป็นสมาชิก (Consent Model) — ไม่ @everyone"""
+        """📨 คำเชิญยืนยันตัวตน (STUDENT_INVITE) — แอดมินแอดชื่อที่ตรงกับบัญชีจริง
+        เข้าสมาชิกได้ทันที; คำเชิญนี้ชวนให้เจ้าตัวยืนยันเพื่อ merge ข้อมูลบัญชีของตน — ไม่ @everyone"""
         channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
 
         embed = discord.Embed(
-            title="📨 มีคำเชิญเข้าร่วมห้อง",
+            title="📨 คำเชิญยืนยันตัวตน",
             description=f"**{person_display_name(data)}** (เลขที่ {data.get('student_no')}) "
-                        f"ถูกเพิ่มเข้ามา แต่ยังต้องยืนยันตัวตนในเว็บก่อน\n(แอดมินอนุมัติแทนไม่ได้ ให้นักเรียนกดรับคำเชิญเอง)",
+                        f"ถูกเพิ่มเข้าห้องแล้ว — เข้าใช้งานได้ทันที\n"
+                        f"หากต้องการยืนยันตัวตน ให้เปิดเว็บที่หน้า Lobby แล้วกด \"ยืนยันตัวตน\"",
             color=discord.Color.gold()
         )
         embed.set_footer(text=f"เพิ่มโดย: {data.get('user_name')}")
-        await channel.send(content=self._build_content(data, "📨 มีคำเชิญเข้าร่วมห้อง"), embed=embed)
+        await channel.send(content=self._build_content(data, "📨 คำเชิญยืนยันตัวตน"), embed=embed)
 
     async def notify_invite_accepted(self, server_id: int, data: dict):
-        """✅ ยืนยันตัวตนแล้ว (INVITE_ACCEPTED) — เจ้าตัวรับคำเชิญแล้ว ข้อมูลส่วนตัวเปิดให้ห้องดูได้"""
+        """✅ ยืนยันตัวตนแล้ว (INVITE_ACCEPTED) — เจ้าตัวยืนยันแล้ว ข้อมูลบัญชีกลางจะทับข้อมูลที่ห้องกรอกไว้"""
         channel = await self._get_announcement_channel(server_id, channel="minor")
         if not channel: return
 

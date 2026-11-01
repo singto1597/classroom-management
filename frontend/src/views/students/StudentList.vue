@@ -383,11 +383,11 @@ const rejectJoin = async (studentNo: number) => {
                       title="System Admin"
                       aria-hidden="true"
                     ></i>
-                    <!-- 🛡️ Consent Model: สมาชิกที่ยังไม่ได้ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->
+                    <!-- 🏠 ยังไม่ยืนยันตัวตน — ข้อมูลที่ห้องบันทึกไว้ยังใช้ได้; ผู้จัดการห้องเห็นข้อมูลส่วนตัว -->
                     <span
                       v-if="student.identity_claimed === false"
                       class="chip shrink-0 bg-stone-100 text-stone-500"
-                      title="ยังไม่ได้ยืนยันตัวตน — ข้อมูลส่วนตัวถูกปิดบัง"
+                      title="ยังไม่ยืนยันตัวตน — ข้อมูลส่วนตัวเห็นได้เฉพาะผู้จัดการห้อง"
                     >
                       <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
                     </span>
@@ -540,11 +540,11 @@ const rejectJoin = async (studentNo: number) => {
                     {{ studentStatusLabel(student.status) }}
                   </span>
 
-                  <!-- 🛡️ Consent Model: ยังไม่ยืนยันตัวตน → ข้อมูลส่วนตัวถูกปิดบัง -->
+                  <!-- 🏠 ยังไม่ยืนยันตัวตน — ข้อมูลที่ห้องบันทึกไว้ยังใช้ได้; ผู้จัดการห้องเห็นข้อมูลส่วนตัว -->
                   <span
                     v-if="student.identity_claimed === false"
                     class="chip bg-stone-100 text-stone-500"
-                    title="ยังไม่ได้ยืนยันตัวตน — ข้อมูลส่วนตัวถูกปิดบัง"
+                    title="ยังไม่ยืนยันตัวตน — ข้อมูลส่วนตัวเห็นได้เฉพาะผู้จัดการห้อง"
                   >
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
                   </span>
@@ -600,7 +600,7 @@ const rejectJoin = async (studentNo: number) => {
         v-if="pendingStudents.length === 0"
         variant="empty"
         title="ไม่มีคำขอที่รออนุมัติ"
-        hint="เมื่อมีนักเรียนขอเข้าร่วมห้อง รายการคำขอจะแสดงที่นี่"
+        hint="เมื่อมีนักเรียนขอเข้าร่วมห้อง หรือขออ้างสิทธิ์เลขที่ รายการคำขอจะแสดงที่นี่"
       />
 
       <div v-else class="space-y-2.5">
@@ -639,16 +639,6 @@ const rejectJoin = async (studentNo: number) => {
                   </p>
                 </template>
 
-                <!-- 🛡️ invite_pending: แอดมินแอดชื่อให้ (บัญชีจริง) → รอเจ้าตัวกดรับ แอดมินอนุมัติแทนไม่ได้ -->
-                <template v-else-if="req.request_type === 'invite_pending'">
-                  <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
-                    {{ displayName(req) }}
-                  </p>
-                  <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
-                    <i class="bi bi-envelope text-warn-600" aria-hidden="true"></i> คำเชิญที่ระบบส่งให้ — รอเจ้าตัวกดรับ
-                  </p>
-                </template>
-
                 <!-- join_request: ขอเข้าห้องเอง ปกติ -->
                 <template v-else>
                   <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
@@ -661,20 +651,14 @@ const rejectJoin = async (studentNo: number) => {
               </div>
             </div>
 
-            <!-- ขวา: ปุ่มจัดการ (invite_pending แอดมินทำอะไรไม่ได้ ต้องรอเจ้าตัว) -->
-            <div v-if="req.request_type !== 'invite_pending'" class="flex gap-2 sm:shrink-0">
+            <!-- ขวา: ปุ่มจัดการคำขอเข้าร่วม/ขออ้างสิทธิ์ -->
+            <div class="flex gap-2 sm:shrink-0">
               <button type="button" class="btn-danger flex-1 sm:flex-none" @click="rejectJoin(req.student_no)">
                 <i class="bi bi-x-lg" aria-hidden="true"></i> ปฏิเสธ
               </button>
               <button type="button" class="btn-primary flex-1 sm:flex-none" @click="approveJoin(req.student_no)">
                 <i class="bi bi-check-lg" aria-hidden="true"></i> ยอมรับ
               </button>
-            </div>
-            <div
-              v-else
-              class="flex shrink-0 items-center gap-1.5 rounded-xl bg-stone-50 px-4 py-2.5 text-xs font-bold text-stone-500"
-            >
-              <i class="bi bi-hourglass-split" aria-hidden="true"></i> รอการยืนยันจากนักเรียน
             </div>
           </div>
         </div>

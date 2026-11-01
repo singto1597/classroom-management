@@ -4,7 +4,8 @@
 1. dedupe identity ใช้ชื่ออังกฤษก่อน → fallback ไทย NFC (แก้ อำ/อํา match กันไม่เจอ)
 2. NFC-normalize ตอนเก็บ (U+0E33 กับ U+0E32+U+0E4D = "ตัวเดียวกัน")
 3. search_students ค้นชื่ออังกฤษเจอ
-4. update_student / update_user_profile เขียน first_name_en/last_name_en ลง users
+4. update_student เขียน first_name_en/last_name_en — ผู้จัดการแก้ = override ของห้อง, เจ้าตัวแก้เอง = users
+   (update_user_profile เขียนลง users)
 """
 import random
 import string
@@ -173,11 +174,14 @@ async def test_add_student_nfc_normalization_dedupes_thai_composition(db_pool):
 
 
 async def test_update_student_normalizes_thai_nfc(db_pool):
-    """update_student ต้อง NFC-normalize ชื่อไทยก่อนเขียน (กันเก็บ อำ/อํา ต่างกัน)"""
+    """update_student ต้อง NFC-normalize ชื่อไทยก่อนเขียน (กันเก็บ อำ/อํา ต่างกัน)
+
+    ผู้จัดการแก้ข้อมูลนักเรียน → เขียน override ของห้อง (2026-11-01) ⇒ ตรวจผ่าน view ที่ resolve แล้ว
+    """
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room = await _insert_room(db_pool, owner)
     student_user = await _insert_user(db_pool, first_name="Old", last_name="Name")
-    await _insert_student(db_pool, room, student_user, student_no=1)
+    student_id = await _insert_student(db_pool, room, student_user, student_no=1)
 
     decomposed = "อาํ"  # อำ (decomposed)
     await StudentService.update_student(
@@ -188,8 +192,14 @@ async def test_update_student_normalizes_thai_nfc(db_pool):
     )
 
     async with db_pool.acquire() as conn:
-        stored = await conn.fetchval("SELECT first_name FROM users WHERE id = $1", student_user)
+        stored = await conn.fetchval(
+            "SELECT first_name FROM v_student_profiles WHERE student_id = $1", student_id
+        )
         assert stored == "อำ", "ต้องเก็บเป็น NFC (precomposed U+0E33) ไม่ใช่ decomposed"
+        # ครูแก้ในห้อง ⇒ บัญชีกลางไม่ถูกแตะ
+        assert await conn.fetchval(
+            "SELECT first_name FROM users WHERE id = $1", student_user
+        ) == "Old"
 
 
 # === 3. Search ด้วยชื่ออังกฤษ ===
@@ -215,6 +225,31 @@ async def test_search_students_matches_english_name(db_pool):
 # === 4. Update เขียนชื่ออังกฤษ ===
 
 async def test_update_student_writes_english_names(db_pool):
+    """ครูแก้ชื่ออังกฤษในห้อง → เก็บเป็น override ของห้อง และอ่านกลับได้ผ่าน view"""
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room = await _insert_room(db_pool, owner)
+    student_user = await _insert_user(db_pool, first_name="Somchai", last_name="Jaidee")
+    student_id = await _insert_student(db_pool, room, student_user, student_no=1)
+
+    await StudentService.update_student(
+        pool=db_pool, student_no=1,
+        update_data={"first_name_en": "Somchai", "last_name_en": "Jaidee", "nickname_en": "Om"},
+        updater_user_id=owner,
+        client_source="test", actor_identifier="test", room_id=room,
+    )
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT first_name_en, last_name_en, nickname_en FROM v_student_profiles WHERE student_id = $1",
+            student_id,
+        )
+        assert row["first_name_en"] == "Somchai"
+        assert row["last_name_en"] == "Jaidee"
+        assert row["nickname_en"] == "Om"
+
+
+async def test_update_student_self_edit_writes_english_names_to_account(db_pool):
+    """เจ้าตัวแก้เอง → เก็บลงบัญชีกลาง (users) ตามกฎ hybrid profile"""
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room = await _insert_room(db_pool, owner)
     student_user = await _insert_user(db_pool, first_name="Somchai", last_name="Jaidee")
@@ -223,7 +258,7 @@ async def test_update_student_writes_english_names(db_pool):
     await StudentService.update_student(
         pool=db_pool, student_no=1,
         update_data={"first_name_en": "Somchai", "last_name_en": "Jaidee", "nickname_en": "Om"},
-        updater_user_id=owner,
+        updater_user_id=student_user,
         client_source="test", actor_identifier="test", room_id=room,
     )
 

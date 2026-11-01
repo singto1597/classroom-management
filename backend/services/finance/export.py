@@ -105,7 +105,7 @@ class ExportMixin:
                FROM student_payments SP
                JOIN fee_collections FC ON SP.collection_id = FC.id
                JOIN students S         ON SP.student_id = S.id
-               LEFT JOIN users U       ON S.user_id = U.id
+               LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE SP.deleted_at IS NULL
                  AND SP.status = 'pending'
                  AND FC.deleted_at IS NULL

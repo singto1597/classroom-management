@@ -38,10 +38,11 @@ class JoinRoomResponse(BaseModel):
     message: str
 
 class PendingRequestResponse(BaseModel):
-    """รายการคำขอที่รอจัดการ (Consent Model) — request_type แยก:
+    """รายการคำขอที่รอจัดการ — request_type แยก:
     - join_request: ขอเข้าห้องเอง → รอแอดมินอนุมัติ
     - claim_request: ขออ้างสิทธิ์ ghost (มี ghost_* names ให้แอดมินตัดสิน) → รอแอดมินอนุมัติ
-    - invite_pending: แอดมินแอดชื่อให้ → รอเจ้าตัวกดรับ (แอดมินอนุมัติแทนไม่ได้)"""
+    - invite_pending: (legacy) แอดมินแอดชื่อให้ — หลัง 2026-11-01 แถวจาก add_student เป็น active
+      ทันที จึงไม่เกิดรายการนี้ใหม่; คงไว้เพื่อความเข้ากันได้กับข้อมูลเก่า"""
     id: int
     student_no: int
     first_name: Optional[str] = None

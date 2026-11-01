@@ -33,7 +33,7 @@ const searchQuery = ref('');
 // สถานะผิดพลาดของการโหลดห้อง (เดิมกลืน error เงียบ ๆ ทำให้เห็นเป็น "ยังไม่มีห้องเรียน")
 const hasErrorRooms = ref(false);
 
-// 🛡️ คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อให้ ต้องกดรับเองก่อนถึงเป็นสมาชิก
+// 📨 คำเชิญยืนยันตัวตน — ห้องแอดชื่อเราให้แล้ว (ใช้งานได้ทันที) กดยืนยันเพื่อให้ข้อมูลบัญชีทับค่าที่ห้องกรอก
 const invites = ref<Invite[]>([]);
 
 const fetchInvites = async () => {
@@ -51,8 +51,8 @@ const acceptInvite = async (invite: Invite) => {
     await fetchRooms();
     return Swal.fire({
       icon: 'success',
-      title: 'รับคำเชิญแล้ว!',
-      text: `เข้าร่วมห้อง "${invite.room_name}" แล้ว`,
+      title: 'ยืนยันตัวตนแล้ว!',
+      text: `ข้อมูลบัญชีของคุณถูกใช้กับห้อง "${invite.room_name}" แล้ว`,
       confirmButtonText: 'รับทราบ',
       confirmButtonColor: UI_COLOR.brand
     });
@@ -60,7 +60,7 @@ const acceptInvite = async (invite: Invite) => {
     Swal.fire({
       icon: 'error',
       title: 'ข้อผิดพลาด',
-      text: error instanceof Error ? error.message : 'ไม่สามารถรับคำเชิญได้'
+      text: error instanceof Error ? error.message : 'ไม่สามารถยืนยันตัวตนได้'
     });
   }
 };
@@ -161,6 +161,16 @@ const inviterName = (invite: Invite) =>
   [invite.added_by_first, invite.added_by_last].filter(Boolean).join(' ') || 'ผู้ดูแลห้อง';
 
 const selectRoom = (room: UserRoom) => {
+  // 🚧 คำขอเข้าร่วมที่ยังรออนุมัติ — เข้าห้องไม่ได้ (backend จะ 403) ให้บอกเหตุผลก่อน
+  if (room.status === 'pending') {
+    Swal.fire({
+      icon: 'info',
+      title: 'รอการอนุมัติ',
+      text: 'คำขอเข้าร่วมห้องนี้ยังไม่ได้รับอนุมัติจากหัวหน้าห้อง',
+      confirmButtonColor: UI_COLOR.brand
+    });
+    return;
+  }
   // 🎯 เปิดห้องนี้ใน "แท็บนี้" — สิทธิ์ (is_admin/permissions) อยู่ในรายการห้องแล้ว
   //    ไม่ต้องยัดซ้ำทีละค่าอย่างเดิม และไม่กระทบแท็บอื่นที่อาจเปิดห้องอื่นอยู่
   authStore.setActiveRoom(room.room_id);
@@ -332,10 +342,10 @@ const submitCreateRoom = async () => {
       />
     </div>
 
-    <!-- 🛡️ คำเชิญเข้าร่วมห้อง (Consent Model) — แอดมินแอดชื่อให้ ต้องกดรับเองก่อน -->
+    <!-- 📨 คำเชิญยืนยันตัวตน — ห้องเพิ่มชื่อคุณแล้ว (ใช้ได้ทันที) กดยืนยันเพื่อให้ข้อมูลบัญชีชนะ -->
     <section v-if="invites.length > 0" class="space-y-2.5">
       <div class="flex flex-wrap items-center gap-2">
-        <h2 class="section-title">คำเชิญเข้าร่วมห้อง</h2>
+        <h2 class="section-title">คำเชิญยืนยันตัวตน</h2>
         <span class="chip bg-warn-50 text-warn-700">{{ invites.length }} ฉบับ</span>
       </div>
 
@@ -354,13 +364,13 @@ const submitCreateRoom = async () => {
                   เลขที่ {{ invite.student_no }} · เชิญโดย {{ inviterName(invite) }}
                 </p>
                 <p class="mt-1 text-[11px] font-medium text-warn-600">
-                  รับคำเชิญแล้วระบบจะเปิดข้อมูลส่วนตัวของคุณให้ห้องนี้ดู
+                  ยืนยันแล้วข้อมูลบัญชีของคุณจะทับข้อมูลที่ห้องกรอกไว้ (ช่องที่บัญชีว่างจะใช้ค่าของห้อง)
                 </p>
               </div>
             </div>
 
             <button type="button" class="btn-primary shrink-0" @click="acceptInvite(invite)">
-              <i class="bi bi-check-lg" aria-hidden="true"></i> รับคำเชิญ
+              <i class="bi bi-person-check-fill" aria-hidden="true"></i> ยืนยันตัวตน
             </button>
           </div>
         </div>
