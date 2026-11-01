@@ -29,7 +29,7 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
         :key="tab.path"
         :to="tab.path"
         class="relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 transition-colors"
-        :class="isActive(tab.path) ? 'text-brand-700' : 'text-stone-400 hover:text-stone-700'"
+        :class="isActive(tab.path) ? 'text-brand-700' : 'text-stone-500 hover:text-stone-700'"
         :aria-current="isActive(tab.path) ? 'page' : undefined"
       >
         <i :class="['bi', tab.icon, 'text-lg']" aria-hidden="true"></i>
@@ -38,7 +38,7 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
 
       <button
         type="button"
-        class="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 text-stone-400 transition-colors hover:text-stone-700"
+        class="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 text-stone-500 transition-colors hover:text-stone-700"
         :class="{ 'text-brand-700': moreOpen }"
         aria-haspopup="dialog"
         :aria-expanded="moreOpen"

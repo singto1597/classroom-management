@@ -589,7 +589,7 @@ const submit = async () => {
 
           <p
             v-if="positions.length === 0"
-            class="mt-3 rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400 sm:mt-4"
+            class="mt-3 rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-500 sm:mt-4"
           >
             ยังไม่มีตำแหน่ง — เพิ่มด้านบน หรือใช้ค่าเริ่มต้น
           </p>
@@ -624,7 +624,7 @@ const submit = async () => {
               </button>
               <button
                 type="button"
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600"
                 title="ลบตำแหน่ง"
                 aria-label="ลบตำแหน่ง"
                 @click="removePosition(index)"
@@ -680,7 +680,7 @@ const submit = async () => {
 
           <div v-for="cat in ACTIVITY_FIELD_CATEGORY_ORDER" :key="cat" class="mt-3 sm:mt-4">
             <h3
-              class="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400"
+              class="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-500"
             >
               <i
                 class="bi"
@@ -716,7 +716,7 @@ const submit = async () => {
                       aria-hidden="true"
                     ></i>
                   </span>
-                  <span class="mt-0.5 hidden truncate text-[10px] text-stone-400 sm:block">{{
+                  <span class="mt-0.5 hidden truncate text-[10px] text-stone-500 sm:block">{{
                     field.hint || field.placeholder || ''
                   }}</span>
                 </span>
@@ -777,7 +777,7 @@ const submit = async () => {
 
           <p
             v-if="typeBColumns.length === 0 && students.length > 0"
-            class="mt-3 text-[11px] text-stone-400"
+            class="mt-3 text-[11px] text-stone-500"
           >
             ยังไม่ได้เลือกฟิลด์ Type B → ติ๊กในส่วน "ข้อมูลที่จัดเก็บของนักเรียน" ด้านบน
             แล้วผู้เข้าร่วมจะกรอกได้ในปุ่ม "ข้อมูลเพิ่มเติม"

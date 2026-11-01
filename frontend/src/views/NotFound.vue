@@ -43,7 +43,7 @@ const canGoBack = computed(() => typeof window !== 'undefined' && window.history
             <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
           </span>
           <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-stone-900">
-            SYNC<span class="font-normal text-stone-400">ROOM</span>
+            SYNC<span class="font-normal text-stone-500">ROOM</span>
           </span>
         </RouterLink>
       </div>

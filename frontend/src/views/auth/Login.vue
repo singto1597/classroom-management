@@ -25,7 +25,7 @@ const handleGoogleLogin = () => {
             <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
           </div>
           <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-stone-900">
-            SYNC<span class="font-normal text-stone-400">ROOM</span>
+            SYNC<span class="font-normal text-stone-500">ROOM</span>
           </span>
         </a>
         <span class="chip hidden bg-stone-100 text-stone-600 sm:inline-flex">
@@ -61,7 +61,7 @@ const handleGoogleLogin = () => {
                   <i class="bi bi-people-fill mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">ทะเบียนนักเรียน</p>
-                    <p class="mt-0.5 text-xs leading-relaxed text-stone-400">
+                    <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
                       ข้อมูลเป็นระบบ ค้นหาไว อัปเดตได้ทันที
                     </p>
                   </div>
@@ -70,7 +70,7 @@ const handleGoogleLogin = () => {
                   <i class="bi bi-calendar2-event-fill mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">ตารางเรียนร่วมกัน</p>
-                    <p class="mt-0.5 text-xs leading-relaxed text-stone-400">
+                    <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
                       ทุกคนในห้องเห็นตรงกัน แจ้งเตือนเมื่อมีคาบเปลี่ยนแปลง
                     </p>
                   </div>
@@ -79,7 +79,7 @@ const handleGoogleLogin = () => {
                   <i class="bi bi-cash-coin mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">การเงินห้องเรียน</p>
-                    <p class="mt-0.5 text-xs leading-relaxed text-stone-400">
+                    <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
                       เก็บเงินค่าห้องโปร่งใส ตรวจสอบย้อนหลังได้ตลอด
                     </p>
                   </div>
@@ -88,7 +88,7 @@ const handleGoogleLogin = () => {
                   <i class="bi bi-discord mt-0.5 shrink-0 text-base text-brand-300" aria-hidden="true"></i>
                   <div class="min-w-0">
                     <p class="text-sm font-bold text-white">แจ้งเตือนผ่าน Discord</p>
-                    <p class="mt-0.5 text-xs leading-relaxed text-stone-400">
+                    <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
                       ประกาศและงานที่มอบหมายถึงเซิร์ฟเวอร์โดยตรง
                     </p>
                   </div>
@@ -134,7 +134,7 @@ const handleGoogleLogin = () => {
                 </div>
 
                 <p
-                  class="mt-4 border-t border-stone-100 pt-3 text-center text-xs leading-relaxed text-stone-400 sm:pt-4"
+                  class="mt-4 border-t border-stone-100 pt-3 text-center text-xs leading-relaxed text-stone-500 sm:pt-4"
                 >
                   การเข้าสู่ระบบแสดงว่าคุณยอมรับ
                   <a
@@ -246,7 +246,7 @@ const handleGoogleLogin = () => {
     <!-- ── ท้ายหน้า ────────────────────────────────────────────────── -->
     <footer class="border-t border-stone-200 bg-white">
       <div
-        class="page-wrap flex flex-col items-center justify-between gap-2 px-4 py-6 text-xs text-stone-400 sm:flex-row sm:px-6 lg:px-8"
+        class="page-wrap flex flex-col items-center justify-between gap-2 px-4 py-6 text-xs text-stone-500 sm:flex-row sm:px-6 lg:px-8"
       >
         <p class="font-semibold">&copy; 2026 SYNCROOM. All rights reserved.</p>
         <p class="flex items-center gap-2">

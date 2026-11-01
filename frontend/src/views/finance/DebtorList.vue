@@ -567,7 +567,7 @@ onMounted(() => {
                   ></i>
                 </span>
               </label>
-              <span class="chip num shrink-0 bg-stone-100 text-stone-500">#{{ d.student_no }}</span>
+              <span class="chip num shrink-0 bg-stone-100 text-stone-600">#{{ d.student_no }}</span>
               <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
                 {{ d.student_name }}
               </h2>
@@ -590,7 +590,7 @@ onMounted(() => {
               </p>
               <p
                 v-if="d.credit_balance > 0"
-                class="num mt-0.5 whitespace-nowrap text-[11px] text-stone-400 line-through"
+                class="num mt-0.5 whitespace-nowrap text-[11px] text-stone-500 line-through"
               >
                 ฿{{ formatNumber(d.total_pending_amount) }}
               </p>
@@ -625,7 +625,7 @@ onMounted(() => {
               <i class="bi bi-wallet2" aria-hidden="true"></i>
               เคลียร์หนี้
             </button>
-            <span v-else class="chip shrink-0 bg-stone-100 text-stone-500">
+            <span v-else class="chip shrink-0 bg-stone-100 text-stone-600">
               <i class="bi bi-lock" aria-hidden="true"></i>
               รอแอดมินดำเนินการ
             </span>
@@ -694,7 +694,7 @@ onMounted(() => {
                     </span>
                   </label>
                 </td>
-                <td class="num font-bold text-stone-400">#{{ d.student_no }}</td>
+                <td class="num font-bold text-stone-500">#{{ d.student_no }}</td>
                 <td class="font-bold text-stone-900">{{ d.student_name }}</td>
                 <td class="text-center">
                   <div class="flex flex-wrap items-center justify-center gap-1.5">
@@ -724,7 +724,7 @@ onMounted(() => {
                   </span>
                   <span
                     v-if="d.credit_balance > 0"
-                    class="num mt-0.5 block text-[11px] font-normal text-stone-400 line-through"
+                    class="num mt-0.5 block text-[11px] font-normal text-stone-500 line-through"
                   >
                     ฿{{ formatNumber(d.total_pending_amount) }}
                   </span>
@@ -740,7 +740,7 @@ onMounted(() => {
                       <i class="bi bi-wallet2" aria-hidden="true"></i>
                       เคลียร์หนี้
                     </button>
-                    <span v-else class="chip bg-stone-100 text-stone-500">
+                    <span v-else class="chip bg-stone-100 text-stone-600">
                       <i class="bi bi-lock" aria-hidden="true"></i>
                       รอแอดมิน
                     </span>
@@ -775,7 +775,7 @@ onMounted(() => {
           </div>
           <button
             type="button"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
             aria-label="ปิดหน้าต่าง"
             @click="isModalOpen = false"
           >
@@ -793,7 +793,7 @@ onMounted(() => {
           </div>
 
           <div v-else class="space-y-3">
-            <p class="text-[11px] font-bold text-stone-400">
+            <p class="text-[11px] font-bold text-stone-500">
               เลือกรายการบิลที่ต้องการชำระ
             </p>
 
@@ -838,7 +838,7 @@ onMounted(() => {
 
               <div class="relative w-32 shrink-0 sm:w-36">
                 <span
-                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-2.5 text-sm font-bold text-stone-400"
+                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-2.5 text-sm font-bold text-stone-500"
                   aria-hidden="true"
                 >
                   ฿
@@ -915,7 +915,7 @@ onMounted(() => {
           class="flex shrink-0 flex-col gap-3 border-t border-stone-200 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:pt-4 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
         >
           <div class="flex items-center justify-between gap-3 sm:block">
-            <p class="text-[11px] font-bold text-stone-400">
+            <p class="text-[11px] font-bold text-stone-500">
               ยอดรวมที่เลือกชำระ
             </p>
             <p class="font-display num text-2xl font-bold text-danger-600">

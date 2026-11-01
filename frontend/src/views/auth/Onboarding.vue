@@ -278,7 +278,7 @@ const submitProfile = async () => {
                   <option value="เด็กหญิง">เด็กหญิง (ด.ญ.)</option>
                 </select>
                 <i
-                  class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3.5 flex items-center text-sm text-stone-400"
+                  class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3.5 flex items-center text-sm text-stone-500"
                   aria-hidden="true"
                 ></i>
               </div>

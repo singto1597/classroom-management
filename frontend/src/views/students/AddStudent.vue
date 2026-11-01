@@ -170,7 +170,7 @@ const submitBulk = async () => {
           class="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-bold transition-colors"
           :class="activeTab === 'single'
             ? 'border-brand-700 text-brand-700'
-            : 'border-transparent text-stone-400 hover:text-stone-700'"
+            : 'border-transparent text-stone-500 hover:text-stone-700'"
           @click="activeTab = 'single'"
         >
           <i class="bi bi-person-fill" aria-hidden="true"></i> เพิ่มทีละคน
@@ -182,7 +182,7 @@ const submitBulk = async () => {
           class="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-bold transition-colors"
           :class="activeTab === 'bulk'
             ? 'border-brand-700 text-brand-700'
-            : 'border-transparent text-stone-400 hover:text-stone-700'"
+            : 'border-transparent text-stone-500 hover:text-stone-700'"
           @click="activeTab = 'bulk'"
         >
           <i class="bi bi-people-fill" aria-hidden="true"></i> เพิ่มรวดเดียว<span class="hidden sm:inline"> (Bulk)</span>
@@ -209,28 +209,28 @@ const submitBulk = async () => {
 
           <div>
             <label class="field-label" for="nickname">
-              ชื่อเล่น <span class="font-normal text-stone-400">ไม่บังคับ</span>
+              ชื่อเล่น <span class="font-normal text-stone-500">ไม่บังคับ</span>
             </label>
             <input id="nickname" v-model="singleForm.nickname" type="text" class="field" placeholder="โอม" />
           </div>
 
           <div>
             <label class="field-label" for="firstNameEn">
-              ชื่อจริง (อังกฤษ) <span class="font-normal text-stone-400">ไม่บังคับ</span>
+              ชื่อจริง (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
             </label>
             <input id="firstNameEn" v-model="singleForm.first_name_en" type="text" class="field" placeholder="Somchai" />
           </div>
 
           <div>
             <label class="field-label" for="lastNameEn">
-              นามสกุล (อังกฤษ) <span class="font-normal text-stone-400">ไม่บังคับ</span>
+              นามสกุล (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
             </label>
             <input id="lastNameEn" v-model="singleForm.last_name_en" type="text" class="field" placeholder="Jaidee" />
           </div>
 
           <div>
             <label class="field-label" for="nicknameEn">
-              ชื่อเล่น (อังกฤษ) <span class="font-normal text-stone-400">ไม่บังคับ</span>
+              ชื่อเล่น (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
             </label>
             <input id="nicknameEn" v-model="singleForm.nickname_en" type="text" class="field" placeholder="Om" />
           </div>

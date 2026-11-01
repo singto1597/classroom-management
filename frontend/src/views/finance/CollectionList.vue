@@ -129,19 +129,19 @@ const handleEditCollection = async (col: Collection) => {
     html: `
       <div class="flex flex-col gap-3 mt-4 text-left">
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2">ชื่อรายการ</label>
+          <label class="text-xs font-bold text-stone-500 ms-2">ชื่อรายการ</label>
           <input id="swal-title" class="swal2-input custom-swal-input mt-1" placeholder="ชื่อรายการ" value="${escapeHtml(col.title)}">
         </div>
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2">ยอดเรียกเก็บ (฿)</label>
+          <label class="text-xs font-bold text-stone-500 ms-2">ยอดเรียกเก็บ (฿)</label>
           <input id="swal-amount" type="number" class="swal2-input custom-swal-input mt-1" placeholder="ยอดเรียกเก็บ" value="${escapeHtml(col.amount)}">
         </div>
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2">ครบกำหนดชำระ</label>
+          <label class="text-xs font-bold text-stone-500 ms-2">ครบกำหนดชำระ</label>
           <input id="swal-date" type="date" class="swal2-input custom-swal-input mt-1" value="${escapeHtml(col.due_date)}">
         </div>
         <div>
-          <label class="text-xs font-bold text-stone-400 ms-2">สถานะแคมเปญ</label>
+          <label class="text-xs font-bold text-stone-500 ms-2">สถานะแคมเปญ</label>
           <select id="swal-status" class="swal2-select custom-swal-input mt-1">
             <option value="active" ${col.status === 'active' ? 'selected' : ''}>🟢 เปิดรับเงิน</option>
             <option value="closed" ${col.status === 'closed' ? 'selected' : ''}>🔴 ปิดแคมเปญ</option>
@@ -259,7 +259,7 @@ onMounted(() => {
             <button
               v-if="authStore.isAdmin"
               type="button"
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
               title="ตั้งค่าโปรเจกต์"
               @click="handleEditCollection(col)"
             >
@@ -282,11 +282,11 @@ onMounted(() => {
           <p class="mt-3 flex items-baseline gap-1 sm:mt-4">
             <span
               class="font-display num text-3xl font-bold tracking-tight"
-              :class="col.status === 'active' ? 'text-brand-700' : 'text-stone-400'"
+              :class="col.status === 'active' ? 'text-brand-700' : 'text-stone-500'"
             >
               ฿{{ formatNumber(col.amount) }}
             </span>
-            <span class="text-xs font-bold text-stone-400">/ คน</span>
+            <span class="text-xs font-bold text-stone-500">/ คน</span>
           </p>
         </div>
 
@@ -312,13 +312,13 @@ onMounted(() => {
             <h2 class="font-display truncate text-lg font-bold text-stone-900">
               สร้างโปรเจกต์เก็บเงิน
             </h2>
-            <p class="mt-0.5 truncate text-xs font-bold text-stone-400">
+            <p class="mt-0.5 truncate text-xs font-bold text-stone-500">
               ตั้งค่าบิลเรียกเก็บเงินเข้ากองกลาง
             </p>
           </div>
           <button
             type="button"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
             aria-label="ปิดหน้าต่าง"
             @click="isCreateModalOpen = false"
           >
@@ -343,7 +343,7 @@ onMounted(() => {
                 <label class="field-label" for="colAmount">ยอดเรียกเก็บ (฿)</label>
                 <div class="relative">
                   <span
-                    class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 font-bold text-stone-400"
+                    class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 font-bold text-stone-500"
                     aria-hidden="true"
                   >
                     ฿
@@ -430,12 +430,12 @@ onMounted(() => {
                   class="flex cursor-pointer items-center justify-between gap-3 p-3 transition-colors hover:bg-stone-50"
                 >
                   <div class="flex min-w-0 items-center gap-3">
-                    <span class="num w-6 shrink-0 text-right text-xs font-bold text-stone-400">
+                    <span class="num w-6 shrink-0 text-right text-xs font-bold text-stone-500">
                       #{{ s.student_no }}
                     </span>
                     <div class="min-w-0 truncate text-sm font-bold text-stone-700">
                       {{ displayName(s) }}
-                      <span v-if="s.nickname || s.nickname_en" class="font-normal text-stone-400">
+                      <span v-if="s.nickname || s.nickname_en" class="font-normal text-stone-500">
                         ({{ s.nickname || s.nickname_en }})
                       </span>
                     </div>

@@ -88,7 +88,7 @@ function confirmAdd() {
             </div>
             <button
               type="button"
-              class="-me-1.5 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+              class="-me-1.5 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
               aria-label="ปิดหน้าต่าง"
               @click="emit('close')"
             >
@@ -99,7 +99,7 @@ function confirmAdd() {
           <!-- Search -->
           <div class="relative mb-3">
             <span
-              class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 text-stone-400"
+              class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 text-stone-500"
             >
               <i class="bi bi-search" aria-hidden="true"></i>
             </span>
@@ -173,7 +173,7 @@ function confirmAdd() {
               </div>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-bold text-stone-800">{{ displayName(s) }}</p>
-                <p v-if="s.nickname" class="truncate text-[11px] text-stone-400">
+                <p v-if="s.nickname" class="truncate text-[11px] text-stone-500">
                   {{ s.nickname }}
                 </p>
               </div>

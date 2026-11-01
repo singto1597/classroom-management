@@ -178,7 +178,7 @@ const handleSend = async () => {
             </div>
             <div class="min-w-0">
               <p class="section-title truncate">แบบฟอร์มประกาศ</p>
-              <p class="truncate text-xs text-stone-400">
+              <p class="truncate text-xs text-stone-500">
                 บอทจะประกาศเป็น Embed ในช่องที่กำหนดไว้
               </p>
             </div>
@@ -209,7 +209,7 @@ const handleSend = async () => {
               placeholder="รายละเอียดประกาศ เช่น วันเวลา สถานที่ หรือสิ่งที่ต้องเตรียม..."
               required
             ></textarea>
-            <div class="num mt-1 text-right text-xs font-bold text-stone-400">
+            <div class="num mt-1 text-right text-xs font-bold text-stone-500">
               {{ charCount }} / 2000
             </div>
           </div>
@@ -252,7 +252,7 @@ const handleSend = async () => {
 
       <!-- ตัวอย่างที่จะปรากฏใน Discord -->
       <div class="page-card order-first h-fit p-4 sm:p-5 lg:order-none">
-        <p class="mb-2 text-[11px] font-bold text-stone-400">ตัวอย่างประกาศ</p>
+        <p class="mb-2 text-[11px] font-bold text-stone-500">ตัวอย่างประกาศ</p>
         <div class="rounded-xl border-s-4 border-s-brand-700 bg-stone-50 p-3.5">
           <p class="min-w-0 break-words font-display text-sm font-bold text-stone-900">
             {{ messageForm.title || 'หัวข้อประกาศ' }}
@@ -262,7 +262,7 @@ const handleSend = async () => {
           >
             {{ messageForm.message || 'รายละเอียดประกาศจะแสดงที่นี่' }}
           </p>
-          <p class="mt-3 truncate border-t border-stone-200 pt-2.5 text-xs font-bold text-stone-400">
+          <p class="mt-3 truncate border-t border-stone-200 pt-2.5 text-xs font-bold text-stone-500">
             ประกาศโดย {{ messageForm.user_name || currentUserName }}
           </p>
         </div>

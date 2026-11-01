@@ -117,7 +117,7 @@ function removeField(def: DynamicFieldDef) {
         :key="def.key"
         class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-1.5 transition-colors hover:bg-stone-50"
       >
-        <span class="num hidden w-10 shrink-0 text-[11px] font-bold text-stone-400 sm:block">{{
+        <span class="num hidden w-10 shrink-0 text-[11px] font-bold text-stone-500 sm:block">{{
           def.key
         }}</span>
         <span class="min-w-0 flex-1">
@@ -129,7 +129,7 @@ function removeField(def: DynamicFieldDef) {
           @click="removeField(def)"
           title="ลบฟิลด์"
           aria-label="ลบฟิลด์"
-          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
         >
           <i class="bi bi-x-lg text-base sm:text-sm" aria-hidden="true"></i>
         </button>
@@ -137,7 +137,7 @@ function removeField(def: DynamicFieldDef) {
     </div>
     <div
       v-else
-      class="rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-400"
+      class="rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-500"
     >
       ยังไม่มีฟิลด์เพิ่มเติม — กด "เพิ่มฟิลด์" เพื่อเริ่มต้น
     </div>

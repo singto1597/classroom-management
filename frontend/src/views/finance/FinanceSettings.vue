@@ -455,7 +455,7 @@ const formatNumber = (num: number) => {
                 class="flex shrink-0 items-center gap-1 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:focus-within:opacity-100"
               >
                 <button
-                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-brand-700"
                   title="แก้ไข"
                   aria-label="แก้ไขกระเป๋าเงิน"
                   @click="handleEditAccount(acc)"
@@ -499,7 +499,7 @@ const formatNumber = (num: number) => {
                 <i class="bi bi-arrow-down-left" aria-hidden="true"></i>
                 รายรับ
               </span>
-              <span class="num text-xs font-bold text-stone-400">{{ incomeCategories.length }}</span>
+              <span class="num text-xs font-bold text-stone-500">{{ incomeCategories.length }}</span>
             </div>
 
             <StateBlock
@@ -519,7 +519,7 @@ const formatNumber = (num: number) => {
                 <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
                 <div v-if="isAdmin" class="flex shrink-0 items-center gap-1">
                   <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-brand-700"
                     title="แก้ไข"
                     aria-label="แก้ไขหมวดหมู่"
                     @click.stop="handleEditCategory(cat)"
@@ -546,7 +546,7 @@ const formatNumber = (num: number) => {
                 <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
                 รายจ่าย
               </span>
-              <span class="num text-xs font-bold text-stone-400">{{ expenseCategories.length }}</span>
+              <span class="num text-xs font-bold text-stone-500">{{ expenseCategories.length }}</span>
             </div>
 
             <StateBlock
@@ -566,7 +566,7 @@ const formatNumber = (num: number) => {
                 <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
                 <div v-if="isAdmin" class="flex shrink-0 items-center gap-1">
                   <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-brand-700"
                     title="แก้ไข"
                     aria-label="แก้ไขหมวดหมู่"
                     @click.stop="handleEditCategory(cat)"

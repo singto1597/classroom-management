@@ -239,7 +239,7 @@ const resetFilters = () => {
         รายการ
       </p>
       <div class="flex shrink-0 items-center gap-2">
-        <span class="text-xs font-bold text-stone-400">แสดง</span>
+        <span class="text-xs font-bold text-stone-500">แสดง</span>
         <select v-model="filters.limit" class="field w-auto" aria-label="จำนวนแถวต่อหน้า">
           <option :value="10">10 แถว</option>
           <option :value="50">50 แถว</option>
@@ -271,7 +271,7 @@ const resetFilters = () => {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="break-words font-bold text-stone-900">{{ t.description }}</p>
-              <p class="num mt-1 flex items-center gap-1.5 text-[11px] font-medium text-stone-400">
+              <p class="num mt-1 flex items-center gap-1.5 text-[11px] font-medium text-stone-500">
                 <i class="bi bi-clock" aria-hidden="true"></i>
                 {{ formatDate(t.created_at).date }} • {{ formatDate(t.created_at).time }} น.
               </p>
@@ -331,7 +331,7 @@ const resetFilters = () => {
               <tr v-for="t in transactions" :key="t.id">
                 <td>
                   <div class="num font-bold text-stone-700">{{ formatDate(t.created_at).date }}</div>
-                  <div class="num mt-0.5 text-xs text-stone-400">
+                  <div class="num mt-0.5 text-xs text-stone-500">
                     {{ formatDate(t.created_at).time }} น.
                   </div>
                 </td>
@@ -343,7 +343,7 @@ const resetFilters = () => {
                     <span v-if="t.category_name" class="chip bg-stone-100 text-stone-600">
                       {{ t.category_name }}
                     </span>
-                    <span class="flex items-center gap-1 text-[11px] font-medium text-stone-400">
+                    <span class="flex items-center gap-1 text-[11px] font-medium text-stone-500">
                       <i class="bi bi-person-circle" aria-hidden="true"></i> {{ t.recorded_by }}
                     </span>
                   </div>

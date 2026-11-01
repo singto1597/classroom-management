@@ -302,7 +302,7 @@ const rejectJoin = async (studentNo: number) => {
     >
       <div class="relative min-w-0 flex-1">
         <i
-          class="bi bi-search pointer-events-none absolute inset-y-0 start-0 flex w-10 items-center justify-center text-stone-400"
+          class="bi bi-search pointer-events-none absolute inset-y-0 start-0 flex w-10 items-center justify-center text-stone-500"
           aria-hidden="true"
         ></i>
         <input
@@ -388,7 +388,7 @@ const rejectJoin = async (studentNo: number) => {
                     <!-- 🏠 ยังไม่ยืนยันตัวตน — ข้อมูลที่ห้องบันทึกไว้ยังใช้ได้; ผู้จัดการห้องเห็นข้อมูลส่วนตัว -->
                     <span
                       v-if="student.identity_claimed === false"
-                      class="chip shrink-0 bg-stone-100 text-stone-500"
+                      class="chip shrink-0 bg-stone-100 text-stone-600"
                       title="ยังไม่ยืนยันตัวตน — ข้อมูลส่วนตัวเห็นได้เฉพาะผู้จัดการห้อง"
                     >
                       <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
@@ -438,7 +438,7 @@ const rejectJoin = async (studentNo: number) => {
                     <button
                       v-if="canManageStudents"
                       type="button"
-                      class="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
+                      class="flex h-9 w-9 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
                       aria-label="ตัวเลือกจัดการนักเรียน"
                       @click.stop="toggleDropdown(student.student_no, $event)"
                     >
@@ -545,7 +545,7 @@ const rejectJoin = async (studentNo: number) => {
                   <!-- 🏠 ยังไม่ยืนยันตัวตน — ข้อมูลที่ห้องบันทึกไว้ยังใช้ได้; ผู้จัดการห้องเห็นข้อมูลส่วนตัว -->
                   <span
                     v-if="student.identity_claimed === false"
-                    class="chip bg-stone-100 text-stone-500"
+                    class="chip bg-stone-100 text-stone-600"
                     title="ยังไม่ยืนยันตัวตน — ข้อมูลส่วนตัวเห็นได้เฉพาะผู้จัดการห้อง"
                   >
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
@@ -557,7 +557,7 @@ const rejectJoin = async (studentNo: number) => {
               <div v-if="canManageStudents" class="relative shrink-0">
                 <button
                   type="button"
-                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
+                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
                   aria-label="ตัวเลือกจัดการนักเรียน"
                   @click.stop="toggleDropdown(student.student_no, $event)"
                 >
@@ -636,7 +636,7 @@ const rejectJoin = async (studentNo: number) => {
                       {{ req.name_match ? 'ชื่อตรงกัน' : 'ชื่อไม่ตรง' }}
                     </span>
                   </p>
-                  <p class="mt-0.5 text-xs text-stone-400">
+                  <p class="mt-0.5 text-xs text-stone-500">
                     <i class="bi bi-person-check me-1" aria-hidden="true"></i>ตรวจสอบว่าเป็นคนเดียวกันก่อนอนุมัติ
                   </p>
                 </template>
@@ -647,7 +647,7 @@ const rejectJoin = async (studentNo: number) => {
                     {{ displayName(req) }}
                   </p>
                   <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
-                    <i class="bi bi-clock text-stone-400" aria-hidden="true"></i> ขอเข้าร่วมเมื่อ {{ formatThaiDateTime(req.created_at) }}
+                    <i class="bi bi-clock text-stone-500" aria-hidden="true"></i> ขอเข้าร่วมเมื่อ {{ formatThaiDateTime(req.created_at) }}
                   </p>
                 </template>
               </div>

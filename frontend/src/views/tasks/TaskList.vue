@@ -287,13 +287,13 @@ onMounted(fetchData)
 
             <div class="min-w-0 flex-1 space-y-1.5">
               <div class="flex items-start gap-2">
-                <i class="bi bi-backpack-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
+                <i class="bi bi-backpack-fill mt-0.5 shrink-0 text-stone-500" aria-hidden="true"></i>
                 <p class="min-w-0 break-words text-sm leading-relaxed text-stone-600">
                   เตรียม: <span class="font-bold text-stone-900">{{ note.bring_items || '-' }}</span>
                 </p>
               </div>
               <div class="flex items-start gap-2">
-                <i class="bi bi-megaphone-fill mt-0.5 shrink-0 text-stone-400" aria-hidden="true"></i>
+                <i class="bi bi-megaphone-fill mt-0.5 shrink-0 text-stone-500" aria-hidden="true"></i>
                 <p class="min-w-0 break-words text-sm leading-relaxed text-stone-600">
                   {{ note.announcement || 'ไม่มีประกาศ' }}
                 </p>
@@ -352,12 +352,12 @@ onMounted(fetchData)
           <div class="min-w-0 flex-1 sm:min-w-[16rem]">
             <h3
               class="break-words font-display text-base font-bold leading-snug text-stone-900"
-              :class="{ 'line-through text-stone-400': task.status === 'done' }"
+              :class="{ 'line-through text-stone-500': task.status === 'done' }"
             >
               {{ task.task_name }}
             </h3>
             <p class="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs font-bold text-stone-500">
-              <i class="bi bi-calendar-event text-stone-400" aria-hidden="true"></i>
+              <i class="bi bi-calendar-event text-stone-500" aria-hidden="true"></i>
               กำหนดส่ง
               <span class="num text-stone-700">{{ formatDueDate(task.due_date) }}</span>
             </p>
@@ -381,7 +381,7 @@ onMounted(fetchData)
 
         <p
           class="mt-3 grow whitespace-pre-wrap break-words text-sm leading-relaxed text-stone-600"
-          :class="{ 'line-through text-stone-400': task.status === 'done' }"
+          :class="{ 'line-through text-stone-500': task.status === 'done' }"
         >
           {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
         </p>

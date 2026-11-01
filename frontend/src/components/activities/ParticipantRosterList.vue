@@ -161,7 +161,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
     <div class="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="relative w-full md:max-w-xs md:flex-1">
         <span
-          class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 text-stone-400"
+          class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 text-stone-500"
         >
           <i class="bi bi-search" aria-hidden="true"></i>
         </span>
@@ -256,7 +256,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                     </p>
                     <p
                       v-if="item.nickname || item.nickname_en"
-                      class="truncate text-[11px] text-stone-400"
+                      class="truncate text-[11px] text-stone-500"
                     >
                       {{ item.nickname || item.nickname_en }}
                     </p>
@@ -280,7 +280,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                     <span v-if="dutyOf(item).position" class="chip bg-brand-50 text-brand-700">
                       <i class="bi bi-diagram-3" aria-hidden="true"></i> {{ dutyOf(item).position }}
                     </span>
-                    <span v-else class="text-stone-400">—</span>
+                    <span v-else class="text-stone-500">—</span>
                   </template>
                   <select
                     v-else
@@ -306,7 +306,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                     <span v-if="dutyOf(item).note" class="text-stone-600">{{
                       dutyOf(item).note
                     }}</span>
-                    <span v-else class="text-stone-400">—</span>
+                    <span v-else class="text-stone-500">—</span>
                   </template>
                   <input
                     v-else
@@ -357,7 +357,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                       v-if="showRemove && (!readOnly || canManage)"
                       type="button"
                       @click="emit('remove', item.key)"
-                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
+                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
                     >
                       <i class="bi bi-trash3" aria-hidden="true"></i> นำออก
                     </button>
@@ -420,7 +420,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                   {{ item.prefix ? item.prefix + ' ' : '' }}{{ displayName(item) }}
                 </p>
               </div>
-              <div class="flex items-center gap-1.5 text-[11px] text-stone-400 sm:text-xs">
+              <div class="flex items-center gap-1.5 text-[11px] text-stone-500 sm:text-xs">
                 <span v-if="item.nickname || item.nickname_en" class="truncate">{{
                   item.nickname || item.nickname_en
                 }}</span>
@@ -468,7 +468,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               <button
                 type="button"
                 @click.stop="toggleMenu(item.key, $event)"
-                class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+                class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
                 aria-label="เมนูเพิ่มเติม"
               >
                 <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
@@ -549,7 +549,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="showRemove"
               type="button"
               @click="emit('remove', item.key)"
-              class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
+              class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
             >
               <i class="bi bi-trash3" aria-hidden="true"></i> นำออก
             </button>

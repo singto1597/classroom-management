@@ -476,7 +476,7 @@ onMounted(() => {
       <div class="page-card p-4">
         <p class="text-[11px] font-bold text-stone-500">จำนวนคนที่มีเครดิตคงเหลือ</p>
         <p class="font-display num mt-1 text-2xl font-bold text-stone-900">
-          {{ holdersCount }} <span class="text-base font-bold text-stone-400">คน</span>
+          {{ holdersCount }} <span class="text-base font-bold text-stone-500">คน</span>
         </p>
         <p class="mt-1 text-[11px] text-stone-500">จากทั้งหมด {{ credits.length }} คนในห้อง</p>
       </div>
@@ -553,7 +553,7 @@ onMounted(() => {
                   ></i>
                 </span>
               </label>
-              <span class="chip num shrink-0 bg-stone-100 text-stone-500">#{{ c.student_no }}</span>
+              <span class="chip num shrink-0 bg-stone-100 text-stone-600">#{{ c.student_no }}</span>
               <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
                 {{ c.student_name }}
               </h2>
@@ -665,7 +665,7 @@ onMounted(() => {
                     </span>
                   </label>
                 </td>
-                <td class="num font-bold text-stone-400">#{{ c.student_no }}</td>
+                <td class="num font-bold text-stone-500">#{{ c.student_no }}</td>
                 <td class="font-bold text-stone-900">{{ c.student_name }}</td>
                 <td
                   class="font-display num whitespace-nowrap text-right font-bold"
@@ -856,7 +856,7 @@ onMounted(() => {
               >
                 <span class="min-w-0 truncate text-stone-600">
                   {{ a.title ?? 'รายการชำระเงิน' }}
-                  <span v-if="a.due_date" class="text-stone-400">
+                  <span v-if="a.due_date" class="text-stone-500">
                     ({{ a.due_date }})
                   </span>
                 </span>
@@ -936,14 +936,14 @@ onMounted(() => {
                   <span class="chip shrink-0" :class="entryChipClass(e.entry_type)">
                     {{ e.entry_type_label ?? e.entry_type }}
                   </span>
-                  <span class="text-[11px] text-stone-400">{{ formatThaiDateTime(e.created_at) }}</span>
+                  <span class="text-[11px] text-stone-500">{{ formatThaiDateTime(e.created_at) }}</span>
                 </div>
                 <p class="mt-1 min-w-0 truncate text-[12px] text-stone-600">
                   <template v-if="e.collection_title">{{ e.collection_title }}</template>
                   <template v-else-if="e.receipt_no">ใบรับเงินล่วงหน้า {{ e.receipt_no }}</template>
                   <template v-else>{{ e.note ?? '—' }}</template>
                 </p>
-                <p v-if="e.recorded_by" class="mt-0.5 text-[11px] text-stone-400">
+                <p v-if="e.recorded_by" class="mt-0.5 text-[11px] text-stone-500">
                   โดย {{ e.recorded_by }}
                 </p>
               </div>

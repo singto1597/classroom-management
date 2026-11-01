@@ -46,13 +46,13 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
           v-if="!collapsed"
           class="font-display whitespace-nowrap text-lg font-bold tracking-[0.2em] text-stone-900"
         >
-          SYNC<span class="font-normal text-stone-400">ROOM</span>
+          SYNC<span class="font-normal text-stone-500">ROOM</span>
         </span>
       </RouterLink>
 
       <!-- เมนู -->
       <div class="flex flex-1 flex-col overflow-y-auto overflow-x-hidden py-4">
-        <p v-if="!collapsed" class="mb-2 px-5 text-[10px] font-bold text-stone-400">เมนูหลัก</p>
+        <p v-if="!collapsed" class="mb-2 px-5 text-[10px] font-bold text-stone-500">เมนูหลัก</p>
 
         <nav class="flex-1 space-y-0.5 px-3">
           <RouterLink
@@ -85,7 +85,7 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
         <div class="mt-4 px-3">
           <button
             type="button"
-            class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 py-2.5 text-xs font-bold text-stone-400 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700"
+            class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 py-2.5 text-xs font-bold text-stone-500 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700"
             :title="collapsed ? 'ขยายเมนู' : 'ย่อเมนู'"
             @click="emit('toggleCollapse')"
           >

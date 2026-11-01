@@ -45,7 +45,7 @@ const isTaskCountError = ref(false);
 
 // สีของตัวเลขงานค้าง — เทาเมื่อไม่รู้ค่า, เหลืองเมื่อมีงานค้าง, ดำเมื่อไม่มี
 const pendingCountClass = computed(() => {
-  if (isTaskCountError.value) return 'text-stone-400';
+  if (isTaskCountError.value) return 'text-stone-500';
   return pendingTaskCount.value > 0 ? 'text-warn-600' : 'text-stone-900';
 });
 
@@ -112,7 +112,7 @@ const goToMyProfile = async () => {
     <!-- บทบาทของฉัน ย้ายไปอยู่ที่การ์ด "ภาพรวมห้อง" ที่เดียว ไม่ซ้ำสามที่เหมือนเดิม -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
       <div class="page-card p-3.5 sm:p-5">
-        <p class="text-[11px] font-bold text-stone-400">งานทั้งหมด</p>
+        <p class="text-[11px] font-bold text-stone-500">งานทั้งหมด</p>
         <p
           v-if="isTaskCountLoading"
           class="mt-2 h-7 w-12 rounded-lg bg-stone-100 sm:h-9 sm:w-16"
@@ -121,15 +121,15 @@ const goToMyProfile = async () => {
         <p
           v-else
           class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
-          :class="isTaskCountError ? 'text-stone-400' : 'text-stone-900'"
+          :class="isTaskCountError ? 'text-stone-500' : 'text-stone-900'"
         >
           {{ isTaskCountError ? '—' : taskCount }}
         </p>
-        <p class="mt-1 text-xs font-bold text-stone-400">รายการในห้องนี้</p>
+        <p class="mt-1 text-xs font-bold text-stone-500">รายการในห้องนี้</p>
       </div>
 
       <div class="page-card p-3.5 sm:p-5">
-        <p class="text-[11px] font-bold text-stone-400">งานค้าง</p>
+        <p class="text-[11px] font-bold text-stone-500">งานค้าง</p>
         <p
           v-if="isTaskCountLoading"
           class="mt-2 h-7 w-12 rounded-lg bg-stone-100 sm:h-9 sm:w-16"
@@ -142,15 +142,15 @@ const goToMyProfile = async () => {
         >
           {{ isTaskCountError ? '—' : pendingTaskCount }}
         </p>
-        <p class="mt-1 text-xs font-bold text-stone-400">ยังไม่ปิดงาน</p>
+        <p class="mt-1 text-xs font-bold text-stone-500">ยังไม่ปิดงาน</p>
       </div>
 
       <div class="page-card col-span-2 p-3.5 sm:col-span-1 sm:p-5">
-        <p class="text-[11px] font-bold text-stone-400">รหัสห้องเรียน</p>
+        <p class="text-[11px] font-bold text-stone-500">รหัสห้องเรียน</p>
         <p class="font-display num mt-2 truncate text-2xl font-bold tracking-widest text-stone-900 sm:text-3xl">
           {{ roomCode }}
         </p>
-        <p class="mt-1 text-xs font-bold text-stone-400">แชร์ให้นักเรียนเข้าร่วม</p>
+        <p class="mt-1 text-xs font-bold text-stone-500">แชร์ให้นักเรียนเข้าร่วม</p>
       </div>
     </div>
 
@@ -198,7 +198,7 @@ const goToMyProfile = async () => {
 
           <div
             v-else
-            class="rounded-xl border border-stone-200 px-3.5 py-3 text-center text-xs font-bold text-stone-400"
+            class="rounded-xl border border-stone-200 px-3.5 py-3 text-center text-xs font-bold text-stone-500"
           >
             <i class="bi bi-lock-fill me-1.5" aria-hidden="true"></i> เฉพาะผู้ดูแลที่เพิ่มงานได้
           </div>
