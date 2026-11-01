@@ -20,6 +20,11 @@ services:
       # ⚠️ stack name = DNS name ⇒ gotenberg ถูกย้ายไป stack `${ENV_NAME}_pdf` แล้ว
       #    (docker-compose.pdf.yml) จึงเป็น `..._pdf_gotenberg` ไม่ใช่ `..._infra_gotenberg`
       - GOTENBERG_URL=http://${ENV_NAME}_pdf_gotenberg:3000
+      # 🌐 [P6.1] IP จริงของ client ลง audit_logs — ค่าเริ่มต้น 0 = ไม่เชื่อ header ใด ๆ
+      #    (ปลอดภัยที่สุดเมื่อยังไม่ได้ตรวจว่า Traefik/backend ยิงตรงข้าม proxy ไม่ได้)
+      #    ตั้ง 2 (Cloudflare + Traefik) ได้หลังยืนยันตามที่ core/request_context.py อธิบาย
+      #    ⚠️ ห้ามใส่ `:-` fallback ที่มากกว่า 0 — จะเปิดช่อง spoof เงียบ ๆ ทุกที่ที่ลืมตั้ง
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-0}
     networks:
       - shared_network
       - traefik-public

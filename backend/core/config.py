@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # ต้องเป็น mailto: หรือ https: ตามสเปก VAPID (ผู้ให้บริการ push ใช้ติดต่อเจ้าของ)
     VAPID_SUBJECT: str = "mailto:admin@localhost"
 
+    # 🌐 [P6.1] จำนวน reverse proxy ที่เชื่อถือได้หน้า backend — ใช้ตัดสินว่าจะเชื่อ
+    #    `X-Forwarded-For` / `CF-Connecting-IP` หรือไม่ (ดู core/request_context.py)
+    #    0 (ค่าเริ่มต้น) = ไม่เชื่อ header ใด ๆ ⇒ audit ได้ IP ของ Traefik/peer เท่านั้น
+    #    1 = proxy ตัวเดียว (ใช้แค่ X-Forwarded-For) · 2 = Cloudflare + Traefik
+    # 🔴 ห้ามตั้ง > 0 ถ้าพอร์ตของ backend/Traefik ยังเปิดให้ยิงตรงข้าม proxy ได้
+    #    ไม่งั้นใครก็เขียน IP ปลอมลง audit_logs ได้ (แย่กว่าไม่มี IP)
+    TRUSTED_PROXY_HOPS: int = 0
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

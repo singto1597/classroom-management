@@ -5,6 +5,8 @@ import uuid
 import asyncpg
 from typing import Optional, Dict, Any
 
+from core.request_context import current_request_audit_context
+
 # === การปกปิดข้อมูลส่วนบุคคลก่อนลง audit_logs ===
 # **ที่มา:** การตรวจระบบเมื่อ 2026-09-23 พบว่า `auth_service.py` ใช้ `SELECT *`
 # แล้วส่งทั้งแถวเข้า `old_values` ⇒ ข้อมูลสุขภาพ/เบอร์โทร/ที่อยู่ของนักเรียน
@@ -85,11 +87,22 @@ class AuditLogger:
         new_values: Optional[Dict] = None,
         endpoint_or_command: Optional[str] = None,
         ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
         execution_time_ms: Optional[int] = None,
         trace_id: Optional[str] = None
     ):
         # ถ้าไม่มี Trace ID ให้สร้างใหม่
         current_trace_id = trace_id or str(uuid.uuid4())
+
+        # 🌐 [P6.1] เติม IP/UA/endpoint จากบริบทของ request ที่กำลังทำงานอยู่
+        # ⚠️ ค่าที่ผู้เรียกส่งมา **ชนะเสมอ** (`x or ctx.x`) — context เป็นเพียง fallback
+        #    เพื่อไม่ให้ต้องแก้ผู้เรียก 277 จุด (และจุดใหม่ในอนาคตจะได้ฟรี)
+        #    นอก request (worker/cron) context เป็น None ⇒ ค่าคงเป็น None ตามเดิม
+        req_ctx = current_request_audit_context()
+        if req_ctx is not None:
+            ip_address = ip_address or req_ctx.ip_address
+            user_agent = user_agent or req_ctx.user_agent
+            endpoint_or_command = endpoint_or_command or req_ctx.endpoint
 
         # 🔒 ปกปิดข้อมูลส่วนบุคคลก่อนเขียน — ดูคำอธิบายที่ _SENSITIVE_KEYS ด้านบน
         # ทำที่ชั้นนี้ชั้นเดียว จึงคุมได้ทุกผู้เรียกโดยไม่ต้องพึ่งวินัยของแต่ละ service
@@ -100,14 +113,14 @@ class AuditLogger:
             INSERT INTO audit_logs (
                 trace_id, room_id, user_id, actor_identifier, client_source, 
                 service_name, action, entity_type, entity_id, status, 
-                error_detail, old_values, new_values, endpoint_or_command, 
-                ip_address, execution_time_ms
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $15, $16)
-        """, 
+                error_detail, old_values, new_values, endpoint_or_command,
+                ip_address, user_agent, execution_time_ms
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $15, $16, $17)
+        """,
             current_trace_id, room_id, user_id, actor_identifier, client_source,
             self.service_name, action, entity_type, str(entity_id) if entity_id else None,
-            status, error_detail, 
+            status, error_detail,
             json.dumps(old_values, default=str) if old_values else None,
             json.dumps(new_values, default=str) if new_values else None,
-            endpoint_or_command, ip_address, execution_time_ms
+            endpoint_or_command, ip_address, user_agent, execution_time_ms
         )

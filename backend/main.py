@@ -7,6 +7,11 @@ import logging
 from core.config import settings
 from core.init_db import init_db
 from core.migrations import apply_migrations
+from core.request_context import (
+    build_request_audit_context,
+    reset_request_audit_context,
+    set_request_audit_context,
+)
 
 from routers import classroom_sync_router
 from routers import student_router
@@ -98,6 +103,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 🧾 [P6.1] ตั้งบริบท audit (IP จริง / User-Agent / endpoint) ให้ทุกคำขอ
+#    `AuditLogger.log()` อ่านค่าจาก contextvar นี้เอง ⇒ service ทั้ง 40+ ไฟล์
+#    ไม่ต้องแก้แม้แต่บรรทัดเดียว (ค่าที่ service ส่งมาเองยังชนะเสมอ)
+#    ⚠️ ต้องมาก่อน `include_router` ไม่ใช่เพื่อลำดับการทำงาน (Starlette สร้างสแตก
+#       ตอน request แรก) แต่เพื่อให้อ่านไฟล์นี้แล้วเห็นลำดับเหตุผลได้ทันที
+#    ⚠️ `TRUSTED_PROXY_HOPS=0` = ละเลย header ทั้งหมด ⇒ IP ที่ได้คือของ peer (Traefik)
+#       ดูคำเตือนเต็มใน core/request_context.py
+@app.middleware("http")
+async def bind_request_audit_context(request: Request, call_next):
+    ctx = build_request_audit_context(
+        peer_ip=request.client.host if request.client else None,
+        headers=request.headers,
+        method=request.method,
+        path=request.url.path,
+        trusted_hops=settings.TRUSTED_PROXY_HOPS,
+    )
+    token = set_request_audit_context(ctx)
+    try:
+        return await call_next(request)
+    finally:
+        # 🔑 ต้อง reset เสมอ — contextvar ผูกกับ request scope แต่ถ้าไม่ reset
+        # ในกรณีที่มีการ reuse context (TestClient/ASGI server บางตัว) ค่าจะค้าง
+        # ข้ามคำขอ ⇒ audit บันทึก IP ของคนก่อนหน้าให้คนถัดไป
+        reset_request_audit_context(token)
+
 
 app.include_router(auth_router.router)
 app.include_router(room_router.router, prefix="/api/classroom", tags=["Rooms"])
