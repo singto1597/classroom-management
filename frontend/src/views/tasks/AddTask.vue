@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import { todayIso } from '@/utils/datetime'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
-import { UI_COLOR } from '@/constants/theme'
+import FormSuccess from '@/components/ui/FormSuccess.vue'
+import { confirmLeave, useFormDraft, useUnsavedGuard } from '@/composables/useFormDraft'
 
-const router = useRouter()
 const authStore = useAuthStore()
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
@@ -31,6 +31,12 @@ const canManageTasks = computed(
 
 const activeTab = ref<'task' | 'note'>('task')
 const isSubmitting = ref(false)
+const showErrors = ref(false)
+// แตะแล้วแต่ยังไม่กรอก → แสดงข้อความทันที (ปุ่มบันทึกถูก disable ตั้งแต่แรก)
+const touchedName = ref(false)
+const touchedDue = ref(false)
+const touchedNoteDate = ref(false)
+const submitted = ref<{ title: string; hint: string } | null>(null)
 
 const taskForm = reactive({
   task_name: '',
@@ -39,42 +45,104 @@ const taskForm = reactive({
   //    เดิมใช้ getLocalDate() ที่คิดจาก timezone ของเครื่อง (แก้ UTC Bug ได้เฉพาะเครื่อง
   //    ที่ตั้ง TZ เป็นไทย) ⇒ เครื่องที่ตั้ง TZ ตามหลังไทย เช่น UTC-5 เปิดตอนเช้าตามเวลาไทย
   //    จะได้ "เมื่อวาน" ⇒ งานกลายเป็นเลยกำหนดทันทีที่สร้าง
-  //    ใช้ todayIso() จาก utils/period เพื่อให้มีแหล่งความจริงเดียวเรื่องโซนเวลา
-  due_date: todayIso()
+  //    ใช้ todayIso() จาก utils/datetime เพื่อให้มีแหล่งความจริงเดียวเรื่องโซนเวลา
+  due_date: todayIso(),
 })
 
 const noteForm = reactive({
   target_date: todayIso(),
   bring_items: '',
-  announcement: ''
+  announcement: '',
 })
+
+// 📝 ร่างแยกตามแท็บ — สลับแท็บแล้วงานที่พิมพ์ค้างไม่หาย และไม่ปนกัน
+const taskDraft = useFormDraft(
+  taskForm,
+  () => `cls:draft:add-task:${currentRoomId}:task`,
+  () => activeTab.value === 'task' && canManageTasks.value
+)
+const noteDraft = useFormDraft(
+  noteForm,
+  () => `cls:draft:add-task:${currentRoomId}:note`,
+  () => activeTab.value === 'note' && canManageTasks.value
+)
+
+onMounted(() => {
+  taskDraft.restore()
+  noteDraft.restore()
+})
+
+const taskNameError = computed(() => (taskForm.task_name.trim() ? '' : 'กรุณากรอกชื่องาน'))
+const dueDateError = computed(() => (taskForm.due_date ? '' : 'กรุณาเลือกกำหนดส่ง'))
+const noteDateError = computed(() => (noteForm.target_date ? '' : 'กรุณาเลือกวันที่'))
+
+const taskValid = computed(() => !taskNameError.value && !dueDateError.value)
+const noteValid = computed(() => !noteDateError.value)
+
+const isDirty = () => {
+  if (submitted.value) return false
+  if (activeTab.value === 'task') {
+    return (
+      taskForm.task_name.trim() !== '' ||
+      taskForm.task_detail.trim() !== '' ||
+      taskForm.due_date !== todayIso()
+    )
+  }
+  return (
+    noteForm.bring_items.trim() !== '' ||
+    noteForm.announcement.trim() !== '' ||
+    noteForm.target_date !== todayIso()
+  )
+}
+
+useUnsavedGuard(isDirty)
+onBeforeRouteLeave(() => confirmLeave(isDirty))
+
+const resetTask = () => {
+  taskForm.task_name = ''
+  taskForm.task_detail = ''
+  taskForm.due_date = todayIso()
+  showErrors.value = false
+  taskDraft.clear()
+}
+
+const resetNote = () => {
+  noteForm.target_date = todayIso()
+  noteForm.bring_items = ''
+  noteForm.announcement = ''
+  showErrors.value = false
+  noteDraft.clear()
+}
 
 const handleAddTask = async () => {
   if (!canManageTasks.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มงานได้', 'error')
   }
 
-  if (!taskForm.task_name) return
-  isSubmitting.value = true
+  if (!taskValid.value) {
+    showErrors.value = true
+    return
+  }
 
+  isSubmitting.value = true
   try {
     await TaskService.createTask(currentRoomId, {
       ...taskForm,
-      user_name: currentUserName
+      task_name: taskForm.task_name.trim(),
+      task_detail: taskForm.task_detail.trim(),
+      user_name: currentUserName,
     })
-    await Swal.fire({
-      icon: 'success',
-      title: 'เพิ่มงานเรียบร้อยแล้ว!',
-      timer: 1500,
-      showConfirmButton: false,
-      confirmButtonColor: UI_COLOR.brand
-    })
-    router.push('/tasks')
+    // ✅ แสดงผลค้างบนจอ แทน Swal ที่ปิดเองใน 1.5 วิ — ผู้ใช้เลือกได้ว่าจะไปต่อหรือสร้างอีก
+    submitted.value = {
+      title: 'เพิ่มงานเรียบร้อยแล้ว',
+      hint: `"${taskForm.task_name.trim()}" กำหนดส่ง ${taskForm.due_date} — ปรากฏในรายการงานของห้องแล้ว`,
+    }
+    taskDraft.clear()
   } catch (error: unknown) {
     Swal.fire({
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มงานได้'
+      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มงานได้',
     })
   } finally {
     isSubmitting.value = false
@@ -86,27 +154,29 @@ const handleAddNote = async () => {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มประกาศได้', 'error')
   }
 
-  if (!noteForm.target_date) return
-  isSubmitting.value = true
+  if (!noteValid.value) {
+    showErrors.value = true
+    return
+  }
 
+  isSubmitting.value = true
   try {
     await TaskService.createDailyNote(currentRoomId, {
       ...noteForm,
-      user_name: currentUserName
+      bring_items: noteForm.bring_items.trim(),
+      announcement: noteForm.announcement.trim(),
+      user_name: currentUserName,
     })
-    await Swal.fire({
-      icon: 'success',
-      titleText: `บันทึกโน้ตสำหรับวันที่ ${noteForm.target_date} เรียบร้อย!`,
-      timer: 1500,
-      showConfirmButton: false,
-      confirmButtonColor: UI_COLOR.brand
-    })
-    router.push('/tasks')
+    submitted.value = {
+      title: 'บันทึกโน้ตเรียบร้อยแล้ว',
+      hint: `โน้ตสำหรับวันที่ ${noteForm.target_date} ถูกเพิ่มในรายการแล้ว`,
+    }
+    noteDraft.clear()
   } catch (error: unknown) {
     Swal.fire({
       icon: 'error',
       title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มโน้ตได้'
+      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มโน้ตได้',
     })
   } finally {
     isSubmitting.value = false
@@ -116,12 +186,30 @@ const handleAddNote = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="New Entry"
-      title="สร้างรายการใหม่"
-    />
+    <PageHeader eyebrow="New Entry" title="สร้างรายการใหม่" />
 
-    <div class="page-card overflow-hidden">
+    <!-- ✅ ผลลัพธ์ค้างบนจอ พร้อมทางไปต่อ -->
+    <FormSuccess v-if="submitted" :title="submitted.title" :hint="submitted.hint">
+      <RouterLink to="/tasks" class="btn-primary">
+        <i class="bi bi-list-ul" aria-hidden="true" /> ดูรายการงาน
+      </RouterLink>
+      <button
+        type="button"
+        class="btn-ghost-ui"
+        @click="
+          () => {
+            submitted = null
+            if (activeTab === 'task') resetTask()
+            else resetNote()
+          }
+        "
+      >
+        <i class="bi bi-plus-lg" aria-hidden="true" />
+        {{ activeTab === 'task' ? 'สร้างงานอีก' : 'บันทึกโน้ตอีก' }}
+      </button>
+    </FormSuccess>
+
+    <div v-else class="page-card overflow-hidden">
       <!-- สลับฟอร์ม: งาน / โน้ต -->
       <div class="border-b border-stone-100 p-1.5">
         <div class="flex items-center gap-1">
@@ -161,8 +249,13 @@ const handleAddNote = async () => {
               type="text"
               class="field"
               placeholder="เช่น การบ้านคณิตศาสตร์ หน้า 45"
-              required
+              :aria-invalid="(showErrors || touchedName) && !!taskNameError"
+              :aria-describedby="(showErrors || touchedName) && taskNameError ? 'taskNameError' : undefined"
+              @blur="touchedName = true"
             />
+            <p v-if="(showErrors || touchedName) && taskNameError" id="taskNameError" class="mt-1 text-xs font-bold text-danger-600">
+              {{ taskNameError }}
+            </p>
           </div>
 
           <div>
@@ -186,14 +279,19 @@ const handleAddNote = async () => {
               v-model="taskForm.due_date"
               type="date"
               class="field"
-              required
+              :aria-invalid="(showErrors || touchedDue) && !!dueDateError"
+              :aria-describedby="(showErrors || touchedDue) && dueDateError ? 'taskDueDateError' : undefined"
+              @blur="touchedDue = true"
             />
+            <p v-if="(showErrors || touchedDue) && dueDateError" id="taskDueDateError" class="mt-1 text-xs font-bold text-danger-600">
+              {{ dueDateError }}
+            </p>
           </div>
 
           <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
               <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
-              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting || !taskValid">
                 <span
                   v-if="isSubmitting"
                   class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
@@ -222,8 +320,13 @@ const handleAddNote = async () => {
               v-model="noteForm.target_date"
               type="date"
               class="field"
-              required
+              :aria-invalid="(showErrors || touchedNoteDate) && !!noteDateError"
+              :aria-describedby="(showErrors || touchedNoteDate) && noteDateError ? 'noteDateError' : undefined"
+              @blur="touchedNoteDate = true"
             />
+            <p v-if="(showErrors || touchedNoteDate) && noteDateError" id="noteDateError" class="mt-1 text-xs font-bold text-danger-600">
+              {{ noteDateError }}
+            </p>
           </div>
 
           <div>
@@ -252,7 +355,7 @@ const handleAddNote = async () => {
           <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
               <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
-              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
+              <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting || !noteValid">
                 <span
                   v-if="isSubmitting"
                   class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
