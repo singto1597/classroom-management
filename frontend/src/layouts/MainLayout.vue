@@ -9,6 +9,7 @@
  * ⚠️ `fullscreen`/`headerHidden` มาจาก `route.meta` (router/meta.ts) — หน้าลูก
  *    ห้ามซ่อน header ด้วย CSS เอง เพราะจะเหลือที่ว่างและปุ่มย้อนค้าง
  */
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import { useAppShell } from './shell/useAppShell';
 import { useProfileDialogs } from './shell/useProfileDialogs';
@@ -18,10 +19,39 @@ import AppBottomNav from './shell/AppBottomNav.vue';
 import AppMoreSheet from './shell/AppMoreSheet.vue';
 import AppMenus from './shell/AppMenus.vue';
 import InstallPrompt from '@/components/pwa/InstallPrompt.vue';
+import NotificationCenter from '@/components/notifications/NotificationCenter.vue';
+import { useNotificationStore } from '@/stores/notifications';
 
 const route = useRoute();
 const shell = useAppShell();
 const profile = useProfileDialogs();
+const notifications = useNotificationStore();
+
+const isNotificationCenterOpen = ref(false);
+const openNotificationCenter = () => {
+  closeOverlays();
+  isNotificationCenterOpen.value = true;
+};
+
+/**
+ * 🔔 สตรีมแจ้งเตือนมีชีวิตเท่าที่เปลือกแอปมีชีวิต
+ *
+ * store จัดการ "สลับห้อง" เองผ่าน `watch(roomId)` — ที่นี่รับผิดชอบแค่
+ * เริ่มเมื่อเข้าเปลือกแอป และหยุดเมื่อออก (เช่น ไปหน้า lobby) เพื่อไม่ถือ connection ค้าง
+ * ⚠️ เบราว์เซอร์มือถือตัด connection ตอนอยู่เบื้องหลัง ⇒ ฟัง `visibilitychange`
+ */
+onMounted(() => {
+  // ดึงตัวเลขบนกระดิ่งทันที ไม่รอ `event: ready` — ถ้าสตรีมต่อไม่ได้
+  // (เน็ตหลุด/พร็อกซีบล็อก SSE) ผู้ใช้ยังต้องเห็นจำนวนที่ค้างอยู่
+  void notifications.load();
+  notifications.startStream();
+  document.addEventListener('visibilitychange', notifications.handleVisibility);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', notifications.handleVisibility);
+  notifications.stopStream();
+});
 
 const closeOverlays = () => {
   shell.closeDropdowns();
@@ -66,8 +96,11 @@ const openAccountInfo = () => {
         :role-label="shell.authStore.currentRoleLabel"
         :avatar-char="shell.avatarChar.value"
         :active-dropdown="shell.activeDropdown.value"
+        :unread-count="notifications.unreadCount"
+        :notifications-open="isNotificationCenterOpen"
         @change-room="shell.handleChangeRoom"
         @toggle-dropdown="shell.toggleDropdown"
+        @open-notifications="openNotificationCenter"
       />
 
       <!-- เนื้อหา — scroll เกิดที่นี่ที่เดียว -->
@@ -109,6 +142,12 @@ const openAccountInfo = () => {
         @logout="shell.logout"
       />
     </template>
+
+    <!-- 🔔 แผงแจ้งเตือน — Teleport ไป body เอง (z-index ชนะ layout) -->
+    <NotificationCenter
+      :open="isNotificationCenterOpen"
+      @close="isNotificationCenterOpen = false"
+    />
 
     <AppMenus
       :which="shell.activeDropdown.value"

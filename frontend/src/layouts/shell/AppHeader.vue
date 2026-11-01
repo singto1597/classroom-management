@@ -7,6 +7,7 @@
  */
 import { computed } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import NotificationBell from '@/components/notifications/NotificationBell.vue';
 import type { ShellMenu } from './useAppShell';
 
 defineProps<{
@@ -17,11 +18,16 @@ defineProps<{
   roleLabel: string;
   avatarChar: string;
   activeDropdown: ShellMenu | null;
+  /** ตัวเลขยังไม่อ่านจาก store (backend เป็นเจ้าของตัวเลข) */
+  unreadCount: number;
+  /** แผงแจ้งเตือนเปิดอยู่หรือไม่ — ใช้ทำ `aria-expanded` */
+  notificationsOpen: boolean;
 }>();
 
 const emit = defineEmits<{
   changeRoom: [];
   toggleDropdown: [event: MouseEvent, menu: ShellMenu];
+  openNotifications: [];
 }>();
 
 const route = useRoute();
@@ -96,8 +102,16 @@ const goBack = () => {
         </div>
       </div>
 
-      <!-- ขวา: โปรไฟล์ -->
+      <!-- ขวา: กระดิ่ง + โปรไฟล์ -->
       <div class="flex shrink-0 items-center gap-2">
+        <!-- 🔔 มีห้องที่กำลังเปิดอยู่เท่านั้น — ยังไม่มีห้อง = ไม่มีอะไรให้แจ้ง -->
+        <NotificationBell
+          v-if="roomId"
+          :unread-count="unreadCount"
+          :expanded="notificationsOpen"
+          @open="emit('openNotifications')"
+        />
+
         <button
           type="button"
           class="flex items-center rounded-full border border-stone-200 bg-white p-1 transition-colors hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 sm:pe-3.5"

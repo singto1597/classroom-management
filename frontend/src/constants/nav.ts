@@ -39,7 +39,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
   { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
-  { name: 'ประกาศ Discord', path: '/messages', icon: 'bi-megaphone' },
+  // 📢 P2.6 — "ประกาศ" คือรายการที่อ่านได้ทุกคน (เดิมเมนูชี้ไปหน้าเขียนอย่างเดียว)
+  // ปุ่ม "ส่งประกาศ" อยู่ในหน้ารายการ ไม่ต้องมีเมนูที่สอง
+  { name: 'ประกาศ', path: '/announcements', icon: 'bi-megaphone' },
+  { name: 'ตั้งค่าการแจ้งเตือน', path: '/settings/notifications', icon: 'bi-bell' },
   { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
 ];
 
@@ -146,7 +149,12 @@ export const routeTitles = {
   'manage-activity': 'จัดการผู้เข้าร่วม',
   'activity-detail': 'รายละเอียดกิจกรรม',
 
+  // ── ประกาศ & แจ้งเตือน ─────────────────────────────────────────────────
+  announcements: 'ประกาศ',
+  'announcement-detail': 'รายละเอียดประกาศ',
+  'notification-settings': 'ตั้งค่าการแจ้งเตือน',
+
   // ── อื่น ๆ ──────────────────────────────────────────────────────────────
   DiscordConnect: 'เชื่อมต่อ Discord',
-  'send-message': 'ประกาศ',
+  'send-message': 'ส่งประกาศ',
 } as const satisfies Readonly<Record<string, string>>;
