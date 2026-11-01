@@ -10,6 +10,7 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
+import { formatThaiDate, relativeThaiDay } from '@/utils/datetime'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -149,15 +150,9 @@ const getTags = (activity: Activity): string[] => {
 }
 
 // 🗓️ วันที่ YYYY-MM-DD → ไทย (15 ตุลาคม 2569) + แสดงสถานะวันนี้/พรุ่งนี้
-const formatDate = (dateStr: string) => {
+const formatDate = (dateStr: string): string => {
   if (!dateStr) return '-'
-  const date = new Date(dateStr + 'T00:00:00')
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const diff = Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-  if (diff === 0) return 'วันนี้'
-  if (diff === 1) return 'พรุ่งนี้'
-  return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
+  return relativeThaiDay(dateStr) ?? formatThaiDate(dateStr, 'long')
 }
 
 const openActivity = (activity: Activity) => {

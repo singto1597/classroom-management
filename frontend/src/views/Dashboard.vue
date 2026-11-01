@@ -9,6 +9,7 @@ import { TaskService } from '@/services/task';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
+import { bangkokHour } from '@/utils/datetime'
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -17,9 +18,9 @@ const authStore = useAuthStore();
 const userName = computed(() => authStore.currentUserName || 'ผู้ใช้งาน');
 // ⏰ ทักทายตามช่วงเวลาไทย (UTC+7 คงที่ ไม่มี DST) — เปลี่ยนแค่ถ้อยคำบนหัวหน้า ไม่ใช่ข้อมูล
 const greeting = computed(() => {
-  const bangkokHour = new Date(Date.now() + 7 * 60 * 60 * 1000).getUTCHours();
-  if (bangkokHour < 12) return 'สวัสดีตอนเช้า';
-  if (bangkokHour < 17) return 'สวัสดีตอนบ่าย';
+  const hour = bangkokHour();
+  if (hour < 12) return 'สวัสดีตอนเช้า';
+  if (hour < 17) return 'สวัสดีตอนบ่าย';
   return 'สวัสดีตอนเย็น';
 });
 const greetingTitle = computed(() => `${greeting.value}, ${userName.value}`);

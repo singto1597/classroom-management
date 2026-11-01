@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import type { Student, PendingStudentRequest } from '@/types/student';
 import { displayName } from '@/utils/name';
+import { avatarInitial } from '@/utils/avatar';
+import { formatThaiDateTime } from '@/utils/datetime';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -489,7 +491,7 @@ const rejectJoin = async (studentNo: number) => {
                 class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 font-display text-base font-bold text-brand-700"
                 aria-hidden="true"
               >
-                {{ displayName(student).charAt(0) || '?' }}
+                {{ avatarInitial(displayName(student)) }}
               </div>
 
               <div class="min-w-0 flex-1">
@@ -645,7 +647,7 @@ const rejectJoin = async (studentNo: number) => {
                     {{ displayName(req) }}
                   </p>
                   <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
-                    <i class="bi bi-clock text-stone-400" aria-hidden="true"></i> ขอเข้าร่วมเมื่อ {{ new Date(req.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) }}
+                    <i class="bi bi-clock text-stone-400" aria-hidden="true"></i> ขอเข้าร่วมเมื่อ {{ formatThaiDateTime(req.created_at) }}
                   </p>
                 </template>
               </div>

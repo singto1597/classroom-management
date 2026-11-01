@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 238 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 239 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -242,6 +242,7 @@
 - [🔢 เลขเวอร์ชันถูกเขียนไว้ 5 ที่ — ถ้าไม่มีด่าน มันจะเพี้ยนภายในสองงาน](#เลขเวอร์ชันถูกเขียนไว้-5-ที่-ถ้าไม่มีด่าน-มันจะเพี้ยนภายในสองงาน)
 - [🧪 `monkeypatch.setattr(app.state, …)` พังตอน teardown บน pytest 9 — และ CI ที่ `pip install pytest` ไม่ pin จะเปลี่ยนใต้เท้าคุณเอง](#monkeypatchsetattrappstate-พังตอน-teardown-บน-pytest-9-และ-ci-ที่-pip-install-pytest-ไม่-pin-จะเปลี่ยนใต้เท้าคุณเอง)
 - [🚀 สคริปต์ deploy ที่ `git reset --hard` ตัวเอง จะรัน “สำเนาเก่า” ต่อจนจบ — และ rebuild image ด้วย tag เดิมไม่ทำให้ Swarm recreate task](#สคริปต์-deploy-ที่-git-reset---hard-ตัวเอง-จะรัน-สำเนาเก่า-ต่อจนจบ-และ-rebuild-image-ด้วย-tag-เดิมไม่ทำให้-swarm-recreate-task)
+- [🗓️ วันที่ date-only กับ timestamp ต้องใช้ตัวจัดรูปคนละตัว — และอักษรย่อไทยต้องข้ามสระนำ](#วันที่-date-only-กับ-timestamp-ต้องใช้ตัวจัดรูปคนละตัว-และอักษรย่อไทยต้องข้ามสระนำ)
 
 <!-- TOC:END -->
 
@@ -3673,3 +3674,14 @@
 - **Rule:** (1) 🔴 **ห้าม `git reset/checkout` repo ที่สคริปต์กำลังรันอยู่** — รันสคริปต์ที่อัปเดตแล้วจาก checkout ใหม่แทน (2) 🔴 **image tag เดิม ≠ deploy ใหม่** — Swarm เทียบ spec ไม่เทียบ digest (3) ⚠️ `git_sha` เป็นค่าเดียวที่พิสูจน์ได้ว่า “ภาพที่รันอยู่คือ commit ที่คิดหรือเปล่า” — ถ้าเป็น `unknown` ให้ถือว่า deploy ยังไม่สำเร็จ
 - **Tests:** `curl -s https://<api>/api/version` → `git_sha` = `git rev-parse --short HEAD` ของ checkout · `docker ps -q -f name=<stack>_app_backend | xargs docker inspect --format '{{json .Config.Env}}' | grep -c 'GIT_SHA=<sha>'` = จำนวน replica
 - **Date Added:** 2026-10-31
+
+### 🗓️ วันที่ date-only กับ timestamp ต้องใช้ตัวจัดรูปคนละตัว — และอักษรย่อไทยต้องข้ามสระนำ
+- **Context/Problem:** `toLocaleDateString('th-TH', …)` ถูกเขียนซ้ำใน 10 กว่าวิว บางที่ลืม `timeZone: 'Asia/Bangkok'` และบางที่เอา `formatThaiDate()` (ซึ่งตัด 10 ตัวแรกของ ISO) ไปใช้กับ `created_at`/`issued_at` ที่เป็น timestamp ⇒ ใบเสร็จที่ออก 18:30 UTC แสดงเป็นวันก่อนหน้า · avatar ของชื่อไทยขึ้นเป็นสระนำ ("เก่ง" → "เ", "โอม" → "โ", "ใหม่" → "ไ") เพราะใช้ `charAt(0)`
+- **Root Cause:** วันที่ในระบบมีสองชนิดที่หน้าตาคล้ายกันแต่ความหมายต่างกัน — `YYYY-MM-DD` (date-only, ไม่มีโซน) กับ ISO timestamp ที่มี `Z`/offset (จุดเวลาสัมบูรณ์) การใช้ `new Date()` กับชนิดแรกทำให้ UTC ดันวันข้าม และการใช้ตัวตัดสตริงกับชนิดที่สองก็ตัดวันที่ UTC ออกมา · อีกด้านหนึ่ง `charAt(0)` มองภาษาไทยเป็นลำดับรหัสตัวอักษร ไม่ใช่หน่วยเสียง — สระนำจึงถูกเลือกก่อนพยัญชนะต้นเสมอ
+- **Correct Pattern/Solution:**
+  - `src/utils/datetime.ts` เป็นแหล่งเดียว: `formatThaiDate(iso, 'short'|'long')` สำหรับ date-only (อ่าน `slice(0,10)` ไม่ผ่าน Date) · `formatThaiDateTime()` / `formatThaiTime()` / `formatThaiDateTimeParts()` สำหรับ timestamp (ผ่าน `new Date(iso)` + `timeZone: BANGKOK_TZ`) · `todayIso()` / `bangkokHour()` / `daysFromThaiToday()` / `relativeThaiDay()` สำหรับ "วันนี้" ตามเวลาไทย
+  - `src/utils/avatar.ts` → `avatarInitial(name, fallback)` ข้ามสระนำ `เ แ โ ใ ไ` และ combining marks, ชื่อละตินทำเป็นตัวพิมพ์ใหญ่; ใช้ร่วมกันใน StudentList / StudentProfile / useAppShell / GlobalLayout
+  - view ห้ามเรียก `toLocaleDateString` / `toLocaleTimeString` ตรง ๆ อีก — ถ้าต้องการรูปแบบใหม่ ให้เพิ่มฟังก์ชันใน `datetime.ts` แล้วมีเทสต์ล็อกโซนเวลา
+- **Rule:** (1) 🔴 **date-only → `formatThaiDate`; timestamp → `formatThaiDateTime`** ห้ามใช้ข้ามกัน (2) 🔴 **ห้าม `charAt(0)` กับชื่อไทย** — ใช้ `avatarInitial` (3) ⚠️ "วันนี้" ของระบบคือ `todayIso()` ไม่ใช่ `new Date().toDateString()` ของอุปกรณ์
+- **Tests:** `src/utils/__tests__/datetime.spec.ts` (UTC ข้ามวัน/ข้ามเดือน, fake timer ของ `bangkokHour`/`daysFromThaiToday`) · `avatar.spec.ts` (เก่ง→ก, โอม→อ, ใหม่→ห, แอน→อ, Aomsin→A, ค่าว่าง→fallback) · `grep -rn "toLocaleDateString" frontend/src/views` → ไม่เหลือ
+- **Date Added:** 2026-11-01

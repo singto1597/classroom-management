@@ -4,6 +4,7 @@ import { RouterView, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
 import { PROVIDER_COLOR, UI_COLOR } from '@/constants/theme'
+import { avatarInitial } from '@/utils/avatar'
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -62,7 +63,7 @@ const toggleDropdown = (event: MouseEvent) => {
 
 const avatarChar = () => {
   const name = authStore.nickname || authStore.firstName;
-  return name && name !== 'ไม่ระบุชื่อ' ? name.charAt(0).toUpperCase() : 'ส';
+  return avatarInitial(name === 'ไม่ระบุชื่อ' ? '' : name, 'ส');
 };
 
 const logout = () => {

@@ -6,6 +6,7 @@ import { FinanceService } from '@/services/finance'
 import type { CollectionStatus, Account, StudentPaymentDetail } from '@/types/finance'
 import { displayName } from '@/utils/name'
 import { escapeHtml } from '@/utils/html'
+import { formatThaiDateTime } from '@/utils/datetime'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
 import Swal from 'sweetalert2'
 
@@ -359,21 +360,6 @@ const showIssued = (receiptNo: string, reused: boolean, allowOpen: boolean) => {
   })
 }
 
-const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return (
-    date.toLocaleString('th-TH', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'Asia/Bangkok',
-    }) + ' น.'
-  )
-}
-
 onMounted(() => {
   fetchDetail()
 })
@@ -494,7 +480,7 @@ onMounted(() => {
                 จ่ายครบแล้ว
               </span>
               <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-400">
-                <i class="bi bi-clock" aria-hidden="true"></i> {{ formatDate(s.paid_at) }}
+                <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
               </small>
             </div>
             <div v-else-if="s.paid_amount > 0" class="flex shrink-0 flex-col items-end gap-1">
@@ -599,7 +585,7 @@ onMounted(() => {
                       จ่ายครบแล้ว
                     </span>
                     <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-400">
-                      <i class="bi bi-clock" aria-hidden="true"></i> {{ formatDate(s.paid_at) }}
+                      <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
                     </small>
                   </div>
                   <div v-else-if="s.paid_amount > 0" class="flex flex-col items-start gap-1">

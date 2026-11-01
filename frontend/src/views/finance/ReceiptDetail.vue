@@ -24,7 +24,7 @@ import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { downloadBlob } from '@/utils/download';
-import { formatThaiDate, formatThaiDateTime } from '@/utils/period';
+import { formatThaiDate, formatThaiDateTime } from '@/utils/datetime';
 import { voucherChannel as voucherChannelOf } from '@/utils/voucherChannel';
 import type { ReceiptDetail } from '@/types/finance';
 

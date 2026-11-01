@@ -11,22 +11,7 @@
  * และกันไม่ให้เกิดรูปที่สี่ขึ้นมาในโค้ดด้วย type (ดู RangeCapablePeriod / AsOfCapablePeriod)
  */
 
-export const BANGKOK_TZ = 'Asia/Bangkok';
-
-export const THAI_MONTHS = [
-  'มกราคม',
-  'กุมภาพันธ์',
-  'มีนาคม',
-  'เมษายน',
-  'พฤษภาคม',
-  'มิถุนายน',
-  'กรกฎาคม',
-  'สิงหาคม',
-  'กันยายน',
-  'ตุลาคม',
-  'พฤศจิกายน',
-  'ธันวาคม',
-] as const;
+import { formatThaiDate, formatThaiMonthYear, todayIso } from '@/utils/datetime';
 
 export type PeriodMode = 'month' | 'range' | 'asof';
 
@@ -54,10 +39,6 @@ const parseIso = (iso: string): { y: number; m: number; d: number } | null => {
   if (!y || !m || !d || parts.length !== 3) return null;
   return { y, m, d };
 };
-
-/** วันที่วันนี้ตามเวลาไทย (YYYY-MM-DD) — 'en-CA' ให้รูป ISO ตรง ๆ */
-export const todayIso = (): string =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: BANGKOK_TZ }).format(new Date());
 
 /**
  * ปี/เดือนของ "วันนี้" ตามเวลาไทย — **ที่เดียว** ที่อนุญาตให้ตอบว่า "ตอนนี้เดือนอะไร"
@@ -98,71 +79,6 @@ export const toRange = (p: RangeCapablePeriod): { startDate: string; endDate: st
 /** → `as_of_date` สำหรับงบทดลอง/งบดุล (endDate ของช่วงคือ "ณ วันนั้น") */
 export const toAsOf = (p: AsOfCapablePeriod): string =>
   p.mode === 'month' ? lastDayOfMonth(p.year, p.month) : p.asOfDate;
-
-/** วันที่แบบไทย (พ.ศ. อัตโนมัติจาก locale th-TH) */
-export const formatThaiDate = (iso?: string | null): string => {
-  if (!iso) return '—';
-  const parsed = parseIso(iso);
-  if (!parsed) return iso;
-  // ประกอบ Date จากชิ้นส่วน local ตรง ๆ — ถ้าปล่อยให้ parse ISO จะกลายเป็น UTC แล้ว +07:00 อาจดันข้ามวัน
-  return new Date(parsed.y, parsed.m - 1, parsed.d).toLocaleDateString('th-TH', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-};
-
-/**
- * วัน **และเวลา** แบบไทย — ใช้กับ timestamp จริง (เช่น `issued_at` ของใบเสร็จ)
- *
- * ⚠️ ห้ามใช้ `formatThaiDate` กับ timestamp: มันตัดเอาแค่ส่วนวันที่ของสตริง ISO
- *    ซึ่งเป็น **วันที่แบบ UTC** — ใบเสร็จที่ออก 18:30 UTC คือ 01:30 ของ **วันรุ่งขึ้น** ในไทย
- *    แล้วผู้ใช้จะเห็นวันที่ไม่ตรงกับวันที่บนเอกสาร และไม่ตรงกับตัวกรองช่วงวันที่ของตัวเอง
- *    (backend กรองด้วยวันไทย ⇒ เอกสารโผล่ในวันที่ 14 แต่จอแสดงว่า 13)
- *
- * ทำงานถูกเพราะ `new Date(iso)` บนสตริงที่มี offset/Z ได้ "จุดเวลาสัมบูรณ์"
- * แล้วค่อยจัดรูปในโซนไทย — ค่าที่ backend ส่งมาเป็น tz-aware เสมอ (Pydantic v2 เขียน UTC เป็น `Z`)
- */
-export const formatThaiDateTime = (iso?: string | null): string => {
-  if (!iso) return '—';
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return iso;
-  return `${parsed.toLocaleString('th-TH', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: BANGKOK_TZ,
-  })} น.`;
-};
-
-/**
- * เวลาแบบไทย (ชม.:นาที) จาก timestamp จริง — ใช้กับเวลาที่เป็น **หลักฐาน**
- * เช่น เวลาเช็คอินบนใบยืนยันชั่วโมงจิตอาสา
- *
- * ⚠️ รับได้เฉพาะ timestamp จริง (มี `Z`/offset) — ถ้าส่งสตริงวันที่ล้วน (`YYYY-MM-DD`)
- *    เข้ามันจะกลายเป็นเที่ยงคืน UTC แล้วจัดรูปเป็น 07:00 ซึ่งไม่มีความหมาย
- *
- * 🔑 แยกออกมาเป็นฟังก์ชัน (เดิมเขียน `toLocaleTimeString` ตรง ๆ ในเทมเพลต) เพราะ
- *    **การไม่ระบุ `timeZone` = ใช้โซนของอุปกรณ์ผู้ใช้** ⇒ แท็บเล็ต/มือถือที่ตั้ง TZ
- *    ไม่ใช่ไทยจะโชว์เวลาเช็คอินคลาดเคลื่อนได้หลายชั่วโมง บนเอกสารที่ครูใช้ยืนยัน
- *    ชั่วโมงจิตอาสา ⇒ ต้องเป็นโซนไทยเสมอตามกฎของโปรเจกต์
- */
-export const formatThaiTime = (iso?: string | null): string => {
-  if (!iso) return '—';
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return iso;
-  return parsed.toLocaleTimeString('th-TH', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: BANGKOK_TZ,
-  });
-};
-
-/** เดือน + ปี พ.ศ. เช่น "กันยายน 2569" */
-export const formatThaiMonthYear = (year: number, month: number): string =>
-  `${THAI_MONTHS[month - 1] ?? month} ${year + 543}`;
 
 /** คำอธิบายช่วงเวลาสำหรับหัวการ์ด — ต้องบอกได้ว่ากำลังดูอะไรอยู่ */
 export const describePeriod = (p: PeriodValue): string => {

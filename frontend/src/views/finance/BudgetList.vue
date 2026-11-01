@@ -27,9 +27,9 @@ import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
+import { formatThaiDate } from '@/utils/datetime';
 import {
   describePeriod,
-  formatThaiDate,
   isRangeReversed,
   toRange,
   todayThaiYearMonth,

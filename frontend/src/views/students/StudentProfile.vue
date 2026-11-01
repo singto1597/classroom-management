@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import StudentService from '@/services/student'
 import type { Student } from '@/types/student'
 import { displayName } from '@/utils/name'
+import { avatarInitial } from '@/utils/avatar'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
@@ -174,7 +175,7 @@ onMounted(() => {
               class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand-50 font-display text-xl font-bold text-brand-700 sm:h-16 sm:w-16 sm:text-2xl"
               aria-hidden="true"
             >
-              {{ displayName(student).charAt(0) || '?' }}
+              {{ avatarInitial(displayName(student)) }}
             </div>
 
             <div class="min-w-0 flex-1">

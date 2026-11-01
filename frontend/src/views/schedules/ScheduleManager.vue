@@ -3,7 +3,7 @@ import { ref, reactive, computed } from 'vue'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { ScheduleService } from '@/services/schedule'
-import { todayIso } from '@/utils/period'
+import { todayIso } from '@/utils/datetime'
 import Swal from 'sweetalert2'
 import PageHeader from '@/components/ui/PageHeader.vue'
 

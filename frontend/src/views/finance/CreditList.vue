@@ -39,6 +39,7 @@ import type {
 import { escapeHtml } from '@/utils/html'
 import { createLatestGuard } from '@/utils/latest'
 import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
+import { formatThaiDateTime } from '@/utils/datetime'
 import Swal from 'sweetalert2'
 
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -423,21 +424,6 @@ const entryChipClass = (type: string): string => {
   if (type === 'topup') return 'bg-ok-50 text-ok-700'
   if (type === 'apply') return 'bg-warn-50 text-warn-700'
   return 'bg-stone-100 text-stone-600'
-}
-
-/** 🗓️ วันเวลาไทยแบบสั้น — `created_at` มี timezone มาจาก backend ⇒ Date แปลงให้เอง */
-const formatDateTime = (iso: string | null): string => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    day: 'numeric',
-    month: 'short',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 onMounted(() => {
@@ -950,7 +936,7 @@ onMounted(() => {
                   <span class="chip shrink-0" :class="entryChipClass(e.entry_type)">
                     {{ e.entry_type_label ?? e.entry_type }}
                   </span>
-                  <span class="text-[11px] text-stone-400">{{ formatDateTime(e.created_at) }}</span>
+                  <span class="text-[11px] text-stone-400">{{ formatThaiDateTime(e.created_at) }}</span>
                 </div>
                 <p class="mt-1 min-w-0 truncate text-[12px] text-stone-600">
                   <template v-if="e.collection_title">{{ e.collection_title }}</template>
