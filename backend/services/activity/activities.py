@@ -23,6 +23,7 @@ from core.privacy import can_view_activity_pii, mask_private_fields, PROFILE_TYP
 from services.action_service import ActionService
 from .base import service_logger
 from .capacity import plan_seats
+from .constants import normalize_category, validate_registration_deadline
 
 
 class ActivitiesMixin:
@@ -44,6 +45,8 @@ class ActivitiesMixin:
         metadata: Optional[dict] = None,
         participants: Optional[List[dict]] = None,
         capacity: Optional[int] = None,
+        category: Optional[str] = None,
+        registration_deadline: Optional[date] = None,
     ) -> dict:
         """
         สร้างกิจกรรม + ผู้เข้าร่วมหลายคนพร้อมกัน (executemany ภายใน transaction เดียว)
@@ -68,15 +71,20 @@ class ActivitiesMixin:
                     if "dynamic_fields" in meta:
                         cls._validate_dynamic_fields(meta.get("dynamic_fields"))
 
+                    # 🏷️ P4.3 — หมวดต้องอยู่ในชุดที่รู้จัก + วันปิดรับต้องไม่หลังวันจัด
+                    category = normalize_category(category)
+                    validate_registration_deadline(registration_deadline, activity_date)
+
                     activity_id = await conn.fetchval(
                         """
                         INSERT INTO activities
-                            (room_id, title, description, activity_date, base_hours, status, capacity, metadata, created_by)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                            (room_id, title, description, activity_date, base_hours, status, capacity,
+                             category, registration_deadline, metadata, created_by)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
                         RETURNING id
                         """,
                         target_room_id, title, description, activity_date, base_hours, status,
-                        capacity, json.dumps(meta), user_name,
+                        capacity, category, registration_deadline, json.dumps(meta), user_name,
                     )
 
                     new_values = {
@@ -86,6 +94,8 @@ class ActivitiesMixin:
                         "base_hours": float(base_hours),
                         "status": status,
                         "capacity": capacity,
+                        "category": category,
+                        "registration_deadline": str(registration_deadline) if registration_deadline else None,
                         "metadata": meta,
                         "created_by": user_name,
                     }
@@ -170,6 +180,7 @@ class ActivitiesMixin:
         user_id: Optional[int] = None,
         status: Optional[str] = None,
         include_participants: bool = False,
+        category: Optional[str] = None,
     ) -> List[dict]:
         start_time = time.time()
         target_room_id = None
@@ -179,10 +190,15 @@ class ActivitiesMixin:
                 if user_id is not None:
                     await require_member(conn, target_room_id, user_id)
 
+                # 🏷️ P4.3 — กรองหมวด: ค่าที่ไม่รู้จัก = 400 (ไม่ใช่ลิสต์ว่าง ที่ทำให้ผู้ใช้คิดว่าห้องไม่มีกิจกรรม)
+                category = normalize_category(category)
+
                 # 🪑 P4.1 — นับที่นั่ง/คิวในคำสั่งเดียว (ลิสต์ไม่ต้องดึงผู้เข้าร่วมทั้งหมด)
                 base_sql = (
                     "SELECT a.id, a.room_id, a.title, a.description, a.activity_date, a.base_hours, "
-                    "a.capacity, a.status, a.metadata, a.created_by, a.created_at, a.updated_at, "
+                    "a.capacity, a.status, a.metadata, a.category, a.registration_deadline, "
+                    "(a.share_token IS NOT NULL) AS has_share_link, "
+                    "a.created_by, a.created_at, a.updated_at, "
                     "(SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id "
                     " AND ap.deleted_at IS NULL AND ap.status IN ('confirmed', 'attended')) AS confirmed_count, "
                     "(SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id "
@@ -193,6 +209,9 @@ class ActivitiesMixin:
                 if status:
                     base_sql += " AND a.status = $" + str(len(params) + 1)
                     params.append(status)
+                if category:
+                    base_sql += " AND a.category = $" + str(len(params) + 1)
+                    params.append(category)
                 base_sql += " ORDER BY a.activity_date ASC, a.id DESC"
 
                 rows = await conn.fetch(base_sql, *params)
@@ -219,7 +238,8 @@ class ActivitiesMixin:
                     conn=conn, action="VIEW", actor_identifier=actor_identifier,
                     client_source=client_source, room_id=target_room_id,
                     entity_type="ACTIVITY_LIST", status="success",
-                    new_values={"status": status}, endpoint_or_command="list_activities", execution_time_ms=exec_time,
+                    new_values={"status": status, "category": category},
+                    endpoint_or_command="list_activities", execution_time_ms=exec_time,
                 )
                 return activities
         except Exception as e:
@@ -306,6 +326,11 @@ class ActivitiesMixin:
         old_values: dict = {}
         try:
             clean = {k: v for k, v in update_data.items() if v is not None}
+            # 🧹 P4.3 — สองฟิลด์นี้ "ส่ง null มาตรง ๆ = ล้างค่า" (capacity ใช้ 0 เพราะ NULL = ไม่จำกัด
+            #    ส่วนหมวด/วันปิดรับไม่มีค่าพิเศษที่แทน "ไม่มี" ได้ ⇒ NULL คือคำสั่งล้างเอง)
+            for nullable_key in ("category", "registration_deadline"):
+                if nullable_key in update_data and update_data[nullable_key] is None:
+                    clean[nullable_key] = None
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
@@ -333,10 +358,19 @@ class ActivitiesMixin:
                             cls._validate_dynamic_fields(merged.get("dynamic_fields"))
 
                     allowed = {"title", "description", "activity_date", "base_hours", "status",
-                               "capacity", "metadata"}
+                               "capacity", "metadata", "category", "registration_deadline"}
                     fields = {k: v for k, v in clean.items() if k in allowed}
                     if not fields and participants is None:
                         raise ValidationError("ไม่มีฟิลด์ที่แก้ไขได้ถูกส่งมา")
+
+                    # 🏷️ P4.3 — ตรวจกับค่า "หลังแก้" ทั้งชุด (ย้ายวันจัดพร้อมกันต้องเทียบกับวันใหม่)
+                    if "category" in fields:
+                        fields["category"] = normalize_category(fields["category"])
+                    if "registration_deadline" in fields:
+                        validate_registration_deadline(
+                            fields["registration_deadline"],
+                            fields.get("activity_date", old["activity_date"]),
+                        )
 
                     # 🪑 P4.1 — capacity: 0 = ยกเลิกเพดาน (NULL) · ห้ามต่ำกว่าคนที่ยืนยันแล้ว
                     if "capacity" in fields:

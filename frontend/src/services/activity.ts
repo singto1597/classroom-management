@@ -11,6 +11,9 @@ import type {
   CheckinRecordInput,
   AvailableStudent,
   ActivityCompare,
+  ShareLink,
+  ShareRevokeResult,
+  SharedActivity,
 } from '@/types/activity'
 
 /**
@@ -19,9 +22,11 @@ import type {
  */
 export const ActivityService = {
   // --- Activities ---
-  async getActivities(roomId: number, status?: string): Promise<Activity[]> {
+  async getActivities(roomId: number, status?: string, category?: string): Promise<Activity[]> {
     const params = new URLSearchParams({ target_type: 'room' })
     if (status) params.set('status', status)
+    // 🏷️ P4.3 — slug จาก `ACTIVITY_CATEGORIES` เท่านั้น (backend ปฏิเสธค่าอื่นด้วย 400)
+    if (category) params.set('category', category)
     return (await api.get(`/api/classroom/${roomId}/activities?${params}`)) as Activity[]
   },
 
@@ -41,6 +46,43 @@ export const ActivityService = {
     await api.delete(`/api/classroom/${roomId}/activities/${activityId}?target_type=room`, {
       data: { user_name: userName },
     })
+  },
+
+  // --- 🔗 ลิงก์แชร์ (P4.3) ---
+  /**
+   * ออก/คืนลิงก์แชร์ — เรียกซ้ำได้ลิงก์เดิม · `rotate=true` = ออกใหม่ ลิงก์เก่าตายทันที
+   * ต้องมี MANAGE_ACTIVITIES (backend ตรวจอีกชั้น)
+   */
+  async issueShareLink(
+    roomId: number,
+    activityId: number,
+    userName: string,
+    rotate = false,
+  ): Promise<ShareLink> {
+    return (await api.post(
+      `/api/classroom/${roomId}/activities/${activityId}/share?target_type=room`,
+      { user_name: userName, rotate },
+    )) as ShareLink
+  },
+
+  /** เพิกถอนลิงก์ — ลิงก์ที่ส่งออกไปแล้วเปิดไม่ได้อีก (revoked=false ถ้าไม่มีลิงก์อยู่) */
+  async revokeShareLink(
+    roomId: number,
+    activityId: number,
+    userName: string,
+  ): Promise<ShareRevokeResult> {
+    return (await api.delete(
+      `/api/classroom/${roomId}/activities/${activityId}/share?target_type=room`,
+      { data: { user_name: userName } },
+    )) as ShareRevokeResult
+  },
+
+  /**
+   * 🌐 หน้าสาธารณะ — เรียกได้โดยไม่ต้องล็อกอิน (ไม่ส่ง target_id เพราะไม่รู้ห้อง)
+   * backend ตอบเฉพาะข้อมูลงาน ไม่มี PII · 404 = ลิงก์ถูกเพิกถอน/ไม่ถูกต้อง
+   */
+  async getSharedActivity(token: string): Promise<SharedActivity> {
+    return (await api.get(`/api/shared/activity/${encodeURIComponent(token)}`)) as SharedActivity
   },
 
   // --- Participants ---

@@ -1,6 +1,9 @@
 """ค่าคงที่ + ป้าย label ของ activity service (เวลาไทย, ชื่อเดือน, ป้าย Excel export)."""
-from typing import Dict, FrozenSet, List
+from datetime import date
+from typing import Dict, FrozenSet, List, Optional
 from zoneinfo import ZoneInfo
+
+from core.exceptions import ValidationError
 
 THAI_TZ = ZoneInfo("Asia/Bangkok")
 
@@ -129,3 +132,57 @@ EXPORT_FIELD_WIDTHS: Dict[str, int] = {
     "custom_fields": 45,
 }
 DEFAULT_EXPORT_COL_WIDTH = 22
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 🏷️ P4.3 — หมวดกิจกรรม (category)
+# ═══════════════════════════════════════════════════════════════════════════
+# รายการ **ปิด** (fixed set) — ฝั่ง Vue มีสำเนาที่ `constants/activityCategories.ts`
+# ซึ่งล็อกด้วยเทสต์ ⇒ เพิ่มหมวดใหม่ต้องแก้สองที่ + migration ไม่ต้องทำ (คอลัมน์เป็น TEXT)
+# เรียงตามลำดับที่อยากให้โผล่ในดรอปดาวน์ (ทั่วไปก่อน → อื่น ๆ ท้ายสุด)
+ACTIVITY_CATEGORIES: List[Dict[str, str]] = [
+    {"value": "camp", "label": "ค่าย"},
+    {"value": "competition", "label": "การแข่งขัน"},
+    {"value": "volunteer", "label": "จิตอาสา"},
+    {"value": "training", "label": "อบรม/สัมมนา"},
+    {"value": "ceremony", "label": "พิธีการ"},
+    {"value": "other", "label": "อื่น ๆ"},
+]
+ACTIVITY_CATEGORY_VALUES: FrozenSet[str] = frozenset(c["value"] for c in ACTIVITY_CATEGORIES)
+ACTIVITY_CATEGORY_LABELS: Dict[str, str] = {c["value"]: c["label"] for c in ACTIVITY_CATEGORIES}
+
+
+def normalize_category(value: Optional[str]) -> Optional[str]:
+    """ทำความสะอาดค่าหมวด → slug ที่รู้จัก หรือ None (ไม่ระบุ)
+
+    - `None` / `""` / ช่องว่างล้วน = **ล้างหมวด** (ตั้ง NULL) — ใช้เป็นทาง "ยกเลิกหมวด"
+      ใน PATCH ได้ เพราะ `None` ถูกกรองทิ้งไปก่อนถึงจุดนี้ (ต่างจาก capacity ที่ใช้ 0)
+    - ค่าที่ไม่รู้จัก = 400 พร้อมรายการที่รับได้ (ไม่เดาใกล้เคียงให้ — กันพิมพ์ผิดแล้วเงียบ)
+    """
+    if value is None:
+        return None
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return None
+    if cleaned not in ACTIVITY_CATEGORY_VALUES:
+        allowed = " · ".join(f"{c['value']} ({c['label']})" for c in ACTIVITY_CATEGORIES)
+        raise ValidationError(f"ไม่รู้จักหมวดกิจกรรม '{value}' — รับได้เฉพาะ: {allowed}")
+    return cleaned
+
+
+def validate_registration_deadline(
+    deadline: Optional[date], activity_date: Optional[date]
+) -> None:
+    """วันปิดรับต้องไม่หลังวันจัดกิจกรรม (เท่ากันได้ — ปิดรับเช้าวันงาน)
+
+    เก็บเป็น DATE ไม่ใช่ TIMESTAMPTZ ⇒ ไม่มีคำถามว่า "ปิดรับตอนเที่ยงคืนของวันไหน"
+    ตามโซนเวลา — วันที่คือวันที่ ไม่ใช่จุดเวลา
+    """
+    if deadline is None or activity_date is None:
+        return
+    if deadline > activity_date:
+        raise ValidationError(
+            "วันปิดรับลงทะเบียน ("
+            f"{deadline.day} {THAI_MONTH_NAMES[deadline.month - 1]} {deadline.year + 543}"
+            ") ต้องไม่หลังวันจัดกิจกรรม ("
+            f"{activity_date.day} {THAI_MONTH_NAMES[activity_date.month - 1]} {activity_date.year + 543})"
+        )
