@@ -73,6 +73,30 @@ services:
         - "traefik.http.services.${ENV_NAME}_frontend.loadbalancer.server.port=80"
         - "traefik.docker.network=traefik-public"
 
+  push_worker:
+    # 🔔 ส่ง Web Push จาก `push_outbox` — ใช้ **image เดียวกับ backend** แต่คนละ command
+    #    ⇒ ไม่เพิ่ม image ใหม่ (เครื่องนี้ดิสก์ตึงจาก image เก่าอยู่แล้ว)
+    #
+    # ⚠️ **replicas ต้องเป็น 1**: ตัว claim ใช้ `FOR UPDATE SKIP LOCKED` ซึ่งกันได้
+    #    แม้มีหลายตัว แต่การเพิ่ม replica ไม่ช่วยอะไร (คอขวดคือผู้ให้บริการ push)
+    #    และทำให้อ่าน log/สถิติยากขึ้นโดยเปล่าประโยชน์
+    # ⚠️ `restart` ให้ Swarm จัดการ (ผู้ให้บริการ restart: any) — worker ตายต้องฟื้นเอง
+    image: classroom-${ENV_NAME}-backend:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}
+    command: ["python", "-m", "workers.push_worker"]
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://${ENV_NAME}_infra_redis:6379/0
+      - GOTENBERG_URL=http://${ENV_NAME}_pdf_gotenberg:3000
+    networks:
+      - shared_network
+    deploy:
+      replicas: 1
+      update_config:
+        order: stop-first
+      restart_policy:
+        condition: any
+
   bot_discord:
     # 🚨 `:?` เช่นเดียวกับ backend (ดูข้อจำกัดของข้อความ error ที่หัวข้อ backend) — ห้าม fallback ไป `:latest`
     image: classroom-${ENV_NAME}-bot:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}
