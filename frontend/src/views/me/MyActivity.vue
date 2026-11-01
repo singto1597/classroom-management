@@ -13,6 +13,11 @@
  *  3. แท็บ "บันทึกไว้" โหลดเมื่อเปิดครั้งแรก (lazy) — ไม่ยิงคำขอที่ผู้ใช้อาจไม่ดู
  *  4. รายการที่เป้าหมายถูกลบแล้ว (`available: false`) แสดงเป็นข้อความ ไม่ใช่ลิงก์
  *     ที่กดแล้วไปเจอ 404
+ *  5. 🗓️ **ตัวกรองปี/เทอม (P5) มีผลกับการ์ดสถิติเท่านั้น** — ฟีดด้านล่างเป็น
+ *     ไทม์ไลน์ทั้งหมดเสมอ หน้าจอจึงต้องเขียนบอกตรง ๆ ไม่งั้นผู้ใช้จะคิดว่ารายการ
+ *     ที่เห็นถูกกรองไปด้วยแล้ว (และหาว่า "ทำไมกิจกรรมเมื่อวานหาย")
+ *  6. ไม่ส่ง `year_id`/`term_id` เลย = ให้ backend ใช้ปี/เทอมปัจจุบันของห้อง
+ *     ⇒ ห้ามส่งค่าปลอม (0) แทน "อัตโนมัติ"
  */
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -24,6 +29,7 @@ import AppEmptyState from '@/components/ui/AppEmptyState.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import { MeService } from '@/services/me';
+import { AcademicService } from '@/services/academic';
 import { BookmarkService } from '@/services/bookmark';
 import { useAuthStore } from '@/stores/auth';
 import { formatThaiDate, formatThaiDateTime } from '@/utils/datetime';
@@ -33,6 +39,7 @@ import { BOOKMARK_ENTITY_LABELS } from '@/types/bookmark';
 import type { BookmarkItem } from '@/types/bookmark';
 import type { AppTabItem } from '@/components/ui/AppTabs.vue';
 import type { MeActivityItem, MeStats } from '@/types/me';
+import type { AcademicPeriods } from '@/types/academic';
 
 type TabValue = 'feed' | 'saved';
 
@@ -54,19 +61,94 @@ const messageOf = (err: unknown): string =>
 // ── สถิติ ──────────────────────────────────────────────────────────────────
 const stats = ref<MeStats | null>(null);
 const statsLoading = ref(true);
+const statsRefreshing = ref(false);
 const statsError = ref<string | null>(null);
+let statsSeq = 0;
+
+/** ตัวกรองที่ผู้ใช้เลือกเอง — `null` = ให้ backend ใช้ปี/เทอมปัจจุบันของห้อง */
+const filterYearId = ref<number | null>(null);
+const filterTermId = ref<number | null>(null);
+
+const statsParams = (): { year_id?: number; term_id?: number } => {
+  if (filterYearId.value === null) return {};
+  // เลือกปีอย่างเดียว = "ทั้งปี" (backend ตีความเป็นช่วงของปี ไม่ใช่ทั้งระบบ)
+  if (filterTermId.value === null) return { year_id: filterYearId.value };
+  return { year_id: filterYearId.value, term_id: filterTermId.value };
+};
 
 const loadStats = async () => {
-  statsLoading.value = true;
+  const mySeq = ++statsSeq;
+  // สเกเลตันเฉพาะครั้งแรก — เปลี่ยนตัวกรองแล้วให้ตัวเลขเดิมค้างไว้จนของใหม่มา
+  // (กระพริบเป็น skeleton ทุกครั้งที่เปลี่ยนปีอ่านยากกว่า)
+  statsLoading.value = stats.value === null;
+  statsRefreshing.value = stats.value !== null;
   statsError.value = null;
   try {
-    stats.value = await MeService.stats(roomId);
+    const result = await MeService.stats(roomId, statsParams());
+    if (mySeq !== statsSeq) return;
+    stats.value = result;
   } catch (err) {
+    if (mySeq !== statsSeq) return;
     statsError.value = messageOf(err);
   } finally {
-    statsLoading.value = false;
+    if (mySeq === statsSeq) {
+      statsLoading.value = false;
+      statsRefreshing.value = false;
+    }
   }
 };
+
+// ── ปฏิทินของห้อง (สำหรับตัวเลือกปี/เทอม) ─────────────────────────────────
+// โหลดล้มเหลว = ซ่อนตัวเลือกเฉย ๆ ไม่ใช่ error ของหน้า — สถิติยังดูได้
+const academic = ref<AcademicPeriods | null>(null);
+
+const loadAcademic = async () => {
+  try {
+    academic.value = await AcademicService.periods(roomId);
+  } catch {
+    academic.value = null;
+  }
+};
+
+const yearOptions = computed(() => academic.value?.years ?? []);
+
+const selectedYear = computed(
+  () => yearOptions.value.find((year) => year.id === filterYearId.value) ?? null,
+);
+
+const hasAnyFilter = computed(() => filterYearId.value !== null);
+
+const setYear = (event: Event) => {
+  const raw = (event.target as HTMLSelectElement).value;
+  filterYearId.value = raw === '' ? null : Number(raw);
+  filterTermId.value = null; // เปลี่ยนปีแล้วเทอมเดิมไม่มีความหมาย
+  void loadStats();
+};
+
+const setTerm = (event: Event) => {
+  const raw = (event.target as HTMLSelectElement).value;
+  filterTermId.value = raw === '' ? null : Number(raw);
+  void loadStats();
+};
+
+const resetFilter = () => {
+  filterYearId.value = null;
+  filterTermId.value = null;
+  void loadStats();
+};
+
+/**
+ * คำอธิบายว่าตัวเลขชุดนี้ครอบช่วงไหน
+ * `stats.term === null` = ห้องยังไม่มีปีปัจจุบัน ⇒ ไม่กรอง (ไม่ใช่ 0 และไม่ใช่ error)
+ */
+const statsPeriodLabel = computed(() => {
+  const term = stats.value?.term;
+  if (!term) return 'ทั้งหมด (ห้องนี้ยังไม่ได้ตั้งปีปัจจุบัน)';
+  const suffix = term.term_name ? ` · ${term.term_name}` : ' · ทั้งปี';
+  return `ปีการศึกษา ${term.year_be}${suffix}`;
+});
+
+const statsPeriodSource = computed<'explicit' | 'current' | null>(() => stats.value?.term?.source ?? null);
 
 // ── ฟีด ────────────────────────────────────────────────────────────────────
 const feedItems = ref<MeActivityItem[]>([]);
@@ -170,6 +252,7 @@ onMounted(() => {
   }
   void loadFeed(true);
   void loadStats();
+  void loadAcademic();
 });
 
 const removeSaved = async (item: BookmarkItem) => {
@@ -235,9 +318,59 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
         :hint="statsError"
         @retry="loadStats"
       />
-      <div v-else-if="stats" class="space-y-2">
-        <h2 class="text-xs font-bold text-stone-500">สถิติของฉัน</h2>
-        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div v-else-if="stats" class="space-y-2" :aria-busy="statsRefreshing">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h2 class="text-xs font-bold text-stone-500">สถิติของฉัน</h2>
+          <p class="text-[11px] font-bold text-stone-500">
+            ช่วงที่ใช้: {{ statsPeriodLabel }}
+            <span v-if="statsPeriodSource === 'current'" class="font-normal text-stone-400">
+              (ระบบเลือกให้)
+            </span>
+          </p>
+        </div>
+
+        <!-- 🗓️ ตัวกรองปี/เทอม — มีผลกับ "การ์ดสถิติ" เท่านั้น -->
+        <div
+          v-if="yearOptions.length > 0"
+          class="flex flex-wrap items-end gap-2 rounded-2xl border border-stone-200 bg-white p-3"
+        >
+          <label class="min-w-[10rem] flex-1">
+            <span class="text-[11px] font-bold text-stone-600">ดูสถิติตามปี</span>
+            <select
+              :value="filterYearId ?? ''"
+              class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+              @change="setYear"
+            >
+              <option value="">อัตโนมัติ (ปี/เทอมปัจจุบัน)</option>
+              <option v-for="year in yearOptions" :key="year.id" :value="year.id">
+                ปีการศึกษา {{ year.year_be }}
+              </option>
+            </select>
+          </label>
+
+          <label v-if="selectedYear" class="min-w-[10rem] flex-1">
+            <span class="text-[11px] font-bold text-stone-600">เทอม</span>
+            <select
+              :value="filterTermId ?? ''"
+              class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+              @change="setTerm"
+            >
+              <option value="">ทั้งปี</option>
+              <option v-for="term in selectedYear.terms" :key="term.id" :value="term.id">
+                {{ term.name }}
+              </option>
+            </select>
+          </label>
+
+          <AppButton v-if="hasAnyFilter" variant="quiet" @click="resetFilter">
+            กลับเป็นอัตโนมัติ
+          </AppButton>
+        </div>
+
+        <div
+          class="grid grid-cols-2 gap-2 transition-opacity sm:grid-cols-4"
+          :class="statsRefreshing ? 'opacity-60' : ''"
+        >
           <div class="rounded-2xl border border-stone-200 bg-white p-3">
             <p class="text-[11px] font-bold text-stone-500">กิจกรรมที่เข้าร่วม</p>
             <p class="mt-1 text-xl font-black text-stone-900">{{ stats.activities_joined }}</p>
@@ -276,6 +409,11 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
         <p class="text-[11px] font-bold text-stone-400">
           งานของห้อง: เสร็จ {{ stats.room_tasks_done }} · ค้าง {{ stats.room_tasks_pending }}
           (นับทั้งห้อง ไม่ใช่ของฉัน)
+        </p>
+
+        <p class="text-[11px] leading-relaxed text-stone-400">
+          ตัวกรองปี/เทอมมีผลกับ <span class="font-bold">การ์ดสถิติด้านบนเท่านั้น</span> —
+          รายการด้านล่างยังเป็นทั้งหมด · ยอดค้างชำระและงานของห้องคือสถานะปัจจุบัน ไม่ขึ้นกับช่วงที่เลือก
         </p>
       </div>
 

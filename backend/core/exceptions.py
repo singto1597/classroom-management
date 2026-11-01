@@ -45,3 +45,11 @@ class AnnouncementNotFoundError(Exception):
 class BookmarkNotFoundError(Exception):
     """Raised when a bookmark is not found (or belongs to someone else)."""
     pass
+
+class AcademicPeriodNotFoundError(Exception):
+    """ไม่พบปีการศึกษา/เทอมที่ขอ *ในห้องนี้* (หรือถูกลบไปแล้ว)
+
+    แยกจาก `ForbiddenError` โดยเจตนา: "ไม่มีของ" ต้องได้ 404 ให้หน้าจอแสดง
+    "ช่วงเวลานี้ถูกลบแล้ว" ได้ ส่วน "ไม่ใช่สมาชิก" ต้องได้ 403
+    """
+    pass

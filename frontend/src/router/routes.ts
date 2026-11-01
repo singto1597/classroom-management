@@ -258,6 +258,14 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: routeTitles['notification-settings'], navTab: 'more', headerBack: true },
       },
       {
+        // 🗓️ P5 — ปีการศึกษา/เทอม: ปฏิทินของห้อง ไม่ใช่การย้ายนักเรียนขึ้นชั้น
+        //    สมาชิกอ่านได้ทุกคน (ใช้กรองสถิติ) แต่ฟอร์มเขียนซ่อนเมื่อไม่มีสิทธิ์
+        path: 'settings/academic-periods',
+        name: 'academic-periods',
+        component: () => import('@/views/settings/AcademicPeriods.vue'),
+        meta: { title: routeTitles['academic-periods'], navTab: 'more', headerBack: true },
+      },
+      {
         path: 'messages',
         name: 'send-message',
         component: () => import('@/views/actions/SendMessage.vue'),

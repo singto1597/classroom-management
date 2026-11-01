@@ -14,7 +14,11 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.dependencies import get_current_user, get_db_pool, resolve_target_to_room_id
-from core.exceptions import ForbiddenError
+from core.exceptions import (
+    AcademicPeriodNotFoundError,
+    ForbiddenError,
+    ValidationError,
+)
 from models.home_schemas import HomeSummaryResponse
 from models.me_schemas import MeActivityResponse, MeStatsResponse
 from services import home_summary_service, me_activity_service
@@ -83,11 +87,26 @@ async def get_my_stats(
     room_id: int = Depends(resolve_target_to_room_id),
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user),
+    year_id: int | None = Query(
+        None, ge=1, description="กรองตามปีการศึกษา — ไม่ระบุ = ปีปัจจุบันของห้อง (ถ้ามี)"
+    ),
+    term_id: int | None = Query(None, ge=1, description="กรองตามเทอม — ต้องอยู่ในปีที่เลือก"),
 ):
     try:
         data = await me_activity_service.get_me_stats(
-            pool, room_id=room_id, user_id=int(user_ctx["user_id"])
+            pool,
+            room_id=room_id,
+            user_id=int(user_ctx["user_id"]),
+            year_id=year_id,
+            term_id=term_id,
         )
     except ForbiddenError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
+    except AcademicPeriodNotFoundError as exc:
+        # 🗓️ ปี/เทอมที่ขอถูกลบไปแล้วหรือไม่ใช่ของห้องนี้ ⇒ 404
+        #    (หน้าจอจะได้บอก "ช่วงเวลานี้ไม่มีแล้ว" แทนการโชว์ตัวเลขทั้งหมดเงียบ ๆ)
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValidationError as exc:
+        # เช่น เทอมที่เลือกไม่ได้อยู่ในปีที่เลือก ⇒ 400
+        raise HTTPException(status_code=400, detail=str(exc))
     return MeStatsResponse(**data)

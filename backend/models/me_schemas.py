@@ -38,10 +38,28 @@ class MeActivityResponse(BaseModel):
     )
 
 
+class MeStatsPeriod(BaseModel):
+    """ช่วงเวลาที่สถิติชุดนี้นับ (P5) — `null` = ทั้งหมด (ไม่มีปีปัจจุบัน)
+
+    `source` บอกว่าผู้ใช้เลือกมาเอง หรือระบบหยิบปีปัจจุบันให้:
+    หน้าจอต้องแสดงให้ต่างกัน ไม่งั้นคนอ่านจะเข้าใจผิดว่าตัวเลขเป็นการเลือกของตัวเอง
+    """
+
+    year_id: int
+    year_be: int
+    year_name: Optional[str] = None
+    term_id: Optional[int] = None
+    term_name: Optional[str] = None
+    source: Literal["explicit", "current"] = Field(
+        description="explicit = ผู้ใช้ส่ง year_id/term_id มา · current = ระบบใช้ปีปัจจุบัน"
+    )
+
+
 class MeStatsResponse(BaseModel):
     has_profile: bool = Field(description="ผู้ใช้มีแถว students ในห้องนี้หรือไม่")
-    term: Optional[dict] = Field(
-        None, description="P5 จะเติม {year_id, term_id, name} — ตอนนี้ null = ทั้งหมด"
+    term: Optional[MeStatsPeriod] = Field(
+        None,
+        description="ช่วงเวลาที่นับ — null = ทั้งหมด (ห้องยังไม่มีปีปัจจุบัน)",
     )
     activities_joined: int = Field(0, description="กิจกรรมที่ฉันเข้าร่วม (ไม่นับที่ยกเลิก)")
     activity_hours: float = Field(0.0, description="ชั่วโมงกิจกรรมรวมจาก activity_participants")
