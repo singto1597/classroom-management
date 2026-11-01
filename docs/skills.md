@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 249 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 251 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -253,6 +253,8 @@
 - [🔔 "อ่านแล้ว" ไม่ใช่คอลัมน์ของประกาศ — มันคือแถวแจ้งเตือนของ *ผู้ใช้คนนั้น*](#อ่านแล้ว-ไม่ใช่คอลัมน์ของประกาศ-มันคือแถวแจ้งเตือนของ-ผู้ใช้คนนั้น)
 - [🔔 Service worker ที่แคช `/api/` = เครื่องใช้ร่วมรั่วข้อมูล · และ navigation ต้อง network-first](#service-worker-ที่แคช-api-เครื่องใช้ร่วมรั่วข้อมูล-และ-navigation-ต้อง-network-first)
 - [📲 `beforeinstallprompt` ยิงครั้งเดียวตอนโหลดหน้า — ฟังให้ทัน และ iOS ไม่มี event เลย](#beforeinstallprompt-ยิงครั้งเดียวตอนโหลดหน้า-ฟังให้ทัน-และ-ios-ไม่มี-event-เลย)
+- [📡 สตรีม SSE ฝั่ง browser: `EventSource` แนบ `Authorization` ไม่ได้ — ใช้ `fetch()` แล้วแยก frame เอง](#สตรีม-sse-ฝั่ง-browser-eventsource-แนบ-authorization-ไม่ได้-ใช้-fetch-แล้วแยก-frame-เอง)
+- [🧹 `vue-tsc` ผ่าน ≠ `npm run lint` ผ่าน — oxlint เข้มกว่าเรื่อง mock และ catch ที่ไม่ใช้ค่า](#vue-tsc-ผ่าน-npm-run-lint-ผ่าน-oxlint-เข้มกว่าเรื่อง-mock-และ-catch-ที่ไม่ใช้ค่า)
 
 <!-- TOC:END -->
 
@@ -3932,4 +3934,57 @@
   - **maskable ≠ แค่พื้นเต็ม** — ต้องเผื่อที่ตัด (safe zone 80%) ⇒ รูปเล็กลง (`padRatio 0.24`) ไม่งั้น Android จะตัดขอบรูปหาย อย่าใช้ไฟล์เดียวกับ `any`
 - **Rule:** (1) 🔴 ฟัง `beforeinstallprompt` ที่ระดับโมดูลก่อน `createApp()` (2) 🔴 ต้องรองรับ iOS ด้วยคำแนะนำเมนูแชร์ ไม่ใช่ซ่อนปุ่ม (3) ⚠️ maskable icon ต้องแยกไฟล์และเผื่อ safe zone (4) ⚠️ ไอคอน PNG ต้อง commit ไว้ — สคริปต์สร้างไว้ทำใหม่ตอนเปลี่ยนโลโก้/สีเท่านั้น ไม่รันใน CI
 - **Tests:** `src/services/__tests__/pwa.spec.ts` (9 ตัว: base64url มี `-`/`_` ไม่มี padding, `display-mode`/`navigator.standalone`, `pointer: coarse`, dev ไม่ลงทะเบียน SW, ไม่มี event → `unavailable`) · ตรวจสายตา: `public/icons/icon-192.png`
+- **Date Added:** 2026-11-01
+
+### 📡 สตรีม SSE ฝั่ง browser: `EventSource` แนบ `Authorization` ไม่ได้ — ใช้ `fetch()` แล้วแยก frame เอง
+- **Context/Problem:** P2.6 ต้องแสดงแจ้งเตือนใหม่ทันทีโดยไม่ poll ทุก 30 วิ ทางเลือกมาตรฐานคือ `EventSource` แต่มัน **แนบ header เองไม่ได้** ⇒ ต้องส่ง JWT ทาง query string ซึ่งจะไปอยู่ใน access log ของ nginx/Cloudflare และทุก proxy กลางทาง — token ที่ไม่หมดอายุเร็วกลายเป็นร่องรั่วถาวร
+- **Root Cause:** สเปก `EventSource` ไม่มีช่องให้ส่ง header และไม่มีวิธีอื่นเลย · ทางออกเดียวคืออ่านสตรีมด้วย `fetch()` แล้วแยก frame เอง ซึ่งต้องรับผิดชอบเองทั้งหมด: การ buffer ที่ตัดกลาง frame, CRLF, บรรทัด comment (`: ping`), การ reconnect และการหยุดเมื่อ 401/403
+- **Correct Pattern/Solution:**
+  ```ts
+  // services/notificationStream.ts — ตัวแยก frame เป็นฟังก์ชันบริสุทธิ์ (ทดสอบได้โดยไม่มีเน็ต)
+  export function createSseParser(handle: (event: string, data: string) => void) {
+    let buffer = ''
+    return {
+      push(chunk: string) { buffer += chunk.replace(/\r\n/g, '\n'); drain() },
+      flush()             { if (buffer.trim()) parseFrame(buffer, handle); buffer = '' },
+      reset()             { buffer = '' },
+    }
+  }
+  // drain(): ตัดทีละ frame ที่คั่นด้วย '\n\n' แล้วเรียก parseFrame
+  // parseFrame(): event= ว่าง → 'message' · หลายบรรทัด data: ต่อด้วย '\n' · ':' นำหน้า = ข้าม
+  ```
+  ```ts
+  const response = await fetch(NotificationService.streamUrl(roomId), {
+    headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+    signal: abortController.signal,
+    cache: 'no-store',           // คนละคนกันจะได้ของของกัน
+  })
+  if (response.status === 401 || response.status === 403) { stopForever(); return }
+  ```
+  - **401/403 ต้องหยุด ไม่ใช่ต่อใหม่** — token หมดอายุ/ไม่ใช่สมาชิกแล้ว การ backoff วนจะกลายเป็นคำขอไม่จำกัดที่ไม่มีวันสำเร็จ
+  - **สัญญาณในสตรีมมีแค่ "มีของใหม่"** (`{id,user_id,room_id}`) ⇒ ฝั่งหน้าเรียก list API ใหม่ ไม่ patch จาก payload — สิทธิ์ตรวจที่ API เดียว และลำดับ/ตัวเลขยังถูกต้อง
+  - **`event: ready` จาก backend = จุดเดียวที่แจ้ง "ต่อติดแล้ว"** ⇒ อย่าเรียก `onSignal` ซ้ำหลัง `fetch()` สำเร็จ ไม่งั้นทุก reconnect จะดึงรายการสองรอบ
+  - **`visibilitychange`:** มือถือระงับ connection ตอนอยู่เบื้องหลัง ⇒ ซ่อน = `stop()`, กลับมา = `start()` + ดึงรายการใหม่ (สตรีมที่ "เปิดอยู่" อาจตายไปแล้วโดยไม่มี error)
+  - **สลับห้องต้องทิ้งผลของคำขอเก่า** — ใช้เลข `seq` ใน store และเทียบก่อนเขียน state ทุกครั้ง ไม่งั้นห้องใหม่จะโดน override ด้วยข้อมูลห้องเก่าที่กลับมาช้า
+- **Rule:** (1) 🔴 ห้ามส่ง token ทาง query string เพื่อใช้ `EventSource` (2) 🔴 ตัวแยก frame ต้องเป็นฟังก์ชันบริสุทธิ์ + เทสต์ที่ป้อน **chunk ตัดกลาง frame** ไม่ใช่ทั้ง frame ทีเดียว (3) ⚠️ 401/403 = หยุดถาวร, error อื่น = backoff ถึง 30 วิ (4) ⚠️ เก็บ `seq` ต่อคำขอใน store เมื่อมีตัวกรอง/ห้องที่สลับได้
+- **Tests:** `src/services/__tests__/notificationStream.spec.ts` (10 ตัว: ตัดกลาง frame, CRLF, comment/heartbeat, data หลายบรรทัด, flush frame สุดท้าย, reset, frame ไม่มี data)
+- **Date Added:** 2026-11-01
+
+### 🧹 `vue-tsc` ผ่าน ≠ `npm run lint` ผ่าน — oxlint เข้มกว่าเรื่อง mock และ catch ที่ไม่ใช้ค่า
+- **Context/Problem:** PR P2.5 เขียวทุกด่านในเครื่อง แต่ CI แดงที่ job `type-check + lint + unit tests + build` ด้วย 10 error ล้วนมาจากไฟล์ที่ type-check ผ่านหมด: `vi.fn()` ไม่มี type parameter (กฎ `eslint-plugin-vitest/require-mock-type-parameters`) และ `catch (err)` ที่ไม่ใช้ค่า (กฎ `no-unused-vars`) ใน `public/sw.js`
+- **Root Cause:** (1) `vue-tsc` ตรวจชนิด ไม่ตรวจสไตล์/การใช้งาน — `vi.fn()` มีชนิดถูกต้องเสมอแม้จะไม่ระบุพารามิเตอร์ (2) ไฟล์ใน `public/` ไม่ได้อยู่ใน `tsconfig` เลย ⇒ ไม่มีใครตรวจจนกว่า oxlint จะไล่โฟลเดอร์ทั้งโปรเจกต์ (3) `npm run type-check` ไม่ได้รัน `lint` ให้
+- **Correct Pattern/Solution:**
+  ```ts
+  const register = vi.fn<() => Promise<never>>()                 // ระบุชนิดที่ mock
+  const handle = vi.fn<(event: string, data: string) => void>()
+  addListener: vi.fn<() => void>()
+  ```
+  ```js
+  // public/sw.js — ใช้ optional catch binding เมื่อไม่ได้อ่าน error
+  try { … } catch { … }
+  ```
+  - **ก่อน push ให้รัน `npm run lint` เอง** โดยเฉพาะเมื่อเพิ่มไฟล์ใหม่ใน `public/` หรือไฟล์เทสต์ — CI จะรัน `oxlint .` ทั้งโปรเจกต์
+  - **`oxlint --fix` ลบ `/* eslint-disable */` ที่ไม่ตรง rule ออกได้** ⇒ อย่าพึ่ง disable comment เป็นทางแก้
+- **Rule:** (1) 🔴 ทุก `vi.fn()` ต้องมี type parameter (2) 🔴 `catch` ที่ไม่ใช้ค่าให้เขียน `catch {` (3) ⚠️ `public/` ไม่ถูก type-check — ต้อง `node --check` + lint อย่างน้อย
+- **Tests:** CI job `type-check + lint + unit tests + build` · `npm run lint` ในเครื่อง
 - **Date Added:** 2026-11-01
