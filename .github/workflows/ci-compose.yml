@@ -69,12 +69,24 @@ jobs:
 
           # ⚠️ ต้องสแกน **เฉพาะบรรทัด `image:`** ไม่ใช่ทั้งไฟล์
           #    เพราะคอมเมนต์ในไฟล์นี้ยกตัวอย่าง `${IMAGE_TAG:?...}` ไว้ด้วย
-          #    (สแกนทั้งไฟล์แล้วนับได้ 4 ทั้งที่กับดักจริงมี 3 — พลาดมาแล้วรอบหนึ่ง)
+          #    (สแกนทั้งไฟล์แล้วนับได้ 5 ทั้งที่กับดักจริงมี 4 — พลาดมาแล้วรอบหนึ่ง)
+          #
+          # 🔢 จำนวนนี้ **ตั้งใจให้ต้องอัปเดตมือเมื่อเพิ่ม service ที่ใช้ image**
+          #    (เหมือน `test_route_count_is_not_silently_shrinking`) เพื่อให้คนเพิ่ม
+          #    service ใหม่ได้ทบทวนว่า image ของตัวเองมีกับดัก `:?` ครบ
+          EXPECTED_IMAGE_LINES = 4  # backend · frontend · bot_discord · push_worker (2026-11-01)
+
           lines = pathlib.Path('docker-compose.app.yml').read_text(encoding='utf-8').splitlines()
           img_lines = [l for l in lines if re.match(r'\s*image:', l)]
 
-          if len(img_lines) != 3:
-              print(f"❌ บรรทัด `image:` มี {len(img_lines)} บรรทัด แต่ต้องมี 3")
+          if len(img_lines) != EXPECTED_IMAGE_LINES:
+              print(
+                  f"❌ บรรทัด `image:` มี {len(img_lines)} บรรทัด "
+                  f"แต่ต้องมี {EXPECTED_IMAGE_LINES}"
+              )
+              print("   ถ้าเพิ่ม/ลบ service จริง ให้ปรับ EXPECTED_IMAGE_LINES ใน workflow นี้")
+              for l in img_lines:
+                  print(f"   {l.strip()}")
               sys.exit(1)
 
           msgs = []
@@ -133,8 +145,17 @@ jobs:
 
           # ③.๑ มี IMAGE_TAG ⇒ ต้อง render ผ่าน และ tag ต้องโผล่จริง
           $RENDER > /tmp/rendered.yml
-          if ! grep -qE 'image: classroom-ci-(backend|frontend|bot):ci00000' /tmp/rendered.yml; then
-            echo "❌ render ผ่านแต่ไม่พบ image ที่ติด tag ci00000:"
+          # ทุก service ที่ใช้ image ต้องติด tag เดียวกัน — เช็คทีละตัว ไม่ใช่แค่ "มีสักตัว"
+          for svc in backend frontend bot; do
+            if ! grep -qE "image: classroom-ci-${svc}:ci00000" /tmp/rendered.yml; then
+              echo "❌ render ผ่านแต่ไม่พบ image ของ ${svc} ที่ติด tag ci00000:"
+              grep -E 'image: classroom' /tmp/rendered.yml || true
+              exit 1
+            fi
+          done
+          # push_worker ใช้ image เดียวกับ backend ⇒ ต้อง render เป็น image เดียวกัน
+          if [ "$(grep -cE 'image: classroom-ci-backend:ci00000' /tmp/rendered.yml)" -lt 2 ]; then
+            echo "❌ push_worker ไม่ได้ใช้ image เดียวกับ backend"
             grep -E 'image: classroom' /tmp/rendered.yml || true
             exit 1
           fi
