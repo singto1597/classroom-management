@@ -9,6 +9,8 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue'
+import AppTabs from '@/components/ui/AppTabs.vue'
+import type { AppTabItem } from '@/components/ui/AppTabs.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 import { UI_COLOR } from '@/constants/theme'
 import { TASK_STATUS_LABELS } from '@/constants/statusLabels'
@@ -78,6 +80,17 @@ const fetchData = async () => {
 
 const pendingCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
 const doneCount = computed(() => tasks.value.filter(task => task.status === 'done').length)
+
+// แท็บกรองใช้ AppTabs กลาง — จำนวนในป้ายคือจำนวนจริงหลังกรอง ไม่ใช่ตัวเลขหลอก
+const filterTabs = computed<AppTabItem[]>(() => [
+  { value: 'pending', label: TASK_STATUS_LABELS.pending, count: pendingCount.value },
+  { value: 'done', label: TASK_STATUS_LABELS.done, count: doneCount.value },
+  { value: 'all', label: 'ทั้งหมด', count: tasks.value.length },
+])
+
+const setFilter = (value: string) => {
+  if (value === 'all' || value === 'pending' || value === 'done') filter.value = value
+}
 
 // 🗓️ คำนวณจำนวนวันห่างจาก "วันนี้ตามเวลาไทย" — ไม่ใช้ปฏิทินของอุปกรณ์
 const diffDaysFromToday = (dateStr: string): number => daysFromThaiToday(dateStr) ?? 0;
@@ -244,48 +257,13 @@ onMounted(fetchData)
     </PageHeader>
 
     <!-- ตัวกรองสถานะ — ซ่อนระหว่างโหลด/ผิดพลาด ไม่ให้เห็นตัวเลข 0 หลอกตา -->
-    <div v-if="!isLoading && !hasError" class="page-card p-1.5">
-      <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-          :class="filter === 'pending' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
-          @click="filter = 'pending'"
-        >
-          {{ TASK_STATUS_LABELS.pending }}
-          <span
-            class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
-            :class="filter === 'pending' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
-          >{{ pendingCount }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-          :class="filter === 'done' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
-          @click="filter = 'done'"
-        >
-          {{ TASK_STATUS_LABELS.done }}
-          <span
-            class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
-            :class="filter === 'done' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
-          >{{ doneCount }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-          :class="filter === 'all' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
-          @click="filter = 'all'"
-        >
-          ทั้งหมด
-          <span
-            class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
-            :class="filter === 'all' ? 'bg-white/20 text-white' : 'bg-stone-200 text-stone-600'"
-          >{{ tasks.length }}</span>
-        </button>
-      </div>
-    </div>
+    <AppTabs
+      v-if="!isLoading && !hasError"
+      :model-value="filter"
+      :tabs="filterTabs"
+      group-label="กรองสถานะงาน"
+      @update:model-value="setFilter"
+    />
 
     <!-- โน้ตรายวันล่าสุด (แสดง 3 รายการแรก) -->
     <section v-if="notes.length > 0" class="space-y-3">
