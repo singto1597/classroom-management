@@ -5,7 +5,9 @@ import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import { downloadBlob, safeActivityFilename } from '@/utils/download'
 import { displayName } from '@/utils/name'
-import { formatThaiDate } from '@/utils/datetime'
+import { formatThaiDate, todayIso } from '@/utils/datetime'
+import { activityCategoryLabel } from '@/constants/activityCategories'
+import { deadlineLabel, deadlineState } from '@/utils/activityDeadline'
 import type { Activity, ActivityParticipant, RosterItem } from '@/types/activity'
 import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
 import {
@@ -17,6 +19,7 @@ import {
   type ActivityInfoRow,
 } from '@/constants/activityFields'
 import ParticipantRosterList from '@/components/activities/ParticipantRosterList.vue'
+import ShareLinkCard from '@/components/activities/ShareLinkCard.vue'
 import ParticipantInfoModal from '@/components/activities/ParticipantInfoModal.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import BookmarkButton from '@/components/me/BookmarkButton.vue'
@@ -36,6 +39,24 @@ const activityId = Number(route.params.id)
 const activity = ref<Activity | null>(null)
 const isLoading = ref(true)
 const isExporting = ref(false)
+
+// 🏷️📅 P4.4 — ป้ายหมวด / วันปิดรับ / ที่นั่ง (คำนวณจาก response ไม่ต้องยิงเพิ่ม)
+const today = todayIso()
+const categoryLabel = computed(
+  () => activity.value?.category_label ?? activityCategoryLabel(activity.value?.category),
+)
+const deadlineChip = computed(() => {
+  const label = deadlineLabel(activity.value?.registration_deadline, today)
+  if (!label) return null
+  return deadlineState(activity.value?.registration_deadline, today) === 'closed'
+    ? { label, cls: 'bg-danger-50 text-danger-700' }
+    : { label, cls: 'bg-warn-50 text-warn-700' }
+})
+const seatsChip = computed(() => {
+  const act = activity.value
+  if (!act || act.capacity === null || act.capacity === undefined) return null
+  return `${act.confirmed_count ?? 0}/${act.capacity}`
+})
 
 const canManage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
@@ -501,6 +522,25 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           <i class="bi bi-people-fill" aria-hidden="true"></i>
           <span class="num">{{ activity.participant_count }}</span> คน
         </span>
+        <span v-if="categoryLabel" class="chip bg-brand-50 text-brand-700">
+          <i class="bi bi-tag" aria-hidden="true"></i>
+          {{ categoryLabel }}
+        </span>
+        <span v-if="seatsChip" class="chip bg-stone-100 text-stone-600">
+          <i class="bi bi-person-check" aria-hidden="true"></i>
+          <span class="num">{{ seatsChip }}</span> ที่นั่ง
+        </span>
+        <span
+          v-if="(activity.waitlisted_count ?? 0) > 0"
+          class="chip bg-warn-50 text-warn-700"
+        >
+          <i class="bi bi-people" aria-hidden="true"></i>
+          คิวสำรอง <span class="num">{{ activity.waitlisted_count }}</span>
+        </span>
+        <span v-if="deadlineChip" class="chip" :class="deadlineChip.cls">
+          <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+          ปิดรับ: {{ deadlineChip.label }}
+        </span>
       </div>
 
       <!-- Description + ข้อมูลเพิ่มเติม (friendly) -->
@@ -577,6 +617,14 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           </dl>
         </div>
       </div>
+
+      <!-- 🔗 ลิงก์แชร์ — เฉพาะผู้จัดการกิจกรรม (backend ตรวจ MANAGE_ACTIVITIES อีกชั้น) -->
+      <ShareLinkCard
+        v-if="canManage"
+        :room-id="currentRoomId"
+        :activity-id="activityId"
+        :has-share-link="!!activity.has_share_link"
+      />
 
       <!-- ผู้เข้าร่วม — การ์ดรายชื่อ (อ่านอย่างเดียว) -->
       <div class="page-card p-4 sm:p-5">

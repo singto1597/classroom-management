@@ -23,6 +23,7 @@ import {
   type ActivityField,
   type CustomFieldEntry,
 } from '@/constants/activityFields'
+import { ACTIVITY_CATEGORIES } from '@/constants/activityCategories'
 import ExtraInfoRows from '@/components/activities/ExtraInfoRows.vue'
 import ParticipantRosterList from '@/components/activities/ParticipantRosterList.vue'
 import ParticipantInfoModal from '@/components/activities/ParticipantInfoModal.vue'
@@ -71,6 +72,12 @@ const form = ref({
   activity_date: todayIso(),
   base_hours: 0,
   status: 'upcoming' as string,
+  // 🏷️ P4.3 — slug จาก `ACTIVITY_CATEGORIES` ('' = ยังไม่จัดหมวด)
+  category: '' as string,
+  // 📅 P4.3 — วันปิดรับลงทะเบียน ('' = ไม่มีกำหนด · ต้องไม่หลังวันจัดกิจกรรม)
+  registration_deadline: '' as string,
+  // 🪑 P4.1 — ความจุ ('' = ไม่จำกัด) · เกินแล้วคนใหม่ไปคิวสำรอง ไม่ใช่ error
+  capacity: '' as string,
 })
 
 // --- ข้อมูลเพิ่มเติมของกิจกรรม (หัวข้อ + ค่า แบบ user-friendly) ---
@@ -147,6 +154,9 @@ const draftState = reactive({
   activity_date: todayIso(),
   base_hours: 0,
   status: 'upcoming' as string,
+  category: '',
+  registration_deadline: '',
+  capacity: '',
   metaRows: [] as CustomFieldEntry[],
   positions: [] as string[],
   requiredFields: [] as string[],
@@ -167,6 +177,9 @@ watch(
     draftState.activity_date = form.value.activity_date
     draftState.base_hours = Number(form.value.base_hours) || 0
     draftState.status = form.value.status
+    draftState.category = form.value.category
+    draftState.registration_deadline = form.value.registration_deadline
+    draftState.capacity = form.value.capacity
     draftState.metaRows = activityMetaRows.value
     draftState.positions = positions.value
     draftState.requiredFields = Array.from(requiredFields.value)
@@ -182,6 +195,10 @@ const applyDraft = () => {
   form.value.activity_date = draftState.activity_date || todayIso()
   form.value.base_hours = Number(draftState.base_hours) || 0
   form.value.status = draftState.status || 'upcoming'
+  form.value.category = typeof draftState.category === 'string' ? draftState.category : ''
+  form.value.registration_deadline =
+    typeof draftState.registration_deadline === 'string' ? draftState.registration_deadline : ''
+  form.value.capacity = draftState.capacity === undefined ? '' : String(draftState.capacity)
   activityMetaRows.value = Array.isArray(draftState.metaRows) ? draftState.metaRows : []
   positions.value = Array.isArray(draftState.positions)
     ? draftState.positions.map(String)
@@ -363,6 +380,14 @@ const applyInitial = () => {
     activity_date: act.activity_date,
     base_hours: Number(act.base_hours) || 0,
     status: typeof act.status === 'string' ? act.status : 'upcoming',
+    // ค่าที่ไม่รู้จัก (backend เพิ่มก่อน deploy หน้าเว็บ) ต้องไม่ทำให้ดรอปดาวน์เพี้ยน
+    category:
+      typeof act.category === 'string' &&
+      ACTIVITY_CATEGORIES.some((c) => c.value === act.category)
+        ? act.category
+        : '',
+    registration_deadline: act.registration_deadline ?? '',
+    capacity: act.capacity === null || act.capacity === undefined ? '' : String(act.capacity),
   }
 
   const meta = act.metadata || {}
@@ -434,8 +459,33 @@ const dateError = computed(() => (form.value.activity_date ? '' : 'กรุณ�
 const participantsError = computed(() =>
   selectedNos.value.size > 0 ? '' : 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คน',
 )
+/**
+ * 📅 วันปิดรับต้องไม่หลังวันจัดกิจกรรม — ตรวจที่นี่ด้วย ถ้าปล่อยไป backend
+ * จะได้ 400 หลังกดบันทึก ซึ่งผู้ใช้เสียข้อมูลที่กรอกไปแล้วทั้งฟอร์ม
+ * (เทียบเป็น string ได้เพราะทั้งคู่เป็น `YYYY-MM-DD`)
+ */
+const deadlineError = computed(() => {
+  const deadline = form.value.registration_deadline
+  const activityDate = form.value.activity_date
+  if (!deadline || !activityDate) return ''
+  return deadline > activityDate ? 'วันปิดรับลงทะเบียนต้องไม่หลังวันจัดกิจกรรม' : ''
+})
+/** 🪑 ความจุ: เว้นว่าง = ไม่จำกัด · กรอกแล้วต้อง ≥ 1 (0 ใช้เฉพาะตอนแก้ไขเพื่อยกเลิกเพดาน) */
+const capacityError = computed(() => {
+  if (form.value.capacity === '') return ''
+  const value = Number(form.value.capacity)
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1) {
+    return 'ความจุต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป (เว้นว่าง = ไม่จำกัด)'
+  }
+  return ''
+})
 const formValid = computed(
-  () => !titleError.value && !dateError.value && !participantsError.value,
+  () =>
+    !titleError.value &&
+    !dateError.value &&
+    !participantsError.value &&
+    !deadlineError.value &&
+    !capacityError.value,
 )
 
 /** ฟอร์มถูกแก้หรือยัง — ใช้ทั้งก่อนออกจากหน้า และตัดสินว่าเขียนร่างไหม */
@@ -446,6 +496,9 @@ const isDirty = () =>
     form.value.description.trim() !== '' ||
     form.value.activity_date !== todayIso() ||
     Number(form.value.base_hours) > 0 ||
+    form.value.category !== '' ||
+    form.value.registration_deadline !== '' ||
+    form.value.capacity !== '' ||
     selectedNos.value.size > 0 ||
     activityMetaRows.value.length > 0 ||
     requiredFields.value.size > 0)
@@ -540,6 +593,10 @@ const submit = async () => {
         activity_date: form.value.activity_date,
         base_hours: Number(form.value.base_hours) || 0,
         status: form.value.status,
+        // `null` = ไม่ระบุหมวด / ไม่มีกำหนดปิดรับ / ไม่จำกัดความจุ (ตรงกับ backend)
+        category: form.value.category || null,
+        registration_deadline: form.value.registration_deadline || null,
+        capacity: form.value.capacity === '' ? null : Number(form.value.capacity),
         metadata: activityMetadata,
         participants,
         user_name: currentUserName,
@@ -562,6 +619,11 @@ const submit = async () => {
         activity_date: form.value.activity_date,
         base_hours: Number(form.value.base_hours) || 0,
         status: form.value.status,
+        // 🏷️ ส่ง `null` = ล้างค่าจริง (ต่างจาก capacity ที่ PATCH ใช้ 0 เป็นสัญญาณ
+        //    เพราะ `null` ใน PATCH ถูก backend มองว่า "ไม่ส่งมา" แล้วตัดทิ้ง)
+        category: form.value.category || null,
+        registration_deadline: form.value.registration_deadline || null,
+        capacity: form.value.capacity === '' ? 0 : Number(form.value.capacity),
         metadata: activityMetadata,
         participants,
         user_name: currentUserName,
@@ -679,6 +741,63 @@ const submit = async () => {
                 <option value="completed">เสร็จสิ้น</option>
                 <option value="cancelled">ยกเลิก</option>
               </select>
+            </div>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+              <div>
+                <label class="field-label" for="activityCategory">หมวดกิจกรรม</label>
+                <select id="activityCategory" v-model="form.category" class="field">
+                  <option value="">ไม่ระบุหมวด</option>
+                  <option v-for="c in ACTIVITY_CATEGORIES" :key="c.value" :value="c.value">
+                    {{ c.label }}
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="activityCapacity">ความจุ</label>
+                <input
+                  id="activityCapacity"
+                  v-model="form.capacity"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="ไม่จำกัด"
+                  class="field num"
+                  :aria-invalid="!!capacityError"
+                  :aria-describedby="capacityError ? 'activityCapacityError' : undefined"
+                />
+                <p
+                  v-if="capacityError"
+                  id="activityCapacityError"
+                  class="mt-1 text-xs font-bold text-danger-600"
+                >
+                  {{ capacityError }}
+                </p>
+                <p v-else class="mt-1 text-xs leading-relaxed text-stone-500">
+                  เว้นว่าง = รับได้ไม่จำกัด · เกินแล้วคนใหม่ไปอยู่คิวสำรอง
+                </p>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="activityDeadline">วันปิดรับลงทะเบียน</label>
+              <input
+                id="activityDeadline"
+                v-model="form.registration_deadline"
+                type="date"
+                class="field"
+                :max="form.activity_date || undefined"
+                :aria-invalid="!!deadlineError"
+                :aria-describedby="deadlineError ? 'activityDeadlineError' : undefined"
+              />
+              <p
+                v-if="deadlineError"
+                id="activityDeadlineError"
+                class="mt-1 text-xs font-bold text-danger-600"
+              >
+                {{ deadlineError }}
+              </p>
+              <p v-else class="mt-1 text-xs leading-relaxed text-stone-500">
+                วันสุดท้ายที่ยังรับผู้เข้าร่วม — ต้องไม่หลังวันจัดกิจกรรม (เว้นว่าง = ไม่มีกำหนด)
+              </p>
             </div>
             <div>
               <label class="field-label" for="activityDescription">รายละเอียด</label>

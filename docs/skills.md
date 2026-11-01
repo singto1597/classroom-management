@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 259 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 260 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -263,6 +263,7 @@
 - [🪑 ความจุกิจกรรม + คิวสำรอง: ที่นั่งต้องถูกจองใต้ `FOR UPDATE` ของแถวกิจกรรม ไม่ใช่ในหน่วยความจำ](#ความจุกิจกรรม-คิวสำรอง-ที่นั่งต้องถูกจองใต้-for-update-ของแถวกิจกรรม-ไม่ใช่ในหน่วยความจำ)
 - [🎟️ เช็คอินด้วย QR: บัตรต้องผูกกับกิจกรรม และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง](#เช็คอินด้วย-qr-บัตรต้องผูกกับกิจกรรม-และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง)
 - [🔗 ลิงก์แชร์: route สาธารณะต้องแยก router และ `null` ที่ถูกกรองทิ้งคือจุดตายของ PATCH](#ลิงก์แชร์-route-สาธารณะต้องแยก-router-และ-null-ที่ถูกกรองทิ้งคือจุดตายของ-patch)
+- [🌐 หน้าสาธารณะนอก MainLayout: guard มีสองรายการ และ `build` จับ template error ที่ `type-check` มองไม่เห็น](#หน้าสาธารณะนอก-mainlayout-guard-มีสองรายการ-และ-build-จับ-template-error-ที่-type-check-มองไม่เห็น)
 
 <!-- TOC:END -->
 
@@ -4290,4 +4291,27 @@
   - **`has_share_link` เป็น boolean ที่ SQL คำนวณ** (`(share_token IS NOT NULL)`) — อย่าเลือก `share_token` ออกมาทั้งคอลัมน์แล้วหวังว่า Pydantic จะกรอง เพราะ `_build_activity_response` ส่ง dict ดิบต่อ
 - **Rule:** (1) 🔴 route ที่ไม่ต้อง auth ต้องอยู่ namespace แยก + มีเหตุผลใน `PUBLIC_ROUTES` และเทสต์ count ถูกปรับพร้อมคอมเมนต์ (2) 🔴 ฟิลด์ที่ส่ง `null` เพื่อล้างค่าได้ ต้องมีบรรทัด pass-through ชัด ๆ และประกาศว่าฟิลด์ไหนใช้ `null` ฟิลด์ไหนใช้ `0` (3) 🔴 ตรวจกติกาข้ามฟิลด์กับ "สถานะหลังแก้" (4) ⚠️ ความลับที่เพิกถอนได้ เก็บใน DB; ความลับที่ไม่ต้องเพิกถอนจึงใช้ HMAC
 - **Tests:** `backend/tests/test_activity_meta.py` (37 ร่วมกับ route audit: หมวด normalize/ปฏิเสธค่าที่ไม่รู้จัก · deadline หลังวันจัด 400 · เท่ากันผ่าน · PATCH ตั้ง/ล้างด้วย `""` และ `null` · ย้ายสองวันพร้อมกัน · กรองลิสต์ด้วยหมวด · ออกลิงก์ซ้ำได้อันเดิม · rotate ทำให้ลิงก์เก่า 404 · เพิกถอน · ต้องมี MANAGE_ACTIVITIES · **โทเคนไม่โผล่ใน `audit_logs`** · หน้าสาธารณะไม่มีกุญแจ PII · `is_registration_open` 5 กรณี · HTTP public 200/404 + `no-store`)
+- **Date Added:** 2026-11-01
+
+### 🌐 หน้าสาธารณะนอก MainLayout: guard มีสองรายการ และ `build` จับ template error ที่ `type-check` มองไม่เห็น
+- **Context/Problem:** P4.4 เพิ่มหน้า `/share/activity/:token` ที่ผู้ปกครองเปิดได้โดยไม่ล็อกอิน — route ประกาศ `requiresAuth: false` แล้วแต่ผู้ใช้ที่ล็อกอินอยู่แต่ **ยังไม่เลือกห้อง** กลับถูกเด้งไป `/lobby`, และบัญชีที่ยังไม่กรอกโปรไฟล์ถูกเด้งไป `/onboarding` ทั้งที่ควรเปิดลิงก์ได้
+- **Root Cause:**
+  - `router/index.ts` มี **สองรายการที่ต้องแก้แยกกัน**: `isRoomlessGlobal` (ข้ามการบังคับ onboard) และ `isGlobalRoute` (ข้ามการบังคับเลือกห้อง) — เติมที่เดียวแล้วยังพังอีกจุด
+  - `routes.spec.ts` ถือว่า **ทุก named route ระดับบนสุดที่ไม่ใช่รายการยกเว้น = หน้าในแอป** ⇒ ต้องมี `navTab` ในชุด `home|students|tasks|finance|more` หน้าสาธารณะที่ไม่มีแท็บล่างจึงพังเทสต์ทันที (ถูกต้องแล้ว — ให้เติมชื่อลงรายการยกเว้นพร้อมเหตุผล)
+  - template expression หลายประโยคต้องคั่นด้วย `;` — `vue-tsc` ผ่านแต่ `vite build` ตก (`Unexpected token, expected ","`) เพราะตัว compile template คนละตัวกัน
+- **Correct Pattern/Solution:**
+  ```ts
+  // router/index.ts — เติม "/share/" ให้ครบทั้งสองรายการ
+  const isRoomlessGlobal = … || to.path.startsWith('/share/') || isNotFound;
+  const isGlobalRoute   = … || to.path.startsWith('/share/') || isNotFound;
+  ```
+  ```vue
+  <!-- ✅ หลายประโยคใน template ต้องมี ; -->
+  @click="filter = 'all'; categoryFilter = 'all';"
+  ```
+  - หน้าสาธารณะวาง **ก่อน** catch-all `/:pathMatch(.*)*` เสมอ ไม่งั้นจะถูกตีเป็น 404
+  - `title` ของหน้าใช้ `routeTitles` (กติกาเดิม) — ห้ามพิมพ์ข้อความใน route
+  - ใช้ helper บริสุทธิ์ที่รับ `todayIso` เป็นพารามิเตอร์สำหรับป้ายเวลา (`utils/activityDeadline.ts`) — **ห้ามเรียก `new Date()` ในฟังก์ชันที่ต้องการเทสต์** ไม่งั้นเทสต์ผ่านวันนี้แล้วตกพรุ่งนี้
+- **Rule:** (1) 🔴 เพิ่ม route ที่ไม่ต้องล็อกอิน = แก้ guard **ทั้งสองรายการ** + เทสต์ router (2) 🔴 ตรวจ template ด้วย `npm run build` ก่อน push เสมอ — `type-check` ไม่ใช่ด่านเดียวกัน (3) ⚠️ ป้ายที่ขึ้นทุกการ์ด = ป้ายที่ไม่มีความหมาย: แสดง "ใกล้ปิดรับ" เฉพาะ ≤7 วันหรือเลยกำหนด
+- **Tests:** `frontend/src/utils/__tests__/activityDeadline.spec.ts` (7 · none/closed/soon/open · ขอบเขต 7 วัน · ข้อความป้าย · ข้ามเดือน/ปี) · `src/router/__tests__/routes.spec.ts` (ยกเว้น `shared-activity` พร้อมเหตุผล)
 - **Date Added:** 2026-11-01
