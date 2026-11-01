@@ -161,7 +161,10 @@ def test_route_count_is_not_silently_shrinking():
     # 152 → 156 (2026-11-01): บุ๊กมาร์ก "บันทึกไว้" (P3.4) — `bookmarks` list/create/
     #   delete/state ทั้งสี่มี `Depends(get_current_user)` และตรวจสมาชิกห้องใน service
     #   (ลบของคนอื่นได้ 404 ไม่ใช่ 204 — ไม่บอกว่ามีอยู่)
-    expected = 156
+    # 156 → 158 (2026-11-01): เช็คอินด้วย QR (P4.2) — `GET/POST …/checkin/qr`
+    #   ทั้งคู่มี `Depends(get_current_user)`; ออกบัตรต้องมี MANAGE_ACTIVITIES
+    #   และการสแกนก็เรียก `require_permission(MANAGE_ACTIVITIES)` ใน service
+    expected = 158
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

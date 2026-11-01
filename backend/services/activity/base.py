@@ -31,6 +31,7 @@ class BaseMixin:
         SELECT
             ap.id, ap.activity_id, ap.student_id, ap.role_type, ap.role_detail,
             ap.earned_hours, ap.status, ap.queue_position, ap.metadata, ap.recorded_by,
+            ap.checked_in_at, ap.checked_in_by,
             s.student_no, s.identity_claimed, u.id AS user_id,
             u.first_name, u.last_name, u.nickname,
             u.first_name_en, u.last_name_en, u.nickname_en,

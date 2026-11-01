@@ -30,6 +30,10 @@ export interface ActivityParticipant {
   queue_position?: number | null
   metadata: Metadata
   recorded_by: string | null
+  /** 🎟️ P4.2 — เวลาที่ "มาแล้ว" ถูกบันทึก (ISO) · null = ไม่เคยเช็คอินผ่านทางที่บันทึกเวลาได้ */
+  checked_in_at?: string | null
+  /** 🎟️ P4.2 — ชื่อทีมงานที่กดเช็คอิน/สแกนบัตร */
+  checked_in_by?: string | null
   /** 🌟 Type A Profile Fields — JOIN มาจากตาราง users (READ ONLY ในบริบทกิจกรรม) */
   blood_group?: string | null
   shirt_size?: string | null
