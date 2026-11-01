@@ -22,11 +22,18 @@ on:
   pull_request:
     paths:
       - 'docker-compose*.yml'
+      # 🛡️ P6.4 — config ที่ถูก COPY เข้า image จริง (ไม่ใช่โค้ดที่ type-check จับได้)
+      - 'frontend/nginx.default.conf'
+      - 'frontend/nginx-security-headers.conf'
+      - 'frontend/Dockerfile'
       - '.github/workflows/ci-compose.yml'
   push:
     branches: [main, staging]
     paths:
       - 'docker-compose*.yml'
+      - 'frontend/nginx.default.conf'
+      - 'frontend/nginx-security-headers.conf'
+      - 'frontend/Dockerfile'
       - '.github/workflows/ci-compose.yml'
 
 concurrency:
@@ -172,6 +179,155 @@ jobs:
           echo "✅ ไม่มี IMAGE_TAG ⇒ ล้มตามที่ควร"
           echo "   ข้อความที่ docker คืนมา:"
           head -2 /tmp/no-tag.yml | sed 's/^/     /'
+
+      # ④ nginx security headers (P6.4) — ตรวจ "กับดักที่พังเงียบ" สองตัว:
+      #    (ก) `add_header` ของ nginx **ไม่ merge** ระหว่างระดับ ⇒ location ที่ตั้ง
+      #        Cache-Control จะทิ้ง security headers ทั้งชุดถ้าไม่ `include` เอง
+      #        (ผลคือหน้า /assets/ ไม่มี CSP/nosniff แต่หน้า / มี — เห็นด้วยตายากมาก)
+      #    (ข) `include` ไฟล์ที่ไม่ได้ COPY เข้า image ⇒ nginx start ไม่ขึ้น (crash-loop
+      #        ตอน deploy) — ตรวจได้ฟรีตั้งแต่ตอนนี้ ไม่ต้องรอ production ล่ม
+      - name: nginx security headers ต้องครบทุก location
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          conf_path = pathlib.Path('frontend/nginx.default.conf')
+          hdr_path = pathlib.Path('frontend/nginx-security-headers.conf')
+          dockerfile_path = pathlib.Path('frontend/Dockerfile')
+
+          errors = []
+
+          def fail(msg):
+              errors.append(msg)
+
+          # คอมเมนต์ในไฟล์เหล่านี้อธิบาย `add_header` ไว้ด้วย ⇒ ตัดทิ้งก่อนตรวจ
+          # ไม่งั้นคอมเมนต์ที่เขียนว่า "ต้องมี nosniff" จะทำให้ด่านผ่านทั้งที่ของจริงหาย
+          def code_of(path):
+              return re.sub(r'#.*$', '', path.read_text(encoding='utf-8'), flags=re.M)
+
+          for p in (conf_path, hdr_path, dockerfile_path):
+              if not p.is_file():
+                  print(f"❌ ไม่พบไฟล์ {p}")
+                  sys.exit(1)
+
+          conf = code_of(conf_path)
+          hdr = code_of(hdr_path)
+          dockerfile = dockerfile_path.read_text(encoding='utf-8')
+
+          # ── ④.๑ ไฟล์ snippet ต้องประกาศ header ที่ต้องการ ด้วยค่าที่ถูกต้อง ──
+          required = {
+              'X-Content-Type-Options': r'nosniff',
+              'X-Frame-Options': r'^DENY$',
+              'Referrer-Policy': r'^strict-origin-when-cross-origin$',
+              'Permissions-Policy': r'camera=\(self\)',
+          }
+          for name, pattern in required.items():
+              m = re.search(rf'add_header\s+{re.escape(name)}\s+"([^"]*)"', hdr)
+              if not m:
+                  fail(f"ไม่มี header `{name}` ใน nginx-security-headers.conf")
+              elif not re.search(pattern, m.group(1)):
+                  fail(f"header `{name}` มีค่าไม่ตรงที่คาด: {m.group(1)!r}")
+
+          # ── ④.๒ CSP ต้องเป็น report-only (ยังไม่บังคับ) และมี directive ครบ ──
+          if re.search(r'add_header\s+Content-Security-Policy\s+"', hdr):
+              fail(
+                  "พบ `Content-Security-Policy` (บังคับใช้) — ขั้นนี้ตั้งใจให้เป็น "
+                  "Report-Only ก่อน: ถ้าเปิดบังคับแล้วมี directive ขาด จะพังเฉพาะผู้ใช้จริง"
+              )
+
+          csp_match = re.search(
+              r'add_header\s+Content-Security-Policy-Report-Only\s+"([^"]*)"', hdr
+          )
+          if not csp_match:
+              fail("ไม่มี `Content-Security-Policy-Report-Only` ใน nginx-security-headers.conf")
+              csp = ""
+          else:
+              csp = csp_match.group(1)
+
+          for directive, value in {
+              'default-src': "'self'",
+              'script-src': "'self'",
+              'frame-ancestors': "'none'",
+              'object-src': "'none'",
+              'base-uri': "'self'",
+              'form-action': "'self'",
+              'worker-src': "'self'",
+              'manifest-src': "'self'",
+          }.items():
+              if not re.search(rf"(?:^|;)\s*{directive}\s+{re.escape(value)}\s*(?:;|$)", csp):
+                  fail(f"CSP ขาด `{directive} {value}`")
+
+          # API อยู่คนละ subdomain — ถ้าไม่อยู่ใน connect-src ทุกคำขอ API จะถูกรายงาน
+          # (report-only จึงไม่พัง แต่รายงานจะท่วมจนดูของจริงไม่ออก)
+          if 'connect-src' not in csp or 'https://classapi.singto1597.xyz' not in csp:
+              fail("CSP `connect-src` ต้องมี https://classapi.singto1597.xyz (production API)")
+
+          # ── ④.๓ `server_tokens off` ──
+          if not re.search(r'^\s*server_tokens\s+off\s*;', conf, re.M):
+              fail("nginx.default.conf ขาด `server_tokens off;` (ไม่ปิดเวอร์ชัน nginx)")
+
+          # ── ④.๔ ทุก `location` และ `server` ต้อง include snippet (กับดัก add_header) ──
+          def blocks(code, keyword):
+              """คืน (หัวบล็อก, เนื้อในรวมปีกกา) ของทุก `keyword … { … }`"""
+              for m in re.finditer(rf'\b{keyword}\b[^{{]*\{{', code):
+                  depth = 0
+                  i = m.end() - 1
+                  while i < len(code):
+                      if code[i] == '{':
+                          depth += 1
+                      elif code[i] == '}':
+                          depth -= 1
+                          if depth == 0:
+                              break
+                      i += 1
+                  else:
+                      yield m.group(0).strip(), code[m.end():]   # ไม่เจอปีกกาปิด — ให้ด่านอื่นฟ้อง
+                      continue
+                  yield m.group(0).strip(), code[m.end():i]
+
+          include_path = '/etc/nginx/snippets/security-headers.conf'
+          server_blocks = list(blocks(conf, 'server'))
+          if not server_blocks:
+              fail("ไม่พบ `server {}` ใน nginx.default.conf")
+          for head, body in server_blocks:
+              if include_path not in body:
+                  fail(f"`server {{}}` ไม่ได้ include {include_path}")
+
+          location_blocks = list(blocks(conf, 'location'))
+          # 🔢 ตั้งใจให้ต้องอัปเดตมือเมื่อเพิ่ม location — เพื่อให้คนเพิ่มได้ทบทวนว่า
+          #    location ใหม่มี `add_header` ของตัวเองหรือไม่ (ถ้ามี ต้อง include ด้วย)
+          EXPECTED_LOCATIONS = 4  # /sw.js · /manifest.webmanifest · /assets/ · /
+          if len(location_blocks) != EXPECTED_LOCATIONS:
+              fail(
+                  f"พบ `location` {len(location_blocks)} บล็อก แต่คาดไว้ {EXPECTED_LOCATIONS} — "
+                  "ถ้าเพิ่ม/ลบจริง ให้ปรับ EXPECTED_LOCATIONS และ include snippet ในของใหม่"
+              )
+          for head, body in location_blocks:
+              if include_path not in body:
+                  fail(f"`{head}` ไม่ได้ include {include_path} ⇒ location นี้จะทิ้ง security headers")
+
+          # ── ④.๕ Dockerfile ต้อง COPY snippet ไปที่ path ที่ include ไว้ ──
+          if 'nginx-security-headers.conf' not in dockerfile:
+              fail("Dockerfile ไม่ได้ COPY nginx-security-headers.conf (nginx จะ start ไม่ขึ้น)")
+          elif not re.search(
+              r'COPY\s+nginx-security-headers\.conf\s+' + re.escape(include_path), dockerfile
+          ):
+              fail(
+                  "Dockerfile COPY ไฟล์ security headers ไปไม่ตรง path ที่ include ไว้ "
+                  f"({include_path}) — nginx จะ start ไม่ขึ้น"
+              )
+
+          if errors:
+              print("❌ nginx security headers ไม่ครบ:")
+              for e in errors:
+                  print(f"   • {e}")
+              sys.exit(1)
+
+          print("✅ nginx security headers ครบ")
+          print(f"   include {len(location_blocks)} location + {len(server_blocks)} server block")
+          print(f"   CSP report-only ยาว {len(csp)} ตัวอักษร · ยังไม่บังคับใช้")
+          PY
 
       - name: เก็บกวาด
         if: always()
