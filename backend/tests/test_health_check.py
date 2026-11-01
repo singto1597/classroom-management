@@ -94,11 +94,21 @@ class _QueryFailsPool:
 
 
 async def test_health_ok_when_db_reachable(client):
-    """DB ต่อได้ → 200 + body บอก connected (พฤติกรรมเดิม ต้องคงไว้)"""
+    """DB ต่อได้ → 200 + body บอก connected (พฤติกรรมเดิม ต้องคงไว้)
+
+    💓 [P6.3] body มี `redis`/`push_worker` เพิ่ม — เทสต์เดิมเทียบค่าทั้ง dict ตรง ๆ
+    ⇒ อัปเดตเป็นตรวจเฉพาะฟิลด์ที่ผูกกับสัญญา ส่วนฟิลด์ใหม่ตรวจชนิด/ค่าเป็นชุด
+    (ไม่ assert ค่า redis ตายตัว เพราะขึ้นกับว่าเครื่องรันเทสต์มี Redis หรือไม่)
+    """
     res = client.get("/health")
 
     assert res.status_code == 200, f"คาดว่า 200 แต่ได้ {res.status_code}: {res.text}"
-    assert res.json() == {"status": "ok", "database": "connected"}
+    body = res.json()
+    assert body["status"] == "ok"
+    assert body["database"] == "connected"
+    assert body["redis"] in {"connected", "unavailable"}
+    # worker heartbeat เป็น "ข้อมูลประกอบ" — ไม่มี worker ก็ต้องเป็น null ไม่ใช่ 0
+    assert "last_beat_seconds_ago" in body["push_worker"]
 
 
 # =============================================================================

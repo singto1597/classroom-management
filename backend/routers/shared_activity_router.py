@@ -16,16 +16,19 @@ import asyncpg
 
 from core.dependencies import get_db_pool
 from core.exceptions import ActivityNotFoundError
+from core.rate_limit import rate_limit
 from models.activity_schemas import SharedActivityResponse
 from services.activity_service import ActivityService
 
 router = APIRouter()
 
 
+# 🚦 [P6.3] 60 ครั้ง/นาที/IP — endpoint เดียวในระบบที่ไม่มี auth เลย (ดู core/rate_limit.py)
 @router.get(
     "/activity/{token}",
     response_model=SharedActivityResponse,
     summary="ดูกิจกรรมด้วยลิงก์แชร์ (อ่านอย่างเดียว ไม่ต้องล็อกอิน)",
+    dependencies=[rate_limit("shared_activity")],
 )
 async def get_shared_activity(
     token: str,

@@ -29,6 +29,7 @@ from models.activity_schemas import (
     QrCheckinResponse,
 )
 from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id
+from core.rate_limit import rate_limit_per_user
 from core.exceptions import (
     ActivityNotFoundError,
     CheckinSheetNotFoundError,
@@ -294,10 +295,13 @@ async def list_checkin_qr_codes(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# 🚦 [P6.3] 30 ครั้ง/นาที/ผู้ใช้ — ผู้สแกนล็อกอินแล้ว ⇒ นับตาม user_id ไม่ใช่ IP
+#    (คิวหน้าโต๊ะหลายคนใช้อินเทอร์เน็ตเดียวกัน · และกันการเดาโทเคนบัตรจากบัญชีเดียว)
 @router.post(
     "/{target_id}/activities/{activity_id}/checkin/qr",
     response_model=QrCheckinResponse,
     summary="สแกน QR เช็คอิน",
+    dependencies=[rate_limit_per_user("activity_qr")],
 )
 async def checkin_by_qr(
     activity_id: int,

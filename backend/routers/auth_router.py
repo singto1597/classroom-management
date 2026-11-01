@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Request
 from services import auth_service
 from core.dependencies import get_current_user, get_db_pool
 from core.exceptions import ForbiddenError
+from core.rate_limit import rate_limit
 from routers._common import get_audit_context
 import asyncpg
 
@@ -44,7 +45,8 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 # =====================================================================================
 
 
-@router.post("/discord/login", response_model=TokenResponse)
+# 🚦 [P6.3] 10 ครั้ง/นาที/IP — endpoint นี้แลก code กับ Discord ทุกครั้ง (ดู core/rate_limit.py)
+@router.post("/discord/login", response_model=TokenResponse, dependencies=[rate_limit("auth_login")])
 async def discord_login(payload: ProviderLoginRequest, request: Request, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:
         client_source, actor = get_audit_context(request)
@@ -79,7 +81,8 @@ async def discord_login(payload: ProviderLoginRequest, request: Request, pool: a
             detail="เข้าสู่ระบบด้วย Discord ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
         )
 
-@router.post("/google/login", response_model=TokenResponse)
+# 🚦 [P6.3] เพดานเดียวกับ Discord — กันการเดา code กับ Google เช่นกัน
+@router.post("/google/login", response_model=TokenResponse, dependencies=[rate_limit("auth_login")])
 async def google_login(payload: ProviderLoginRequest, request: Request, pool: asyncpg.Pool = Depends(get_db_pool)):
     try:
         client_source, actor = get_audit_context(request)

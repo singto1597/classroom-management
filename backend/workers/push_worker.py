@@ -30,8 +30,10 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import asyncpg
+import redis.asyncio as aioredis
 
 from core.config import settings
+from core.heartbeat import record_heartbeat
 from services import app_settings_service, push_service
 
 logger = logging.getLogger("API_WORKER_PUSH")
@@ -215,15 +217,30 @@ async def drain_once(
     return stats
 
 
-async def run_forever(pool: asyncpg.Pool) -> None:  # pragma: no cover — ลูปไม่รู้จบ
-    """ลูปของ container — หยุดได้ด้วย SIGTERM ตามปกติของ Swarm (grace period 10 วิ)"""
+async def run_forever(pool: asyncpg.Pool, redis=None) -> None:  # pragma: no cover — ลูปไม่รู้จบ
+    """ลูปของ container — หยุดได้ด้วย SIGTERM ตามปกติของ Swarm (grace period 10 วิ)
+
+    💓 [P6.3] เขียน `push_worker:last_beat` ลง Redis ทุกรอบ (**รวมรอบที่ไม่มีงาน**)
+    เพื่อให้ `/health` บอกได้ว่า worker ยังมีชีวิต — ถ้าไม่มี heartbeat, worker ที่ตาย
+    จะเงียบสนิทและคนเห็นแค่ "แจ้งเตือนไม่เด้ง" โดยไม่รู้ว่าอะไรพัง
+    """
     if not push_service.push_enabled():
         logger.warning(
             "⚠️ ไม่ได้ตั้ง VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY — worker จะหลับ "
             "(pushes จะสะสมใน outbox ไม่ถูกส่ง)"
         )
 
+    heartbeat_warned = False
     while True:
+        # heartbeat ก่อนทำงานเสมอ — รอบที่ไม่มีงานก็ต้องบอกว่ายังอยู่
+        if redis is not None:
+            try:
+                await record_heartbeat(redis)
+            except Exception:
+                if not heartbeat_warned:
+                    heartbeat_warned = True
+                    logger.warning("เขียน heartbeat ลง Redis ไม่ได้ (จะลองรอบถัดไป)", exc_info=True)
+
         started = time.monotonic()
         totals = {"sent": 0, "retry": 0, "gone": 0, "dropped": 0, "deferred": 0, "stale": 0}
         processed_any = False
@@ -284,10 +301,18 @@ async def _main() -> None:  # pragma: no cover
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     pool = await asyncpg.create_pool(settings.DATABASE_URL, min_size=1, max_size=3)
+    # 💓 heartbeat ใช้ Redis ตัวเดียวกับ backend · timeout สั้น + ไม่ทำให้ worker ตายถ้า Redis ล่ม
+    redis = aioredis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=2,
+        socket_timeout=2,
+    )
     try:
-        await run_forever(pool)
+        await run_forever(pool, redis)
     finally:
         await pool.close()
+        await redis.aclose()
 
 
 if __name__ == "__main__":  # pragma: no cover
