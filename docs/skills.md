@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 261 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 262 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -265,6 +265,7 @@
 - [🔗 ลิงก์แชร์: route สาธารณะต้องแยก router และ `null` ที่ถูกกรองทิ้งคือจุดตายของ PATCH](#ลิงก์แชร์-route-สาธารณะต้องแยก-router-และ-null-ที่ถูกกรองทิ้งคือจุดตายของ-patch)
 - [🌐 หน้าสาธารณะนอก MainLayout: guard มีสองรายการ และ `build` จับ template error ที่ `type-check` มองไม่เห็น](#หน้าสาธารณะนอก-mainlayout-guard-มีสองรายการ-และ-build-จับ-template-error-ที่-type-check-มองไม่เห็น)
 - [🗓️ ปีการศึกษา/เทอมสำหรับกรองสถิติ: `window` เป็นคำสงวน และ `date AT TIME ZONE` ต้อง cast ก่อน](#ปีการศึกษาเทอมสำหรับกรองสถิติ-window-เป็นคำสงวน-และ-date-at-time-zone-ต้อง-cast-ก่อน)
+- [🧾 audit_logs มีคอลัมน์ `ip_address`/`user_agent` ครบแต่ไม่มีโค้ดเขียน — และกับดัก TestClient ตัวที่สอง](#auditlogs-มีคอลัมน์-ipaddressuseragent-ครบแต่ไม่มีโค้ดเขียน-และกับดัก-testclient-ตัวที่สอง)
 
 <!-- TOC:END -->
 
@@ -4338,4 +4339,41 @@
   - ฝั่งหน้า: โหมด "อัตโนมัติ" คือ **ไม่ส่งพารามิเตอร์เลย** — ส่ง `0`/`undefined` แทนได้ 404 หรือกลายเป็น "กรองด้วยปี id 0" · `PUT /academic/current` ต้องส่ง `year_id: null` จริงเพื่อ "ปลด" (null ≠ ไม่ส่งฟิลด์)
 - **Rule:** (1) 🔴 อย่าตั้งชื่อ CTE/คอลัมน์ว่า `window`, `user`, `order`, `group`, `all` — เป็นคำสงวน และ error ที่ได้ไม่บอกใบ้ว่ามาจากชื่อ (2) 🔴 เปรียบเทียบ `timestamptz` กับวันตามปฏิทิน ต้อง cast เป็น `::timestamp` ก่อน `AT TIME ZONE` เสมอ (3) 🔴 ตรรกะวัน/เทอมต้องมีเทสต์ขอบเขตปลายวัน (23:59 ไทยเข้า / 00:00 ของวันถัดไปไม่เข้า) เพราะนี่คือจุดที่ timezone พังเงียบ
 - **Tests:** `backend/tests/test_academic_periods.py` (28 — CRUD · สมาชิกอ่านได้แต่เขียนไม่ได้ · คนนอกห้อง 403 · ซ้ำ/ช่วงกลับด้าน/ค.ศ. ถูกปฏิเสธพร้อมใบ้ +543 · เทอมทับกัน/หลุดจากปี/ชื่อซ้ำ · มีปีปัจจุบันปีเดียว · ลบปี soft-delete เทอมและปลด current · `set_current` เทอมต้องอยู่ในปี · **สถิติ bounds ด้วยเวลาไทย** · ไม่มีปีปัจจุบัน = 42.0 ทั้งหมด · ค่าเริ่มต้นใช้ปีปัจจุบัน · audit ทุกการเขียน) · `frontend/src/services/__tests__/academic.spec.ts` (10 — path/method/body ครบ รวม `year_id: null` และ "ไม่ส่งตัวกรองเลย")
+- **Date Added:** 2026-11-01
+
+### 🧾 audit_logs มีคอลัมน์ `ip_address`/`user_agent` ครบแต่ไม่มีโค้ดเขียน — และกับดัก TestClient ตัวที่สอง
+
+- **Context/Problem:** P6.1 ต้องให้ audit บอกได้ว่า "บันทึกนี้มาจากเครื่อง/เบราว์เซอร์ไหน" ไม่ใช่แค่ `user_id:N` ตรวจโค้ดกลับพบว่า `audit_logs` มีคอลัมน์ `ip_address VARCHAR(45)` และ `user_agent TEXT` **ตั้งแต่ต้น แต่ `grep ip_address backend/` เจอแค่ที่นิยามใน `core/logger.py`** — ไม่มีผู้เรียกส่งค่ามาเลยสักจุด (277 จุดใน 40+ ไฟล์) และ `INSERT` ก็ไม่ระบุคอลัมน์ `user_agent` ด้วยซ้ำ
+- **Root Cause:**
+  1. คอลัมน์มีอยู่ ≠ ถูกใช้ — **สคีมาที่ "รอไว้ก่อน" จะไม่มีวันถูกเติมเอง** ต้องมีเทสต์ที่ยืนยันค่าในแถวจริง (อ่าน audit_logs แล้ว assert) ไม่ใช่แค่เทสต์ว่า INSERT ไม่ error
+  2. `request.client.host` ตอนอยู่หลัง Traefik คือ IP ของ proxy (ทุกคนเท่ากัน) และ header ที่ proxy เติมให้ (`X-Forwarded-For`, `CF-Connecting-IP`) **client ปลอมได้ถ้ายิงข้าม proxy**
+  3. `TestClient(app)` ที่สร้างตัวที่สองในเทสต์เดียวกันไปสร้าง **event loop ใหม่** ⇒ `asyncpg` pool ที่ผูกกับ loop ของ fixture พังด้วย `Future ... attached to a different loop` / `another operation is in progress` (ไม่ใช่ error ที่บอกสาเหตุจริงเลย)
+- **Correct Pattern/Solution:**
+  ```python
+  # 1) ตั้ง context ครั้งเดียวต่อ request แล้วให้ AuditLogger อ่าน fallback เอง
+  #    ⇒ ไม่ต้องแก้ผู้เรียก 277 จุด (ค่าที่ผู้เรียกส่งมาชนะเสมอ)
+  @app.middleware("http")
+  async def bind_request_audit_context(request: Request, call_next):
+      token = set_request_audit_context(build_request_audit_context(
+          peer_ip=request.client.host if request.client else None,
+          headers=request.headers, method=request.method,
+          path=request.url.path, trusted_hops=settings.TRUSTED_PROXY_HOPS))
+      try:
+          return await call_next(request)
+      finally:
+          reset_request_audit_context(token)     # 🔴 reset เสมอ ไม่งั้นค่าค้างข้ามคำขอ
+
+  # 2) ค่าเริ่มต้นของ TRUSTED_PROXY_HOPS ต้องเป็น 0 (ไม่เชื่อ header เลย)
+  #    XFF อ่านจาก "ขวา" เท่านั้น: entries[len(entries) - trusted_hops]
+  #    (entry ซ้ายสุด = ของที่ client เขียนมาเองได้ทั้งหมด)
+  #    CF-Connecting-IP ใช้ได้เฉพาะ trusted_hops >= 2 (CF + Traefik)
+
+  # 3) TestClient ตัวที่สอง: ยืม portal ของตัวที่ lifespan เปิดอยู่
+  borrowed = TestClient(app, client=("203.0.113.9", 43210))   # กำหนด TCP peer
+  borrowed.portal = running_client.portal                     # loop เดียวกัน
+  ```
+  - audit endpoint: **ตัด query string** และแทน segment ที่ยาว ≥ 20 (`share token`) ด้วย `{token}` — audit_logs เป็นตารางที่คนอ่านได้กว้างกว่าข้อมูลจริง ไม่ควรกลายเป็นที่เก็บโทเคน
+  - `User-Agent` เป็นข้อความที่ผู้ใช้ควบคุม ⇒ ตัดที่ 512 ตัวอักษรก่อนลง DB
+- **Rule:** (1) 🔴 คอลัมน์ obs/audit ที่เพิ่มแล้ว **ต้องมีเทสต์ที่อ่านค่าจาก DB** ไม่งั้น "มีคอลัมน์" คือทั้งหมดที่ทำได้ (2) 🔴 `TRUSTED_PROXY_HOPS` ค่าเริ่มต้น 0 และห้ามใส่ `:-2` เป็น fallback ใน compose — ลืมตั้งควรได้ "ไม่มี IP" ไม่ใช่ "IP ปลอมที่ดูน่าเชื่อถือ" (3) 🔴 header ที่เป็นข้อความอิสระ ต้องผ่าน `ipaddress.ip_address()` ก่อนเก็บ
+- **Tests:** `backend/tests/test_audit_request_context.py` (23 — resolve ของ 10 เคส spoof/1–2 hops/IPv6+port/header ตัวพิมพ์ใหญ่ · query string ถูกตัด · token ถูก mask · UA ถูกตัดที่ 512 · ยิง HTTP จริงแล้วอ่าน `ip_address`/`user_agent`/`endpoint_or_command` จาก DB · context ถูก reset หลังคำขอ · ค่าที่ผู้เรียกส่งมาชนะ context)
 - **Date Added:** 2026-11-01

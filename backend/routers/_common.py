@@ -8,6 +8,12 @@ from typing import Literal, Optional
 from fastapi import Path, Query, Request
 from pydantic import BaseModel
 
+from core.config import settings
+from core.request_context import (
+    current_request_audit_context,
+    resolve_client_ip,
+)
+
 
 class TargetResolution(BaseModel):
     server_id: Optional[int] = None
@@ -25,8 +31,26 @@ def get_target(
 
 
 def get_audit_context(request: Request, user_ctx: dict = None) -> tuple[str, str]:
+    """คืน `(client_source, actor_identifier)` สำหรับส่งเข้า service
+
+    🌐 [P6.1] `ip` ใช้ตัวแก้ค่าเดียวกับ middleware (`resolve_client_ip`) เพื่อไม่ให้
+    `actor_identifier` ของคำขอที่ไม่มีล็อกอินบันทึก IP ของ **Traefik** ทับทุกคน
+    — เดิม `request.client.host` คือ IP ของ proxy ⇒ `ip:172.20.0.5` เหมือนกันหมด
+    และไม่มีประโยชน์ในการสืบเหตุ
+
+    ใช้ค่าที่ middleware คำนวณไว้ก่อน (กันการคำนวณซ้ำและกันสองทางตีกันเอง)
+    แล้วค่อยคำนวณสดเมื่อถูกเรียกนอก middleware (เช่น unit test)
+    """
     client_source = request.headers.get("x-client-source", "WEB_APP")
-    ip = request.client.host if request.client else "unknown"
+    ctx = current_request_audit_context()
+    if ctx is not None and ctx.ip_address:
+        ip = ctx.ip_address
+    else:
+        ip = resolve_client_ip(
+            request.client.host if request.client else None,
+            request.headers,
+            settings.TRUSTED_PROXY_HOPS,
+        ) or "unknown"
     if user_ctx and "user_id" in user_ctx:
         actor_identifier = f"user_id:{user_ctx['user_id']}"
     else:

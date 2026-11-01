@@ -34,6 +34,7 @@
 - **Soft Delete:** ห้ามลบข้อมูลสำคัญ (เช่น ประวัติการเงิน, งานที่ส่ง) ออกจาก Disk ให้ใช้ `UPDATE ... SET deleted_at = NOW()`
 - **Hard Delete:** อนุญาตเฉพาะฟังก์ชัน `permanent` และ **ต้องเช็ค Foreign Key Dependency ก่อนเสมอ** หากถูกใช้งานอยู่ให้ `raise ValueError`
 - **Audit Logs:** ทุก Action ที่เปลี่ยนสถานะข้อมูล (CREATE, UPDATE, DELETE) **ต้อง** เรียกใช้ `service_logger.log(...)` ภายใน Transaction เดียวกับข้อมูลหลัก พร้อมเก็บ `old_values` และ `new_values` ให้ครบถ้วน
+- **IP / User-Agent (P6.1):** **ห้ามส่ง `ip_address=` เองจาก router** — middleware ใน `main.py` ตั้ง `RequestAuditContext` (IP จริงตาม `TRUSTED_PROXY_HOPS` · `user_agent` ตัด 512 ตัว · endpoint ที่ mask โทเคนแล้ว) และ `AuditLogger.log` เติมให้เอง ค่าที่ service ส่งมาชนะ context เสมอ ใช้เฉพาะกรณีที่อยากระบุชัดเจน เช่น command line/worker ที่ไม่มี request (ตรงนั้น context เป็น `None` ⇒ คอลัมน์ยังเป็น `NULL` ตามเดิม)
 
 ## 5. Security & Error Handling
 - **Assume Identity (God Mode):** หาก Admin สลับสิทธิ์ผ่าน Client ส่ง `room_id` และ `x_discord_id` เข้ามา ให้ Backend เชื่อใจค่าที่ส่งมา (หากผ่าน verify_api_key แล้ว)
