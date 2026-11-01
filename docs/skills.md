@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 256 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 257 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -260,6 +260,7 @@
 - [🤖 บอทสร้างช่องเองตอนเข้าร่วม — "เติมเฉพาะค่าว่าง" และ mute ต้องบังคับที่ backend](#บอทสร้างช่องเองตอนเข้าร่วม-เติมเฉพาะค่าว่าง-และ-mute-ต้องบังคับที่-backend)
 - [👤 "ของฉัน" ต้องมีคอลัมน์ผู้ทำก่อน — ฟีด/สถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น](#ของฉัน-ต้องมีคอลัมน์ผู้ทำก่อน-ฟีดสถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น)
 - [🔖 ปุ่ม "บันทึกไว้" ที่กดซ้ำได้ — partial unique + soft delete ต้อง "คืนชีพ" แถวเดิม ไม่ใช่ INSERT ซ้ำ](#ปุ่ม-บันทึกไว้-ที่กดซ้ำได้-partial-unique-soft-delete-ต้อง-คืนชีพ-แถวเดิม-ไม่ใช่-insert-ซ้ำ)
+- [🪑 ความจุกิจกรรม + คิวสำรอง: ที่นั่งต้องถูกจองใต้ `FOR UPDATE` ของแถวกิจกรรม ไม่ใช่ในหน่วยความจำ](#ความจุกิจกรรม-คิวสำรอง-ที่นั่งต้องถูกจองใต้-for-update-ของแถวกิจกรรม-ไม่ใช่ในหน่วยความจำ)
 
 <!-- TOC:END -->
 
@@ -4182,4 +4183,38 @@
   - **`created_at` รีเซ็ตตอนคืนชีพ** เพื่อให้ "เพิ่งกดเมื่อกี้" ขึ้นบนสุดตามที่ผู้ใช้จำได้
 - **Rule:** (1) 🔴 unique partial + soft delete ⇒ กดซ้ำต้อง UPDATE คืนชีพก่อน INSERT เสมอ (2) 🔴 endpoint ที่กดซ้ำได้ต้องตอบ `created` flag และรหัส 200/201 ให้ตรง (3) 🔴 LEFT JOIN เพื่อ hydrate ห้ามกลายเป็น INNER JOIN โดยไม่ตั้งใจ — ใช้ `available` flag (4) ⚠️ index ของลิสต์ต้องตรง `ORDER BY` ของ keyset `(created_at, id)` ไม่งั้น sort ทั้งตาราง
 - **Tests:** `backend/tests/test_bookmarks.py` (11 ตัว: hydrate ชื่อ/วันที่แบบ Bangkok · activity ใช้ `activity_date` · กดซ้ำ 201→200 created=false แถวเดียว · ลบแล้วกลับมาคืนแถวเดิม · ลบของคนอื่น 404 ไม่แตะแถว · เป้าหมายไม่มี/ข้ามห้อง 404 · entity_type ผิด 422/400 · เดินหน้าครบ · cursor เสีย 400 · 403 · state lifecycle · ประกาศที่เก็บถาวรยัง available)
+### 🪑 ความจุกิจกรรม + คิวสำรอง: ที่นั่งต้องถูกจองใต้ `FOR UPDATE` ของแถวกิจกรรม ไม่ใช่ในหน่วยความจำ
+- **Context/Problem:** P4.1 เพิ่ม `activities.capacity` + `activity_participants.queue_position` (สถานะใหม่ `waitlisted`) ตามแบบจากระบบอื่นที่ **ผู้เรียนกดลงทะเบียนเอง** — แต่ระบบนี้ผู้ดูแลห้องเป็นคนใส่รายชื่อ (เพิ่มทีละคน / batch / สร้างทั้งชุด / แทนที่ทั้งชุด) ⇒ มี **4 ทางเข้า** ที่แต่ละทางต้องจองที่นั่งด้วยกติกาเดียวกัน ถ้าต่างคนต่างนับเองจะได้กิจกรรมที่ "ยืนยันแล้ว 41 คนจากที่นั่ง 40"
+- **Root Cause:** "นับแล้วแทรก" เป็นสองคำสั่งที่แยกกันได้ — สองคำขอพร้อมกันนับได้ 39 ทั้งคู่แล้วแทรกทั้งคู่ = 41 และโค้ด 4 ทางที่เขียนเงื่อนไขซ้ำกันเองจะเพี้ยนคนละแบบตอนมีคนแก้ที่เดียว
+- **Correct Pattern/Solution:**
+  ```python
+  # backend/services/activity/capacity.py — ตรรกะบริสุทธิ์ตัวเดียวที่ทุกทางเรียก
+  SEATED_STATUSES: Tuple[str, ...] = ("confirmed", "attended")   # "นั่งได้" ≠ "confirmed" เท่านั้น
+
+  def plan_seats(requested, capacity, seated, next_queue):
+      # capacity is None → ไม่จำกัด · เต็ม → ("waitlisted", next_queue++)
+      ...
+  ```
+  ```python
+  # ล็อก "แถวกิจกรรม" 1 แถวเป็นจุดนับ-แล้ว-แทรก (ไม่ใช่ล็อก activity_participants ทั้งตาราง)
+  row = await conn.fetchrow(
+      "SELECT room_id, capacity FROM activities WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", activity_id)
+  capacity = row["capacity"]
+  counts = await cls._capacity_counts(conn, activity_id)      # SELECT … COUNT(*) FILTER (WHERE …)
+  resolved, queue = plan_seats([status], capacity, counts["seated"], counts["max_queue"] + 1)[0]
+  ```
+  ```python
+  # คืนที่นั่ง = เลื่อนคิว "ใน transaction เดียวกัน" + แจ้งเตือน + audit — ไม่แยกงานเบื้องหลัง
+  if old["status"] in SEATED_STATUSES:            # ยกเลิก/ลบ/ย้ายลงคิว
+      promoted = await cls._free_seats_after_removal(conn, …, freed_slots=1)
+  ```
+  - **`attended` คือข้อเท็จจริงที่เกิดแล้ว** — อยู่ในชุด "นั่งได้" แต่ **ห้ามถูกเด้งลงคิว** ตอนเกินความจุ (demote เฉพาะ `confirmed` และเลือกใหม่สุดก่อน)
+  - **`updated_at`/คิวต้องถูกเขียนใน revive path ด้วย:** `UNIQUE (activity_id, student_id)` เป็น **full unique** (ไม่ได้กรอง `deleted_at`) ⇒ แถว soft-delete ยังกินคีย์ การเพิ่มคนเก่ากลับมาเป็นการ `UPDATE … SET deleted_at = NULL` ⇒ ถ้าไม่ใส่ `queue_position` ในคำสั่งนั้น คนที่กลับมาจะได้เลขคิวเก่าค้างโดยไม่มีใครรู้
+  - **`_build_activity_response` ต้องมี fallback:** ลิสต์กิจกรรม **ไม่โหลดผู้เข้าร่วม** ⇒ ถ้าคำนวณ `confirmed_count` จาก `len(participants)` เฉย ๆ ตัวเลขจะเป็น 0 ทั้งที่ห้องเต็ม · ให้ใช้ `COUNT(*) FILTER` ใน SQL ของลิสต์แล้ว fallback เมื่อ `participants == []`
+  - **เพิ่มความจุ = ต้องเลื่อนคิวทันที** (ไม่ใช่รอคนยกเลิก) และ **`capacity` DTO สองความหมาย:** ตอน PATCH ส่ง `0` = "ยกเลิกเพดาน" (เพราะ `None` ที่ส่งมาตรง ๆ ถูก `exclude_unset`/`clean` ตัดทิ้ง) · ตอน POST ไม่ส่ง = ไม่จำกัด
+  - **`_promote_waitlist(capacity=None)` เดิมหมายถึง "ไปล็อกแถวเอง"** — พอต้องรองรับ "ไม่จำกัดความจุ = เลื่อนทั้งคิว" ความหมายชนกัน ⇒ แยกธง `lock=True/False` ชัด ๆ ดีกว่าเดาจากค่า `None`
+  - **ความจุที่ตั้งต่ำกว่าคนที่ยืนยันแล้ว = 400 ไม่ใช่การเด้งคนออกเงียบ ๆ** — ระบบไม่รู้ว่าคนไหนควรไป ผู้ดูแลต้องเลือกเอง
+  - ระบบนี้ **ไม่มีการลงทะเบียนเอง** ⇒ คิวเกิดจาก "ผู้ดูแลเพิ่มเกินความจุ" และไม่ต้องมี endpoint ให้ผู้เรียนกด join
+- **Rule:** (1) 🔴 สถานะที่ "กินที่นั่ง" ต้องประกาศครั้งเดียว (`SEATED_STATUSES`) ทุกที่อ้างค่านั้น (2) 🔴 การนับ+จองต้องอยู่ใน transaction ที่ถือ `FOR UPDATE` บนแถวแม่ (3) 🔴 ทุกทางที่ปล่อยที่นั่ง (ลบ/ยกเลิก/ลดจำนวน/แทนที่ทั้งชุด) ต้องผ่านฟังก์ชันเลื่อนคิวตัวเดียว (4) ⚠️ ฟิลด์ตัวเลขที่ API คืน ต้องพิสูจน์ว่า query ที่ให้ค่านั้นรันจริงในเส้นทางนั้น (ลิสต์ vs รายละเอียด)
+- **Tests:** `backend/tests/test_activity_capacity.py` (22 ตัว: `plan_seats` 4 · สร้าง/batch/เพิ่มทีละคนเกินความจุ · ลบ/ยกเลิก/`attended` · แทนที่ทั้งชุดแล้ว demote ใหม่สุด · PATCH เพิ่ม/ลด/`0` · ลิสต์และรายละเอียดคืนตัวเลขถูก · HTTP 400 · **concurrency 5 คำขอพร้อมกันเข้าความจุ 2 → นั่ง 2 คิว 1..3 ไม่ซ้ำ**)
 - **Date Added:** 2026-11-01

@@ -56,6 +56,8 @@
 | **ช่วงงดรบกวน** | เวลาที่ห้องกำหนดว่าไม่ส่ง push (ยกเว้นประกาศด่วน) — ตั้งได้ที่หน้าตั้งค่าของห้อง | `app_settings.quiet_hours` (`services/app_settings_service.py`) | ห้ามรบกวน · Do Not Disturb · quiet hours (ในข้อความผู้ใช้) |
 | **ของฉัน** | ไทม์ไลน์ส่วนตัว (ใบเสร็จที่ออกให้ฉัน · กิจกรรมที่ฉันเข้าร่วม) + สถิติ + รายการที่บันทึกไว้ | `views/me/MyActivity.vue`, `/api/classroom/{id}/me/*` | โปรไฟล์นักเรียน (คนละหน้า) · ฟีด · feed |
 | **บันทึกไว้** | บุ๊กมาร์กรายคนของประกาศ/กิจกรรมที่อยากกลับมาอ่าน (ของคน ไม่ใช่ของห้อง) | `bookmarks`, `/api/classroom/{id}/bookmarks` | เซฟ · favorite · รายการโปรด |
+| **ความจุ** | จำนวนที่นั่งสูงสุดของกิจกรรม — เกินแล้วคนที่เพิ่มมาจะไปอยู่คิวสำรอง ไม่ใช่ error | `activities.capacity` (NULL = ไม่จำกัด · `0` ตอน PATCH = ยกเลิกเพดาน) | โควตา · limit · ที่นั่งจำกัด |
+| **คิวสำรอง** | รายชื่อที่รอที่นั่งของกิจกรรม — เลื่อนขึ้นอัตโนมัติเมื่อมีคนยกเลิก/ถูกนำออก | `activity_participants.status = 'waitlisted'` + `queue_position` | waitlist (ในข้อความไทย) · รายชื่อรอ · สำรอง |
 | **ตารางเรียน** | ตารางเรียนประจำสัปดาห์ + การแก้เฉพาะสัปดาห์ | `default_schedules`, `schedule_overrides` | ตารางสอน · ตารางเวลา |
 | **แผนผังห้องเรียน** | ผังบทบาท/โครงสร้างห้อง (หัวหน้า–รอง–กรรมการ) | `views/roadmap/RoadmapView.vue` | org chart · ผังองค์กร |
 
@@ -84,6 +86,7 @@
 | `confirmed` | **ยืนยันแล้ว** |
 | `cancelled` | **ยกเลิก** |
 | `attended` | **มาแล้ว** |
+| `waitlisted` | **คิวสำรอง** |
 
 > แหล่งอ้างอิง: `backend/services/activity/constants.py` (`ACTIVITY_STATUS_LABELS`,
 > `PARTICIPANT_STATUS_LABELS`) — ฝั่ง Vue `types/activity.ts` มีชุดเดียวกัน ต้องแก้คู่กันเสมอ

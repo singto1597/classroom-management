@@ -22,6 +22,7 @@ from core.rbac import require_member, require_permission, has_any_permission, MA
 from core.privacy import can_view_activity_pii, mask_private_fields, PROFILE_TYPE_A_FIELDS
 from services.action_service import ActionService
 from .base import service_logger
+from .capacity import plan_seats
 
 
 class ActivitiesMixin:
@@ -42,6 +43,7 @@ class ActivitiesMixin:
         status: str = "upcoming",
         metadata: Optional[dict] = None,
         participants: Optional[List[dict]] = None,
+        capacity: Optional[int] = None,
     ) -> dict:
         """
         สร้างกิจกรรม + ผู้เข้าร่วมหลายคนพร้อมกัน (executemany ภายใน transaction เดียว)
@@ -68,12 +70,13 @@ class ActivitiesMixin:
 
                     activity_id = await conn.fetchval(
                         """
-                        INSERT INTO activities (room_id, title, description, activity_date, base_hours, status, metadata, created_by)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+                        INSERT INTO activities
+                            (room_id, title, description, activity_date, base_hours, status, capacity, metadata, created_by)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
                         RETURNING id
                         """,
                         target_room_id, title, description, activity_date, base_hours, status,
-                        json.dumps(meta), user_name,
+                        capacity, json.dumps(meta), user_name,
                     )
 
                     new_values = {
@@ -82,6 +85,7 @@ class ActivitiesMixin:
                         "activity_date": str(activity_date),
                         "base_hours": float(base_hours),
                         "status": status,
+                        "capacity": capacity,
                         "metadata": meta,
                         "created_by": user_name,
                     }
@@ -90,18 +94,23 @@ class ActivitiesMixin:
                     participant_records = participants or []
                     if participant_records:
                         validated = await cls._validate_participants(conn, target_room_id, participant_records)
+                        # 🪑 P4.1 — จองที่นั่งตามลำดับที่เลือกมา (เกินความจุ = เข้าคิวท้ายแถว)
+                        seats = plan_seats([row[4] for row in validated], capacity, seated=0, next_queue=1)
                         await conn.executemany(
                             """
                             INSERT INTO activity_participants
-                                (activity_id, student_id, role_type, role_detail, earned_hours, status, metadata, recorded_by)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+                                (activity_id, student_id, role_type, role_detail, earned_hours,
+                                 status, queue_position, metadata, recorded_by)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
                             """,
                             [
                                 (
                                     activity_id, student_id, role_type, role_detail,
-                                    earned_hours, p_status, json.dumps(p_meta), user_name,
+                                    earned_hours, seat_status, seat_queue, json.dumps(p_meta), user_name,
                                 )
-                                for (student_id, role_type, role_detail, earned_hours, p_status, p_meta) in validated
+                                for (student_id, role_type, role_detail, earned_hours, _p_status, p_meta), (
+                                    seat_status, seat_queue
+                                ) in zip(validated, seats)
                             ],
                         )
                         new_values["participants"] = [
@@ -170,15 +179,21 @@ class ActivitiesMixin:
                 if user_id is not None:
                     await require_member(conn, target_room_id, user_id)
 
+                # 🪑 P4.1 — นับที่นั่ง/คิวในคำสั่งเดียว (ลิสต์ไม่ต้องดึงผู้เข้าร่วมทั้งหมด)
                 base_sql = (
-                    "SELECT id, room_id, title, description, activity_date, base_hours, status, metadata, created_by, created_at, updated_at "
-                    "FROM activities WHERE room_id = $1 AND deleted_at IS NULL"
+                    "SELECT a.id, a.room_id, a.title, a.description, a.activity_date, a.base_hours, "
+                    "a.capacity, a.status, a.metadata, a.created_by, a.created_at, a.updated_at, "
+                    "(SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id "
+                    " AND ap.deleted_at IS NULL AND ap.status IN ('confirmed', 'attended')) AS confirmed_count, "
+                    "(SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id "
+                    " AND ap.deleted_at IS NULL AND ap.status = 'waitlisted') AS waitlisted_count "
+                    "FROM activities a WHERE a.room_id = $1 AND a.deleted_at IS NULL"
                 )
                 params: List[Any] = [target_room_id]
                 if status:
-                    base_sql += " AND status = $" + str(len(params) + 1)
+                    base_sql += " AND a.status = $" + str(len(params) + 1)
                     params.append(status)
-                base_sql += " ORDER BY activity_date ASC, id DESC"
+                base_sql += " ORDER BY a.activity_date ASC, a.id DESC"
 
                 rows = await conn.fetch(base_sql, *params)
                 # เช็คสิทธิ์ผู้จัดการครั้งเดียว ไม่ใช่ต่อกิจกรรม
@@ -317,10 +332,19 @@ class ActivitiesMixin:
                         if merged.get("dynamic_fields") is not None:
                             cls._validate_dynamic_fields(merged.get("dynamic_fields"))
 
-                    allowed = {"title", "description", "activity_date", "base_hours", "status", "metadata"}
+                    allowed = {"title", "description", "activity_date", "base_hours", "status",
+                               "capacity", "metadata"}
                     fields = {k: v for k, v in clean.items() if k in allowed}
                     if not fields and participants is None:
                         raise ValidationError("ไม่มีฟิลด์ที่แก้ไขได้ถูกส่งมา")
+
+                    # 🪑 P4.1 — capacity: 0 = ยกเลิกเพดาน (NULL) · ห้ามต่ำกว่าคนที่ยืนยันแล้ว
+                    if "capacity" in fields:
+                        if fields["capacity"] == 0:
+                            fields["capacity"] = None
+                        await cls._lock_activity_capacity(conn, target_room_id, activity_id)
+                        counts = await cls._capacity_counts(conn, activity_id)
+                        cls.validate_capacity_change(fields["capacity"], counts["seated"])
 
                     keys = sorted(fields.keys())
                     set_clauses = []
@@ -345,7 +369,21 @@ class ActivitiesMixin:
                     if res == "UPDATE 0":
                         raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
 
+                    # 🪑 P4.1 — เพิ่มความจุ (หรือยกเลิกเพดาน) ⇒ ที่นั่งที่เพิ่งเปิดต้องได้คนในคิว
+                    #    (transaction เดียวกัน — ไม่มีสภาพ "ที่นั่งว่างค้างทั้งที่ยังมีคนรอ")
+                    promoted: List[dict] = []
+                    if "capacity" in fields:
+                        promoted = await cls._promote_waitlist(
+                            conn, target_room_id, activity_id,
+                            capacity=fields["capacity"], lock=False,
+                            actor_identifier=actor_identifier,
+                            client_source=client_source,
+                            user_name=user_name,
+                        )
+
                     new_values = {k: cls._serializable(v) for k, v in fields.items()}
+                    if promoted:
+                        new_values["promoted_participant_ids"] = [p["participant_id"] for p in promoted]
 
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(

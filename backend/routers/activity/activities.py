@@ -65,6 +65,7 @@ async def create_activity(
             activity_date=req.activity_date,
             base_hours=req.base_hours,
             status=req.status,
+            capacity=req.capacity,
             metadata=req.metadata,
             participants=participants,
             user_name=req.user_name,

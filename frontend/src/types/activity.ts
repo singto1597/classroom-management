@@ -5,7 +5,8 @@
 
 export type ActivityStatus = 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
 export type RoleType = 'participant' | 'staff' | 'leader'
-export type ParticipantStatus = 'confirmed' | 'cancelled' | 'attended'
+// 🪑 P4.1 — `waitlisted` = คิวสำรอง (เกินความจุ) · เลื่อนขึ้นอัตโนมัติเมื่อมีคนยกเลิก
+export type ParticipantStatus = 'confirmed' | 'cancelled' | 'attended' | 'waitlisted'
 
 /** ข้อมูล metadata เป็น key-value อิสระ (JSONB ฝั่ง backend) — ต่อยอด Dynamic ได้ */
 export type Metadata = Record<string, unknown>
@@ -25,6 +26,8 @@ export interface ActivityParticipant {
   role_detail: string | null
   earned_hours: number
   status: ParticipantStatus | string
+  /** 🪑 P4.1 — 1,2,3... = ลำดับในคิวสำรอง · null = ไม่ได้อยู่ในคิว */
+  queue_position?: number | null
   metadata: Metadata
   recorded_by: string | null
   /** 🌟 Type A Profile Fields — JOIN มาจากตาราง users (READ ONLY ในบริบทกิจกรรม) */
@@ -133,11 +136,17 @@ export interface Activity {
   activity_date: string // YYYY-MM-DD
   base_hours: number
   status: ActivityStatus | string
+  /** 🪑 P4.1 — ความจุ (null = ไม่จำกัด) */
+  capacity?: number | null
   metadata: Metadata
   created_by: string | null
   created_at: string
   updated_at: string
+  /** ยอดรวมทุกแถว (คงความหมายเดิม) — ที่นั่งจริงดู `confirmed_count` */
   participant_count: number
+  /** 🪑 P4.1 — นั่งแล้ว (confirmed + attended) · ในคิว */
+  confirmed_count?: number
+  waitlisted_count?: number
   participants: ActivityParticipant[]
 }
 
@@ -157,6 +166,8 @@ export interface ActivityCreate {
   activity_date: string
   base_hours?: number
   status?: ActivityStatus | string
+  /** 🪑 P4.1 — ไม่ส่ง = ไม่จำกัดความจุ */
+  capacity?: number | null
   metadata?: Metadata
   participants?: ActivityParticipantInput[]
   user_name: string
@@ -168,6 +179,8 @@ export interface ActivityUpdate {
   activity_date?: string
   base_hours?: number
   status?: ActivityStatus | string
+  /** 🪑 P4.1 — 0 = ยกเลิกเพดาน (null ที่ส่งมาตรง ๆ ถูกมองว่า "ไม่ส่ง") */
+  capacity?: number
   metadata?: Metadata
   /** ถ้าส่งมา → แทนที่ผู้เข้าร่วมทั้งชุด (เพิ่ม/แก้/ลบ/กู้คืน) เหมือนตอนสร้าง */
   participants?: ActivityParticipantInput[]
@@ -253,6 +266,8 @@ export const PARTICIPANT_STATUS_LABELS: Record<string, string> = {
   confirmed: 'ยืนยันแล้ว',
   cancelled: 'ยกเลิก',
   attended: 'มาแล้ว',
+  // 🪑 P4.1 — ต้องตรงกับ backend/services/activity/constants.py + docs/glossary.md
+  waitlisted: 'คิวสำรอง',
 }
 
 // ================================================================

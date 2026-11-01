@@ -1,6 +1,7 @@
 """Facade ที่ประกอบ mixin ทั้งหมดกลับเป็น ActivityService (public API เดิม)."""
 from .base import BaseMixin
 from .activities import ActivitiesMixin
+from .capacity import CapacityMixin
 from .participants import ParticipantsMixin
 from .checkins import CheckinsMixin
 from .export import ExportMixin
@@ -13,6 +14,8 @@ class ActivityService(
     ExportCombinedMixin,
     ExportMixin,
     CheckinsMixin,
+    # 🪑 P4.1 — วางก่อน ParticipantsMixin/ActivitiesMixin: ทั้งสองเรียกใช้ helper ผ่าน `cls.`
+    CapacityMixin,
     ParticipantsMixin,
     ActivitiesMixin,
     BaseMixin,
