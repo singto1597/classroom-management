@@ -37,3 +37,7 @@ class PaymentNotFoundError(Exception):
 class TransactionNotFoundError(Exception):
     """Raised when a finance transaction is not found."""
     pass
+
+class AnnouncementNotFoundError(Exception):
+    """Raised when an announcement is not found."""
+    pass

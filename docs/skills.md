@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 245 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 247 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -249,6 +249,8 @@
 - [📝 ฟอร์มยาว: ร่าง `sessionStorage` + ตัวกันออกจากหน้า + หน้ายืนยันที่ค้างอยู่ — สามอย่างที่ต้องมาคู่กัน](#ฟอร์มยาว-ร่าง-sessionstorage-ตัวกันออกจากหน้า-หน้ายืนยันที่ค้างอยู่-สามอย่างที่ต้องมาคู่กัน)
 - [🎯 "การ์ดบอก 34 กดแล้วเจอ 5": ตัวเลขบนลิงก์ต้องเป็นจำนวนของปลายทางเอง](#การ์ดบอก-34-กดแล้วเจอ-5-ตัวเลขบนลิงก์ต้องเป็นจำนวนของปลายทางเอง)
 - [⋯ ปุ่มแถวมีได้ปุ่มเดียว "ที่เหลือซ่อนในเมนู" — และเมนูต้อง Teleport ออกจากตาราง](#ปุ่มแถวมีได้ปุ่มเดียว-ที่เหลือซ่อนในเมนู-และเมนูต้อง-teleport-ออกจากตาราง)
+- [🐳 จำนวน service ในไฟล์ deploy เป็น "สัญญา" ที่ต้องอัปเดตมือ — gate ที่ hardcode `3` คือ gate ที่ล้มตอนเพิ่มของถูก](#จำนวน-service-ในไฟล์-deploy-เป็น-สัญญา-ที่ต้องอัปเดตมือ-gate-ที่-hardcode-3-คือ-gate-ที่ล้มตอนเพิ่มของถูก)
+- [🔔 "อ่านแล้ว" ไม่ใช่คอลัมน์ของประกาศ — มันคือแถวแจ้งเตือนของ *ผู้ใช้คนนั้น*](#อ่านแล้ว-ไม่ใช่คอลัมน์ของประกาศ-มันคือแถวแจ้งเตือนของ-ผู้ใช้คนนั้น)
 
 <!-- TOC:END -->
 
@@ -3816,4 +3818,50 @@
   - หลังย้ายเป็นคอมโพเนนต์ ต้องเก็บกวาดของเก่าให้ครบ: state (`openDropdown`), `document.addEventListener('click', …)` + `onUnmounted`, `<transition name="fade">` และ `<style scoped>` ที่ไม่มีใครใช้แล้ว
 - **Rule:** (1) 🔴 แถว/การ์ดมีปุ่มหลักได้ 1 ปุ่ม · ปุ่มทำลายข้อมูลต้องอยู่ในเมนูหรือมี `Swal` ยืนยัน (2) 🔴 อย่าเขียน dropdown ในตารางเอง — `RowActionMenu` เท่านั้น (3) ⚠️ หน้าไดนามิกต้องมี `aria-label` ที่บอกว่าเป็นของแถวไหน (`ตัวเลือกของ ลุงเดช`) ไม่ใช่ "เมนูเพิ่มเติม" ซ้ำกันทุกแถว
 - **Tests:** เปิดตารางนักเรียน/งบประมาณ/เครดิต/ตั้งค่าการเงิน → เมนูของแถวล่างสุดต้องไม่ถูกตัด · Esc และคลิกนอกปิดเมนู · type-check / lint 5 ด่าน / unit 372 / build ผ่าน
+- **Date Added:** 2026-11-01
+
+### 🐳 จำนวน service ในไฟล์ deploy เป็น "สัญญา" ที่ต้องอัปเดตมือ — gate ที่ hardcode `3` คือ gate ที่ล้มตอนเพิ่มของถูก
+- **Context/Problem:** P2.3 เพิ่ม `push_worker` (service ที่ 4 ที่ใช้ `image:`) เข้า `docker-compose.app.yml` ⇒ `ci-compose` ล้มด้วย `❌ บรรทัด image: มี 4 บรรทัด แต่ต้องมี 3` ทั้งที่ compose ถูกทุกบรรทัด · และตอนตรวจ tag ในผล render ใช้ `grep -qE 'image: classroom-ci-(backend|frontend|bot):ci00000'` ซึ่ง **ผ่านเมื่อเจอแค่ตัวเดียว** ⇒ service ที่สอง/สามจะหายไปโดยไม่มีใครรู้
+- **Root Cause:** สองตัวเลขที่ควรเป็น "สัญญา" ถูกเขียนเป็นค่าคงที่แบบไม่ตั้งใจ: (1) จำนวนบรรทัด `image:` ตั้งไว้ที่ 3 ตอนที่ยังมี 3 service (2) การเช็ค tag ใช้ alternation ตัวเดียวแทนการวนทีละ service ⇒ gate นี้บอกได้แค่ "ยังมีของเดิมอยู่" ไม่ใช่ "ทุก service ถูก tag"
+- **Correct Pattern/Solution:**
+  ```python
+  # ตัวเลขนี้ "ตั้งใจให้ต้องอัปเดตมือ" — เพื่อให้คนเพิ่ม service ได้ทบทวนด้วยว่า image ของตัวเองมีกับดัก :? ครบ
+  EXPECTED_IMAGE_LINES = 4  # backend · frontend · bot_discord · push_worker (2026-11-01)
+  if len(img_lines) != EXPECTED_IMAGE_LINES:
+      ... sys.exit(1)
+  ```
+  ```bash
+  # เช็คทีละ service — ไม่ใช่ alternation ที่ผ่านด้วยตัวเดียว
+  for svc in backend frontend bot; do
+    grep -qE "image: classroom-ci-${svc}:ci00000" /tmp/rendered.yml || { echo "❌ ${svc} ไม่ติด tag"; exit 1; }
+  done
+  # service ที่ใช้ image ร่วม (push_worker ใช้ image เดียวกับ backend) ต้องนับจำนวนบรรทัดที่ตรง
+  [ "$(grep -cE 'image: classroom-ci-backend:ci00000' /tmp/rendered.yml)" -lt 2 ] && exit 1
+  ```
+  - **เพิ่ม service = แก้ `EXPECTED_IMAGE_LINES` ใน PR เดียวกัน** และใส่ comment ว่าใครเป็นใคร (ไม่ใช่แค่ตัวเลข)
+  - **service ที่ใช้ image ร่วมกัน** (worker, cron) ต้องตรวจด้วย *จำนวนครั้งที่เจอ* ไม่ใช่ `grep -q`
+  - หลักเดียวกับ `test_route_auth_audit.py` (`expected = 147`): ตัวเลขที่ต้องพิมพ์เองคือ **ฟังก์ชันของด่าน ไม่ใช่ความไม่สะดวก** — มันบังคับให้คนอ่านว่า "ที่เพิ่มมาคืออะไร" ก่อนปล่อยผ่าน
+- **Rule:** (1) 🔴 gate ที่นับจำนวนของในไฟล์ config ต้องมีชื่อค่าคงที่ + comment อธิบายว่าประกอบด้วยอะไร (2) 🔴 ห้ามเช็ค "มีอย่างน้อยหนึ่งใน N" ด้วย regex alternation — ต้องวนทีละตัวหรือนับจำนวน (3) ⚠️ เมื่อเพิ่ม service ให้ตรวจทั้ง "มีกับดัก `:?`" และ "ติด tag เดียวกันในผล render"
+- **Tests:** `gh pr checks` ของ PR #116 — ก่อนแก้: `ตรวจ compose + กับดัก IMAGE_TAG fail 6s` · หลังแก้: `pass 9s` และยังตรวจกับดัก/ไม่มี `IMAGE_TAG` ต้องล้มครบตามเดิม
+- **Date Added:** 2026-11-01
+
+### 🔔 "อ่านแล้ว" ไม่ใช่คอลัมน์ของประกาศ — มันคือแถวแจ้งเตือนของ *ผู้ใช้คนนั้น*
+- **Context/Problem:** P2.4 ทำประกาศ (announcement) ที่ fan-out เป็น `notifications` หนึ่งแถวต่อสมาชิก ต้องตอบว่า "ประกาศนี้ยังไม่อ่านสำหรับฉันไหม" และมีปุ่ม "ทำเครื่องหมายว่าอ่านแล้ว" — ถ้าเพิ่มคอลัมน์ `read_at` บน `announcements` จะได้แค่ค่าที่ใช้ร่วมกันทั้งห้อง
+- **Root Cause:** สถานะ "อ่านแล้ว" เป็นข้อมูล **รายคู่ (ผู้ใช้ × ประกาศ)** ไม่ใช่รายประกาศ · และตอน fan-out เราก็สร้างคอลัมน์ที่ใช้แทนได้อยู่แล้ว (`notifications.read_at`) ⇒ ตารางที่สอง (`announcement_reads`) คือการทำดัชนีซ้ำของข้อมูลชุดเดียว ซึ่งจะเพี้ยนทันทีที่มีคนอ่านผ่านกระดิ่งแทนหน้าประกาศ
+- **Correct Pattern/Solution:**
+  ```sql
+  -- สถานะอ่าน = แถวแจ้งเตือนของฉันเอง (แหล่งเดียวกับกระดิ่ง)
+  EXISTS (
+      SELECT 1 FROM notifications n
+       WHERE n.room_id = a.room_id AND n.user_id = $2
+         AND n.entity_type = 'announcement' AND n.entity_id = a.id::text
+         AND n.read_at IS NULL
+  ) AS is_unread
+  ```
+  - **อ่าน = `UPDATE notifications SET read_at = COALESCE(read_at, NOW())`** ⇒ กดซ้ำไม่ทำให้เวลาอ่านเปลี่ยน
+  - **ไม่ 404 เมื่อไม่มีแถว** — สมาชิกที่เพิ่งเข้าร่วมห้องทีหลังไม่มีแถวแจ้งเตือนของประกาศเก่า ⇒ คืน `marked: false` ไม่ใช่ error (ผู้ใช้อ่านประกาศเก่าจบก็ไม่ควรเจอ 404)
+  - **ผลข้างเคียงที่ต้องรู้ตอนเขียนเทสต์:** สมาชิกที่ถูกเพิ่ม *หลัง* ประกาศจะ `is_unread = false` เสมอ — เทสต์ "อ่านแล้ว/ยังไม่อ่าน" ต้องสร้างสมาชิกให้ครบ **ก่อน** สร้างประกาศ (พลาดจุดนี้แล้วเทสต์ล้มด้วย `assert False is True` ที่ดูเหมือนบั๊กของโค้ด)
+  - **`entity_id` เป็น `text` ใน `notifications`** ⇒ ต้อง cast `a.id::text` ตอนเทียบ ไม่งั้น Postgres หา index/เทียบชนิดไม่ได้
+- **Rule:** (1) 🔴 สถานะรายคู่ห้ามเก็บเป็นคอลัมน์รายตัว หาแถวที่มีอยู่แล้ว (notification/attendance/read-receipt) ก่อนสร้างตารางใหม่ (2) 🔴 endpoint "ทำเครื่องหมาย" ต้อง idempotent และไม่ 404 เพราะไม่มีแถว (3) ⚠️ ประกาศใหม่ fan-out ใน transaction เดียวกับการสร้างประกาศ — ถ้าแยก transaction จะมีช่วงที่ประกาศมองเห็นได้แต่ไม่มีแจ้งเตือน
+- **Tests:** `backend/tests/test_announcement_router.py` — `test_list_marks_unread_then_read` (สร้างสมาชิก 2 คนก่อนประกาศ → คนหนึ่งอ่าน อีกคนยัง unread) · `test_mark_read_is_idempotent` · audit `new_values` ใน `test_update_writes_audit_without_refanout` อ่านด้วย `json.loads()` เพราะ asyncpg คืน JSONB เป็น `str`
 - **Date Added:** 2026-11-01

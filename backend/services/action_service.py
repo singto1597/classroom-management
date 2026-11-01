@@ -85,13 +85,20 @@ class ActionService:
         }, mention=True, category="📌 ประกาศรายวันนะ", channel="announcement")
 
     @classmethod
-    async def notify_custom_message(cls, server_id: int, title: str, message: str, user_name: str):
-        """เรียกใช้เมื่อส่งข้อความประกาศตรงจากหน้าเว็บ — @everyone (ประกาศทั้งห้อง)"""
+    async def notify_custom_message(cls, server_id: int, title: str, message: str, user_name: str, mention: bool = True):
+        """เรียกใช้เมื่อส่งข้อความประกาศตรงจากหน้าเว็บ
+
+        `mention=True` (ค่าเริ่มต้น) = @everyone — คงพฤติกรรมเดิมของ route
+        `POST .../messages` ที่มีมาก่อนระบบประกาศ
+
+        🆕 `announcement_service` ส่ง `mention=(priority == "urgent")` เพราะประกาศปกติ
+        จะได้แจ้งเตือนในแอป + push อยู่แล้ว ⇒ ไม่ต้อง ping ทุกคนใน Discord ซ้ำ
+        """
         await cls._publish("CUSTOM_MESSAGE", server_id, {
             "title": title,
             "message": message,
             "user_name": user_name
-        }, mention=True, category="📢 ประกาศนะทุกคน", channel="announcement")
+        }, mention=mention, category="📢 ประกาศนะทุกคน", channel="announcement")
 
     @classmethod
     async def notify_new_finance(cls, server_id: int, txn_type: str, amount: float, description: str, user_name: str, receipt_nos: Optional[List[str]] = None):

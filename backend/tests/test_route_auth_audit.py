@@ -147,7 +147,9 @@ def test_route_count_is_not_silently_shrinking():
     #   ⇒ ไม่ต้องเพิ่มลง PUBLIC_ROUTES
     # 136 → 139 (2026-11-01): Web Push (P2.3) — `push/config` · `push/subscribe` · `push/unsubscribe`
     #   ทั้งสามมี `Depends(get_current_user)` และ subscribe/unsubscribe ผูกกับเจ้าของอุปกรณ์
-    expected = 139
+    # 139 → 147 (2026-11-01): quiet hours GET/PUT + ประกาศ 6 route (P2.4)
+    #   อ่านประกาศ = สมาชิกห้อง; สร้าง/แก้/เก็บถาวร = MANAGE_CLASSROOM_SETTINGS (ตรวจใน service)
+    expected = 147
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

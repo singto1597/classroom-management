@@ -21,8 +21,10 @@ from fastapi.responses import StreamingResponse
 
 from core.config import settings
 from core.dependencies import get_current_user, get_db_pool, resolve_target_to_room_id
-from core.exceptions import ForbiddenError
+from core.exceptions import ForbiddenError, ValidationError
 from core.rbac import require_member
+from models.app_settings_schemas import QuietHoursResponse, QuietHoursUpdate
+from routers._common import get_audit_context
 from models.notification_schemas import (
     MarkAllReadResponse,
     MarkReadResponse,
@@ -38,7 +40,7 @@ from models.notification_schemas import (
     PushUnsubscribeResponse,
     UnreadCountResponse,
 )
-from services import notification_service, push_service
+from services import app_settings_service, notification_service, push_service
 from services.notification_stream import notification_stream
 
 logger = logging.getLogger("API_NOTIFICATION_ROUTER")
@@ -276,6 +278,59 @@ async def unsubscribe_push(
         pool, user_id=user_id, endpoint=payload.endpoint
     )
     return PushUnsubscribeResponse(removed=removed)
+
+
+# ── Quiet hours ─────────────────────────────────────────────────────────────
+@router.get(
+    "/{target_id}/notifications/quiet-hours",
+    response_model=QuietHoursResponse,
+    summary="ช่วงงดรบกวนของห้อง (สมาชิกอ่านได้ เพื่ออธิบายว่าทำไม push เงียบ)",
+)
+async def get_quiet_hours(
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    try:
+        await _require_member(pool, room_id, int(user_ctx["user_id"]))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    async with pool.acquire() as conn:
+        config = await app_settings_service.get_quiet_hours(conn, room_id=room_id)
+    return QuietHoursResponse(**config)
+
+
+@router.put(
+    "/{target_id}/notifications/quiet-hours",
+    response_model=QuietHoursResponse,
+    summary="ตั้งช่วงงดรบกวนของห้อง (ต้องมี MANAGE_CLASSROOM_SETTINGS)",
+)
+async def set_quiet_hours(
+    payload: QuietHoursUpdate,
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    client_source, actor = get_audit_context(request, user_ctx)
+    try:
+        saved = await app_settings_service.update_quiet_hours(
+            pool,
+            room_id=room_id,
+            user_id=int(user_ctx["user_id"]),
+            enabled=payload.enabled,
+            start=payload.start,
+            end=payload.end,
+            client_source=client_source,
+            actor_identifier=actor,
+        )
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return QuietHoursResponse(**saved)
 
 
 @router.get(
