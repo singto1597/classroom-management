@@ -8,6 +8,8 @@ import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
+import RowActionMenu from '@/components/ui/RowActionMenu.vue'
+import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
 import { formatThaiDate, relativeThaiDay } from '@/utils/datetime'
@@ -194,6 +196,20 @@ const deleteActivity = async (activity: Activity) => {
   }
 }
 
+// 🔒 มุมขวาของการ์ดเหลือ "ปุ่มเดียวที่ตั้งใจให้กด": ตัวการ์ดเอง (เปิดรายละเอียด)
+// การแก้ไข/ลบเป็นงานที่ทำไม่บ่อยและ "ลบ" ทำลายข้อมูล ⇒ ซ่อนในเมนูจุด 3 จุด
+// เดิมเป็นไอคอนเปลือย 2 ปุ่มติดกัน ซึ่งอยู่ข้างการ์ดที่กดได้ทั้งใบ — กดพลาดง่ายมาก
+const activityMenuItems = (activity: Activity): RowActionItem[] => [
+  // มี `to` ⇒ RowActionMenu เรนเดอร์เป็น RouterLink เอง ไม่ต้องดักที่ @select
+  { key: 'edit', label: 'แก้ไขกิจกรรม', icon: 'bi-pencil-square', to: `/activities/${activity.id}/edit` },
+  { key: 'delete', label: 'ลบกิจกรรม', icon: 'bi-trash3-fill', tone: 'danger' },
+]
+
+// ⚠️ ต้องรับ `key` มาด้วยเสมอ — ไอเทมใหม่ที่ไม่มี `to` จะตกมาที่นี่ทันที
+const handleActivityAction = (activity: Activity, key: string) => {
+  if (key === 'delete') void deleteActivity(activity)
+}
+
 onMounted(fetchData)
 </script>
 
@@ -338,26 +354,12 @@ onMounted(fetchData)
             <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i>
             <span class="num">{{ activity.participant_count }}</span> คน
           </span>
-          <div v-if="canManageActivities" class="flex shrink-0 items-center gap-0.5">
-            <router-link
-              :to="`/activities/${activity.id}/edit`"
-              @click.stop
-              class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-brand-50 hover:text-brand-700 active:scale-[0.97]"
-              title="แก้ไขกิจกรรม"
-              aria-label="แก้ไขกิจกรรม"
-            >
-              <i class="bi bi-pencil-square" aria-hidden="true"></i>
-            </router-link>
-            <button
-              type="button"
-              @click.stop="deleteActivity(activity)"
-              class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
-              title="ลบกิจกรรม"
-              aria-label="ลบกิจกรรม"
-            >
-              <i class="bi bi-trash3-fill" aria-hidden="true"></i>
-            </button>
-          </div>
+          <RowActionMenu
+            v-if="canManageActivities"
+            :label="`ตัวเลือกจัดการกิจกรรม ${activity.title}`"
+            :items="activityMenuItems(activity)"
+            @select="handleActivityAction(activity, $event)"
+          />
         </div>
       </div>
     </div>

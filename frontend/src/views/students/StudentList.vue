@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { isAxiosError } from 'axios';
 import { useAuthStore } from '@/stores/auth';
@@ -11,6 +11,8 @@ import { formatThaiDateTime } from '@/utils/datetime';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import RowActionMenu from '@/components/ui/RowActionMenu.vue';
+import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
 import { studentStatusLabel } from '@/constants/statusLabels'
@@ -36,16 +38,23 @@ const showInactive = ref(false);
 // ให้ StateBlock มีสถานะผิดพลาดของตัวเอง (เดิมพึ่ง Swal อย่างเดียว)
 const hasError = ref(false);
 
-// --- Dropdown Menu State (จุด 3 จุด) ---
-const openDropdown = ref<number | null>(null);
+// 🔒 เมนูจุด 3 จุดใช้ `RowActionMenu` กลาง — เดิมมี dropdown ที่นี่ 2 สำเนา
+//    (ตารางเดสก์ท็อป + การ์ดมือถือ) และแต่ละสำเนาเป็น `absolute` ในตารางที่ `overflow-hidden`
+//    ⇒ แถวล่างสุดของตารางเห็นเมนูถูกตัดหาย
+//    ปิดเองเมื่อคลิกนอก/Esc/scroll ให้แล้ว ไม่ต้องมี listener ที่ `document` อีก
+const studentMenuItems = (student: Student): RowActionItem[] => [
+  // มี `to` ⇒ RowActionMenu เรนเดอร์เป็น RouterLink เอง ไม่ต้องดักที่ @select
+  {
+    key: 'edit',
+    label: 'แก้ไขข้อมูล',
+    icon: 'bi-pencil-square',
+    to: `/students/${student.student_no}/edit`,
+  },
+  { key: 'delete', label: 'ลบข้อมูล', icon: 'bi-trash3-fill', tone: 'danger' },
+];
 
-const toggleDropdown = (id: number, event: Event) => {
-  event.stopPropagation(); // ป้องกันไม่ให้คลิกทะลุไปโดน Card
-  openDropdown.value = openDropdown.value === id ? null : id;
-};
-
-const closeDropdown = () => {
-  openDropdown.value = null;
+const handleStudentAction = (student: Student, key: string) => {
+  if (key === 'delete') void confirmDelete(student);
 };
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
@@ -84,27 +93,14 @@ const fetchData = async () => {
 
 const switchTab = (tab: 'active' | 'pending') => {
   currentTab.value = tab;
-  closeDropdown();
   fetchData();
 };
 
-onMounted(() => {
-  fetchData();
-  document.addEventListener('click', closeDropdown);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('click', closeDropdown);
-});
+onMounted(fetchData);
 
 // --- Navigation ---
 const goToStudent = (studentNo: number) => {
   router.push(`/students/${studentNo}`);
-};
-
-const editStudent = (studentNo: number) => {
-  closeDropdown();
-  router.push(`/students/${studentNo}/edit`);
 };
 
 // 🏷️ แปลง class_role
@@ -187,7 +183,6 @@ const runEmptyAction = () => {
 };
 
 const confirmDelete = async (student: Student) => {
-  closeDropdown();
   if (!canManageStudents.value) return;
 
   const result = await Swal.fire({
@@ -434,41 +429,14 @@ const rejectJoin = async (studentNo: number) => {
                 </td>
 
                 <td class="text-right">
-                  <div class="relative flex justify-end">
-                    <button
+                  <div class="flex justify-end">
+                    <RowActionMenu
                       v-if="canManageStudents"
-                      type="button"
-                      class="flex h-9 w-9 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
-                      aria-label="ตัวเลือกจัดการนักเรียน"
-                      @click.stop="toggleDropdown(student.student_no, $event)"
-                    >
-                      <i class="bi bi-three-dots-vertical text-lg" aria-hidden="true"></i>
-                    </button>
+                      :label="`ตัวเลือกจัดการ ${displayName(student)}`"
+                      :items="studentMenuItems(student)"
+                      @select="handleStudentAction(student, $event)"
+                    />
                     <i v-else class="bi bi-chevron-right p-2 text-stone-300" aria-hidden="true"></i>
-
-                    <transition name="fade">
-                      <div
-                        v-if="openDropdown === student.student_no"
-                        class="absolute right-0 top-11 z-20 w-36 origin-top-right overflow-hidden rounded-xl border border-stone-200 bg-white py-1"
-                        @click.stop
-                      >
-                        <button
-                          type="button"
-                          class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-stone-700 transition-colors hover:bg-stone-50"
-                          @click.stop="editStudent(student.student_no)"
-                        >
-                          <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไข
-                        </button>
-                        <div class="mx-2 my-1 h-px bg-stone-100"></div>
-                        <button
-                          type="button"
-                          class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-danger-600 transition-colors hover:bg-danger-50"
-                          @click.stop="confirmDelete(student)"
-                        >
-                          <i class="bi bi-trash" aria-hidden="true"></i> ลบข้อมูล
-                        </button>
-                      </div>
-                    </transition>
                   </div>
                 </td>
               </tr>
@@ -553,40 +521,13 @@ const rejectJoin = async (studentNo: number) => {
                 </div>
               </div>
 
-              <!-- เมนูจัดการ -->
-              <div v-if="canManageStudents" class="relative shrink-0">
-                <button
-                  type="button"
-                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 active:scale-[0.97]"
-                  aria-label="ตัวเลือกจัดการนักเรียน"
-                  @click.stop="toggleDropdown(student.student_no, $event)"
-                >
-                  <i class="bi bi-three-dots-vertical text-lg" aria-hidden="true"></i>
-                </button>
-
-                <transition name="fade">
-                  <div
-                    v-if="openDropdown === student.student_no"
-                    class="absolute right-0 top-11 z-20 w-36 origin-top-right overflow-hidden rounded-xl border border-stone-200 bg-white py-1"
-                    @click.stop
-                  >
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-stone-700 transition-colors hover:bg-stone-50"
-                      @click.stop="editStudent(student.student_no)"
-                    >
-                      <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไข
-                    </button>
-                    <div class="mx-2 my-1 h-px bg-stone-100"></div>
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-bold text-danger-600 transition-colors hover:bg-danger-50"
-                      @click.stop="confirmDelete(student)"
-                    >
-                      <i class="bi bi-trash" aria-hidden="true"></i> ลบข้อมูล
-                    </button>
-                  </div>
-                </transition>
+              <!-- เมนูจัดการ — การ์ดทั้งใบกดไปหน้านักเรียนได้อยู่แล้ว (RowActionMenu หยุด event ให้เอง) -->
+              <div v-if="canManageStudents" class="shrink-0">
+                <RowActionMenu
+                  :label="`ตัวเลือกจัดการ ${displayName(student)}`"
+                  :items="studentMenuItems(student)"
+                  @select="handleStudentAction(student, $event)"
+                />
               </div>
 
               <i v-else class="bi bi-chevron-right shrink-0 p-2 text-stone-300" aria-hidden="true"></i>
@@ -669,16 +610,3 @@ const rejectJoin = async (studentNo: number) => {
 
   </div>
 </template>
-
-<style scoped>
-/* Animation สำหรับ Dropdown ตอนเด้งขึ้นมา */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
-}
-</style>
