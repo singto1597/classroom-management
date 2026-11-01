@@ -19,6 +19,7 @@ import {
 import ParticipantRosterList from '@/components/activities/ParticipantRosterList.vue'
 import ParticipantInfoModal from '@/components/activities/ParticipantInfoModal.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import BookmarkButton from '@/components/me/BookmarkButton.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
@@ -380,6 +381,8 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           description="รายละเอียดกิจกรรม ผู้เข้าร่วม และการเช็คอิน"
         >
           <template #actions>
+            <!-- 🔖 P3.4 — บันทึกไว้: ทุกคนที่เห็นกิจกรรมได้ (ไม่ผูกกับสิทธิ์จัดการ) -->
+            <BookmarkButton entity-type="activity" :entity-id="activityId" />
             <template v-if="canManage">
               <!--
                 📌 P1.10 — ปุ่มหลัก "จัดการผู้เข้าร่วม" ย้ายไปแถบติดล่างของหน้า

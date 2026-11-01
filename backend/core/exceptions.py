@@ -41,3 +41,7 @@ class TransactionNotFoundError(Exception):
 class AnnouncementNotFoundError(Exception):
     """Raised when an announcement is not found."""
     pass
+
+class BookmarkNotFoundError(Exception):
+    """Raised when a bookmark is not found (or belongs to someone else)."""
+    pass

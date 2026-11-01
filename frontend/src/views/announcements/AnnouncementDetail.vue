@@ -20,6 +20,7 @@ import { useRoute, useRouter } from 'vue-router';
 import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import AppButton from '@/components/ui/AppButton.vue';
+import BookmarkButton from '@/components/me/BookmarkButton.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import { AnnouncementService } from '@/services/announcement';
@@ -176,6 +177,8 @@ const goToList = () => {
         :description="`ประกาศเมื่อ ${formatThaiDateTime(announcement.created_at)}`"
       >
         <template #actions>
+          <!-- 🔖 P3.4 — บันทึกไว้ (หนึ่งปุ่มต่อหนึ่งรายการ, ไม่ใช่การกระทำของผู้ดูแล) -->
+          <BookmarkButton entity-type="announcement" :entity-id="announcementId" />
           <AppButton variant="secondary" @click="goToList">
             <i class="bi bi-arrow-left" aria-hidden="true"></i>
             รายการประกาศ

@@ -19,6 +19,7 @@ from routers import version_router
 from routers import notification_router
 from routers import announcement_router
 from routers import home_router
+from routers import bookmark_router
 from services.notification_stream import notification_stream
 
 logging.basicConfig(
@@ -106,6 +107,7 @@ app.include_router(activity_router.router, prefix="/api/classroom", tags=["Activ
 app.include_router(notification_router.router, prefix="/api/classroom", tags=["Notifications"])
 app.include_router(announcement_router.router, prefix="/api/classroom", tags=["Announcements"])
 app.include_router(home_router.router, prefix="/api/classroom", tags=["Home"])
+app.include_router(bookmark_router.router, prefix="/api/classroom", tags=["Bookmarks"])
 app.include_router(version_router.router, prefix="/api", tags=["Version"])
 
 

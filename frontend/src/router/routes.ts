@@ -229,6 +229,14 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: routeTitles.DiscordConnect, navTab: 'more', headerBack: true },
       },
       {
+        // 👤 "ของฉัน" — ไทม์ไลน์ส่วนตัว + สถิติ + รายการที่บันทึกไว้ (P3.3 + P3.4)
+        //    ปลายทางของ `/me/activity` ที่หน้าแรก/ประกาศลิงก์มา
+        path: 'me/activity',
+        name: 'my-activity',
+        component: () => import('@/views/me/MyActivity.vue'),
+        meta: { title: routeTitles['my-activity'], navTab: 'more' },
+      },
+      {
         // 📢 หน้ารายการประกาศ — ปลายทางของ deep link ที่ backend สร้างใน
         // `announcement_service.create_announcement` (`url=f"/announcements/{id}"`)
         path: 'announcements',
