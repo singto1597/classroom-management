@@ -111,7 +111,18 @@ const goToMyProfile = async () => {
     <!-- ========================================== -->
     <!-- บทบาทของฉัน ย้ายไปอยู่ที่การ์ด "ภาพรวมห้อง" ที่เดียว ไม่ซ้ำสามที่เหมือนเดิม -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      <div class="page-card p-3.5 sm:p-5">
+      <!--
+        🎯 KPI ทั้งสองใบกดได้ และส่ง `filter` ที่ตรงกับตัวเลขมาด้วยเสมอ (P1.10)
+           "งานทั้งหมด" นับจาก getAllTasks() = ทุกสถานะ → ?filter=all
+           "งานค้าง" นับเฉพาะ pending → ?filter=pending
+           ⚠️ ห้ามลิงก์ไป /tasks เปล่า ๆ แล้วหวังว่าจะตรง — หน้า /tasks เปิดที่ pending
+              ⇒ งานทั้งหมดจะกลายเป็น "34 กดแล้วเจอ 5" ทันทีที่ค่าเริ่มต้นถูกเปลี่ยน
+      -->
+      <RouterLink
+        to="/tasks?filter=all"
+        class="page-card block p-3.5 transition-colors hover:bg-stone-50 active:scale-[0.99] sm:p-5"
+        aria-label="ดูงานทั้งหมดในห้องนี้"
+      >
         <p class="text-[11px] font-bold text-stone-500">งานทั้งหมด</p>
         <p
           v-if="isTaskCountLoading"
@@ -126,9 +137,13 @@ const goToMyProfile = async () => {
           {{ isTaskCountError ? '—' : taskCount }}
         </p>
         <p class="mt-1 text-xs font-bold text-stone-500">รายการในห้องนี้</p>
-      </div>
+      </RouterLink>
 
-      <div class="page-card p-3.5 sm:p-5">
+      <RouterLink
+        to="/tasks?filter=pending"
+        class="page-card block p-3.5 transition-colors hover:bg-stone-50 active:scale-[0.99] sm:p-5"
+        aria-label="ดูงานที่ยังไม่ปิด"
+      >
         <p class="text-[11px] font-bold text-stone-500">งานค้าง</p>
         <p
           v-if="isTaskCountLoading"
@@ -143,8 +158,12 @@ const goToMyProfile = async () => {
           {{ isTaskCountError ? '—' : pendingTaskCount }}
         </p>
         <p class="mt-1 text-xs font-bold text-stone-500">ยังไม่ปิดงาน</p>
-      </div>
+      </RouterLink>
 
+      <!--
+        🔒 การ์ดนี้ "ไม่กด" โดยเจตนา: รหัสห้องไม่ใช่จำนวนของรายการใด ๆ
+           ⇒ ไม่มีปลายทางที่ตัวเลขจะตรงกัน 1:1 · การทำให้กดได้จะพาคนไปหน้าว่าง
+      -->
       <div class="page-card col-span-2 p-3.5 sm:col-span-1 sm:p-5">
         <p class="text-[11px] font-bold text-stone-500">รหัสห้องเรียน</p>
         <p class="font-display num mt-2 truncate text-2xl font-bold tracking-widest text-stone-900 sm:text-3xl">

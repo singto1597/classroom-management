@@ -16,6 +16,7 @@
  *    (จะไม่เท่ากันเมื่อมีงบคาบเกี่ยวบางส่วน — และนั่นไม่ใช่บั๊ก)
  */
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import Swal from 'sweetalert2';
 
 import PageHeader from '@/components/ui/PageHeader.vue';
@@ -48,12 +49,25 @@ const authStore = useAuthStore();
 const currentRoomId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName ?? '—';
 
+const route = useRoute();
+const router = useRouter();
+
 // ✍️ สิทธิ์เขียน — ตรงกับ require_permission(..., "MANAGE_FINANCE") ฝั่ง backend
 const canManageFinance = computed(() => authStore.canManageFinance);
 
 // 🌏 ค่าเริ่มต้น = เดือนนี้ตามเวลาไทย (ดู utils/period.todayThaiYearMonth)
 //    โหมด asof ไม่มีในหน้านี้ (โหมดของ PeriodPicker ถูกจำกัดไว้ที่ month/range แล้ว)
-const initial = todayThaiYearMonth();
+// 📌 อ่าน `?month=&year=` จาก query ได้ด้วย เพราะแดชบอร์ดการเงินส่งช่วงที่ผู้ใช้กำลังดูอยู่มาด้วย
+//    (แบนเนอร์ "เกินงบเดือนนี้" พาไปดูเดือนเดียวกัน ไม่ใช่เดือนปัจจุบันเสมอ)
+const readPeriodFromQuery = (): { month: number; year: number } | null => {
+  const month = Number(route.query.month);
+  const year = Number(route.query.year);
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (!Number.isInteger(year) || year < 2000 || year > 2200) return null;
+  return { month, year };
+};
+
+const initial = readPeriodFromQuery() ?? todayThaiYearMonth();
 const period = ref<PeriodValue>({ mode: 'month', month: initial.month, year: initial.year });
 
 const overview = ref<BudgetOverview | null>(null);
@@ -127,7 +141,26 @@ onMounted(() => {
 
 const items = computed<BudgetItem[]>(() => overview.value?.items ?? []);
 
+/**
+ * 🔎 `?over=1` = "เอางบที่ใช้เกินเท่านั้น"
+ * ตัวเลขบนแดชบอร์ด (`over_count`) นับรายงบที่ `is_over` ⇒ การกรองด้วยฟิลด์เดียวกัน
+ * ทำให้ "กดแล้วเจอ N แถว" ตรงกับที่การ์ดบอก (กฎ P1.10)
+ * ค่าอื่นที่ไม่ใช่ `'1'` ถือว่าไม่กรอง — ไม่เดาจากการมีอยู่ของ key
+ */
+const overOnly = computed(() => route.query.over === '1');
+const visibleItems = computed<BudgetItem[]>(() =>
+  overOnly.value ? items.value.filter((item) => item.is_over) : items.value,
+);
+
 const isEmpty = computed(() => items.value.length === 0);
+/** มีงบอยู่จริงแต่ไม่มีใบไหนเกิน ⇒ ต้องแยกจาก "ยังไม่มีงบ" (คนละทางออก) */
+const hasNoOverBudget = computed(() => overOnly.value && visibleItems.value.length === 0);
+
+const clearOverFilter = () => {
+  const query = { ...route.query };
+  delete query.over;
+  void router.replace({ query });
+};
 
 /** คงเหลือรวม = งบรวม − ใช้ไป (ติดลบได้เมื่อใช้เกินทั้งห้อง) */
 const totalRemaining = computed(
@@ -373,6 +406,25 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
       </p>
     </div>
 
+    <!-- 🔎 มาจากแบนเนอร์ "เกินงบ" บนแดชบอร์ดการเงิน — บอกให้รู้ว่ากำลังกรองอะไรอยู่ -->
+    <div
+      v-if="overOnly"
+      class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-danger-200 bg-danger-50 px-3.5 py-2.5"
+    >
+      <p class="flex min-w-0 items-center gap-2 text-xs font-bold text-danger-700">
+        <i class="bi bi-funnel-fill shrink-0" aria-hidden="true"></i>
+        <span class="min-w-0">
+          แสดงเฉพาะงบที่ใช้เกิน ({{ visibleItems.length }} รายการ)
+          <span class="block font-normal text-stone-600 sm:inline">
+            · ตัวเลข KPI ด้านล่างยังเป็นยอดรวมทั้งช่วง
+          </span>
+        </span>
+      </p>
+      <button type="button" class="btn-ghost-ui shrink-0 px-3 py-2 text-xs" @click="clearOverFilter">
+        <i class="bi bi-x-lg" aria-hidden="true"></i> ล้างตัวกรอง
+      </button>
+    </div>
+
     <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
 
     <StateBlock v-else-if="hasError" variant="error" @retry="load" />
@@ -388,6 +440,20 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           : 'เมื่อเหรัญญิกตั้งงบของช่วงนี้แล้ว จะมาแสดงที่นี่'
       "
     />
+
+    <!-- มีงบแต่ไม่มีใบไหนเกิน — คนละสาเหตุกับ "ยังไม่มีงบ" จึงให้ทางออกคนละแบบ -->
+    <StateBlock
+      v-else-if="hasNoOverBudget"
+      variant="empty"
+      icon="bi-check2-circle"
+      title="ไม่มีงบที่ใช้เกินในช่วงนี้"
+      hint="ทุกหมวดยังอยู่ในวงเงิน — ยอดนี้อัปเดตตามช่วงที่เลือกด้านบน"
+    >
+      <button type="button" class="btn-ghost-ui" @click="clearOverFilter">
+        <i class="bi bi-list-ul" aria-hidden="true"></i>
+        ดูงบทั้งหมด
+      </button>
+    </StateBlock>
 
     <template v-else>
       <!-- KPI: งบรวม / ใช้ไป / คงเหลือ / เกินงบ -->
@@ -446,7 +512,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
       <!-- 📱 มือถือ: การ์ด -->
       <div class="space-y-2.5 lg:hidden">
         <div
-          v-for="item in items"
+          v-for="item in visibleItems"
           :key="item.budget_id"
           class="page-card p-4"
           :class="item.is_over ? 'border-s-4 border-s-danger-500' : ''"
@@ -535,7 +601,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
             </thead>
             <tbody>
               <tr
-                v-for="item in items"
+                v-for="item in visibleItems"
                 :key="item.budget_id"
                 :class="item.is_over ? 'border-s-4 border-s-danger-500' : ''"
               >
