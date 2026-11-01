@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import { downloadBlob } from '@/utils/download';
-import { todayIso } from '@/utils/period';
+import { todayIso } from '@/utils/datetime';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'

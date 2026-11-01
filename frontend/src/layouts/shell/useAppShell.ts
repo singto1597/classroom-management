@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ClassroomService } from '@/services/classroom';
 import { navSectionName } from '@/constants/nav';
+import { avatarInitial } from '@/utils/avatar';
 import type { UserRoom } from '@/types/classroom';
 
 /** ชื่อคีย์ localStorage ที่จำสถานะย่อ sidebar */
@@ -34,10 +35,10 @@ export function useAppShell() {
   /** ชื่อเมนูแม่ของหน้าปัจจุบัน — ใช้ทำ breadcrumb */
   const currentSubMenuName = computed(() => navSectionName(route.path));
 
-  // ✨ อักษรย่อจากชื่อเล่น (หรือชื่อจริง) — ตัวแรกของชื่อเท่านั้น
+  // ✨ อักษรย่อจากชื่อเล่น (หรือชื่อจริง) — ข้ามสระนำไทย (เก่ง → ก) ตาม utils/avatar
   const avatarChar = computed(() => {
     const name = authStore.nickname || authStore.firstName;
-    return name && name !== 'ไม่ระบุชื่อ' ? name.charAt(0).toUpperCase() : 'ส';
+    return avatarInitial(name === 'ไม่ระบุชื่อ' ? '' : name, 'ส');
   });
 
   /**

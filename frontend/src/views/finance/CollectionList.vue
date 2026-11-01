@@ -5,6 +5,7 @@ import { FinanceService } from '@/services/finance'
 import type { Collection, BasicStudent } from '@/types/finance'
 import { displayName } from '@/utils/name'
 import { escapeHtml } from '@/utils/html'
+import { formatThaiDate } from '@/utils/datetime'
 import Swal from 'sweetalert2'
 
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -184,16 +185,6 @@ const handleEditCollection = async (col: Collection) => {
   }
 }
 
-const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr + 'T00:00:00')
-  return date.toLocaleDateString('th-TH', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num)
 }
@@ -285,7 +276,7 @@ onMounted(() => {
 
           <p class="chip num mt-2 bg-stone-50 text-stone-500">
             <i class="bi bi-calendar-event" aria-hidden="true"></i>
-            ครบกำหนด {{ formatDate(col.due_date) }}
+            ครบกำหนด {{ formatThaiDate(col.due_date) }}
           </p>
 
           <p class="mt-3 flex items-baseline gap-1 sm:mt-4">

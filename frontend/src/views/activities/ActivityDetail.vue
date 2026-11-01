@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import { downloadBlob, safeActivityFilename } from '@/utils/download'
 import { displayName } from '@/utils/name'
+import { formatThaiDate } from '@/utils/datetime'
 import type { Activity, ActivityParticipant, RosterItem } from '@/types/activity'
 import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
 import {
@@ -75,12 +76,6 @@ const Toast = Swal.mixin({
   timer: 3000,
   timerProgressBar: true,
 })
-
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr + 'T00:00:00')
-  return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
-}
 
 /** โทนสีป้ายสถานะ (chip) — คุมโทนตาม Design Contract ไม่ใช้สีฟ้า/ชมพูแบบเดิม */
 function statusChip(status: unknown): string {
@@ -455,7 +450,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
         </span>
         <span class="chip bg-stone-100 text-stone-600">
           <i class="bi bi-calendar-event" aria-hidden="true"></i>
-          <span class="num">{{ formatDate(activity.activity_date) }}</span>
+          <span class="num">{{ formatThaiDate(activity.activity_date, 'long') }}</span>
         </span>
         <span class="chip bg-stone-100 text-stone-600">
           <i class="bi bi-clock-history" aria-hidden="true"></i>

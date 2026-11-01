@@ -12,6 +12,7 @@ import RowActionMenu from '@/components/ui/RowActionMenu.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 import { UI_COLOR } from '@/constants/theme'
 import { TASK_STATUS_LABELS } from '@/constants/statusLabels'
+import { daysFromThaiToday, formatThaiDate, relativeThaiDay } from '@/utils/datetime'
 
 const authStore = useAuthStore()
 
@@ -78,28 +79,13 @@ const fetchData = async () => {
 const pendingCount = computed(() => tasks.value.filter(task => task.status === 'pending').length)
 const doneCount = computed(() => tasks.value.filter(task => task.status === 'done').length)
 
-// 🗓️ คำนวณจำนวนวันห่างจากวันนี้ (Local Timezone — กันบัค UTC ทำให้เพี้ยน 1 วัน)
-const diffDaysFromToday = (dateStr: string): number => {
-  const due = new Date(dateStr + 'T00:00:00');
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-};
+// 🗓️ คำนวณจำนวนวันห่างจาก "วันนี้ตามเวลาไทย" — ไม่ใช้ปฏิทินของอุปกรณ์
+const diffDaysFromToday = (dateStr: string): number => daysFromThaiToday(dateStr) ?? 0;
 
-// 🗓️ แปลงวันที่ YYYY-MM-DD → ไทย (เช่น 5 ส.ค. 2569) และโชว์ว่าวันนี้/พรุ่งนี้
-const formatDueDate = (dateStr: string) => {
+// 🗓️ วันที่ YYYY-MM-DD → ไทย (เช่น 5 ส.ค. 2569) และโชว์ว่าวันนี้/พรุ่งนี้
+const formatDueDate = (dateStr: string): string => {
   if (!dateStr) return '-';
-  const date = new Date(dateStr + 'T00:00:00');
-  const diffDays = diffDaysFromToday(dateStr);
-
-  if (diffDays === 0) return 'วันนี้';
-  if (diffDays === 1) return 'พรุ่งนี้';
-
-  return date.toLocaleDateString('th-TH', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric'
-  });
+  return relativeThaiDay(dateStr) ?? formatThaiDate(dateStr);
 };
 
 const filteredTasks = computed(() => {

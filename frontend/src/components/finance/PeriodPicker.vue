@@ -15,9 +15,8 @@
  * <PeriodPicker v-model="period" :modes="['asof', 'month']" />
  */
 import { computed } from 'vue';
+import { THAI_MONTHS, todayIso } from '@/utils/datetime';
 import {
-  THAI_MONTHS,
-  todayIso,
   todayThaiYearMonth,
   firstDayOfMonth,
   lastDayOfMonth,

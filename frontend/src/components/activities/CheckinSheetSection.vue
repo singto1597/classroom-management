@@ -7,7 +7,7 @@
  */
 import { computed } from 'vue'
 import { displayName } from '@/utils/name'
-import { formatThaiTime } from '@/utils/period'
+import { formatThaiDate, formatThaiTime } from '@/utils/datetime'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import type { ActivityParticipant, CheckinMark, CheckinSheet } from '@/types/activity'
 
@@ -36,12 +36,6 @@ const totalCount = computed(() => {
   if (props.participants === null) return props.sheet.total_count
   return props.participants.length
 })
-
-function formatDate(value: string | null): string {
-  if (!value) return ''
-  const d = new Date(value + 'T00:00:00')
-  return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
-}
 
 function actionClass(isPresent: boolean): string {
   return isPresent
@@ -73,7 +67,7 @@ function actionClass(isPresent: boolean): string {
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-bold text-stone-900">{{ sheet.title }}</p>
           <p class="mt-0.5 text-xs text-stone-500">
-            <span v-if="sheet.event_date">{{ formatDate(sheet.event_date) }} · </span>
+            <span v-if="sheet.event_date">{{ formatThaiDate(sheet.event_date) }} · </span>
             ตรวจแล้ว <b class="num text-ok-600">{{ checkedCount }}</b>/<span class="num">{{ totalCount }}</span>
           </p>
         </div>

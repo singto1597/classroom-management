@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { StudentService } from '@/services/student'
 import { ActivityService } from '@/services/activity'
 import { displayName } from '@/utils/name'
+import { todayIso } from '@/utils/datetime'
 import type { Activity, ActivityParticipantInput, RosterItem } from '@/types/activity'
 import type { Student } from '@/types/student'
 import {
@@ -60,7 +61,7 @@ const canManage = computed(
 const form = ref({
   title: '',
   description: '',
-  activity_date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date()),
+  activity_date: todayIso(),
   base_hours: 0,
   status: 'upcoming' as string,
 })

@@ -2,6 +2,7 @@
 import { ref, onMounted, watch, computed } from 'vue';
 import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
+import { formatThaiDateTimeParts } from '@/utils/datetime';
 import { useAuthStore } from '@/stores/auth';
 import { FinanceService } from '@/services/finance';
 import type { Transaction, TransactionQueryParams } from '@/types/finance';
@@ -129,21 +130,7 @@ const handleRevert = async (transaction: Transaction, key: string) => {
 };
 
 // 🕐 แสดงเวลาเป็นภาษาไทยและ Timezone Asia/Bangkok (กฎของโปรเจกต์)
-const formatDate = (dateStr: string) => {
-  const date = new Date(dateStr);
-  const datePart = date.toLocaleDateString('th-TH', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Asia/Bangkok'
-  });
-  const timePart = date.toLocaleTimeString('th-TH', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Bangkok'
-  });
-  return { datePart, timePart };
-};
+const formatDate = (dateStr: string) => formatThaiDateTimeParts(dateStr);
 
 const formatNumber = (num: number) => {
   return new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2 }).format(num);
@@ -286,7 +273,7 @@ const resetFilters = () => {
               <p class="break-words font-bold text-stone-900">{{ t.description }}</p>
               <p class="num mt-1 flex items-center gap-1.5 text-[11px] font-medium text-stone-400">
                 <i class="bi bi-clock" aria-hidden="true"></i>
-                {{ formatDate(t.created_at).datePart }} • {{ formatDate(t.created_at).timePart }} น.
+                {{ formatDate(t.created_at).date }} • {{ formatDate(t.created_at).time }} น.
               </p>
             </div>
             <p
@@ -343,9 +330,9 @@ const resetFilters = () => {
             <tbody>
               <tr v-for="t in transactions" :key="t.id">
                 <td>
-                  <div class="num font-bold text-stone-700">{{ formatDate(t.created_at).datePart }}</div>
+                  <div class="num font-bold text-stone-700">{{ formatDate(t.created_at).date }}</div>
                   <div class="num mt-0.5 text-xs text-stone-400">
-                    {{ formatDate(t.created_at).timePart }} น.
+                    {{ formatDate(t.created_at).time }} น.
                   </div>
                 </td>
                 <td>
