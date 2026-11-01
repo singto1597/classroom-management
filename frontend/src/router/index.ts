@@ -34,6 +34,8 @@ router.beforeEach((to, _from) => {
       to.path.startsWith('/lobby') ||
       to.path.startsWith('/auth/') ||
       to.path === '/login' ||
+      // 🌐 ลิงก์แชร์กิจกรรมต้องเปิดได้แม้บัญชีนี้ยังไม่ได้กรอกโปรไฟล์
+      to.path.startsWith('/share/') ||
       isNotFound;
     if (!isOnboarded && !isRoomlessGlobal) {
       if (to.name !== 'onboarding') {
@@ -53,6 +55,8 @@ router.beforeEach((to, _from) => {
     to.path === '/login' ||
     to.path === '/onboarding' ||
     to.path.startsWith('/auth/') ||
+    // 🌐 หน้าสาธารณะของกิจกรรม — ผู้ใช้ที่ล็อกอินแต่ยังไม่เลือกห้องต้องเปิดได้
+    to.path.startsWith('/share/') ||
     isNotFound;
   if (isAuthenticated && (!currentRoomId || !currentRole) && !isGlobalRoute) {
     // 🚧 พกปลายทางเดิมไปด้วย (`/lobby?next=...`) ⇒ เลือกห้องเสร็จกลับมาที่หน้าที่ตั้งใจ

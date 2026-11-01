@@ -12,7 +12,9 @@ import RowActionMenu from '@/components/ui/RowActionMenu.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
-import { formatThaiDate, relativeThaiDay } from '@/utils/datetime'
+import { formatThaiDate, relativeThaiDay, todayIso } from '@/utils/datetime'
+import { ACTIVITY_CATEGORIES, activityCategoryLabel } from '@/constants/activityCategories'
+import { deadlineLabel, deadlineState } from '@/utils/activityDeadline'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -28,6 +30,10 @@ const activities = ref<Activity[]>([])
 const isLoading = ref(true)
 const hasError = ref(false)
 const filter = ref<StatusFilter>('all')
+// 🏷️ P4.4 — ชิปกรองหมวด (กรองฝั่งจอ เพราะรายการโหลดมาพร้อมกันอยู่แล้ว
+// และตัวเลขบนชิปสถานะต้องอิงชุดเต็ม ไม่ใช่ชุดที่ถูกกรองด้วยหมวด)
+const categoryFilter = ref<string>('all')
+const today = todayIso()
 
 // --- 🔵 เลือกหลายกิจกรรมเพื่อเปรียบเทียบ (Intersection / Union / ลบ) ---
 /** เพดานเดียวกับฝั่งเปรียบเทียบ — เกิน 3 แล้วแผนภาพเวนครอบคลุมทุกภูมิภาคไม่ได้ */
@@ -110,6 +116,9 @@ const filteredActivities = computed(() => {
   if (filter.value !== 'all') {
     list = list.filter((a) => a.status === filter.value)
   }
+  if (categoryFilter.value !== 'all') {
+    list = list.filter((a) => a.category === categoryFilter.value)
+  }
   return [...list].sort((a, b) => {
     // เรียงตามวันกิจกรรม (ใกล้ก่อน) — ถ้าใกล้แล้วสถานะ upcoming ขึ้นก่อน
     return (
@@ -117,6 +126,19 @@ const filteredActivities = computed(() => {
       new Date(b.activity_date + 'T00:00:00').getTime()
     )
   })
+})
+
+const categoryCount = computed(() => {
+  const counts: Record<string, number> = { all: activities.value.length }
+  ACTIVITY_CATEGORIES.forEach((c) => {
+    counts[c.value] = 0
+  })
+  activities.value.forEach((a) => {
+    if (typeof a.category !== 'string') return
+    const current = counts[a.category]
+    if (current !== undefined) counts[a.category] = current + 1
+  })
+  return counts
 })
 
 type StatusFilter = 'all' | 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
@@ -150,6 +172,27 @@ const getTags = (activity: Activity): string[] => {
   }
   return []
 }
+
+// 🏷️ ป้ายหมวด — ใช้ป้ายไทยที่ backend แปลมาแล้วก่อน ถ้าไม่มีค่อยแปลงเอง
+//    (client เก่าที่คุยกับ backend รุ่นก่อนหน้า จะได้ป้ายว่าง ไม่ใช่ slug ดิบ)
+const categoryLabel = (activity: Activity): string | null =>
+  activity.category_label ?? activityCategoryLabel(activity.category)
+
+// 📅 ป้ายวันปิดรับ — แสดงเฉพาะ "ใกล้ปิด" (≤7 วัน) หรือ "เลยกำหนดแล้ว"
+//    ไม่แสดงตอนยังเหลือเวลาเยอะ เพราะป้ายที่ขึ้นทุกใบ = ป้ายที่ไม่มีความหมาย
+const deadlineChip = (activity: Activity): { label: string; cls: string } | null => {
+  const label = deadlineLabel(activity.registration_deadline, today)
+  if (!label) return null
+  return deadlineState(activity.registration_deadline, today) === 'closed'
+    ? { label, cls: 'bg-danger-50 text-danger-700' }
+    : { label, cls: 'bg-warn-50 text-warn-700' }
+}
+
+// 🪑 ที่นั่งใช้แล้ว/ทั้งหมด — `null` = ไม่จำกัด ⇒ ไม่แสดงเพดานเลย
+const seatsLabel = (activity: Activity): string | null =>
+  activity.capacity === null || activity.capacity === undefined
+    ? null
+    : `${activity.confirmed_count ?? 0}/${activity.capacity}`
 
 // 🗓️ วันที่ YYYY-MM-DD → ไทย (15 ตุลาคม 2569) + แสดงสถานะวันนี้/พรุ่งนี้
 const formatDate = (dateStr: string): string => {
@@ -249,6 +292,40 @@ onMounted(fetchData)
       </button>
     </nav>
 
+    <!-- 🏷️ ชิปกรองหมวดกิจกรรม — เลื่อนแนวนอนได้ · "ทั้งหมด" อยู่ซ้ายเสมอ -->
+    <nav class="flex gap-2 overflow-x-auto overscroll-contain pb-1" aria-label="กรองตามหมวดกิจกรรม">
+      <button
+        type="button"
+        class="chip min-h-9 shrink-0 border"
+        :class="
+          categoryFilter === 'all'
+            ? 'border-brand-700 bg-brand-50 text-brand-700'
+            : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+        "
+        :aria-pressed="categoryFilter === 'all'"
+        @click="categoryFilter = 'all'"
+      >
+        ทั้งหมด
+        <span class="num ms-1 text-[11px] font-bold opacity-60">{{ categoryCount.all }}</span>
+      </button>
+      <button
+        v-for="c in ACTIVITY_CATEGORIES"
+        :key="c.value"
+        type="button"
+        class="chip min-h-9 shrink-0 border"
+        :class="
+          categoryFilter === c.value
+            ? 'border-brand-700 bg-brand-50 text-brand-700'
+            : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+        "
+        :aria-pressed="categoryFilter === c.value"
+        @click="categoryFilter = c.value"
+      >
+        {{ c.label }}
+        <span class="num ms-1 text-[11px] font-bold opacity-60">{{ categoryCount[c.value] }}</span>
+      </button>
+    </nav>
+
     <SkeletonRows v-if="isLoading" :rows="3" height="h-56" />
 
     <StateBlock v-else-if="hasError" variant="error" @retry="fetchData" />
@@ -257,7 +334,13 @@ onMounted(fetchData)
       v-else-if="filteredActivities.length === 0"
       variant="empty"
       icon="bi-calendar-x"
-      :title="activities.length === 0 ? 'ยังไม่มีกิจกรรม' : 'ไม่มีกิจกรรมในสถานะนี้'"
+      :title="
+        activities.length === 0
+          ? 'ยังไม่มีกิจกรรม'
+          : categoryFilter !== 'all'
+            ? 'ไม่มีกิจกรรมในหมวดนี้'
+            : 'ไม่มีกิจกรรมในสถานะนี้'
+      "
       :hint="
         activities.length === 0
           ? 'สร้างกิจกรรมแรกของห้องเพื่อเริ่มบันทึกผู้เข้าร่วมและชั่วโมงจิตอาสา'
@@ -275,9 +358,12 @@ onMounted(fetchData)
         v-else-if="activities.length > 0"
         type="button"
         class="btn-ghost-ui mt-1.5"
-        @click="filter = 'all'"
+        @click="
+          filter = 'all';
+          categoryFilter = 'all';
+        "
       >
-        <i class="bi bi-list-ul" aria-hidden="true"></i> ดูทั้งหมด
+        <i class="bi bi-list-ul" aria-hidden="true"></i> ล้างตัวกรอง
       </button>
     </StateBlock>
 
@@ -314,6 +400,14 @@ onMounted(fetchData)
           <h2 class="min-w-0 flex-1 truncate font-display text-base font-bold text-stone-900">
             {{ activity.title }}
           </h2>
+          <span
+            v-if="deadlineChip(activity)"
+            class="chip shrink-0"
+            :class="deadlineChip(activity)?.cls"
+          >
+            <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+            {{ deadlineChip(activity)?.label }}
+          </span>
           <span class="chip shrink-0" :class="statusChip(activity.status)">
             {{
               ACTIVITY_STATUS_LABELS[
@@ -323,8 +417,18 @@ onMounted(fetchData)
           </span>
         </div>
 
-        <!-- 🏷️ Badge หมวดหมู่จาก metadata.tags -->
-        <div v-if="getTags(activity).length" class="mt-2.5 flex flex-wrap gap-1.5">
+        <!-- 🏷️ หมวดกิจกรรม (P4.3) + แท็กอิสระจาก metadata.tags -->
+        <div
+          v-if="categoryLabel(activity) || getTags(activity).length"
+          class="mt-2.5 flex flex-wrap gap-1.5"
+        >
+          <span
+            v-if="categoryLabel(activity)"
+            class="chip bg-brand-50 text-brand-700"
+          >
+            <i class="bi bi-tag" aria-hidden="true"></i>
+            {{ categoryLabel(activity) }}
+          </span>
           <span
             v-for="tag in getTags(activity)"
             :key="tag"
@@ -342,6 +446,18 @@ onMounted(fetchData)
           <span v-if="activity.base_hours > 0" class="chip bg-ok-50 text-ok-700">
             <i class="bi bi-clock-history" aria-hidden="true"></i>
             <span class="num">{{ activity.base_hours }}</span> ชม.
+          </span>
+          <!-- 🪑 P4.1 — ที่นั่งใช้แล้ว/ทั้งหมด + จำนวนคิวสำรอง (ถ้ามี) -->
+          <span v-if="seatsLabel(activity)" class="chip bg-stone-100 text-stone-600">
+            <i class="bi bi-person-check" aria-hidden="true"></i>
+            <span class="num">{{ seatsLabel(activity) }}</span> ที่นั่ง
+          </span>
+          <span
+            v-if="(activity.waitlisted_count ?? 0) > 0"
+            class="chip bg-warn-50 text-warn-700"
+          >
+            <i class="bi bi-people" aria-hidden="true"></i>
+            คิว <span class="num">{{ activity.waitlisted_count }}</span>
           </span>
         </div>
 
