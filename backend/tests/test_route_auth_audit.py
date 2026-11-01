@@ -141,7 +141,11 @@ def test_route_count_is_not_silently_shrinking():
     # 128 → 129 (2026-10-31): เพิ่ม `GET /api/version` (provenance — version + git sha)
     #   route นี้ **ตั้งใจให้ public** ⇒ อยู่ใน PUBLIC_ROUTES พร้อมเหตุผล
     #   (ใช้ตรวจ deploy และไล่ incident ได้โดยไม่ต้องมี credential)
-    expected = 129
+    # 129 → 136 (2026-11-01): แพลตฟอร์มแจ้งเตือน (P2.2) — 7 route ใต้ `/api/classroom`
+    #   list · unread-count · read-all · read หนึ่งใบ · preferences GET/PUT · stream (SSE)
+    #   ทุกตัวมี `Depends(get_current_user)` และตรวจสมาชิกห้องใน service ชั้นล่าง
+    #   ⇒ ไม่ต้องเพิ่มลง PUBLIC_ROUTES
+    expected = 136
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (
