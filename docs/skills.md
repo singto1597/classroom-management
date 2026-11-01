@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 247 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 249 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -251,6 +251,8 @@
 - [⋯ ปุ่มแถวมีได้ปุ่มเดียว "ที่เหลือซ่อนในเมนู" — และเมนูต้อง Teleport ออกจากตาราง](#ปุ่มแถวมีได้ปุ่มเดียว-ที่เหลือซ่อนในเมนู-และเมนูต้อง-teleport-ออกจากตาราง)
 - [🐳 จำนวน service ในไฟล์ deploy เป็น "สัญญา" ที่ต้องอัปเดตมือ — gate ที่ hardcode `3` คือ gate ที่ล้มตอนเพิ่มของถูก](#จำนวน-service-ในไฟล์-deploy-เป็น-สัญญา-ที่ต้องอัปเดตมือ-gate-ที่-hardcode-3-คือ-gate-ที่ล้มตอนเพิ่มของถูก)
 - [🔔 "อ่านแล้ว" ไม่ใช่คอลัมน์ของประกาศ — มันคือแถวแจ้งเตือนของ *ผู้ใช้คนนั้น*](#อ่านแล้ว-ไม่ใช่คอลัมน์ของประกาศ-มันคือแถวแจ้งเตือนของ-ผู้ใช้คนนั้น)
+- [🔔 Service worker ที่แคช `/api/` = เครื่องใช้ร่วมรั่วข้อมูล · และ navigation ต้อง network-first](#service-worker-ที่แคช-api-เครื่องใช้ร่วมรั่วข้อมูล-และ-navigation-ต้อง-network-first)
+- [📲 `beforeinstallprompt` ยิงครั้งเดียวตอนโหลดหน้า — ฟังให้ทัน และ iOS ไม่มี event เลย](#beforeinstallprompt-ยิงครั้งเดียวตอนโหลดหน้า-ฟังให้ทัน-และ-ios-ไม่มี-event-เลย)
 
 <!-- TOC:END -->
 
@@ -3864,4 +3866,70 @@
   - **`entity_id` เป็น `text` ใน `notifications`** ⇒ ต้อง cast `a.id::text` ตอนเทียบ ไม่งั้น Postgres หา index/เทียบชนิดไม่ได้
 - **Rule:** (1) 🔴 สถานะรายคู่ห้ามเก็บเป็นคอลัมน์รายตัว หาแถวที่มีอยู่แล้ว (notification/attendance/read-receipt) ก่อนสร้างตารางใหม่ (2) 🔴 endpoint "ทำเครื่องหมาย" ต้อง idempotent และไม่ 404 เพราะไม่มีแถว (3) ⚠️ ประกาศใหม่ fan-out ใน transaction เดียวกับการสร้างประกาศ — ถ้าแยก transaction จะมีช่วงที่ประกาศมองเห็นได้แต่ไม่มีแจ้งเตือน
 - **Tests:** `backend/tests/test_announcement_router.py` — `test_list_marks_unread_then_read` (สร้างสมาชิก 2 คนก่อนประกาศ → คนหนึ่งอ่าน อีกคนยัง unread) · `test_mark_read_is_idempotent` · audit `new_values` ใน `test_update_writes_audit_without_refanout` อ่านด้วย `json.loads()` เพราะ asyncpg คืน JSONB เป็น `str`
+- **Date Added:** 2026-11-01
+
+### 🔔 Service worker ที่แคช `/api/` = เครื่องใช้ร่วมรั่วข้อมูล · และ navigation ต้อง network-first
+- **Context/Problem:** P2.5 เพิ่ม PWA ให้ระบบนี้ — service worker ตัวแรกของ repo ถ้าเขียนแบบ "แคชทุกอย่างที่ผ่านมา" ตอนออฟไลน์แอปจะเร็วขึ้นจริง แต่ห้องคอมพิวเตอร์ของโรงเรียนใช้เบราว์เซอร์ร่วมกัน ⇒ response `/api/...` ของบัญชีหนึ่งค้างอยู่ใน Cache Storage ของ origin และผู้ใช้คนถัดไปที่ล็อกอินจะเปิดอ่านได้แม้ไม่ได้ตั้งใจ
+- **Root Cause:** Cache Storage **ไม่ได้ผูกกับผู้ใช้หรือ session** — มันผูกกับ origin และคงอยู่ข้ามการล็อกเอาต์/ล้าง storage ของแอป (การลบทำได้เฉพาะโค้ดของเราเอง) ⇒ กฎ "แคชเพื่อความเร็ว" ของ static asset ใช้กับ endpoint ที่มีตัวตนผู้ใช้ไม่ได้เด็ดขาด · อีกด้านหนึ่ง ถ้า cache `index.html` แบบ cache-first หลัง deploy หน้าเว็บจะขอ `/assets/<hash เก่า>.js` ที่เซิร์ฟเวอร์ลบไปแล้ว ⇒ จอขาวจนกว่าจะล้าง cache
+- **Correct Pattern/Solution:**
+  ```js
+  // public/sw.js — ด่านแรกของ fetch handler คือ "อะไรที่ไม่แคช"
+  if (request.method !== 'GET') return;                  // เขียน=ห้ามคิดถึง cache
+  if (new URL(request.url).origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;          // ★ ข้อมูลผู้ใช้
+  if (url.pathname === '/sw.js') return;                 // ตัว SW เอง
+
+  if (request.mode === 'navigate') return event.respondWith(networkFirstShell(request));
+  if (url.pathname.startsWith('/assets/')) return event.respondWith(cacheFirst(request, STATIC));
+  event.respondWith(staleWhileRevalidate(request, STATIC));
+  ```
+  ```nginx
+  # frontend/nginx.default.conf — สามชั้นแคชที่ทำให้ SW อัปเดตได้จริง
+  location = /sw.js                { add_header Cache-Control "no-store" always; }
+  location = /manifest.webmanifest { default_type application/manifest+json;
+                                     add_header Cache-Control "no-cache" always; }
+  location /assets/                { add_header Cache-Control "public, max-age=31536000, immutable" always; }
+  location /                       { add_header Cache-Control "no-cache" always; }
+  ```
+  - **`no-store` ที่ `/sw.js` ยังแก้ปัญหา Cloudflare ให้ด้วย** — CF เคารพ `Cache-Control` ของ origin ⇒ ไม่ต้องไปตั้ง cache rule ในแดชบอร์ด (สำคัญเพราะ Cloudflare ของระบบนี้เป็น Flexible SSL พอร์ต 80 และห้ามแตะ)
+  - **`cache.put()` โยน TypeError ถ้า response ผ่าน redirect** (`redirected === true`) ⇒ เช็ค `!response.redirected` ก่อนเสมอ ไม่งั้น navigation ที่เด้งไป `/login` จะทำให้ handler พังทั้งตัว
+  - **`renotify: true` โดยไม่มี `tag` = Chrome โยน TypeError** (และ push event ล้มทั้งอัน) ⇒ ใส่ `renotify` เฉพาะเมื่อ payload มี `tag`
+  - **`notificationclick` → `client.navigate()` ถูกบล็อกได้** ⇒ `try/catch` แล้วพอแค่ `focus()`
+  - **`skipWaiting()` ใน install** เพราะตัวรับ `push` ต้องเป็นรุ่นล่าสุดเร็วที่สุด — ราคาที่จ่ายคือแท็บเก่าอาจอ้าง chunk ที่หายหลัง deploy ซึ่งเกิดแบบเดียวกันอยู่แล้วถ้าไม่มี SW
+  - **`import.meta.env.PROD` กันการลงทะเบียนใน dev** — ไม่งั้น Vite dev จะค้างไฟล์แบบ cache-first และอาการคือ "แก้โค้ดแล้วหน้าไม่เปลี่ยน" ซึ่งหาสาเหตุยากมาก
+- **Rule:** (1) 🔴 service worker **ห้ามแคช `/api/`** และห้ามแคชข้อมูลผู้ใช้ใด ๆ ลง Cache Storage (2) 🔴 navigation = network-first + fallback จาก cache เท่านั้น (3) ⚠️ ทุก `add_header` ของ nginx ต้องมี `always` ไม่งั้น header หายบน response 4xx/5xx (4) ⚠️ ไฟล์ `sw.js` อยู่ `public/` ⇒ ไม่ผ่าน bundler/type-check — ต้อง `node --check` และอ่านด้วยตา
+- **Tests:** `node --check public/sw.js` · `docker run --rm -v $PWD/nginx.default.conf:/etc/nginx/conf.d/default.conf:ro nginx:alpine nginx -t` · ตรวจ `dist/` มี `sw.js`, `manifest.webmanifest`, `icons/*` หลัง `npm run build` · unit 9 ตัว (`src/services/__tests__/pwa.spec.ts`)
+- **Date Added:** 2026-11-01
+
+### 📲 `beforeinstallprompt` ยิงครั้งเดียวตอนโหลดหน้า — ฟังให้ทัน และ iOS ไม่มี event เลย
+- **Context/Problem:** P2.5 ต้องมีแถบชวนติดตั้งแอป แต่ถ้าฟัง event ใน `onMounted` ของคอมโพเนนต์ แถบจะไม่ขึ้นเลยบน Chrome บางรุ่น (event ถูกยิงจบไปก่อน Vue mount) · และบน iPhone แถบจะไม่ขึ้นตลอดกาลถ้าเช็คแค่ event เพราะ Safari ไม่รองรับ `beforeinstallprompt` — ผู้ใช้ iOS จึงไม่มีทางรู้ว่าติดตั้งได้
+- **Root Cause:** (1) `beforeinstallprompt` เป็น browser event ที่เกิดตอน parser โหลดหน้า ไม่ใช่ตอนแอปพร้อม ⇒ ตัวจับต้องอยู่ระดับโมดูลที่ถูก import จาก `main.ts` ก่อน `createApp().mount()` (2) iOS ติดตั้งผ่านเมนู "แชร์ → เพิ่มไปยังหน้าจอโฮม" เท่านั้น — ไม่มี API ใดให้เรียกกล่องติดตั้งได้
+- **Correct Pattern/Solution:**
+  ```ts
+  // services/pwa.ts — เก็บ event ที่ระดับโมดูล (ไม่ใช่ใน component)
+  let deferredPrompt: BeforeInstallPromptEvent | null = null
+  export function captureInstallPrompt(): void {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault()                       // บล็อกแถบของเบราว์เซอร์ — เราจะเสนอเอง
+      deferredPrompt = e as BeforeInstallPromptEvent
+    })
+  }
+
+  // main.ts — ต้องเรียก **ก่อน** createApp()
+  captureInstallPrompt()
+  ```
+  ```ts
+  // เงื่อนไขแสดงแถบ — ต้องผ่านครบทุกข้อ
+  if (!matchMedia('(pointer: coarse)').matches) return  // เดสก์ท็อปไม่ต้อง
+  if (isStandalone()) return                            // ติดตั้งแล้วไม่ต้อง
+  if (localStorage.getItem(DISMISS_KEY) === '1') return // เคยกดปิดแล้ว
+  visible.value = isIOS() || getInstallPrompt() !== null
+  ```
+  - **`isStandalone()` ต้องเช็คสองอย่าง** — `display-mode: standalone` (Android/เดสก์ท็อป) **และ** `navigator.standalone` (iOS) เพราะ iOS ไม่รายงาน display-mode ให้
+  - **iOS: เปลี่ยนปุ่มจาก "ติดตั้ง" เป็น "วิธีติดตั้ง"** แล้วแสดงคำแนะนำเมนูแชร์ — ซ่อนปุ่มไปเฉย ๆ = ผู้ใช้ไม่มีทางรู้
+  - **คีย์ "กดปิดแล้ว" อยู่ localStorage เฉพาะเครื่อง และไม่อยู่ใน `ALL_LOCAL_STORAGE_KEYS`** — การกดปิดไม่ใช่ข้อมูลบัญชี ไม่ควรถูกล้างตอนล็อกเอาต์ (ไม่งั้นแถบโผล่ทุกครั้งที่ล็อกอินใหม่)
+  - **สร้าง PNG ไอคอนโดยไม่ต้องมี ImageMagick**: เครื่องนี้ไม่มี `convert`/`rsvg-convert`/Pillow ⇒ `scripts/generate-icons.mjs` ใช้ Chromium ของ Playwright เรนเดอร์ SVG แล้ว screenshot (`omitBackground: true` สำหรับไอคอนมุมโค้ง, พื้นทึบเต็มจัตุรัสสำหรับ maskable/apple)
+  - **maskable ≠ แค่พื้นเต็ม** — ต้องเผื่อที่ตัด (safe zone 80%) ⇒ รูปเล็กลง (`padRatio 0.24`) ไม่งั้น Android จะตัดขอบรูปหาย อย่าใช้ไฟล์เดียวกับ `any`
+- **Rule:** (1) 🔴 ฟัง `beforeinstallprompt` ที่ระดับโมดูลก่อน `createApp()` (2) 🔴 ต้องรองรับ iOS ด้วยคำแนะนำเมนูแชร์ ไม่ใช่ซ่อนปุ่ม (3) ⚠️ maskable icon ต้องแยกไฟล์และเผื่อ safe zone (4) ⚠️ ไอคอน PNG ต้อง commit ไว้ — สคริปต์สร้างไว้ทำใหม่ตอนเปลี่ยนโลโก้/สีเท่านั้น ไม่รันใน CI
+- **Tests:** `src/services/__tests__/pwa.spec.ts` (9 ตัว: base64url มี `-`/`_` ไม่มี padding, `display-mode`/`navigator.standalone`, `pointer: coarse`, dev ไม่ลงทะเบียน SW, ไม่มี event → `unavailable`) · ตรวจสายตา: `public/icons/icon-192.png`
 - **Date Added:** 2026-11-01

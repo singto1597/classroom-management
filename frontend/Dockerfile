@@ -33,16 +33,9 @@ RUN rm -rf /usr/share/nginx/html/*
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 
 # (สำคัญสำหรับ Vue Router) เพื่อให้การกด Refresh หน้าเว็บ (ที่ไม่ได้อยู่ที่ Root path) ไม่ติด 404
-# เราจะสร้างไฟล์คอนฟิกพื้นฐานของ Nginx ให้ชี้ทุก Request กลับไปที่ index.html เสมอ
-RUN echo 'server { \
-    listen 80; \
-    server_name _; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
+# ทุก Request กลับไปที่ index.html เสมอ + กฎแคชของ PWA (sw.js no-store, /assets immutable)
+# ⚠️ เดิม config ถูกสร้างด้วย `RUN echo …` ⇒ แก้ไม่ได้/ตรวจ diff ไม่ได้ · ย้ายเป็นไฟล์จริง
+COPY nginx.default.conf /etc/nginx/conf.d/default.conf
 
 # เปิดรับการเชื่อมต่อที่ Port 80
 EXPOSE 80
