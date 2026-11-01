@@ -42,6 +42,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // 📢 P2.6 — "ประกาศ" คือรายการที่อ่านได้ทุกคน (เดิมเมนูชี้ไปหน้าเขียนอย่างเดียว)
   // ปุ่ม "ส่งประกาศ" อยู่ในหน้ารายการ ไม่ต้องมีเมนูที่สอง
   { name: 'ประกาศ', path: '/announcements', icon: 'bi-megaphone' },
+  // 👤 P3.4 — "ของฉัน" = ไทม์ไลน์ส่วนตัว + สถิติ + รายการที่บันทึกไว้
+  //    อยู่ใต้ "เพิ่มเติม" (ไม่ใช่แท็บหลัก) เพราะเป็นหน้าที่เปิดเป็นครั้งคราว
+  { name: 'ของฉัน', path: '/me/activity', icon: 'bi-person-bookmark' },
   { name: 'ตั้งค่าการแจ้งเตือน', path: '/settings/notifications', icon: 'bi-bell' },
   { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
 ];
@@ -152,6 +155,8 @@ export const routeTitles = {
 
   // ── ประกาศ & แจ้งเตือน ─────────────────────────────────────────────────
   announcements: 'ประกาศ',
+  // 👤 ของฉัน — ไทม์ไลน์/สถิติส่วนตัว + บุ๊กมาร์ก (P3.3 + P3.4)
+  'my-activity': 'ของฉัน',
   'announcement-detail': 'รายละเอียดประกาศ',
   'notification-settings': 'ตั้งค่าการแจ้งเตือน',
 

@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 255 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 256 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -259,6 +259,7 @@
 - [🔎 ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า — ต้องกรองฝั่ง backend และต้องเป็น "แกนที่สอง" ไม่ใช่แท็บที่ห้า](#ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า-ต้องกรองฝั่ง-backend-และต้องเป็น-แกนที่สอง-ไม่ใช่แท็บที่ห้า)
 - [🤖 บอทสร้างช่องเองตอนเข้าร่วม — "เติมเฉพาะค่าว่าง" และ mute ต้องบังคับที่ backend](#บอทสร้างช่องเองตอนเข้าร่วม-เติมเฉพาะค่าว่าง-และ-mute-ต้องบังคับที่-backend)
 - [👤 "ของฉัน" ต้องมีคอลัมน์ผู้ทำก่อน — ฟีด/สถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น](#ของฉัน-ต้องมีคอลัมน์ผู้ทำก่อน-ฟีดสถิติส่วนตัวสร้างจากแหล่งที่ระบุตัวตนได้เท่านั้น)
+- [🔖 ปุ่ม "บันทึกไว้" ที่กดซ้ำได้ — partial unique + soft delete ต้อง "คืนชีพ" แถวเดิม ไม่ใช่ INSERT ซ้ำ](#ปุ่ม-บันทึกไว้-ที่กดซ้ำได้-partial-unique-soft-delete-ต้อง-คืนชีพ-แถวเดิม-ไม่ใช่-insert-ซ้ำ)
 
 <!-- TOC:END -->
 
@@ -4129,4 +4130,56 @@
   - **`NULL::date` / `NULL::float8` / `NULL::text` ใน `UNION ALL`** เพื่อให้ asyncpg รู้ชนิดคอลัมน์ของ branch ที่ไม่มีค่านั้น
 - **Rule:** (1) 🔴 ก่อนสร้างฟีด/สถิติ "ของฉัน" ให้ตรวจว่าตารางต้นทางมีคีย์ระบุตัวตนจริง — ไม่มี = ตัดออก ไม่ใช่เดา (2) 🔴 `UNION ALL` ที่ต้องแบ่งหน้าต้องมีคีย์ที่ทำให้เรียงลำดับได้ทั้งหมด (timestamp + kind + id) (3) 🔴 cursor ที่ถอดไม่ได้ = 400 (4) ⚠️ ตัวเลขต่างระดับ (ห้อง vs คน) ต้องต่างชื่อ
 - **Tests:** `backend/tests/test_me_endpoints.py` (9 ตัว: ของฉันเท่านั้น · cancelled/voided หาย · เดินหน้าครบ 5 แถวไม่ซ้ำ · cursor เสีย = 400 · 403 · สถิติตรง DB รวม Decimal→float · ไม่มีโปรไฟล์ = 0 แต่เห็นงานของห้อง)
+- **Date Added:** 2026-11-01
+
+### 🔖 ปุ่ม "บันทึกไว้" ที่กดซ้ำได้ — partial unique + soft delete ต้อง "คืนชีพ" แถวเดิม ไม่ใช่ INSERT ซ้ำ
+- **Context/Problem:** P3.4 ทำบุ๊กมาร์ก "บันทึกไว้" ให้ประกาศและกิจกรรม ผู้ใช้กดบันทึก/เลิกบันทึก/บันทึกใหม่ได้ไม่จำกัด และอาจกดซ้ำจากสองแท็บพร้อมกัน สคีมาจึงมี unique index แบบ partial (`WHERE deleted_at IS NULL`) คู่กับ soft delete — ซึ่งเป็นชุดค่าผสมที่ "ดูถูก" แต่พังได้สามทาง: (1) กดซ้ำแล้วได้ 500 จาก unique violation (2) ลบแล้วบันทึกใหม่แล้วเกิดแถวที่สองที่ยัง live (3) audit บอกว่า "สร้าง" ทั้งที่จริงคือ "กู้คืน"
+- **Root Cause:** partial unique index รู้จักแค่ `WHERE` ของแถวที่ **ยัง live** — แถวที่ soft delete แล้วไม่กิน key จึงไม่มีอะไรกันการ INSERT แถวใหม่ซ้อนกับแถวที่กู้คืนได้ ถ้า service เขียน `INSERT ... ON CONFLICT DO NOTHING` จะได้ "ไม่สร้างซ้ำแต่ก็ไม่บอกว่ามีอยู่แล้ว" และถ้าใช้ `ON CONFLICT (cols) DO UPDATE` จะไปชนกับ index ที่ partial (Postgres ไม่ยอม infer เฉย ๆ) ส่วน `201 Created` ที่ตอบทุกครั้งจะโกหก client ที่ใช้รหัสสถานะตัดสินว่าจะเด้งหรือไม่
+- **Correct Pattern/Solution:**
+  ```sql
+  -- 0004_bookmarks.py — unique index ครอบเฉพาะแถว live
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_bookmarks_live
+      ON bookmarks (user_id, room_id, entity_type, entity_id)
+      WHERE deleted_at IS NULL;
+  -- index เรียงตามที่หน้าจอใช้จริง (created_at, id)
+  CREATE INDEX IF NOT EXISTS idx_bookmarks_user_room_created
+      ON bookmarks (user_id, room_id, created_at DESC, id DESC)
+      WHERE deleted_at IS NULL;
+  ```
+  ```python
+  # add_bookmark — หนึ่งคน × หนึ่งรายการ = หนึ่งแถวตลอดชีพ
+  restored = await conn.fetchrow(
+      """UPDATE bookmarks SET deleted_at = NULL, created_at = NOW()
+          WHERE user_id = $1 AND room_id = $2 AND entity_type = $3 AND entity_id = $4
+            AND deleted_at IS NOT NULL
+        RETURNING id, created_at""", ...)
+  if restored is not None:
+      row, created, restored_only = restored, True, True   # กดใหม่ = สร้าง "ใหม่" ต่อสายตาผู้ใช้
+  else:
+      existing = await conn.fetchrow("SELECT id, created_at FROM bookmarks WHERE ... AND deleted_at IS NULL")
+      if existing is not None:
+          row, created, restored_only = existing, False, False   # ซ้ำ = ไม่มีผลข้างเคียง
+      else:
+          row = await conn.fetchrow("INSERT INTO bookmarks (...) VALUES (...) RETURNING id, created_at", ...)
+  ```
+  ```python
+  # router — 201 เฉพาะตอนสร้างจริง
+  if not data["created"]:
+      response.status_code = 200
+  return BookmarkCreateResponse(**data)
+  ```
+  ```sql
+  -- ลิสต์: hydrate จากตารางต้นทางด้วย LEFT JOIN — แต่ "ห้ามกรอง" ใน JOIN
+  -- (กรองแบบ AN.deleted_at IS NULL ใน WHERE จะทำให้แถวที่เป้าหมายหายหลุดจากลิสต์ทั้งแถว)
+  LEFT JOIN announcements AN ON m.entity_type = 'announcement' AND AN.id = m.entity_id AND AN.room_id = $2
+  LEFT JOIN activities    AC ON m.entity_type = 'activity'    AND AC.id = m.entity_id AND AC.room_id = $2
+                            AND AC.deleted_at IS NULL
+  -- "ถูกลบแล้ว" ต้องเป็นธง available ไม่ใช่การซ่อน — ผู้ใช้ต้องกดลบที่ค้างได้
+  CASE WHEN m.entity_type = 'announcement' THEN (AN.id IS NOT NULL) ELSE (AC.id IS NOT NULL) END AS available
+  ```
+  - **ตรวจเป้าหมายก่อนบันทึกเสมอ:** `entity_id` ต้องอยู่ใน `room_id` เดียวกัน ⇒ ข้ามห้อง = 404 (บุ๊กมาร์กเป็นทางลัด ไม่ใช่ประตูหลัง)
+  - **ลบของคนอื่น = 404** (`WHERE user_id = ...` อยู่ใน UPDATE) ไม่ใช่ 204 เงียบ ๆ — ไม่บอกว่ามีอยู่
+  - **`created_at` รีเซ็ตตอนคืนชีพ** เพื่อให้ "เพิ่งกดเมื่อกี้" ขึ้นบนสุดตามที่ผู้ใช้จำได้
+- **Rule:** (1) 🔴 unique partial + soft delete ⇒ กดซ้ำต้อง UPDATE คืนชีพก่อน INSERT เสมอ (2) 🔴 endpoint ที่กดซ้ำได้ต้องตอบ `created` flag และรหัส 200/201 ให้ตรง (3) 🔴 LEFT JOIN เพื่อ hydrate ห้ามกลายเป็น INNER JOIN โดยไม่ตั้งใจ — ใช้ `available` flag (4) ⚠️ index ของลิสต์ต้องตรง `ORDER BY` ของ keyset `(created_at, id)` ไม่งั้น sort ทั้งตาราง
+- **Tests:** `backend/tests/test_bookmarks.py` (11 ตัว: hydrate ชื่อ/วันที่แบบ Bangkok · activity ใช้ `activity_date` · กดซ้ำ 201→200 created=false แถวเดียว · ลบแล้วกลับมาคืนแถวเดิม · ลบของคนอื่น 404 ไม่แตะแถว · เป้าหมายไม่มี/ข้ามห้อง 404 · entity_type ผิด 422/400 · เดินหน้าครบ · cursor เสีย 400 · 403 · state lifecycle · ประกาศที่เก็บถาวรยัง available)
 - **Date Added:** 2026-11-01
