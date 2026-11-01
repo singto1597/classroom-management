@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 253 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 254 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -257,6 +257,7 @@
 - [🧹 `vue-tsc` ผ่าน ≠ `npm run lint` ผ่าน — oxlint เข้มกว่าเรื่อง mock และ catch ที่ไม่ใช้ค่า](#vue-tsc-ผ่าน-npm-run-lint-ผ่าน-oxlint-เข้มกว่าเรื่อง-mock-และ-catch-ที่ไม่ใช้ค่า)
 - [🏠 หน้าหลัก "คำขอเดียว" — ทุกตัวเลขต้องนับด้วย predicate เดียวกับลิสต์ปลายทาง](#หน้าหลัก-คำขอเดียว-ทุกตัวเลขต้องนับด้วย-predicate-เดียวกับลิสต์ปลายทาง)
 - [🔎 ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า — ต้องกรองฝั่ง backend และต้องเป็น "แกนที่สอง" ไม่ใช่แท็บที่ห้า](#ตัวกรองที่ซ้อนบนลิสต์ที่แบ่งหน้า-ต้องกรองฝั่ง-backend-และต้องเป็น-แกนที่สอง-ไม่ใช่แท็บที่ห้า)
+- [🤖 บอทสร้างช่องเองตอนเข้าร่วม — "เติมเฉพาะค่าว่าง" และ mute ต้องบังคับที่ backend](#บอทสร้างช่องเองตอนเข้าร่วม-เติมเฉพาะค่าว่าง-และ-mute-ต้องบังคับที่-backend)
 
 <!-- TOC:END -->
 
@@ -4055,4 +4056,41 @@
   - **404 ≠ ไม่มีข้อมูล:** `GET /finance/me/debts` ตอบ 404 เมื่อผู้ใช้ยังไม่มีแถว `students` (ยังไม่ผูกบัญชี) — หน้า `MyDebts.vue` ต้องแยกข้อความนี้จาก "ค้างชำระ 0 บิล" ไม่งั้นนักเรียนใหม่จะอ่านว่า "จ่ายครบแล้ว"
 - **Rule:** (1) 🔴 ลิสต์ที่แบ่งหน้า ห้ามกรองในหน่วยความจำ — เพิ่ม query param ที่ backend และนับด้วย predicate เดียวกัน (2) 🔴 filter fragment ที่มี placeholder ต้องมีเลข parameter ตรงกันทุก query ที่ฝัง fragment (3) 🔴 `$n::boolean` ใน `(NOT $n OR ...)` เสมอ (4) ⚠️ แกนที่สองของตัวกรอง = ชิปแยก ไม่ใช่แท็บเพิ่ม (5) ⚠️ 404 จาก endpoint "ของฉัน" = ยังไม่มีโปรไฟล์ ไม่ใช่ไม่มีข้อมูล
 - **Tests:** `backend/tests/test_announcement_router.py::test_list_unread_only_matches_home_summary_count` (ลิสต์กรอง = ตัวเลขการ์ด, เก็บถาวรไม่ถูกนับทั้งสองฝั่ง) · `frontend/src/services/__tests__/home.spec.ts` (6 ตัว: home/summary คำขอเดียว, `/finance/me/debts` ไม่หลุดไป `/debtors`, `unread_only` ไปถึง backend)
+- **Date Added:** 2026-11-01
+
+### 🤖 บอทสร้างช่องเองตอนเข้าร่วม — "เติมเฉพาะค่าว่าง" และ mute ต้องบังคับที่ backend
+- **Context/Problem:** เซิร์ฟเวอร์ Discord ใหม่เงียบสนิทจนกว่าแอดมินจะตั้งช่องครบ 3 คำสั่ง (`/set_channel`, `/set_birthday_channel`, `/set_minor_channel`) — บอทไม่ส่งอะไรเลยจึงไม่มีใครรู้ว่าต้องตั้ง (Dead-end UI ในรูปของ "ความเงียบ") และเมื่อมีช่องแล้วก็ไม่มีทาง "ปิดบอทแค่บางช่อง" โดยไม่ถอดสิทธิ์ทั้งเซิร์ฟเวอร์
+- **Root Cause:** (1) การตั้งค่าบังคับให้มนุษย์ทำก่อนจึงจะเกิดผล ⇒ ต้อง **สร้างช่องเองตอน `on_guild_join`** (2) การบันทึกช่องผ่าน endpoint ที่ต้องมีผู้ใช้ (`get_current_user` + `MANAGE_CLASSROOM_SETTINGS`) ใช้ไม่ได้ตอน join เพราะ **ยังไม่มีใครล็อกอินสั่ง** (3) "mute" ที่ทำแค่ซ่อนข้อความฝั่ง UI จะไม่หยุดลูปส่งของบอทจริง
+- **Correct Pattern/Solution:**
+  ```python
+  # bot_discord/services/guild_setup.py — idempotent ต่อช่อง + ไม่ล้มทั้งงานเพราะช่องเดียว
+  existing = {channel.name: channel for channel in guild.text_channels}
+  for name, topic in CHANNEL_SPECS:
+      channel = existing.get(name)
+      if channel is None:
+          try:
+              channel = await guild.create_text_channel(name=name, topic=topic)
+          except discord.Forbidden:
+              continue          # ช่องอื่นยังต้องได้สร้าง
+      ensured[name] = channel.id
+  ```
+  ```python
+  # backend/services/classroom_sync/room.py — เติมเฉพาะคอลัมน์ที่ยัง NULL
+  for channel_type, channel_id in channels.items():
+      column = cls.CHANNEL_TYPE_COLUMNS.get(channel_type)
+      if room[column] is None:
+          updated[channel_type] = int(channel_id)
+      else:
+          kept[channel_type] = int(room[column])   # ไม่ทับของแอดมิน
+  ```
+  ```sql
+  -- ลูปสรุปรายวัน: ช่องที่ mute ต้องหลุดจาก "รายชื่อห้องที่ต้องแจ้ง" ตั้งแต่ query
+  AND NOT (announcement_channel_id = ANY(muted_channel_ids))
+  ```
+  - **`POST /{target_id}/channels/auto` ใช้ `verify_api_key` (system RPC)** เพราะ `on_guild_join` ไม่มีบริบทผู้ใช้ — และ **ต้อง `GET /{target_id}` ตอบ `muted_channel_ids`** ให้บอทตัดสินใจใน `_get_announcement_channel`
+  - **mute = ไม่ fallback ไปช่องอื่น** — fallback มีไว้เฉพาะ "ยังไม่ได้ตั้งช่อง" เท่านั้น ถ้า mute แล้วยังตกไปช่องประกาศ การ mute ช่องวันเกิดจะไม่มีความหมาย
+  - **ยังไม่ผูกห้อง (`/setup_room`) = 404 ปกติ** ⇒ บอท log ระดับ info แล้วรอ `setup_room` มาบันทึกช่องให้ (ห้ามโยน error จน join ล้ม)
+  - **รับ mute เฉพาะช่องที่เป็นช่องแจ้งเตือนของห้องอยู่แล้ว** — กัน `muted_channel_ids` กลายเป็นถังขยะ ID ที่ไม่มีใครตรวจ และกัน mute ช่องของห้องอื่น
+- **Rule:** (1) 🔴 งานอัตโนมัติที่เกิดเอง (webhook/join) ต้อง idempotent และ **ไม่ overwrite ค่าที่มนุษย์ตั้งไว้** (2) 🔴 mute/quiet ต้องบังคับที่แหล่งข้อมูล (SQL/service) ไม่ใช่แค่ฝั่ง UI (3) ⚠️ ระบบที่ "ไม่มีผู้ใช้ในบริบท" ให้ใช้ system RPC ที่มี auth แยก (API key) ไม่ใช่ปลอม identity ของเจ้าของเซิร์ฟเวอร์
+- **Tests:** `bot_discord/tests/test_guild_setup.py` (7 ตัว: สร้างครบ/ใช้ช่องเดิม/ช่องเดียวล้มไม่ลากทั้งชุด/ไม่มีสิทธิ์/บันทึกถูก path/404 = False/ไม่ยิงเปล่า) · `bot_discord/tests/test_action_service_mute.py` (8 ตัว: mute แล้วเงียบ, **ไม่ fallback**, ข้อมูลเก่าไม่มีคีย์) · `backend/tests/test_room_channels_auto.py` (10 ตัว: เติมเฉพาะว่าง, ไม่ทับของแอดมิน, info channel, mute/unmute, 400/403, ลูปข้ามช่อง mute)
 - **Date Added:** 2026-11-01

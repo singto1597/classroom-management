@@ -18,6 +18,7 @@ class RoomMixin:
         "announcement": "announcement_channel_id",
         "birthday": "birthday_channel_id",
         "minor": "minor_notify_channel_id",
+        "info": "info_channel_id",
     }
 
     @classmethod
@@ -43,7 +44,7 @@ class RoomMixin:
 
                 room = await conn.fetchrow(
                     f"SELECT id, server_id, room_code, room_name, announcement_channel_id, birthday_channel_id, "
-                    f"minor_notify_channel_id, notify_time "
+                    f"minor_notify_channel_id, info_channel_id, muted_channel_ids, notify_time "
                     f"FROM rooms WHERE {where_column} = $1 AND deleted_at IS NULL",
                     target_id,
                 )
@@ -183,7 +184,7 @@ class RoomMixin:
         try:
             column = cls.CHANNEL_TYPE_COLUMNS.get(channel_type)
             if not column:
-                raise ValueError(f"channel_type ไม่ถูกต้อง: {channel_type} (ต้องเป็น announcement/birthday/minor)")
+                raise ValueError(f"channel_type ไม่ถูกต้อง: {channel_type} (ต้องเป็น announcement/birthday/minor/info)")
 
             async with pool.acquire() as conn:
                 async with conn.transaction():
@@ -213,6 +214,173 @@ class RoomMixin:
                     conn=fallback_conn, action="UPDATE", actor_identifier=actor_identifier, client_source=client_source,
                     room_id=safe_room_id, user_id=user_id, entity_type="ROOM", entity_id=str(room_id),
                     status="failed", error_detail=str(e), endpoint_or_command="set_channel", execution_time_ms=exec_time
+                )
+            raise e
+
+    @classmethod
+    async def apply_channel_defaults(
+        cls,
+        pool: asyncpg.Pool,
+        room_id: int,
+        channels: Dict[str, int],
+        client_source: str,
+        actor_identifier: str,
+    ) -> Dict[str, Dict[str, int]]:
+        """🤖 system RPC ของบอท: บันทึกช่องที่บอท **สร้างเอง** ตอนเข้าร่วมเซิร์ฟเวอร์
+
+        🔑 **ไม่ทับค่าที่แอดมินตั้งไว้** — เติมเฉพาะคอลัมน์ที่ยังเป็น NULL
+           ถ้าทับได้ การเชิญบอทกลับเข้าเซิร์ฟเวอร์ (หรือการ join ซ้ำหลังลบช่อง)
+           จะเปลี่ยนช่องแจ้งเตือนที่แอดมินเลือกไว้เงียบ ๆ โดยไม่มีใครสั่ง
+
+        คืน `{"updated": {...}, "kept": {...}}` แยก "บันทึกใหม่" กับ "ของเดิมไม่ถูกแตะ"
+        ⇒ บอทบอกผู้ใช้ได้ตรง ๆ ว่าเกิดอะไรขึ้น (ไม่ใช่ "สำเร็จ" ลอย ๆ ทุกกรณี)
+        """
+        start_time = time.time()
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    room = await conn.fetchrow(
+                        "SELECT id, announcement_channel_id, birthday_channel_id, "
+                        "minor_notify_channel_id, info_channel_id "
+                        "FROM rooms WHERE id = $1 AND deleted_at IS NULL",
+                        room_id,
+                    )
+                    if not room:
+                        raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
+
+                    updated: Dict[str, int] = {}
+                    kept: Dict[str, int] = {}
+                    for channel_type, channel_id in channels.items():
+                        column = cls.CHANNEL_TYPE_COLUMNS.get(channel_type)
+                        if column is None:
+                            continue  # ชนิดที่ไม่รู้จัก — ข้าม ไม่ทำให้ทั้งคำขอล้ม
+                        if room[column] is None:
+                            updated[channel_type] = int(channel_id)
+                        else:
+                            kept[channel_type] = int(room[column])
+
+                    if updated:
+                        assignments = []
+                        values = []
+                        for index, (channel_type, channel_id) in enumerate(updated.items(), start=2):
+                            assignments.append(f"{cls.CHANNEL_TYPE_COLUMNS[channel_type]} = ${index}")
+                            values.append(channel_id)
+                        await conn.execute(
+                            f"UPDATE rooms SET {', '.join(assignments)} WHERE id = $1",
+                            room_id,
+                            *values,
+                        )
+
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action="UPDATE", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=room_id, entity_type="ROOM",
+                        entity_id=str(room_id),
+                        old_values={cls.CHANNEL_TYPE_COLUMNS[k]: v for k, v in kept.items()},
+                        new_values={cls.CHANNEL_TYPE_COLUMNS[k]: v for k, v in updated.items()},
+                        endpoint_or_command="apply_channel_defaults", execution_time_ms=exec_time,
+                    )
+                    return {"updated": updated, "kept": kept}
+        except Exception as e:
+            async with pool.acquire() as fallback_conn:
+                exec_time = int((time.time() - start_time) * 1000)
+                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
+                await service_logger.log(
+                    conn=fallback_conn, action="UPDATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id, entity_type="ROOM",
+                    entity_id=str(room_id), status="failed", error_detail=str(e),
+                    endpoint_or_command="apply_channel_defaults", execution_time_ms=exec_time,
+                )
+            raise e
+
+    @classmethod
+    async def set_channel_muted(
+        cls,
+        pool: asyncpg.Pool,
+        room_id: int,
+        channel_id: int,
+        muted: bool,
+        user_name: str,
+        user_id: int,
+        client_source: str,
+        actor_identifier: str,
+    ) -> Dict[str, object]:
+        """🔇 เปิด/ปิดการส่งข้อความของบอท **รายช่อง** (ไม่ใช่ปิดบอททั้งห้อง)
+
+        - รับเฉพาะช่องที่เป็นช่องแจ้งเตือนของห้องนี้อยู่แล้ว (announcement/birthday/
+          minor/info) ⇒ กัน `muted_channel_ids` เต็มไปด้วย ID ที่ไม่มีความหมาย
+          และกันการ mute ช่องของห้องอื่นโดยไม่ตั้งใจ
+        - เรียกซ้ำด้วยค่าเดิม = ไม่แก้อะไร (idempotent) แต่ยังคืนสถานะล่าสุด
+        - ใช้ BIGINT[] + `array_append/array_remove`-สไตล์ฝั่ง Python เพื่อให้อ่าน
+          audit log ง่าย (old_values/new_values เป็นลิสต์ทั้งก้อน)
+        """
+        start_time = time.time()
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await require_permission(conn, room_id, user_id, "MANAGE_CLASSROOM_SETTINGS")
+
+                    room = await conn.fetchrow(
+                        "SELECT announcement_channel_id, birthday_channel_id, "
+                        "minor_notify_channel_id, info_channel_id, muted_channel_ids "
+                        "FROM rooms WHERE id = $1 AND deleted_at IS NULL",
+                        room_id,
+                    )
+                    if not room:
+                        raise RoomNotFoundError(f"ไม่พบห้องเรียน ID: {room_id}")
+
+                    configured = {
+                        room[column]
+                        for column in cls.CHANNEL_TYPE_COLUMNS.values()
+                        if room[column] is not None
+                    }
+                    channel_id = int(channel_id)
+                    if channel_id not in configured:
+                        raise ValueError(
+                            "ช่องนี้ยังไม่ได้ตั้งเป็นช่องแจ้งเตือนของห้องนี้ "
+                            "— ตั้งช่องให้บอทก่อนแล้วค่อย mute"
+                        )
+
+                    old_ids = [int(c) for c in (room["muted_channel_ids"] or [])]
+                    if muted and channel_id not in old_ids:
+                        new_ids = old_ids + [channel_id]
+                    elif not muted and channel_id in old_ids:
+                        new_ids = [c for c in old_ids if c != channel_id]
+                    else:
+                        new_ids = old_ids
+
+                    if new_ids != old_ids:
+                        await conn.execute(
+                            "UPDATE rooms SET muted_channel_ids = $1::bigint[] WHERE id = $2",
+                            new_ids,
+                            room_id,
+                        )
+
+                    exec_time = int((time.time() - start_time) * 1000)
+                    await service_logger.log(
+                        conn=conn, action="UPDATE", actor_identifier=actor_identifier,
+                        client_source=client_source, room_id=room_id, user_id=user_id,
+                        entity_type="ROOM", entity_id=str(room_id),
+                        old_values={"muted_channel_ids": old_ids},
+                        new_values={"muted_channel_ids": new_ids},
+                        endpoint_or_command="set_channel_muted", execution_time_ms=exec_time,
+                    )
+                    # หลังอัปเดต สถานะจริง = ค่าที่ขอ (ทั้งกรณีเปลี่ยนและกรณีซ้ำค่าเดิม)
+                    return {
+                        "channel_id": channel_id,
+                        "muted": muted,
+                        "muted_channel_ids": new_ids,
+                    }
+        except Exception as e:
+            async with pool.acquire() as fallback_conn:
+                exec_time = int((time.time() - start_time) * 1000)
+                safe_room_id = None if isinstance(e, RoomNotFoundError) else room_id
+                await service_logger.log(
+                    conn=fallback_conn, action="UPDATE", actor_identifier=actor_identifier,
+                    client_source=client_source, room_id=safe_room_id, user_id=user_id,
+                    entity_type="ROOM", entity_id=str(room_id), status="failed",
+                    error_detail=str(e), endpoint_or_command="set_channel_muted",
+                    execution_time_ms=exec_time,
                 )
             raise e
 
@@ -253,8 +421,16 @@ class RoomMixin:
         start_time = time.time()
         try:
             async with pool.acquire() as conn:
+                # 🔇 `NOT (… = ANY(muted_channel_ids))` = ช่องที่ถูก mute ไม่ต้องส่งสรุปรายวัน
+                #    กรองที่ backend เพราะลูปของบอทไม่ควรมีตรรกะธุรกิจ (และคำตอบนี้
+                #    ถูกใช้เป็น "รายชื่อห้องที่ต้องแจ้ง" โดยตรง — ถ้ากรองฝั่งบอท
+                #    ลูปจะต้องดึงข้อมูลห้องเพิ่มอีกหนึ่งรอบต่อห้อง)
                 rows = await conn.fetch(
-                    "SELECT server_id, announcement_channel_id FROM rooms WHERE notify_time = $1 AND announcement_channel_id IS NOT NULL AND deleted_at IS NULL",
+                    "SELECT server_id, announcement_channel_id FROM rooms "
+                    "WHERE notify_time = $1 "
+                    "AND announcement_channel_id IS NOT NULL "
+                    "AND NOT (announcement_channel_id = ANY(muted_channel_ids)) "
+                    "AND deleted_at IS NULL",
                     current_time
                 )
 

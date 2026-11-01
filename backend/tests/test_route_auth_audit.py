@@ -151,7 +151,11 @@ def test_route_count_is_not_silently_shrinking():
     #   อ่านประกาศ = สมาชิกห้อง; สร้าง/แก้/เก็บถาวร = MANAGE_CLASSROOM_SETTINGS (ตรวจใน service)
     # 147 → 148 (2026-11-01): `GET /{target_id}/home/summary` (P3.1)
     #   มี `Depends(get_current_user)` + `require_member` ใน service (คนนอกห้องได้ 403)
-    expected = 148
+    # 148 → 150 (2026-11-01): ช่อง Discord ของบอท (P7)
+    #   `POST /{target_id}/channels/auto` มี `Depends(verify_api_key)` (system RPC ของบอท)
+    #   `PUT /{target_id}/channel/mute` มี `Depends(get_current_user)` +
+    #   `require_permission(MANAGE_CLASSROOM_SETTINGS)` ใน service
+    expected = 150
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

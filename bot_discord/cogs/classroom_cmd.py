@@ -13,6 +13,7 @@ from ui import set_override_ui
 
 from services.api_client import api_client, APIException
 from services.action_service import BotActionService
+from services.guild_setup import ensure_room_channels, save_channels_to_backend
 from services.task_embed import build_no_pending_tasks_embed, build_pending_tasks_embed
 from services.reply_embed import error_embed, info_embed, success_embed
 
@@ -176,6 +177,9 @@ class BotCommands(commands.Cog):
             "`/set_channel` - เลือกห้องแชทให้บอทส่งแจ้งเตือนหลัก\n"
             "`/set_birthday_channel` - 🎂 เลือกห้องแฮปปี้เบิร์ดเดย์\n"
             "`/set_minor_channel` - 🔔 เลือกห้องแจ้งเตือนงานเล็กๆน้อยๆ\n"
+            "`/set_info_channel` - ℹ️ เลือกห้องข้อมูล/คู่มือของห้อง\n"
+            "`/mute` - 🔇 ปิดการแจ้งเตือนของบอทในช่องที่เลือก (ช่องอื่นยังปกติ)\n"
+            "`/unmute` - 🔔 เปิดการแจ้งเตือนในช่องที่เคยปิดไว้\n"
             "`/set_schedule` - ตั้งตารางเรียนยืนพื้นจันทร์-ศุกร์\n"
             "`/set_time` - ตั้งเวลาแจ้งเตือนรายวันอัตโนมัติ", inline=False)
 
@@ -221,7 +225,19 @@ class BotCommands(commands.Cog):
             payload = {"server_id": interaction.guild_id, "room_name": room_name, "user_name": interaction.user.name}
             # 🚨 แทรก target_type="server"
             await api_client.request("POST", "/setup", params={"target_type": "server"}, json=payload, headers={"X-Discord-Id": str(interaction.user.id)})
-            await interaction.followup.send(embed=success_embed(f"✅ ลงทะเบียนห้อง **{room_name}** สำเร็จ!\n👉 กด `/set_channel` ด้วยนะ"))
+
+            # 🏗️ ผูกห้องเสร็จแล้ว = ถึงเวลาบันทึกช่องที่บอทสร้างไว้ (ถ้ามี) ลงห้องนี้
+            #    — ตอน on_guild_join ยังไม่มีห้องให้บันทึก ช่องจึงค้างใน Discord เฉย ๆ
+            channels = await ensure_room_channels(interaction.guild)
+            saved = await save_channels_to_backend(interaction.guild_id, channels) if channels else False
+            if saved:
+                channel_list = ", ".join(f"<#{cid}>" for cid in channels.values())
+                note = f"📢 ตั้งช่องแจ้งเตือนให้แล้ว: {channel_list}"
+            elif channels:
+                note = "⚠️ สร้างช่องแล้ว แต่ยังบันทึกกับระบบไม่ได้ — ลองพิมพ์ `/set_channel` เอง"
+            else:
+                note = "⚠️ ยังสร้างช่องอัตโนมัติไม่ได้ (บอทต้องมีสิทธิ์ **Manage Channels**)"
+            await interaction.followup.send(embed=success_embed(f"✅ ลงทะเบียนห้อง **{room_name}** สำเร็จ!\n{note}"))
         except APIException as e:
             await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
@@ -236,6 +252,51 @@ class BotCommands(commands.Cog):
     @app_commands.command(name="set_minor_channel", description="🔔 กำหนดห้องแจ้งเตือนงานเล็กๆน้อยๆ")
     async def set_minor_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await self._set_channel_impl(interaction, channel, "minor", "บอทจะแจ้งงานเล็กๆน้อยๆ")
+
+    @app_commands.command(name="set_info_channel", description="ℹ️ กำหนดห้องข้อมูล/คู่มือของห้อง")
+    async def set_info_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await self._set_channel_impl(interaction, channel, "info", "บอทจะส่งข้อมูล/คู่มือ")
+
+    @app_commands.command(name="mute", description="🔇 ปิดการแจ้งเตือนของบอทในช่องที่เลือก (ช่องอื่นยังปกติ)")
+    @app_commands.describe(channel="ช่องที่จะปิดการแจ้งเตือน")
+    async def mute(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await self._set_channel_mute_impl(interaction, channel, True)
+
+    @app_commands.command(name="unmute", description="🔔 เปิดการแจ้งเตือนของบอทในช่องที่เคยปิดไว้")
+    @app_commands.describe(channel="ช่องที่จะเปิดการแจ้งเตือน")
+    async def unmute(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await self._set_channel_mute_impl(interaction, channel, False)
+
+    async def _set_channel_mute_impl(self, interaction: discord.Interaction, channel: discord.TextChannel, muted: bool):
+        """🔇 เปิด/ปิดการส่งข้อความของบอท **รายช่อง**
+
+        - ไม่ใช่การถอดสิทธิ์บอท: ช่องอื่นของห้องยังส่งปกติ
+        - ไม่ใช่ของส่วนตัว: เป็นการตั้งค่าของห้อง (backend บังคับ MANAGE_CLASSROOM_SETTINGS)
+        - ตอบแบบ ephemeral เพราะเป็นหน้าตั้งค่า ไม่ควรกวนห้อง
+        """
+        await interaction.response.defer(ephemeral=True)
+        try:
+            payload = {"channel_id": channel.id, "muted": muted, "user_name": interaction.user.name}
+            result = await api_client.request(
+                "PUT", f"/{interaction.guild_id}/channel/mute",
+                params={"target_type": "server"}, json=payload,
+                headers={"X-Discord-Id": str(interaction.user.id)},
+            )
+            muted_ids = result.get("muted_channel_ids") or []
+            muted_list = "\n".join(f"• <#{cid}>" for cid in muted_ids) or "• — ไม่มีช่องที่ปิดอยู่"
+            if muted:
+                text = (
+                    f"🔇 ปิดการแจ้งเตือนที่ {channel.mention} แล้ว\n"
+                    "บอทจะไม่ส่งสรุป/แจ้งเตือนในช่องนี้ (ช่องอื่นยังทำงานปกติ)"
+                )
+            else:
+                text = f"🔔 เปิดการแจ้งเตือนที่ {channel.mention} แล้ว — บอทกลับมาส่งข้อความตามปกติ"
+            await interaction.followup.send(
+                embed=success_embed(f"{text}\n\n**ช่องที่ปิดอยู่ตอนนี้:**\n{muted_list}"),
+                ephemeral=True,
+            )
+        except APIException as e:
+            await interaction.followup.send(embed=error_embed(f"❌ {e}"), ephemeral=True)
 
     async def _set_channel_impl(self, interaction: discord.Interaction, channel: discord.TextChannel, channel_type: str, label: str):
         await interaction.response.defer()
