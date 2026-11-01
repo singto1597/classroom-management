@@ -19,6 +19,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from core.config import settings
 from core.dependencies import get_current_user, get_db_pool, resolve_target_to_room_id
 from core.exceptions import ForbiddenError
 from core.rbac import require_member
@@ -30,9 +31,14 @@ from models.notification_schemas import (
     PreferenceUpdate,
     NotificationItem,
     NotificationListResponse,
+    PushConfigResponse,
+    PushSubscribeRequest,
+    PushSubscriptionResponse,
+    PushUnsubscribeRequest,
+    PushUnsubscribeResponse,
     UnreadCountResponse,
 )
-from services import notification_service
+from services import notification_service, push_service
 from services.notification_stream import notification_stream
 
 logger = logging.getLogger("API_NOTIFICATION_ROUTER")
@@ -191,6 +197,85 @@ async def set_preference(
         push=payload.push,
     )
     return PreferenceItem(group_type=payload.group_type, inapp=payload.inapp, push=payload.push)
+
+
+# ── Web Push ────────────────────────────────────────────────────────────────
+@router.get(
+    "/{target_id}/notifications/push/config",
+    response_model=PushConfigResponse,
+    summary="คีย์สาธารณะ VAPID + เปิดใช้อยู่ไหม (หน้าเว็บใช้ตัดสินใจว่าจะโชว์ปุ่มไหม)",
+)
+async def get_push_config(
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    try:
+        await _require_member(pool, room_id, int(user_ctx["user_id"]))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    enabled = push_service.push_enabled()
+    return PushConfigResponse(
+        public_key=settings.VAPID_PUBLIC_KEY if enabled else "",
+        enabled=enabled,
+    )
+
+
+@router.post(
+    "/{target_id}/notifications/push/subscribe",
+    response_model=PushSubscriptionResponse,
+    summary="ลงทะเบียนอุปกรณ์รับ push (endpoint ซ้ำ = ย้ายเจ้าของเครื่อง ไม่สร้างแถวใหม่)",
+)
+async def subscribe_push(
+    payload: PushSubscribeRequest,
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    user_id = int(user_ctx["user_id"])
+    try:
+        await _require_member(pool, room_id, user_id)
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    if not push_service.push_enabled():
+        # ไม่ใช่ความผิดของผู้ใช้ — บอกตรง ๆ ว่าผู้ดูแลยังไม่ได้ตั้งระบบ
+        raise HTTPException(status_code=503, detail="ระบบแจ้งเตือนบนอุปกรณ์ยังไม่เปิดใช้งาน")
+
+    subscription_id = await push_service.save_subscription(
+        pool,
+        user_id=user_id,
+        endpoint=payload.endpoint,
+        p256dh=payload.keys.p256dh,
+        auth=payload.keys.auth,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return PushSubscriptionResponse(subscription_id=subscription_id, endpoint=payload.endpoint)
+
+
+@router.post(
+    "/{target_id}/notifications/push/unsubscribe",
+    response_model=PushUnsubscribeResponse,
+    summary="เลิกสมัครของอุปกรณ์นี้ (เฉพาะอุปกรณ์ของผู้เรียกเอง)",
+)
+async def unsubscribe_push(
+    payload: PushUnsubscribeRequest,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    user_id = int(user_ctx["user_id"])
+    try:
+        await _require_member(pool, room_id, user_id)
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    removed = await push_service.delete_subscription(
+        pool, user_id=user_id, endpoint=payload.endpoint
+    )
+    return PushUnsubscribeResponse(removed=removed)
 
 
 @router.get(

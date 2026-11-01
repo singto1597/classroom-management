@@ -145,7 +145,9 @@ def test_route_count_is_not_silently_shrinking():
     #   list · unread-count · read-all · read หนึ่งใบ · preferences GET/PUT · stream (SSE)
     #   ทุกตัวมี `Depends(get_current_user)` และตรวจสมาชิกห้องใน service ชั้นล่าง
     #   ⇒ ไม่ต้องเพิ่มลง PUBLIC_ROUTES
-    expected = 136
+    # 136 → 139 (2026-11-01): Web Push (P2.3) — `push/config` · `push/subscribe` · `push/unsubscribe`
+    #   ทั้งสามมี `Depends(get_current_user)` และ subscribe/unsubscribe ผูกกับเจ้าของอุปกรณ์
+    expected = 139
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

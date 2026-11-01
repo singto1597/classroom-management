@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     #    ตอน deploy docker-compose.app.yml ต้อง override เป็น service name จริงเสมอ
     GOTENBERG_URL: str = "http://localhost:3000"
 
+    # 🔔 Web Push (VAPID) — ค่าเริ่มต้นว่าง = "ปิด push ทั้งระบบ" (ไม่ทำให้บูตพัง)
+    #    ⚠️ ถ้าตั้งคีย์ไม่ครบ: endpoint subscribe จะตอบ 503 และ worker จะไม่ทำงาน
+    #    ⇒ ในแอปยังได้แจ้งเตือนสดผ่าน SSE ครบถ้วน = degradation ที่ยอมรับได้
+    #    สร้างคู่คีย์: `python -m workers.push_worker --generate-keys`
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    # ต้องเป็น mailto: หรือ https: ตามสเปก VAPID (ผู้ให้บริการ push ใช้ติดต่อเจ้าของ)
+    VAPID_SUBJECT: str = "mailto:admin@localhost"
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

@@ -60,3 +60,38 @@ class PreferenceUpdate(BaseModel):
 
 class PreferenceListResponse(BaseModel):
     items: list[PreferenceItem] = Field(default_factory=list)
+
+
+# ── Web Push ────────────────────────────────────────────────────────────────
+class PushSubscriptionKeys(BaseModel):
+    """คีย์ของอุปกรณ์ (ได้จาก `PushSubscription.toJSON().keys` ในเบราว์เซอร์)"""
+
+    p256dh: str = Field(..., min_length=16, max_length=255)
+    auth: str = Field(..., min_length=8, max_length=255)
+
+
+class PushSubscribeRequest(BaseModel):
+    # endpoint เป็น URL เต็มที่ผู้ให้บริการ push ออกให้ — ยาวได้หลายร้อยตัวอักษร
+    endpoint: str = Field(..., min_length=10, max_length=2048, pattern=r"^https://")
+    keys: PushSubscriptionKeys
+
+
+class PushUnsubscribeRequest(BaseModel):
+    endpoint: str = Field(..., min_length=10, max_length=2048)
+
+
+class PushConfigResponse(BaseModel):
+    """ข้อมูลที่หน้าเว็บต้องใช้ตัดสินใจว่าจะแสดงปุ่ม "เปิดการแจ้งเตือน" ไหม"""
+
+    # ค่าว่าง = ผู้ดูแลยังไม่ได้ตั้งคีย์ ⇒ ซ่อนปุ่มแทนที่จะให้ผู้ใช้กดแล้วล้ม
+    public_key: str
+    enabled: bool
+
+
+class PushSubscriptionResponse(BaseModel):
+    subscription_id: int
+    endpoint: str
+
+
+class PushUnsubscribeResponse(BaseModel):
+    removed: bool
