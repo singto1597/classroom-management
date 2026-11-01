@@ -16,6 +16,8 @@ from routers import room_router
 from routers import action_router
 from routers import activity_router
 from routers import version_router
+from routers import notification_router
+from services.notification_stream import notification_stream
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -48,12 +50,20 @@ async def lifespan(app: FastAPI):
         applied = await apply_migrations(app.state.db_pool)
         logger.info("✅ Migrations checked — applied %d new file(s)", applied)
 
+        # 📣 fan-out แจ้งเตือนสด (SSE) — ถ้าเริ่มไม่ได้ก็ไม่ทำให้บูตพัง:
+        #    client ยัง polling ทุก 30 วิเป็น fallback และในแอปยังเห็นแจ้งเตือนครบ
+        try:
+            await notification_stream.start(settings.DATABASE_URL)
+        except Exception:
+            logger.warning("เริ่ม notification stream ไม่สำเร็จ — ใช้ polling แทน", exc_info=True)
+
     except Exception as e:
         logger.error(f"❌ Failed to connect to Database: {e}")
         raise e
-    
-    yield 
-    
+
+    yield
+
+    await notification_stream.stop()
     logger.info("🛑 Shutting down... Closing Database Pool.")
     await app.state.db_pool.close()
     logger.info("✅ Database Pool Closed.")
@@ -91,6 +101,7 @@ app.include_router(student_router.router, prefix="/api/classroom", tags=["Studen
 app.include_router(finance_router.router, prefix="/api/classroom", tags=["Finance"])
 app.include_router(action_router.router, prefix="/api/classroom", tags=["Actions"])
 app.include_router(activity_router.router, prefix="/api/classroom", tags=["Activities"])
+app.include_router(notification_router.router, prefix="/api/classroom", tags=["Notifications"])
 app.include_router(version_router.router, prefix="/api", tags=["Version"])
 
 
