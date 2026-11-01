@@ -34,6 +34,7 @@ import redis.asyncio as aioredis
 
 from core.config import settings
 from core.heartbeat import record_heartbeat
+from core.worker_stats import record_last_round
 from services import app_settings_service, push_service
 
 logger = logging.getLogger("API_WORKER_PUSH")
@@ -231,6 +232,7 @@ async def run_forever(pool: asyncpg.Pool, redis=None) -> None:  # pragma: no cov
         )
 
     heartbeat_warned = False
+    stats_warned = False
     while True:
         # heartbeat ก่อนทำงานเสมอ — รอบที่ไม่มีงานก็ต้องบอกว่ายังอยู่
         if redis is not None:
@@ -242,7 +244,10 @@ async def run_forever(pool: asyncpg.Pool, redis=None) -> None:  # pragma: no cov
                     logger.warning("เขียน heartbeat ลง Redis ไม่ได้ (จะลองรอบถัดไป)", exc_info=True)
 
         started = time.monotonic()
-        totals = {"sent": 0, "retry": 0, "gone": 0, "dropped": 0, "deferred": 0, "stale": 0}
+        totals = {
+            "claimed": 0, "sent": 0, "retry": 0, "gone": 0,
+            "dropped": 0, "deferred": 0, "stale": 0,
+        }
         processed_any = False
 
         while time.monotonic() - started < DRAIN_BUDGET_SECONDS:
@@ -258,6 +263,20 @@ async def run_forever(pool: asyncpg.Pool, redis=None) -> None:  # pragma: no cov
 
         if processed_any:
             logger.info("📮 push รอบนี้: %s", totals)
+
+        # 📊 [P6.5] เก็บผลรอบล่าสุดไว้ให้หน้าเว็บอ่าน — **รวมรอบที่ไม่มีงาน**
+        # เพราะ "รอบล่าสุดมี 0 งาน" คือข้อมูลจริง (worker ยังมีชีวิต คิวว่าง)
+        # ซึ่งต่างจาก "ไม่เคยรัน" ที่ API จะเห็นเป็น null
+        if redis is not None:
+            try:
+                await record_last_round(redis, **totals, enabled=push_service.push_enabled())
+            except Exception:
+                if not stats_warned:
+                    stats_warned = True
+                    logger.warning(
+                        "เขียนสถิติรอบล่าสุดลง Redis ไม่ได้ (การ์ดสถิติจะขึ้น 'ไม่รู้')",
+                        exc_info=True,
+                    )
 
         if not processed_any:
             await asyncio.sleep(IDLE_SLEEP_SECONDS)

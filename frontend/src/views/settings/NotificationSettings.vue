@@ -21,6 +21,7 @@ import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import QuietHoursCard from '@/components/settings/QuietHoursCard.vue';
+import PushStatsCard from '@/components/settings/PushStatsCard.vue';
 import { NotificationService } from '@/services/notification';
 import {
   disablePush,
@@ -42,6 +43,12 @@ import type { MutableNotificationGroup, NotificationPreference } from '@/types/n
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const roomId = authStore.currentRoomId ?? 0;
+
+// 🛡️ นิพจน์เดียวกับ backend (`require_permission(..., 'MANAGE_CLASSROOM_SETTINGS')`)
+//    ⇒ ผู้ที่ไม่มีสิทธิ์จะไม่ได้ยิง endpoint ที่จะได้ 403 กลับมา
+const canViewStats = computed(
+  () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_SETTINGS'),
+);
 
 // ── ชั้นที่ 1: อุปกรณ์นี้ ───────────────────────────────────────────────────
 const pushConfig = ref<PushConfig | null>(null);
@@ -374,5 +381,8 @@ const updatePreference = async (
 
     <!-- ชั้นที่ 3: ช่วงงดรบกวน -->
     <QuietHoursCard />
+
+    <!-- ชั้นที่ 4: สถิติการส่ง (ผู้ดูแลเท่านั้น — ซ่อนด้วย v-if ไม่ใช่ CSS) -->
+    <PushStatsCard v-if="canViewStats" />
   </div>
 </template>

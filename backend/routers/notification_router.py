@@ -34,13 +34,14 @@ from models.notification_schemas import (
     NotificationItem,
     NotificationListResponse,
     PushConfigResponse,
+    PushDeliveryStatsResponse,
     PushSubscribeRequest,
     PushSubscriptionResponse,
     PushUnsubscribeRequest,
     PushUnsubscribeResponse,
     UnreadCountResponse,
 )
-from services import app_settings_service, notification_service, push_service
+from services import app_settings_service, notification_service, push_service, push_stats_service
 from services.notification_stream import notification_stream
 
 logger = logging.getLogger("API_NOTIFICATION_ROUTER")
@@ -278,6 +279,32 @@ async def unsubscribe_push(
         pool, user_id=user_id, endpoint=payload.endpoint
     )
     return PushUnsubscribeResponse(removed=removed)
+
+
+# ── สถิติการส่ง push ────────────────────────────────────────────────────────
+@router.get(
+    "/{target_id}/notifications/push/stats",
+    response_model=PushDeliveryStatsResponse,
+    summary="สถิติการส่ง push ของห้อง (ต้องมี MANAGE_CLASSROOM_SETTINGS)",
+)
+async def get_push_stats(
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    # Redis อาจไม่มีตอนเทสต์/ตอนเริ่มระบบ — service จัดการ `None` เอง (fail-open)
+    redis = getattr(request.app.state, "redis", None)
+    try:
+        stats = await push_stats_service.get_delivery_stats(
+            pool,
+            room_id=room_id,
+            user_id=int(user_ctx["user_id"]),
+            redis=redis,
+        )
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return PushDeliveryStatsResponse(**stats)
 
 
 # ── Quiet hours ─────────────────────────────────────────────────────────────
