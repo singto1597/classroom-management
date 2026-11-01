@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 242 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 243 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -246,6 +246,7 @@
 - [🧩 prop ชื่อ `ariaLabel` ไม่ผูกกับ attribute `aria-label` ในเทมเพลต — vue-tsc มองเป็น attribute ธรรมดา](#prop-ชื่อ-arialabel-ไม่ผูกกับ-attribute-aria-label-ในเทมเพลต-vue-tsc-มองเป็น-attribute-ธรรมดา)
 - [🔄 หน้ารายละเอียด/แก้ไข: โหลดไม่สำเร็จต้องเป็นการ์ดในหน้า — ไม่ใช่ `router.push` ออกพร้อม Swal](#หน้ารายละเอียดแก้ไข-โหลดไม่สำเร็จต้องเป็นการ์ดในหน้า-ไม่ใช่-routerpush-ออกพร้อม-swal)
 - [🎨 `text-stone-400` ผ่านตาแต่ตกคอนทราสต์ — และ `stone-500` บนพื้น `stone-100` ก็ยังตก](#text-stone-400-ผ่านตาแต่ตกคอนทราสต์-และ-stone-500-บนพื้น-stone-100-ก็ยังตก)
+- [📝 ฟอร์มยาว: ร่าง `sessionStorage` + ตัวกันออกจากหน้า + หน้ายืนยันที่ค้างอยู่ — สามอย่างที่ต้องมาคู่กัน](#ฟอร์มยาว-ร่าง-sessionstorage-ตัวกันออกจากหน้า-หน้ายืนยันที่ค้างอยู่-สามอย่างที่ต้องมาคู่กัน)
 
 <!-- TOC:END -->
 
@@ -3741,4 +3742,29 @@
   - ตัวเลขวัดทั้งหมดอยู่ในคอมเมนต์ของ `src/assets/main.css` และ `DESIGN.md §2`
 - **Rule:** (1) 🔴 **ห้ามใช้ `text-stone-400` กับข้อความ/ไอคอนที่ผู้ใช้ต้องอ่าน** — ยกเว้น `disabled:` เท่านั้น (2) ⚠️ ก่อนใส่สีอ่อน ให้ดูพื้นหลังจริง: `stone-500` บน `stone-100` ยังตก (3) ริงโฟกัสกลางใช้ `:where(...):focus-visible` + `!important` — **ข้อยกเว้นเดียว** ของโปรเจกต์ เพราะ specificity ของ `:where()` เป็นศูนย์ ต้องชนะ `focus-visible:outline-none` ของ utility
 - **Tests:** `node scripts/check-tap-targets.mjs` (viewport 360×800) — 23 route ผ่าน 0 จุดต่ำกว่า 44px หลังแก้ `.field`/`AppHeader`/ปุ่มเลือกคอลัมน์ · type-check/lint/unit 357/build ผ่าน
+- **Date Added:** 2026-11-01
+
+### 📝 ฟอร์มยาว: ร่าง `sessionStorage` + ตัวกันออกจากหน้า + หน้ายืนยันที่ค้างอยู่ — สามอย่างที่ต้องมาคู่กัน
+- **Context/Problem:** P1.9 เจอว่าฟอร์ม "เพิ่มนักเรียน" (17 ช่อง) และ "เพิ่มงาน" ใช้ง่ายบนเดสก์ท็อป แต่บนมือถือพังแบบเงียบ: ผู้ใช้กรอกครึ่งทางแล้วกด back มือถือ/สลับแอป → ข้อมูลหายทันที · และเมื่อบันทึกสำเร็จ ระบบเด้ง `Swal` ปิดเอง 1.5 วิ แล้ว `router.push('/tasks')` ⇒ ผู้ใช้ที่พิมพ์ช้าอ่านข้อความไม่ทัน และไม่รู้ว่า "เลขที่/กำหนดส่ง" ที่เพิ่งสร้างคืออะไร
+- **Root Cause:** (1) ไม่มีที่เก็บร่าง — state อยู่ใน memory ของ component เท่านั้น (2) ไม่มี guard — `vue-router` ปล่อยให้ออกจากหน้าได้ทุกเมื่อ และ `beforeunload` ไม่ถูกดัก (3) ผลลัพธ์สำคัญถูกแสดงด้วยป๊อปอัปที่หายเอง แทนที่จะเป็นสถานะของหน้า
+- **Correct Pattern/Solution:**
+  ```ts
+  // src/composables/useFormDraft.ts — ใช้ร่วมทุกฟอร์ม
+  const draft = useFormDraft(state, () => `cls:draft:add-task:${roomId}:task`, () => canManage.value)
+  onMounted(() => { if (draft.restore()) step.value = 0 })   // กู้ "หลัง" โหลดข้อมูลอ้างอิงเสร็จ
+  useUnsavedGuard(isDirty)                                   // beforeunload
+  onBeforeRouteLeave(() => confirmLeave(isDirty))            // Swal ยืนยัน (SweetAlert2 เท่านั้น)
+  // บันทึกสำเร็จ
+  draft.clear()
+  ```
+  - **`sessionStorage` ไม่ใช่ `localStorage`** — ร่างเป็นข้อมูลที่ยังไม่ยืนยัน ถ้าอยู่ข้ามวันผู้ใช้จะเจอข้อมูลเก่าโดยไม่รู้ที่มา และบนเครื่องที่ใช้ร่วมกันจะรั่วข้อมูล
+  - **key ต้องคำนวณสดทุกครั้ง** (`() => \`...${roomId.value}...\``) — คำนวณครั้งเดียวตอน setup แล้วเปลี่ยนห้อง/แท็บ ร่างจะปนกัน (มีเทสต์ล็อกไว้)
+  - **`enabled()` ต้องผูกโหมด** — หน้าแก้ไข (`mode === 'edit'`) ห้ามเขียนทับร่างของโหมดสร้าง
+  - **`isDirty()` ต้องเป็น false หลังบันทึกสำเร็จ** ไม่งั้นผู้ใช้เจอคำถาม "ออกโดยไม่บันทึก" ทั้งที่ส่งไปแล้ว
+  - **ปุ่ม disabled + touched** = ต้องมาคู่กัน: ปุ่ม disabled ทำให้ผู้ใช้กด submit ไม่ได้ ⇒ ข้อความ error จะไม่ขึ้นเลยถ้ารอ `showErrors` จาก submit · ให้แสดงข้อความเมื่อ `showErrors || touched.field` (ตั้ง `touched` ที่ `@blur` หรือตอนสลับแท็บ/ติ๊กผู้เข้าร่วม)
+  - **หน้ายืนยันสำเร็จ (`FormSuccess`)** ค้างบนจอพร้อม 2 ทาง: "ดูรายการ" หลัก + "เพิ่มอีก" รอง · ใช้ `role="status" aria-live="polite"` เพราะหน้าไม่เปลี่ยน ไม่มีอะไรบอกโปรแกรมอ่านจอว่าสำเร็จแล้ว
+  - **ไม่ทำ wizard กับทุกฟอร์ม** — `ActivityForm` เป็น workspace 2 คอลัมน์ที่ต้องเห็นรายชื่อนักเรียนตลอดเวลา การซอยเป็น 3 ขั้นจะซ่อน roster ⇒ ที่นั่นใช้ร่าง + guard + inline validation แต่คงเลย์เอาต์เดิม (บันทึกเหตุผลไว้ในคอมเมนต์ ไม่ใช่ปล่อยว่าง)
+  - ฟอร์มที่มี `Set`/`Record` (ActivityForm) ใช้ "กระจก" (`reactive` ที่ serialize ได้) + `watch` คัดลอกไปกลับ และกรอง `selectedNos` ด้วยรายชื่อที่โหลดได้จริงก่อนกู้ กันบันทึกไปหานักเรียนที่ถูกลบแล้ว
+- **Rule:** (1) 🔴 ฟอร์มที่กรอกเกิน 3 ช่องต้องมีร่าง `sessionStorage` ที่ key ผูกห้อง + ชนิดฟอร์ม (2) 🔴 บันทึกสำเร็จ = `draft.clear()` เสมอ ไม่งั้นเปิดฟอร์มครั้งหน้าจะเจอข้อมูลเก่า (3) ⚠️ อย่าใช้ `Swal` เป็นที่แสดงผลลัพธ์ที่ผู้ใช้ต้องอ่านต่อ — ใช้ `FormSuccess` (4) `run-s lint:*` ล็อก types ของ `vi.fn` ด้วย `vi.fn<Fn>()` (oxlint rule `require-mock-type-parameters`)
+- **Tests:** `src/composables/__tests__/formDraft.spec.ts` (11 เทสต์: debounce, key สด, enabled=false, restore JSON พัง, guard beforeunload, confirmLeave) · `FormSuccess.spec.ts` (4) · type-check / lint 5 ด่าน / unit 372 · build ผ่าน
 - **Date Added:** 2026-11-01

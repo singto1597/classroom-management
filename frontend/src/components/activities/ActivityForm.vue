@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { StudentService } from '@/services/student'
 import { ActivityService } from '@/services/activity'
@@ -31,6 +32,7 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
+import { confirmLeave, useFormDraft, useUnsavedGuard } from '@/composables/useFormDraft'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -50,6 +52,11 @@ const editActivityId = computed(() =>
 const isLoading = ref(true)
 const isSaving = ref(false)
 const hasError = ref(false)
+// สถานะแสดงข้อความ validation แบบ inline (แทน Swal ที่เด้งทีละข้อ)
+const showErrors = ref(false)
+const touchedTitle = ref(false)
+const touchedDate = ref(false)
+const touchedParticipants = ref(false)
 
 const canManage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
@@ -130,6 +137,68 @@ const participantHours = ref<Record<number, number>>({})
 const participantRoleType = ref<Record<number, string>>({})
 const participantStatus = ref<Record<number, string>>({})
 
+// 📝 ร่างฟอร์ม (โหมดสร้างเท่านั้น) — เก็บฟิลด์หลัก + รายชื่อที่ติ๊กไว้
+// เหตุผลที่ใช้ "กระจก" (draftState) แทนการผูก state ตรง ๆ: ฟอร์มนี้มีทั้ง Set/Record
+// และ state ที่ผูกกับ students ที่โหลดทีหลัง — sessionStorage เก็บได้เฉพาะ JSON
+// หมายเหตุ: ตำแหน่ง/โน้ต "รายคน" (dutyPosition/dutyNote) ยังไม่ถูกร่างไว้
+const draftState = reactive({
+  title: '',
+  description: '',
+  activity_date: todayIso(),
+  base_hours: 0,
+  status: 'upcoming' as string,
+  metaRows: [] as CustomFieldEntry[],
+  positions: [] as string[],
+  requiredFields: [] as string[],
+  selectedNos: [] as number[],
+})
+
+const draft = useFormDraft(
+  draftState,
+  () => `cls:draft:activity:${currentRoomId}`,
+  () => props.mode === 'create' && canManage.value,
+)
+
+watch(
+  [form, activityMetaRows, positions, requiredFields, selectedNos],
+  () => {
+    draftState.title = form.value.title
+    draftState.description = form.value.description
+    draftState.activity_date = form.value.activity_date
+    draftState.base_hours = Number(form.value.base_hours) || 0
+    draftState.status = form.value.status
+    draftState.metaRows = activityMetaRows.value
+    draftState.positions = positions.value
+    draftState.requiredFields = Array.from(requiredFields.value)
+    draftState.selectedNos = Array.from(selectedNos.value)
+  },
+  { deep: true },
+)
+
+/** คืนค่าร่างลง state จริง — เรียกหลังโหลดรายชื่อนักเรียนเสร็จ (ต้องรู้ว่ามีใครอยู่จริง) */
+const applyDraft = () => {
+  form.value.title = typeof draftState.title === 'string' ? draftState.title : ''
+  form.value.description = typeof draftState.description === 'string' ? draftState.description : ''
+  form.value.activity_date = draftState.activity_date || todayIso()
+  form.value.base_hours = Number(draftState.base_hours) || 0
+  form.value.status = draftState.status || 'upcoming'
+  activityMetaRows.value = Array.isArray(draftState.metaRows) ? draftState.metaRows : []
+  positions.value = Array.isArray(draftState.positions)
+    ? draftState.positions.map(String)
+    : getActivityPositions(undefined)
+  requiredFields.value = new Set(
+    Array.isArray(draftState.requiredFields) ? draftState.requiredFields.map(String) : [],
+  )
+  // ตัดนักเรียนที่ถูกลบ/ย้ายห้องออกจากร่าง กันบันทึกไปหาคนที่ไม่มีแล้ว (backend จะ error)
+  const known = new Set(students.value.map((s) => s.student_no))
+  selectedNos.value = new Set(
+    (Array.isArray(draftState.selectedNos) ? draftState.selectedNos : [])
+      .map(Number)
+      .filter((no) => known.has(no)),
+  )
+}
+
+
 /** รายการที่ normalize สำหรับ ParticipantRosterList — โชว์นักเรียน active ทั้งหมด
  * (checkbox บอกว่าเลือกหรือยัง — ตามแบบ StudentList) */
 const rosterItems = computed<RosterItem[]>(() => {
@@ -179,6 +248,7 @@ const closeInfoModal = () => {
 const selectedCount = computed(() => selectedNos.value.size)
 
 const toggleSelect = (no: number) => {
+  touchedParticipants.value = true
   const next = new Set(selectedNos.value)
   if (next.has(no)) {
     next.delete(no)
@@ -189,10 +259,12 @@ const toggleSelect = (no: number) => {
 }
 
 const selectAll = () => {
+  touchedParticipants.value = true
   selectedNos.value = new Set(students.value.map((s) => s.student_no))
 }
 
 const clearAll = () => {
+  touchedParticipants.value = true
   selectedNos.value = new Set()
   dutyPosition.value = {}
   dutyNote.value = {}
@@ -348,24 +420,51 @@ const load = async () => {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // กู้ร่างหลังโหลดรายชื่อเสร็จ — ต้องกรอง selectedNos ด้วยรายชื่อจริง
+  if (props.mode === 'create' && draft.restore()) applyDraft()
+})
+
+// ================================================================
+// ✍️ Validation แบบ inline (ใต้ช่อง) + ปุ่มบันทึก disabled
+// ================================================================
+const titleError = computed(() => (form.value.title.trim() ? '' : 'กรุณากรอกชื่อกิจกรรม'))
+const dateError = computed(() => (form.value.activity_date ? '' : 'กรุณาเลือกวันที่'))
+const participantsError = computed(() =>
+  selectedNos.value.size > 0 ? '' : 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คน',
+)
+const formValid = computed(
+  () => !titleError.value && !dateError.value && !participantsError.value,
+)
+
+/** ฟอร์มถูกแก้หรือยัง — ใช้ทั้งก่อนออกจากหน้า และตัดสินว่าเขียนร่างไหม */
+const isDirty = () =>
+  props.mode === 'create' &&
+  canManage.value &&
+  (form.value.title.trim() !== '' ||
+    form.value.description.trim() !== '' ||
+    form.value.activity_date !== todayIso() ||
+    Number(form.value.base_hours) > 0 ||
+    selectedNos.value.size > 0 ||
+    activityMetaRows.value.length > 0 ||
+    requiredFields.value.size > 0)
+
+useUnsavedGuard(isDirty)
+onBeforeRouteLeave(() => confirmLeave(isDirty))
 
 // ================================================================
 // 🚀 Submit
 // ================================================================
-const validateForm = (): string | null => {
-  if (!form.value.title.trim()) return 'กรุณากรอกชื่อกิจกรรม'
-  if (!form.value.activity_date) return 'กรุณาเลือกวันที่'
-  if (selectedNos.value.size === 0) return 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คน'
-  return null
-}
-
 const submit = async () => {
   if (!canManage.value) {
     return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น', 'error')
   }
-  const error = validateForm()
-  if (error) return Swal.fire('กรอกข้อมูลไม่ครบ', error, 'warning')
+  // ปุ่มถูก disable ไว้แล้ว แต่ยังกันซ้ำ (เช่นกด Enter ในช่องข้อความ)
+  if (!formValid.value) {
+    showErrors.value = true
+    return
+  }
 
   // ⚠️ เตือนถ้าผู้เข้าร่วมที่เลือกมีตำแหน่งไม่อยู่ในรายการแล้ว
   const orphaned = Array.from(selectedNos.value).filter((no) => {
@@ -445,6 +544,8 @@ const submit = async () => {
         participants,
         user_name: currentUserName,
       })
+      // ✅ บันทึกสำเร็จ = ล้างร่าง ไม่งั้นเปิดฟอร์มครั้งหน้าจะเจอข้อมูลเก่า
+      draft.clear()
       await Swal.fire({
         icon: 'success',
         title: 'สร้างกิจกรรมสำเร็จ! 🎪',
@@ -521,12 +622,41 @@ const submit = async () => {
                 type="text"
                 placeholder="เช่น ค่ายอาสา, งานกีฬาสี, ทัศนศึกษา"
                 class="field"
+                :aria-invalid="(showErrors || touchedTitle) && !!titleError"
+                :aria-describedby="
+                  (showErrors || touchedTitle) && titleError ? 'activityTitleError' : undefined
+                "
+                @blur="touchedTitle = true"
               />
+              <p
+                v-if="(showErrors || touchedTitle) && titleError"
+                id="activityTitleError"
+                class="mt-1 text-xs font-bold text-danger-600"
+              >
+                {{ titleError }}
+              </p>
             </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div>
                 <label class="field-label" for="activityDate">วันที่ *</label>
-                <input id="activityDate" v-model="form.activity_date" type="date" class="field" />
+                <input
+                  id="activityDate"
+                  v-model="form.activity_date"
+                  type="date"
+                  class="field"
+                  :aria-invalid="(showErrors || touchedDate) && !!dateError"
+                  :aria-describedby="
+                    (showErrors || touchedDate) && dateError ? 'activityDateError' : undefined
+                  "
+                  @blur="touchedDate = true"
+                />
+                <p
+                  v-if="(showErrors || touchedDate) && dateError"
+                  id="activityDateError"
+                  class="mt-1 text-xs font-bold text-danger-600"
+                >
+                  {{ dateError }}
+                </p>
               </div>
               <div>
                 <label class="field-label" for="activityHours">ชั่วโมงจิตอาสา</label>
@@ -742,6 +872,15 @@ const submit = async () => {
             <span class="num">{{ selectedCount }}</span> คน
           </div>
 
+          <p
+            v-if="(showErrors || touchedParticipants) && participantsError"
+            id="activityParticipantsError"
+            class="mt-2 text-xs font-bold text-danger-600"
+            role="alert"
+          >
+            {{ participantsError }}
+          </p>
+
           <div class="mt-3 sm:mt-4">
             <ParticipantRosterList
               v-if="students.length > 0"
@@ -792,7 +931,12 @@ const submit = async () => {
           >
             ยกเลิก
           </router-link>
-          <button type="button" class="btn-primary" :disabled="isSaving" @click="submit">
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="isSaving || !formValid"
+            @click="submit"
+          >
             <i v-if="isSaving" class="bi bi-arrow-repeat animate-spin" aria-hidden="true"></i>
             <i v-else class="bi bi-check-lg" aria-hidden="true"></i>
             {{ isSaving ? 'กำลังบันทึก...' : mode === 'edit' ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม' }}
