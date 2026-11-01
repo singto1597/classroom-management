@@ -53,18 +53,56 @@ const roleLabel = (role: string) => ROLE_LABELS[role] || role || 'นักเ�
 
 // 🏷️ ป้ายสถานะ 3 ทาง — เดิมเขียน ternary 2 ทาง ทำให้ "รออนุมัติ" ถูกแสดงเป็น "พ้นสภาพ"
 // โทนสีเดียวกับ StudentList: เขียว = กำลังเรียน · เหลือง = รออนุมัติ · เทา = พ้นสภาพ
-const statusMeta = computed<{ tone: 'ok' | 'warn' | 'neutral'; icon: string; label: string }>(() => {
+const statusMeta = computed<{
+  tone: 'ok' | 'warn' | 'neutral';
+  icon: string;
+  label: string;
+  /** คำอธิบายว่า "สถานะนี้นับหรือไม่นับ" — ชิปสถานะบอกชื่อ แต่ไม่บอกความหมาย */
+  hint: string;
+  /** คลาสของแบนเนอร์ (พื้นอ่อน + ขอบซ้ายสีเดียวกับโทน) */
+  cls: string;
+  /** คลาสสีตัวอักษรของไอคอน/หัวเรื่อง */
+  text: string;
+}>(() => {
   const status = student.value?.status;
   if (status === 'active') {
-    return { tone: 'ok', icon: 'bi-check-circle-fill', label: STUDENT_STATUS_LABELS.active };
+    return {
+      tone: 'ok',
+      icon: 'bi-check-circle-fill',
+      label: STUDENT_STATUS_LABELS.active,
+      hint: 'กำลังศึกษาอยู่ — ปรากฏในรายชื่อปัจจุบันของห้อง',
+      cls: 'border-s-ok-500 bg-ok-50',
+      text: 'text-ok-700',
+    };
   }
   if (status === 'pending') {
-    return { tone: 'warn', icon: 'bi-clock-fill', label: STUDENT_STATUS_LABELS.pending };
+    return {
+      tone: 'warn',
+      icon: 'bi-clock-fill',
+      label: STUDENT_STATUS_LABELS.pending,
+      hint: 'รออนุมัติเข้าห้อง — ยังไม่นับเป็นสมาชิกจนกว่าจะอนุมัติ',
+      cls: 'border-s-warn-500 bg-warn-50',
+      text: 'text-warn-700',
+    };
   }
   if (status === 'inactive') {
-    return { tone: 'neutral', icon: 'bi-dash-circle-fill', label: STUDENT_STATUS_LABELS.inactive };
+    return {
+      tone: 'neutral',
+      icon: 'bi-dash-circle-fill',
+      label: STUDENT_STATUS_LABELS.inactive,
+      hint: 'พ้นสภาพแล้ว — เก็บข้อมูลไว้ดูย้อนหลัง แต่ไม่นับในรายการปัจจุบัน',
+      cls: 'border-s-stone-300 bg-stone-50',
+      text: 'text-stone-700',
+    };
   }
-  return { tone: 'neutral', icon: 'bi-question-circle', label: UNKNOWN_STATUS_LABEL };
+  return {
+    tone: 'neutral',
+    icon: 'bi-question-circle',
+    label: UNKNOWN_STATUS_LABEL,
+    hint: 'ระบบไม่รู้จักสถานะนี้ — ตรวจสอบข้อมูลกับผู้ดูแลห้อง',
+    cls: 'border-s-stone-300 bg-stone-50',
+    text: 'text-stone-700',
+  };
 });
 
 // 🏠 ประกอบที่อยู่จากส่วนที่มีข้อมูลจริง — ไม่ปล่อยให้เหลือ "ถ.- ต.- อ.-" เมื่อฟิลด์ว่าง
@@ -130,15 +168,10 @@ onMounted(() => {
       title="โปรไฟล์นักเรียน"
       description="ข้อมูลส่วนตัว การติดต่อ และข้อมูลสุขภาพ"
     >
-      <template #actions>
-        <RouterLink
-          v-if="canEdit && student"
-          :to="`/students/${student.student_no}/edit`"
-          class="btn-primary w-full sm:w-auto"
-        >
-          <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไขข้อมูล
-        </RouterLink>
-      </template>
+      <!--
+        📌 P1.10 — action ของหน้าย้ายไปเป็นแถบเดียวติดล่าง (ดูท้ายไฟล์)
+           ⇒ หัวหน้าไม่ต้องมีปุ่มที่ต้องเอื้อมบนมือถือ และไม่ซ้ำกับแถบล่าง
+      -->
     </PageHeader>
 
     <!-- โหลด -->
@@ -191,10 +224,7 @@ onMounted(() => {
               </p>
 
               <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-                <AppChip :tone="statusMeta.tone" :icon="statusMeta.icon">
-                  {{ statusMeta.label }}
-                </AppChip>
-
+                <!-- สถานะย้ายไปแบนเนอร์ใต้ฮีโร่ (พร้อมคำอธิบาย) — ไม่ซ้ำสองที่ -->
                 <AppChip tone="brand">{{ roleLabel(student.class_role) }}</AppChip>
 
                 <AppChip v-if="student.is_admin" tone="warn" icon="bi-shield-lock-fill">
@@ -212,6 +242,23 @@ onMounted(() => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 🚩 แบนเนอร์สถานะ — ที่เดียวในหน้าที่บอกว่า "นับเป็นสมาชิกหรือไม่" -->
+      <div
+        class="page-card flex items-start gap-3 border-s-4 p-3.5 sm:p-4"
+        :class="statusMeta.cls"
+        role="status"
+      >
+        <i
+          class="bi mt-0.5 text-lg"
+          :class="[statusMeta.icon, statusMeta.text]"
+          aria-hidden="true"
+        ></i>
+        <div class="min-w-0">
+          <p class="text-sm font-bold" :class="statusMeta.text">{{ statusMeta.label }}</p>
+          <p class="mt-0.5 text-xs leading-relaxed text-stone-600">{{ statusMeta.hint }}</p>
         </div>
       </div>
 
@@ -396,6 +443,24 @@ onMounted(() => {
           </section>
 
         </div>
+      </div>
+
+      <!--
+        📌 P1.10 — action เดียวของหน้า ติดล่าง (นิ้วโป้งเอื้อมถึงบนมือถือ)
+        📌 `sticky` (ไม่ใช่ `fixed`) ตามแบบ ActivityList.vue:381 / EditStudent.vue:617
+        ⚠️ มือถือต้องเผื่อความสูงแถบเมนูล่าง (fixed bottom-0 z-40 lg:hidden)
+           · z-30 = เหนือเนื้อหา แต่ใต้แถบเมนู (z-40) และ drawer (z-50)
+      -->
+      <div
+        v-if="canEdit && student"
+        class="sticky bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-30 rounded-2xl border border-stone-200 bg-white/95 p-3 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.35)] backdrop-blur lg:bottom-6"
+      >
+        <RouterLink
+          :to="`/students/${student.student_no}/edit`"
+          class="btn-primary w-full justify-center"
+        >
+          <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไขข้อมูล
+        </RouterLink>
       </div>
 
     </template>

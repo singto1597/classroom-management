@@ -77,14 +77,48 @@ const Toast = Swal.mixin({
   timerProgressBar: true,
 })
 
-/** โทนสีป้ายสถานะ (chip) — คุมโทนตาม Design Contract ไม่ใช้สีฟ้า/ชมพูแบบเดิม */
-function statusChip(status: unknown): string {
-  const key = typeof status === 'string' ? status : ''
-  if (key === 'ongoing') return 'bg-warn-50 text-warn-700'
-  if (key === 'completed') return 'bg-ok-50 text-ok-700'
-  if (key === 'cancelled') return 'bg-danger-50 text-danger-700'
-  return 'bg-brand-50 text-brand-700'
-}
+/**
+ * 🚩 แบนเนอร์สถานะ — ประโยคเดียวที่ตอบว่า "กิจกรรมนี้อยู่ขั้นไหน และต้องทำอะไรต่อ"
+ * แทนชิปสถานะลอย ๆ ในแถวข้อมูล (ผู้ใช้ต้องเดาเองว่า 'completed' หมายถึงอะไร)
+ * ⚠️ คีย์ที่ backend คืนแต่ไม่รู้จัก ต้องไม่ทำให้หน้าพัง — ตกไปที่ upcoming แบบเดียวกับชิป
+ */
+const statusBanner = computed(() => {
+  const key = typeof activity.value?.status === 'string' ? activity.value.status : 'upcoming'
+  switch (key) {
+    case 'ongoing':
+      return {
+        label: 'กำลังดำเนินอยู่',
+        hint: 'เช็คอินผู้เข้าร่วมได้ตลอดกิจกรรม — กดชื่อนักเรียนในรายการด้านล่าง',
+        icon: 'bi-broadcast',
+        cls: 'border-s-warn-500 bg-warn-50',
+        text: 'text-warn-700',
+      }
+    case 'completed':
+      return {
+        label: 'จบกิจกรรมแล้ว',
+        hint: 'รายชื่อด้านล่างคือรายชื่อที่ใช้คำนวณชั่วโมงกิจกรรม',
+        icon: 'bi-check-circle-fill',
+        cls: 'border-s-ok-500 bg-ok-50',
+        text: 'text-ok-700',
+      }
+    case 'cancelled':
+      return {
+        label: 'ยกเลิกกิจกรรม',
+        hint: 'กิจกรรมนี้ถูกยกเลิก — ไม่นับชั่วโมงกิจกรรมของผู้เข้าร่วม',
+        icon: 'bi-x-octagon-fill',
+        cls: 'border-s-danger-500 bg-danger-50',
+        text: 'text-danger-700',
+      }
+    default:
+      return {
+        label: 'ยังไม่เริ่ม',
+        hint: 'เตรียมรายชื่อและข้อมูลที่ต้องใช้ก่อนวันกิจกรรม',
+        icon: 'bi-calendar-event',
+        cls: 'border-s-brand-500 bg-brand-50',
+        text: 'text-brand-700',
+      }
+  }
+})
 
 const fetchData = async () => {
   isLoading.value = true
@@ -347,13 +381,11 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
         >
           <template #actions>
             <template v-if="canManage">
-              <!-- ปุ่มหลัก: จัดการผู้เข้าร่วม -->
-              <router-link
-                :to="`/activities/${activityId}/manage`"
-                class="btn-primary w-full sm:w-auto"
-              >
-                <i class="bi bi-sliders" aria-hidden="true"></i> จัดการผู้เข้าร่วม
-              </router-link>
+              <!--
+                📌 P1.10 — ปุ่มหลัก "จัดการผู้เข้าร่วม" ย้ายไปแถบติดล่างของหน้า
+                   (หน้ารายละเอียดมี action หลักได้แค่ 1 ปุ่ม และต้องเอื้อมถึงด้วยนิ้วโป้ง)
+                   หัวหน้าเหลือเมนู ⋯ ที่เป็นการจัดการรองเท่านั้น
+              -->
 
               <!-- เมนูจุด 3 จุด: เปลี่ยนสถานะ / แก้ไข / Export -->
               <div class="relative">
@@ -439,15 +471,21 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
         </PageHeader>
       </div>
 
+      <!-- 🚩 สถานะ = แบนเนอร์ (คำอธิบาย) ไม่ใช่ชิปโดด ๆ — ที่เดียวในหน้า -->
+      <div
+        class="page-card flex items-start gap-3 border-s-4 p-3.5 sm:p-4"
+        :class="statusBanner.cls"
+        role="status"
+      >
+        <i class="bi mt-0.5 text-lg" :class="[statusBanner.icon, statusBanner.text]" aria-hidden="true"></i>
+        <div class="min-w-0">
+          <p class="text-sm font-bold" :class="statusBanner.text">{{ statusBanner.label }}</p>
+          <p class="mt-0.5 text-xs leading-relaxed text-stone-600">{{ statusBanner.hint }}</p>
+        </div>
+      </div>
+
       <!-- ข้อมูลประกอบย่อ -->
       <div class="flex flex-wrap items-center gap-2">
-        <span class="chip" :class="statusChip(activity.status)">
-          {{
-            ACTIVITY_STATUS_LABELS[
-              typeof activity.status === 'string' ? activity.status : 'upcoming'
-            ] || activity.status
-          }}
-        </span>
         <span class="chip bg-stone-100 text-stone-600">
           <i class="bi bi-calendar-event" aria-hidden="true"></i>
           <span class="num">{{ formatThaiDate(activity.activity_date, 'long') }}</span>
@@ -573,6 +611,22 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           @toggle-status="toggleParticipantStatus"
           @remove="removeParticipant"
         />
+      </div>
+
+      <!--
+        📌 P1.10 — action หลักของหน้า มี "ปุ่มเดียว" และติดล่าง (นิ้วโป้งเอื้อมถึงบนมือถือ)
+        📌 ใช้ `sticky` (ไม่ใช่ `fixed`) ตามแบบ ActivityList.vue:381 และ EditStudent.vue:617
+           ⇒ แถบกินพื้นที่ของตัวเอง ไม่ต้องเผื่อ padding กันการ์ดแถวล่างถูกบัง
+        ⚠️ มือถือต้องเผื่อความสูงแถบเมนูล่าง (`fixed bottom-0 z-40 lg:hidden` ใน MainLayout)
+           · z-30 = เหนือเนื้อหา แต่ใต้แถบเมนู (z-40) และ drawer (z-50)
+      -->
+      <div
+        v-if="canManage"
+        class="sticky bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-30 rounded-2xl border border-stone-200 bg-white/95 p-3 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.35)] backdrop-blur lg:bottom-6"
+      >
+        <router-link :to="`/activities/${activityId}/manage`" class="btn-primary w-full justify-center">
+          <i class="bi bi-sliders" aria-hidden="true"></i> จัดการผู้เข้าร่วม
+        </router-link>
       </div>
     </template>
 
