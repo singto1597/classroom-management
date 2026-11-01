@@ -16,7 +16,8 @@ class ActionWithUserRequest(BaseModel):
 # --- Activity Status / Participant Role enum-like helpers ---
 ActivityStatus = Literal["upcoming", "ongoing", "completed", "cancelled"]
 RoleType = Literal["participant", "staff", "leader"]
-ParticipantStatus = Literal["confirmed", "cancelled", "attended"]
+# 📋 `waitlisted` (P4.1) = อยู่ในคิวสำรอง — ผู้ดูแลเพิ่มเกินความจุ หรือถูกเลื่อนลงเมื่อไม่รับ
+ParticipantStatus = Literal["confirmed", "cancelled", "attended", "waitlisted"]
 
 
 # --- Participant Schemas (single row inside create/update activity) ---
@@ -46,6 +47,8 @@ class ActivityParticipantResponse(BaseModel):
     role_detail: Optional[str] = None
     earned_hours: float
     status: str
+    # 🪑 P4.1 — 1,2,3... = ลำดับในคิวสำรอง · None = ไม่ได้อยู่ในคิว
+    queue_position: Optional[int] = None
     metadata: Dict[str, Any] = {}
     recorded_by: Optional[str] = None
     # 🌟 Type A — อ่านจากโปรไฟล์ users โดยตรง (READ ONLY ในบริบทกิจกรรม — ห้ามบันทึกซ้ำลง metadata)
@@ -64,6 +67,8 @@ class ActivityCreateRequest(BaseModel):
     activity_date: date  # ต้องเป็น date object (กันบั๊ก toordinal)
     base_hours: float = Field(0.0, ge=0.0)
     status: ActivityStatus = "upcoming"
+    # 🪑 P4.1 — None/ไม่ส่ง = ไม่จำกัด · ต้อง ≥ 1 (0 แปลว่า "ไม่มีใครเข้าได้" ซึ่งไม่ใช่ความหมายที่ต้องการ)
+    capacity: Optional[int] = Field(None, ge=1, le=10000)
     metadata: Dict[str, Any] = Field(default_factory=dict)  # 🌟 พิกัด, กำหนดการ, ลิ้งก์รูป, แท็ก
     participants: List[ActivityParticipantIn] = Field(default_factory=list)
     user_name: str = Field(..., min_length=1, max_length=100)
@@ -77,6 +82,9 @@ class ActivityUpdateRequest(BaseModel):
     activity_date: Optional[date] = None
     base_hours: Optional[float] = Field(None, ge=0.0)
     status: Optional[ActivityStatus] = None
+    # 🪑 P4.1 — 0 = ยกเลิกเพดาน (กลับเป็นไม่จำกัด) · ไม่ส่ง = ไม่แตะ · ≥1 = ตั้งเพดานใหม่
+    #    (ข้อจำกัด: `None` ใน PATCH ถูกตีความเป็น "ไม่ส่ง" — ใช้ 0 เพื่อลบเพดาน)
+    capacity: Optional[int] = Field(None, ge=0, le=10000)
     metadata: Optional[Dict[str, Any]] = None
     participants: Optional[List[ActivityParticipantIn]] = Field(
         default=None,
@@ -233,6 +241,10 @@ class ActivityResponse(BaseModel):
     created_by: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # 🪑 P4.1 — เพดาน/จำนวนจริง: `participant_count` = แถวทั้งหมด (คงความหมายเดิม)
+    capacity: Optional[int] = None
+    confirmed_count: int = 0
+    waitlisted_count: int = 0
     participant_count: int = 0
     participants: List[ActivityParticipantResponse] = Field(default_factory=list)
 

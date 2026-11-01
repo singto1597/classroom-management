@@ -85,6 +85,8 @@ PARTICIPANT_STATUS_LABELS: Dict[str, str] = {
     "confirmed": "ยืนยันแล้ว",
     "cancelled": "ยกเลิก",
     "attended": "มาแล้ว",
+    # 🪑 P4.1 — เกินความจุ: ยังไม่ได้ที่นั่ง แต่ถ้ามีคนยกเลิกจะถูกเลื่อนขึ้นอัตโนมัติ
+    "waitlisted": "คิวสำรอง",
 }
 
 # 🌟 ป้ายภาษาไทยของสถานะกิจกรรม (ค่าใน activities.status) — ใช้ในหน้า Summary ของ Excel
@@ -108,6 +110,7 @@ PARTICIPANT_STATUS_COLORS: Dict[str, str] = {
     "confirmed": "059669",  # เขียว
     "attended": "2563EB",   # น้ำเงิน
     "cancelled": "E11D48",  # แดง
+    "waitlisted": "D97706", # ส้ม-เหลือง (รออยู่ ไม่ได้ยืนยัน)
 }
 
 # 🌟 ความกว้างคอลัมน์ (จุด) ของ Sheet รายชื่อ — เลขที่แคบ ฟิลด์ยาว ๆ กว้าง
