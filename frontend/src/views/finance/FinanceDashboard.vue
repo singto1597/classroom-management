@@ -369,9 +369,15 @@ watch([selectedMonth, selectedYear], () => {
       🚨 แบนเนอร์เตือนเกินงบ — อยู่นอก skeleton หลักโดยเจตนา
       โผล่ทันทีที่ข้อมูลงบมาถึง ไม่ต้องรอให้หน้าโหลดครบ (และเงียบ ๆ ถ้ายิงไม่สำเร็จ)
     -->
+    <!--
+      📌 P1.10 — แบนเนอร์นี้ "บอกจำนวน" ⇒ ปลายทางต้องกรองเหลือเท่าที่บอก (กฎ 1:1)
+         พาไปเดือน/ปีที่กำลังดูก่อนนี้ด้วย ไม่ใช่เดือนปัจจุบันของ BudgetList
+         (ยอด over_count คำนวณจาก monthToRange(selectedYear, selectedMonth) ด้านล่าง)
+    -->
     <RouterLink
       v-if="!isLoadingBudget && !isBudgetError && (budgetOverview?.over_count ?? 0) > 0"
-      to="/finance/budgets"
+      :to="{ path: '/finance/budgets', query: { over: '1', month: selectedMonth, year: selectedYear } }"
+      :aria-label="`ดูงบที่ใช้เกิน ${budgetOverview?.over_count ?? 0} หมวดของเดือนนี้`"
       class="page-card flex items-center gap-3 border-s-4 border-s-danger-500 p-3.5 transition-colors hover:bg-danger-50/40 active:scale-[0.99] sm:p-4"
     >
       <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-danger-50 text-danger-600">
@@ -523,7 +529,11 @@ watch([selectedMonth, selectedYear], () => {
               วงเงินต่อหมวด · ยอดใช้จริง · เตือนก่อนเกิน
             </span>
           </span>
-          <!-- ตัวเลขเกินงบเป็นสัญญาณ ไม่ใช่ป้ายตกแต่ง — โชว์เฉพาะเมื่อมีของจริง -->
+          <!--
+            ตัวเลขเกินงบเป็นสัญญาณ ไม่ใช่ป้ายตกแต่ง — โชว์เฉพาะเมื่อมีของจริง
+            🔒 ตัวไทล์นี้ "ไม่กรอง" โดยเจตนา: มันคือทางเข้างบประมาณทั้งหมด (ชื่อไทล์คือ "งบประมาณ")
+               ไม่ได้อ้างว่า N=จำนวนแถวปลายทาง — ทางที่กรองแล้วคือแบนเนอร์ด้านบน
+          -->
           <span
             v-if="!isLoadingBudget && !isBudgetError && (budgetOverview?.over_count ?? 0) > 0"
             class="chip shrink-0 bg-danger-50 text-danger-700"

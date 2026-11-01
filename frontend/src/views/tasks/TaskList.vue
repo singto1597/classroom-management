@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
@@ -38,7 +39,24 @@ const canManageTasks = computed(
 const tasks = ref<Task[]>([])
 const notes = ref<DailyNote[]>([])
 const isLoading = ref(true)
-const filter = ref<'all' | 'pending' | 'done'>('pending')
+
+/**
+ * 🎯 ตัวกรองเริ่มต้นอ่านจาก query ได้ (`/tasks?filter=all`)
+ * เหตุผล: การ์ด KPI บน Dashboard กดแล้วต้องพาไปเจอ "จำนวนเดียวกัน"
+ * (กฎ P1.10 — "34 กดแล้วเจอ 5" คือบั๊ก) ⇒ การ์ดงานทั้งหมด/งานค้างส่ง filter มาชัดเจน
+ * ไม่พึ่งค่าเริ่มต้นของหน้านี้ ซึ่งวันหนึ่งอาจเปลี่ยนได้โดยไม่มีใครสังเกต
+ * ค่าที่ไม่รู้จักถูกเมิน (fail-closed) กลับไปใช้ `pending`
+ */
+const FILTER_VALUES = ['all', 'pending', 'done'] as const
+type TaskFilter = (typeof FILTER_VALUES)[number]
+
+const parseFilter = (value: unknown): TaskFilter =>
+  typeof value === 'string' && (FILTER_VALUES as readonly string[]).includes(value)
+    ? (value as TaskFilter)
+    : 'pending'
+
+const route = useRoute()
+const filter = ref<TaskFilter>(parseFilter(route.query.filter))
 
 // สถานะผิดพลาด — เดิมแจ้งด้วย toast อย่างเดียว ตอนนี้ใช้โชว์ StateBlock ด้วย
 const hasError = ref(false)
