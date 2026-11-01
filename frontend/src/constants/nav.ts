@@ -46,6 +46,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   //    อยู่ใต้ "เพิ่มเติม" (ไม่ใช่แท็บหลัก) เพราะเป็นหน้าที่เปิดเป็นครั้งคราว
   { name: 'ของฉัน', path: '/me/activity', icon: 'bi-person-bookmark' },
   { name: 'ตั้งค่าการแจ้งเตือน', path: '/settings/notifications', icon: 'bi-bell' },
+  // 🗓️ P5 — ปฏิทินของห้อง (ปี พ.ศ. + เทอม) ใช้เป็นตัวกรองสถิติ ไม่ใช่การเลื่อนชั้น
+  { name: 'ปีการศึกษา', path: '/settings/academic-periods', icon: 'bi-calendar3' },
   { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
 ];
 
@@ -161,6 +163,8 @@ export const routeTitles = {
   'my-activity': 'ของฉัน',
   'announcement-detail': 'รายละเอียดประกาศ',
   'notification-settings': 'ตั้งค่าการแจ้งเตือน',
+  // 🗓️ P5 — ชื่อหน้าเดียวกับเมนู เพื่อให้ breadcrumb กับแท็บเบราว์เซอร์ตรงกัน
+  'academic-periods': 'ปีการศึกษาและเทอม',
 
   // ── อื่น ๆ ──────────────────────────────────────────────────────────────
   DiscordConnect: 'เชื่อมต่อ Discord',

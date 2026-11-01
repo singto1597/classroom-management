@@ -32,6 +32,7 @@ from typing import Any, Optional
 import asyncpg
 
 from core.rbac import require_member
+from services import academic_service
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 50
@@ -92,26 +93,56 @@ ORDER BY happened_at DESC, kind DESC, entity_id DESC
 LIMIT $6
 """
 
+# 🗓️ P5 — ตัวกรองช่วงเวลา: `$3`/`$4` เป็น DATE ที่อาจเป็น NULL (= ไม่กรอง)
+#
+#   · ใบเสร็จใช้ **วันที่ของเอกสาร** (`COALESCE(event_at, issued_at)`) ซึ่งเป็น
+#     แหล่งเดียวกับเลขปี พ.ศ. บนใบเสร็จ ⇒ ตัวเลขกับกระดาษพูดเรื่องเดียวกัน
+#   · ขอบเขตเป็นเวลาไทย: `(date::timestamp) AT TIME ZONE 'Asia/Bangkok'`
+#     ⇒ วันสุดท้ายของเทอมถูกรวมเสมอ (`< end + 1`)
+#     ⚠️ **ต้อง cast `::timestamp` ก่อน** — `date AT TIME ZONE 'Asia/Bangkok'`
+#     ไม่ได้ให้ timestamptz! `date` ถูก implicitly cast เป็น `timestamptz`
+#     (ตาม TimeZone ของ session) แล้วจึงถูก `AT TIME ZONE` แปลง *กลับ* เป็น
+#     `timestamp without time zone` ⇒ ผลลัพธ์คลาดไปตาม offset ของโซน (เจอจริง:
+#     ใบเสร็จ 00:30 ของวันถัดไปหลุดเข้ามา — เทสต์ TZ จับได้)
+#     ท่าเดียวกับ `services/finance/receipts.py` และ `services/finance/budgets.py`
+#   · คอลัมน์ที่ **ไม่กรอง** โดยเจตนา: `outstanding`/`unpaid_bills` เป็นสถานะ
+#     *ปัจจุบัน* (ไม่ใช่เหตุการณ์ในอดีต) และ `room_tasks_*` เป็นตัวเลขของห้อง
+#     — เขียนไว้ในนี้ให้ชัด ดีกว่าให้คนอ่าน SQL เดาเอง
 _STATS_SQL = """
+-- ⚠️ ชื่อ CTE **ห้ามใช้ `window`** — เป็นคำสงวนของ Postgres (WINDOW clause)
+--    ⇒ `WITH window AS (...)` ล้มด้วย `syntax error at or near "window"` ทั้งที่
+--    หน้าตาดูถูกต้อง (เจอมาแล้วตอนเขียนเทสต์ P5 — เทสต์จึงต้องยิง HTTP จริง)
+WITH win AS (
+    SELECT $3::date AS date_from, $4::date AS date_to
+)
 SELECT
     (SELECT COALESCE(SUM(R.amount), 0)
-       FROM finance_receipts R
+       FROM finance_receipts R, win W
       WHERE R.student_id = $1 AND R.room_id = $2
         AND R.doc_type = 'receipt' AND R.status = 'active' AND R.deleted_at IS NULL
+        AND (
+              W.date_from IS NULL
+              OR (COALESCE(R.event_at, R.issued_at) >= (W.date_from::timestamp AT TIME ZONE 'Asia/Bangkok')
+                  AND COALESCE(R.event_at, R.issued_at) < ((W.date_to + 1)::timestamp AT TIME ZONE 'Asia/Bangkok'))
+            )
     ) AS paid_total,
     (SELECT COALESCE(SUM(P.earned_hours), 0)
        FROM activity_participants P
        JOIN activities A ON A.id = P.activity_id
+       CROSS JOIN win W
       WHERE P.student_id = $1 AND A.room_id = $2
         AND P.deleted_at IS NULL AND P.status <> 'cancelled'
         AND A.deleted_at IS NULL
+        AND (W.date_from IS NULL OR A.activity_date BETWEEN W.date_from AND W.date_to)
     ) AS activity_hours,
     (SELECT COUNT(*)
        FROM activity_participants P
        JOIN activities A ON A.id = P.activity_id
+       CROSS JOIN win W
       WHERE P.student_id = $1 AND A.room_id = $2
         AND P.deleted_at IS NULL AND P.status <> 'cancelled'
         AND A.deleted_at IS NULL
+        AND (W.date_from IS NULL OR A.activity_date BETWEEN W.date_from AND W.date_to)
     ) AS activities_joined,
     (SELECT COALESCE(SUM(FC.amount - COALESCE(SP.paid_amount, 0)), 0)
        FROM student_payments SP
@@ -195,15 +226,33 @@ async def list_activity(
     return {"items": items, "has_more": has_more, "next_cursor": next_cursor}
 
 
-async def get_me_stats(pool: asyncpg.Pool, *, room_id: int, user_id: int) -> dict[str, Any]:
+async def get_me_stats(
+    pool: asyncpg.Pool,
+    *,
+    room_id: int,
+    user_id: int,
+    year_id: Optional[int] = None,
+    term_id: Optional[int] = None,
+) -> dict[str, Any]:
     """สถิติของฉันในห้องนี้ — snapshot เดียว (`repeatable_read` + `readonly`)
 
     ผู้ใช้ที่ไม่มีแถว `students` (แอดมิน/ผู้ดูแล) **ไม่ใช่ error** — ได้ `has_profile: False`
     และตัวเลขส่วนตัวเป็น 0 แต่ยังเห็นตัวเลขของห้อง (งานค้าง/งานเสร็จ) ได้
+
+    🗓️ P5 — `year_id`/`term_id` เป็นตัวกรอง *ของเหตุการณ์*:
+       ไม่ระบุอะไรเลย ⇒ ใช้ปีปัจจุบัน (ถ้ามี) · ไม่มีปีปัจจุบัน ⇒ นับทั้งหมด + `term: null`
+       id ที่ไม่มีจริง/ของห้องอื่น ⇒ `ForbiddenError` (route แปลเป็น 404)
+
+    ⚠️ `outstanding`/`unpaid_bills` และ `room_tasks_*` **ไม่ขึ้นกับช่วงเวลา** —
+       เป็นสถานะปัจจุบันไม่ใช่ยอดสะสมของช่วง ⇒ ติดป้ายในหน้าจอให้ผู้ใช้รู้
     """
     async with pool.acquire() as conn:
         async with conn.transaction(isolation="repeatable_read", readonly=True):
             await require_member(conn, room_id, user_id)
+            # ปฏิทินถูกอ่านในทรานแซกชันเดียวกัน ⇒ ช่วงเวลาและตัวเลขมาจาก snapshot เดียว
+            term_info, date_from, date_to = await academic_service.resolve_window(
+                conn, room_id=room_id, year_id=year_id, term_id=term_id
+            )
             student_id = await conn.fetchval(
                 """
                 SELECT id FROM students
@@ -227,7 +276,7 @@ async def get_me_stats(pool: asyncpg.Pool, *, room_id: int, user_id: int) -> dic
                 )
                 return {
                     "has_profile": False,
-                    "term": None,
+                    "term": term_info,
                     "activities_joined": 0,
                     "activity_hours": 0.0,
                     "paid_total": 0.0,
@@ -237,11 +286,11 @@ async def get_me_stats(pool: asyncpg.Pool, *, room_id: int, user_id: int) -> dic
                     "room_tasks_pending": int(room_row["room_tasks_pending"] or 0),
                 }
 
-            row = await conn.fetchrow(_STATS_SQL, student_id, room_id)
+            row = await conn.fetchrow(_STATS_SQL, student_id, room_id, date_from, date_to)
 
     return {
         "has_profile": True,
-        "term": None,
+        "term": term_info,
         "activities_joined": int(row["activities_joined"] or 0),
         # NUMERIC จาก asyncpg เป็น Decimal — cast ก่อนเข้า Pydantic
         "activity_hours": float(row["activity_hours"] or 0),

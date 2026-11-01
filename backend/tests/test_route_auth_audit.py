@@ -172,7 +172,12 @@ def test_route_count_is_not_silently_shrinking():
     # 158 → 161 (2026-11-01): ลิงก์แชร์กิจกรรม (P4.3) — POST/DELETE …/activities/{id}/share
     #   (มี `Depends(get_current_user)` + MANAGE_ACTIVITIES ใน service) และ
     #   `GET /api/shared/activity/{token}` ที่ **ตั้งใจให้ public** ⇒ อยู่ใน PUBLIC_ROUTES
-    expected = 161
+    # 161 → 169 (2026-11-01): ปีการศึกษา/เทอม (P5) — 8 route ใต้ `/api/classroom`
+    #   `academic/periods` (อ่าน, สมาชิก) · years CREATE/PATCH/DELETE ·
+    #   years/{id}/terms CREATE · terms PATCH/DELETE · `academic/current` PUT
+    #   ทั้งแปดมี `Depends(get_current_user)`; เขียนทุกตัวเรียก
+    #   `require_permission(MANAGE_CLASSROOM_SETTINGS)` ใน service (403 ไม่ออกที่ route)
+    expected = 169
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

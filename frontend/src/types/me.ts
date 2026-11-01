@@ -30,10 +30,25 @@ export interface MeActivityResponse {
   next_cursor: string | null;
 }
 
+/**
+ * ช่วงเวลาที่สถิติชุดนี้นับ (P5)
+ *
+ * `source` บอกว่าผู้ใช้ "เลือกเอง" หรือ "ระบบใช้ปีปัจจุบันให้" — หน้าจอต้องแสดง
+ * ให้ต่างกัน ไม่งั้นคนอ่านจะเข้าใจผิดว่าตัวเลขเป็นการเลือกของตัวเอง
+ */
+export interface MeStatsPeriod {
+  year_id: number;
+  year_be: number;
+  year_name: string | null;
+  term_id: number | null;
+  term_name: string | null;
+  source: 'explicit' | 'current';
+}
+
 export interface MeStats {
   has_profile: boolean;
-  /** P5 จะเติมข้อมูลเทอม — ตอนนี้ null = ทั้งหมด */
-  term: Record<string, unknown> | null;
+  /** `null` = นับทั้งหมด (ห้องยังไม่มีปีปัจจุบัน) */
+  term: MeStatsPeriod | null;
   activities_joined: number;
   activity_hours: number;
   paid_total: number;

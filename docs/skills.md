@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 260 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 261 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -264,6 +264,7 @@
 - [🎟️ เช็คอินด้วย QR: บัตรต้องผูกกับกิจกรรม และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง](#เช็คอินด้วย-qr-บัตรต้องผูกกับกิจกรรม-และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง)
 - [🔗 ลิงก์แชร์: route สาธารณะต้องแยก router และ `null` ที่ถูกกรองทิ้งคือจุดตายของ PATCH](#ลิงก์แชร์-route-สาธารณะต้องแยก-router-และ-null-ที่ถูกกรองทิ้งคือจุดตายของ-patch)
 - [🌐 หน้าสาธารณะนอก MainLayout: guard มีสองรายการ และ `build` จับ template error ที่ `type-check` มองไม่เห็น](#หน้าสาธารณะนอก-mainlayout-guard-มีสองรายการ-และ-build-จับ-template-error-ที่-type-check-มองไม่เห็น)
+- [🗓️ ปีการศึกษา/เทอมสำหรับกรองสถิติ: `window` เป็นคำสงวน และ `date AT TIME ZONE` ต้อง cast ก่อน](#ปีการศึกษาเทอมสำหรับกรองสถิติ-window-เป็นคำสงวน-และ-date-at-time-zone-ต้อง-cast-ก่อน)
 
 <!-- TOC:END -->
 
@@ -4314,4 +4315,27 @@
   - ใช้ helper บริสุทธิ์ที่รับ `todayIso` เป็นพารามิเตอร์สำหรับป้ายเวลา (`utils/activityDeadline.ts`) — **ห้ามเรียก `new Date()` ในฟังก์ชันที่ต้องการเทสต์** ไม่งั้นเทสต์ผ่านวันนี้แล้วตกพรุ่งนี้
 - **Rule:** (1) 🔴 เพิ่ม route ที่ไม่ต้องล็อกอิน = แก้ guard **ทั้งสองรายการ** + เทสต์ router (2) 🔴 ตรวจ template ด้วย `npm run build` ก่อน push เสมอ — `type-check` ไม่ใช่ด่านเดียวกัน (3) ⚠️ ป้ายที่ขึ้นทุกการ์ด = ป้ายที่ไม่มีความหมาย: แสดง "ใกล้ปิดรับ" เฉพาะ ≤7 วันหรือเลยกำหนด
 - **Tests:** `frontend/src/utils/__tests__/activityDeadline.spec.ts` (7 · none/closed/soon/open · ขอบเขต 7 วัน · ข้อความป้าย · ข้ามเดือน/ปี) · `src/router/__tests__/routes.spec.ts` (ยกเว้น `shared-activity` พร้อมเหตุผล)
+- **Date Added:** 2026-11-01
+
+### 🗓️ ปีการศึกษา/เทอมสำหรับกรองสถิติ: `window` เป็นคำสงวน และ `date AT TIME ZONE` ต้อง cast ก่อน
+
+- **Context/Problem:** P5 เพิ่ม `academic_years`/`academic_terms` และให้ `/me/stats?year_id=&term_id=` กรอง "ตามวันที่ของเหตุการณ์" (ใบเสร็จ `COALESCE(event_at, issued_at)`, กิจกรรม `activity_date`) ตัวเลขบนหน้าจอเดิมดูถูกทุกช่อง แต่เทสต์ที่ยิง HTTP จริงเจอ error SQL สองแบบที่ mock ไม่มีทางเห็น
+- **Root Cause:**
+  1. **`WINDOW` เป็นคำสงวนของ PostgreSQL** (WINDOW clause ของ `SELECT`) ⇒ `WITH window AS (SELECT ...)` ล้มด้วย `asyncpg.exceptions.PostgresSyntaxError: syntax error at or near "window"` ทั้งที่หน้าตาอ่านรู้เรื่อง ⇒ เปลี่ยนชื่อ CTE เป็น `win` **แล้วเขียนคอมเมนต์กันคนเปลี่ยนกลับ**
+  2. **`date AT TIME ZONE 'Asia/Bangkok'` ไม่ได้แปลว่า "เที่ยงคืนเวลาไทย"** — Postgres แปลง `date` → `timestamptz` ด้วย **TimeZone ของ session** ก่อน (`DATE '2026-11-01'` → `2026-11-01 00:00+00` เมื่อ session เป็น UTC) แล้วค่อยแปลงเป็นเวลาท้องถิ่น ⇒ ได้ `2026-11-01 07:00` ไม่ใช่เที่ยงคืน ⇒ ขอบเขตล่างเลื่อนไป 7 ชั่วโมงแบบเงียบ ๆ **เทสต์ขอบเขตจับได้**: ใบเสร็จที่จ่าย `00:30` ของวันถัดไปหลุดเข้ามาในเทอมก่อนหน้า (`assert 1099.0 == 100.0`)
+- **Correct Pattern/Solution:**
+  ```sql
+  -- ✅ อ่าน "วันตามปฏิทินไทย" เป็นจุดเวลาสัมบูรณ์
+  WHERE COALESCE(R.event_at, R.issued_at)
+            >= ((W.date_from)::timestamp AT TIME ZONE 'Asia/Bangkok')
+    AND COALESCE(R.event_at, R.issued_at)
+            <  (((W.date_to) + 1)::timestamp AT TIME ZONE 'Asia/Bangkok')  -- end_date รวมวันสุดท้าย
+  ```
+  - `(d::timestamp) AT TIME ZONE 'Asia/Bangkok'` = "เวลานาฬิกาที่ Bangkok ขณะนั้น" ⇒ ได้ `timestamptz` ตรงกับที่ผู้ใช้กรอก ไม่ขึ้นกับ session TZ · สำนวนนี้มีอยู่แล้วใน `services/finance/receipts.py` และ `services/finance/budgets.py` — เวลาจะเขียน query ช่วงวันที่ใหม่ ให้ลอกจากที่นั่น
+  - ช่วงเทอม/ปีคือ `start_date` ถึง `end_date` **แบบรวมวันสุดท้าย** ⇒ ใช้ `< (end_date + 1)` ไม่ใช่ `<= end_date`
+  - **ไม่มีปีปัจจุบัน = ไม่กรอง** (`date_from`/`date_to` = NULL, `term: null`) ห้ามเดาเป็นปีแรก/ปีล่าสุด — ห้องใหม่ที่ยังไม่ตั้งปฏิทินต้องได้ตัวเลขทั้งก้อน ไม่ใช่ 0
+  - `year_id` อย่างเดียว = "ทั้งปี" (ไม่ต้องส่ง `term_id`); ส่งทั้งคู่แต่เทอมไม่ได้อยู่ในปีนั้น = `ValidationError` 400 ไม่ใช่เงียบ ๆ ใช้เทอมนั้น
+  - ฝั่งหน้า: โหมด "อัตโนมัติ" คือ **ไม่ส่งพารามิเตอร์เลย** — ส่ง `0`/`undefined` แทนได้ 404 หรือกลายเป็น "กรองด้วยปี id 0" · `PUT /academic/current` ต้องส่ง `year_id: null` จริงเพื่อ "ปลด" (null ≠ ไม่ส่งฟิลด์)
+- **Rule:** (1) 🔴 อย่าตั้งชื่อ CTE/คอลัมน์ว่า `window`, `user`, `order`, `group`, `all` — เป็นคำสงวน และ error ที่ได้ไม่บอกใบ้ว่ามาจากชื่อ (2) 🔴 เปรียบเทียบ `timestamptz` กับวันตามปฏิทิน ต้อง cast เป็น `::timestamp` ก่อน `AT TIME ZONE` เสมอ (3) 🔴 ตรรกะวัน/เทอมต้องมีเทสต์ขอบเขตปลายวัน (23:59 ไทยเข้า / 00:00 ของวันถัดไปไม่เข้า) เพราะนี่คือจุดที่ timezone พังเงียบ
+- **Tests:** `backend/tests/test_academic_periods.py` (28 — CRUD · สมาชิกอ่านได้แต่เขียนไม่ได้ · คนนอกห้อง 403 · ซ้ำ/ช่วงกลับด้าน/ค.ศ. ถูกปฏิเสธพร้อมใบ้ +543 · เทอมทับกัน/หลุดจากปี/ชื่อซ้ำ · มีปีปัจจุบันปีเดียว · ลบปี soft-delete เทอมและปลด current · `set_current` เทอมต้องอยู่ในปี · **สถิติ bounds ด้วยเวลาไทย** · ไม่มีปีปัจจุบัน = 42.0 ทั้งหมด · ค่าเริ่มต้นใช้ปีปัจจุบัน · audit ทุกการเขียน) · `frontend/src/services/__tests__/academic.spec.ts` (10 — path/method/body ครบ รวม `year_id: null` และ "ไม่ส่งตัวกรองเลย")
 - **Date Added:** 2026-11-01

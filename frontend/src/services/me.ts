@@ -17,9 +17,19 @@ export const MeService = {
     });
   },
 
-  async stats(roomId: number): Promise<MeStats> {
+  /**
+   * สถิติของฉัน — ส่ง `year_id`/`term_id` เฉพาะเมื่อผู้ใช้เลือกเอง
+   *
+   * ไม่ส่งเลย = backend ใช้ **ปี/เทอมปัจจุบันของห้อง** (ถ้ามี) แล้วบอกกลับมาใน
+   * `stats.term.source === 'current'` ⇒ ห้ามส่งค่าปลอม (0/null) แทน "ไม่กรอง"
+   * เพราะ `null` ของ `year_id` ใน endpoint นี้ไม่มีความหมายแบบนั้น
+   */
+  async stats(
+    roomId: number,
+    params: { year_id?: number; term_id?: number } = {},
+  ): Promise<MeStats> {
     return await api.get(`/api/classroom/${roomId}/me/stats`, {
-      params: { target_type: 'room' },
+      params: { target_type: 'room', ...params },
     });
   },
 };
