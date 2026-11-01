@@ -594,7 +594,7 @@ onMounted(() => {
             <i class="bi bi-plus-lg" aria-hidden="true"></i> เพิ่มการเช็คชื่อ
           </button>
         </div>
-        <p class="mb-3 text-xs text-stone-400 sm:mb-4">
+        <p class="mb-3 text-xs text-stone-500 sm:mb-4">
           สร้างแผ่นเช็คชื่อแยกตามเหตุการณ์ เช่น เช็คขึ้นรถ, เช็คเข้าฐาน — กดแผ่นเพื่อเช็คชื่อคน
         </p>
 
@@ -659,7 +659,7 @@ onMounted(() => {
           <i class="bi bi-puzzle text-brand-700" aria-hidden="true"></i>
           <span class="truncate">ฟิลด์เพิ่มเติม</span>
         </h2>
-        <p class="mb-3 text-xs text-stone-400 sm:mb-4">
+        <p class="mb-3 text-xs text-stone-500 sm:mb-4">
           สร้างฟิลด์ข้อมูลที่ต้องการเก็บเพิ่มเติม (เช่น หมายเลขกลุ่ม, รถคันที่ลง) — ฟิลด์ใหม่จะ
           ปรากฏกับผู้เข้าร่วมทุกคน และตั้งค่าแบบกลุ่มได้
         </p>

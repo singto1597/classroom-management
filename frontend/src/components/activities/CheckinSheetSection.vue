@@ -55,7 +55,7 @@ function actionClass(isPresent: boolean): string {
       <button
         type="button"
         :aria-expanded="expanded"
-        :aria-label="`${expanded ? 'ย่อ' : 'ขยาย'}แผ่นเช็คชื่อ ${sheet.title}`"
+        :aria-label="`แผ่นเช็คชื่อ ${sheet.title}`"
         class="flex min-w-0 flex-1 items-center gap-2.5 py-1 text-left"
         @click="emit('toggleExpand')"
       >
@@ -72,7 +72,7 @@ function actionClass(isPresent: boolean): string {
           </p>
         </div>
         <span
-          class="shrink-0 text-xs text-stone-400 transition-transform"
+          class="shrink-0 text-xs text-stone-500 transition-transform"
           :class="expanded ? 'rotate-90' : ''"
           aria-hidden="true"
         >
@@ -99,11 +99,11 @@ function actionClass(isPresent: boolean): string {
       </div>
 
       <!-- โหลดไม่สำเร็จ (parent กลืน error แล้วปล่อย participants = null) — ต้องไม่โกหกว่าว่าง -->
-      <div v-else-if="participants === null" class="px-4 py-6 text-center text-sm text-stone-400">
+      <div v-else-if="participants === null" class="px-4 py-6 text-center text-sm text-stone-500">
         โหลดรายชื่อไม่สำเร็จ — ลองย่อแล้วกดขยายอีกครั้ง
       </div>
 
-      <div v-else-if="participants.length === 0" class="px-4 py-6 text-center text-sm text-stone-400">
+      <div v-else-if="participants.length === 0" class="px-4 py-6 text-center text-sm text-stone-500">
         ยังไม่มีผู้เข้าร่วมในกิจกรรมนี้
       </div>
 

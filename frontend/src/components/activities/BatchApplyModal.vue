@@ -117,7 +117,7 @@ function handleApply() {
             </div>
             <button
               type="button"
-              class="-me-1.5 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+              class="-me-1.5 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
               aria-label="ปิดหน้าต่าง"
               @click="emit('close')"
             >
@@ -130,7 +130,7 @@ function handleApply() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-diagram-3 text-stone-400" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
+              <i class="bi bi-diagram-3 text-stone-500" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
             </div>
             <select v-model="dutyPosition" aria-label="หน้าที่/ตำแหน่ง" class="field">
               <option value="">— ตั้งหน้าที่ทั้งหมด —</option>
@@ -187,7 +187,7 @@ function handleApply() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-puzzle text-stone-400" aria-hidden="true"></i> ฟิลด์เพิ่มเติม
+              <i class="bi bi-puzzle text-stone-500" aria-hidden="true"></i> ฟิลด์เพิ่มเติม
             </div>
             <div class="space-y-3">
               <div v-for="field in dynamicFields" :key="field.key">
@@ -211,13 +211,13 @@ function handleApply() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-list-check text-stone-400" aria-hidden="true"></i> ข้อมูลที่จัดเก็บ
+              <i class="bi bi-list-check text-stone-500" aria-hidden="true"></i> ข้อมูลที่จัดเก็บ
             </div>
             <div class="space-y-3">
               <div v-for="field in typeBFields" :key="field.key">
                 <div class="field-label flex items-center gap-1.5">
                   <i
-                    class="bi text-stone-400"
+                    class="bi text-stone-500"
                     :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"
                     aria-hidden="true"
                   ></i>

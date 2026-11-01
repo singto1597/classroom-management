@@ -200,7 +200,7 @@ const MUTATIONS = [
   ],
   [
     'สีตัวอักษรของไอเทมที่ disable หลุดชุดที่ DESIGN.md §2 อนุญาต + คอนทราสต์อ่านไม่ออก',
-    "'cursor-not-allowed text-stone-400'",
+    "'cursor-not-allowed text-stone-500'",
     "'cursor-not-allowed text-stone-300'",
   ],
   [

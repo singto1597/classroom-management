@@ -170,7 +170,7 @@ const asOfDate = computed({
                 <option v-for="(name, i) in THAI_MONTHS" :key="name" :value="i + 1">{{ name }}</option>
               </select>
               <i
-                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-400"
+                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
                 aria-hidden="true"
               ></i>
             </div>
@@ -182,7 +182,7 @@ const asOfDate = computed({
                 <option v-for="y in yearOptions" :key="y" :value="y">{{ y + 543 }}</option>
               </select>
               <i
-                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-400"
+                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
                 aria-hidden="true"
               ></i>
             </div>

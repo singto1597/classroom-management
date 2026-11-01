@@ -46,7 +46,7 @@ const goBack = () => {
         <button
           v-if="canGoBack"
           type="button"
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900"
           aria-label="ย้อนกลับ"
           @click="goBack"
         >
@@ -56,7 +56,7 @@ const goBack = () => {
         <RouterLink
           v-else
           to="/dashboard"
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white lg:hidden"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white lg:hidden"
           aria-label="หน้าหลัก"
         >
           <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
@@ -66,7 +66,7 @@ const goBack = () => {
           <template v-if="roomId">
             <button
               type="button"
-              class="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+              class="flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
               aria-haspopup="menu"
               :aria-expanded="activeDropdown === 'roomSwitcher'"
               @click.stop="emit('toggleDropdown', $event, 'roomSwitcher')"
@@ -90,7 +90,7 @@ const goBack = () => {
 
           <template v-else>
             <span class="font-display text-base tracking-tight text-stone-900">
-              SYNC<span class="font-normal text-stone-400">ROOM</span>
+              SYNC<span class="font-normal text-stone-500">ROOM</span>
             </span>
           </template>
         </div>
@@ -116,7 +116,7 @@ const goBack = () => {
             <p class="mt-0.5 text-[10px] font-bold text-brand-700">{{ roleLabel }}</p>
           </div>
           <i
-            class="bi bi-chevron-down ms-2.5 hidden text-[10px] text-stone-400 sm:block"
+            class="bi bi-chevron-down ms-2.5 hidden text-[10px] text-stone-500 sm:block"
             aria-hidden="true"
           ></i>
         </button>

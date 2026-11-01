@@ -331,7 +331,7 @@ const submitCreateRoom = async () => {
     <!-- ค้นหาห้อง -->
     <div class="relative">
       <div class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5">
-        <i class="bi bi-search text-stone-400" aria-hidden="true"></i>
+        <i class="bi bi-search text-stone-500" aria-hidden="true"></i>
       </div>
       <input
         v-model="searchQuery"
@@ -411,7 +411,7 @@ const submitCreateRoom = async () => {
       >
         <div class="flex items-start justify-between gap-3">
           <div
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600"
           >
             <i class="bi bi-buildings text-lg" aria-hidden="true"></i>
           </div>
@@ -517,14 +517,14 @@ const submitCreateRoom = async () => {
               <div>
                 <label class="field-label" for="joinFirstNameEn">
                   ชื่อจริง (อังกฤษ)
-                  <span class="font-normal normal-case text-stone-400">ไม่บังคับ</span>
+                  <span class="font-normal normal-case text-stone-500">ไม่บังคับ</span>
                 </label>
                 <input id="joinFirstNameEn" v-model="joinForm.first_name_en" type="text" class="field" />
               </div>
               <div>
                 <label class="field-label" for="joinLastNameEn">
                   นามสกุล (อังกฤษ)
-                  <span class="font-normal normal-case text-stone-400">ไม่บังคับ</span>
+                  <span class="font-normal normal-case text-stone-500">ไม่บังคับ</span>
                 </label>
                 <input id="joinLastNameEn" v-model="joinForm.last_name_en" type="text" class="field" />
               </div>

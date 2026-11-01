@@ -45,14 +45,14 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
 
         <div class="flex shrink-0 items-center justify-between px-5 pb-3 pt-3">
           <div>
-            <p class="mb-1 text-[10px] font-bold text-stone-400">เมนูทั้งหมด</p>
+            <p class="mb-1 text-[10px] font-bold text-stone-500">เมนูทั้งหมด</p>
             <p class="font-display text-lg font-bold text-stone-900">
               {{ roomName || 'SYNCROOM' }}
             </p>
           </div>
           <button
             type="button"
-            class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-800"
+            class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800"
             aria-label="ปิดเมนู"
             @click="emit('close')"
           >
@@ -80,14 +80,14 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
 
           <div class="my-4 h-px bg-stone-200"></div>
 
-          <p class="mb-2 px-1 text-[10px] font-bold text-stone-400">บัญชี</p>
+          <p class="mb-2 px-1 text-[10px] font-bold text-stone-500">บัญชี</p>
           <div class="space-y-1">
             <button
               type="button"
               class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
               @click="emit('myProfile')"
             >
-              <i class="bi bi-person-badge text-lg text-stone-400" aria-hidden="true"></i>
+              <i class="bi bi-person-badge text-lg text-stone-500" aria-hidden="true"></i>
               โปรไฟล์ของฉัน
             </button>
             <button
@@ -95,7 +95,7 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
               class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
               @click="emit('profileSettings')"
             >
-              <i class="bi bi-link-45deg text-xl text-stone-400" aria-hidden="true"></i>
+              <i class="bi bi-link-45deg text-xl text-stone-500" aria-hidden="true"></i>
               จัดการผูกบัญชี
             </button>
             <button

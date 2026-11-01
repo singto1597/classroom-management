@@ -47,7 +47,7 @@ function removeRow(index: number) {
     <template v-if="readOnly">
       <div
         v-if="rows.length === 0"
-        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
+        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-500"
       >
         ไม่มีข้อมูลเพิ่มเติม
       </div>
@@ -81,7 +81,7 @@ function removeRow(index: number) {
       <!-- Rows -->
       <div
         v-if="rows.length === 0"
-        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-400"
+        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-500"
       >
         ยังไม่มีข้อมูลเพิ่มเติม — กดปุ่มด้านล่างเพื่อเพิ่ม
       </div>
@@ -113,7 +113,7 @@ function removeRow(index: number) {
           <button
             type="button"
             @click="removeRow(index)"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
             title="ลบข้อมูลนี้"
             aria-label="ลบข้อมูลนี้"
           >

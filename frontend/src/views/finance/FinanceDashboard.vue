@@ -285,7 +285,7 @@ watch([selectedMonth, selectedYear], () => {
             </option>
           </select>
           <i
-            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-400"
+            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
             aria-hidden="true"
           ></i>
         </div>
@@ -297,7 +297,7 @@ watch([selectedMonth, selectedYear], () => {
             </option>
           </select>
           <i
-            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-400"
+            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
             aria-hidden="true"
           ></i>
         </div>
@@ -336,7 +336,7 @@ watch([selectedMonth, selectedYear], () => {
               </div>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-bold text-stone-900">ดาวน์โหลดสรุปรายการ (แบบปกติ)</p>
-                <p class="mt-0.5 text-xs text-stone-400">รายรับ/รายจ่าย แยกหมวดหมู่ + ยอดคงเหลือบัญชี</p>
+                <p class="mt-0.5 text-xs text-stone-500">รายรับ/รายจ่าย แยกหมวดหมู่ + ยอดคงเหลือบัญชี</p>
               </div>
               <i class="bi bi-chevron-right shrink-0 self-center text-stone-300" aria-hidden="true"></i>
             </button>
@@ -356,7 +356,7 @@ watch([selectedMonth, selectedYear], () => {
               </div>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-bold text-stone-900">ดาวน์โหลดสมุดรายวัน (แบบนักบัญชี)</p>
-                <p class="mt-0.5 text-xs text-stone-400">รายการ เดบิต/เครดิต รายบัญชี (สมุดรายวันทั่วไป)</p>
+                <p class="mt-0.5 text-xs text-stone-500">รายการ เดบิต/เครดิต รายบัญชี (สมุดรายวันทั่วไป)</p>
               </div>
               <i class="bi bi-chevron-right shrink-0 self-center text-stone-300" aria-hidden="true"></i>
             </button>
@@ -397,14 +397,14 @@ watch([selectedMonth, selectedYear], () => {
       <!-- KPI การเงิน: ยอดคงเหลือ / ค้างชำระ / รายรับ / รายจ่าย -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="page-card col-span-2 border-s-4 border-s-brand-700 p-3.5 sm:p-5 lg:col-span-1">
-          <p class="text-[11px] font-bold text-stone-400">เงินคงเหลือรวม</p>
+          <p class="text-[11px] font-bold text-stone-500">เงินคงเหลือรวม</p>
           <p class="font-display num mt-2 break-words text-2xl font-bold text-stone-900 sm:text-3xl">
-            <span class="me-1 text-lg text-stone-400">฿</span>{{ formatNumber(summary.net_worth) }}
+            <span class="me-1 text-lg text-stone-500">฿</span>{{ formatNumber(summary.net_worth) }}
           </p>
         </div>
 
         <div class="page-card col-span-2 p-3.5 sm:p-5 lg:col-span-1">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-400">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
             <i class="bi bi-hourglass-split text-warn-600" aria-hidden="true"></i>
             ยอดที่เพื่อนค้างจ่ายรวม
           </p>
@@ -414,7 +414,7 @@ watch([selectedMonth, selectedYear], () => {
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-400">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
             <i class="bi bi-graph-up-arrow text-ok-600" aria-hidden="true"></i>
             รายรับเดือนนี้
           </p>
@@ -424,7 +424,7 @@ watch([selectedMonth, selectedYear], () => {
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-400">
+          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
             <i class="bi bi-graph-down-arrow text-danger-600" aria-hidden="true"></i>
             รายจ่ายเดือนนี้
           </p>
@@ -472,7 +472,7 @@ watch([selectedMonth, selectedYear], () => {
             v-if="!authStore.isAdmin"
             class="flex flex-col items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50/60 px-2 py-2.5 text-center"
           >
-            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-stone-400">
+            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-stone-600">
               <i class="bi bi-gear text-xl" aria-hidden="true"></i>
             </span>
             <span class="text-xs font-bold text-stone-500">ตั้งค่า (แอดมิน)</span>
@@ -506,7 +506,7 @@ watch([selectedMonth, selectedYear], () => {
             <span class="block truncate text-sm font-bold text-stone-700">งบการเงิน</span>
             <span class="block truncate text-xs text-stone-500">งบทดลอง · กำไรขาดทุน · งบดุล</span>
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
         </RouterLink>
 
         <!-- งบประมาณ — ลิงก์เต็มความกว้างเหมือนงบการเงิน (กริด 4 ช่องเดิมเต็มพอดี) -->
@@ -530,7 +530,7 @@ watch([selectedMonth, selectedYear], () => {
           >
             เกิน {{ budgetOverview?.over_count }}
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
         </RouterLink>
 
         <!-- ใบเสร็จ / ใบแจ้งหนี้ — ลิงก์เต็มความกว้างแบบเดียวกัน (F3) -->
@@ -547,7 +547,7 @@ watch([selectedMonth, selectedYear], () => {
               ทะเบียนเอกสาร · พิมพ์ซ้ำได้ · ดาวน์โหลด PDF
             </span>
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
         </RouterLink>
 
         <!--
@@ -569,7 +569,7 @@ watch([selectedMonth, selectedYear], () => {
               เครดิตคงเหลือรายคน · หักปิดบิล · ยังไม่นับเป็นรายได้จนกว่าจะหัก
             </span>
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-400" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
         </RouterLink>
       </div>
 
@@ -616,7 +616,7 @@ watch([selectedMonth, selectedYear], () => {
         <!-- สัดส่วนรายจ่าย -->
         <div class="page-card flex flex-col p-4 sm:p-5">
           <h2 class="section-title mb-4 flex items-center gap-2">
-            <i class="bi bi-pie-chart text-stone-400" aria-hidden="true"></i>
+            <i class="bi bi-pie-chart text-stone-500" aria-hidden="true"></i>
             สัดส่วนรายจ่าย
           </h2>
           <div class="relative h-[240px] w-full sm:h-[280px]">
@@ -626,7 +626,7 @@ watch([selectedMonth, selectedYear], () => {
               class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
             >
               <i class="bi bi-cup-hot mb-1 text-3xl text-stone-300" aria-hidden="true"></i>
-              <p class="text-xs font-bold text-stone-400">ยังไม่มีรายจ่าย</p>
+              <p class="text-xs font-bold text-stone-500">ยังไม่มีรายจ่าย</p>
             </div>
             <div class="h-full w-full">
               <Doughnut :data="chartData" :options="chartOptions" />

@@ -46,7 +46,7 @@ const emit = defineEmits<{ retry: [] }>();
     class="flex flex-col items-center justify-center gap-2 rounded-2xl border border-danger-200 bg-white px-5 py-9 text-center sm:gap-2.5 sm:px-6 sm:py-12"
     role="alert"
   >
-    <i :class="['bi', icon || 'bi-wifi-off', 'text-3xl text-stone-400']" aria-hidden="true"></i>
+    <i :class="['bi', icon || 'bi-wifi-off', 'text-3xl text-stone-500']" aria-hidden="true"></i>
 
     <p class="font-display text-base font-bold text-stone-700">{{ title || 'โหลดข้อมูลไม่สำเร็จ' }}</p>
 

@@ -496,7 +496,7 @@ describe('RowActionMenu', () => {
       expect(item.hasAttribute('disabled')).toBe(true)
       expect(item.className).toContain('cursor-not-allowed')
       // สีต้องอยู่ในชุดที่ DESIGN.md §2 อนุญาต (stone-300 ไม่อยู่ และคอนทราสต์อ่านไม่ออก)
-      expect(item.className).toContain('text-stone-400')
+      expect(item.className).toContain('text-stone-500')
 
       // ทาง event: ยิง click เข้ามาตรง ๆ (ข้ามการกันของเบราว์เซอร์) ก็ต้องไม่ผ่าน
       // ⚠️ ต้องใช้ dispatchEvent ไม่ใช่ `.click()` — `.click()` บนปุ่ม `disabled`

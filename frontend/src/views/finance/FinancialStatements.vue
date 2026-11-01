@@ -423,25 +423,25 @@ const exportExcel = async () => {
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <template v-if="activeTab === 'trial-balance' && trialBalance">
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">รวมเดบิต</p>
+            <p class="text-[11px] font-bold text-stone-500">รวมเดบิต</p>
             <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
               {{ formatMoney(trialBalance.total_debit) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">รวมเครดิต</p>
+            <p class="text-[11px] font-bold text-stone-500">รวมเครดิต</p>
             <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
               {{ formatMoney(trialBalance.total_credit) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">จำนวนบัญชี</p>
+            <p class="text-[11px] font-bold text-stone-500">จำนวนบัญชี</p>
             <p class="font-display num mt-2 text-lg font-bold text-stone-900 sm:text-2xl">
               {{ trialBalance.ledgers.length }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">สถานะ</p>
+            <p class="text-[11px] font-bold text-stone-500">สถานะ</p>
             <p class="mt-2">
               <span
                 class="chip"
@@ -464,19 +464,19 @@ const exportExcel = async () => {
 
         <template v-else-if="activeTab === 'income-statement' && incomeStatement">
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">รายได้รวม</p>
+            <p class="text-[11px] font-bold text-stone-500">รายได้รวม</p>
             <p class="font-display num mt-2 break-words text-lg font-bold text-ok-600 sm:text-2xl">
               {{ formatMoney(incomeStatement.total_revenue) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">ค่าใช้จ่ายรวม</p>
+            <p class="text-[11px] font-bold text-stone-500">ค่าใช้จ่ายรวม</p>
             <p class="font-display num mt-2 break-words text-lg font-bold text-danger-600 sm:text-2xl">
               {{ formatMoney(incomeStatement.total_expense) }}
             </p>
           </div>
           <div class="page-card p-3.5 border-s-4 border-s-brand-700 sm:p-5 lg:col-span-2">
-            <p class="text-[11px] font-bold text-stone-400">
+            <p class="text-[11px] font-bold text-stone-500">
               กำไร (ขาดทุน) สุทธิ
             </p>
             <p
@@ -485,25 +485,25 @@ const exportExcel = async () => {
             >
               {{ formatMoney(incomeStatement.net_income) }}
             </p>
-            <p class="mt-1 text-xs font-bold text-stone-400">{{ periodCaption }}</p>
+            <p class="mt-1 text-xs font-bold text-stone-500">{{ periodCaption }}</p>
           </div>
         </template>
 
         <template v-else-if="balanceSheet">
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">สินทรัพย์รวม</p>
+            <p class="text-[11px] font-bold text-stone-500">สินทรัพย์รวม</p>
             <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
               {{ formatMoney(balanceSheet.assets_total) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">หนี้สินรวม</p>
+            <p class="text-[11px] font-bold text-stone-500">หนี้สินรวม</p>
             <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
               {{ formatMoney(balanceSheet.liability_total) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">
+            <p class="text-[11px] font-bold text-stone-500">
               ส่วนของเจ้าของ
             </p>
             <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
@@ -511,7 +511,7 @@ const exportExcel = async () => {
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-400">สถานะ</p>
+            <p class="text-[11px] font-bold text-stone-500">สถานะ</p>
             <p class="mt-2">
               <span
                 class="chip"
@@ -527,7 +527,7 @@ const exportExcel = async () => {
                 {{ balanceSheet.is_balanced ? 'สมดุล' : 'ไม่สมดุล' }}
               </span>
             </p>
-            <p class="num mt-1.5 text-xs font-bold text-stone-400">
+            <p class="num mt-1.5 text-xs font-bold text-stone-500">
               กำไรของงวด {{ formatMoney(balanceSheet.period_net_income) }}
             </p>
           </div>
@@ -539,7 +539,7 @@ const exportExcel = async () => {
           <h2 class="section-title min-w-0 truncate">
             {{ activeTabConfig.label }}
           </h2>
-          <p class="min-w-0 truncate text-xs font-bold text-stone-400">{{ periodCaption }}</p>
+          <p class="min-w-0 truncate text-xs font-bold text-stone-500">{{ periodCaption }}</p>
         </div>
 
         <StatementTable :rows="activeRows" :columns="activeColumns" />

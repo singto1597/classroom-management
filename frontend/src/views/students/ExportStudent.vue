@@ -245,7 +245,7 @@ const handleExport = async () => {
               v-for="field in cat.fields"
               :key="field.id"
               type="button"
-              class="flex select-none items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+              class="flex min-h-11 select-none items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
               :class="isFieldSelected(field.id)
                 ? `${cat.color} ${cat.bg} border-transparent ring-1 ring-inset ${cat.ring}`
                 : 'border-stone-200 text-stone-500 hover:border-stone-300 hover:bg-stone-50'"
@@ -316,7 +316,7 @@ const handleExport = async () => {
                 <div class="flex min-w-0 items-center gap-2.5">
                   <!-- จุดจับลาก (Drag Handle) — พื้นที่แตะ 44px ตามสัญญา DESIGN ข้อ 6 (-my-2 ไม่ให้แถวสูงขึ้น) -->
                   <div
-                    class="drag-handle -my-2 -ms-1 flex h-11 w-11 shrink-0 cursor-grab items-center justify-center text-stone-400 transition-colors hover:text-brand-700"
+                    class="drag-handle -my-2 -ms-1 flex h-11 w-11 shrink-0 cursor-grab items-center justify-center text-stone-500 transition-colors hover:text-brand-700"
                     role="button"
                     aria-label="ลากเพื่อจัดลำดับคอลัมน์"
                   >
@@ -333,7 +333,7 @@ const handleExport = async () => {
                 <!-- ปุ่มลบ — พื้นที่แตะ 44px (-my-1.5 คุมความสูงแถวไม่ให้บวม) -->
                 <button
                   type="button"
-                  class="-my-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
+                  class="-my-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
                   title="ลบออก"
                   aria-label="ลบออก"
                   @click.stop="toggleField(element, { color: element.catColor })"

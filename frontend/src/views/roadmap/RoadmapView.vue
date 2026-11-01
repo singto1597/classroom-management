@@ -169,7 +169,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
         </div>
 
         <div class="min-w-0 flex-1 pb-4">
-          <p class="mb-1.5 text-[11px] font-bold text-stone-400">หัวหน้าห้องเรียน</p>
+          <p class="mb-1.5 text-[11px] font-bold text-stone-500">หัวหน้าห้องเรียน</p>
 
           <RouterLink
             v-if="president"
@@ -193,7 +193,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             หัวหน้าห้อง · ว่าง
@@ -209,7 +209,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
         </div>
 
         <div class="min-w-0 flex-1 pb-4">
-          <p class="mb-1.5 text-[11px] font-bold text-stone-400">คณะบริหาร</p>
+          <p class="mb-1.5 text-[11px] font-bold text-stone-500">คณะบริหาร</p>
 
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <template v-for="slot in execSlots" :key="slot.role">
@@ -225,7 +225,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
                   <i :class="`bi ${slot.config.icon}`" aria-hidden="true"></i>
                 </div>
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-[11px] font-bold text-stone-400">
+                  <p class="truncate text-[11px] font-bold text-stone-500">
                     {{ slot.config.label }}
                   </p>
                   <p class="truncate text-sm font-bold text-stone-900">
@@ -239,7 +239,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
               <div
                 v-else
-                class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+                class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
               >
                 <i class="bi bi-dash-circle" aria-hidden="true"></i>
                 {{ slot.config.label }} · ว่าง
@@ -270,7 +270,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
               <i :class="`bi ${dept.icon}`" aria-hidden="true"></i>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="truncate text-[11px] font-bold text-stone-400">
+              <p class="truncate text-[11px] font-bold text-stone-500">
                 {{ rolesConfig[dept.role]?.label || dept.label }}
               </p>
               <p class="truncate font-bold text-stone-900">{{ displayName(dept.head) }}</p>
@@ -281,7 +281,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             {{ rolesConfig[dept.role]?.label || dept.label }} · ว่าง
@@ -299,7 +299,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
               class="flex items-center gap-3 rounded-xl border border-stone-200 px-3 py-2 transition-colors hover:border-stone-300 hover:bg-stone-50 active:scale-[0.99]"
             >
               <span
-                class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-xs font-bold text-stone-500"
+                class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-xs font-bold text-stone-600"
               >
                 {{ staff.student_no }}
               </span>
@@ -308,7 +308,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
                   <span class="font-bold">{{ displayName(staff) }}</span>
                   <span
                     v-if="personDisplayName(staff) !== displayName(staff)"
-                    class="text-stone-400"
+                    class="text-stone-500"
                   >· {{ personDisplayName(staff) }}</span>
                 </p>
               </div>
@@ -324,7 +324,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
         </div>
 
         <div class="min-w-0 flex-1">
-          <p class="mb-1.5 text-[11px] font-bold text-stone-400">เหรัญญิก</p>
+          <p class="mb-1.5 text-[11px] font-bold text-stone-500">เหรัญญิก</p>
 
           <RouterLink
             v-if="treasurer"
@@ -346,7 +346,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-400"
+            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             ตำแหน่งว่าง

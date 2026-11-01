@@ -76,6 +76,28 @@ body {
   }
 }
 
+/* ⌨️ ริงโฟกัสกลาง — ผู้ใช้คีย์บอร์ดต้องเห็นตลอดว่าโฟกัสอยู่ไหน
+   ใช้ `:where()` ให้ specificity = 0 แล้วจึงต้องพึ่ง `!important`
+   ⇒ นี่คือ **ข้อยกเว้นเดียว** ของโปรเจกต์ที่ยอมใช้ `!important`
+   (ถ้าไม่ใส่ utility `focus-visible:outline-none` ใน `.btn-*` จะกลบริงนี้)
+
+   ทำไมเลือก outline ไม่ใช่ ring/box-shadow:
+   outline ไม่กิน layout และวาดทับทุก stacking context — การ์ด/ชีต/z-index สูง
+   ก็ไม่ทำให้ริงหาย · สี brand-700 (#1D4ED8) บนพื้นขาว = 6.70:1 (≥3:1 ของ non-text OK)
+   และบนพื้น paper (#FAFAF9) = 6.42:1 · offset 2px เว้นช่องให้เห็นขอบของ element เอง */
+:where(
+  a[href],
+  button,
+  input:not([type='hidden']),
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex='-1'])
+):focus-visible {
+  outline: 2px solid #1d4ed8 !important;
+  outline-offset: 2px !important;
+}
+
 @layer components {
   /* ---------------- การ์ด ---------------- */
   .page-card {
@@ -125,10 +147,20 @@ body {
            disabled:pointer-events-none disabled:opacity-50;
   }
 
+  /* ---------------- พื้นที่กด ----------------
+     44×44 px ตาม DESIGN.md §6 — ใช้กับลิงก์/ไอคอนที่หน้าตาเล็กกว่าแต่ต้องแตะได้จริง
+     ตรวจอัตโนมัติด้วย `node scripts/check-tap-targets.mjs` (viewport 360dp) */
+  .tap-44 {
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center;
+  }
+
   /* ---------------- ฟอร์ม ---------------- */
+  /* ตัวอักษรในช่องกรอก: stone-500 (#78716C) = 4.80:1 บนขาว, 4.59:1 บน paper
+     — stone-400 (#A8A29E) ได้แค่ 2.52:1 ตกข้อกำหนด WCAG AA 4.5:1 (วัด 2026-11-01)
+     `disabled:text-stone-400` คงไว้ได้ เพราะข้อความในคอนโทรลที่ปิดใช้งานได้รับยกเว้น */
   .field {
-    @apply w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm
-           text-stone-900 placeholder:text-stone-400 transition-colors
+    @apply min-h-11 w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm
+           text-stone-900 placeholder:text-stone-500 transition-colors
            focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/15
            disabled:bg-stone-50 disabled:text-stone-400;
   }

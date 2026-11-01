@@ -115,7 +115,7 @@ function handleSave() {
             </div>
             <button
               type="button"
-              class="me-1 mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+              class="me-1 mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
               aria-label="ปิดหน้าต่าง"
               @click="emit('close')"
             >
@@ -128,13 +128,13 @@ function handleSave() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-diagram-3 shrink-0 text-stone-400" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
+              <i class="bi bi-diagram-3 shrink-0 text-stone-500" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
             </div>
             <!-- readOnly: แสดงเป็น text -->
             <template v-if="readOnly">
               <div
                 v-if="!dutyPosition && !dutyNote"
-                class="rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2.5 text-sm text-stone-400"
+                class="rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2.5 text-sm text-stone-500"
               >
                 — ไม่มีหน้าที่ —
               </div>
@@ -173,7 +173,7 @@ function handleSave() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-list-check shrink-0 text-stone-400" aria-hidden="true"></i> ข้อมูลที่จัดเก็บของกิจกรรมนี้
+              <i class="bi bi-list-check shrink-0 text-stone-500" aria-hidden="true"></i> ข้อมูลที่จัดเก็บของกิจกรรมนี้
             </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div v-for="field in typeBFields" :key="field.key">
@@ -197,7 +197,7 @@ function handleSave() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-puzzle shrink-0 text-stone-400" aria-hidden="true"></i> ฟิลด์เพิ่มเติมของกิจกรรมนี้
+              <i class="bi bi-puzzle shrink-0 text-stone-500" aria-hidden="true"></i> ฟิลด์เพิ่มเติมของกิจกรรมนี้
             </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div v-for="field in dynamicFields" :key="field.key">
@@ -221,7 +221,7 @@ function handleSave() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-asterisk shrink-0 text-stone-400" aria-hidden="true"></i> ข้อมูลเพิ่มเติมเฉพาะคนนี้
+              <i class="bi bi-asterisk shrink-0 text-stone-500" aria-hidden="true"></i> ข้อมูลเพิ่มเติมเฉพาะคนนี้
             </div>
             <ExtraInfoRows
               :rows="customFields"
@@ -242,7 +242,7 @@ function handleSave() {
             <div
               class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
             >
-              <i class="bi bi-lock-fill shrink-0 text-stone-400" aria-hidden="true"></i> จากโปรไฟล์ส่วนตัว (อ่านอย่างเดียว)
+              <i class="bi bi-lock-fill shrink-0 text-stone-500" aria-hidden="true"></i> จากโปรไฟล์ส่วนตัว (อ่านอย่างเดียว)
             </div>
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div
@@ -260,7 +260,7 @@ function handleSave() {
               </div>
             </div>
             <p class="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-stone-500">
-              <i class="bi bi-lock-fill shrink-0 text-stone-400" aria-hidden="true"></i>
+              <i class="bi bi-lock-fill shrink-0 text-stone-500" aria-hidden="true"></i>
               <span>ข้อมูลนี้อัปเดตได้ที่หน้าโปรไฟล์ของนักเรียน ไม่ถูกบันทึกลงกิจกรรมนี้</span>
             </p>
           </div>

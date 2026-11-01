@@ -24,7 +24,7 @@ withDefaults(
 const emit = defineEmits<{ click: [event: MouseEvent] }>()
 
 const TONE_CLASS = {
-  neutral: 'text-stone-400 hover:bg-stone-100 hover:text-stone-800',
+  neutral: 'text-stone-500 hover:bg-stone-100 hover:text-stone-800',
   brand: 'text-brand-700 hover:bg-brand-50',
   danger: 'text-danger-600 hover:bg-danger-50',
 } as const

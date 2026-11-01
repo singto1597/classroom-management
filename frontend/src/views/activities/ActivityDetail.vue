@@ -410,7 +410,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                       :to="`/activities/${activityId}/edit`"
                       class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-50"
                     >
-                      <i class="bi bi-pencil-square text-stone-400" aria-hidden="true"></i>
+                      <i class="bi bi-pencil-square text-stone-500" aria-hidden="true"></i>
                       แก้ไขกิจกรรม
                     </router-link>
                     <button
@@ -476,7 +476,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           <h2 class="section-title mb-3 flex items-center gap-2">
             <i class="bi bi-asterisk text-brand-700" aria-hidden="true"></i> ข้อมูลเพิ่มเติม
           </h2>
-          <div v-if="activityInfoRows.length === 0" class="text-sm text-stone-400">
+          <div v-if="activityInfoRows.length === 0" class="text-sm text-stone-500">
             ไม่มีข้อมูลเพิ่มเติม
           </div>
           <!-- Definition list แบบแน่น: label ซ้าย / ค่าขวา คั่นด้วยเส้นบาง -->
@@ -549,7 +549,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
             มาแล้ว {{ attendedCount }}/{{ activity.participants.length }}
           </span>
         </div>
-        <p v-if="canManage" class="mb-3 text-xs text-stone-400">
+        <p v-if="canManage" class="mb-3 text-xs text-stone-500">
           <i class="bi bi-info-circle me-1" aria-hidden="true"></i>กด "ยังไม่มา" เพื่อเช็คอิน
         </p>
 

@@ -56,7 +56,7 @@ const emit = defineEmits<{
         aria-label="สลับห้องเรียน"
       >
         <p
-          class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold text-stone-400"
+          class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold text-stone-500"
         >
           ห้องเรียนของฉัน
         </p>
@@ -158,7 +158,7 @@ const emit = defineEmits<{
           >
             ออกจากระบบ
           </button>
-          <p class="mt-2 text-center text-[10px] font-medium text-stone-400">
+          <p class="mt-2 text-center text-[10px] font-medium text-stone-500">
             {{ versionLabel }}
           </p>
         </div>

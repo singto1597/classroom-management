@@ -368,7 +368,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
     <!-- ตัวเลือกช่วงเวลา — เต็มความกว้างในเนื้อหา ไม่ยัดใน header เพราะมี 2 ช่องวันที่ -->
     <div class="page-card p-3.5 sm:p-4">
       <PeriodPicker v-model="period" :modes="['month', 'range']" label="ช่วงที่ต้องการดูงบ" />
-      <p class="mt-2 text-xs text-stone-400">
+      <p class="mt-2 text-xs text-stone-500">
         แสดงเฉพาะงบที่คาบเกี่ยวกับช่วงนี้ — ยอด "ใช้ไป" ของแต่ละแถวคิดจากช่วงของงบนั้นเอง
       </p>
     </div>
@@ -393,34 +393,34 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
       <!-- KPI: งบรวม / ใช้ไป / คงเหลือ / เกินงบ -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold text-stone-400">งบรวม</p>
+          <p class="text-[11px] font-bold text-stone-500">งบรวม</p>
           <p
             class="font-display num mt-2 break-words text-2xl font-bold text-stone-900 sm:text-3xl"
           >
             {{ formatMoney(overview?.total_budget ?? 0) }}
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-400">{{ items.length }} รายการ</p>
+          <p class="mt-1 text-xs font-bold text-stone-500">{{ items.length }} รายการ</p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold text-stone-400">ใช้ไป</p>
+          <p class="text-[11px] font-bold text-stone-500">ใช้ไป</p>
           <p
             class="font-display num mt-2 break-words text-2xl font-bold text-brand-700 sm:text-3xl"
           >
             {{ formatMoney(overview?.total_used ?? 0) }}
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-400">เฉพาะงบที่แสดงอยู่</p>
+          <p class="mt-1 text-xs font-bold text-stone-500">เฉพาะงบที่แสดงอยู่</p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold text-stone-400">คงเหลือ</p>
+          <p class="text-[11px] font-bold text-stone-500">คงเหลือ</p>
           <p
             class="font-display num mt-2 break-words text-2xl font-bold sm:text-3xl"
             :class="isTotalOver ? 'text-danger-600' : 'text-ok-600'"
           >
             {{ formatMoney(totalRemaining) }}
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-400">
+          <p class="mt-1 text-xs font-bold text-stone-500">
             {{ isTotalOver ? 'ใช้เกินงบรวมแล้ว' : 'งบรวม − ใช้ไป' }}
           </p>
         </div>
@@ -429,15 +429,15 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           class="page-card p-3.5 sm:p-5"
           :class="(overview?.over_count ?? 0) > 0 ? 'border-s-4 border-s-danger-500' : ''"
         >
-          <p class="text-[11px] font-bold text-stone-400">เกินงบ</p>
+          <p class="text-[11px] font-bold text-stone-500">เกินงบ</p>
           <p
             class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
             :class="(overview?.over_count ?? 0) > 0 ? 'text-danger-600' : 'text-stone-900'"
           >
             {{ overview?.over_count ?? 0 }}
-            <span class="text-base font-bold text-stone-400">รายการ</span>
+            <span class="text-base font-bold text-stone-500">รายการ</span>
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-400">
+          <p class="mt-1 text-xs font-bold text-stone-500">
             ใกล้เต็มอีก {{ overview?.warning_count ?? 0 }} รายการ
           </p>
         </div>
@@ -456,7 +456,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
                 {{ item.category_name }}
               </h2>
-              <p class="num mt-0.5 truncate text-[11px] font-bold text-stone-400">
+              <p class="num mt-0.5 truncate text-[11px] font-bold text-stone-500">
                 {{ formatThaiDate(item.period_start) }} – {{ formatThaiDate(item.period_end) }}
               </p>
             </div>
@@ -471,7 +471,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               <p class="font-display num text-lg font-bold text-stone-900">
                 {{ formatMoney(item.used) }}
               </p>
-              <p class="num shrink-0 text-xs font-bold text-stone-400">
+              <p class="num shrink-0 text-xs font-bold text-stone-500">
                 / {{ formatMoney(item.amount) }}
               </p>
             </div>
@@ -483,7 +483,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               ></div>
             </div>
             <div class="mt-1.5 flex items-center justify-between gap-2">
-              <span class="num text-[11px] font-bold text-stone-400">{{ pctLabel(item) }}</span>
+              <span class="num text-[11px] font-bold text-stone-500">{{ pctLabel(item) }}</span>
               <span
                 class="num text-[11px] font-bold"
                 :class="item.remaining < 0 ? 'text-danger-600' : 'text-stone-500'"
@@ -541,7 +541,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               >
                 <td>
                   <p class="font-bold text-stone-900">{{ item.category_name }}</p>
-                  <p v-if="item.note" class="mt-0.5 max-w-xs truncate text-xs text-stone-400">
+                  <p v-if="item.note" class="mt-0.5 max-w-xs truncate text-xs text-stone-500">
                     {{ item.note }}
                   </p>
                 </td>
@@ -568,7 +568,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                       :style="{ width: barWidth(item) }"
                     ></div>
                   </div>
-                  <p class="num mt-1 text-[11px] font-bold text-stone-400">{{ pctLabel(item) }}</p>
+                  <p class="num mt-1 text-[11px] font-bold text-stone-500">{{ pctLabel(item) }}</p>
                 </td>
                 <td class="text-center">
                   <span class="chip" :class="STATUS_CHIP[statusOf(item)].cls">
@@ -635,13 +635,13 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
             <h2 class="font-display truncate text-lg font-bold text-stone-900">
               {{ isEditing ? 'แก้ไขงบประมาณ' : 'ตั้งงบประมาณ' }}
             </h2>
-            <p class="mt-0.5 truncate text-xs text-stone-400">
+            <p class="mt-0.5 truncate text-xs text-stone-500">
               วงเงินต่อหมวดในช่วงวันที่ที่กำหนด — ระบบคิดเดือน/ปีให้เองจากช่วงนี้
             </p>
           </div>
           <button
             type="button"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
             aria-label="ปิดหน้าต่าง"
             @click="closeModal"
           >
@@ -665,7 +665,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                   {{ c.label }}{{ c.alreadyBudgeted ? ' · มีงบอยู่แล้ว' : '' }}
                 </option>
               </select>
-              <p v-if="isEditing" class="mt-1 text-xs text-stone-400">
+              <p v-if="isEditing" class="mt-1 text-xs text-stone-500">
                 เปลี่ยนหมวดไม่ได้ — ถ้าต้องการย้าย ให้ลบงบนี้แล้วสร้างใหม่
               </p>
               <p v-else-if="!categoryOptions.length" class="mt-1 text-xs text-warn-700">
@@ -677,7 +677,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               <label class="field-label" for="budgetAmount">วงเงิน (บาท)</label>
               <div class="relative">
                 <span
-                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3 text-sm font-bold text-stone-400"
+                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3 text-sm font-bold text-stone-500"
                   aria-hidden="true"
                 >
                   ฿
@@ -705,7 +705,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                 <input id="budgetEnd" v-model="formEnd" type="date" class="field num" />
               </div>
             </div>
-            <p class="text-xs text-stone-400">
+            <p class="text-xs text-stone-500">
               ใส่ให้ครอบทั้งเดือน (1 ถึงวันสุดท้ายของเดือน) ระบบจะติดป้ายเป็นงบ "รายเดือน" ให้เอง —
               ช่วงอื่นที่ไม่ตรงเดือน/ปี จะถูกติดป้ายเป็น "กำหนดเอง"
             </p>

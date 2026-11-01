@@ -81,7 +81,7 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
                 :key="col.key"
                 :class="[
                   col.numeric ? 'num text-right whitespace-nowrap' : '',
-                  col.key === 'code' ? 'num w-24 text-stone-400' : '',
+                  col.key === 'code' ? 'num w-24 text-stone-500' : '',
                   row.isTotal ? 'font-bold text-stone-900' : '',
                   !row.isTotal && col.key === 'name' ? 'text-stone-700' : '',
                 ]"
@@ -122,7 +122,7 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
               >
                 {{ row.name || '—' }}
               </p>
-              <p v-if="row.code" class="num mt-0.5 text-xs text-stone-400">รหัส {{ row.code }}</p>
+              <p v-if="row.code" class="num mt-0.5 text-xs text-stone-500">รหัส {{ row.code }}</p>
             </div>
 
             <div class="shrink-0 text-right">
@@ -132,7 +132,7 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
                 class="num text-sm font-bold whitespace-nowrap"
                 :class="isNegative(row, col.key) ? 'text-danger-600' : 'text-stone-900'"
               >
-                <span v-if="columns.filter((c) => c.numeric).length > 1" class="me-1 text-[11px] font-medium text-stone-400">
+                <span v-if="columns.filter((c) => c.numeric).length > 1" class="me-1 text-[11px] font-medium text-stone-500">
                   {{ col.label }}
                 </span>
                 {{ isNegative(row, col.key) ? '−' : '' }}{{ cellText(row, col.key) }}

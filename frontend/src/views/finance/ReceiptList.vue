@@ -509,31 +509,31 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
     <!-- สรุปช่วงที่กำลังดู — ตัวเลขมาจากชุดที่กรองแล้วตรง ๆ ไม่ใช่ยอดสะสมของห้อง -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-400">เอกสาร</p>
+        <p class="text-[11px] font-bold text-stone-500">เอกสาร</p>
         <p class="font-display num mt-1 text-xl font-bold text-stone-900">{{ items.length }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">{{ describePeriod(period) }}</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-400">ยอดรับเงิน</p>
+        <p class="text-[11px] font-bold text-stone-500">ยอดรับเงิน</p>
         <p class="font-display num mt-1 text-xl font-bold text-ok-700">
           {{ formatMoney(receivedTotal) }}
         </p>
         <p class="mt-0.5 text-[11px] text-stone-500">เฉพาะที่แสดงอยู่ (ไม่รวมใบแจ้งหนี้)</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-400">ยอดจ่ายเงิน</p>
+        <p class="text-[11px] font-bold text-stone-500">ยอดจ่ายเงิน</p>
         <p class="font-display num mt-1 text-xl font-bold text-stone-900">
           {{ formatMoney(paidTotal) }}
         </p>
         <p class="mt-0.5 text-[11px] text-stone-500">ใบสำคัญจ่ายที่แสดงอยู่</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-400">เอกสารรับเงิน</p>
+        <p class="text-[11px] font-bold text-stone-500">เอกสารรับเงิน</p>
         <p class="font-display num mt-1 text-xl font-bold text-ok-700">{{ receiptCount }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">ใบเสร็จ · รับล่วงหน้า · ใบรับเงิน</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-400">ใบแจ้งหนี้</p>
+        <p class="text-[11px] font-bold text-stone-500">ใบแจ้งหนี้</p>
         <p class="font-display num mt-1 text-xl font-bold text-warn-700">{{ invoiceCount }}</p>
         <p class="mt-0.5 text-[11px] text-stone-500">เอกสารเรียกเก็บ</p>
       </div>
@@ -660,7 +660,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         @click="toggleExpand(row.batchId)"
                       >
                         <i
-                          class="bi shrink-0 text-stone-400 transition-transform"
+                          class="bi shrink-0 text-stone-500 transition-transform"
                           :class="isExpanded(row.batchId) ? 'bi-chevron-down' : 'bi-chevron-right'"
                           aria-hidden="true"
                         ></i>
@@ -826,7 +826,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                       — เลขที่ {{ row.item.student_no }}
                     </span>
                   </p>
-                  <p v-if="row.item.collection_title" class="truncate text-xs text-stone-400">
+                  <p v-if="row.item.collection_title" class="truncate text-xs text-stone-500">
                     {{ row.item.collection_title }}
                   </p>
                 </div>
@@ -843,7 +843,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
               <div
                 class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
               >
-                <small class="num truncate text-[11px] font-bold text-stone-400">
+                <small class="num truncate text-[11px] font-bold text-stone-500">
                   <i class="bi bi-clock" aria-hidden="true"></i>
                   {{ formatThaiDateTime(row.item.issued_at) }}
                 </small>
@@ -959,7 +959,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                           @click="toggleExpand(row.batchId)"
                         >
                           <i
-                            class="bi shrink-0 text-stone-400"
+                            class="bi shrink-0 text-stone-500"
                             :class="isExpanded(row.batchId) ? 'bi-chevron-down' : 'bi-chevron-right'"
                             aria-hidden="true"
                           ></i>
@@ -1060,7 +1060,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                       </td>
                       <td>
                         <p class="font-bold text-stone-900">{{ m.issued_to_name || '—' }}</p>
-                        <p v-if="m.student_no" class="num text-xs text-stone-400">
+                        <p v-if="m.student_no" class="num text-xs text-stone-500">
                           เลขที่ {{ m.student_no }}
                         </p>
                       </td>
@@ -1140,7 +1140,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                     </td>
                     <td>
                       <p class="font-bold text-stone-900">{{ row.item.issued_to_name || '—' }}</p>
-                      <p v-if="row.item.student_no" class="num text-xs text-stone-400">
+                      <p v-if="row.item.student_no" class="num text-xs text-stone-500">
                         เลขที่ {{ row.item.student_no }}
                       </p>
                     </td>

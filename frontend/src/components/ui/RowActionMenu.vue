@@ -215,10 +215,10 @@ const itemClass = (item: RowActionItem) => [
   // `py-3` ไม่ใช่ `py-2.5` — แถวที่กดได้ต้อง ≥44px (DESIGN.md §2) เท่ากับ `ITEM_HEIGHT` ข้างบน
   'flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-bold transition-colors',
   'focus-visible:outline-none focus-visible:bg-stone-100',
-  // `text-stone-400` = "ตัวอักษรเบา" ตัวสุดท้ายที่ DESIGN.md §2 อนุญาต
+  // `text-stone-500` = "ตัวอักษรเบา" ตัวสุดท้ายที่ DESIGN.md §2 อนุญาต
   // (stone-300 ไม่อยู่ในชุดที่อนุญาต และคอนทราสต์ ~1.6:1 อ่านไม่ออก)
   item.disabled
-    ? 'cursor-not-allowed text-stone-400'
+    ? 'cursor-not-allowed text-stone-500'
     : item.tone === 'danger'
       ? 'text-danger-600 hover:bg-danger-50'
       : 'text-stone-700 hover:bg-stone-50',
@@ -233,7 +233,7 @@ onBeforeUnmount(close);
   <button
     ref="triggerRef"
     type="button"
-    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-300 active:scale-[0.97]"
+    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-300 active:scale-[0.97]"
     :title="label"
     :aria-label="label"
     aria-haspopup="menu"

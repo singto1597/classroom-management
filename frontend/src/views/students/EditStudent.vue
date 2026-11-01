@@ -277,7 +277,7 @@ onMounted(() => {
             <div>
               <label class="field-label" for="newStudentNo">เปลี่ยนเลขที่นักเรียน</label>
               <input id="newStudentNo" v-model="form.new_student_no" type="number" class="field" />
-              <p class="mt-1.5 text-xs text-stone-400">
+              <p class="mt-1.5 text-xs text-stone-500">
                 <i class="bi bi-info-circle" aria-hidden="true"></i> เปลี่ยนแล้วระบบจะทำการย้ายข้อมูลทั้งหมดไปที่เลขที่ใหม่
               </p>
             </div>
@@ -289,7 +289,7 @@ onMounted(() => {
                 <option value="pending">⏳ รออนุมัติ (Pending)</option>
                 <option value="inactive">🚫 พ้นสภาพ (Inactive)</option>
               </select>
-              <p class="mt-1.5 text-xs text-stone-400">
+              <p class="mt-1.5 text-xs text-stone-500">
                 <i class="bi bi-info-circle" aria-hidden="true"></i> pending = ยังไม่ได้อนุมัติเข้าเรียน, inactive = พ้นสภาพ/ย้ายออก
               </p>
             </div>
@@ -315,7 +315,7 @@ onMounted(() => {
                 <option value="staff_sanitation">🧹 กรรมการสุขาภิบาล</option>
                 <option value="treasurer">💰 เหรัญญิก</option>
               </select>
-              <p class="mt-1.5 text-xs text-stone-400">
+              <p class="mt-1.5 text-xs text-stone-500">
                 <i class="bi bi-info-circle" aria-hidden="true"></i> แสดงผลบนหน้าเว็บเท่านั้น ไม่มีผลกับสิทธิ์
               </p>
             </div>
@@ -426,13 +426,13 @@ onMounted(() => {
               </div>
               <div>
                 <label class="field-label" for="firstNameEn">
-                  ชื่อจริง (อังกฤษ) <span class="font-normal text-stone-400">ไม่บังคับ</span>
+                  ชื่อจริง (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
                 </label>
                 <input id="firstNameEn" :disabled="!isEditMode" v-model="form.first_name_en" type="text" class="field" />
               </div>
               <div>
                 <label class="field-label" for="lastNameEn">
-                  นามสกุล (อังกฤษ) <span class="font-normal text-stone-400">ไม่บังคับ</span>
+                  นามสกุล (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
                 </label>
                 <input id="lastNameEn" :disabled="!isEditMode" v-model="form.last_name_en" type="text" class="field" />
               </div>

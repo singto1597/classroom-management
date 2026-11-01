@@ -72,17 +72,17 @@ const handlePay = async (student: StudentPaymentDetail) => {
     titleText: `รับเงิน: ${displayName(student)}`,
     html:
       '<div class="mb-3 text-left">' +
-      '<label class="block text-xs font-bold text-stone-400 mb-1">รับเงินเข้าบัญชีห้อง</label>' +
+      '<label class="block text-xs font-bold text-stone-500 mb-1">รับเงินเข้าบัญชีห้อง</label>' +
       `<select id="swal-acc" class="swal2-input w-full">
         ${accounts.value.map((acc) => `<option value="${escapeHtml(acc.id)}">${escapeHtml(acc.account_name)}</option>`).join('')}
       </select>` +
       '</div>' +
       '<div class="mb-3 text-left">' +
-      '<label class="block text-xs font-bold text-stone-400 mb-1">จำนวนเงินที่จ่าย (฿)</label>' +
+      '<label class="block text-xs font-bold text-stone-500 mb-1">จำนวนเงินที่จ่าย (฿)</label>' +
       `<input id="swal-amt" type="number" class="swal2-input w-full" value="${escapeHtml(remaining)}" step="0.01">` +
       '</div>' +
       '<div class="text-left">' +
-      '<label class="block text-xs font-bold text-stone-400 mb-1">URL รูปสลิป (ถ้ามี)</label>' +
+      '<label class="block text-xs font-bold text-stone-500 mb-1">URL รูปสลิป (ถ้ามี)</label>' +
       '<input id="swal-slip" type="url" class="swal2-input w-full" placeholder="https://...">' +
       '</div>',
     focusConfirm: false,
@@ -466,7 +466,7 @@ onMounted(() => {
                 <p class="truncate text-sm font-bold text-stone-900">{{ displayName(s) }}</p>
                 <p
                   v-if="s.nickname || s.nickname_en"
-                  class="truncate text-xs italic text-stone-400"
+                  class="truncate text-xs italic text-stone-500"
                 >
                   ({{ s.nickname || s.nickname_en }})
                 </p>
@@ -479,7 +479,7 @@ onMounted(() => {
                 <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                 จ่ายครบแล้ว
               </span>
-              <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-400">
+              <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-500">
                 <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
               </small>
             </div>
@@ -527,7 +527,7 @@ onMounted(() => {
               </button>
               <span
                 v-else-if="s.status === 'pending'"
-                class="chip bg-stone-100 text-stone-500"
+                class="chip bg-stone-100 text-stone-600"
               >
                 รอแอดมินรับยอด
               </span>
@@ -545,7 +545,7 @@ onMounted(() => {
               </button>
               <span
                 v-else
-                class="chip bg-stone-100 text-stone-400"
+                class="chip bg-stone-100 text-stone-600"
                 title="ลบไม่ได้ เพราะมีการจ่ายเงินแล้ว"
               >
                 <i class="bi bi-lock-fill" aria-hidden="true"></i>
@@ -571,10 +571,10 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-for="s in data.students" :key="s.payment_id">
-                <td class="num font-bold text-stone-400">#{{ s.student_no }}</td>
+                <td class="num font-bold text-stone-500">#{{ s.student_no }}</td>
                 <td>
                   <p class="font-bold text-stone-900">{{ displayName(s) }}</p>
-                  <p v-if="s.nickname || s.nickname_en" class="text-xs italic text-stone-400">
+                  <p v-if="s.nickname || s.nickname_en" class="text-xs italic text-stone-500">
                     ({{ s.nickname || s.nickname_en }})
                   </p>
                 </td>
@@ -584,7 +584,7 @@ onMounted(() => {
                       <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                       จ่ายครบแล้ว
                     </span>
-                    <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-400">
+                    <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-500">
                       <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
                     </small>
                   </div>
@@ -633,7 +633,7 @@ onMounted(() => {
                       </button>
                       <span
                         v-else-if="s.status === 'pending'"
-                        class="chip bg-stone-100 text-stone-500"
+                        class="chip bg-stone-100 text-stone-600"
                       >
                         รอแอดมินรับยอด
                       </span>
@@ -650,7 +650,7 @@ onMounted(() => {
                       </button>
                       <span
                         v-else
-                        class="chip bg-stone-100 text-stone-400"
+                        class="chip bg-stone-100 text-stone-600"
                         title="ลบไม่ได้ เพราะมีการจ่ายเงินแล้ว"
                       >
                         <i class="bi bi-lock-fill" aria-hidden="true"></i>
