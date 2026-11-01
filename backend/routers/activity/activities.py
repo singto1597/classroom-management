@@ -11,6 +11,9 @@ from models.activity_schemas import (
     ActivityCreateRequest,
     ActivityUpdateRequest,
     ActivityResponse,
+    ShareLinkRequest,
+    ShareLinkResponse,
+    ShareRevokeResponse,
     ParticipantAddRequest,
     ParticipantUpdateRequest,
     ParticipantStatusUpdate,
@@ -66,6 +69,8 @@ async def create_activity(
             base_hours=req.base_hours,
             status=req.status,
             capacity=req.capacity,
+            category=req.category,
+            registration_deadline=req.registration_deadline,
             metadata=req.metadata,
             participants=participants,
             user_name=req.user_name,
@@ -89,12 +94,14 @@ async def list_activities(
     room_id: int = Depends(resolve_target_to_room_id),
     status: Optional[str] = None,
     include_participants: bool = False,
+    category: Optional[str] = None,
     pool: asyncpg.Pool = Depends(get_db_pool),
     user_ctx: dict = Depends(get_current_user),
 ):
     """
     ดึงรายการกิจกรรมของห้อง (เรียงตามวัน activity_date)
     - query param status: upcoming/ongoing/completed/cancelled (ไม่ส่ง = ทั้งหมด)
+    - query param category: camp/competition/volunteer/training/ceremony/other (ไม่ส่ง = ทั้งหมด)
     - query param include_participants=true: แนบรายชื่อผู้เข้าร่วมในแต่ละกิจกรรม (ใช้หน้า detail)
     """
     client_source, actor = get_audit_context(request, user_ctx)
@@ -107,11 +114,15 @@ async def list_activities(
             user_id=user_ctx.get("user_id"),
             status=status,
             include_participants=include_participants,
+            category=category,
         )
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
-    except RoomNotFoundError as e:
+    except (RoomNotFoundError,) as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except (ValidationError, ValueError) as e:
+        # 🏷️ หมวดที่ไม่รู้จัก = 400 ไม่ใช่ลิสต์ว่าง (ผู้ใช้จะได้รู้ว่ากรองผิด ไม่ใช่คิดว่าห้องว่าง)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{target_id}/activities/me/roles", response_model=List[dict], summary="กิจกรรม + หน้าที่ของฉัน")
@@ -223,6 +234,70 @@ async def delete_activity(
             room_id=room_id,
         )
         return SuccessResponse(message=f"ลบกิจกรรม ID: {activity_id} เรียบร้อยแล้ว (soft delete)")
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except (ActivityNotFoundError, RoomNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# 🔗 P4.3 — ลิงก์แชร์: ออก/เพิกถอน (ต้อง MANAGE_ACTIVITIES) · การ *อ่าน* อยู่ที่ /api/shared
+@router.post(
+    "/{target_id}/activities/{activity_id}/share",
+    response_model=ShareLinkResponse,
+    summary="ออกลิงก์แชร์กิจกรรม (อ่านอย่างเดียว ไม่ต้องล็อกอิน)",
+)
+async def issue_share_link(
+    activity_id: int,
+    req: ShareLinkRequest,
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """
+    คืนลิงก์เดิมถ้ามีอยู่แล้ว (idempotent) — ส่ง `rotate: true` เพื่อออกใหม่และทิ้งลิงก์เก่า
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await ActivityService.issue_share_link(
+            pool=pool,
+            activity_id=activity_id,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            room_id=room_id,
+            rotate=req.rotate,
+        )
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except (ActivityNotFoundError, RoomNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete(
+    "/{target_id}/activities/{activity_id}/share",
+    response_model=ShareRevokeResponse,
+    summary="เพิกถอนลิงก์แชร์กิจกรรม",
+)
+async def revoke_share_link(
+    activity_id: int,
+    req: ActionWithUserRequest,
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """ลิงก์ที่ส่งออกไปแล้วจะเปิดไม่ได้อีก — เรียกซ้ำได้ (revoked=False ถ้าไม่มีลิงก์อยู่)"""
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await ActivityService.revoke_share_link(
+            pool=pool,
+            activity_id=activity_id,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+            room_id=room_id,
+        )
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except (ActivityNotFoundError, RoomNotFoundError) as e:

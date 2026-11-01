@@ -21,6 +21,7 @@ from core.logger import AuditLogger
 from core.rbac import require_member, require_permission
 from core.privacy import can_view_activity_pii, mask_private_fields, PROFILE_TYPE_A_FIELDS
 from services.action_service import ActionService
+from .constants import ACTIVITY_CATEGORY_LABELS
 
 service_logger = AuditLogger(service_name="ACTIVITY")
 
@@ -113,8 +114,11 @@ class BaseMixin:
 
     @classmethod
     async def _fetch_activity_row(cls, conn: asyncpg.Connection, room_id: int, activity_id: int) -> Optional[dict]:
+        # 🏷️ P4.3 — category/registration_deadline เป็นคอลัมน์ตรง · share_token ไม่ออกมาเอง
+        #    (ความลับของลิงก์ — คืนแค่ "มีหรือไม่มี" ให้หน้าจอรู้ว่าต้องแสดงปุ่มเพิกถอนไหม)
         row = await conn.fetchrow(
             "SELECT id, room_id, title, description, activity_date, base_hours, capacity, status, metadata, "
+            "category, registration_deadline, (share_token IS NOT NULL) AS has_share_link, "
             "created_by, created_at, updated_at "
             "FROM activities WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL",
             activity_id, room_id,
@@ -181,6 +185,9 @@ class BaseMixin:
             resp["waitlisted_count"] = int(resp.get("waitlisted_count") or 0)
         resp["participants"] = participants
         resp.pop("_participants", None)
+        # 🏷️ P4.3 — ป้ายไทยของหมวด (None = ยังไม่จัดหมวด) ส่งมาให้เลย หน้าจอจะได้ไม่ต้องมีตารางแปลซ้ำ
+        resp["category_label"] = ACTIVITY_CATEGORY_LABELS.get(resp.get("category") or "")
+        resp["has_share_link"] = bool(resp.get("has_share_link"))
         return resp
 
     @classmethod

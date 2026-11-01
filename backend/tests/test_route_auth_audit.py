@@ -46,6 +46,11 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/version"):
         "provenance ของระบบ (version + git sha) — ไม่มีข้อมูลผู้ใช้; ต้องเช็กได้จาก"
         "นอกแอปโดยไม่ต้องมี credential ทั้งตอนตรวจ deploy และตอนไล่ incident",
+    ("GET", "/api/shared/activity/{token}"):
+        "หน้าลิงก์แชร์กิจกรรม (P4.3) — ผู้เปิดคือผู้ปกครอง/นักเรียนที่ไม่มีบัญชีในระบบ"
+        "และไม่รู้ room_id; สิทธิ์การเข้าถึงคือ 'มีโทเคนที่ยังไม่ถูกเพิกถอน' ซึ่งพิสูจน์ที่"
+        " `activities.share_token` (partial unique index) · ตอบเฉพาะข้อมูลงาน ไม่มี PII"
+        " — ออก/เพิกถอนลิงก์ยังต้อง MANAGE_ACTIVITIES ผ่าน route ใต้ /api/classroom",
 }
 
 
@@ -164,7 +169,10 @@ def test_route_count_is_not_silently_shrinking():
     # 156 → 158 (2026-11-01): เช็คอินด้วย QR (P4.2) — `GET/POST …/checkin/qr`
     #   ทั้งคู่มี `Depends(get_current_user)`; ออกบัตรต้องมี MANAGE_ACTIVITIES
     #   และการสแกนก็เรียก `require_permission(MANAGE_ACTIVITIES)` ใน service
-    expected = 158
+    # 158 → 161 (2026-11-01): ลิงก์แชร์กิจกรรม (P4.3) — POST/DELETE …/activities/{id}/share
+    #   (มี `Depends(get_current_user)` + MANAGE_ACTIVITIES ใน service) และ
+    #   `GET /api/shared/activity/{token}` ที่ **ตั้งใจให้ public** ⇒ อยู่ใน PUBLIC_ROUTES
+    expected = 161
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

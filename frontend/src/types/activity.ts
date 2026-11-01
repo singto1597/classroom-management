@@ -142,6 +142,13 @@ export interface Activity {
   status: ActivityStatus | string
   /** 🪑 P4.1 — ความจุ (null = ไม่จำกัด) */
   capacity?: number | null
+  /** 🏷️ P4.3 — หมวดกิจกรรม (slug) + ป้ายไทยที่ backend แปลให้แล้ว · null = ยังไม่จัดหมวด */
+  category?: string | null
+  category_label?: string | null
+  /** 📅 P4.3 — วันปิดรับลงทะเบียน (YYYY-MM-DD) · null = ไม่มีกำหนด */
+  registration_deadline?: string | null
+  /** 🔗 P4.3 — มีลิงก์แชร์ที่ยังไม่ถูกเพิกถอนอยู่หรือไม่ (โทเคนจริงออกให้เฉพาะตอนกดแชร์) */
+  has_share_link?: boolean
   metadata: Metadata
   created_by: string | null
   created_at: string
@@ -172,6 +179,10 @@ export interface ActivityCreate {
   status?: ActivityStatus | string
   /** 🪑 P4.1 — ไม่ส่ง = ไม่จำกัดความจุ */
   capacity?: number | null
+  /** 🏷️ P4.3 — slug จาก `ACTIVITY_CATEGORIES` · ไม่ส่ง/`''` = ไม่ระบุหมวด */
+  category?: string | null
+  /** 📅 P4.3 — วันปิดรับลงทะเบียน (ต้องไม่หลัง activity_date) */
+  registration_deadline?: string | null
   metadata?: Metadata
   participants?: ActivityParticipantInput[]
   user_name: string
@@ -185,6 +196,10 @@ export interface ActivityUpdate {
   status?: ActivityStatus | string
   /** 🪑 P4.1 — 0 = ยกเลิกเพดาน (null ที่ส่งมาตรง ๆ ถูกมองว่า "ไม่ส่ง") */
   capacity?: number
+  /** 🏷️ P4.3 — ไม่ส่ง = ไม่แตะ · `null` หรือ `''` = ล้างหมวด (ต่างจาก capacity ที่ใช้ 0) */
+  category?: string | null
+  /** 📅 P4.3 — ไม่ส่ง = ไม่แตะ · `null` = ล้างวันปิดรับ */
+  registration_deadline?: string | null
   metadata?: Metadata
   /** ถ้าส่งมา → แทนที่ผู้เข้าร่วมทั้งชุด (เพิ่ม/แก้/ลบ/กู้คืน) เหมือนตอนสร้าง */
   participants?: ActivityParticipantInput[]
@@ -314,4 +329,46 @@ export interface CompareActivityInfo {
 export interface ActivityCompare {
   activities: CompareActivityInfo[]
   regions: CompareRegion[]
+}
+
+// ================================================================
+// 🔗 P4.3 — ลิงก์แชร์กิจกรรม (หน้าอ่านอย่างเดียว ไม่ต้องล็อกอิน)
+// ================================================================
+
+/** ผลจาก POST …/activities/{id}/share — `rotated=true` = ลิงก์เดิมถูกทำให้ตายแล้ว */
+export interface ShareLink {
+  activity_id: number
+  share_token: string
+  /** path ฝั่งเว็บ (เช่น `/share/activity/<token>`) — ประกอบ origin เองตอนคัดลอก */
+  path: string
+  rotated: boolean
+}
+
+export interface ShareRevokeResult {
+  activity_id: number
+  revoked: boolean
+}
+
+/**
+ * ข้อมูลที่หน้าสาธารณะเห็น — **backend ไม่ส่ง PII เลย** (ไม่มีรายชื่อผู้เข้าร่วม)
+ * ถ้าเพิ่มฟิลด์ที่นี่ต้องคิดก่อนว่า "คนนอกห้องควรเห็นไหม"
+ */
+export interface SharedActivity {
+  activity_id: number
+  title: string
+  description: string | null
+  activity_date: string
+  base_hours: number
+  status: ActivityStatus | string
+  status_label: string
+  category: string | null
+  category_label: string | null
+  registration_deadline: string | null
+  is_registration_open: boolean
+  capacity: number | null
+  confirmed_count: number
+  waitlisted_count: number
+  /** null = ไม่จำกัดความจุ */
+  seats_left: number | null
+  room_name: string | null
 }

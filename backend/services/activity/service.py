@@ -5,6 +5,7 @@ from .capacity import CapacityMixin
 from .participants import ParticipantsMixin
 from .checkins import CheckinsMixin
 from .qr import QrCheckinMixin
+from .share import ShareMixin
 from .export import ExportMixin
 from .export_combined import ExportCombinedMixin
 
@@ -16,6 +17,8 @@ class ActivityService(
     ExportMixin,
     # 🎟️ P4.2 — ใช้ helper ของ CapacityMixin (_lock_activity_capacity / _capacity_counts) ผ่าน `cls.`
     QrCheckinMixin,
+    # 🔗 P4.3 — ลิงก์แชร์ (ใช้ _resolve_room_id ของ BaseMixin)
+    ShareMixin,
     CheckinsMixin,
     # 🪑 P4.1 — วางก่อน ParticipantsMixin/ActivitiesMixin: ทั้งสองเรียกใช้ helper ผ่าน `cls.`
     CapacityMixin,

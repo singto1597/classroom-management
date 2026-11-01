@@ -60,6 +60,9 @@
 | **คิวสำรอง** | รายชื่อที่รอที่นั่งของกิจกรรม — เลื่อนขึ้นอัตโนมัติเมื่อมีคนยกเลิก/ถูกนำออก | `activity_participants.status = 'waitlisted'` + `queue_position` | waitlist (ในข้อความไทย) · รายชื่อรอ · สำรอง |
 | **บัตร QR** | ข้อความที่พิมพ์เป็น QR ติดป้าย/แสดงบนจอให้ทีมงานสแกนเพื่อเช็คอิน — ผูกกับกิจกรรมหนึ่งและคนหนึ่ง แก้ไม่ได้ | `services/activity/qr.py` (`CLS-EVT1:<activity_id>:<participant_id>:<sig>`) | QR code (ในข้อความไทย) · คิวอาร์ · บาร์โค้ด |
 | **เช็คอิน** | ยืนยันว่า "มาแล้ว" ณ งานจริง (สแกนบัตร QR หรือกดในลิสต์) → `status='attended'` + เวลา + ชื่อคนกด | `activity_participants.checked_in_at` / `checked_in_by` (NULL = แถว `attended` ยุคก่อน P4.2 หรือยังไม่เคยเช็คอิน) | ลงชื่อ (แผ่นเช็คชื่อคือของอีกอย่าง) · check-in (ในข้อความผู้ใช้) |
+| **หมวดกิจกรรม** | ประเภทของกิจกรรม จากรายการปิดตายตัว (ค่าย · การแข่งขัน · จิตอาสา · อบรม/สัมมนา · พิธีการ · อื่น ๆ) | `activities.category` (`ACTIVITY_CATEGORIES` ใน `services/activity/constants.py` ↔ `frontend/src/constants/activityCategories.ts`) | ประเภทกิจกรรม · แท็ก · หมวดหมู่ (คำนี้เป็นของการเงิน) |
+| **วันปิดรับลงทะเบียน** | วันสุดท้ายที่ยังรับผู้เข้าร่วม — ต้องไม่หลังวันจัดกิจกรรม | `activities.registration_deadline` (DATE) | เดดไลน์ · ปิดรับสมัคร · deadline |
+| **ลิงก์แชร์** | ลิงก์สาธารณะของกิจกรรมหนึ่งที่เปิดดูได้โดยไม่ต้องล็อกอิน — เห็นเฉพาะข้อมูลงาน ไม่มีรายชื่อผู้เข้าร่วม และเพิกถอนได้ทุกเมื่อ | `activities.share_token` + `GET /api/shared/activity/{token}` · หน้าเว็บ `/share/activity/<token>` | ลิงก์สาธารณะ · public link · ลิงก์แชร์กิจกรรม (ใช้ให้ครบจะกำกวมกับแชร์การเงิน) |
 | **ตารางเรียน** | ตารางเรียนประจำสัปดาห์ + การแก้เฉพาะสัปดาห์ | `default_schedules`, `schedule_overrides` | ตารางสอน · ตารางเวลา |
 | **แผนผังห้องเรียน** | ผังบทบาท/โครงสร้างห้อง (หัวหน้า–รอง–กรรมการ) | `views/roadmap/RoadmapView.vue` | org chart · ผังองค์กร |
 
@@ -148,6 +151,9 @@
 | งาน | `task` |
 | โน้ต | `daily_note` |
 | กิจกรรม | `activity` · ผู้เข้าร่วม = `participant` |
+| หมวดกิจกรรม | `category` (ค่า: `camp` / `competition` / `volunteer` / `training` / `ceremony` / `other`) |
+| วันปิดรับลงทะเบียน | `registration_deadline` |
+| ลิงก์แชร์ | `share_token` (ออก/เพิกถอนที่ `POST/DELETE …/activities/{id}/share`) |
 | ประกาศ | `announcement` (ตาราง `announcements`) — หน้า UI เรียก "ประกาศ" |
 | แจ้งเตือน | `notification` (ตาราง `notifications`) — สร้างโดย trigger fan-out |
 | ยังไม่อ่าน | `is_unread` ของประกาศ = มีแถว `notifications.read_at IS NULL` ของผู้ใช้คนนั้น |

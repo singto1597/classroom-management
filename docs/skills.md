@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 258 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 259 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -262,6 +262,7 @@
 - [🔖 ปุ่ม "บันทึกไว้" ที่กดซ้ำได้ — partial unique + soft delete ต้อง "คืนชีพ" แถวเดิม ไม่ใช่ INSERT ซ้ำ](#ปุ่ม-บันทึกไว้-ที่กดซ้ำได้-partial-unique-soft-delete-ต้อง-คืนชีพ-แถวเดิม-ไม่ใช่-insert-ซ้ำ)
 - [🪑 ความจุกิจกรรม + คิวสำรอง: ที่นั่งต้องถูกจองใต้ `FOR UPDATE` ของแถวกิจกรรม ไม่ใช่ในหน่วยความจำ](#ความจุกิจกรรม-คิวสำรอง-ที่นั่งต้องถูกจองใต้-for-update-ของแถวกิจกรรม-ไม่ใช่ในหน่วยความจำ)
 - [🎟️ เช็คอินด้วย QR: บัตรต้องผูกกับกิจกรรม และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง](#เช็คอินด้วย-qr-บัตรต้องผูกกับกิจกรรม-และเวลาเช็คอินต้องเดินคู่กับสถานะทุกทาง)
+- [🔗 ลิงก์แชร์: route สาธารณะต้องแยก router และ `null` ที่ถูกกรองทิ้งคือจุดตายของ PATCH](#ลิงก์แชร์-route-สาธารณะต้องแยก-router-และ-null-ที่ถูกกรองทิ้งคือจุดตายของ-patch)
 
 <!-- TOC:END -->
 
@@ -4256,4 +4257,37 @@
   - ใช้พาธ `checkin` (เอกพจน์) แยกจาก `checkins` (แผ่นเช็คชื่อเดิม) — ตัวหลังคือการเช็คชื่อออฟไลน์บนกระดาษ ยังอยู่ครบ
 - **Rule:** (1) 🔴 ฟิลด์ที่ต้อง "เดินคู่กับสถานะ" (เวลา/ผู้กด) ต้องถูกเขียนใน **ทุก** เส้นทางที่เปลี่ยนสถานะนั้น — เขียน helper ไม่ได้ก็ต้องมีเทสต์ยืนยันทีละทาง (2) 🔴 token ที่ผูกกับ entity ต้องตรวจทั้งค่าใน token และ entity ที่ URL ชี้มา (3) 🔴 สแกนซ้ำต้อง idempotent และคืน 200 + flag ไม่ใช่ 4xx (4) ⚠️ อย่าเพิ่ม CHECK constraint ที่ทำให้ต้องเดาข้อมูลย้อนหลัง
 - **Tests:** `backend/tests/test_activity_qr_checkin.py` (24 ตัว: roundtrip · token กิจกรรมอื่น/แก้ลายเซ็น/รูปแบบผิด · ออกบัตรข้าม `cancelled` · สแกนครั้งแรกบันทึกเวลา+ผู้กด+audit · **สแกนซ้ำ 200 `already_checked_in` แถวเดียว เวลาเดิม** · สแกนด้วย `participant_id` · `cancelled` 400 · คิวสำรองมีที่นั่ง/เต็ม · PATCH attended เติมและย้อนกลับล้าง · batch เติม · HTTP 200/400/404/422)
+- **Date Added:** 2026-11-01
+
+### 🔗 ลิงก์แชร์: route สาธารณะต้องแยก router และ `null` ที่ถูกกรองทิ้งคือจุดตายของ PATCH
+- **Context/Problem:** P4.3 ให้แต่ละกิจกรรมมีลิงก์แชร์ที่ส่งให้ผู้ปกครอง/นักเรียนเปิดดูได้โดยไม่ต้องล็อกอิน พร้อมเพิ่ม `category` และ `registration_deadline` ที่ต้อง "ล้างค่าได้" — สองเรื่องนี้พังคนละแบบ: ลิงก์สาธารณะพังเพราะไปวางใต้ `/api/classroom` ที่ทุก route บังคับ login, และการล้างค่าใน PATCH พังเงียบเพราะโค้ดเดิมกรอง `None` ทิ้งก่อนถึงชั้น SQL
+- **Root Cause:**
+  - route ภายใต้ `/api/classroom` ต้องมีทั้ง `get_current_user` และ `target_id` (room/server) — คนที่เปิดลิงก์ไม่มีทั้งสองอย่าง และ `test_route_auth_audit` จะแดงทันทีถ้าไปใส่ `Depends(None)` ให้ผ่าน
+  - `clean = {k: v for k, v in update_data.items() if v is not None}` — บรรทัดนี้ตัดเจตนา "ส่ง null มาล้างค่า" ออกไปโดยไม่มีใครเห็น ⇒ `{"category": null}` กลายเป็น "ไม่ส่ง" และค่าจริงยังอยู่
+  - การตรวจกติกาข้ามฟิลด์ (`registration_deadline <= activity_date`) ถ้าเทียบกับค่าใน DB อย่างเดียว จะปฏิเสธคำขอที่ **ย้ายทั้งสองวันพร้อมกันอย่างถูกต้อง**
+- **Correct Pattern/Solution:**
+  ```python
+  # main.py — namespace ของตัวเอง + ไม่มี auth dependency โดยเจตนา
+  app.include_router(shared_activity_router.router, prefix="/api/shared", tags=["Shared"])
+  ```
+  ```python
+  # tests/test_route_auth_audit.py — public route ต้องมีเหตุผลใน allowlist ไม่ใช่ "ลืมใส่ auth"
+  ("GET", "/api/shared/activity/{token}"): "ผู้เปิดคือผู้ปกครองที่ไม่มีบัญชี … ตอบเฉพาะข้อมูลงาน ไม่มี PII",
+  ```
+  ```python
+  # activities.py — null คือคำสั่งล้างสำหรับฟิลด์ที่ "ไม่มีค่าใช้การได้"
+  for nullable_key in ("category", "registration_deadline"):
+      if nullable_key in update_data and update_data[nullable_key] is None:
+          clean[nullable_key] = None
+  # …แล้วตรวจกติกากับ "ค่าหลังแก้" ไม่ใช่ค่าเดิม
+  validate_registration_deadline(fields["registration_deadline"],
+                                 fields.get("activity_date", old["activity_date"]))
+  ```
+  - **โทเคนแชร์เก็บใน DB ไม่ใช่ HMAC stateless** (ต่างจากบัตร QR ใน P4.2) เพราะต้อง *เพิกถอนได้รายใบ*: `share_token = NULL` = ลิงก์ตายทันที · partial unique index `WHERE share_token IS NOT NULL` กันโทเคนชนกันข้ามห้อง
+  - **`POST /share` ต้อง idempotent** (คืนลิงก์เดิม) และมี `rotate: true` เป็นทางเดียวที่ทำให้ลิงก์เก่าตาย — ถ้าออกใหม่ทุกครั้ง ผู้ใช้กดแชร์ซ้ำจะฆ่าลิงก์ที่ส่งไปแล้วโดยไม่รู้ตัว
+  - **หน้าสาธารณะห้ามมี PII** — คืนแค่ตัวเลข (`confirmed_count` / `waitlisted_count` / `seats_left`) ไม่มีชื่อผู้เข้าร่วม และ `Cache-Control: no-store` เพราะเพิกถอนได้ทุกเมื่อ
+  - **อย่าเขียนโทเคนลง `audit_logs`** — audit เก็บ `has_share_link` / `rotated` เท่านั้น (ผู้ที่อ่าน audit ได้ต้องไม่เห็นความลับของคนอื่น)
+  - **`has_share_link` เป็น boolean ที่ SQL คำนวณ** (`(share_token IS NOT NULL)`) — อย่าเลือก `share_token` ออกมาทั้งคอลัมน์แล้วหวังว่า Pydantic จะกรอง เพราะ `_build_activity_response` ส่ง dict ดิบต่อ
+- **Rule:** (1) 🔴 route ที่ไม่ต้อง auth ต้องอยู่ namespace แยก + มีเหตุผลใน `PUBLIC_ROUTES` และเทสต์ count ถูกปรับพร้อมคอมเมนต์ (2) 🔴 ฟิลด์ที่ส่ง `null` เพื่อล้างค่าได้ ต้องมีบรรทัด pass-through ชัด ๆ และประกาศว่าฟิลด์ไหนใช้ `null` ฟิลด์ไหนใช้ `0` (3) 🔴 ตรวจกติกาข้ามฟิลด์กับ "สถานะหลังแก้" (4) ⚠️ ความลับที่เพิกถอนได้ เก็บใน DB; ความลับที่ไม่ต้องเพิกถอนจึงใช้ HMAC
+- **Tests:** `backend/tests/test_activity_meta.py` (37 ร่วมกับ route audit: หมวด normalize/ปฏิเสธค่าที่ไม่รู้จัก · deadline หลังวันจัด 400 · เท่ากันผ่าน · PATCH ตั้ง/ล้างด้วย `""` และ `null` · ย้ายสองวันพร้อมกัน · กรองลิสต์ด้วยหมวด · ออกลิงก์ซ้ำได้อันเดิม · rotate ทำให้ลิงก์เก่า 404 · เพิกถอน · ต้องมี MANAGE_ACTIVITIES · **โทเคนไม่โผล่ใน `audit_logs`** · หน้าสาธารณะไม่มีกุญแจ PII · `is_registration_open` 5 กรณี · HTTP public 200/404 + `no-store`)
 - **Date Added:** 2026-11-01
