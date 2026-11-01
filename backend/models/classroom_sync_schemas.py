@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Dict, Optional, List
 from enum import Enum
 
 class DayOfWeek(str, Enum):
@@ -38,12 +38,33 @@ class RoomDataResponse(BaseModel):
     announcement_channel_id: Optional[int] = None
     birthday_channel_id: Optional[int] = None
     minor_notify_channel_id: Optional[int] = None
+    info_channel_id: Optional[int] = None
+    # 🔇 ช่องที่ห้ามบอทส่งข้อความ — บอทใช้ค่านี้ตัดสินใจ "ไม่ส่ง" ใน `_get_announcement_channel`
+    muted_channel_ids: List[int] = Field(default_factory=list)
     notify_time: Optional[str] = None
 
 class ChannelSetRequest(BaseModel):
     channel_id: int
     user_name: str
-    channel_type: str = "announcement"  # announcement | birthday | minor
+    channel_type: str = "announcement"  # announcement | birthday | minor | info
+
+class AutoChannelsRequest(BaseModel):
+    """ช่องที่บอทสร้าง/ค้นเจอเองหลังเข้าร่วมเซิร์ฟเวอร์ — ชนิด → channel_id"""
+    channels: Dict[str, int] = Field(default_factory=dict)
+
+class AutoChannelsResponse(BaseModel):
+    updated: Dict[str, int] = Field(default_factory=dict)  # บันทึกใหม่ (คอลัมน์เดิมว่าง)
+    kept: Dict[str, int] = Field(default_factory=dict)     # ของเดิม — ไม่ทับค่าที่แอดมินตั้งไว้
+
+class ChannelMuteRequest(BaseModel):
+    channel_id: int
+    muted: bool = True
+    user_name: str
+
+class ChannelMuteResponse(BaseModel):
+    channel_id: int
+    muted: bool
+    muted_channel_ids: List[int] = Field(default_factory=list)
 
 class TimeSetRequest(BaseModel):
     notify_time: str = Field(..., pattern=r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$")

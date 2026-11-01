@@ -5,6 +5,7 @@ from typing import List, Literal
 
 from models.classroom_sync_schemas import (
     SuccessResponse, RoomSetupRequest, ChannelSetRequest, TimeSetRequest, RoomNotifyResponse,
+    AutoChannelsRequest, AutoChannelsResponse, ChannelMuteRequest, ChannelMuteResponse,
     BirthdayNotifyResponse,
     DefaultScheduleRequest, OverrideScheduleRequest,
     TaskCreateRequest, TaskEditRequest, TaskResponse, TaskActionResponse,
@@ -112,6 +113,62 @@ async def set_channel(
         return SuccessResponse()
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{target_id}/channels/auto", response_model=AutoChannelsResponse)
+async def apply_auto_channels(
+    req: AutoChannelsRequest,
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    api_key: str = Depends(verify_api_key),
+):
+    """🤖 system RPC ของบอท: บันทึกช่องที่บอทสร้างเอง (`announcement`/`birthday`/`info`)
+
+    - ใช้ `verify_api_key` (บอทเท่านั้น) เพราะเกิดตอน `on_guild_join` ซึ่ง **ยังไม่มี
+      ผู้ใช้ที่ล็อกอิน** — ถ้าให้แอดมินยืนยันทีละช่อง เซิร์ฟเวอร์ใหม่จะเงียบจนกว่าจะตั้งครบ
+    - เติมเฉพาะคอลัมน์ที่ว่าง ⇒ ไม่ทับช่องที่แอดมินเลือกไว้ (ดู `apply_channel_defaults`)
+    - ห้องต้องผูกกับ server_id นี้แล้ว (`resolve_target_to_room_id`) — ถ้ายังไม่ผูก
+      บอทจะได้ 404 และแค่ข้ามไป ไม่ใช่ error ที่ทำให้ join ล้ม
+    """
+    client_source, actor = get_audit_context(request)
+    try:
+        result = await ClassroomService.apply_channel_defaults(
+            pool, room_id=room_id, channels=req.channels,
+            client_source=client_source, actor_identifier=actor,
+        )
+        return AutoChannelsResponse(**result)
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/{target_id}/channel/mute", response_model=ChannelMuteResponse)
+async def set_channel_mute(
+    req: ChannelMuteRequest,
+    request: Request,
+    room_id: int = Depends(resolve_target_to_room_id),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """🔇 เปิด/ปิดการส่งข้อความของบอทใน **ช่องเดียว** (ไม่กระทบช่องอื่นของห้อง)
+
+    ต้องมีสิทธิ์ `MANAGE_CLASSROOM_SETTINGS` — ช่องที่ mute ไม่ใช่การตั้งค่าส่วนตัว
+    เพราะข้อความใน Discord อ่านร่วมกันทั้งห้อง (เหตุผลเดียวกับ quiet hours)
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        result = await ClassroomService.set_channel_muted(
+            pool, room_id=room_id, channel_id=req.channel_id, muted=req.muted,
+            user_name=req.user_name, user_id=user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor,
+        )
+        return ChannelMuteResponse(**result)
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

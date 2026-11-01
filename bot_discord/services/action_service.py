@@ -81,6 +81,10 @@ class BotActionService:
         - channel="announcement" → ห้องแจ้งเตือนหลัก (announcement_channel_id)
         - channel="birthday" → ห้องแฮปปี้เบิร์ดเดย์ (birthday_channel_id) ถ้าไม่ตั้ง ตกไปใช้ announcement
         - channel="minor" → ห้องแจ้งเตือนงานเล็กๆน้อยๆ (minor_notify_channel_id) ถ้าไม่ตั้ง ตกไปใช้ announcement
+
+        🔇 **mute ระดับช่อง (muted_channel_ids)**: ถ้าช่องที่ "เลือกได้" ถูก mute → คืน None
+           ⚠️ **ไม่ fallback ต่อไปช่องอื่น** — "mute ช่องวันเกิด" ต้องปิดคำอวยพรวันเกิดจริง
+              ไม่ใช่ย้ายไปโพสต์ในช่องประกาศ (fallback มีไว้เฉพาะกรณี **ยังไม่ได้ตั้งช่อง**)
         """
         try:
             headers = {"X-Discord-Id": str(self.bot.user.id)}
@@ -95,8 +99,20 @@ class BotActionService:
             else:
                 channel_id = room_data.get("announcement_channel_id")
 
-            if channel_id:
-                return self.bot.get_channel(int(channel_id))
+            if not channel_id:
+                return None
+
+            channel_id = int(channel_id)
+            muted_ids = {int(c) for c in (room_data.get("muted_channel_ids") or [])}
+            if channel_id in muted_ids:
+                # เงียบโดยเจตนา — log ระดับ info ไว้เพื่อให้ตอบได้ว่า "ทำไมไม่มีข้อความ"
+                logger.info(
+                    "🔇 ข้ามการแจ้งเตือน: ช่อง %s ถูก mute (server_id=%s, kind=%s)",
+                    channel_id, server_id, channel,
+                )
+                return None
+
+            return self.bot.get_channel(channel_id)
         except Exception as e:
             logger.error(f"Failed fetching channel: {e}")
         return None
