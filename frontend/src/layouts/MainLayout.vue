@@ -17,6 +17,7 @@ import AppHeader from './shell/AppHeader.vue';
 import AppBottomNav from './shell/AppBottomNav.vue';
 import AppMoreSheet from './shell/AppMoreSheet.vue';
 import AppMenus from './shell/AppMenus.vue';
+import InstallPrompt from '@/components/pwa/InstallPrompt.vue';
 
 const route = useRoute();
 const shell = useAppShell();
@@ -95,6 +96,9 @@ const openAccountInfo = () => {
 
     <template v-if="!route.meta.fullscreen">
       <AppBottomNav :more-open="shell.isMoreSheetOpen.value" @open-more="shell.openMoreSheet" />
+
+      <!-- 📲 แถบชวนติดตั้ง — ซ่อนเองเมื่อไม่ใช่มือถือ/ติดตั้งแล้ว/เคยปิด -->
+      <InstallPrompt />
 
       <AppMoreSheet
         :open="shell.isMoreSheetOpen.value"
