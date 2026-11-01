@@ -35,13 +35,21 @@ const canManageStudents = computed(
 )
 
 // รายการสิทธิ์ย่อยทั้งหมดที่มีในระบบ
+// ⚠️ ต้องตรงกับ `AVAILABLE_PERMISSIONS` ใน `backend/core/rbac.py` ตัวต่อตัว
+//    ถ้าฝั่งหลังบ้านเพิ่มสิทธิ์ใหม่แล้วลืมที่นี่ = มอบสิทธิ์ผ่านหน้านี้ไม่ได้เลย
+//    (หน้าเว็บแสดงเฉพาะรายการในลิสต์นี้ ⇒ สิทธิ์ที่หายไปดูเหมือน "ไม่มีในระบบ")
+//    เพิ่มครบทั้ง 9 รายการเมื่อ 2026-11-01 (P6.2): HARD_DELETE_STUDENTS, MANAGE_ACTIVITIES,
+//    VIEW_AUDIT_LOGS เดิมหายไป 3 ตัว
 const AVAILABLE_PERMISSIONS = [
   { id: 'VIEW_ALL_STUDENTS', label: 'ดูข้อมูลนักเรียนทุกคนแบบเชิงลึก' },
   { id: 'MANAGE_STUDENTS', label: 'จัดการนักเรียน (รับเข้า, ลบ, แก้ไขข้อมูล)' },
   { id: 'EXPORT_STUDENTS', label: 'ดาวน์โหลดข้อมูลออกเป็นไฟล์ Excel' },
+  { id: 'HARD_DELETE_STUDENTS', label: 'ลบข้อมูลนักเรียนถาวร (กู้คืนไม่ได้)' },
   { id: 'MANAGE_FINANCE', label: 'จัดการระบบการเงินของห้อง' },
   { id: 'MANAGE_CLASSROOM_SETTINGS', label: 'ตั้งค่าห้องเรียนขั้นสูง' },
-  { id: 'MANAGE_CLASSROOM_TASKS', label: 'จัดการงานและตารางเรียน' }
+  { id: 'MANAGE_CLASSROOM_TASKS', label: 'จัดการงานและตารางเรียน' },
+  { id: 'MANAGE_ACTIVITIES', label: 'จัดการกิจกรรมและผู้เข้าร่วม' },
+  { id: 'VIEW_AUDIT_LOGS', label: 'ดูบันทึกกิจกรรมของห้อง' },
 ]
 
 // สมมติว่านักเรียนคนนี้คือเจ้าของโปรไฟล์ (ดึงข้อมูลนักเรียนของตัวเองในห้องนี้มาเทียบ)

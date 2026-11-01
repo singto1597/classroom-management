@@ -161,6 +161,7 @@
 | ประกาศ | `announcement` (ตาราง `announcements`) — หน้า UI เรียก "ประกาศ" |
 | แจ้งเตือน | `notification` (ตาราง `notifications`) — สร้างโดย trigger fan-out |
 | ยังไม่อ่าน | `is_unread` ของประกาศ = มีแถว `notifications.read_at IS NULL` ของผู้ใช้คนนั้น |
+| บันทึกกิจกรรม | `audit_log` (ตาราง `audit_logs`) — หน้า `views/settings/AuditLogs.vue`, สิทธิ์ `VIEW_AUDIT_LOGS` · **ห้ามเรียก "log" / "ประวัติระบบ" ในข้อความผู้ใช้** |
 | ช่วงงดรบกวน | `app_settings` ที่คีย์ `quiet_hours` (`QUIET_HOURS_KEY`) |
 | รายรับ/รายจ่าย | `income` / `expense` (ใน `finance_transactions.type`) |
 | ใบเสร็จ / ใบแจ้งหนี้ / ใบรับเงินล่วงหน้า | `receipt` / `invoice` / `deposit` |

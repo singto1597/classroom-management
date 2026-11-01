@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 262 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 263 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -266,6 +266,7 @@
 - [🌐 หน้าสาธารณะนอก MainLayout: guard มีสองรายการ และ `build` จับ template error ที่ `type-check` มองไม่เห็น](#หน้าสาธารณะนอก-mainlayout-guard-มีสองรายการ-และ-build-จับ-template-error-ที่-type-check-มองไม่เห็น)
 - [🗓️ ปีการศึกษา/เทอมสำหรับกรองสถิติ: `window` เป็นคำสงวน และ `date AT TIME ZONE` ต้อง cast ก่อน](#ปีการศึกษาเทอมสำหรับกรองสถิติ-window-เป็นคำสงวน-และ-date-at-time-zone-ต้อง-cast-ก่อน)
 - [🧾 audit_logs มีคอลัมน์ `ip_address`/`user_agent` ครบแต่ไม่มีโค้ดเขียน — และกับดัก TestClient ตัวที่สอง](#auditlogs-มีคอลัมน์-ipaddressuseragent-ครบแต่ไม่มีโค้ดเขียน-และกับดัก-testclient-ตัวที่สอง)
+- [🔍 หน้าดู audit_logs: OFFSET ใช้กับตารางที่โตตลอดเวลาไม่ได้ และ "สิทธิ์ใหม่" ไม่ถึงคนที่มีบทบาทอยู่แล้ว](#หน้าดู-auditlogs-offset-ใช้กับตารางที่โตตลอดเวลาไม่ได้-และ-สิทธิ์ใหม่-ไม่ถึงคนที่มีบทบาทอยู่แล้ว)
 
 <!-- TOC:END -->
 
@@ -4376,4 +4377,35 @@
   - `User-Agent` เป็นข้อความที่ผู้ใช้ควบคุม ⇒ ตัดที่ 512 ตัวอักษรก่อนลง DB
 - **Rule:** (1) 🔴 คอลัมน์ obs/audit ที่เพิ่มแล้ว **ต้องมีเทสต์ที่อ่านค่าจาก DB** ไม่งั้น "มีคอลัมน์" คือทั้งหมดที่ทำได้ (2) 🔴 `TRUSTED_PROXY_HOPS` ค่าเริ่มต้น 0 และห้ามใส่ `:-2` เป็น fallback ใน compose — ลืมตั้งควรได้ "ไม่มี IP" ไม่ใช่ "IP ปลอมที่ดูน่าเชื่อถือ" (3) 🔴 header ที่เป็นข้อความอิสระ ต้องผ่าน `ipaddress.ip_address()` ก่อนเก็บ
 - **Tests:** `backend/tests/test_audit_request_context.py` (23 — resolve ของ 10 เคส spoof/1–2 hops/IPv6+port/header ตัวพิมพ์ใหญ่ · query string ถูกตัด · token ถูก mask · UA ถูกตัดที่ 512 · ยิง HTTP จริงแล้วอ่าน `ip_address`/`user_agent`/`endpoint_or_command` จาก DB · context ถูก reset หลังคำขอ · ค่าที่ผู้เรียกส่งมาชนะ context)
+- **Date Added:** 2026-11-01
+
+### 🔍 หน้าดู audit_logs: OFFSET ใช้กับตารางที่โตตลอดเวลาไม่ได้ และ "สิทธิ์ใหม่" ไม่ถึงคนที่มีบทบาทอยู่แล้ว
+
+- **Context/Problem:** P6.2 เพิ่มหน้าดูบันทึกกิจกรรมให้ประธาน/รอง/เลขา ตรวจย้อนว่าใครทำอะไร ทำตามแผนง่าย ๆ คือ "เพิ่ม `VIEW_AUDIT_LOGS` ใน `roles.json` แล้วเขียน query `LIMIT/OFFSET`" — ทั้งสองอย่างคือกับดักที่ทำให้ฟีเจอร์ดูเสร็จแต่ใช้งานจริงไม่ได้
+- **Root Cause:**
+  1. **`students.permissions` เป็น snapshot** ที่ถูกเขียนตอนมอบหมายบทบาท ⇒ การเพิ่มสิทธิ์ใน `config/roles.json` / `AVAILABLE_PERMISSIONS` มีผลกับ **การมอบหมายครั้งหน้าเท่านั้น** สมาชิกที่มีบทบาทอยู่แล้วยังได้ 403 ทั้งที่ UI แสดงสิทธิ์ใหม่แล้ว
+  2. `audit_logs` มีแถวใหม่แทรกหัวตารางตลอดเวลา ⇒ `OFFSET 40` ของหน้าถัดไปไม่ใช่แถวเดิม (เห็นซ้ำ/ข้าม) และถ้าเรียงด้วย `created_at` เดียว แถวที่เขียนใน transaction เดียวกัน (เวลาเท่ากัน) จะถูกตัดหายเป็นช่วง ๆ
+  3. หน้าดูที่เขียน audit ของ "การดู" **ทุกครั้งที่เรียก** จะพองตารางที่กำลังอ่านอยู่ (เลื่อน 50 หน้า = 50 แถวของตัวเองปนในรายการ)
+  4. ตัวกรองที่ส่งค่าว่าง (`service_name=''`) ผ่าน `($n::text IS NULL OR service_name = $n)` **ไม่ใช่ "ไม่กรอง"** — มันคือ "กรองหาค่าว่าง" ⇒ ได้หน้าว่างที่ดูเหมือน "ไม่มีบันทึก"
+  5. `permissions` ที่ asyncpg คืนมาเป็น **สตริง** (ไม่มี jsonb codec) ⇒ เทสต์ backfill ที่ assert กับ list จะพัง/หลอก
+- **Correct Pattern/Solution:**
+  ```python
+  # 1) migration additive: เติมสิทธิ์ให้บทบาทเดิม (ไม่แก้ roles.json ของเก่า)
+  UPDATE students SET permissions = COALESCE(permissions, '[]'::jsonb) || '["VIEW_AUDIT_LOGS"]'::jsonb
+   WHERE deleted_at IS NULL AND class_role IN ('president','vice_president','secretary')
+     AND NOT COALESCE(permissions, '[]'::jsonb) ? 'VIEW_AUDIT_LOGS'   -- idempotent
+
+  # 2) keyset 2 คีย์ + index ที่รองรับ
+  CREATE INDEX IF NOT EXISTS idx_audit_logs_room_created
+      ON audit_logs (room_id, created_at DESC, id DESC);
+  ... WHERE room_id = $1 AND ($8::timestamptz IS NULL OR (created_at, id) < ($8, $9))
+  ORDER BY created_at DESC, id DESC LIMIT $10        -- ขอ limit+1 เพื่อรู้ has_more
+
+  # 3) cursor ทึบ: base64("<iso>|<uuid>") — ถอดไม่ได้ = ValidationError (400) ไม่ใช่ 500
+  # 4) เขียนแถว VIEW เฉพาะเมื่อ cursor is None (= เปิดหน้า/กรองใหม่) หลังอ่านข้อมูลเสร็จ
+  ```
+  - ฝั่งหน้า: `cleanFilters()` ตัดคีย์ว่างออก **ก่อน** สร้าง query — และ `resetAndLoad()` ทุกครั้งที่เปลี่ยนตัวกรอง (ทิ้ง cursor เสมอ)
+  - `EditStudent.vue` มี `AVAILABLE_PERMISSIONS` **สำเนาของตัวเอง** — เพิ่มสิทธิ์ฝั่ง backend แล้วลืมที่นี่ = มอบสิทธิ์ผ่าน UI ไม่ได้ (พบว่าขาด 3 ตัว: `HARD_DELETE_STUDENTS`, `MANAGE_ACTIVITIES`, `VIEW_AUDIT_LOGS`)
+- **Rule:** (1) 🔴 เพิ่มสิทธิ์ใหม่ = 3 ที่พร้อมกัน: `core/rbac.py::AVAILABLE_PERMISSIONS` + `config/roles.json` + **migration เติมให้ของเดิม** (2) 🔴 รายการที่โตตลอดเวลาใช้ keyset `(sort_key, tiebreaker)` ไม่ใช่ OFFSET และ tiebreaker ต้องอยู่ใน index ด้วย (3) 🔴 ตัวกรองฝั่งหน้า ห้ามส่งสตริงว่าง (4) 🔴 หน้าดูข้อมูลไม่ควรเขียนแถว audit ของทุกหน้า — หน้าแรกพอ
+- **Tests:** `backend/tests/test_audit_logs_api.py` (15 — แยกห้อง · 403 · admin bypass · เดินครบทุกหน้าไม่มีซ้ำ · แถวใหม่แทรกหัวไม่ทำให้หน้าถัดไปทับ · 422 ของ limit · service/action/คำค้น + `%` เป็นอักษรจริง · ขอบเขตวันไทย · cursor เสีย 400 · VIEW เขียนครั้งเดียว · options · migration เติมเฉพาะประธาน/รอง/เลขาและ idempotent) · `frontend/src/services/__tests__/audit.spec.ts` (5 — target_type · ตัดตัวกรองว่าง · cursor ตามเดิมเป๊ะ · `/options` · limit เป็นตัวเลข)
 - **Date Added:** 2026-11-01

@@ -177,7 +177,10 @@ def test_route_count_is_not_silently_shrinking():
     #   years/{id}/terms CREATE · terms PATCH/DELETE · `academic/current` PUT
     #   ทั้งแปดมี `Depends(get_current_user)`; เขียนทุกตัวเรียก
     #   `require_permission(MANAGE_CLASSROOM_SETTINGS)` ใน service (403 ไม่ออกที่ route)
-    expected = 169
+    # 169 → 171 (2026-11-01): หน้าดูบันทึกกิจกรรม (P6.2) — `audit-logs` + `audit-logs/options`
+    #   ทั้งคู่มี `Depends(get_current_user)` และเรียก `require_permission(VIEW_AUDIT_LOGS)`
+    #   ใน service (ไม่ออกที่ route เพื่อให้ตรวจในทรานแซกชันเดียวกับการอ่าน)
+    expected = 171
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (
