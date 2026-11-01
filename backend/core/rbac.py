@@ -13,7 +13,10 @@ AVAILABLE_PERMISSIONS = [
     "MANAGE_FINANCE",
     "MANAGE_CLASSROOM_SETTINGS",
     "MANAGE_CLASSROOM_TASKS",
-    "MANAGE_ACTIVITIES"
+    "MANAGE_ACTIVITIES",
+    # 🔍 P6.2 — ดูบันทึกกิจกรรมของห้อง (มี IP/User-Agent/ค่าก่อน-หลัง)
+    #    ⇒ เฉพาะผู้บริหารห้อง ไม่ให้ทุกสมาชิก (ดู services/audit_service.py)
+    "VIEW_AUDIT_LOGS",
 ]
 
 # 🏠 "ผู้จัดการห้อง" สำหรับข้อมูลนักเรียน = คนที่มีสิทธิ์ใดสิทธิ์หนึ่งในชุดนี้

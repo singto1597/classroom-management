@@ -48,6 +48,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { name: 'ตั้งค่าการแจ้งเตือน', path: '/settings/notifications', icon: 'bi-bell' },
   // 🗓️ P5 — ปฏิทินของห้อง (ปี พ.ศ. + เทอม) ใช้เป็นตัวกรองสถิติ ไม่ใช่การเลื่อนชั้น
   { name: 'ปีการศึกษา', path: '/settings/academic-periods', icon: 'bi-calendar3' },
+  // 🔍 P6.2 — บันทึกกิจกรรม: หน้าแสดงสำหรับทุกคน แต่เนื้อหาจะบอกเองว่าต้องมีสิทธิ์
+  //    (backend ตอบ 403) ⇒ ไม่ซ่อนเมนู ไม่ให้ผู้ใช้เดาว่ามีฟีเจอร์นี้หรือไม่
+  { name: 'บันทึกกิจกรรม', path: '/settings/audit-logs', icon: 'bi-journal-text' },
   { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
 ];
 
@@ -165,6 +168,8 @@ export const routeTitles = {
   'notification-settings': 'ตั้งค่าการแจ้งเตือน',
   // 🗓️ P5 — ชื่อหน้าเดียวกับเมนู เพื่อให้ breadcrumb กับแท็บเบราว์เซอร์ตรงกัน
   'academic-periods': 'ปีการศึกษาและเทอม',
+  // 🔍 P6.2 — ใช้ให้ตรงกันทั้งเมนู แท็บเบราว์เซอร์ และหัวหน้า
+  'audit-logs': 'บันทึกกิจกรรม',
 
   // ── อื่น ๆ ──────────────────────────────────────────────────────────────
   DiscordConnect: 'เชื่อมต่อ Discord',

@@ -25,6 +25,7 @@ from routers import notification_router
 from routers import announcement_router
 from routers import home_router
 from routers import academic_router
+from routers import audit_router
 from routers import bookmark_router
 from routers import shared_activity_router
 from services.notification_stream import notification_stream
@@ -142,6 +143,8 @@ app.include_router(announcement_router.router, prefix="/api/classroom", tags=["A
 app.include_router(home_router.router, prefix="/api/classroom", tags=["Home"])
 app.include_router(bookmark_router.router, prefix="/api/classroom", tags=["Bookmarks"])
 app.include_router(academic_router.router, prefix="/api/classroom", tags=["Academic"])
+# 🔍 P6.2 — หน้าดูบันทึกกิจกรรม (สิทธิ์ VIEW_AUDIT_LOGS)
+app.include_router(audit_router.router, prefix="/api/classroom", tags=["Audit"])
 app.include_router(version_router.router, prefix="/api", tags=["Version"])
 # 🔗 P4.3 — หน้าอ่านอย่างเดียวด้วยโทเคน (สาธารณะโดยเจตนา — ดู routers/shared_activity_router.py)
 app.include_router(shared_activity_router.router, prefix="/api/shared", tags=["Shared"])

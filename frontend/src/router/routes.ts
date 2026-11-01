@@ -266,6 +266,14 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: routeTitles['academic-periods'], navTab: 'more', headerBack: true },
       },
       {
+        // 🔍 P6.2 — บันทึกกิจกรรม: ต้องมี VIEW_AUDIT_LOGS (backend ตอบ 403 เอง)
+        //    อยู่ภายใต้ "เพิ่มเติม" เพราะเป็นหน้าตรวจย้อน ไม่ใช่หน้าใช้งานประจำวัน
+        path: 'settings/audit-logs',
+        name: 'audit-logs',
+        component: () => import('@/views/settings/AuditLogs.vue'),
+        meta: { title: routeTitles['audit-logs'], navTab: 'more', headerBack: true },
+      },
+      {
         path: 'messages',
         name: 'send-message',
         component: () => import('@/views/actions/SendMessage.vue'),
