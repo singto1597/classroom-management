@@ -69,7 +69,7 @@ describe('createSseParser', () => {
   });
 
   it('flush() ไม่เรียก handler เมื่อไม่มีอะไรค้าง', () => {
-    const handle = vi.fn();
+    const handle = vi.fn<(event: string, data: string) => void>();
     const parser = createSseParser(handle);
     parser.push('\n\n');
     parser.flush();

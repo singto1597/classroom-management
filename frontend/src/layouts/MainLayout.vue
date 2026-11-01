@@ -41,6 +41,9 @@ const openNotificationCenter = () => {
  * ⚠️ เบราว์เซอร์มือถือตัด connection ตอนอยู่เบื้องหลัง ⇒ ฟัง `visibilitychange`
  */
 onMounted(() => {
+  // ดึงตัวเลขบนกระดิ่งทันที ไม่รอ `event: ready` — ถ้าสตรีมต่อไม่ได้
+  // (เน็ตหลุด/พร็อกซีบล็อก SSE) ผู้ใช้ยังต้องเห็นจำนวนที่ค้างอยู่
+  void notifications.load();
   notifications.startStream();
   document.addEventListener('visibilitychange', notifications.handleVisibility);
 });
