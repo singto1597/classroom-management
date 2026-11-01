@@ -4453,7 +4453,7 @@
 
 - **Context/Problem:** P6.4 เพิ่ม security headers ของ frontend (nosniff · X-Frame-Options · Referrer-Policy · Permissions-Policy · CSP report-only) โดยเขียนครั้งเดียวที่ระดับ `server {}` ใน `frontend/nginx.default.conf` ซึ่งอ่านแล้วดูถูกต้อง — แต่จะไม่มีผลกับเกือบทุก response จริง
 - **Root Cause:**
-  1. **`add_header` ของ nginx สืบทอดแบบ all-or-nothing** — directive จะถูกรับช่วงก็ต่อเมื่อระดับลูก **ไม่มี** `add_header` ของตัวเองเลย ถ้า `location /assets/ { add_header Cache-Control …; }` มีแม้แต่บรรทัดเดียว **ทั้งชุดจาก `server {}` หายหมด** ⇒ หน้าหลักมี CSP แต่ JS/ฟอนต์ไม่มี และ `curl -I /` ที่คนใช้ตรวจก็เห็นครบ (ตรวจผิดจุดแล้วผ่าน)
+  1. **`add_header` ของ nginx สืบทอดแบบ all-or-nothing** — directive จะถูกสืบทอดก็ต่อเมื่อระดับลูก **ไม่มี** `add_header` ของตัวเองเลย ถ้า `location /assets/ { add_header Cache-Control …; }` มีแม้แต่บรรทัดเดียว **ทั้งชุดจาก `server {}` หายหมด** ⇒ หน้าหลักมี CSP แต่ JS/ฟอนต์ไม่มี และ `curl -I /` ที่คนใช้ตรวจก็เห็นครบ (ตรวจผิดจุดแล้วผ่าน)
   2. **`include` ไฟล์ที่ไม่ได้ COPY เข้า image = nginx start ไม่ขึ้น** (`open() "/etc/nginx/snippets/security-headers.conf" failed`) ⇒ crash-loop ตอน deploy ซึ่งแรงกว่าปัญหาที่จะแก้
   3. **คอมเมนต์ที่อธิบาย header ทำให้ด่านตรวจหลอกตัวเองได้** — ไฟล์อธิบายมี `add_header … nosniff` อยู่ในคอมเมนต์ ⇒ สคริปต์ที่ grep ทั้งไฟล์จะผ่านแม้ directive จริงหาย
   4. **CSP ในหน้า SPA ต้องคิดถึง `style-src`** — Vue ผูก `:style="…"` เป็น style attribute ซึ่งถูกจัดอยู่ใต้ `style-src` ⇒ policy ที่ไม่มี `'unsafe-inline'` จะรายงานทุกแถบความคืบหน้า (report-only จึงไม่บล็อก แต่รายงานจะท่วมจนดูของจริงไม่ออก)
