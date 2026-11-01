@@ -17,18 +17,30 @@ import { urlBase64ToUint8Array } from '@/services/push';
  *   • ไม่ใช่ production build ⇒ ไม่ลงทะเบียน SW (กัน cache ค้างตอน dev)
  */
 
+/** รูปย่อของ MediaQueryList ที่โค้ดจริงอ่านแค่ `.matches` */
+interface MatchMediaStub {
+  matches: boolean;
+  media: string;
+  onchange: null;
+  addListener: () => void;
+  removeListener: () => void;
+  addEventListener: () => void;
+  removeEventListener: () => void;
+  dispatchEvent: () => boolean;
+}
+
 function stubMatchMedia(matches: (query: string) => boolean): void {
   vi.stubGlobal(
     'matchMedia',
-    vi.fn((query: string) => ({
+    vi.fn<(query: string) => MatchMediaStub>((query: string) => ({
       matches: matches(query),
       media: query,
       onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
+      addListener: vi.fn<() => void>(),
+      removeListener: vi.fn<() => void>(),
+      addEventListener: vi.fn<() => void>(),
+      removeEventListener: vi.fn<() => void>(),
+      dispatchEvent: vi.fn<() => boolean>(),
     })),
   );
 }
@@ -93,7 +105,7 @@ describe('isCoarsePointer', () => {
 
 describe('registerServiceWorker', () => {
   it('ไม่ลงทะเบียนเมื่อไม่ใช่ production build', async () => {
-    const register = vi.fn();
+    const register = vi.fn<() => Promise<never>>();
     vi.stubGlobal('navigator', { ...navigator, serviceWorker: { register } });
     await expect(registerServiceWorker()).resolves.toBeNull();
     expect(register).not.toHaveBeenCalled();

@@ -115,7 +115,7 @@ async function networkFirstShell(request) {
       cache.put(SHELL_URL, response.clone()).catch(() => {});
     }
     return response;
-  } catch (err) {
+  } catch {
     const cached = await cache.match(SHELL_URL);
     if (cached) return cached;
     return new Response(
@@ -160,7 +160,7 @@ self.addEventListener('push', (event) => {
   let payload = {};
   try {
     payload = event.data ? event.data.json() : {};
-  } catch (err) {
+  } catch {
     // payload ไม่ใช่ JSON — แสดงเป็นข้อความดิบดีกว่าเงียบหาย
     payload = { body: event.data ? event.data.text() : '' };
   }
@@ -206,7 +206,7 @@ self.addEventListener('notificationclick', (event) => {
         if ('navigate' in existing) {
           try {
             await existing.navigate(target.href);
-          } catch (err) {
+          } catch {
             /* navigate ถูกบล็อกได้ในบางเบราว์เซอร์ — focus เฉย ๆ ก็เพียงพอ */
           }
         }
