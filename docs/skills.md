@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 263 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 264 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -267,6 +267,7 @@
 - [🗓️ ปีการศึกษา/เทอมสำหรับกรองสถิติ: `window` เป็นคำสงวน และ `date AT TIME ZONE` ต้อง cast ก่อน](#ปีการศึกษาเทอมสำหรับกรองสถิติ-window-เป็นคำสงวน-และ-date-at-time-zone-ต้อง-cast-ก่อน)
 - [🧾 audit_logs มีคอลัมน์ `ip_address`/`user_agent` ครบแต่ไม่มีโค้ดเขียน — และกับดัก TestClient ตัวที่สอง](#auditlogs-มีคอลัมน์-ipaddressuseragent-ครบแต่ไม่มีโค้ดเขียน-และกับดัก-testclient-ตัวที่สอง)
 - [🔍 หน้าดู audit_logs: OFFSET ใช้กับตารางที่โตตลอดเวลาไม่ได้ และ "สิทธิ์ใหม่" ไม่ถึงคนที่มีบทบาทอยู่แล้ว](#หน้าดู-auditlogs-offset-ใช้กับตารางที่โตตลอดเวลาไม่ได้-และ-สิทธิ์ใหม่-ไม่ถึงคนที่มีบทบาทอยู่แล้ว)
+- [🚦 จำกัดความเร็วต้อง fail-open — และ `/health` ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง](#จำกัดความเร็วต้อง-fail-open-และ-health-ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง)
 
 <!-- TOC:END -->
 
@@ -4408,4 +4409,41 @@
   - `EditStudent.vue` มี `AVAILABLE_PERMISSIONS` **สำเนาของตัวเอง** — เพิ่มสิทธิ์ฝั่ง backend แล้วลืมที่นี่ = มอบสิทธิ์ผ่าน UI ไม่ได้ (พบว่าขาด 3 ตัว: `HARD_DELETE_STUDENTS`, `MANAGE_ACTIVITIES`, `VIEW_AUDIT_LOGS`)
 - **Rule:** (1) 🔴 เพิ่มสิทธิ์ใหม่ = 3 ที่พร้อมกัน: `core/rbac.py::AVAILABLE_PERMISSIONS` + `config/roles.json` + **migration เติมให้ของเดิม** (2) 🔴 รายการที่โตตลอดเวลาใช้ keyset `(sort_key, tiebreaker)` ไม่ใช่ OFFSET และ tiebreaker ต้องอยู่ใน index ด้วย (3) 🔴 ตัวกรองฝั่งหน้า ห้ามส่งสตริงว่าง (4) 🔴 หน้าดูข้อมูลไม่ควรเขียนแถว audit ของทุกหน้า — หน้าแรกพอ
 - **Tests:** `backend/tests/test_audit_logs_api.py` (15 — แยกห้อง · 403 · admin bypass · เดินครบทุกหน้าไม่มีซ้ำ · แถวใหม่แทรกหัวไม่ทำให้หน้าถัดไปทับ · 422 ของ limit · service/action/คำค้น + `%` เป็นอักษรจริง · ขอบเขตวันไทย · cursor เสีย 400 · VIEW เขียนครั้งเดียว · options · migration เติมเฉพาะประธาน/รอง/เลขาและ idempotent) · `frontend/src/services/__tests__/audit.spec.ts` (5 — target_type · ตัดตัวกรองว่าง · cursor ตามเดิมเป๊ะ · `/options` · limit เป็นตัวเลข)
+- **Date Added:** 2026-11-01
+
+### 🚦 จำกัดความเร็วต้อง fail-open — และ `/health` ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง
+
+- **Context/Problem:** P6.3 เพิ่มการจำกัดความเร็วให้ endpoint ที่ไม่ต้องล็อกอิน (`/api/auth/*/login`, `/api/shared/activity/{token}`) และ endpoint ที่เดาโทเคนได้ (`POST .../checkin/qr`) พร้อมให้ `/health` รายงาน Redis และ heartbeat ของ push worker
+- **Root Cause:**
+  1. **การจำกัดความเร็วที่ผูกกับ Redis เป็น single point of failure** — ถ้าเลือก fail-closed (Redis ล่ม = ปฏิเสธทุกคำขอ) การที่ Redis ล่มหนึ่งครั้งจะทำให้ไม่มีใครล็อกอินได้เลย ซึ่งรุนแรงกว่าการถูกยิงถล่มชั่วคราว
+  2. **`INCR` อย่างเดียวไม่พอ** — ถ้า `INCR` สร้าง key ในจังหวะที่ตัวก่อนหน้าหมดอายุพอดี key นั้นจะ **ไม่มี TTL** ⇒ ตัวนับค้างตลอดกาล ผู้ใช้ใช้ครบเพดานครั้งเดียวแล้วถูกบล็อกถาวร
+  3. **`/health` ที่คืน 503 เพราะ Redis/worker** จะทำให้ Swarm ฆ่า backend ที่ให้บริการได้ดีทิ้งเป็นวงจร — ความเสียหายที่ใหญ่กว่าปัญหาเดิม (บทเรียน H9: 503 ต้องผูกกับ "ให้บริการไม่ได้" เท่านั้น)
+  4. route `.../checkin/qr` มี **สอง method ที่ path เดียวกัน** (GET ออกบัตร, POST สแกน) ⇒ เทสต์ที่หา route ด้วย path อย่างเดียวจะไปตรวจ GET แล้วสรุปผิดว่า POST ยังไม่ได้ติด rate limit
+  5. `TestClient` รัน lifespan ⇒ `app.state.redis` ถูกตั้งเป็น client จริงทุกครั้งที่เปิด fixture; เทสต์ที่ลืมคืนค่าเดิมจะทำให้เทสต์ถัดไปใช้ Redis ปลอมของคนก่อนหน้า
+- **Correct Pattern/Solution:**
+  ```python
+  # 1) fail-open + เตือนครั้งเดียวต่อ scope (ไม่งั้น log ท่วมทุกคำขอล็อกอิน)
+  try:
+      allowed, _remaining, retry_after = await consume(redis, ...)
+  except Exception:
+      if scope not in _warned_scopes:
+          _warned_scopes.add(scope); logger.warning("Redis ล่ม — ข้าม rate limit", exc_info=True)
+      return                      # ผ่าน
+
+  # 2) fixed window: SET NX EX ก่อน แล้ว INCR — TTL ต้องมีเสมอ
+  created = await redis.set(key, 1, ex=window, nx=True)
+  count = 1 if created else int(await redis.incr(key))
+  ttl = int(await redis.ttl(key))
+  if ttl < 0: await redis.expire(key, window); ttl = window      # กันตัวนับค้างถาวร
+  if count > limit: raise HTTPException(429, headers={"Retry-After": str(max(1, ttl))})
+
+  # 3) /health: DB = 503 เท่านั้น · Redis/worker = ข้อมูลประกอบ (ยัง 200)
+  return {"status": "ok", "database": "connected", "redis": redis_status,
+          "push_worker": {"last_beat_seconds_ago": worker_age}}
+  ```
+  - dependency: `dependencies=[rate_limit("auth_login")]` (นับตาม IP) · `rate_limit_per_user(...)` ต้องประกาศ **หลัง** `get_current_user`
+  - test route lookup: `method in route.methods` — path เดียวกันมี GET+POST
+  - FakeRedis ใน `tests/_fake_redis.py` (ขึ้นต้น `_` ⇒ pytest ไม่เก็บ) รองรับเฉพาะคำสั่งที่ใช้จริง; ถ้าโค้ดใช้คำสั่งใหม่จะ `AttributeError` แทนการแอบต่อ Redis จริง
+- **Rule:** (1) 🔴 ชั้นลดโหลดต้อง fail-open; ชั้นยืนยันตัวตนเท่านั้นที่ fail-closed (2) 🔴 ตัวนับใน Redis ต้องมี TTL ทุกเส้นทาง — `INCR` เดี่ยว ๆ ไม่ใช่ (3) 🔴 `/health` เป็น 503 เฉพาะเมื่อ "ให้บริการไม่ได้จริง"; Redis/worker ที่ตายแค่ทำให้ฟีเจอร์ลดลง (4) 🔴 `RATE_LIMIT_ENABLED=false` เป็นทางปิดฉุกเฉิน — ไม่ต้องแก้โค้ด
+- **Tests:** `backend/tests/test_rate_limit.py` (19 — เพดาน/remaining/ไม่ปนบัคเก็ต/TTL หายแล้วตั้งคืน · 429 + `Retry-After` ≥ 1 · นับตาม `user_id` · ปิดด้วย setting · Redis ล่ม = ผ่าน · route จริงมี dependency ครบทั้ง 4 (กรองตาม method) · ยิง app จริงแล้วเห็นตัวนับ · heartbeat: TTL/อายุ/นาฬิกาเพี้ยน/ไม่มี redis · `/health` ยัง 200 เมื่อ Redis ล่ม)
 - **Date Added:** 2026-11-01

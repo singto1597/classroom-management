@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     #    ไม่งั้นใครก็เขียน IP ปลอมลง audit_logs ได้ (แย่กว่าไม่มี IP)
     TRUSTED_PROXY_HOPS: int = 0
 
+    # 🚦 [P6.3] จำกัดความเร็วคำขอของ endpoint สาธารณะ/ล็อกอิน (ดู core/rate_limit.py)
+    #    เปิดโดยค่าเริ่มต้น · ปิดได้ด้วย `RATE_LIMIT_ENABLED=false` เมื่อจำเป็น
+    #    ⚠️ Redis ล่ม = **ปล่อยผ่าน** (fail-open) — ไม่ใช่ปิดการล็อกอินทั้งระบบ
+    RATE_LIMIT_ENABLED: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

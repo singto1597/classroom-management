@@ -2,9 +2,11 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncpg
+import redis.asyncio as aioredis
 import logging
 
 from core.config import settings
+from core.heartbeat import read_heartbeat_age
 from core.init_db import init_db
 from core.migrations import apply_migrations
 from core.request_context import (
@@ -44,11 +46,22 @@ async def lifespan(app: FastAPI):
     """
     logger.info("🚀 Starting Central API...")
     
+    # 🚦 [P6.3] Redis client ใช้ร่วมกันทั้งการจำกัดความเร็วและ heartbeat ของ worker
+    #    `from_url` **ไม่ต่อจริง** จนกว่าจะสั่งคำสั่งแรก ⇒ สร้างตอนบูตได้เสมอ
+    #    timeout สั้นโดยเจตนา: ถ้า Redis ล่ม คำขอล็อกอินไม่ควรรอ connection นาน
+    #    (rate limit fail-open ⇒ เสียแค่ 1 วินาที ไม่ใช่ค้างทั้งคำขอ)
+    app.state.redis = aioredis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+    )
+
     try:
         app.state.db_pool = await asyncpg.create_pool(
             settings.DATABASE_URL,
             min_size=1,
-            max_size=10 
+            max_size=10
         )
         logger.info("✅ Database Connection Pool Created Successfully!")
         
@@ -78,6 +91,13 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Shutting down... Closing Database Pool.")
     await app.state.db_pool.close()
     logger.info("✅ Database Pool Closed.")
+
+    # Redis ไม่ได้ถือ connection ค้างไว้ (ต่อเมื่อมีคำสั่ง) แต่ปิดให้เรียบร้อยเสมอ
+    # — ถ้าไม่ปิด การ reload/dev จะทิ้ง socket ค้างไว้จนกว่าจะ GC
+    try:
+        await app.state.redis.aclose()
+    except Exception:
+        logger.warning("ปิด Redis client ไม่สำเร็จ", exc_info=True)
 
 
 app = FastAPI(
@@ -163,18 +183,44 @@ async def health_check():
     ⚠️ ผลข้างเคียงที่ตั้งใจ: task ที่ DB หลุดจะถูก Swarm ฆ่าแล้วเริ่มใหม่
     ซึ่งเป็นพฤติกรรมที่ถูกต้อง — task นั้นให้บริการไม่ได้อยู่แล้ว และการตาย
     ทำให้เห็นใน `docker service ps` แทนที่จะเงียบ ๆ คืน 200
+
+    💓 [P6.3] เพิ่ม `redis` และ `push_worker.last_beat_seconds_ago` เป็น **ข้อมูลประกอบ**
+    — ทั้งคู่ไม่มีอำนาจทำให้เป็น 503 เพราะ backend ยังให้บริการได้เต็มที่แม้ Redis ล่ม
+    หรือ worker ตาย (แค่แจ้งเตือนสด/ส่ง push หยุด) ⇒ ถ้าทำ 503 ตาม Redis, Swarm
+    จะฆ่า backend ที่ดีทิ้งเป็นวงจรตอน Redis มีปัญหา ซึ่งเป็นความเสียหายที่ใหญ่กว่าปัญหาเดิม
     """
     try:
         # ถ้า Pool ทำงานได้ SELECT 1 จะคืนค่า 1
         async with app.state.db_pool.acquire() as conn:
             await conn.fetchval("SELECT 1")
-        return {"status": "ok", "database": "connected"}
     except Exception as e:
         logger.warning(f"health check ล้มเหลว: {type(e).__name__}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"status": "error", "database": "disconnected"},
         )
+
+    # 💓 [P6.3] Redis + heartbeat ของ push worker — **ข้อมูลประกอบ ไม่ใช่เงื่อนไข 503**
+    #    backend ให้บริการได้เต็มที่แม้ Redis/worker มีปัญหา (แจ้งเตือนสดหาย แต่ข้อมูลยังครบ)
+    #    ถ้าทำ 503 ที่นี่ Swarm จะฆ่า backend ที่ดีทิ้งเป็นวงจรระหว่างที่ Redis ล่ม
+    #    ⇒ สถานะที่ต้อง restart คือ DB เท่านั้น (ดู core/heartbeat.py)
+    redis_status = "disabled"
+    worker_age = None
+    redis = getattr(app.state, "redis", None)
+    if redis is not None:
+        try:
+            await redis.ping()
+            redis_status = "connected"
+            worker_age = await read_heartbeat_age(redis)
+        except Exception:
+            redis_status = "unavailable"
+
+    return {
+        "status": "ok",
+        "database": "connected",
+        "redis": redis_status,
+        "push_worker": {"last_beat_seconds_ago": worker_age},
+    }
     
 if __name__ == "__main__":
     import uvicorn
