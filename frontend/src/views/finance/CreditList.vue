@@ -36,6 +36,8 @@ import type {
   StudentCreditEntry,
   CreditAllocationItem,
 } from '@/types/finance'
+import RowActionMenu from '@/components/ui/RowActionMenu.vue';
+import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 import { escapeHtml } from '@/utils/html'
 import { createLatestGuard } from '@/utils/latest'
 import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
@@ -349,6 +351,17 @@ const historyEntries = ref<StudentCreditEntry[]>([])
 const isHistoryLoading = ref(false)
 const historyGuard = createLatestGuard()
 
+// 🔒 การ์ด/แถวละ "ปุ่มเดียว": เติมเงิน (งานหลักของหน้านี้)
+//    ประวัติเป็นงานอ่านที่เกิดบ่อยกว่าแต่ไม่ใช่การกระทำหลัก ⇒ อยู่ในเมนูจุด 3 จุด
+//    ผู้ใช้ที่ไม่มีสิทธิ์เขียนไม่เห็น "เติม" ⇒ ประวัติยังเป็นการ์ดปุ่มเดียวอยู่แล้ว
+const creditMenuItems: RowActionItem[] = [
+  { key: 'history', label: 'ประวัติเครดิต', icon: 'bi-clock-history' },
+];
+
+const handleCreditAction = (student: StudentCreditBalance, key: string) => {
+  if (key === 'history') void openHistory(student);
+};
+
 const openHistory = async (student: StudentCreditBalance) => {
   historyTarget.value = student
   historyEntries.value = []
@@ -582,15 +595,16 @@ onMounted(() => {
             </span>
           </div>
 
-          <div v-if="canManageFinance" class="mt-2.5 flex flex-wrap gap-2">
+          <div v-if="canManageFinance" class="mt-2.5 flex items-center gap-2">
             <button type="button" class="btn-ghost-ui" @click="openTopUp(c)">
               <i class="bi bi-plus-circle" aria-hidden="true"></i>
               เติมเงินล่วงหน้า
             </button>
-            <button type="button" class="btn-ghost-ui" @click="openHistory(c)">
-              <i class="bi bi-clock-history" aria-hidden="true"></i>
-              ประวัติ
-            </button>
+            <RowActionMenu
+              :label="`ตัวเลือกของ ${c.student_name}`"
+              :items="creditMenuItems"
+              @select="handleCreditAction(c, $event)"
+            />
           </div>
           <div v-else class="mt-2.5">
             <button type="button" class="btn-ghost-ui" @click="openHistory(c)">
@@ -683,7 +697,7 @@ onMounted(() => {
                   {{ formatMoney(c.net_pending_amount) }}
                 </td>
                 <td>
-                  <div class="flex justify-end gap-2">
+                  <div class="flex items-center justify-end gap-2">
                     <button
                       v-if="canManageFinance"
                       type="button"
@@ -693,10 +707,21 @@ onMounted(() => {
                       <i class="bi bi-plus-circle" aria-hidden="true"></i>
                       เติม
                     </button>
-                    <button type="button" class="btn-ghost-ui" @click="openHistory(c)">
+                    <button
+                      v-else
+                      type="button"
+                      class="btn-ghost-ui"
+                      @click="openHistory(c)"
+                    >
                       <i class="bi bi-clock-history" aria-hidden="true"></i>
                       ประวัติ
                     </button>
+                    <RowActionMenu
+                      v-if="canManageFinance"
+                      :label="`ตัวเลือกของ ${c.student_name}`"
+                      :items="creditMenuItems"
+                      @select="handleCreditAction(c, $event)"
+                    />
                   </div>
                 </td>
               </tr>

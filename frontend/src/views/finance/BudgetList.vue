@@ -22,6 +22,8 @@ import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import RowActionMenu from '@/components/ui/RowActionMenu.vue';
+import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 import PeriodPicker from '@/components/finance/PeriodPicker.vue';
 
 import { FinanceService } from '@/services/finance';
@@ -346,6 +348,16 @@ const confirmDelete = async (item: BudgetItem) => {
 // 🎨 หน้าตาของแถบความคืบหน้า
 // ==========================================
 
+// 🔒 งบแต่ละหมวด: "แก้ไข" เป็นการกระทำหลัก (ใช้บ่อยที่สุด) ⇒ ปุ่มอยู่จริงในแถว
+//    "ลบ" ทำลายข้อมูลและกดพลาดบ่อยเมื่ออยู่ติดกัน ⇒ ซ่อนในเมนูจุด 3 จุด
+const budgetMenuItems: RowActionItem[] = [
+  { key: 'delete', label: 'ลบงบประมาณ', icon: 'bi-trash3-fill', tone: 'danger' },
+];
+
+const handleBudgetAction = (item: BudgetItem, key: string) => {
+  if (key === 'delete') void confirmDelete(item);
+};
+
 /** แถบ progress ธรรมดา (div) — ไม่ใช้ไลบรารี chart และไม่ใช้ gradient */
 const barClass = (item: BudgetItem): string => {
   if (item.is_over) return 'bg-danger-500';
@@ -566,19 +578,16 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
             {{ item.note }}
           </p>
 
-          <div v-if="canManageFinance" class="mt-3 flex gap-2 border-t border-stone-100 pt-3">
+          <div v-if="canManageFinance" class="mt-3 flex items-center gap-2 border-t border-stone-100 pt-3">
             <button type="button" class="btn-ghost-ui min-w-0 flex-1" @click="openEdit(item)">
               <i class="bi bi-pencil" aria-hidden="true"></i>
               แก้ไข
             </button>
-            <button
-              type="button"
-              class="btn-ghost-ui min-w-0 flex-1 text-danger-600"
-              @click="confirmDelete(item)"
-            >
-              <i class="bi bi-trash3" aria-hidden="true"></i>
-              ลบ
-            </button>
+            <RowActionMenu
+              :label="`ตัวเลือกของงบ ${item.category_name}`"
+              :items="budgetMenuItems"
+              @select="handleBudgetAction(item, $event)"
+            />
           </div>
         </div>
       </div>
@@ -643,7 +652,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                   </span>
                 </td>
                 <td v-if="canManageFinance">
-                  <div class="flex justify-end gap-1.5">
+                  <div class="flex items-center justify-end gap-1.5">
                     <button
                       type="button"
                       class="btn-ghost-ui px-3 py-2 text-xs"
@@ -653,15 +662,11 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                       <i class="bi bi-pencil" aria-hidden="true"></i>
                       แก้ไข
                     </button>
-                    <button
-                      type="button"
-                      class="btn-ghost-ui px-3 py-2 text-xs text-danger-600"
-                      :title="`ลบงบของ ${item.category_name}`"
-                      @click="confirmDelete(item)"
-                    >
-                      <i class="bi bi-trash3" aria-hidden="true"></i>
-                      ลบ
-                    </button>
+                    <RowActionMenu
+                      :label="`ตัวเลือกของงบ ${item.category_name}`"
+                      :items="budgetMenuItems"
+                      @select="handleBudgetAction(item, $event)"
+                    />
                   </div>
                 </td>
               </tr>

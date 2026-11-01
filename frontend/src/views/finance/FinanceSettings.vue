@@ -9,10 +9,29 @@ import Swal from 'sweetalert2';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import RowActionMenu from '@/components/ui/RowActionMenu.vue';
+import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
 
+
+// 🔒 ตั้งค่าการเงิน: "แก้ไข" เป็นปุ่มหลักที่อยู่จริงในแถว
+//    "ลบ" ทำลายข้อมูล (และลบหมวดที่ถูกใช้แล้วจะถูกปฏิเสธฝั่ง backend) ⇒ ซ่อนในเมนู
+//    เดิมเป็นไอคอนเปลือย 2 ปุ่มติดกัน — "ลบ" อยู่ห่างนิ้วโป้งแค่ ~44px จาก "แก้ไข"
+const accountMenuItems: RowActionItem[] = [
+  { key: 'delete', label: 'ลบกระเป๋าเงิน', icon: 'bi-trash3-fill', tone: 'danger' },
+];
+const categoryMenuItems: RowActionItem[] = [
+  { key: 'delete', label: 'ลบหมวดหมู่', icon: 'bi-trash3-fill', tone: 'danger' },
+];
+
+const handleAccountAction = (acc: Account, key: string) => {
+  if (key === 'delete') void handleDeleteAccount(acc.id);
+};
+const handleCategoryAction = (cat: Category, key: string) => {
+  if (key === 'delete') void handleDeleteCategory(cat.id);
+};
 // ดึงค่าจาก Store แทน Mock Data เดิม
 const currentServerId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName!;
@@ -462,14 +481,11 @@ const formatNumber = (num: number) => {
                 >
                   <i class="bi bi-pencil-square" aria-hidden="true"></i>
                 </button>
-                <button
-                  class="flex h-11 w-11 items-center justify-center rounded-lg text-danger-600 transition-colors hover:bg-danger-50"
-                  title="ลบ"
-                  aria-label="ลบกระเป๋าเงิน"
-                  @click="handleDeleteAccount(acc.id)"
-                >
-                  <i class="bi bi-trash" aria-hidden="true"></i>
-                </button>
+                <RowActionMenu
+                  :label="`ตัวเลือกของกระเป๋า ${acc.account_name}`"
+                  :items="accountMenuItems"
+                  @select="handleAccountAction(acc, $event)"
+                />
               </div>
             </div>
           </div>
@@ -526,14 +542,11 @@ const formatNumber = (num: number) => {
                   >
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                   </button>
-                  <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-danger-600 transition-colors hover:bg-danger-50"
-                    title="ลบ"
-                    aria-label="ลบหมวดหมู่"
-                    @click.stop="handleDeleteCategory(cat.id)"
-                  >
-                    <i class="bi bi-trash" aria-hidden="true"></i>
-                  </button>
+                  <RowActionMenu
+                    :label="`ตัวเลือกของหมวดหมู่ ${cat.category_name}`"
+                    :items="categoryMenuItems"
+                    @select="handleCategoryAction(cat, $event)"
+                  />
                 </div>
               </div>
             </div>
@@ -573,14 +586,11 @@ const formatNumber = (num: number) => {
                   >
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                   </button>
-                  <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-danger-600 transition-colors hover:bg-danger-50"
-                    title="ลบ"
-                    aria-label="ลบหมวดหมู่"
-                    @click.stop="handleDeleteCategory(cat.id)"
-                  >
-                    <i class="bi bi-trash" aria-hidden="true"></i>
-                  </button>
+                  <RowActionMenu
+                    :label="`ตัวเลือกของหมวดหมู่ ${cat.category_name}`"
+                    :items="categoryMenuItems"
+                    @select="handleCategoryAction(cat, $event)"
+                  />
                 </div>
               </div>
             </div>
