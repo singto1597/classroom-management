@@ -1,35 +1,19 @@
 """แผ่นเช็คชื่อ (activity_checkin_sheets) + บันทึกเช็คอิน"""
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
 import asyncpg
-from typing import List, Literal, Optional
-from urllib.parse import quote
+from typing import List
 
 from models.activity_schemas import (
     SuccessResponse,
     ActionWithUserRequest,
-    ActivityCreateRequest,
-    ActivityUpdateRequest,
-    ActivityResponse,
-    ParticipantAddRequest,
-    ParticipantUpdateRequest,
-    ParticipantStatusUpdate,
-    BatchParticipantUpdateRequest,
-    ActivityExportRequest,
     CheckinSheetCreateRequest,
     CheckinSheetUpdateRequest,
     CheckinSheetResponse,
     CheckinSheetDetailResponse,
     CheckinRecordUpsertRequest,
     CheckinRecordsBatchRequest,
-    ParticipantBatchAddRequest,
-    AvailableStudentResponse,
-    QrCodeListResponse,
-    QrCheckinRequest,
-    QrCheckinResponse,
 )
 from core.dependencies import get_db_pool, get_current_user, resolve_target_to_room_id
-from core.rate_limit import rate_limit_per_user
 from core.exceptions import (
     ActivityNotFoundError,
     CheckinSheetNotFoundError,
@@ -257,80 +241,4 @@ async def batch_update_checkin_records(
     except (ValidationError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except (CheckinSheetNotFoundError, ParticipantNotFoundError, ActivityNotFoundError, RoomNotFoundError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# 🎟️ P4.2 — เช็คอินด้วย QR
-#    GET  .../checkin/qr = ออกบัตรของทุกคน (ผู้จัดการ) → พิมพ์/แสดงบนจอ
-#    POST .../checkin/qr = สแกนบัตร (หรือส่ง participant_id) → attended + เวลา + ผู้กด
-#    ⚠️ ใช้ `checkin` เอกพจน์ เพื่อไม่ชนกับ `/checkins` (แผ่นเช็คชื่อเดิม)
-# ═════════════════════════════════════════════════════════════════════════════
-@router.get(
-    "/{target_id}/activities/{activity_id}/checkin/qr",
-    response_model=QrCodeListResponse,
-    summary="ออกบัตร QR ของกิจกรรม (ผู้จัดการเท่านั้น)",
-)
-async def list_checkin_qr_codes(
-    activity_id: int,
-    request: Request,
-    room_id: int = Depends(resolve_target_to_room_id),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user),
-):
-    """GET /activities/{activity_id}/checkin/qr → {activity_id, title, codes: [{participant_id, student_no, token, ...}]}"""
-    client_source, actor = get_audit_context(request, user_ctx)
-    try:
-        return await ActivityService.list_checkin_qr_tokens(
-            pool=pool,
-            activity_id=activity_id,
-            client_source=client_source,
-            actor_identifier=actor,
-            room_id=room_id,
-            actor_user_id=user_ctx.get("user_id"),
-        )
-    except ForbiddenError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except (ActivityNotFoundError, RoomNotFoundError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-# 🚦 [P6.3] 30 ครั้ง/นาที/ผู้ใช้ — ผู้สแกนล็อกอินแล้ว ⇒ นับตาม user_id ไม่ใช่ IP
-#    (คิวหน้าโต๊ะหลายคนใช้อินเทอร์เน็ตเดียวกัน · และกันการเดาโทเคนบัตรจากบัญชีเดียว)
-@router.post(
-    "/{target_id}/activities/{activity_id}/checkin/qr",
-    response_model=QrCheckinResponse,
-    summary="สแกน QR เช็คอิน",
-    dependencies=[rate_limit_per_user("activity_qr")],
-)
-async def checkin_by_qr(
-    activity_id: int,
-    req: QrCheckinRequest,
-    request: Request,
-    room_id: int = Depends(resolve_target_to_room_id),
-    pool: asyncpg.Pool = Depends(get_db_pool),
-    user_ctx: dict = Depends(get_current_user),
-):
-    """POST /activities/{activity_id}/checkin/qr — body: {token | participant_id, user_name}
-
-    สแกนซ้ำคืน 200 พร้อม `already_checked_in=true` (ไม่สร้างแถวซ้ำ ไม่ทับเวลาเดิม)
-    """
-    client_source, actor = get_audit_context(request, user_ctx)
-    try:
-        return await ActivityService.checkin_by_qr(
-            pool=pool,
-            activity_id=activity_id,
-            token=req.token,
-            participant_id=req.participant_id,
-            user_name=req.user_name,
-            client_source=client_source,
-            actor_identifier=actor,
-            room_id=room_id,
-            actor_user_id=user_ctx.get("user_id"),
-        )
-    except ForbiddenError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except (ValidationError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except (ParticipantNotFoundError, ActivityNotFoundError, RoomNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))

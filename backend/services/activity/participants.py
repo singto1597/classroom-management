@@ -62,12 +62,6 @@ class ParticipantsMixin:
                     if not student_id:
                         raise StudentNotFoundError(f"ไม่พบเลขที่ {student_no} ในห้องนี้")
 
-                    # 🪑 P4.1 — จองที่นั่งก่อนแตะแถว: ล็อกกิจกรรม → นับที่นั่ง → ตัดสิน status
-                    capacity = await cls._lock_activity_capacity(conn, target_room_id, activity_id)
-                    resolved_status, queue_position = (
-                        await cls._resolve_seats(conn, activity_id, capacity, [status])
-                    )[0]
-
                     meta = metadata or {}
                     if not isinstance(meta, dict):
                         raise ValidationError("metadata ต้องเป็น object")
@@ -77,12 +71,12 @@ class ParticipantsMixin:
                         """
                         UPDATE activity_participants
                         SET deleted_at = NULL, role_type = $1, role_detail = $2, earned_hours = $3,
-                            status = $4, queue_position = $5, metadata = $6::jsonb,
-                            recorded_by = $7, updated_at = CURRENT_TIMESTAMP
-                        WHERE activity_id = $8 AND student_id = $9 AND deleted_at IS NOT NULL
+                            status = $4, metadata = $5::jsonb,
+                            recorded_by = $6, updated_at = CURRENT_TIMESTAMP
+                        WHERE activity_id = $7 AND student_id = $8 AND deleted_at IS NOT NULL
                         RETURNING id
                         """,
-                        role_type, role_detail, earned_hours, resolved_status, queue_position,
+                        role_type, role_detail, earned_hours, status,
                         json.dumps(meta), user_name, activity_id, student_id,
                     )
                     if revived:
@@ -92,12 +86,12 @@ class ParticipantsMixin:
                             """
                             INSERT INTO activity_participants
                                 (activity_id, student_id, role_type, role_detail, earned_hours,
-                                 status, queue_position, metadata, recorded_by)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                                 status, metadata, recorded_by)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
                             RETURNING id
                             """,
                             activity_id, student_id, role_type, role_detail, earned_hours,
-                            resolved_status, queue_position, json.dumps(meta), user_name,
+                            status, json.dumps(meta), user_name,
                         )
 
                     exec_time = int((time.time() - start_time) * 1000)
@@ -108,18 +102,15 @@ class ParticipantsMixin:
                         new_values={
                             "activity_id": activity_id, "student_no": student_no,
                             "role_type": role_type, "role_detail": role_detail,
-                            "earned_hours": float(earned_hours), "status": resolved_status,
-                            "queue_position": queue_position,
-                            "requested_status": status, "metadata": meta,
+                            "earned_hours": float(earned_hours), "status": status,
+                            "metadata": meta,
                         },
                         endpoint_or_command="add_participant", execution_time_ms=exec_time,
                     )
                     return {
                         "participant_id": participant_id,
                         "status": "success",
-                        # 🪑 status ที่ได้จริงอาจเป็น waitlisted (เกินความจุ) — ไม่ใช่ค่าที่ขอ
-                        "participant_status": resolved_status,
-                        "queue_position": queue_position,
+                        "participant_status": status,
                     }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -181,25 +172,8 @@ class ParticipantsMixin:
                     if not fields:
                         raise ValidationError("ไม่มีฟิลด์ที่แก้ไขได้ถูกส่งมา")
 
-                    # 🪑 P4.1 — คุมที่นั่งเมื่อเปลี่ยนสถานะ "คนที่มีแถวอยู่แล้ว"
-                    #    - ดึงคนจากคิวขึ้นยืนยัน ทั้งที่กิจกรรมเต็ม ⇒ ปฏิเสธ (ให้ตั้งเป็นคิวต่อ)
-                    #    - เปลี่ยนเป็นยกเลิก/คิว ⇒ คืนที่นั่งให้คนอื่นได้ทันที
                     old_status = old["status"]
                     new_status = fields.get("status")
-                    if new_status is not None and new_status != old_status:
-                        if new_status in ("confirmed", "attended") and old_status not in ("confirmed", "attended"):
-                            capacity = await cls._lock_activity_capacity(conn, target_room_id, activity_id)
-                            counts = await cls._capacity_counts(conn, activity_id)
-                            if capacity is not None and counts["seated"] >= capacity:
-                                raise ValidationError(
-                                    f"กิจกรรมเต็มแล้ว ({counts['seated']}/{capacity} ที่นั่ง) "
-                                    "— ถ้าต้องการให้เข้าจริง ให้ยกเลิกคนอื่นก่อน หรือตั้งสถานะเป็นคิวสำรอง"
-                                )
-                        if new_status == "waitlisted":
-                            counts = await cls._capacity_counts(conn, activity_id)
-                            fields["queue_position"] = counts["max_queue"] + 1
-                        else:
-                            fields["queue_position"] = None
 
                     keys = sorted(fields.keys())
                     set_clauses = []
@@ -242,22 +216,6 @@ class ParticipantsMixin:
                         if checkin_changed:
                             new_values["checked_in_by"] = user_name
 
-                    # 🪑 P4.1 — คืนที่นั่งเมื่อคนที่เคยได้ที่นั่งถูกยกเลิก/ย้ายลงคิว
-                    promoted: List[dict] = []
-                    if (
-                        new_status is not None
-                        and old_status in ("confirmed", "attended")
-                        and new_status not in ("confirmed", "attended")
-                    ):
-                        promoted = await cls._free_seats_after_removal(
-                            conn, target_room_id, activity_id,
-                            actor_identifier=actor_identifier,
-                            client_source=client_source,
-                            user_name=user_name,
-                            freed_slots=1,
-                        )
-                        new_values["promoted_participant_ids"] = [p["participant_id"] for p in promoted]
-
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="UPDATE", actor_identifier=actor_identifier,
@@ -266,7 +224,7 @@ class ParticipantsMixin:
                         old_values=old_values, new_values=new_values,
                         endpoint_or_command="update_participant", execution_time_ms=exec_time,
                     )
-                    return {"participant_id": participant_id, "status": "success", "promoted": promoted}
+                    return {"participant_id": participant_id, "status": "success"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
@@ -320,28 +278,16 @@ class ParticipantsMixin:
                         participant_id, activity_id,
                     )
 
-                    # 🪑 P4.1 — ถ้าคนที่ถูกนำออกเคยได้ที่นั่ง ⇒ เลื่อนคิวขึ้นทันที (transaction เดียวกัน)
-                    promoted: List[dict] = []
-                    if old["status"] in ("confirmed", "attended"):
-                        promoted = await cls._free_seats_after_removal(
-                            conn, target_room_id, activity_id,
-                            actor_identifier=actor_identifier,
-                            client_source=client_source,
-                            user_name=user_name,
-                            freed_slots=1,
-                        )
-
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
                         conn=conn, action="DELETE", actor_identifier=actor_identifier,
                         client_source=client_source, room_id=target_room_id, user_id=user_id,
                         entity_type="ACTIVITY_PARTICIPANT", entity_id=str(participant_id), status="success",
                         old_values=old_values,
-                        new_values={"deleted_at": "soft-deleted",
-                                    "promoted_participant_ids": [p["participant_id"] for p in promoted]},
+                        new_values={"deleted_at": "soft-deleted"},
                         endpoint_or_command="remove_participant", execution_time_ms=exec_time,
                     )
-                    return {"participant_id": participant_id, "status": "success", "promoted": promoted}
+                    return {"participant_id": participant_id, "status": "success"}
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
             safe_room_id = None if isinstance(e, RoomNotFoundError) else target_room_id
@@ -434,9 +380,9 @@ class ParticipantsMixin:
                         if role_type is not None and role_type not in ("participant", "staff", "leader"):
                             raise ValidationError(f"role_type ของ participant {pid} ต้องเป็น participant/staff/leader")
                         p_status = item.get("status")
-                        if p_status is not None and p_status not in ("confirmed", "cancelled", "attended", "waitlisted"):
+                        if p_status is not None and p_status not in ("confirmed", "cancelled", "attended"):
                             raise ValidationError(
-                                f"status ของ participant {pid} ต้องเป็น confirmed/cancelled/attended/waitlisted"
+                                f"status ของ participant {pid} ต้องเป็น confirmed/cancelled/attended"
                             )
                         earned_hours = item.get("earned_hours")
                         if earned_hours is not None:
@@ -454,14 +400,6 @@ class ParticipantsMixin:
                             "earned_hours": earned_hours,
                             "metadata": meta,
                         })
-
-                    # 🪑 P4.1 — ล็อกกิจกรรมครั้งเดียว + เก็บที่นั่งที่ปล่อยออกมาระหว่างชุด
-                    #    (batch ที่ยกเลิกกลุ่มใหญ่ต้องเลื่อนคิวให้คนที่รอ — ไม่ใช่ปล่อยที่นั่งว่างค้าง)
-                    capacity = await cls._lock_activity_capacity(conn, target_room_id, activity_id)
-                    counts = await cls._capacity_counts(conn, activity_id)
-                    seated_now = counts["seated"]
-                    max_queue = counts["max_queue"]
-                    freed_slots = 0
 
                     updated = []
                     for item in unique_items:
@@ -481,25 +419,6 @@ class ParticipantsMixin:
                         merged = dict(old_meta)
                         merged.update(new_meta)
 
-                        # 🪑 นับที่นั่ง: ออกจากที่นั่ง = คืนคิว · เข้าที่นั่ง = ต้องมีที่ว่างจริง
-                        queue_position: Any = None
-                        if new_status is not None and new_status != old["status"]:
-                            was_seated = old["status"] in ("confirmed", "attended")
-                            will_seat = new_status in ("confirmed", "attended")
-                            if was_seated and not will_seat:
-                                seated_now -= 1
-                                freed_slots += 1
-                            elif will_seat and not was_seated:
-                                if capacity is not None and seated_now >= capacity:
-                                    raise ValidationError(
-                                        f"กิจกรรมเต็มแล้ว ({seated_now}/{capacity} ที่นั่ง) "
-                                        f"— participant {pid} ตั้งเป็นคิวสำรองแทนไม่ได้ในชุดนี้"
-                                    )
-                                seated_now += 1
-                            if new_status == "waitlisted":
-                                max_queue += 1
-                                queue_position = max_queue
-
                         # Dynamic SET — ถ้าส่ง field ไหนมา (ไม่ใช่ None) → ตั้งค่าให้
                         # role_detail: ("" = เคลียร์หน้าที่) — pattern เดียวกับ update_participant
                         set_clauses = ["metadata = $1::jsonb"]
@@ -511,16 +430,13 @@ class ParticipantsMixin:
                             set_clauses.append(f"role_type = ${len(values) + 1}")
                             values.append(new_role_type)
                         # 🎟️ P4.2 — เวลาเช็คอินเดินคู่กับสถานะ attended เสมอ (กติกาเดียวกับ
-                        #    update_participant / checkin_by_qr): เข้า attended = ประทับครั้งแรก,
+                        #    update_participant): เข้า attended = ประทับครั้งแรก,
                         #    ออกจาก attended = ล้าง — ทำในคำสั่งเดียวกับที่เปลี่ยน status
                         checkin_changed: Optional[bool] = None
                         if new_status is not None:
                             set_clauses.append(f"status = ${len(values) + 1}")
                             values.append(new_status)
-                            # NULL = ไม่เปลี่ยนคิว / เลข = เข้าคิวใหม่ (เฉพาะเมื่อเปลี่ยนสถานะจริง)
                             if new_status != old["status"]:
-                                set_clauses.append(f"queue_position = ${len(values) + 1}")
-                                values.append(queue_position)
                                 if new_status == "attended":
                                     set_clauses.append("checked_in_at = COALESCE(checked_in_at, CURRENT_TIMESTAMP)")
                                     set_clauses.append(f"checked_in_by = ${len(values) + 1}")
@@ -572,21 +488,10 @@ class ParticipantsMixin:
                             endpoint_or_command="batch_update_participants", execution_time_ms=exec_time,
                         )
 
-                    promoted: List[dict] = []
-                    if freed_slots > 0:
-                        promoted = await cls._free_seats_after_removal(
-                            conn, target_room_id, activity_id,
-                            actor_identifier=actor_identifier,
-                            client_source=client_source,
-                            user_name=user_name,
-                            freed_slots=freed_slots,
-                        )
-
                     return {
                         "status": "success",
                         "updated_count": len(updated),
                         "updated": updated,
-                        "promoted": promoted,
                     }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -626,10 +531,6 @@ class ParticipantsMixin:
                     if await cls._get_activity_room(conn, activity_id) != target_room_id:
                         raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
 
-                    # 🪑 P4.1 — ล็อกกิจกรรมครั้งเดียวตลอดชุด แล้วจองที่นั่งทีละคนตามลำดับที่ส่งมา
-                    #    (คนที่เกินความจุกลายเป็น waitlisted พร้อมเลขคิว 1,2,3...)
-                    capacity = await cls._lock_activity_capacity(conn, target_room_id, activity_id)
-
                     seen = set()
                     unique_items: List[dict] = []
                     for item in items:
@@ -658,22 +559,17 @@ class ParticipantsMixin:
                         if not student_id:
                             raise StudentNotFoundError(f"ไม่พบเลขที่ {no} ในห้องนี้ (หรือยังไม่ active)")
 
-                        # 🪑 จองที่นั่ง (อ่านซ้ำทุกคน — เห็นแถวที่เพิ่งเพิ่มในชุดเดียวกัน)
-                        resolved_status, queue_position = (
-                            await cls._resolve_seats(conn, activity_id, capacity, [status])
-                        )[0]
-
                         # revive-or-insert (pattern เดียวกับ add_participant) — กันชน UNIQUE(activity_id, student_id)
                         revived = await conn.fetchrow(
                             """
                             UPDATE activity_participants
                             SET deleted_at = NULL, role_type = $1, role_detail = $2, earned_hours = $3,
-                                status = $4, queue_position = $5, metadata = $6::jsonb,
-                                recorded_by = $7, updated_at = CURRENT_TIMESTAMP
-                            WHERE activity_id = $8 AND student_id = $9 AND deleted_at IS NOT NULL
+                                status = $4, metadata = $5::jsonb,
+                                recorded_by = $6, updated_at = CURRENT_TIMESTAMP
+                            WHERE activity_id = $7 AND student_id = $8 AND deleted_at IS NOT NULL
                             RETURNING id
                             """,
-                            role_type, role_detail, earned_hours, resolved_status, queue_position,
+                            role_type, role_detail, earned_hours, status,
                             json.dumps(meta), user_name, activity_id, student_id,
                         )
                         if revived:
@@ -685,12 +581,12 @@ class ParticipantsMixin:
                                 """
                                 INSERT INTO activity_participants
                                     (activity_id, student_id, role_type, role_detail, earned_hours,
-                                     status, queue_position, metadata, recorded_by)
-                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                                     status, metadata, recorded_by)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
                                 RETURNING id
                                 """,
                                 activity_id, student_id, role_type, role_detail, earned_hours,
-                                resolved_status, queue_position, json.dumps(meta), user_name,
+                                status, json.dumps(meta), user_name,
                             )
                             log_action = "CREATE"
                             audit_extra = {}
@@ -702,17 +598,15 @@ class ParticipantsMixin:
                             entity_type="ACTIVITY_PARTICIPANT", entity_id=str(participant_id), status="success",
                             new_values={"activity_id": activity_id, "student_no": no,
                                         "role_type": role_type, "role_detail": role_detail,
-                                        "earned_hours": earned_hours, "status": resolved_status,
-                                        "queue_position": queue_position,
-                                        "requested_status": status, "metadata": meta,
+                                        "earned_hours": earned_hours, "status": status,
+                                        "metadata": meta,
                                         **audit_extra},
                             endpoint_or_command="batch_add_participants", execution_time_ms=exec_time,
                         )
                         added.append({
                             "participant_id": participant_id,
                             "student_no": no,
-                            "participant_status": resolved_status,
-                            "queue_position": queue_position,
+                            "participant_status": status,
                         })
 
                     return {"status": "success", "added": added, "updated_count": len(added)}

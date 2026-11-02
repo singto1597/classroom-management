@@ -8,8 +8,8 @@
 2. **Redis ล่ม = ปล่อยผ่าน (fail-open)** — ถ้ากลับทิศเป็น fail-closed การที่ Redis
    ล่มหนึ่งครั้งจะล็อกอินไม่ได้ทั้งระบบ ซึ่งรุนแรงกว่าการถูกยิงถล่ม
 3. **ตัวนับผูกกับ scope + identity** — ผู้ใช้ A ใช้เพดานจนหมดต้องไม่ทำให้ B ได้ 429
-4. **ตัวนับของ endpoint สาธารณะถูกต่อสายจริง** — ทดสอบผ่าน app จริง (`/api/shared/...`)
-   ไม่ใช่แค่เรียกฟังก์ชันตรง ๆ (บทเรียน "unit test เขียว แต่สายไฟไม่ได้ต่อ")
+4. **ตัวนับของ endpoint ที่ไม่ต้องล็อกอินถูกต่อสายจริง** — ทดสอบผ่าน app จริง
+   (`/api/auth/...`) ไม่ใช่แค่เรียกฟังก์ชันตรง ๆ (บทเรียน "unit test เขียว แต่สายไฟไม่ได้ต่อ")
 5. **`/health` รายงาน Redis/worker แต่ไม่เป็น 503** เพราะเหตุเหล่านั้น
 
 ⚠️ ใช้ `_fake_redis.FakeRedis` เท่านั้น — `REDIS_URL` ของ test runner ชี้
@@ -104,7 +104,7 @@ def _limited_app() -> tuple[FastAPI, TestClient]:
 
     app.dependency_overrides[get_current_user] = lambda: {"user_id": 42}
 
-    @app.get("/user", dependencies=[rl.rate_limit_per_user("activity_qr", rule=SMALL_RULE)])
+    @app.get("/user", dependencies=[rl.rate_limit_per_user("test_user_scope", rule=SMALL_RULE)])
     async def by_user():
         return {"ok": True}
 
@@ -133,7 +133,7 @@ def test_per_user_dependency_counts_by_user_id_not_ip():
     res = client.get("/user")
 
     assert res.status_code == 429
-    assert any(key.startswith("ratelimit:activity_qr:user:42") for key in app.state.redis.store)
+    assert any(key.startswith("ratelimit:test_user_scope:user:42") for key in app.state.redis.store)
 
 
 def test_rate_limit_disabled_by_settings(monkeypatch):
@@ -161,8 +161,8 @@ def test_fail_open_when_redis_is_down(monkeypatch):
 
 
 def _route(path: str, method: str) -> APIRoute:
-    """⚠️ ต้องกรองตาม method ด้วย — `.../checkin/qr` มีทั้ง GET (ออกบัตร) และ POST (สแกน)
-    ใช้ path เดียวกัน ⇒ หาเจอตัวแรกแล้วจะตรวจผิดตัว"""
+    """⚠️ ต้องกรองตาม method ด้วย — path เดียวกันอาจมีหลาย method (GET/POST/DELETE)
+    ⇒ หาเจอตัวแรกแล้วจะตรวจผิดตัว"""
     for route in real_app.routes:
         if (
             isinstance(route, APIRoute)
@@ -178,8 +178,6 @@ def _route(path: str, method: str) -> APIRoute:
     [
         ("POST", "/api/auth/discord/login"),
         ("POST", "/api/auth/google/login"),
-        ("GET", "/api/shared/activity/{token}"),
-        ("POST", "/api/classroom/{target_id}/activities/{activity_id}/checkin/qr"),
     ],
 )
 def test_public_and_sensitive_routes_have_rate_limit_dependency(method, path):
@@ -187,23 +185,23 @@ def test_public_and_sensitive_routes_have_rate_limit_dependency(method, path):
 
 
 @pytest.mark.asyncio
-async def test_shared_activity_route_actually_counts(client):
+async def test_login_route_actually_counts(client):
     """ยิงผ่าน app จริงหนึ่งครั้ง แล้วต้องเห็นตัวนับของ scope ใน Redis ปลอม
 
-    เลือก endpoint นี้เพราะ **ไม่ต้องล็อกอิน** — ถ้าเผลอใช้ endpoint ที่มี auth
-    เทสต์จะได้ 401 ก่อนถึงตัวนับ แล้วผ่านทั้งที่ไม่มีการนับจริง
+    ส่ง body ว่าง ⇒ ได้ 422 หลัง dependency ทำงานแล้ว (ไม่มีการเรียก Discord จริง)
+    เลือก endpoint นี้เพราะ **ไม่ต้องล็อกอิน** — endpoint ที่มี auth จะได้ 401
+    ก่อนถึงตัวนับ แล้วเทสต์จะผ่านทั้งที่ไม่มีการนับจริง
     """
     fake = FakeRedis()
     original = real_app.state.redis
     real_app.state.redis = fake
     try:
-        res = client.get("/api/shared/activity/" + "x" * 43)
+        res = client.post("/api/auth/discord/login")
     finally:
         real_app.state.redis = original
 
-    # ไม่มีกิจกรรมนี้ ⇒ 404 (แต่ต้องผ่าน dependency มาก่อนแล้ว)
-    assert res.status_code == 404
-    assert any(key.startswith("ratelimit:shared_activity:") for key in fake.store)
+    assert res.status_code == 422
+    assert any(key.startswith("ratelimit:auth_login:") for key in fake.store)
 
 
 # =============================================================================

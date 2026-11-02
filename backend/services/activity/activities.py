@@ -22,8 +22,7 @@ from core.rbac import require_member, require_permission, has_any_permission, MA
 from core.privacy import can_view_activity_pii, mask_private_fields, PROFILE_TYPE_A_FIELDS
 from services.action_service import ActionService
 from .base import service_logger
-from .capacity import plan_seats
-from .constants import normalize_category, validate_registration_deadline
+from .constants import normalize_category
 
 
 class ActivitiesMixin:
@@ -44,9 +43,7 @@ class ActivitiesMixin:
         status: str = "upcoming",
         metadata: Optional[dict] = None,
         participants: Optional[List[dict]] = None,
-        capacity: Optional[int] = None,
         category: Optional[str] = None,
-        registration_deadline: Optional[date] = None,
     ) -> dict:
         """
         สร้างกิจกรรม + ผู้เข้าร่วมหลายคนพร้อมกัน (executemany ภายใน transaction เดียว)
@@ -71,20 +68,19 @@ class ActivitiesMixin:
                     if "dynamic_fields" in meta:
                         cls._validate_dynamic_fields(meta.get("dynamic_fields"))
 
-                    # 🏷️ P4.3 — หมวดต้องอยู่ในชุดที่รู้จัก + วันปิดรับต้องไม่หลังวันจัด
+                    # 🏷️ หมวดต้องอยู่ในชุดที่รู้จัก
                     category = normalize_category(category)
-                    validate_registration_deadline(registration_deadline, activity_date)
 
                     activity_id = await conn.fetchval(
                         """
                         INSERT INTO activities
-                            (room_id, title, description, activity_date, base_hours, status, capacity,
-                             category, registration_deadline, metadata, created_by)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
+                            (room_id, title, description, activity_date, base_hours, status,
+                             category, metadata, created_by)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
                         RETURNING id
                         """,
                         target_room_id, title, description, activity_date, base_hours, status,
-                        capacity, category, registration_deadline, json.dumps(meta), user_name,
+                        category, json.dumps(meta), user_name,
                     )
 
                     new_values = {
@@ -93,9 +89,7 @@ class ActivitiesMixin:
                         "activity_date": str(activity_date),
                         "base_hours": float(base_hours),
                         "status": status,
-                        "capacity": capacity,
                         "category": category,
-                        "registration_deadline": str(registration_deadline) if registration_deadline else None,
                         "metadata": meta,
                         "created_by": user_name,
                     }
@@ -104,23 +98,19 @@ class ActivitiesMixin:
                     participant_records = participants or []
                     if participant_records:
                         validated = await cls._validate_participants(conn, target_room_id, participant_records)
-                        # 🪑 P4.1 — จองที่นั่งตามลำดับที่เลือกมา (เกินความจุ = เข้าคิวท้ายแถว)
-                        seats = plan_seats([row[4] for row in validated], capacity, seated=0, next_queue=1)
                         await conn.executemany(
                             """
                             INSERT INTO activity_participants
                                 (activity_id, student_id, role_type, role_detail, earned_hours,
-                                 status, queue_position, metadata, recorded_by)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                                 status, metadata, recorded_by)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
                             """,
                             [
                                 (
                                     activity_id, student_id, role_type, role_detail,
-                                    earned_hours, seat_status, seat_queue, json.dumps(p_meta), user_name,
+                                    earned_hours, p_status, json.dumps(p_meta), user_name,
                                 )
-                                for (student_id, role_type, role_detail, earned_hours, _p_status, p_meta), (
-                                    seat_status, seat_queue
-                                ) in zip(validated, seats)
+                                for (student_id, role_type, role_detail, earned_hours, p_status, p_meta) in validated
                             ],
                         )
                         new_values["participants"] = [
@@ -190,19 +180,13 @@ class ActivitiesMixin:
                 if user_id is not None:
                     await require_member(conn, target_room_id, user_id)
 
-                # 🏷️ P4.3 — กรองหมวด: ค่าที่ไม่รู้จัก = 400 (ไม่ใช่ลิสต์ว่าง ที่ทำให้ผู้ใช้คิดว่าห้องไม่มีกิจกรรม)
+                # 🏷️ กรองหมวด: ค่าที่ไม่รู้จัก = 400 (ไม่ใช่ลิสต์ว่าง ที่ทำให้ผู้ใช้คิดว่าห้องไม่มีกิจกรรม)
                 category = normalize_category(category)
 
-                # 🪑 P4.1 — นับที่นั่ง/คิวในคำสั่งเดียว (ลิสต์ไม่ต้องดึงผู้เข้าร่วมทั้งหมด)
                 base_sql = (
                     "SELECT a.id, a.room_id, a.title, a.description, a.activity_date, a.base_hours, "
-                    "a.capacity, a.status, a.metadata, a.category, a.registration_deadline, "
-                    "(a.share_token IS NOT NULL) AS has_share_link, "
-                    "a.created_by, a.created_at, a.updated_at, "
-                    "(SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id "
-                    " AND ap.deleted_at IS NULL AND ap.status IN ('confirmed', 'attended')) AS confirmed_count, "
-                    "(SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id "
-                    " AND ap.deleted_at IS NULL AND ap.status = 'waitlisted') AS waitlisted_count "
+                    "a.status, a.metadata, a.category, "
+                    "a.created_by, a.created_at, a.updated_at "
                     "FROM activities a WHERE a.room_id = $1 AND a.deleted_at IS NULL"
                 )
                 params: List[Any] = [target_room_id]
@@ -326,11 +310,9 @@ class ActivitiesMixin:
         old_values: dict = {}
         try:
             clean = {k: v for k, v in update_data.items() if v is not None}
-            # 🧹 P4.3 — สองฟิลด์นี้ "ส่ง null มาตรง ๆ = ล้างค่า" (capacity ใช้ 0 เพราะ NULL = ไม่จำกัด
-            #    ส่วนหมวด/วันปิดรับไม่มีค่าพิเศษที่แทน "ไม่มี" ได้ ⇒ NULL คือคำสั่งล้างเอง)
-            for nullable_key in ("category", "registration_deadline"):
-                if nullable_key in update_data and update_data[nullable_key] is None:
-                    clean[nullable_key] = None
+            # 🧹 หมวด "ส่ง null มาตรง ๆ = ล้างค่า" (ไม่มีค่าพิเศษที่แทน "ไม่มี" ได้)
+            if "category" in update_data and update_data["category"] is None:
+                clean["category"] = None
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     target_room_id = await cls._resolve_room_id(conn, server_id, room_id)
@@ -358,27 +340,13 @@ class ActivitiesMixin:
                             cls._validate_dynamic_fields(merged.get("dynamic_fields"))
 
                     allowed = {"title", "description", "activity_date", "base_hours", "status",
-                               "capacity", "metadata", "category", "registration_deadline"}
+                               "metadata", "category"}
                     fields = {k: v for k, v in clean.items() if k in allowed}
                     if not fields and participants is None:
                         raise ValidationError("ไม่มีฟิลด์ที่แก้ไขได้ถูกส่งมา")
 
-                    # 🏷️ P4.3 — ตรวจกับค่า "หลังแก้" ทั้งชุด (ย้ายวันจัดพร้อมกันต้องเทียบกับวันใหม่)
                     if "category" in fields:
                         fields["category"] = normalize_category(fields["category"])
-                    if "registration_deadline" in fields:
-                        validate_registration_deadline(
-                            fields["registration_deadline"],
-                            fields.get("activity_date", old["activity_date"]),
-                        )
-
-                    # 🪑 P4.1 — capacity: 0 = ยกเลิกเพดาน (NULL) · ห้ามต่ำกว่าคนที่ยืนยันแล้ว
-                    if "capacity" in fields:
-                        if fields["capacity"] == 0:
-                            fields["capacity"] = None
-                        await cls._lock_activity_capacity(conn, target_room_id, activity_id)
-                        counts = await cls._capacity_counts(conn, activity_id)
-                        cls.validate_capacity_change(fields["capacity"], counts["seated"])
 
                     keys = sorted(fields.keys())
                     set_clauses = []
@@ -403,21 +371,7 @@ class ActivitiesMixin:
                     if res == "UPDATE 0":
                         raise ActivityNotFoundError(f"ไม่พบกิจกรรม ID: {activity_id}")
 
-                    # 🪑 P4.1 — เพิ่มความจุ (หรือยกเลิกเพดาน) ⇒ ที่นั่งที่เพิ่งเปิดต้องได้คนในคิว
-                    #    (transaction เดียวกัน — ไม่มีสภาพ "ที่นั่งว่างค้างทั้งที่ยังมีคนรอ")
-                    promoted: List[dict] = []
-                    if "capacity" in fields:
-                        promoted = await cls._promote_waitlist(
-                            conn, target_room_id, activity_id,
-                            capacity=fields["capacity"], lock=False,
-                            actor_identifier=actor_identifier,
-                            client_source=client_source,
-                            user_name=user_name,
-                        )
-
                     new_values = {k: cls._serializable(v) for k, v in fields.items()}
-                    if promoted:
-                        new_values["promoted_participant_ids"] = [p["participant_id"] for p in promoted]
 
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(

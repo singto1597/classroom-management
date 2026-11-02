@@ -46,11 +46,6 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/version"):
         "provenance ของระบบ (version + git sha) — ไม่มีข้อมูลผู้ใช้; ต้องเช็กได้จาก"
         "นอกแอปโดยไม่ต้องมี credential ทั้งตอนตรวจ deploy และตอนไล่ incident",
-    ("GET", "/api/shared/activity/{token}"):
-        "หน้าลิงก์แชร์กิจกรรม (P4.3) — ผู้เปิดคือผู้ปกครอง/นักเรียนที่ไม่มีบัญชีในระบบ"
-        "และไม่รู้ room_id; สิทธิ์การเข้าถึงคือ 'มีโทเคนที่ยังไม่ถูกเพิกถอน' ซึ่งพิสูจน์ที่"
-        " `activities.share_token` (partial unique index) · ตอบเฉพาะข้อมูลงาน ไม่มี PII"
-        " — ออก/เพิกถอนลิงก์ยังต้อง MANAGE_ACTIVITIES ผ่าน route ใต้ /api/classroom",
 }
 
 
@@ -183,7 +178,10 @@ def test_route_count_is_not_silently_shrinking():
     # 171 → 172 (2026-11-01): สถิติการส่ง push (P6.5) — `notifications/push/stats`
     #   มี `Depends(get_current_user)` และเรียก
     #   `require_permission(MANAGE_CLASSROOM_SETTINGS)` ใน service (403 ไม่ออกที่ route)
-    expected = 172
+    # 172 → 167 (2026-11-02): ถอนฟีเจอร์ที่ผิด concept ของกิจกรรม — ลบ QR 2 route
+    #   (`GET/POST …/checkin/qr`), ลิงก์แชร์ 2 route (`POST/DELETE …/share`) และ
+    #   หน้าสาธารณะ `GET /api/shared/activity/{token}` (PUBLIC_ROUTES ว่างลงหนึ่งรายการ)
+    expected = 167
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

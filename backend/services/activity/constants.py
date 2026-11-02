@@ -1,5 +1,4 @@
 """ค่าคงที่ + ป้าย label ของ activity service (เวลาไทย, ชื่อเดือน, ป้าย Excel export)."""
-from datetime import date
 from typing import Dict, FrozenSet, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -88,8 +87,6 @@ PARTICIPANT_STATUS_LABELS: Dict[str, str] = {
     "confirmed": "ยืนยันแล้ว",
     "cancelled": "ยกเลิก",
     "attended": "มาแล้ว",
-    # 🪑 P4.1 — เกินความจุ: ยังไม่ได้ที่นั่ง แต่ถ้ามีคนยกเลิกจะถูกเลื่อนขึ้นอัตโนมัติ
-    "waitlisted": "คิวสำรอง",
 }
 
 # 🌟 ป้ายภาษาไทยของสถานะกิจกรรม (ค่าใน activities.status) — ใช้ในหน้า Summary ของ Excel
@@ -113,7 +110,6 @@ PARTICIPANT_STATUS_COLORS: Dict[str, str] = {
     "confirmed": "059669",  # เขียว
     "attended": "2563EB",   # น้ำเงิน
     "cancelled": "E11D48",  # แดง
-    "waitlisted": "D97706", # ส้ม-เหลือง (รออยู่ ไม่ได้ยืนยัน)
 }
 
 # 🌟 ความกว้างคอลัมน์ (จุด) ของ Sheet รายชื่อ — เลขที่แคบ ฟิลด์ยาว ๆ กว้าง
@@ -155,7 +151,7 @@ def normalize_category(value: Optional[str]) -> Optional[str]:
     """ทำความสะอาดค่าหมวด → slug ที่รู้จัก หรือ None (ไม่ระบุ)
 
     - `None` / `""` / ช่องว่างล้วน = **ล้างหมวด** (ตั้ง NULL) — ใช้เป็นทาง "ยกเลิกหมวด"
-      ใน PATCH ได้ เพราะ `None` ถูกกรองทิ้งไปก่อนถึงจุดนี้ (ต่างจาก capacity ที่ใช้ 0)
+      ใน PATCH ได้ เพราะผู้เรียกแปลง `""` เป็น `None` ก่อนถึงจุดนี้
     - ค่าที่ไม่รู้จัก = 400 พร้อมรายการที่รับได้ (ไม่เดาใกล้เคียงให้ — กันพิมพ์ผิดแล้วเงียบ)
     """
     if value is None:
@@ -167,22 +163,3 @@ def normalize_category(value: Optional[str]) -> Optional[str]:
         allowed = " · ".join(f"{c['value']} ({c['label']})" for c in ACTIVITY_CATEGORIES)
         raise ValidationError(f"ไม่รู้จักหมวดกิจกรรม '{value}' — รับได้เฉพาะ: {allowed}")
     return cleaned
-
-
-def validate_registration_deadline(
-    deadline: Optional[date], activity_date: Optional[date]
-) -> None:
-    """วันปิดรับต้องไม่หลังวันจัดกิจกรรม (เท่ากันได้ — ปิดรับเช้าวันงาน)
-
-    เก็บเป็น DATE ไม่ใช่ TIMESTAMPTZ ⇒ ไม่มีคำถามว่า "ปิดรับตอนเที่ยงคืนของวันไหน"
-    ตามโซนเวลา — วันที่คือวันที่ ไม่ใช่จุดเวลา
-    """
-    if deadline is None or activity_date is None:
-        return
-    if deadline > activity_date:
-        raise ValidationError(
-            "วันปิดรับลงทะเบียน ("
-            f"{deadline.day} {THAI_MONTH_NAMES[deadline.month - 1]} {deadline.year + 543}"
-            ") ต้องไม่หลังวันจัดกิจกรรม ("
-            f"{activity_date.day} {THAI_MONTH_NAMES[activity_date.month - 1]} {activity_date.year + 543})"
-        )

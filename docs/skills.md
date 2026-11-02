@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 268 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 269 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -272,6 +272,7 @@
 - [📊 สถิติของ worker ต้องแยก "รอบล่าสุด" ออกจาก "สถานะคิว" — และ `null` ≠ `0`](#สถิติของ-worker-ต้องแยก-รอบล่าสุด-ออกจาก-สถานะคิว-และ-null-0)
 - [🚦 อยู่หลัง Cloudflare ไม่ได้แปลว่า origin ถูกปิด — ต้องยิง TCP จากภายนอกก่อนตั้ง `TRUSTED_PROXY_HOPS` และเปิด rate limit](#อยู่หลัง-cloudflare-ไม่ได้แปลว่า-origin-ถูกปิด-ต้องยิง-tcp-จากภายนอกก่อนตั้ง-trustedproxyhops-และเปิด-rate-limit)
 - [🚀 service ใหม่ที่อ่านตารางจาก migration ต้องรอสคีมา — และ `rollback.sh` จะพามันไปกับ image เก่าที่ไม่มีโมดูลนั้น](#service-ใหม่ที่อ่านตารางจาก-migration-ต้องรอสคีมา-และ-rollbacksh-จะพามันไปกับ-image-เก่าที่ไม่มีโมดูลนั้น)
+- [🎪 กิจกรรม = ทะเบียนบันทึกผู้เข้าร่วม ไม่ใช่ระบบรับลงทะเบียน — อย่ายืม capacity/waitlist/QR/ลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง](#กิจกรรม-ทะเบียนบันทึกผู้เข้าร่วม-ไม่ใช่ระบบรับลงทะเบียน-อย่ายืม-capacitywaitlistqrลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง)
 
 <!-- TOC:END -->
 
@@ -4587,4 +4588,18 @@
   ทางเลือกที่ทำให้ rollback ปลอดภัยถาวร: ให้ `rollback.sh` ตรวจ `.env`/compose ว่า service ใหม่เป็นของ tag นั้นจริง หรือเก็บ compose ต่อ tag ไว้ (แต่จะขัดกับ zero-downtime ที่ใช้ไฟล์เดียว) — จนกว่าจะตัดสิน ต้องจำกฎลบ service มือ
 - **Rule:** (1) 🔴 service ที่อ่านตารางซึ่งอีก service สร้าง ต้อง **รอ/retry สคีมาเอง** อย่าพึ่ง restart backoff (log เต็ม traceback และ health อาจแดงก่อนฟื้น) (2) 🔴 rollback = สลับ *image* ไม่ได้สลับ *compose* ⇒ service ที่เกิดหลัง tag ปลายทางต้องถูกลบมือก่อน (3) 🔴 migration ต้อง **additive** จริงจึงจะถอย image โดยไม่ถอย DB ได้ — รอบนี้ migration 0002–0009 เป็น additive ทั้งหมด จึงถอยโค้ดได้โดยไม่ต้องกู้ฐานข้อมูล
 - **Tests/Verification:** `docker service ps production_app_push_worker` ดูประวัติ task (failed → running) · `docker service logs --since 10m production_app_push_worker` ไม่มี traceback ใหม่ · `/health` → `push_worker.last_beat_seconds_ago` ≤ 5 · ทดสอบ rollback บน staging ก่อน: `docker service rm staging_app_push_worker` แล้ว `./rollback.sh <tag ก่อน P2> --yes` ต้องไม่มี service ค้าง
+- **Date Added:** 2026-11-02
+
+### 🎪 กิจกรรม = ทะเบียนบันทึกผู้เข้าร่วม ไม่ใช่ระบบรับลงทะเบียน — อย่ายืม capacity/waitlist/QR/ลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง
+
+- **Context/Problem:** P4 นำกลไก "event registration" (ความจุ · คิวสำรอง · วันปิดรับ · ลิงก์แชร์สาธารณะ · บัตร QR) จากรายงาน PiriVoice/PRSC มาใช้กับกิจกรรมของระบบนี้ โดยไม่ได้ตรวจว่าผู้ใช้หลักคือใคร ใน PiriVoice นักเรียนเป็นคนกดสมัครเอง → ความจุ/คิว/เดดไลน์จึงมีความหมาย แต่ในระบบนี้ **ครู/ผู้ดูแลห้องเป็นคนใส่รายชื่อ** (เพิ่มทีละคน · batch · สร้างทั้งชุด · แทนที่ทั้งชุด) กิจกรรมมีไว้เพื่อ *เก็บว่าใครไปบ้างและได้กี่ชั่วโมง* ไม่มีใครจากภายนอก "จอย" เข้ามาได้ ⇒ ฟีเจอร์ทั้งชุดกลายเป็นภาระที่ไม่มีใครใช้ ออกแบบผิดตั้งแต่โจทย์ และหน้าสาธารณะยังเป็น route เดียวที่ไม่มี auth
+- **Root Cause:** คัดลอก *กลไก* จากรายงานโดยไม่ได้ทบทวน *สัญญาของโดเมน* — ชื่อตาราง/คำใน UI ("รับสมัคร", "ที่นั่งเหลือ", "คิวสำรอง") ฟังดูเข้าท่า จึงไม่มีใครถามว่า "ใครเป็นคนกดปุ่มรับสิทธิ์" คำตอบคือไม่มี เพราะรายชื่อมาจากครู
+- **Correct Pattern/Solution (2026-11-02):**
+  - ถอนที่ **แหล่งความจริง** ไม่ใช่ซ่อน UI: ลบ `services/activity/{capacity,qr,share}.py`, `routers/shared_activity_router.py`, mixin ใน `ActivityService`, schema/route/frontend component ที่เกี่ยวข้อง และเทสต์ของฟีเจอร์นั้น
+  - **คอลัมน์ใน DB ไม่ DROP** (`activities.capacity/registration_deadline/share_token`, `activity_participants.queue_position`) เพราะ repo ใช้ migration แบบ additive เท่านั้น — หยุดใช้แล้วทิ้งไว้เป็นประวัติ ไม่เขียน INSERT/SELECT อีก
+  - เหลือเฉพาะความหมายที่ตรงโดเมน: `category` (หมวดกิจกรรม) · `metadata.required_fields` (ฟิลด์ไดนามิก) · `checked_in_at/checked_in_by` (บันทึกว่าใครกดว่ามาแล้ว) · `status` 3 ค่า (`confirmed/cancelled/attended`)
+  - `test_route_auth_audit.py` ตัวเลข route 172 → 167 — ตัวเลขนี้ตั้งใจให้แก้มือ; `PUBLIC_ROUTES` ว่างลงชั่วคราวเพราะไม่มี route สาธารณะเหลือ (เหลือแค่ login/health/version)
+  - หน้าสาธารณะ `/share/activity/:token`, `ShareLinkCard`, `utils/activityDeadline.ts` และเทสต์ของมันถูกลบทั้งไฟล์ — ไม่ทิ้ง helper ที่ไม่มีผู้เรียกให้คนรุ่นหลังเข้าใจผิดว่ายังใช้อยู่
+- **Rule:** (1) 🔴 ก่อนยกฟีเจอร์จากรายงานระบบอื่น ให้ตอบก่อนว่า **ใครเป็นคนสร้างข้อมูลนั้นและใครได้ประโยชน์** — ถ้าเป็นคนละคนกับระบบเรา กลไกมักผิดทั้งชุด (2) 🔴 ระบบบันทึก (ledger) ไม่ต้องมีความจุ: "เต็ม" ไม่มีความหมายเมื่อครูเป็นคนใส่ชื่อ (3) 🔴 ถอนฟีเจอร์ = ลบโค้ด/สคีมา DTO/route/เทสต์/คำใน glossary ให้ครบ แต่ **ไม่ DROP คอลัมน์** (4) 🔴 route สาธารณะที่ไม่มีผู้ใช้จริงคือพื้นที่โจมตีฟรี — การลบมันดีกว่าการใส่ rate limit ให้
+- **Tests/Verification:** `grep -rn "capacity\|waitlist\|queue_position\|registration_deadline\|share_token\|shared/activity" backend frontend/src docs` ต้องเหลือเฉพาะไฟล์ migration กับประวัติใน `test_route_auth_audit.py` · `test_route_auth_audit.py` นับ 167 route · ชุดเทสต์ activities เดิมผ่าน (ไม่มีการอ้างคอลัมน์ที่หยุดใช้) · frontend `type-check` + `lint` + `test:unit` + `build` ผ่าน
 - **Date Added:** 2026-11-02
