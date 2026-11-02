@@ -318,14 +318,6 @@ export const routes: RouteRecordRaw[] = [
       },
     ],
   },
-  // 🌐 หน้าสาธารณะของลิงก์แชร์กิจกรรม (P4.4) — อยู่นอก MainLayout และ **ไม่ต้องล็อกอิน**
-  //    อยู่ก่อน catch-all เพื่อให้ path ถูก match และไม่ถูกตีเป็น 404
-  {
-    path: '/share/activity/:token',
-    name: 'shared-activity',
-    component: () => import('@/views/share/SharedActivity.vue'),
-    meta: { requiresAuth: false, title: routeTitles['shared-activity'] },
-  },
   // 🕳️ ต้องเป็นรายการสุดท้ายเสมอ — match ทุก path ที่เหลือ
   // (ถ้าอยู่ก่อน route อื่นจะกลืนทุกหน้า ⇒ หน้าจอขาว/404 ทั้งระบบ)
   {

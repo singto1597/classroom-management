@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Literal
 from datetime import date, datetime
 
@@ -16,8 +16,7 @@ class ActionWithUserRequest(BaseModel):
 # --- Activity Status / Participant Role enum-like helpers ---
 ActivityStatus = Literal["upcoming", "ongoing", "completed", "cancelled"]
 RoleType = Literal["participant", "staff", "leader"]
-# 📋 `waitlisted` (P4.1) = อยู่ในคิวสำรอง — ผู้ดูแลเพิ่มเกินความจุ หรือถูกเลื่อนลงเมื่อไม่รับ
-ParticipantStatus = Literal["confirmed", "cancelled", "attended", "waitlisted"]
+ParticipantStatus = Literal["confirmed", "cancelled", "attended"]
 
 
 # --- Participant Schemas (single row inside create/update activity) ---
@@ -47,8 +46,6 @@ class ActivityParticipantResponse(BaseModel):
     role_detail: Optional[str] = None
     earned_hours: float
     status: str
-    # 🪑 P4.1 — 1,2,3... = ลำดับในคิวสำรอง · None = ไม่ได้อยู่ในคิว
-    queue_position: Optional[int] = None
     metadata: Dict[str, Any] = {}
     recorded_by: Optional[str] = None
     # 🎟️ P4.2 — เช็คอินด้วย QR: เวลาที่ "มาแล้ว" ถูกบันทึก + ใครเป็นคนกด
@@ -71,12 +68,8 @@ class ActivityCreateRequest(BaseModel):
     activity_date: date  # ต้องเป็น date object (กันบั๊ก toordinal)
     base_hours: float = Field(0.0, ge=0.0)
     status: ActivityStatus = "upcoming"
-    # 🪑 P4.1 — None/ไม่ส่ง = ไม่จำกัด · ต้อง ≥ 1 (0 แปลว่า "ไม่มีใครเข้าได้" ซึ่งไม่ใช่ความหมายที่ต้องการ)
-    capacity: Optional[int] = Field(None, ge=1, le=10000)
-    # 🏷️ P4.3 — slug หมวดกิจกรรม (camp/competition/volunteer/training/ceremony/other) · ไม่ส่ง = ไม่ระบุ
+    # 🏷️ slug หมวดกิจกรรม (camp/competition/volunteer/training/ceremony/other) · ไม่ส่ง = ไม่ระบุ
     category: Optional[str] = Field(None, max_length=32)
-    # 📅 P4.3 — วันปิดรับลงทะเบียน (DATE) ต้องไม่หลัง activity_date
-    registration_deadline: Optional[date] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)  # 🌟 พิกัด, กำหนดการ, ลิ้งก์รูป, แท็ก
     participants: List[ActivityParticipantIn] = Field(default_factory=list)
     user_name: str = Field(..., min_length=1, max_length=100)
@@ -90,13 +83,8 @@ class ActivityUpdateRequest(BaseModel):
     activity_date: Optional[date] = None
     base_hours: Optional[float] = Field(None, ge=0.0)
     status: Optional[ActivityStatus] = None
-    # 🪑 P4.1 — 0 = ยกเลิกเพดาน (กลับเป็นไม่จำกัด) · ไม่ส่ง = ไม่แตะ · ≥1 = ตั้งเพดานใหม่
-    #    (ข้อจำกัด: `None` ใน PATCH ถูกตีความเป็น "ไม่ส่ง" — ใช้ 0 เพื่อลบเพดาน)
-    capacity: Optional[int] = Field(None, ge=0, le=10000)
-    # 🏷️ P4.3 — ไม่ส่ง = ไม่แตะ · "" หรือ null = ล้างหมวด (NULL)
+    # 🏷️ ไม่ส่ง = ไม่แตะ · "" หรือ null = ล้างหมวด (NULL)
     category: Optional[str] = Field(None, max_length=32)
-    # 📅 P4.3 — ไม่ส่ง = ไม่แตะ · null = ล้างวันปิดรับ
-    registration_deadline: Optional[date] = None
     metadata: Optional[Dict[str, Any]] = None
     participants: Optional[List[ActivityParticipantIn]] = Field(
         default=None,
@@ -205,54 +193,6 @@ class CheckinSheetDetailResponse(BaseModel):
     participants: List[dict] = []
 
 
-# --- 🎟️ เช็คอินด้วย QR (P4.2) ---
-class QrCodeItem(BaseModel):
-    """บัตรของ 1 คน — `token` คือข้อความที่เข้ารหัสเป็น QR (พิมพ์ติดป้ายหรือแสดงบนจอ)"""
-    participant_id: int
-    student_no: int
-    full_name: str = ""
-    status: str
-    # 🪑 เลขคิวสำรอง (None = ไม่ได้อยู่ในคิว) — หน้าจอใช้บอกว่า "คนนี้ยังไม่มีการ์ดที่นั่ง"
-    queue_position: Optional[int] = None
-    checked_in_at: Optional[datetime] = None
-    token: str
-
-
-class QrCodeListResponse(BaseModel):
-    """รายการบัตรของกิจกรรม — ต้องมี MANAGE_ACTIVITIES ถึงจะขอได้"""
-    activity_id: int
-    title: str
-    codes: List[QrCodeItem] = Field(default_factory=list)
-
-
-class QrCheckinRequest(BaseModel):
-    """สแกนบัตร QR — ส่ง `token` (จากกล้อง) หรือ `participant_id` (โหมดกดชื่อ/กรอกรหัส)
-
-    ⚠️ `user_name` = ผู้ที่กดสแกน (ทีมงาน) ไม่ใช่ผู้เข้าร่วม — ถูกบันทึกใน `checked_in_by`
-    """
-    token: Optional[str] = Field(None, max_length=512)
-    participant_id: Optional[int] = None
-    user_name: str = Field(..., min_length=1, max_length=100)
-
-    @model_validator(mode="after")
-    def _require_proof(self):
-        if not (self.token or "").strip() and self.participant_id is None:
-            raise ValueError("ต้องส่ง token หรือ participant_id อย่างใดอย่างหนึ่ง")
-        return self
-
-
-class QrCheckinResponse(BaseModel):
-    """ผลการสแกน — `already_checked_in=True` คือ "สำเร็จแบบซ้ำ" (HTTP 200 ไม่ใช่ error)"""
-    participant_id: int
-    student_no: int
-    full_name: str = ""
-    status: str
-    checked_in_at: Optional[datetime] = None
-    checked_in_by: Optional[str] = None
-    already_checked_in: bool = False
-    was_waitlisted: bool = False
-
-
 # --- Add students (available + batch add) ---
 class ParticipantBatchAddItem(BaseModel):
     """1 คนใน Batch เพิ่มผู้เข้าร่วม — student_no คือตัวระบุ (เหมือน ActivityParticipantIn)"""
@@ -301,15 +241,9 @@ class ActivityResponse(BaseModel):
     created_by: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    # 🪑 P4.1 — เพดาน/จำนวนจริง: `participant_count` = แถวทั้งหมด (คงความหมายเดิม)
-    capacity: Optional[int] = None
-    # 🏷️ P4.3 — หมวด + วันปิดรับ + สถานะลิงก์แชร์ (โทเคนจริงออกให้เฉพาะ endpoint /share)
+    # 🏷️ หมวดกิจกรรม + ป้ายไทย (None = ยังไม่จัดหมวด)
     category: Optional[str] = None
     category_label: Optional[str] = None
-    registration_deadline: Optional[date] = None
-    has_share_link: bool = False
-    confirmed_count: int = 0
-    waitlisted_count: int = 0
     participant_count: int = 0
     participants: List[ActivityParticipantResponse] = Field(default_factory=list)
 
@@ -317,47 +251,6 @@ class ActivityResponse(BaseModel):
 class ActivityListResponse(BaseModel):
     total_count: int
     items: List[ActivityResponse]
-
-
-# --- 🔗 P4.3 ลิงก์แชร์ ---
-class ShareLinkRequest(BaseModel):
-    """POST …/share — `rotate=True` ออกโทเคนใหม่ทิ้งลิงก์เดิม (ค่าเริ่มต้น = คืนลิงก์เดิม)"""
-    user_name: str = Field(..., min_length=1, max_length=100)
-    rotate: bool = False
-
-
-class ShareLinkResponse(BaseModel):
-    activity_id: int
-    # ⚠️ โทเคนเป็นความลับ — คืนเฉพาะผู้ที่ออกลิงก์ (ต้องมี MANAGE_ACTIVITIES)
-    share_token: str
-    # path ของหน้าอ่านอย่างเดียวฝั่งเว็บ (frontend ประกอบ origin เอง)
-    path: str
-    rotated: bool = False
-
-
-class ShareRevokeResponse(BaseModel):
-    activity_id: int
-    revoked: bool = False
-
-
-class SharedActivityResponse(BaseModel):
-    """หน้าสาธารณะ — **ห้ามมี PII** (ไม่มีรายชื่อผู้เข้าร่วม/เบอร์โทร/โปรไฟล์)"""
-    activity_id: int
-    title: str
-    description: Optional[str] = None
-    activity_date: date
-    base_hours: float = 0.0
-    status: str
-    status_label: str
-    category: Optional[str] = None
-    category_label: Optional[str] = None
-    registration_deadline: Optional[date] = None
-    is_registration_open: bool = True
-    capacity: Optional[int] = None
-    confirmed_count: int = 0
-    waitlisted_count: int = 0
-    seats_left: Optional[int] = None
-    room_name: Optional[str] = None
 
 
 # --- Export ---

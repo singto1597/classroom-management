@@ -140,9 +140,6 @@ describe('navTab ใต้ MainLayout', () => {
         'discord-callback',
         'onboarding',
         'lobby',
-        // 🌐 หน้าสาธารณะของลิงก์แชร์กิจกรรม (P4.4) — อยู่นอก MainLayout
-        //    จึงไม่มีแท็บล่าง และไม่ควรมี (ผู้เปิดอาจไม่มีบัญชีในระบบ)
-        'shared-activity',
       ].includes(r.name ?? ''),
   );
 

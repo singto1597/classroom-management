@@ -31,7 +31,7 @@ class BaseMixin:
     PARTICIPANT_SELECT = """
         SELECT
             ap.id, ap.activity_id, ap.student_id, ap.role_type, ap.role_detail,
-            ap.earned_hours, ap.status, ap.queue_position, ap.metadata, ap.recorded_by,
+            ap.earned_hours, ap.status, ap.metadata, ap.recorded_by,
             ap.checked_in_at, ap.checked_in_by,
             s.student_no, s.identity_claimed, u.id AS user_id,
             u.first_name, u.last_name, u.nickname,
@@ -114,12 +114,9 @@ class BaseMixin:
 
     @classmethod
     async def _fetch_activity_row(cls, conn: asyncpg.Connection, room_id: int, activity_id: int) -> Optional[dict]:
-        # 🏷️ P4.3 — category/registration_deadline เป็นคอลัมน์ตรง · share_token ไม่ออกมาเอง
-        #    (ความลับของลิงก์ — คืนแค่ "มีหรือไม่มี" ให้หน้าจอรู้ว่าต้องแสดงปุ่มเพิกถอนไหม)
         row = await conn.fetchrow(
-            "SELECT id, room_id, title, description, activity_date, base_hours, capacity, status, metadata, "
-            "category, registration_deadline, (share_token IS NOT NULL) AS has_share_link, "
-            "created_by, created_at, updated_at "
+            "SELECT id, room_id, title, description, activity_date, base_hours, status, metadata, "
+            "category, created_by, created_at, updated_at "
             "FROM activities WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL",
             activity_id, room_id,
         )
@@ -169,25 +166,11 @@ class BaseMixin:
         resp = dict(activity)
         if participants is None:
             participants = activity.get("_participants") or []
-        # 🪑 P4.1 — ตัวเลขที่หน้าจอต้องใช้ตัดสิน "เต็มหรือยัง":
-        #     confirmed_count = ที่ได้ที่นั่งแล้ว (รวมมาแล้ว) · waitlisted_count = ในคิว
-        #     ⚠️ participant_count ยังเป็นยอดรวมทุกแถว (คงความหมายเดิมของ API)
-        # ถ้าไม่ได้ดึงผู้เข้าร่วมมา (ลิสต์) ให้ใช้ค่าที่ SQL นับมาแล้วในแถวกิจกรรม
-        if participants:
-            resp["participant_count"] = len(participants)
-            resp["confirmed_count"] = sum(
-                1 for p in participants if p.get("status") in ("confirmed", "attended")
-            )
-            resp["waitlisted_count"] = sum(1 for p in participants if p.get("status") == "waitlisted")
-        else:
-            resp["participant_count"] = int(resp.get("participant_count") or 0)
-            resp["confirmed_count"] = int(resp.get("confirmed_count") or 0)
-            resp["waitlisted_count"] = int(resp.get("waitlisted_count") or 0)
+        resp["participant_count"] = len(participants) if participants else int(resp.get("participant_count") or 0)
         resp["participants"] = participants
         resp.pop("_participants", None)
-        # 🏷️ P4.3 — ป้ายไทยของหมวด (None = ยังไม่จัดหมวด) ส่งมาให้เลย หน้าจอจะได้ไม่ต้องมีตารางแปลซ้ำ
+        # 🏷️ ป้ายไทยของหมวด (None = ยังไม่จัดหมวด) ส่งมาให้เลย หน้าจอจะได้ไม่ต้องมีตารางแปลซ้ำ
         resp["category_label"] = ACTIVITY_CATEGORY_LABELS.get(resp.get("category") or "")
-        resp["has_share_link"] = bool(resp.get("has_share_link"))
         return resp
 
     @classmethod
@@ -356,15 +339,6 @@ class BaseMixin:
                 new_values={"deleted_at": "soft-deleted"},
                 endpoint_or_command="update_activity/reconcile", execution_time_ms=int((time.time() - start_time) * 1000),
             )
-
-        # 🪑 P4.1 — แทนที่ทั้งชุดอาจทำให้ "ยืนยันแล้ว" เกินความจุ ⇒ ปรับให้พอดี
-        #    (ไม่ลด `attended` และไม่เด้งคนออก — คนเกินถูกย้ายลงคิวสำรองพร้อมแจ้งเตือนเมื่อได้ที่นั่ง)
-        await cls._enforce_capacity(
-            conn, room_id, activity_id,
-            actor_identifier=actor_identifier,
-            client_source=client_source,
-            user_name=user_name,
-        )
 
     @classmethod
     async def _get_activity_room(cls, conn: asyncpg.Connection, activity_id: int) -> Optional[int]:

@@ -67,15 +67,9 @@ async def add_participant(
             status=req.status,
             metadata=req.metadata,
         )
-        # 🪑 P4.1 — บอกตรง ๆ ว่าถ้าเกินความจุ คนนี้เข้าคิว ไม่ใช่ "เพิ่มสำเร็จ" เฉย ๆ
-        if result.get("participant_status") == "waitlisted":
-            message = (
-                f"กิจกรรมเต็ม — เลขที่ {req.student_no} เข้าคิวสำรองลำดับที่ "
-                f"{result.get('queue_position')} (ID: {result['participant_id']})"
-            )
-        else:
-            message = f"เพิ่มผู้เข้าร่วมเลขที่ {req.student_no} สำเร็จ (ID: {result['participant_id']})"
-        return SuccessResponse(message=message)
+        return SuccessResponse(
+            message=f"เพิ่มผู้เข้าร่วมเลขที่ {req.student_no} สำเร็จ (ID: {result['participant_id']})"
+        )
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except (StudentNotFoundError, ValidationError, ValueError) as e:
@@ -267,14 +261,7 @@ async def batch_add_participants(
             room_id=room_id,
             actor_user_id=user_ctx.get("user_id"),
         )
-        # 🪑 P4.1 — จำนวนที่เกินความจุต้องเห็นในข้อความ ไม่ใช่หายไปเงียบ ๆ
-        waitlisted = sum(
-            1 for item in result.get("added", []) if item.get("participant_status") == "waitlisted"
-        )
-        message = f"เพิ่มผู้เข้าร่วม {result['updated_count']} คนสำเร็จ"
-        if waitlisted:
-            message += f" — เกินความจุ {waitlisted} คนเข้าคิวสำรอง"
-        return SuccessResponse(message=message)
+        return SuccessResponse(message=f"เพิ่มผู้เข้าร่วม {result['updated_count']} คนสำเร็จ")
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except (StudentNotFoundError, ValidationError, ValueError) as e:

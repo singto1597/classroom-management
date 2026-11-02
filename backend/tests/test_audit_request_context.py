@@ -91,9 +91,9 @@ def test_describe_endpoint_drops_query_string():
 
 
 def test_describe_endpoint_masks_long_opaque_segments():
-    # ลิงก์แชร์กิจกรรม (P4.4) พาโทเคนมาใน path ตรง ๆ
-    masked = describe_endpoint("GET", "/api/shared/activity/ab12cd34ef56gh78ij90kl12")
-    assert masked == "GET /api/shared/activity/{token}"
+    # capability URL พาโทเคนมาใน path ตรง ๆ — ต้องไม่หลุดลง audit_logs
+    masked = describe_endpoint("GET", "/api/link/ab12cd34ef56gh78ij90kl12")
+    assert masked == "GET /api/link/{token}"
 
 
 def test_mask_path_keeps_real_path_segments():

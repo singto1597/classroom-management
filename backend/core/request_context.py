@@ -52,7 +52,7 @@ from typing import Mapping, Optional
 # และคอลัมน์เป็น TEXT ที่ผู้ใช้ควบคุม ⇒ ตัดที่ 512 ตัวอักษร (กันแถวบวมจาก bot สแปม)
 MAX_USER_AGENT_LEN = 512
 
-# segment ของ path ที่ยาวเกินนี้ถือเป็นโทเคน (share token / signed link) ไม่ใช่ path จริง
+# segment ของ path ที่ยาวเกินนี้ถือเป็นโทเคน (signed link / capability URL) ไม่ใช่ path จริง
 # 📌 path ในระบบนี้ยาวสุดคือ `academic-periods` (16) — ตั้ง 20 จึงไม่แตะ path จริงเลย
 # ส่วนเลข ID (`123`) และเลขใบเสร็จ (`REC-2569-0042`) สั้นกว่านี้มาก
 _TOKEN_SEGMENT_MIN_LEN = 20
@@ -154,7 +154,7 @@ def resolve_client_ip(
 def mask_path(path: str) -> str:
     """แทน segment ที่ดูเป็นโทเคนด้วย `{token}` ก่อนลง audit_logs
 
-    เหตุผล: `/api/shared/activity/<share_token>` เอาโทเคนไปอยู่ใน path ตรง ๆ
+    เหตุผล: capability URL ที่พาโทเคนมาใน path ตรง ๆ (เช่น `/api/link/<token>`)
     ถ้าเขียนลง audit_logs (ตารางที่คนอ่านได้กว้างกว่าตารางข้อมูลจริง) เท่ากับ
     คัดลอกสิทธิ์เข้าถึงไปวางไว้ในที่ที่คนละคนอ่านได้
     """

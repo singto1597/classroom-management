@@ -12,9 +12,8 @@ import RowActionMenu from '@/components/ui/RowActionMenu.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
-import { formatThaiDate, relativeThaiDay, todayIso } from '@/utils/datetime'
+import { formatThaiDate, relativeThaiDay } from '@/utils/datetime'
 import { ACTIVITY_CATEGORIES, activityCategoryLabel } from '@/constants/activityCategories'
-import { deadlineLabel, deadlineState } from '@/utils/activityDeadline'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -33,7 +32,6 @@ const filter = ref<StatusFilter>('all')
 // 🏷️ P4.4 — ชิปกรองหมวด (กรองฝั่งจอ เพราะรายการโหลดมาพร้อมกันอยู่แล้ว
 // และตัวเลขบนชิปสถานะต้องอิงชุดเต็ม ไม่ใช่ชุดที่ถูกกรองด้วยหมวด)
 const categoryFilter = ref<string>('all')
-const today = todayIso()
 
 // --- 🔵 เลือกหลายกิจกรรมเพื่อเปรียบเทียบ (Intersection / Union / ลบ) ---
 /** เพดานเดียวกับฝั่งเปรียบเทียบ — เกิน 3 แล้วแผนภาพเวนครอบคลุมทุกภูมิภาคไม่ได้ */
@@ -177,22 +175,6 @@ const getTags = (activity: Activity): string[] => {
 //    (client เก่าที่คุยกับ backend รุ่นก่อนหน้า จะได้ป้ายว่าง ไม่ใช่ slug ดิบ)
 const categoryLabel = (activity: Activity): string | null =>
   activity.category_label ?? activityCategoryLabel(activity.category)
-
-// 📅 ป้ายวันปิดรับ — แสดงเฉพาะ "ใกล้ปิด" (≤7 วัน) หรือ "เลยกำหนดแล้ว"
-//    ไม่แสดงตอนยังเหลือเวลาเยอะ เพราะป้ายที่ขึ้นทุกใบ = ป้ายที่ไม่มีความหมาย
-const deadlineChip = (activity: Activity): { label: string; cls: string } | null => {
-  const label = deadlineLabel(activity.registration_deadline, today)
-  if (!label) return null
-  return deadlineState(activity.registration_deadline, today) === 'closed'
-    ? { label, cls: 'bg-danger-50 text-danger-700' }
-    : { label, cls: 'bg-warn-50 text-warn-700' }
-}
-
-// 🪑 ที่นั่งใช้แล้ว/ทั้งหมด — `null` = ไม่จำกัด ⇒ ไม่แสดงเพดานเลย
-const seatsLabel = (activity: Activity): string | null =>
-  activity.capacity === null || activity.capacity === undefined
-    ? null
-    : `${activity.confirmed_count ?? 0}/${activity.capacity}`
 
 // 🗓️ วันที่ YYYY-MM-DD → ไทย (15 ตุลาคม 2569) + แสดงสถานะวันนี้/พรุ่งนี้
 const formatDate = (dateStr: string): string => {
@@ -400,14 +382,6 @@ onMounted(fetchData)
           <h2 class="min-w-0 flex-1 truncate font-display text-base font-bold text-stone-900">
             {{ activity.title }}
           </h2>
-          <span
-            v-if="deadlineChip(activity)"
-            class="chip shrink-0"
-            :class="deadlineChip(activity)?.cls"
-          >
-            <i class="bi bi-hourglass-split" aria-hidden="true"></i>
-            {{ deadlineChip(activity)?.label }}
-          </span>
           <span class="chip shrink-0" :class="statusChip(activity.status)">
             {{
               ACTIVITY_STATUS_LABELS[
@@ -446,18 +420,6 @@ onMounted(fetchData)
           <span v-if="activity.base_hours > 0" class="chip bg-ok-50 text-ok-700">
             <i class="bi bi-clock-history" aria-hidden="true"></i>
             <span class="num">{{ activity.base_hours }}</span> ชม.
-          </span>
-          <!-- 🪑 P4.1 — ที่นั่งใช้แล้ว/ทั้งหมด + จำนวนคิวสำรอง (ถ้ามี) -->
-          <span v-if="seatsLabel(activity)" class="chip bg-stone-100 text-stone-600">
-            <i class="bi bi-person-check" aria-hidden="true"></i>
-            <span class="num">{{ seatsLabel(activity) }}</span> ที่นั่ง
-          </span>
-          <span
-            v-if="(activity.waitlisted_count ?? 0) > 0"
-            class="chip bg-warn-50 text-warn-700"
-          >
-            <i class="bi bi-people" aria-hidden="true"></i>
-            คิว <span class="num">{{ activity.waitlisted_count }}</span>
           </span>
         </div>
 
