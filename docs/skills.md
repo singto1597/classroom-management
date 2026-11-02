@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 266 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 268 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -270,6 +270,8 @@
 - [🚦 จำกัดความเร็วต้อง fail-open — และ `/health` ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง](#จำกัดความเร็วต้อง-fail-open-และ-health-ต้องไม่กลายเป็นสวิตช์ฆ่าตัวเอง)
 - [🛡️ nginx `add_header` ไม่ merge ระหว่างระดับ — security header หายเงียบเฉพาะ location ที่ตั้ง Cache-Control](#nginx-addheader-ไม่-merge-ระหว่างระดับ-security-header-หายเงียบเฉพาะ-location-ที่ตั้ง-cache-control)
 - [📊 สถิติของ worker ต้องแยก "รอบล่าสุด" ออกจาก "สถานะคิว" — และ `null` ≠ `0`](#สถิติของ-worker-ต้องแยก-รอบล่าสุด-ออกจาก-สถานะคิว-และ-null-0)
+- [🚦 อยู่หลัง Cloudflare ไม่ได้แปลว่า origin ถูกปิด — ต้องยิง TCP จากภายนอกก่อนตั้ง `TRUSTED_PROXY_HOPS` และเปิด rate limit](#อยู่หลัง-cloudflare-ไม่ได้แปลว่า-origin-ถูกปิด-ต้องยิง-tcp-จากภายนอกก่อนตั้ง-trustedproxyhops-และเปิด-rate-limit)
+- [🚀 service ใหม่ที่อ่านตารางจาก migration ต้องรอสคีมา — และ `rollback.sh` จะพามันไปกับ image เก่าที่ไม่มีโมดูลนั้น](#service-ใหม่ที่อ่านตารางจาก-migration-ต้องรอสคีมา-และ-rollbacksh-จะพามันไปกับ-image-เก่าที่ไม่มีโมดูลนั้น)
 
 <!-- TOC:END -->
 
@@ -4526,3 +4528,63 @@
 - **Rule:** (1) 🔴 สถานะที่ "ไม่ถูกบันทึกใน DB โดยเจตนา" (deferral) ต้องมีช่องทางรายงานของตัวเอง อย่าฝืนเพิ่มสถานะลงตารางเพื่อให้รายงานง่าย (2) 🔴 `0` กับ `null` ต้องแยกความหมายทุกชั้น: Redis → Pydantic (`Optional`) → UI (ข้อความ ไม่ใช่เลข 0) (3) 🔴 ตัวเลขระดับระบบที่วางข้างตัวเลขระดับห้องต้องมีป้ายกำกับในหน้าจอ ไม่ใช่แค่ใน comment (4) 🔴 สถิติ/observability ต้อง fail-open — Redis ล่มห้ามทำให้หน้าตั้งค่าล้ม
 - **Tests:** `backend/tests/test_push_stats.py` (15 — สิทธิ์ 403/200 · retry แยกจาก dropped/stale · pending อนาคตไม่นับ due · `oldest_due` วัดเวลารอ · `sent_24h` กรองหน้าต่าง · ไม่ข้ามห้อง · last_round มี `deferred`/`enabled`/`at` · ไม่มีรายงาน = null · รายงานศูนย์ = 0 · Redis ล่มยัง 200 · TTL คงอยู่ · payload เสีย/ไม่ครบ = null) · `frontend/src/components/settings/__tests__/PushStatsCard.spec.ts` (7 — ตัวเลขแยกกลุ่ม · null ≠ ตารางศูนย์ · กำกับ "ใช้ร่วมทุกห้อง" · disabled ≠ silent · heartbeat เก่า · ของค้าง · error block)
 - **Date Added:** 2026-11-01
+
+### 🚦 อยู่หลัง Cloudflare ไม่ได้แปลว่า origin ถูกปิด — ต้องยิง TCP จากภายนอกก่อนตั้ง `TRUSTED_PROXY_HOPS` และเปิด rate limit
+
+- **Context/Problem:** P6.3 เพิ่ม rate limit โดยคีย์เป็น IP ที่ `client_identity()` อ่านจาก audit context (ค่าเดียวกับ `audit_logs`) และ P6.1 เปิดให้ `TRUSTED_PROXY_HOPS=2` อ่าน `CF-Connecting-IP` ได้ ก่อน deploy P0–P6.5 ต้องตัดสินว่าจะเปิดสองค่านี้บน production หรือไม่ เพราะหน้าเว็บเข้าผ่าน `https://class.singto1597.xyz` (Cloudflare) อยู่แล้ว จึงดูเหมือนปลอดภัย
+- **Root Cause:** Cloudflare เป็น *ทางเข้าที่สะดวก* ไม่ใช่ *ประตูที่ปิด* — ถ้าพอร์ต 80 ของ origin เปิดรับจากอินเทอร์เน็ตตรง ๆ ผู้โจมตีข้าม DNS/Cloudflare ไปยิง `http://109.123.238.121` พร้อม `Host:` ของโดเมนได้ และ **Traefik ไม่ได้ล้าง `CF-Connecting-IP`** ⇒ ถ้าตั้ง hops = 2 ระบบจะเชื่อ IP ที่ผู้โจมตีพิมพ์มาเอง ทั้งใน `audit_logs` และในคีย์ของ rate limit (สืบผิดทาง + ใช้เพดานของเหยื่อ)
+  ทางกลับกัน ถ้าปล่อย hops = 0 ทุกคำขอได้ IP ของ Traefik ⇒ `auth_login` 10/60 วิ กลายเป็น **เพดานรวมทั้งโรงเรียน** ⇒ ช่วงเช้าที่นักเรียนล็อกอินพร้อมกันได้ 429 ทั้งโรงเรียน
+- **Measurement (ทำก่อนตัดสิน):**
+  ```bash
+  # 1) IP สาธารณะของเครื่อง
+  curl -s https://api.ipify.org; echo    # → 109.123.238.121
+  # 2) TCP check จากโหนดภายนอก 3 โหนด (check-host.net) ไป :80
+  #    → ต่อติดทั้ง 3 โหนด RTT ~0.20–0.24 s
+  # 3) ยิง HTTP ตรงไปที่ IP พร้อม Host ของโดเมน
+  curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: classapi.singto1597.xyz' http://109.123.238.121/api/version
+  #    → 200 (Traefik ตอบเอง ไม่ผ่าน Cloudflare)
+  ```
+  ถ้าข้อ 2 หรือ 3 สำเร็จ ⇒ **ห้ามตั้ง hops > 0** ไม่ว่า Cloudflare จะเปิด proxy ส้มอยู่หรือไม่
+- **Correct Pattern/Solution:**
+  ```bash
+  # ไฟล์เดียวที่คุมค่าเหล่านี้คือ .env ของ checkout สำหรับ deploy (env_file: .env)
+  TRUSTED_PROXY_HOPS=0          # รอจนพอร์ต 80 รับเฉพาะ IP ของ Cloudflare
+  RATE_LIMIT_ENABLED=false      # ยังไม่เปิด — เพราะ hops=0 ⇒ บัคเก็ตเดียวทั้งระบบ
+  ```
+  ลำดับที่ถูกต้อง (ห้ามสลับ):
+  1. ไฟร์วอลล์รับ TCP 80 จากช่วง IP ของ Cloudflare เท่านั้น (`https://www.cloudflare.com/ips/`) — ต้องใช้ sudo
+  2. ตรวจซ้ำจากโหนดภายนอกว่า `nc -zv <ip> 80` **ไม่ติด** แต่ผ่านโดเมนยังใช้งานได้
+  3. ตั้ง `TRUSTED_PROXY_HOPS=2` → deploy → ตรวจ `audit_logs` ว่ามี IP จริงของผู้ใช้ (ไม่ใช่ IP ของ Traefik)
+  4. จึงเปิด `RATE_LIMIT_ENABLED=true` และทดสอบ spoof: ยิง `CF-Connecting-IP: 1.2.3.4` จากภายนอก ต้องไม่กระทบบัคเก็ตของผู้ใช้จริง
+- **Rule:** (1) 🔴 "มี Cloudflare อยู่หน้า" ไม่ใช่หลักฐานว่า origin ถูกปิด — ต้องพิสูจน์ด้วยการยิงจากภายนอก (2) 🔴 `TRUSTED_PROXY_HOPS` กับ rate limit เป็นคู่แฝด: เปิด hops โดยไม่เปิด rate limit ได้ แต่เปิด rate limit ตอน hops=0 คือการปิดล็อกอินทั้งโรงเรียน (3) 🔴 ค่าเหล่านี้อยู่ใน `.env` ของ checkout ที่ deploy ไม่ใช่ `.env.example` หรือ checkout ที่แก้โค้ด (4) เมื่อปิด rate limit ต้องเขียนเหตุผลใน `.env` เอง ไม่ใช่ในแชท — คนถัดไปจะเห็นก่อนแก้
+- **Tests/Verification:** ตรวจค่าที่ container ได้รับจริง `docker inspect <container> | grep -E '^(RATE_LIMIT_ENABLED|TRUSTED_PROXY_HOPS)='` · ยืนยัน origin จากภายนอกก่อน/หลังไฟร์วอลล์ (TCP + HTTP ตรง) · `curl -s https://classapi.singto1597.xyz/health` ยัง ok หลังเปลี่ยนค่า
+- **Date Added:** 2026-11-02
+
+### 🚀 service ใหม่ที่อ่านตารางจาก migration ต้องรอสคีมา — และ `rollback.sh` จะพามันไปกับ image เก่าที่ไม่มีโมดูลนั้น
+
+- **Context/Problem:** P2 เพิ่ม service `push_worker` (image เดียวกับ backend, `command: python -m workers.push_worker`, 1 replica) ลงใน `docker-compose.app.yml` เดียวกัน ใน deploy แรกที่ service นี้เกิดพร้อม migration 0002 (`push_outbox`) มัน **crash-loop สองรอบ** ก่อนฟื้นเอง
+- **Root Cause:**
+  1. `pull_all.sh` → `docker stack deploy` สร้าง task ของทุก service **พร้อมกัน** ⇒ worker เริ่มทำงานก่อน backend replica แรกจะ apply migration เสร็จ (migration รันใน lifespan ของ backend และถือ advisory lock ⇒ ใช้เวลาหลายวินาที)
+  2. worker ไม่มี guard — `SELECT … FROM push_outbox` ทันทีที่ลูปแรกเริ่ม ⇒
+     ```
+     asyncpg.exceptions.UndefinedTableError: relation "push_outbox" does not exist
+     ```
+     exit 1 → Swarm `restart_policy: any` สร้างใหม่จนผ่าน (รอบนี้ใช้ ~ไม่กี่วินาทีหลัง migration เสร็จ)
+  3. **กับดักที่สอง:** `rollback.sh <tag>` ไม่ได้ใช้ compose ของ tag นั้น — มัน deploy `docker-compose.app.yml` **ของ HEAD ปัจจุบัน** ด้วย `IMAGE_TAG=<tag>` ⇒ ถอยไป tag ก่อน P2 (เช่น `c196c5b`) จะได้ service `push_worker` ที่รัน image เก่าซึ่ง **ไม่มีไฟล์ `workers/push_worker.py`** ⇒ `ModuleNotFoundError` วนไม่หยุด (แอปหลักไม่ล่ม แต่ log/health รกและอ่านยาก)
+- **Correct Pattern/Solution:**
+  ```python
+  # workers/push_worker.py — รอสคีมาก่อนเริ่มลูป (ยังไม่แก้ในรอบ deploy; บันทึกเป็นงานถัดไป)
+  while not await pool.fetchval("SELECT to_regclass('public.push_outbox') IS NOT NULL"):
+      logger.warning("push_outbox ยังไม่มี — รอ migration ของ backend")
+      await asyncio.sleep(2)
+  ```
+  ```bash
+  # ถอยไป tag ก่อน P2 ต้องลบ service ใหม่ก่อน deploy
+  docker service rm production_app_push_worker
+  ./rollback.sh c196c5b --yes
+  # ตรวจว่าไม่มี service ตกค้าง: docker service ls | grep push_worker
+  ```
+  ทางเลือกที่ทำให้ rollback ปลอดภัยถาวร: ให้ `rollback.sh` ตรวจ `.env`/compose ว่า service ใหม่เป็นของ tag นั้นจริง หรือเก็บ compose ต่อ tag ไว้ (แต่จะขัดกับ zero-downtime ที่ใช้ไฟล์เดียว) — จนกว่าจะตัดสิน ต้องจำกฎลบ service มือ
+- **Rule:** (1) 🔴 service ที่อ่านตารางซึ่งอีก service สร้าง ต้อง **รอ/retry สคีมาเอง** อย่าพึ่ง restart backoff (log เต็ม traceback และ health อาจแดงก่อนฟื้น) (2) 🔴 rollback = สลับ *image* ไม่ได้สลับ *compose* ⇒ service ที่เกิดหลัง tag ปลายทางต้องถูกลบมือก่อน (3) 🔴 migration ต้อง **additive** จริงจึงจะถอย image โดยไม่ถอย DB ได้ — รอบนี้ migration 0002–0009 เป็น additive ทั้งหมด จึงถอยโค้ดได้โดยไม่ต้องกู้ฐานข้อมูล
+- **Tests/Verification:** `docker service ps production_app_push_worker` ดูประวัติ task (failed → running) · `docker service logs --since 10m production_app_push_worker` ไม่มี traceback ใหม่ · `/health` → `push_worker.last_beat_seconds_ago` ≤ 5 · ทดสอบ rollback บน staging ก่อน: `docker service rm staging_app_push_worker` แล้ว `./rollback.sh <tag ก่อน P2> --yes` ต้องไม่มี service ค้าง
+- **Date Added:** 2026-11-02
