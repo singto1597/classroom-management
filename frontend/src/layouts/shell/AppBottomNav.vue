@@ -1,52 +1,43 @@
 <script setup lang="ts">
 /**
- * 📱 แถบนำทางล่าง — 4 ปลายทางหลัก + "เพิ่มเติม" = 5 ช่อง
+ * 📱 แถบนำทางล่าง — 5 ปลายทางเต็มความกว้าง (PIRIvoice)
  *
- * ไม่มี FAB สร้างงานแล้ว: งานย้ายมาเป็นแท็บของตัวเอง และปุ่มสร้างงาน
- * อยู่ในหัวหน้า TaskList ที่เดียว (หนึ่งปลายทาง = หนึ่งทางเข้า)
+ * 🔑 ไฮไลต์จาก `route.meta.navTab` ไม่ใช่ `startsWith(path)` — หน้า detail
+ *    เช่น `/finance/receipts/REC-…` ยังต้องไฮไลต์แท็บ "การเงิน" และ `/more`
+ *    ไฮไลต์เมื่ออยู่หน้าใดก็ตามที่ประกาศ `navTab: 'more'`
+ *
+ * ความสูง `--app-nav-h` (3.5rem) + safe-area ⇒ MainLayout/FAB/sticky bars
+ * ใช้ค่าเดียวกันทั้งหมด จะได้ไม่ต้องเดาความสูงซ้ำหลายที่
  */
+import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import { NAV_TABS, isNavItemActive } from '@/constants/nav';
-
-defineProps<{ moreOpen: boolean }>();
-
-const emit = defineEmits<{ openMore: [] }>();
+import { NAV_TABS } from '@/constants/nav';
 
 const route = useRoute();
-const isActive = (path: string) => isNavItemActive(path, route.path);
+const activeTab = computed(() => route.meta.navTab ?? null);
 </script>
 
 <template>
   <nav
-    class="fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] lg:hidden"
+    class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
     aria-label="เมนูหลัก"
   >
-    <div
-      class="mx-auto flex max-w-[460px] items-center justify-between gap-0.5 rounded-3xl border border-stone-200 bg-white px-1.5 py-1.5 shadow-[0_10px_34px_-14px_rgba(28,25,23,0.28)]"
-    >
+    <div class="mx-auto flex h-[var(--app-nav-h)] w-full max-w-lg items-stretch">
       <RouterLink
         v-for="tab in NAV_TABS"
-        :key="tab.path"
+        :key="tab.key"
         :to="tab.path"
-        class="relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 transition-colors"
-        :class="isActive(tab.path) ? 'text-brand-700' : 'text-stone-500 hover:text-stone-700'"
-        :aria-current="isActive(tab.path) ? 'page' : undefined"
+        class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 transition-colors"
+        :class="
+          activeTab === tab.key
+            ? 'font-bold text-brand'
+            : 'font-semibold text-ink-3 hover:text-ink-1'
+        "
+        :aria-current="activeTab === tab.key ? 'page' : undefined"
       >
         <i :class="['bi', tab.icon, 'text-lg']" aria-hidden="true"></i>
-        <span class="text-[10px] font-bold">{{ tab.name }}</span>
+        <span class="w-full truncate text-center text-[10px] leading-tight">{{ tab.name }}</span>
       </RouterLink>
-
-      <button
-        type="button"
-        class="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 text-stone-500 transition-colors hover:text-stone-700"
-        :class="{ 'text-brand-700': moreOpen }"
-        aria-haspopup="dialog"
-        :aria-expanded="moreOpen"
-        @click="emit('openMore')"
-      >
-        <i class="bi bi-three-dots text-lg" aria-hidden="true"></i>
-        <span class="text-[10px] font-bold">เพิ่มเติม</span>
-      </button>
     </div>
   </nav>
 </template>

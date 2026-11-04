@@ -1,22 +1,28 @@
 <script setup lang="ts">
 /**
- * 🔝 Header — ปุ่มย้อนกลับ (จาก `route.meta.headerBack`) · breadcrumb ห้อง · โปรไฟล์
+ * 🔝 Header — เจ้าของ `<h1>` ของทุกหน้า (PIRIvoice)
  *
- * ⚠️ ปุ่มย้อนกลับมีที่เดียวคือที่นี่ — หน้าลูกต้องไม่วาดปุ่มย้อนของตัวเองซ้ำ
- *    (DoD P1: ไม่มี route ที่มีปุ่มย้อน 2 อัน)
+ * องค์ประกอบที่เหลือมีแค่:
+ *  - ปุ่มย้อนกลับ 44px (เมื่อ `route.meta.headerBack`)
+ *  - ตัวสลับห้องเรียนแบบกะทัดรัด 44px (ไอคอน + ชื่อห้องที่ตัดได้ + chevron)
+ *  - กระดิ่งแจ้งเตือน
+ *
+ * 🚫 ไม่มี avatar / ชื่อผู้ใช้ / เมนูโปรไฟล์ที่นี่ — งานบัญชีเป็นเรื่องส่วนกลาง
+ *    (หน้า "เพิ่มเติม" และ `/account`) ไม่ใช่ของห้องใดห้องหนึ่ง
+ *
+ * ชื่อหน้า: `usePageTitle` override มาก่อนเสมอ แล้วจึง fallback ไป `route.meta.title`
+ * (หน้า detail ที่โหลดชื่อจริงได้ทีหลังจะเรียก `usePageTitle` ใน setup)
  */
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import NotificationBell from '@/components/notifications/NotificationBell.vue';
+import { APP_NAME, pageTitle } from '@/router/meta';
+import { clearPageTitle, pageTitleOverride } from '@/composables/usePageTitle';
 import type { ShellMenu } from './useAppShell';
 
 defineProps<{
   roomId: number | null;
   roomName: string;
-  subMenuName: string | null;
-  userName: string;
-  roleLabel: string;
-  avatarChar: string;
   activeDropdown: ShellMenu | null;
   /** ตัวเลขยังไม่อ่านจาก store (backend เป็นเจ้าของตัวเลข) */
   unreadCount: number;
@@ -35,75 +41,93 @@ const router = useRouter();
 
 const canGoBack = computed(() => route.meta.headerBack === true);
 
+const title = computed(() => pageTitleOverride.value || route.meta.title || APP_NAME);
+
+/** ความกว้างเดียวกับเนื้อหา — หัวข้อจึงอยู่ตรงกับคอลัมน์แรกของการ์ด */
+const widthClass = computed(() => {
+  switch (route.meta.width) {
+    case 'reading':
+      return 'max-w-3xl';
+    case 'form':
+      return 'max-w-2xl';
+    default:
+      return 'max-w-7xl';
+  }
+});
+
+// เปลี่ยนหน้า = ล้างหัวข้อไดนามิกของหน้าเดิมทันที (กันชื่อค้าง)
+watch(
+  () => route.fullPath,
+  () => clearPageTitle(),
+  // ต้องล้าง **ก่อน** หน้าใหม่ mount — ถ้าใช้ flush ปกติ (pre) การล้างอาจเกิด
+  // หลัง view ใหม่ตั้งชื่อของตัวเองแล้ว ⇒ ชื่อ detail หายทันทีที่โหลดเสร็จ
+  { flush: 'sync' },
+);
+
+watch(
+  title,
+  (value) => {
+    if (typeof document !== 'undefined') document.title = pageTitle(value);
+  },
+  { immediate: true },
+);
+
 const goBack = () => {
   if (window.history.length > 1) router.back();
-  else router.push('/');
+  else router.push('/dashboard');
 };
 </script>
 
 <template>
   <header
-    class="z-20 shrink-0 border-b border-stone-200 bg-white"
+    class="z-20 shrink-0 border-b border-line bg-surface"
     :style="{ paddingTop: 'env(safe-area-inset-top)' }"
   >
-    <div class="flex h-14 items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
-      <!-- ซ้าย: ปุ่มย้อนกลับ / โลโก้มือถือ / breadcrumb -->
-      <div class="flex min-w-0 items-center gap-2">
+    <div
+      class="mx-auto flex h-14 w-full items-center gap-1.5 px-4 sm:px-6 lg:px-8"
+      :class="widthClass"
+    >
+      <button
+        v-if="canGoBack"
+        type="button"
+        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-2 transition-colors hover:bg-canvas hover:text-ink-1"
+        aria-label="ย้อนกลับ"
+        @click="goBack"
+      >
+        <i class="bi bi-arrow-left text-lg" aria-hidden="true"></i>
+      </button>
+
+      <RouterLink
+        v-else
+        to="/dashboard"
+        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-brand text-white lg:hidden"
+        aria-label="หน้าหลัก"
+      >
+        <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
+      </RouterLink>
+
+      <h1 class="min-w-0 flex-1 truncate px-1.5 text-base font-bold text-ink-1">
+        {{ title }}
+      </h1>
+
+      <div class="flex shrink-0 items-center gap-1">
+        <!-- ตัวสลับห้องเรียน: 44px, ชื่อห้องตัดด้วย ellipsis ไม่ดันหัวข้อ -->
         <button
-          v-if="canGoBack"
+          v-if="roomId"
           type="button"
-          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900"
-          aria-label="ย้อนกลับ"
-          @click="goBack"
+          class="flex h-11 min-w-0 items-center gap-1.5 rounded-control px-2 text-ink-2 transition-colors hover:bg-canvas hover:text-ink-1"
+          aria-haspopup="menu"
+          :aria-expanded="activeDropdown === 'roomSwitcher'"
+          :title="roomName || `ห้อง ${roomId}`"
+          @click.stop="emit('toggleDropdown', $event, 'roomSwitcher')"
         >
-          <i class="bi bi-arrow-left text-lg" aria-hidden="true"></i>
+          <i class="bi bi-door-open shrink-0 text-base" aria-hidden="true"></i>
+          <span class="max-w-[7.5rem] truncate text-sm font-semibold text-ink-1 sm:max-w-[12rem]">
+            {{ roomName || `ห้อง ${roomId}` }}
+          </span>
+          <i class="bi bi-chevron-down shrink-0 text-[10px] opacity-60" aria-hidden="true"></i>
         </button>
 
-        <RouterLink
-          v-else
-          to="/dashboard"
-          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white lg:hidden"
-          aria-label="หน้าหลัก"
-        >
-          <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
-        </RouterLink>
-
-        <div class="flex min-w-0 items-center gap-1.5 text-sm font-bold text-stone-700">
-          <template v-if="roomId">
-            <button
-              type="button"
-              class="flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
-              aria-haspopup="menu"
-              :aria-expanded="activeDropdown === 'roomSwitcher'"
-              @click.stop="emit('toggleDropdown', $event, 'roomSwitcher')"
-            >
-              <span class="max-w-[110px] truncate sm:max-w-[180px]">
-                {{ roomName || roomId }}
-              </span>
-              <i class="bi bi-chevron-down text-[10px] opacity-50" aria-hidden="true"></i>
-            </button>
-
-            <template v-if="subMenuName">
-              <i
-                class="bi bi-chevron-right shrink-0 text-[10px] text-stone-300"
-                aria-hidden="true"
-              ></i>
-              <span class="max-w-[90px] truncate px-1 text-brand-700 sm:max-w-[140px]">
-                {{ subMenuName }}
-              </span>
-            </template>
-          </template>
-
-          <template v-else>
-            <span class="font-display text-base tracking-tight text-stone-900">
-              SYNC<span class="font-normal text-stone-500">ROOM</span>
-            </span>
-          </template>
-        </div>
-      </div>
-
-      <!-- ขวา: กระดิ่ง + โปรไฟล์ -->
-      <div class="flex shrink-0 items-center gap-2">
         <!-- 🔔 มีห้องที่กำลังเปิดอยู่เท่านั้น — ยังไม่มีห้อง = ไม่มีอะไรให้แจ้ง -->
         <NotificationBell
           v-if="roomId"
@@ -111,29 +135,6 @@ const goBack = () => {
           :expanded="notificationsOpen"
           @open="emit('openNotifications')"
         />
-
-        <button
-          type="button"
-          class="flex items-center rounded-full border border-stone-200 bg-white p-1 transition-colors hover:bg-stone-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30 sm:pe-3.5"
-          :class="{ 'ring-2 ring-brand-500/25': activeDropdown === 'headerSettings' }"
-          aria-haspopup="menu"
-          :aria-expanded="activeDropdown === 'headerSettings'"
-          @click.stop="emit('toggleDropdown', $event, 'headerSettings')"
-        >
-          <div
-            class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-700 text-sm font-bold text-white"
-          >
-            {{ avatarChar }}
-          </div>
-          <div class="ms-2.5 hidden text-left sm:block">
-            <p class="text-[13px] font-bold leading-tight text-stone-800">{{ userName }}</p>
-            <p class="mt-0.5 text-[10px] font-bold text-brand-700">{{ roleLabel }}</p>
-          </div>
-          <i
-            class="bi bi-chevron-down ms-2.5 hidden text-[10px] text-stone-500 sm:block"
-            aria-hidden="true"
-          ></i>
-        </button>
       </div>
     </div>
   </header>

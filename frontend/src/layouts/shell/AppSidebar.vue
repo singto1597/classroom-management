@@ -1,12 +1,20 @@
 <script setup lang="ts">
 /**
- * 🖥️ Sidebar เดสก์ท็อป — โลโก้ · เมนูหลัก · ย่อ/ขยาย · การ์ดผู้ใช้
+ * 🖥️ Sidebar เดสก์ท็อป — โลโก้ · เมนูแบบกลุ่ม · ย่อ/ขยาย · การ์ดผู้ใช้
  *
- * ⚠️ ไม่มีเมนูตั้งค่าบัญชีซ้ำที่นี่ — header มีโปรไฟล์อยู่แล้ว
- *    (P1: หนึ่งปลายทาง = หนึ่งทางเข้า)
+ * ใช้ข้อมูลกลุ่มเดียวกับหน้า "เพิ่มเติม" (`MORE_NAV_GROUPS`) ⇒ เดสก์ท็อปกับมือถือ
+ * ไม่มีทางตันจากกัน: เพิ่มเมนูในกลุ่มเดียว ปรากฏทั้งสองที่
+ *
+ * 🚫 ไม่มีเมนูโปรไฟล์/บัญชีซ้ำ — การ์ดผู้ใช้พาไปหน้า "เพิ่มเติม" ที่เดียว
+ *    (Stage 4 จะเปลี่ยนปลายทางเป็นการ์ดบัญชีส่วนกลาง `/account`)
  */
 import { RouterLink, useRoute } from 'vue-router';
-import { NAV_ITEMS, isNavItemActive } from '@/constants/nav';
+import {
+  MORE_NAV_GROUPS,
+  PRIMARY_NAV_ITEMS,
+  isNavItemActive,
+  type NavItem,
+} from '@/constants/nav';
 
 defineProps<{
   collapsed: boolean;
@@ -15,13 +23,22 @@ defineProps<{
   avatarChar: string;
 }>();
 
-const emit = defineEmits<{
-  toggleCollapse: [];
-  openAccount: [];
-}>();
+const emit = defineEmits<{ toggleCollapse: [] }>();
 
 const route = useRoute();
-const isActive = (path: string) => isNavItemActive(path, route.path);
+
+const itemClass = (path: string, collapsed: boolean) => [
+  'flex h-11 items-center rounded-control text-sm transition-colors',
+  collapsed ? 'justify-center px-0' : 'px-3',
+  isNavItemActive(path, route.path)
+    ? 'bg-brand-tint font-bold text-brand'
+    : 'font-semibold text-ink-2 hover:bg-canvas hover:text-ink-1',
+];
+
+const allGroups = (): ReadonlyArray<{ title: string; items: readonly NavItem[] }> => [
+  { title: 'เมนูหลัก', items: PRIMARY_NAV_ITEMS },
+  ...MORE_NAV_GROUPS,
+];
 </script>
 
 <template>
@@ -29,63 +46,62 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
     class="relative z-30 hidden shrink-0 transition-[width] duration-300 ease-smooth lg:flex"
     :class="collapsed ? 'lg:w-[80px]' : 'lg:w-[264px]'"
   >
-    <div class="flex h-full flex-col overflow-hidden border-r border-stone-200 bg-white">
-      <!-- โลโก้ -->
+    <div class="flex h-full flex-col overflow-hidden border-r border-line bg-surface">
+      <!-- โลโก้ — ความสูงเท่า header (56px) เพื่อให้เส้นคั่นตรงกัน -->
       <RouterLink
         to="/dashboard"
-        class="flex h-16 shrink-0 items-center border-b border-stone-200 px-5 transition-colors hover:bg-stone-50"
+        class="flex h-14 shrink-0 items-center border-b border-line px-4 transition-colors hover:bg-canvas"
         :class="collapsed ? 'justify-center px-0' : ''"
       >
         <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand text-white"
           :class="collapsed ? '' : 'me-3'"
         >
           <i class="bi bi-box-fill text-base"></i>
         </div>
         <span
           v-if="!collapsed"
-          class="font-display whitespace-nowrap text-lg font-bold tracking-[0.2em] text-stone-900"
+          class="font-display whitespace-nowrap text-lg font-bold tracking-[0.16em] text-ink-1"
         >
-          SYNC<span class="font-normal text-stone-500">ROOM</span>
+          SYNC<span class="font-normal text-ink-3">ROOM</span>
         </span>
       </RouterLink>
 
       <!-- เมนู -->
       <div class="flex flex-1 flex-col overflow-y-auto overflow-x-hidden py-4">
-        <p v-if="!collapsed" class="mb-2 px-5 text-[10px] font-bold text-stone-500">เมนูหลัก</p>
+        <nav class="flex-1 space-y-5 px-3">
+          <div v-for="(group, index) in allGroups()" :key="group.title">
+            <p
+              v-if="!collapsed"
+              class="mb-1.5 px-3 text-[11px] font-semibold text-ink-3"
+            >
+              {{ group.title }}
+            </p>
+            <div v-else-if="index > 0" class="mx-2 mb-2 border-t border-line"></div>
 
-        <nav class="flex-1 space-y-0.5 px-3">
-          <RouterLink
-            v-for="item in NAV_ITEMS"
-            :key="item.path"
-            :to="item.path"
-            class="group relative flex items-center rounded-xl transition-colors"
-            :class="[
-              collapsed ? 'w-full justify-center px-0 py-3' : 'px-3.5 py-2.5',
-              isActive(item.path)
-                ? 'bg-brand-50 font-bold text-brand-700'
-                : 'font-semibold text-stone-500 hover:bg-stone-100 hover:text-stone-900',
-            ]"
-            :title="collapsed ? item.name : undefined"
-          >
-            <span
-              v-if="isActive(item.path) && !collapsed"
-              class="absolute inset-y-2 start-0 w-[3px] rounded-full bg-brand-700"
-              aria-hidden="true"
-            ></span>
-            <i
-              :class="['bi', item.icon, 'shrink-0', collapsed ? 'text-xl' : 'me-3 text-lg']"
-              aria-hidden="true"
-            ></i>
-            <span v-if="!collapsed" class="truncate text-sm">{{ item.name }}</span>
-          </RouterLink>
+            <div class="space-y-0.5">
+              <RouterLink
+                v-for="item in group.items"
+                :key="item.path"
+                :to="item.path"
+                :class="itemClass(item.path, collapsed)"
+                :title="collapsed ? item.name : undefined"
+              >
+                <i
+                  :class="['bi', item.icon, 'shrink-0 text-lg', collapsed ? '' : 'me-3']"
+                  aria-hidden="true"
+                ></i>
+                <span v-if="!collapsed" class="truncate">{{ item.name }}</span>
+              </RouterLink>
+            </div>
+          </div>
         </nav>
 
         <!-- ปุ่มย่อ/ขยาย -->
         <div class="mt-4 px-3">
           <button
             type="button"
-            class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 py-2.5 text-xs font-bold text-stone-500 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700"
+            class="flex h-10 w-full items-center justify-center gap-2 rounded-control border border-line text-xs font-bold text-ink-2 transition-colors hover:bg-canvas hover:text-ink-1"
             :title="collapsed ? 'ขยายเมนู' : 'ย่อเมนู'"
             @click="emit('toggleCollapse')"
           >
@@ -102,24 +118,25 @@ const isActive = (path: string) => isNavItemActive(path, route.path);
       </div>
 
       <!-- ผู้ใช้ -->
-      <div class="shrink-0 border-t border-stone-200 bg-stone-50/60 p-3">
-        <button
-          type="button"
-          class="flex w-full items-center gap-2 rounded-xl border border-stone-200 bg-white p-1.5 text-left transition-colors hover:border-stone-300 hover:bg-stone-50"
-          @click="emit('openAccount')"
+      <div class="shrink-0 border-t border-line p-3">
+        <RouterLink
+          to="/more"
+          class="flex items-center gap-2 rounded-control p-1.5 transition-colors hover:bg-canvas"
+          :class="collapsed ? 'justify-center p-1' : ''"
+          :title="collapsed ? userName : undefined"
         >
           <div
-            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-700 text-sm font-bold text-white"
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-tint text-sm font-bold text-brand"
           >
             {{ avatarChar }}
           </div>
-          <div v-if="!collapsed" class="ms-3 min-w-0 overflow-hidden">
-            <p class="truncate text-[13px] font-bold leading-tight text-stone-800">
+          <div v-if="!collapsed" class="ms-1 min-w-0 flex-1 overflow-hidden">
+            <p class="truncate text-[13px] font-bold leading-tight text-ink-1">
               {{ userName }}
             </p>
-            <p class="mt-0.5 truncate text-[10px] font-bold text-brand-700">{{ roleLabel }}</p>
+            <p class="mt-0.5 truncate text-[11px] font-medium text-ink-3">{{ roleLabel }}</p>
           </div>
-        </button>
+        </RouterLink>
       </div>
     </div>
   </aside>

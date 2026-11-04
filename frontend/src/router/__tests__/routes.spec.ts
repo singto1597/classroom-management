@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { routes } from '@/router/routes';
-import { NAV_ITEMS, NAV_TABS, MORE_NAV_ITEMS, routeTitles } from '@/constants/nav';
+import {
+  NAV_ITEMS,
+  NAV_TABS,
+  MORE_NAV_ITEMS,
+  MORE_NAV_GROUPS,
+  routeTitles,
+} from '@/constants/nav';
 import { pageTitle, DEFAULT_TITLE, APP_NAME } from '@/router/meta';
 
 /**
@@ -95,17 +101,29 @@ describe('เมนู (constants/nav.ts) ต้องชี้ path ที่�
     },
   );
 
-  it('แท็บมือถือทุกแท็บต้องมีอยู่ในเมนูหลักด้วย', () => {
-    const menuPaths = new Set(NAV_ITEMS.map((item) => item.path));
+  it('แท็บมือถือทุกแท็บมี route จริง (รวม /more ที่ไม่อยู่ใน NAV_ITEMS)', () => {
     for (const tab of NAV_TABS) {
+      expect(leafPaths.has(tab.path)).toBe(true);
+    }
+  });
+
+  it('แท็บอื่นนอกจาก "เพิ่มเติม" ต้องอยู่ในเมนูหลักด้วย', () => {
+    const menuPaths = new Set(NAV_ITEMS.map((item) => item.path));
+    for (const tab of NAV_TABS.filter((t) => t.path !== '/more')) {
       expect(menuPaths.has(tab.path)).toBe(true);
     }
   });
 
-  it('ชีต "เพิ่มเติม" = เมนูหลักลบแท็บล่าง', () => {
+  it('หน้า "เพิ่มเติม" = เมนูหลักลบแท็บล่าง', () => {
     const tabPaths = new Set(NAV_TABS.map((tab) => tab.path));
     const expected = NAV_ITEMS.filter((item) => !tabPaths.has(item.path));
     expect(MORE_NAV_ITEMS).toEqual(expected);
+  });
+
+  it('ทุกเมนูในหน้า "เพิ่มเติม" ถูกจัดกลุ่มครั้งเดียว — ไม่หาย ไม่ซ้ำ', () => {
+    const grouped = MORE_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.path));
+    expect(new Set(grouped).size).toBe(grouped.length);
+    expect([...grouped].sort()).toEqual(MORE_NAV_ITEMS.map((item) => item.path).sort());
   });
 
   it('ไม่มี path เมนูซ้ำกัน', () => {

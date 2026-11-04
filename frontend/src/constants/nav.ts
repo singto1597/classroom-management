@@ -18,6 +18,8 @@
  *    (มีเทสต์ตรวจอยู่ — เพิ่มเมนูที่ชี้ path ผีจะพังตอน CI)
  */
 
+import type { NavTabKey } from '@/router/meta';
+
 export interface NavItem {
   /** ชื่อที่แสดงในเมนู / breadcrumb */
   name: string;
@@ -25,6 +27,17 @@ export interface NavItem {
   path: string;
   /** ไอคอน bootstrap-icons เช่น 'bi-people' */
   icon: string;
+}
+
+/** แท็บล่าง — ผูกกับ `route.meta.navTab` เพื่อไฮไลต์ทั้ง section ไม่ใช่แค่ path ตรงตัว */
+export interface NavTab extends NavItem {
+  key: NavTabKey;
+}
+
+/** กลุ่มเมนูในหน้า "เพิ่มเติม" และ sidebar เดสก์ท็อป */
+export interface NavGroup {
+  title: string;
+  items: readonly NavItem[];
 }
 
 /**
@@ -55,26 +68,66 @@ export const NAV_ITEMS: readonly NavItem[] = [
 ];
 
 /**
- * แท็บบนมือถือ (แถบล่าง) — 4 ปลายทางหลัก + ปุ่ม "เพิ่มเติม" = 5 ช่อง
+ * แท็บบนมือถือ (แถบล่าง) — 5 ปลายทาง เท่ากับ PIRIvoice
  *
- * ⚠️ เดิมมี FAB สร้างงานอยู่กลางแถบ ทำให้ "งาน" ไม่มีแท็บของตัวเอง
- *    และปุ่มสร้างงานไปซ้ำกับปุ่มในหน้า TaskList ⇒ P1 เปลี่ยนเป็นแท็บ "งาน"
- *    แล้วพาปุ่มสร้างกลับไปอยู่ที่หัวหน้า TaskList ที่เดียว
- * ทุก path ต้องมีอยู่จริงใน `NAV_ITEMS` (เทสต์ตรวจ)
+ * `key` ต้องตรงกับ `route.meta.navTab` ของทุกหน้าใน section นั้น
+ * (`/students/:id` ยังไฮไลต์แท็บนักเรียน) — ไม่ได้ใช้ `startsWith(path)`
+ * เพราะหน้า detail หลายหน้ามี path ที่ไม่ขึ้นต้นด้วย path ของแท็บ
+ *
+ * ⚠️ `/more` ไม่ได้อยู่ใน `NAV_ITEMS` (desktop sidebar ไม่ต้องมีทางเข้าที่สอง)
+ *    เทสต์จึงต้องยกเว้นให้เฉพาะแท็บนี้
  */
-export const NAV_TABS: readonly NavItem[] = [
-  { name: 'หน้าหลัก', path: '/dashboard', icon: 'bi-house-door' },
-  { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
-  { name: 'งาน', path: '/tasks', icon: 'bi-clipboard-check' },
-  { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
+export const NAV_TABS: readonly NavTab[] = [
+  { key: 'home', name: 'หน้าหลัก', path: '/dashboard', icon: 'bi-house-door' },
+  { key: 'students', name: 'นักเรียน', path: '/students', icon: 'bi-people' },
+  { key: 'tasks', name: 'งาน', path: '/tasks', icon: 'bi-clipboard-check' },
+  { key: 'finance', name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
+  { key: 'more', name: 'เพิ่มเติม', path: '/more', icon: 'bi-grid-3x3-gap' },
 ];
 
-/** path ที่อยู่ในแท็บล่างแล้ว ⇒ ไม่ต้องซ้ำในชีต "เพิ่มเติม" */
+/** path ที่อยู่ในแท็บล่างแล้ว ⇒ ไม่ต้องซ้ำในหน้า "เพิ่มเติม" */
 export const NAV_TAB_PATHS: readonly string[] = NAV_TABS.map((tab) => tab.path);
 
-/** รายการที่เหลือในชีต "เพิ่มเติม" (มือถือ) — คำนวณครั้งเดียวตอนโหลดโมดูล */
+/** รายการที่เหลือในหน้า "เพิ่มเติม" (มือถือ) — คำนวณครั้งเดียวตอนโหลดโมดูล */
 export const MORE_NAV_ITEMS: readonly NavItem[] = NAV_ITEMS.filter(
   (item) => !NAV_TAB_PATHS.includes(item.path),
+);
+
+/**
+ * กลุ่มเมนูของหน้า "เพิ่มเติม" และ sidebar เดสก์ท็อป
+ *
+ * ✅ ทุกรายการใน `MORE_NAV_ITEMS` ต้องปรากฏ **ครั้งเดียว** ในกลุ่มใดกลุ่มหนึ่ง
+ *    (มีเทสต์ตรวจ) ⇒ เพิ่มเมนูใหม่แล้วลืมจัดกลุ่ม = CI แดง ไม่ใช่เมนูหายเงียบ ๆ
+ */
+export const MORE_NAV_GROUPS: readonly NavGroup[] = [
+  {
+    title: 'การเรียน',
+    items: [
+      { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
+      { name: 'ของฉัน', path: '/me/activity', icon: 'bi-person-bookmark' },
+      { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
+    ],
+  },
+  {
+    title: 'กิจกรรมและประกาศ',
+    items: [
+      { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
+      { name: 'ประกาศ', path: '/announcements', icon: 'bi-megaphone' },
+    ],
+  },
+  {
+    title: 'ระบบ',
+    items: [
+      { name: 'ปีการศึกษา', path: '/settings/academic-periods', icon: 'bi-calendar3' },
+      { name: 'บันทึกกิจกรรม', path: '/settings/audit-logs', icon: 'bi-journal-text' },
+      { name: 'ตั้งค่าการแจ้งเตือน', path: '/settings/notifications', icon: 'bi-bell' },
+    ],
+  },
+];
+
+/** เมนูหลักที่ยังอยู่ในแท็บล่าง — sidebar แสดงก่อนกลุ่มอื่น */
+export const PRIMARY_NAV_ITEMS: readonly NavItem[] = NAV_ITEMS.filter((item) =>
+  NAV_TAB_PATHS.includes(item.path),
 );
 
 /**
@@ -82,25 +135,11 @@ export const MORE_NAV_ITEMS: readonly NavItem[] = NAV_ITEMS.filter(
  *
  * 🔴 `/dashboard` ต้องเทียบแบบ "เท่ากับ" ไม่ใช่ `startsWith` — ไม่งั้น
  * `/dashboard` จะไป match ทุก path ที่ขึ้นต้นด้วยคำเดียวกันในอนาคต
- * (และ `/` คือ path ที่ redirect ไป dashboard จึงต้องนับด้วย)
+ * (`/` ไม่นับแล้ว — เป็นหน้า landing สาธารณะตั้งแต่ Stage 3)
  */
 export function isNavItemActive(itemPath: string, currentPath: string): boolean {
-  if (itemPath === '/dashboard') {
-    return currentPath === '/dashboard' || currentPath === '/';
-  }
-  return currentPath.startsWith(itemPath);
-}
-
-/**
- * ชื่อเมนูแม่ของ path ปัจจุบัน — ใช้ทำ breadcrumb
- * คืน `null` เมื่ออยู่ที่แดชบอร์ด/ราก (ไม่มีอะไรให้ breadcrumb)
- */
-export function navSectionName(currentPath: string): string | null {
-  if (currentPath === '/dashboard' || currentPath === '/') return null;
-  const matched = NAV_ITEMS.find(
-    (item) => item.path !== '/dashboard' && currentPath.startsWith(item.path),
-  );
-  return matched ? matched.name : null;
+  if (itemPath === '/dashboard') return currentPath === '/dashboard';
+  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
 }
 
 /**
@@ -120,6 +159,7 @@ export const routeTitles = {
 
   // ── หน้าหลัก ────────────────────────────────────────────────────────────
   dashboard: 'แดชบอร์ด',
+  more: 'เพิ่มเติม',
   roadmap: 'แผนผังห้องเรียน',
   schedules: 'ตารางเรียน',
 
