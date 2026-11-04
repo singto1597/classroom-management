@@ -73,7 +73,7 @@ const allGroups = (): ReadonlyArray<{ title: string; items: readonly NavItem[] }
           <div v-for="(group, index) in allGroups()" :key="group.title">
             <p
               v-if="!collapsed"
-              class="mb-1.5 px-3 text-[11px] font-semibold text-ink-3"
+              class="mb-1.5 px-3 text-xs font-semibold text-ink-3"
             >
               {{ group.title }}
             </p>
@@ -87,8 +87,14 @@ const allGroups = (): ReadonlyArray<{ title: string; items: readonly NavItem[] }
                 :class="itemClass(item.path, collapsed)"
                 :title="collapsed ? item.name : undefined"
               >
+                <!-- ความกว้างกล่องไอคอนคงที่ ⇒ ไอคอนต่างรูปทรง (เช่น bi-map) ไม่ทำให้ข้อความเหลื่อมกัน -->
                 <i
-                  :class="['bi', item.icon, 'shrink-0 text-lg', collapsed ? '' : 'me-3']"
+                  :class="[
+                    'bi',
+                    item.icon,
+                    'w-5 shrink-0 text-center text-lg',
+                    collapsed ? '' : 'me-3',
+                  ]"
                   aria-hidden="true"
                 ></i>
                 <span v-if="!collapsed" class="truncate">{{ item.name }}</span>
@@ -132,10 +138,10 @@ const allGroups = (): ReadonlyArray<{ title: string; items: readonly NavItem[] }
             {{ avatarChar }}
           </div>
           <div v-if="!collapsed" class="ms-1 min-w-0 flex-1 overflow-hidden">
-            <p class="truncate text-[13px] font-bold leading-tight text-ink-1">
+            <p class="truncate text-sm font-bold leading-tight text-ink-1">
               {{ userName }}
             </p>
-            <p class="mt-0.5 truncate text-[11px] font-medium text-ink-3">{{ roleLabel }}</p>
+            <p class="mt-0.5 truncate text-xs font-medium text-ink-3">{{ roleLabel }}</p>
           </div>
         </RouterLink>
       </div>

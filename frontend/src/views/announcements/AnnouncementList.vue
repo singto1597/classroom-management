@@ -153,17 +153,17 @@ const refreshUnread = () => {
 
     <div class="flex flex-wrap items-center gap-2">
       <label
-        class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-stone-200 bg-white px-3"
+        class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5 rounded-control border border-line bg-surface px-3"
       >
         <input v-model="unreadOnly" type="checkbox" class="h-4 w-4 accent-brand-700" />
-        <span class="text-xs font-bold text-stone-700">ยังไม่อ่านเท่านั้น</span>
+        <span class="text-xs font-bold text-ink-2">ยังไม่อ่านเท่านั้น</span>
       </label>
 
       <label
-        class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-stone-200 bg-white px-3"
+        class="flex min-h-11 w-fit cursor-pointer items-center gap-2.5 rounded-control border border-line bg-surface px-3"
       >
         <input v-model="includeArchived" type="checkbox" class="h-4 w-4 accent-brand-700" />
-        <span class="text-xs font-bold text-stone-700">รวมที่เก็บถาวรแล้ว</span>
+        <span class="text-xs font-bold text-ink-2">รวมที่เก็บถาวรแล้ว</span>
       </label>
     </div>
 
@@ -208,7 +208,7 @@ const refreshUnread = () => {
     <div v-else class="space-y-5">
       <p
         v-if="error"
-        class="rounded-xl border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
+        class="rounded-control border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
         role="status"
       >
         อัปเดตล่าสุดไม่สำเร็จ — ข้อมูลที่เห็นอาจไม่ใช่ล่าสุด
@@ -216,7 +216,7 @@ const refreshUnread = () => {
 
       <!-- ปักหมุด -->
       <section v-if="pinned.length > 0" aria-labelledby="pinned-heading" class="space-y-2">
-        <h2 id="pinned-heading" class="flex items-center gap-1.5 text-xs font-bold text-stone-500">
+        <h2 id="pinned-heading" class="flex items-center gap-1.5 text-xs font-bold text-ink-3">
           <i class="bi bi-pin-angle-fill" aria-hidden="true"></i>
           ปักหมุด
         </h2>
@@ -224,44 +224,44 @@ const refreshUnread = () => {
           <li v-for="item in pinned" :key="`pinned-${item.id}`">
             <RouterLink
               :to="`/announcements/${item.id}`"
-              class="block rounded-2xl border border-warn-200 bg-warn-50/60 p-4 transition-colors hover:bg-warn-50"
+              class="block rounded-card border border-warn-200 bg-warn-50/60 p-4 transition-colors hover:bg-warn-50"
               @click="refreshUnread"
             >
               <div class="mb-1 flex flex-wrap items-center gap-1.5">
                 <span
-                  class="inline-flex items-center gap-1 rounded-full bg-warn-100 px-2 py-0.5 text-[11px] font-bold text-warn-800"
+                  class="inline-flex items-center gap-1 rounded-full bg-warn-100 px-2 py-0.5 text-xs font-bold text-warn-800"
                 >
                   <i class="bi bi-pin-angle-fill" aria-hidden="true"></i>
                   ปักหมุด
                 </span>
                 <span
                   v-if="badgeFor(item).priority"
-                  class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                  class="rounded-full px-2 py-0.5 text-xs font-bold"
                   :class="badgeFor(item).priorityClass"
                 >
                   {{ badgeFor(item).priority }}
                 </span>
                 <span
                   v-if="item.is_unread"
-                  class="rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-bold text-brand-800"
+                  class="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-bold text-brand-800"
                 >
                   ใหม่
                 </span>
                 <span
                   v-if="item.archived_at"
-                  class="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-bold text-stone-600"
+                  class="rounded-full bg-canvas px-2 py-0.5 text-xs font-bold text-ink-2"
                 >
                   เก็บถาวรแล้ว
                 </span>
               </div>
-              <p class="break-words text-sm font-bold text-stone-900">{{ item.title }}</p>
+              <p class="break-words text-sm font-bold text-ink">{{ item.title }}</p>
               <p
                 v-if="item.body"
-                class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-stone-600"
+                class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-ink-2"
               >
                 {{ item.body }}
               </p>
-              <p class="mt-2 text-[11px] font-bold text-stone-400">
+              <p class="mt-2 text-xs font-bold text-ink-3">
                 {{ formatThaiDateTime(item.created_at) }}
               </p>
             </RouterLink>
@@ -275,44 +275,44 @@ const refreshUnread = () => {
           <li v-for="item in items" :key="item.id">
             <RouterLink
               :to="`/announcements/${item.id}`"
-              class="block rounded-2xl border p-4 transition-colors"
+              class="block rounded-card border p-4 transition-colors"
               :class="
                 item.is_unread
                   ? 'border-brand-200 bg-brand-50/60 hover:bg-brand-50'
-                  : 'border-stone-200 bg-white hover:bg-stone-50'
+                  : 'border-line bg-surface hover:bg-canvas'
               "
               @click="refreshUnread"
             >
               <div class="mb-1 flex flex-wrap items-center gap-1.5">
                 <span
                   v-if="item.is_unread"
-                  class="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-bold text-brand-800"
+                  class="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-bold text-brand-800"
                 >
                   <span class="h-1.5 w-1.5 rounded-full bg-brand-600" aria-hidden="true"></span>
                   ใหม่
                 </span>
                 <span
                   v-if="badgeFor(item).priority"
-                  class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                  class="rounded-full px-2 py-0.5 text-xs font-bold"
                   :class="badgeFor(item).priorityClass"
                 >
                   {{ badgeFor(item).priority }}
                 </span>
                 <span
                   v-if="item.archived_at"
-                  class="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-bold text-stone-600"
+                  class="rounded-full bg-canvas px-2 py-0.5 text-xs font-bold text-ink-2"
                 >
                   เก็บถาวรแล้ว
                 </span>
               </div>
-              <p class="break-words text-sm font-bold text-stone-900">{{ item.title }}</p>
+              <p class="break-words text-sm font-bold text-ink">{{ item.title }}</p>
               <p
                 v-if="item.body"
-                class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-stone-600"
+                class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-ink-2"
               >
                 {{ item.body }}
               </p>
-              <p class="mt-2 text-[11px] font-bold text-stone-400">
+              <p class="mt-2 text-xs font-bold text-ink-3">
                 {{ formatThaiDateTime(item.created_at) }}
               </p>
             </RouterLink>

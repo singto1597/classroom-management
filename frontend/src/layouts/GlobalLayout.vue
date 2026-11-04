@@ -97,7 +97,7 @@ onMounted(async () => {
     <!-- ── Footer: จุดปิดท้ายแบบเส้นบาง ────────────────────────────────── -->
     <footer class="shrink-0 border-t border-line bg-surface">
       <div
-        class="mx-auto flex w-full flex-col items-center justify-between gap-1 px-4 py-3 text-[11px] text-ink-3 sm:flex-row sm:px-6"
+        class="mx-auto flex w-full flex-col items-center justify-between gap-1 px-4 py-3 text-xs text-ink-3 sm:flex-row sm:px-6"
         :class="widthClass"
       >
         <p class="font-semibold">SYNCROOM — ระบบจัดการห้องเรียน</p>

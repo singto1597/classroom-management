@@ -166,7 +166,7 @@ body {
      — stone-400 (#A8A29E) ได้แค่ 2.52:1 ตกข้อกำหนด WCAG AA 4.5:1 (วัด 2026-11-01)
      `disabled:text-stone-400` คงไว้ได้ เพราะข้อความในคอนโทรลที่ปิดใช้งานได้รับยกเว้น */
   .field {
-    @apply min-h-11 w-full rounded-control border border-line bg-surface px-3.5 py-2.5 text-sm
+    @apply min-h-11 w-full rounded-control border border-line bg-surface px-3.5 py-2.5 text-base sm:text-sm
            text-ink-1 placeholder:text-ink-3 transition-colors
            focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/15
            disabled:bg-canvas disabled:text-ink-3;

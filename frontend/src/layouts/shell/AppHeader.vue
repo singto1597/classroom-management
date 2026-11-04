@@ -118,14 +118,17 @@ const goBack = () => {
           class="flex h-11 min-w-0 items-center gap-1.5 rounded-control px-2 text-ink-2 transition-colors hover:bg-canvas hover:text-ink-1"
           aria-haspopup="menu"
           :aria-expanded="activeDropdown === 'roomSwitcher'"
+          :aria-label="`สลับห้องเรียน — ${roomName || `ห้อง ${roomId}`}`"
           :title="roomName || `ห้อง ${roomId}`"
           @click.stop="emit('toggleDropdown', $event, 'roomSwitcher')"
         >
           <i class="bi bi-door-open shrink-0 text-base" aria-hidden="true"></i>
-          <span class="max-w-[7.5rem] truncate text-sm font-semibold text-ink-1 sm:max-w-[12rem]">
+          <!-- มือถือซ่อนชื่อห้อง (เหลือไอคอน+chevron) เพื่อคืนพื้นที่ให้หัวข้อหน้า
+               ชื่อเต็มยังเข้าถึงได้ผ่าน aria-label/title และเมนูสลับห้อง -->
+          <span class="hidden max-w-[12rem] truncate text-sm font-semibold text-ink-1 sm:inline">
             {{ roomName || `ห้อง ${roomId}` }}
           </span>
-          <i class="bi bi-chevron-down shrink-0 text-[10px] opacity-60" aria-hidden="true"></i>
+          <i class="bi bi-chevron-down shrink-0 text-xs opacity-60" aria-hidden="true"></i>
         </button>
 
         <!-- 🔔 มีห้องที่กำลังเปิดอยู่เท่านั้น — ยังไม่มีห้อง = ไม่มีอะไรให้แจ้ง -->

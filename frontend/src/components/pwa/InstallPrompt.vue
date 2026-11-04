@@ -92,19 +92,19 @@ const install = async () => {
           alt=""
           width="40"
           height="40"
-          class="h-10 w-10 shrink-0 rounded-xl"
+          class="h-10 w-10 shrink-0 rounded-control"
           aria-hidden="true"
         />
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-bold text-stone-900">ติดตั้ง SYNCROOM ไว้หน้าจอโฮม</p>
-          <p class="mt-0.5 text-[13px] leading-snug text-stone-600">
+          <p class="text-sm font-bold text-ink">ติดตั้ง SYNCROOM ไว้หน้าจอโฮม</p>
+          <p class="mt-0.5 text-sm leading-snug text-ink-2">
             เปิดเต็มจอ และรับแจ้งเตือนได้แม้ปิดแอป
           </p>
 
           <div class="mt-2.5 flex items-center gap-2">
             <button
               type="button"
-              class="min-h-11 rounded-xl bg-brand-700 px-3.5 text-sm font-bold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
+              class="min-h-11 rounded-control bg-brand-700 px-3.5 text-sm font-bold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
               :disabled="busy"
               @click="install"
             >
@@ -112,20 +112,20 @@ const install = async () => {
             </button>
             <button
               type="button"
-              class="min-h-11 rounded-xl px-3 text-sm font-bold text-stone-600 transition-colors hover:bg-stone-100"
+              class="min-h-11 rounded-control px-3 text-sm font-bold text-ink-2 transition-colors hover:bg-canvas"
               @click="rememberDismiss"
             >
               ไม่ใช่ตอนนี้
             </button>
           </div>
 
-          <p v-if="showIosHelp" class="mt-2.5 rounded-xl bg-stone-50 p-2.5 text-[13px] leading-relaxed text-stone-700">
+          <p v-if="showIosHelp" class="mt-2.5 rounded-control bg-canvas p-2.5 text-sm leading-relaxed text-ink-2">
             แตะปุ่ม <strong>แชร์</strong> (สี่เหลี่ยมมีลูกศรขึ้น) ที่แถบล่างของ Safari
             แล้วเลือก <strong>เพิ่มไปยังหน้าจอโฮม</strong>
           </p>
 
           <!-- 🔎 สำหรับตรวจสาเหตุว่าแถบไม่ขึ้น (support/QA) — ไม่รบกวนผู้ใช้ทั่วไป -->
-          <details class="mt-2 text-[12px] text-stone-500">
+          <details class="mt-2 text-xs text-ink-3">
             <summary class="cursor-pointer select-none">ทำไมถึงเห็นป้ายนี้</summary>
             <ul class="mt-1.5 space-y-0.5 ps-4">
               <li>มือถือ/แท็บเล็ต: {{ isCoarsePointer() ? 'ใช่' : 'ไม่ใช่' }}</li>

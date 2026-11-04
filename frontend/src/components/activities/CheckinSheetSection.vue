@@ -40,14 +40,14 @@ const totalCount = computed(() => {
 function actionClass(isPresent: boolean): string {
   return isPresent
     ? 'bg-ok-50 text-ok-700 border-ok-200'
-    : 'bg-white text-stone-500 border-stone-200 hover:border-ok-300 hover:text-ok-600'
+    : 'bg-surface text-ink-3 border-line hover:border-ok-300 hover:text-ok-600'
 }
 </script>
 
 <template>
   <!-- การ์ดซ้อนใน page-card ของแม่แล้ว → ลดเป็นกล่องด้านในเส้นเดียว ไม่ให้เห็นกรอบซ้อนกรอบ -->
   <div
-    class="overflow-hidden rounded-xl border border-stone-200 bg-white transition-colors"
+    class="overflow-hidden rounded-control border border-line bg-surface transition-colors"
     :class="expanded ? 'ring-1 ring-brand-200' : ''"
   >
     <!-- Header -->
@@ -60,19 +60,19 @@ function actionClass(isPresent: boolean): string {
         @click="emit('toggleExpand')"
       >
         <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700"
         >
           <i class="bi bi-clipboard2-check" aria-hidden="true"></i>
         </div>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-bold text-stone-900">{{ sheet.title }}</p>
-          <p class="mt-0.5 text-xs text-stone-500">
+          <p class="truncate text-sm font-bold text-ink">{{ sheet.title }}</p>
+          <p class="mt-0.5 text-xs text-ink-3">
             <span v-if="sheet.event_date">{{ formatThaiDate(sheet.event_date) }} · </span>
             ตรวจแล้ว <b class="num text-ok-600">{{ checkedCount }}</b>/<span class="num">{{ totalCount }}</span>
           </p>
         </div>
         <span
-          class="shrink-0 text-xs text-stone-500 transition-transform"
+          class="shrink-0 text-xs text-ink-3 transition-transform"
           :class="expanded ? 'rotate-90' : ''"
           aria-hidden="true"
         >
@@ -93,17 +93,17 @@ function actionClass(isPresent: boolean): string {
     </div>
 
     <!-- Body (ขยาย) -->
-    <div v-if="expanded" class="border-t border-stone-200">
+    <div v-if="expanded" class="border-t border-line">
       <div v-if="loading" class="p-3">
         <SkeletonRows :rows="4" height="h-14" />
       </div>
 
       <!-- โหลดไม่สำเร็จ (parent กลืน error แล้วปล่อย participants = null) — ต้องไม่โกหกว่าว่าง -->
-      <div v-else-if="participants === null" class="px-4 py-6 text-center text-sm text-stone-500">
+      <div v-else-if="participants === null" class="px-4 py-6 text-center text-sm text-ink-3">
         โหลดรายชื่อไม่สำเร็จ — ลองย่อแล้วกดขยายอีกครั้ง
       </div>
 
-      <div v-else-if="participants.length === 0" class="px-4 py-6 text-center text-sm text-stone-500">
+      <div v-else-if="participants.length === 0" class="px-4 py-6 text-center text-sm text-ink-3">
         ยังไม่มีผู้เข้าร่วมในกิจกรรมนี้
       </div>
 
@@ -111,7 +111,7 @@ function actionClass(isPresent: boolean): string {
         <div v-if="canManage && checkedCount < totalCount" class="mb-1 flex sm:justify-end">
           <button
             type="button"
-            class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-ok-200 bg-ok-50 px-3 text-xs font-bold text-ok-700 transition-colors hover:bg-ok-100 sm:w-auto"
+            class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-control border border-ok-200 bg-ok-50 px-3 text-xs font-bold text-ok-700 transition-colors hover:bg-ok-100 sm:w-auto"
             @click="emit('markAllPresent')"
           >
             <i class="bi bi-check2-all" aria-hidden="true"></i> เช็คทั้งหมดว่า "มาแล้ว"
@@ -121,17 +121,17 @@ function actionClass(isPresent: boolean): string {
         <div
           v-for="p in participants"
           :key="p.id"
-          class="flex items-center gap-3 rounded-xl border px-3 py-2"
-          :class="p.is_present ? 'border-ok-100 bg-ok-50/40' : 'border-stone-200 bg-white'"
+          class="flex items-center gap-3 rounded-control border px-3 py-2"
+          :class="p.is_present ? 'border-ok-100 bg-ok-50/40' : 'border-line bg-surface'"
         >
           <div
-            class="num flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200 bg-stone-50 text-xs font-bold text-stone-600"
+            class="num flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-line bg-canvas text-xs font-bold text-ink-2"
           >
             {{ p.student_no }}
           </div>
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-bold text-stone-900">{{ displayName(p) }}</p>
-            <p v-if="p.checked_at" class="mt-0.5 text-xs text-stone-500">
+            <p class="truncate text-sm font-bold text-ink">{{ displayName(p) }}</p>
+            <p v-if="p.checked_at" class="mt-0.5 text-xs text-ink-3">
               เช็ค
               {{ formatThaiTime(p.checked_at) }}
               น.
@@ -141,7 +141,7 @@ function actionClass(isPresent: boolean): string {
             v-if="canManage"
             type="button"
             :disabled="loading"
-            class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl border px-3 text-xs font-bold transition-colors active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50"
+            class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-control border px-3 text-xs font-bold transition-colors active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50"
             :class="actionClass(p.is_present)"
             @click="emit('togglePresent', p.id, !p.is_present)"
           >
@@ -151,7 +151,7 @@ function actionClass(isPresent: boolean): string {
           <span
             v-else
             class="chip shrink-0"
-            :class="p.is_present ? 'bg-ok-50 text-ok-700' : 'bg-stone-100 text-stone-600'"
+            :class="p.is_present ? 'bg-ok-50 text-ok-700' : 'bg-canvas text-ink-2'"
           >
             {{ p.is_present ? 'มาแล้ว' : 'ยังไม่มา' }}
           </span>

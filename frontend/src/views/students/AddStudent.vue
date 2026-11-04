@@ -5,12 +5,13 @@ import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { StudentService } from '@/services/student'
 import PageIntro from '@/components/ui/PageIntro.vue'
+import AppTabs from '@/components/ui/AppTabs.vue'
 import FormSuccess from '@/components/ui/FormSuccess.vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
 import { confirmLeave, useFormDraft, useUnsavedGuard } from '@/composables/useFormDraft'
 
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
 // ที่อ่าน detail จาก response ของ axios ไว้
@@ -31,7 +32,14 @@ const canManageStudents = computed(
 
 // --- State ---
 const activeTab = ref<'single' | 'bulk'>('single')
+const tabs = [
+  { value: 'single', label: 'เพิ่มทีละคน' },
+  { value: 'bulk', label: 'เพิ่มรวดเดียว (Bulk)' },
+] as const
 const isSubmitting = ref(false)
+const setTab = (value: string) => {
+  activeTab.value = value === 'bulk' ? 'bulk' : 'single'
+}
 
 /**
  * 🪜 3 ขั้นตอน: ข้อมูลบังคับ → ข้อมูลเสริม → ตรวจสอบ
@@ -131,12 +139,7 @@ const resetForm = () => {
 // --- Methods ---
 const submitSingle = async () => {
   if (!canManageStudents.value) {
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้', 'error')
   }
 
   if (!stepValid.value) {
@@ -164,12 +167,7 @@ const submitSingle = async () => {
     }
     draft.clear()
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มข้อมูลได้',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถเพิ่มข้อมูลได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -177,16 +175,11 @@ const submitSingle = async () => {
 
 const submitBulk = async () => {
   if (!canManageStudents.value) {
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่เพิ่มข้อมูลนักเรียนได้', 'error')
   }
 
   if (!bulkData.value.trim()) {
-    Swal.fire({ icon: 'warning', title: 'กรุณาใส่ข้อมูล', confirmButtonColor: UI_COLOR.brand })
+    void dialog.alert('กรุณาใส่ข้อมูล', undefined, 'warning')
     return
   }
 
@@ -219,12 +212,11 @@ const submitBulk = async () => {
     bulkData.value = ''
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : undefined
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: errorMessage || apiErrorDetail(error) || 'ไม่สามารถเพิ่มข้อมูลได้',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      errorMessage || apiErrorDetail(error) || 'ไม่สามารถเพิ่มข้อมูลได้',
+      'error'
+    )
   } finally {
     isSubmitting.value = false
   }
@@ -266,31 +258,13 @@ const submitBulk = async () => {
 
     <div v-else class="page-card overflow-hidden">
       <!-- แท็บ -->
-      <div role="tablist" class="flex border-b border-stone-200">
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'single'"
-          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-bold transition-colors"
-          :class="activeTab === 'single'
-            ? 'border-brand-700 text-brand-700'
-            : 'border-transparent text-stone-500 hover:text-stone-700'"
-          @click="activeTab = 'single'"
-        >
-          <i class="bi bi-person-fill" aria-hidden="true"></i> เพิ่มทีละคน
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'bulk'"
-          class="flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 py-3 text-sm font-bold transition-colors"
-          :class="activeTab === 'bulk'
-            ? 'border-brand-700 text-brand-700'
-            : 'border-transparent text-stone-500 hover:text-stone-700'"
-          @click="activeTab = 'bulk'"
-        >
-          <i class="bi bi-people-fill" aria-hidden="true"></i> เพิ่มรวดเดียว<span class="hidden sm:inline"> (Bulk)</span>
-        </button>
+      <div class="px-4 pt-2 sm:px-6">
+        <AppTabs
+          :model-value="activeTab"
+          :tabs="tabs"
+          group-label="วิธีเพิ่มนักเรียน"
+          @update:model-value="setTab"
+        />
       </div>
 
       <!-- ฟอร์ม: เพิ่มทีละคน (3 ขั้น) -->
@@ -305,11 +279,11 @@ const submitBulk = async () => {
           >
             <div
               class="h-1.5 rounded-full transition-colors"
-              :class="index <= step ? 'bg-brand-700' : 'bg-stone-200'"
+              :class="index <= step ? 'bg-brand-700' : 'bg-line'"
             ></div>
             <p
-              class="mt-1.5 truncate text-[11px] font-bold"
-              :class="index === step ? 'text-brand-700' : 'text-stone-500'"
+              class="mt-1.5 truncate text-xs font-bold"
+              :class="index === step ? 'text-brand-700' : 'text-ink-3'"
             >
               {{ index + 1 }}. {{ label }}
             </p>
@@ -376,33 +350,33 @@ const submitBulk = async () => {
           <div v-else-if="step === 1" class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <div>
               <label class="field-label" for="nickname">
-                ชื่อเล่น <span class="font-normal text-stone-500">ไม่บังคับ</span>
+                ชื่อเล่น <span class="font-normal text-ink-3">ไม่บังคับ</span>
               </label>
               <input id="nickname" v-model="singleForm.nickname" type="text" class="field" placeholder="โอม" />
             </div>
 
             <div>
               <label class="field-label" for="nicknameEn">
-                ชื่อเล่น (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
+                ชื่อเล่น (อังกฤษ) <span class="font-normal text-ink-3">ไม่บังคับ</span>
               </label>
               <input id="nicknameEn" v-model="singleForm.nickname_en" type="text" class="field" placeholder="Om" />
             </div>
 
             <div>
               <label class="field-label" for="firstNameEn">
-                ชื่อจริง (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
+                ชื่อจริง (อังกฤษ) <span class="font-normal text-ink-3">ไม่บังคับ</span>
               </label>
               <input id="firstNameEn" v-model="singleForm.first_name_en" type="text" class="field" placeholder="Somchai" />
             </div>
 
             <div>
               <label class="field-label" for="lastNameEn">
-                นามสกุล (อังกฤษ) <span class="font-normal text-stone-500">ไม่บังคับ</span>
+                นามสกุล (อังกฤษ) <span class="font-normal text-ink-3">ไม่บังคับ</span>
               </label>
               <input id="lastNameEn" v-model="singleForm.last_name_en" type="text" class="field" placeholder="Jaidee" />
             </div>
 
-            <p class="text-xs leading-relaxed text-stone-500 sm:col-span-2">
+            <p class="text-xs leading-relaxed text-ink-3 sm:col-span-2">
               ชื่อภาษาอังกฤษใช้แสดงบนใบรายชื่อ/ใบเสร็จ — เว้นว่างได้ถ้าไม่จำเป็น
             </p>
           </div>
@@ -410,32 +384,32 @@ const submitBulk = async () => {
           <!-- ขั้นที่ 3: ตรวจสอบก่อนบันทึก -->
           <div v-else>
             <h2 class="section-title">ตรวจสอบข้อมูล</h2>
-            <dl class="mt-3 divide-y divide-stone-100 rounded-xl border border-stone-200">
+            <dl class="mt-3 divide-y divide-line rounded-control border border-line">
               <div class="flex items-baseline justify-between gap-3 px-3.5 py-2.5">
-                <dt class="text-xs font-bold text-stone-500">เลขที่</dt>
-                <dd class="num font-bold text-stone-900">{{ singleForm.student_no }}</dd>
+                <dt class="text-xs font-bold text-ink-3">เลขที่</dt>
+                <dd class="num font-bold text-ink-1">{{ singleForm.student_no }}</dd>
               </div>
               <div class="flex items-baseline justify-between gap-3 px-3.5 py-2.5">
-                <dt class="text-xs font-bold text-stone-500">ชื่อ-นามสกุล</dt>
-                <dd class="font-bold text-stone-900">{{ singleForm.first_name }} {{ singleForm.last_name }}</dd>
+                <dt class="text-xs font-bold text-ink-3">ชื่อ-นามสกุล</dt>
+                <dd class="font-bold text-ink-1">{{ singleForm.first_name }} {{ singleForm.last_name }}</dd>
               </div>
               <div class="flex items-baseline justify-between gap-3 px-3.5 py-2.5">
-                <dt class="text-xs font-bold text-stone-500">ชื่อเล่น</dt>
-                <dd class="text-stone-700">{{ singleForm.nickname || '—' }}</dd>
+                <dt class="text-xs font-bold text-ink-3">ชื่อเล่น</dt>
+                <dd class="text-ink-2">{{ singleForm.nickname || '—' }}</dd>
               </div>
               <div class="flex items-baseline justify-between gap-3 px-3.5 py-2.5">
-                <dt class="text-xs font-bold text-stone-500">ชื่อภาษาอังกฤษ</dt>
-                <dd class="text-stone-700">
+                <dt class="text-xs font-bold text-ink-3">ชื่อภาษาอังกฤษ</dt>
+                <dd class="text-ink-2">
                   {{ [singleForm.first_name_en, singleForm.last_name_en].filter(Boolean).join(' ') || '—' }}
                 </dd>
               </div>
             </dl>
-            <p class="mt-2 text-xs text-stone-500">
+            <p class="mt-2 text-xs text-ink-3">
               กด "บันทึกข้อมูล" เพื่อเพิ่มนักเรียน · หากต้องการแก้ ให้กด "ย้อนกลับ"
             </p>
           </div>
 
-          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-between sm:pt-4">
+          <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-between sm:pt-4">
             <button
               v-if="step > 0"
               type="button"
@@ -467,7 +441,7 @@ const submitBulk = async () => {
             </template>
             <p
               v-else
-              class="flex items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm font-bold text-stone-500"
+              class="flex items-center justify-center gap-2 rounded-control border border-line bg-canvas p-4 text-sm font-bold text-ink-3"
             >
               <i class="bi bi-lock-fill text-danger-500" aria-hidden="true"></i> เฉพาะแอดมินเท่านั้น
             </p>
@@ -477,7 +451,7 @@ const submitBulk = async () => {
 
       <!-- ฟอร์ม: นำเข้ารวดเดียว -->
       <div v-else class="space-y-4 p-4 sm:p-6">
-        <div class="rounded-xl border border-info-200 bg-info-50 p-4">
+        <div class="rounded-control border border-info-200 bg-info-50 p-4">
           <p class="flex items-center gap-1.5 text-sm font-bold text-info-800">
             <i class="bi bi-info-circle-fill" aria-hidden="true"></i> คำแนะนำการใช้งาน
           </p>
@@ -497,7 +471,7 @@ const submitBulk = async () => {
           ></textarea>
         </div>
 
-        <div class="border-t border-stone-100 pt-3 sm:pt-4">
+        <div class="border-t border-line pt-3 sm:pt-4">
           <button
             v-if="canManageStudents"
             type="button"
@@ -515,7 +489,7 @@ const submitBulk = async () => {
           </button>
           <div
             v-else
-            class="flex items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm font-bold text-stone-500"
+            class="flex items-center justify-center gap-2 rounded-control border border-line bg-canvas p-4 text-sm font-bold text-ink-3"
           >
             <i class="bi bi-lock-fill text-danger-500" aria-hidden="true"></i> เฉพาะแอดมินเท่านั้น
           </div>

@@ -57,7 +57,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { name: 'ประกาศ', path: '/announcements', icon: 'bi-megaphone' },
   // 👤 P3.4 — "ของฉัน" = ไทม์ไลน์ส่วนตัว + สถิติ + รายการที่บันทึกไว้
   //    อยู่ใต้ "เพิ่มเติม" (ไม่ใช่แท็บหลัก) เพราะเป็นหน้าที่เปิดเป็นครั้งคราว
-  { name: 'ของฉัน', path: '/me/activity', icon: 'bi-person-bookmark' },
+  { name: 'ของฉัน', path: '/me/activity', icon: 'bi-bookmark-star' },
   { name: 'ตั้งค่าการแจ้งเตือน', path: '/settings/notifications', icon: 'bi-bell' },
   // 🗓️ P5 — ปฏิทินของห้อง (ปี พ.ศ. + เทอม) ใช้เป็นตัวกรองสถิติ ไม่ใช่การเลื่อนชั้น
   { name: 'ปีการศึกษา', path: '/settings/academic-periods', icon: 'bi-calendar3' },
@@ -104,7 +104,7 @@ export const MORE_NAV_GROUPS: readonly NavGroup[] = [
     title: 'การเรียน',
     items: [
       { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
-      { name: 'ของฉัน', path: '/me/activity', icon: 'bi-person-bookmark' },
+      { name: 'ของฉัน', path: '/me/activity', icon: 'bi-bookmark-star' },
       { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
     ],
   },

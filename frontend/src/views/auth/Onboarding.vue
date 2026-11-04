@@ -5,9 +5,9 @@ import { computed, ref, onMounted } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { getMyProfile, updateMyProfile, type UserProfileResponse } from '@/services/auth';
-import Swal from 'sweetalert2';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import { useDialog } from '@/composables/useDialog';
 
 import * as ThaiAddressDB from 'thai-address-database';
 import type {
@@ -15,7 +15,6 @@ import type {
   ThaiAddressRecord,
   ThaiAddressSearchFn,
 } from 'thai-address-database';
-import { UI_COLOR } from '@/constants/theme'
 
 interface AddressOption {
   subDistrict: string;
@@ -27,6 +26,7 @@ interface AddressOption {
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const dialog = useDialog();
 
 /**
  * `/account/profile` = **แก้ไข** โปรไฟล์เดิม (มีปุ่มยกเลิก กลับไป `/account`)
@@ -217,16 +217,11 @@ const loadProfile = async () => {
       } catch (error: unknown) {
         console.error('Failed to load profile:', error);
 
-        const { isConfirmed } = await Swal.fire({
-          icon: 'warning',
-          title: 'ดึงข้อมูลเดิมไม่สำเร็จ',
-          text: 'ระบบดึงโปรไฟล์เดิมของคุณไม่ได้ ฟอร์มด้านล่างจึงยังว่างอยู่ — ถ้ากรอกต่อ ข้อมูลเดิมที่มีในระบบจะถูกแทนที่ด้วยสิ่งที่กรอกใหม่',
-          confirmButtonText: 'ลองใหม่',
-          cancelButtonText: 'กรอกเอง',
-          showCancelButton: true,
-          confirmButtonColor: UI_COLOR.brand,
-          cancelButtonColor: UI_COLOR.neutral,
-        });
+        const { isConfirmed } = await dialog.confirm(
+          'ดึงข้อมูลเดิมไม่สำเร็จ',
+          'ระบบดึงโปรไฟล์เดิมของคุณไม่ได้ ฟอร์มด้านล่างจึงยังว่างอยู่ — ถ้ากรอกต่อ ข้อมูลเดิมที่มีในระบบจะถูกแทนที่ด้วยสิ่งที่กรอกใหม่',
+          { icon: 'warning', confirmButtonText: 'ลองใหม่', cancelButtonText: 'กรอกเอง' },
+        );
 
         // กด "กรอกเอง" = ยอมรับความเสี่ยงเอง ⇒ ไปต่อด้วยค่าที่ store มี
         // ⚠️ ทางออกนี้ต้องมี ไม่งั้นผู้ที่ Backend ล่มถาวรจะแก้อะไรไม่ได้เลย
@@ -259,12 +254,7 @@ const submitProfile = async () => {
   });
 
   if (!isAllFilled) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'ข้อมูลไม่ครบ',
-      text: 'กรุณากรอกข้อมูลให้ครบถ้วน',
-      confirmButtonColor: UI_COLOR.brand,
-    });
+    void dialog.alert('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลให้ครบถ้วน', 'warning');
     return;
   }
 
@@ -281,12 +271,7 @@ const submitProfile = async () => {
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '';
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: message || 'ไม่สามารถบันทึกข้อมูลได้',
-      confirmButtonColor: UI_COLOR.brand,
-    });
+    void dialog.alert('ข้อผิดพลาด', message || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
   } finally {
     isSubmitting.value = false;
   }

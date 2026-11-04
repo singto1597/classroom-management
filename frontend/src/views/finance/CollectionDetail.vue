@@ -1,23 +1,23 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { CollectionStatus, Account, StudentPaymentDetail } from '@/types/finance'
 import { displayName } from '@/utils/name'
-import { escapeHtml } from '@/utils/html'
 import { formatThaiDateTime } from '@/utils/datetime'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
-import Swal from 'sweetalert2'
 
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
-import { UI_COLOR } from '@/constants/theme'
+import AppSheet from '@/components/ui/AppSheet.vue'
+import { useDialog } from '@/composables/useDialog'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const currentServerId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -46,7 +46,7 @@ const fetchDetail = async () => {
     accounts.value = accountsRes
   } catch {
     hasError.value = true
-    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดรายละเอียดแคมเปญได้', 'error')
+    void dialog.alert('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดรายละเอียดแคมเปญได้', 'error')
   } finally {
     isLoading.value = false
   }
@@ -58,94 +58,78 @@ const progress = computed(() => {
   return total > 0 ? Math.round((paid / total) * 100) : 0
 })
 
-const handlePay = async (student: StudentPaymentDetail) => {
+const isPayOpen = ref(false)
+const payTarget = ref<StudentPaymentDetail | null>(null)
+const isPaying = ref(false)
+const payForm = reactive({
+  accountId: '',
+  amount: '',
+  slipUrl: '',
+})
+
+/** เปิดแผ่นรับเงิน — ยอดเริ่มต้นคือยอดคงเหลือของบิลนั้น */
+const handlePay = (student: StudentPaymentDetail) => {
   if (!isAdmin.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถรับเงินได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถรับเงินได้', 'error')
+    return
+  }
+  payTarget.value = student
+  payForm.accountId = accounts.value[0]?.id.toString() ?? ''
+  payForm.amount =
+    student.total_amount - student.paid_amount > 0
+      ? String(student.total_amount - student.paid_amount)
+      : ''
+  payForm.slipUrl = ''
+  isPayOpen.value = true
+}
+
+const submitPayment = async () => {
+  const student = payTarget.value
+  if (!student) return
+  const amount = Number(payForm.amount)
+  if (!payForm.accountId || !Number.isFinite(amount) || amount <= 0) {
+    void dialog.alert('ข้อมูลไม่ครบ', 'กรุณาเลือกบัญชีและกรอกจำนวนเงินที่มากกว่า 0 บาท', 'warning')
+    return
   }
 
-  const remaining = student.total_amount - student.paid_amount
-
-  const { value: formValues } = await Swal.fire({
-    // `titleText` ไม่ใช่ `title` — Swal เรนเดอร์ `title:` ด้วย innerHTML (dist บรรทัด 1910)
-    // ส่วน `titleText` ตั้งด้วย innerText (บรรทัด 1913) ⇒ ชื่อนักเรียนที่ผู้ใช้กรอก
-    // ใช้เป็นมาร์กอัปไม่ได้
-    titleText: `รับเงิน: ${displayName(student)}`,
-    html:
-      '<div class="mb-3 text-left">' +
-      '<label class="block text-xs font-bold text-stone-500 mb-1">รับเงินเข้าบัญชีห้อง</label>' +
-      `<select id="swal-acc" class="swal2-input w-full">
-        ${accounts.value.map((acc) => `<option value="${escapeHtml(acc.id)}">${escapeHtml(acc.account_name)}</option>`).join('')}
-      </select>` +
-      '</div>' +
-      '<div class="mb-3 text-left">' +
-      '<label class="block text-xs font-bold text-stone-500 mb-1">จำนวนเงินที่จ่าย (฿)</label>' +
-      `<input id="swal-amt" type="number" class="swal2-input w-full" value="${escapeHtml(remaining)}" step="0.01">` +
-      '</div>' +
-      '<div class="text-left">' +
-      '<label class="block text-xs font-bold text-stone-500 mb-1">URL รูปสลิป (ถ้ามี)</label>' +
-      '<input id="swal-slip" type="url" class="swal2-input w-full" placeholder="https://...">' +
-      '</div>',
-    focusConfirm: false,
-    showCancelButton: true,
-    confirmButtonText: '✅ ยืนยันการรับเงิน',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-    preConfirm: () => {
-      const accId = (document.getElementById('swal-acc') as HTMLSelectElement).value
-      const amount = (document.getElementById('swal-amt') as HTMLInputElement).value
-      const slip = (document.getElementById('swal-slip') as HTMLInputElement).value
-      if (!accId || !amount) {
-        Swal.showValidationMessage('กรุณากรอกข้อมูลให้ครบถ้วน')
-        return false
-      }
-      return {
-        paid_to_account_id: Number(accId),
-        paid_amount: parseFloat(amount),
-        slip_image_url: slip,
-      }
-    },
-  })
-
-  if (formValues) {
-    try {
-      await FinanceService.confirmPayment(currentServerId, student.payment_id, {
-        ...formValues,
-        user_name: currentUserName,
-      })
-      Swal.fire({ icon: 'success', title: 'รับเงินสำเร็จ!', timer: 1500, showConfirmButton: false })
-      fetchDetail()
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'รับเงินไม่สำเร็จ',
-      })
-    }
+  isPaying.value = true
+  try {
+    await FinanceService.confirmPayment(currentServerId, student.payment_id, {
+      paid_to_account_id: Number(payForm.accountId),
+      paid_amount: amount,
+      slip_image_url: payForm.slipUrl.trim(),
+      user_name: currentUserName,
+    })
+    isPayOpen.value = false
+    await dialog.fire({ icon: 'success', title: 'รับเงินสำเร็จ!', timer: 1500 })
+    await fetchDetail()
+  } catch (error: unknown) {
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'รับเงินไม่สำเร็จ',
+      'error',
+    )
+  } finally {
+    isPaying.value = false
   }
 }
 
 // ✨ ฟังก์ชันใหม่: ลบรายชื่อคนออกจากแคมเปญ
 const handleRemoveStudent = async (student: StudentPaymentDetail) => {
   if (student.paid_amount > 0) {
-    return Swal.fire(
+    void dialog.alert(
       'ลบไม่ได้',
       'มีการชำระเงินเข้ามาแล้ว ถ้ายกเลิกต้องไป Revert รายการแทน',
       'warning',
     )
+    return
   }
 
-  const result = await Swal.fire({
-    title: 'ยืนยันการลบ?',
-    // ⚠️ escape เฉพาะค่าที่ interpolate — มาร์กอัป `<b>` ของเทมเพลตต้องคงอยู่
-    html: `คุณต้องการลบรายชื่อ <b>${escapeHtml(displayName(student))}</b> ออกจากการเก็บเงินนี้ใช่หรือไม่?`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ลบรายชื่อออก',
-    cancelButtonText: 'ยกเลิก',
-  })
+  const result = await dialog.confirm(
+    'ยืนยันการลบ?',
+    `คุณต้องการลบรายชื่อ ${displayName(student)} ออกจากการเก็บเงินนี้ใช่หรือไม่?`,
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบรายชื่อออก' },
+  )
 
   if (result.isConfirmed) {
     try {
@@ -155,14 +139,14 @@ const handleRemoveStudent = async (student: StudentPaymentDetail) => {
         student.student_id,
         currentUserName,
       )
-      Swal.fire({ icon: 'success', title: 'ลบเรียบร้อย', timer: 1500, showConfirmButton: false })
-      fetchDetail()
+      await dialog.fire({ icon: 'success', title: 'ลบเรียบร้อย', timer: 1500 })
+      await fetchDetail()
     } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'ลบรายชื่อไม่สำเร็จ',
-      })
+      void dialog.alert(
+        'เกิดข้อผิดพลาด',
+        error instanceof Error ? error.message : 'ลบรายชื่อไม่สำเร็จ',
+        'error',
+      )
     }
   }
 }
@@ -207,7 +191,8 @@ const issuableCount = computed(
 
 const handleIssueReceipt = async (student: StudentPaymentDetail) => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกใบเสร็จได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกใบเสร็จได้', 'error')
+    return
   }
   if (issuingPaymentId.value !== null) return
 
@@ -220,11 +205,11 @@ const handleIssueReceipt = async (student: StudentPaymentDetail) => {
     })
     showIssued(res.receipt.receipt_no, res.reused, true)
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'ออกใบเสร็จไม่สำเร็จ',
-      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
-    })
+    void dialog.alert(
+      'ออกใบเสร็จไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    )
   } finally {
     issuingPaymentId.value = null
   }
@@ -233,7 +218,8 @@ const handleIssueReceipt = async (student: StudentPaymentDetail) => {
 /** ออกรวบยอดให้ทุกบิลที่มีเงินเข้าแล้ว — backend ทำใน transaction เดียว (all-or-nothing) */
 const handleIssueAllReceipts = async () => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกใบเสร็จได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกใบเสร็จได้', 'error')
+    return
   }
   const paymentIds = (data.value?.students ?? [])
     .filter((s) => s.paid_amount > 0)
@@ -242,28 +228,23 @@ const handleIssueAllReceipts = async () => {
 
   // เพดานของ backend คือ 100 ใบ/ครั้ง — เกินกว่านั้นต้องบอกให้แคบลง ไม่ใช่ยิงแล้วเงียบ
   if (paymentIds.length > 100) {
-    return Swal.fire(
+    void dialog.alert(
       'ออกทีละมากเกินไป',
       `เลือกไว้ ${paymentIds.length} บิล แต่ระบบออกได้ครั้งละไม่เกิน 100 ใบ กรุณาแยกโปรเจกต์หรือออกทีละส่วน`,
       'warning',
     )
+    return
   }
 
-  const result = await Swal.fire({
-    title: 'ออกใบเสร็จทั้งหมด?',
-    html: `จะออกใบเสร็จให้ <b>${paymentIds.length}</b> รายการที่มีเงินเข้าแล้ว<br>
-           ใบที่เคยออกไปแล้วจะได้ <b>เลขเดิม</b> (ไม่กินเลขใหม่)`,
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ออกใบเสร็จ',
-    cancelButtonText: 'ยกเลิก',
-  })
+  const result = await dialog.confirm(
+    'ออกใบเสร็จทั้งหมด?',
+    `จะออกใบเสร็จให้ ${paymentIds.length} รายการที่มีเงินเข้าแล้ว · ใบที่เคยออกไปแล้วจะได้เลขเดิม (ไม่กินเลขใหม่)`,
+    { confirmButtonText: 'ออกใบเสร็จ' },
+  )
   if (!result.isConfirmed) return
 
   isIssuingBatch.value = true
-  Swal.fire({ title: 'กำลังออกใบเสร็จ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() })
+  void dialog.loading('กำลังออกใบเสร็จ...')
   try {
     const res = await FinanceService.issueReceiptsBatch(currentServerId, {
       payment_ids: paymentIds,
@@ -276,28 +257,25 @@ const handleIssueAllReceipts = async () => {
     //       ต้องไปกดโหลดทีละใบจากทะเบียน 40 ครั้ง (ซึ่งคือปัญหาที่งานนี้มาแก้)
     //    ⚠️ เพดาน 100 ฉบับบังคับที่ backend ⇒ เช็คก่อนไม่ให้เสนอปุ่มที่กดแล้วได้ 400
     const canDownload = nos.length > 0 && nos.length <= COMBINED_PDF_MAX
-    const after = await Swal.fire({
-      icon: 'success',
-      title: 'ออกใบเสร็จเรียบร้อย',
-      html:
-        `ออกใหม่ <b>${res.issued_count}</b> ใบ · ใช้เลขเดิม <b>${res.reused_count}</b> ใบ` +
-        (canDownload
-          ? `<br><br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">รวมเป็นไฟล์เดียวได้ ` +
-            `(${nos.length} หน้า — หน้าละบิล) เหมาะสำหรับพิมพ์แจก</span>`
-          : ''),
-      showCancelButton: canDownload,
-      confirmButtonText: 'ดาวน์โหลด PDF รวม',
-      cancelButtonText: 'ปิด',
-      confirmButtonColor: UI_COLOR.brand,
-      cancelButtonColor: UI_COLOR.neutral,
-    })
+    const summary = `ออกใหม่ ${res.issued_count} ใบ · ใช้เลขเดิม ${res.reused_count} ใบ`
+    const downloadHint = canDownload
+      ? ` · รวมเป็นไฟล์เดียวได้ (${nos.length} หน้า — หน้าละบิล) เหมาะสำหรับพิมพ์แจก`
+      : ''
+    const after = canDownload
+      ? await dialog.confirm('ออกใบเสร็จเรียบร้อย', summary + downloadHint, {
+          icon: 'success',
+          confirmButtonText: 'ดาวน์โหลด PDF รวม',
+          cancelButtonText: 'ปิด',
+        })
+      : await dialog.alert('ออกใบเสร็จเรียบร้อย', summary, 'success')
     if (canDownload && after.isConfirmed) await downloadCombined(nos)
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'ออกใบเสร็จไม่สำเร็จ',
-      text: error instanceof Error ? error.message : 'ไม่มีใบใดถูกออก (ยกเลิกทั้งชุด)',
-    })
+    dialog.close()
+    void dialog.alert(
+      'ออกใบเสร็จไม่สำเร็จ',
+      error instanceof Error ? error.message : 'ไม่มีใบใดถูกออก (ยกเลิกทั้งชุด)',
+      'error',
+    )
   } finally {
     isIssuingBatch.value = false
     // 🔄 โหลดใหม่ **หลัง** ออกเอกสารเสร็จ — ของเดิมลืมบรรทัดนี้ ทำให้ `issuableCount`
@@ -315,49 +293,44 @@ const handleIssueAllReceipts = async () => {
  */
 const downloadCombined = async (nos: string[]) => {
   if (nos.length > COMBINED_PDF_MAX) {
-    return Swal.fire(
+    void dialog.alert(
       'รวมไฟล์ไม่ได้ในครั้งเดียว',
       `มี ${nos.length} ใบ แต่รวมได้ครั้งละไม่เกิน ${COMBINED_PDF_MAX} ใบ ` +
         '— กรุณาดาวน์โหลดจากทะเบียนเอกสารโดยแบ่งเป็นรอบ',
       'warning',
     )
+    return
   }
-  Swal.fire({
-    title: 'กำลังสร้างไฟล์ PDF...',
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading(),
-  })
+  void dialog.loading('กำลังสร้างไฟล์ PDF...', 'ระบบกำลังรวมเอกสารเป็นไฟล์เดียว')
   try {
     const blob = await FinanceService.downloadCombinedPdf(currentServerId, nos)
     downloadBlob(blob, combinedPdfFilename(nos, 'receipts'))
-    Swal.close()
+    dialog.close()
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'สร้างไฟล์ PDF ไม่สำเร็จ',
-      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
-    })
+    dialog.close()
+    void dialog.alert(
+      'สร้างไฟล์ PDF ไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    )
   }
 }
 
 /** แจ้งผล + ทางไปดูเอกสาร — ใบที่เคยออกแล้วใช้ถ้อยคำต่างจากใบใหม่ (ไม่ใช่ error) */
-const showIssued = (receiptNo: string, reused: boolean, allowOpen: boolean) => {
-  void Swal.fire({
-    icon: reused ? 'info' : 'success',
-    title: reused ? 'ใบเสร็จนี้เคยออกแล้ว' : 'ออกใบเสร็จเรียบร้อย',
-    html: `เลขที่เอกสาร <b class="num">${escapeHtml(receiptNo)}</b>${
-      reused ? '<br>ระบบคืนใบเดิมให้ — เลขที่เอกสารไม่เปลี่ยน' : ''
-    }`,
-    showCancelButton: allowOpen,
-    confirmButtonText: allowOpen ? 'ดูเอกสาร' : 'ตกลง',
-    cancelButtonText: 'ปิด',
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-  }).then((r) => {
-    if (allowOpen && r.isConfirmed) {
-      router.push(`/finance/receipts/${receiptNo}`)
-    }
-  })
+const showIssued = async (receiptNo: string, reused: boolean, allowOpen: boolean) => {
+  const text = reused
+    ? `เลขที่เอกสาร ${receiptNo} · ระบบคืนใบเดิมให้ — เลขที่เอกสารไม่เปลี่ยน`
+    : `เลขที่เอกสาร ${receiptNo}`
+  const result = allowOpen
+    ? await dialog.confirm(reused ? 'ใบเสร็จนี้เคยออกแล้ว' : 'ออกใบเสร็จเรียบร้อย', text, {
+        icon: reused ? 'info' : 'success',
+        confirmButtonText: 'ดูเอกสาร',
+        cancelButtonText: 'ปิด',
+      })
+    : await dialog.alert(reused ? 'ใบเสร็จนี้เคยออกแล้ว' : 'ออกใบเสร็จเรียบร้อย', text, reused ? 'info' : 'success')
+  if (allowOpen && result.isConfirmed) {
+    await router.push(`/finance/receipts/${receiptNo}`)
+  }
 }
 
 onMounted(() => {
@@ -376,7 +349,7 @@ onMounted(() => {
           type="button"
           :class="
             isEditMode
-              ? 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-warn-300 bg-warn-50 px-4 py-2.5 text-sm font-bold text-warn-700 transition-colors active:scale-[0.97]'
+              ? 'inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-warn-300 bg-warn-50 px-4 py-2.5 text-sm font-bold text-warn-700 transition-colors active:scale-[0.97]'
               : 'btn-ghost-ui'
           "
           @click="isEditMode = !isEditMode"
@@ -390,16 +363,16 @@ onMounted(() => {
     <!-- ความคืบหน้าของแคมเปญ (การ์ดสรุปตัวเลข → padding มือถือหนึ่งขั้นที่แน่นกว่า) -->
     <div v-if="data" class="page-card p-3.5 sm:p-5">
       <div class="flex items-center justify-between gap-3">
-        <p class="min-w-0 truncate text-sm font-bold text-stone-500">
+        <p class="min-w-0 truncate text-sm font-bold text-ink-2">
           ความคืบหน้า (จ่ายแล้ว
           <span class="num">{{ data.summary.paid }}</span>
           จาก
           <span class="num">{{ data.summary.total }}</span>
           คน)
         </p>
-        <p class="num font-display shrink-0 text-lg font-bold text-ok-600">{{ progress }}%</p>
+        <p class="num shrink-0 text-lg font-bold text-ok-600">{{ progress }}%</p>
       </div>
-      <div class="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-stone-100">
+      <div class="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-canvas">
         <div
           class="h-full bg-ok-500 transition-all duration-1000"
           :style="{ width: `${progress}%` }"
@@ -425,9 +398,9 @@ onMounted(() => {
         v-if="canManageFinance && issuableCount > 0"
         class="page-card flex flex-col gap-2 p-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
       >
-        <p class="text-sm text-stone-500">
+        <p class="text-sm text-ink-3">
           มี
-          <span class="num font-bold text-stone-700">{{ issuableCount }}</span>
+          <span class="num font-bold text-ink-2">{{ issuableCount }}</span>
           รายการที่รับเงินแล้ว — ออกใบเสร็จได้
         </p>
         <button
@@ -456,15 +429,15 @@ onMounted(() => {
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-3">
               <div
-                class="num flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-stone-200 bg-stone-50 text-xs font-bold text-stone-500"
+                class="num flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-line bg-canvas text-xs font-bold text-ink-3"
               >
                 #{{ s.student_no }}
               </div>
               <div class="min-w-0">
-                <p class="truncate text-sm font-bold text-stone-900">{{ displayName(s) }}</p>
+                <p class="truncate text-sm font-bold text-ink">{{ displayName(s) }}</p>
                 <p
                   v-if="s.nickname || s.nickname_en"
-                  class="truncate text-xs italic text-stone-500"
+                  class="truncate text-xs italic text-ink-3"
                 >
                   ({{ s.nickname || s.nickname_en }})
                 </p>
@@ -477,7 +450,7 @@ onMounted(() => {
                 <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                 จ่ายครบแล้ว
               </span>
-              <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-500">
+              <small v-if="s.paid_at" class="num text-caption font-bold text-ink-3">
                 <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
               </small>
             </div>
@@ -486,7 +459,7 @@ onMounted(() => {
                 <i class="bi bi-hourglass-split" aria-hidden="true"></i>
                 ฿{{ formatNumber(s.paid_amount) }}
               </span>
-              <small class="num text-[10px] font-bold text-danger-600">
+              <small class="num text-caption font-bold text-danger-600">
                 ค้างอีก ฿{{ formatNumber(s.total_amount - s.paid_amount) }}
               </small>
             </div>
@@ -497,7 +470,7 @@ onMounted(() => {
           </div>
 
           <!-- ปุ่มจัดการ -->
-          <div class="mt-3 flex justify-end gap-2 border-t border-stone-100 pt-3">
+          <div class="mt-3 flex justify-end gap-2 border-t border-line pt-3">
             <template v-if="!isEditMode">
               <!-- 🧾 ออกใบเสร็จได้เมื่อ "มีเงินเข้าแล้ว" — บิลที่ยังไม่จ่าย backend ตอบ 400 -->
               <button
@@ -525,7 +498,7 @@ onMounted(() => {
               </button>
               <span
                 v-else-if="s.status === 'pending'"
-                class="chip bg-stone-100 text-stone-600"
+                class="chip bg-canvas text-ink-2"
               >
                 รอแอดมินรับยอด
               </span>
@@ -543,7 +516,7 @@ onMounted(() => {
               </button>
               <span
                 v-else
-                class="chip bg-stone-100 text-stone-600"
+                class="chip bg-canvas text-ink-2"
                 title="ลบไม่ได้ เพราะมีการจ่ายเงินแล้ว"
               >
                 <i class="bi bi-lock-fill" aria-hidden="true"></i>
@@ -569,10 +542,10 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-for="s in data.students" :key="s.payment_id">
-                <td class="num font-bold text-stone-500">#{{ s.student_no }}</td>
+                <td class="num font-bold text-ink-3">#{{ s.student_no }}</td>
                 <td>
-                  <p class="font-bold text-stone-900">{{ displayName(s) }}</p>
-                  <p v-if="s.nickname || s.nickname_en" class="text-xs italic text-stone-500">
+                  <p class="font-bold text-ink">{{ displayName(s) }}</p>
+                  <p v-if="s.nickname || s.nickname_en" class="text-xs italic text-ink-3">
                     ({{ s.nickname || s.nickname_en }})
                   </p>
                 </td>
@@ -582,7 +555,7 @@ onMounted(() => {
                       <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                       จ่ายครบแล้ว
                     </span>
-                    <small v-if="s.paid_at" class="num text-[10px] font-bold text-stone-500">
+                    <small v-if="s.paid_at" class="num text-caption font-bold text-ink-3">
                       <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
                     </small>
                   </div>
@@ -591,7 +564,7 @@ onMounted(() => {
                       <i class="bi bi-hourglass-split" aria-hidden="true"></i>
                       ทยอยจ่ายแล้ว ฿{{ formatNumber(s.paid_amount) }}
                     </span>
-                    <small class="num text-[10px] font-bold text-danger-600">
+                    <small class="num text-caption font-bold text-danger-600">
                       (ค้างอีก ฿{{ formatNumber(s.total_amount - s.paid_amount) }})
                     </small>
                   </div>
@@ -631,7 +604,7 @@ onMounted(() => {
                       </button>
                       <span
                         v-else-if="s.status === 'pending'"
-                        class="chip bg-stone-100 text-stone-600"
+                        class="chip bg-canvas text-ink-2"
                       >
                         รอแอดมินรับยอด
                       </span>
@@ -640,7 +613,7 @@ onMounted(() => {
                       <button
                         v-if="s.paid_amount === 0"
                         type="button"
-                        class="flex h-11 w-11 items-center justify-center rounded-xl border border-danger-200 bg-white text-danger-600 transition-colors hover:bg-danger-50 active:scale-[0.97]"
+                        class="flex h-11 w-11 items-center justify-center rounded-control border border-danger-200 bg-surface text-danger-600 transition-colors hover:bg-danger-50 active:scale-[0.97]"
                         title="ลบออกจากแคมเปญ"
                         @click="handleRemoveStudent(s)"
                       >
@@ -648,7 +621,7 @@ onMounted(() => {
                       </button>
                       <span
                         v-else
-                        class="chip bg-stone-100 text-stone-600"
+                        class="chip bg-canvas text-ink-2"
                         title="ลบไม่ได้ เพราะมีการจ่ายเงินแล้ว"
                       >
                         <i class="bi bi-lock-fill" aria-hidden="true"></i>
@@ -663,13 +636,66 @@ onMounted(() => {
         </div>
       </div>
     </template>
+
+    <!-- ══════════════════════ แผ่น: รับเงิน ══════════════════════ -->
+    <AppSheet
+      :open="isPayOpen && !!payTarget"
+      label="รับเงิน"
+      :title="payTarget ? `รับเงิน: ${displayName(payTarget)}` : 'รับเงิน'"
+      :description="
+        payTarget
+          ? `ยอดคงเหลือ ฿${formatNumber(payTarget.total_amount - payTarget.paid_amount)}`
+          : undefined
+      "
+      size="form"
+      :dismissible="!isPaying"
+      @close="isPayOpen = false"
+    >
+      <div class="space-y-3">
+        <div>
+          <label class="field-label" for="pay-account">รับเงินเข้าบัญชีห้อง</label>
+          <select id="pay-account" v-model="payForm.accountId" class="field">
+            <option v-for="acc in accounts" :key="acc.id" :value="acc.id.toString()">
+              {{ acc.account_name }}
+            </option>
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label" for="pay-amount">จำนวนเงินที่จ่าย (฿)</label>
+          <input
+            id="pay-amount"
+            v-model="payForm.amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            inputmode="decimal"
+            class="field num"
+            placeholder="0.00"
+          />
+        </div>
+
+        <div>
+          <label class="field-label" for="pay-slip">URL รูปสลิป (ถ้ามี)</label>
+          <input
+            id="pay-slip"
+            v-model="payForm.slipUrl"
+            type="url"
+            class="field"
+            placeholder="https://..."
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" class="btn-ghost-ui" @click="isPayOpen = false">ยกเลิก</button>
+          <button type="button" class="btn-primary" :disabled="isPaying" @click="submitPayment">
+            <i class="bi bi-wallet2" aria-hidden="true"></i>
+            ยืนยันการรับเงิน
+          </button>
+        </div>
+      </template>
+    </AppSheet>
   </div>
 </template>
-
-<style scoped>
-/* Swal popup ถูก render นอก scope ของ Vue — เก็บไว้เฉพาะฟอนต์ไทยของ input */
-.swal2-input {
-  border-radius: 1rem !important;
-  font-family: 'Noto Sans Thai', sans-serif !important;
-}
-</style>

@@ -36,7 +36,7 @@ const activeTab = computed(() => route.meta.navTab ?? null);
         :aria-current="activeTab === tab.key ? 'page' : undefined"
       >
         <i :class="['bi', tab.icon, 'text-lg']" aria-hidden="true"></i>
-        <span class="w-full truncate text-center text-[10px] leading-tight">{{ tab.name }}</span>
+        <span class="w-full truncate text-center text-xs leading-tight">{{ tab.name }}</span>
       </RouterLink>
     </div>
   </nav>

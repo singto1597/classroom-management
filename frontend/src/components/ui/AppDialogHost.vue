@@ -29,6 +29,8 @@ const isDanger = computed(
   () => Boolean(dialog.options?.danger) || dialog.options?.icon === 'error',
 )
 const inputKind = computed(() => dialog.options?.input)
+const isLoading = computed(() => Boolean(dialog.options?.loading))
+const dismissible = computed(() => !dialog.isBusy && !isLoading.value)
 
 let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -63,11 +65,19 @@ onBeforeUnmount(() => {
     :label="dialog.options?.title || dialog.options?.text || 'ข้อความจากระบบ'"
     :title="dialog.options?.title"
     :description="dialog.options?.text"
-    :dismissible="!dialog.isBusy"
+    :dismissible="dismissible"
     :position="dialog.options?.position ?? 'responsive'"
     size="dialog"
     @close="dialog.dismiss()"
   >
+    <div v-if="isLoading" class="flex items-center justify-center gap-3 py-3" role="status">
+      <span
+        class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-line border-t-brand"
+        aria-hidden="true"
+      ></span>
+      <span class="text-sm font-semibold text-ink-2">กำลังดำเนินการ…</span>
+    </div>
+
     <div v-if="icon || inputKind" class="space-y-4">
       <div v-if="icon" class="flex justify-center py-1">
         <i :class="['bi', icon.name, 'text-4xl', icon.cls]" aria-hidden="true"></i>
@@ -100,7 +110,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <template #footer>
+    <template v-if="!isLoading" #footer>
       <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button
           v-if="showCancel"

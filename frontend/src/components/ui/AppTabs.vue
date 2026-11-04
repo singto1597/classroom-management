@@ -69,9 +69,9 @@ const onKeydown = (event: KeyboardEvent) => {
 <template>
   <div
     v-if="variant === 'segmented'"
-    class="inline-flex max-w-full flex-wrap items-center gap-1 rounded-control border border-line bg-surface p-1"
+    class="flex w-full items-center gap-1 rounded-control border border-line bg-surface p-1"
   >
-    <div class="flex items-center gap-1" role="tablist" :aria-label="groupLabel" @keydown="onKeydown">
+    <div class="flex w-full items-center gap-1" role="tablist" :aria-label="groupLabel" @keydown="onKeydown">
       <button
         v-for="tab in tabs"
         :key="tab.value"
@@ -80,7 +80,7 @@ const onKeydown = (event: KeyboardEvent) => {
         :data-value="tab.value"
         :aria-selected="modelValue === tab.value"
         :tabindex="modelValue === tab.value ? 0 : -1"
-        class="flex min-h-11 items-center justify-center gap-1.5 rounded-[9px] px-3 py-2 text-sm font-semibold transition-colors"
+        class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-[9px] px-3 py-2 text-sm font-semibold transition-colors"
         :class="
           modelValue === tab.value
             ? 'bg-brand text-white'
@@ -91,8 +91,8 @@ const onKeydown = (event: KeyboardEvent) => {
         {{ tab.label }}
         <span
           v-if="tab.count !== undefined"
-          class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
-          :class="modelValue === tab.value ? 'bg-white/20 text-white' : 'bg-canvas text-ink-3'"
+          class="num rounded-full px-1.5 py-0.5 text-xs font-bold"
+          :class="modelValue === tab.value ? 'bg-surface/20 text-white' : 'bg-canvas text-ink-3'"
         >
           {{ tab.count }}
         </span>
@@ -127,7 +127,7 @@ const onKeydown = (event: KeyboardEvent) => {
         {{ tab.label }}
         <span
           v-if="tab.count !== undefined"
-          class="num rounded-full px-1.5 py-0.5 text-[11px] font-bold"
+          class="num rounded-full px-1.5 py-0.5 text-xs font-bold"
           :class="modelValue === tab.value ? 'bg-brand-tint text-brand' : 'bg-canvas text-ink-3'"
         >
           {{ tab.count }}

@@ -1,17 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth'; // เพิ่ม import authStore
 import { FinanceService } from '@/services/finance';
 import type { Account, AccountKind, Category } from '@/types/finance';
-import { escapeAttr } from '@/utils/html';
-import Swal from 'sweetalert2';
 
 import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
+import AppSheet from '@/components/ui/AppSheet.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog';
 
 const authStore = useAuthStore();
 
@@ -74,319 +73,214 @@ const ACCOUNT_KIND_LABELS: Record<AccountKind, string> = {
   transfer: 'โอนเข้าบัญชี'
 };
 
-// 🔒 `escapeAttr` ย้ายไปอยู่ที่ `@/utils/html` แทนสำเนาในไฟล์นี้ (พฤติกรรมเดิมทุกประการ)
-//    ใช้กับชื่อกระเป๋า/ชื่อบัญชีที่เป็น **ข้อความที่ผู้ใช้พิมพ์เอง** ก่อน interpolate
-//    ลง `value="…"` ใน `html:` ของ Swal — ไม่งั้นเครื่องหมายคำพูดตัวเดียวในชื่อ
-//    (เช่น `กระเป๋า "ห้อง 1"`) จะหลุดออกจาก attribute แล้วกลายเป็นมาร์กอัป
+const dialog = useDialog();
 
-/**
- * 🧩 HTML ของฟอร์ม "ช่องทางจ่าย" ที่ใช้ทั้งตอนเพิ่มและตอนแก้ไข
- *
- * ช่องธนาคารซ่อนไว้จนกว่าจะเลือก "โอนเข้าบัญชี" — แสดงตลอดเวลาจะทำให้คนที่ใช้เงินสด
- * ต้องอ่านช่องที่ไม่เกี่ยวกับตัวเอง 3 ช่องทุกครั้งที่เปิดฟอร์ม
- */
-const channelFieldsHtml = (
-  kind: AccountKind,
-  bank: { bank_name?: string | null; bank_account_no?: string | null; bank_account_name?: string | null } = {}
-): string => `
-  <select id="swal-account-kind" class="swal2-select">
-    <option value="cash"${kind === 'cash' ? ' selected' : ''}>เงินสด</option>
-    <option value="transfer"${kind === 'transfer' ? ' selected' : ''}>โอนเข้าบัญชี</option>
-  </select>
-  <div id="swal-bank-fields" style="${kind === 'transfer' ? '' : 'display:none'}">
-    <input id="swal-bank-name" class="swal2-input" placeholder="ธนาคาร (เช่น ธ.ไทยพาณิชย์)" value="${escapeAttr(bank.bank_name)}">
-    <input id="swal-bank-no" class="swal2-input" placeholder="เลขที่บัญชี" value="${escapeAttr(bank.bank_account_no)}">
-    <input id="swal-bank-owner" class="swal2-input" placeholder="ชื่อเจ้าของบัญชี" value="${escapeAttr(bank.bank_account_name)}">
-  </div>
-`;
+/** 🔒 กันทุกฟังก์ชันที่แตะข้อมูล — ข้อความเดียว ไม่ต้องเขียนซ้ำ 8 ที่ */
+const ensureAdmin = (): boolean => {
+  if (isAdmin.value) return true;
+  void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error');
+  return false;
+};
 
-/** 🪄 ผูก event ให้ select ที่เพิ่งถูกยัดลง DOM — ต้องทำหลัง `didOpen` เท่านั้น */
-const wireChannelToggle = () => {
-  const select = document.getElementById('swal-account-kind') as HTMLSelectElement | null;
-  const box = document.getElementById('swal-bank-fields') as HTMLElement | null;
-  if (!select || !box) return;
-  select.addEventListener('change', () => {
-    box.style.display = select.value === 'transfer' ? '' : 'none';
+// --- 📝 ฟอร์มกระเป๋าเงิน (AppSheet) — ไม่ต้องประกอบ HTML สตริงอีก ---
+interface AccountForm {
+  account_name: string;
+  initial_balance: string;
+  account_kind: AccountKind;
+  bank_name: string;
+  bank_account_no: string;
+  bank_account_name: string;
+}
+
+const accountSheetOpen = ref(false);
+const editingAccount = ref<Account | null>(null);
+const isSavingAccount = ref(false);
+const accountForm = reactive<AccountForm>({
+  account_name: '',
+  initial_balance: '0',
+  account_kind: 'cash',
+  bank_name: '',
+  bank_account_no: '',
+  bank_account_name: ''
+});
+
+const resetAccountForm = () => {
+  Object.assign(accountForm, {
+    account_name: '',
+    initial_balance: '0',
+    account_kind: 'cash' as AccountKind,
+    bank_name: '',
+    bank_account_no: '',
+    bank_account_name: ''
   });
 };
 
-/** 📥 อ่าน 4 ช่องนี้ออกจาก DOM (ป้าย/ชื่อธนาคารว่าง → `null` ไม่ใช่สตริงว่าง) */
-const readChannelFields = () => {
-  const value = (id: string) =>
-    ((document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null)?.value ?? '').trim();
-  const kind = (value('swal-account-kind') || 'cash') as AccountKind;
-  const bankName = value('swal-bank-name');
-  const bankNo = value('swal-bank-no');
-  const bankOwner = value('swal-bank-owner');
-  return {
-    account_kind: kind,
-    bank_name: bankName || null,
-    bank_account_no: bankNo || null,
-    bank_account_name: bankOwner || null
-  };
+const handleAddAccount = () => {
+  if (!ensureAdmin()) return;
+  editingAccount.value = null;
+  resetAccountForm();
+  accountSheetOpen.value = true;
 };
 
-const handleAddAccount = async () => {
-  if (!isAdmin.value)
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: UI_COLOR.brand
-    });
-
-  const { value: formValues } = await Swal.fire({
-    title: 'เพิ่มกระเป๋าเงินใหม่',
-    html:
-      '<input id="swal-input1" class="swal2-input" placeholder="ชื่อกระเป๋าเงิน (เช่น เงินสด, ธนาคาร)">' +
-      '<input id="swal-input2" type="number" class="swal2-input" placeholder="เงินตั้งต้น (฿)" value="0">' +
-      channelFieldsHtml('cash'),
-    focusConfirm: false,
-    showCancelButton: true,
-    confirmButtonText: 'บันทึกข้อมูล',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-    didOpen: wireChannelToggle,
-    preConfirm: () => {
-      const name = (document.getElementById('swal-input1') as HTMLInputElement).value;
-      const balance = (document.getElementById('swal-input2') as HTMLInputElement).value;
-      if (!name) {
-        Swal.showValidationMessage('กรุณากรอกชื่อกระเป๋าเงิน');
-        return false;
-      }
-      return { account_name: name, initial_balance: parseFloat(balance), ...readChannelFields() };
-    }
+const handleEditAccount = (account: Account) => {
+  if (!ensureAdmin()) return;
+  editingAccount.value = account;
+  Object.assign(accountForm, {
+    account_name: account.account_name,
+    initial_balance: '0',
+    account_kind: account.account_kind ?? 'cash',
+    bank_name: account.bank_name ?? '',
+    bank_account_no: account.bank_account_no ?? '',
+    bank_account_name: account.bank_account_name ?? ''
   });
+  accountSheetOpen.value = true;
+};
 
-  if (formValues) {
-    try {
-      await FinanceService.createAccount(currentServerId, { ...formValues, user_name: currentUserName });
-      Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
-      fetchSettingsData();
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'เพิ่มกระเป๋าเงินไม่สำเร็จ',
-        confirmButtonColor: UI_COLOR.brand
-      });
-    }
+const saveAccount = async () => {
+  const name = accountForm.account_name.trim();
+  if (!name) {
+    void dialog.alert('กรอกข้อมูลไม่ครบ', 'กรุณากรอกชื่อกระเป๋าเงิน', 'warning');
+    return;
   }
-};
-
-const handleEditAccount = async (account: Account) => {
-  if (!isAdmin.value)
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: UI_COLOR.brand
-    });
-
-  const { value: formValues } = await Swal.fire({
-    title: 'แก้ไขกระเป๋าเงิน',
-    // 🏦 [F6] ฟอร์มนี้แก้ได้ทั้งชื่อและ "ช่องทางจ่าย" — ใบสำคัญจ่ายดึงช่องทางไปพิมพ์
-    //    ⇒ ตั้งครั้งเดียวที่นี่แล้วเอกสารทุกใบหลังจากนั้นใช้ค่านี้
-    html:
-      `<input id="swal-input1" class="swal2-input" placeholder="ชื่อกระเป๋าเงิน" value="${escapeAttr(account.account_name)}">` +
-      channelFieldsHtml(account.account_kind ?? 'cash', account),
-    showCancelButton: true,
-    confirmButtonText: 'บันทึก',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-    didOpen: wireChannelToggle,
-    preConfirm: () => {
-      const name = (document.getElementById('swal-input1') as HTMLInputElement).value.trim();
-      if (!name) {
-        Swal.showValidationMessage('กรุณากรอกชื่อกระเป๋าเงิน');
-        return false;
-      }
-      return { account_name: name, ...readChannelFields() };
-    }
-  });
-
-  if (formValues) {
-    try {
-      await FinanceService.updateAccount(currentServerId, account.id, {
-        ...formValues,
+  // ชื่อธนาคาร/เลขบัญชีว่าง → `null` ไม่ใช่สตริงว่าง (backend แยกสองอย่างนี้)
+  const channel = {
+    account_kind: accountForm.account_kind,
+    bank_name: accountForm.bank_name.trim() || null,
+    bank_account_no: accountForm.bank_account_no.trim() || null,
+    bank_account_name: accountForm.bank_account_name.trim() || null
+  };
+  isSavingAccount.value = true;
+  try {
+    if (editingAccount.value) {
+      await FinanceService.updateAccount(currentServerId, editingAccount.value.id, {
+        account_name: name,
+        ...channel,
         user_name: currentUserName
       });
-      Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
-      fetchSettingsData();
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'แก้ไขกระเป๋าเงินไม่สำเร็จ',
-        confirmButtonColor: UI_COLOR.brand
+      dialog.notify('แก้ไขกระเป๋าเงินแล้ว');
+    } else {
+      await FinanceService.createAccount(currentServerId, {
+        account_name: name,
+        initial_balance: Number.parseFloat(accountForm.initial_balance) || 0,
+        ...channel,
+        user_name: currentUserName
       });
+      dialog.notify('เพิ่มกระเป๋าเงินแล้ว');
     }
+    accountSheetOpen.value = false;
+    await fetchSettingsData();
+  } catch (error: unknown) {
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'บันทึกกระเป๋าเงินไม่สำเร็จ',
+      'error'
+    );
+  } finally {
+    isSavingAccount.value = false;
   }
 };
 
 const handleDeleteAccount = async (id: number) => {
-  if (!isAdmin.value)
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: UI_COLOR.brand
-    });
+  if (!ensureAdmin()) return;
 
-  const result = await Swal.fire({
-    title: 'ยืนยันการลบ?',
-    text: 'หากลบแล้วข้อมูลประวัติที่เกี่ยวข้องอาจได้รับผลกระทบ',
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ลบทันที',
-    cancelButtonText: 'ยกเลิก'
-  });
+  const result = await dialog.confirm(
+    'ยืนยันการลบ?',
+    'หากลบแล้วข้อมูลประวัติที่เกี่ยวข้องอาจได้รับผลกระทบ',
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบทันที' }
+  );
+  if (!result.isConfirmed) return;
 
-  if (result.isConfirmed) {
-    try {
-      await FinanceService.deleteAccount(currentServerId, id);
-      Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
-      fetchSettingsData();
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'ลบกระเป๋าเงินไม่สำเร็จ',
-        confirmButtonColor: UI_COLOR.brand
-      });
-    }
+  try {
+    await FinanceService.deleteAccount(currentServerId, id);
+    dialog.notify('ลบกระเป๋าเงินแล้ว');
+    await fetchSettingsData();
+  } catch (error: unknown) {
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'ลบกระเป๋าเงินไม่สำเร็จ',
+      'error'
+    );
   }
 };
 
 // --- Category Actions ---
 
-const handleAddCategory = async () => {
-  if (!isAdmin.value)
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: UI_COLOR.brand
-    });
+const categorySheetOpen = ref(false);
+const editingCategory = ref<Category | null>(null);
+const isSavingCategory = ref(false);
+const categoryForm = reactive<{ category_name: string; category_type: 'income' | 'expense' }>({
+  category_name: '',
+  category_type: 'income'
+});
 
-  const { value: formValues } = await Swal.fire({
-    title: 'เพิ่มหมวดหมู่ใหม่',
-    html:
-      '<select id="swal-type" class="swal2-input">' +
-      '<option value="income">🟢 รายรับ</option>' +
-      '<option value="expense">🔴 รายจ่าย</option>' +
-      '</select>' +
-      '<input id="swal-name" class="swal2-input" placeholder="ชื่อหมวดหมู่ (เช่น ค่าอุปกรณ์, ค่าพาน)">',
-    focusConfirm: false,
-    showCancelButton: true,
-    confirmButtonText: 'เพิ่มหมวดหมู่',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-    preConfirm: () => {
-      const type = (document.getElementById('swal-type') as HTMLSelectElement).value as 'income' | 'expense';
-      const name = (document.getElementById('swal-name') as HTMLInputElement).value;
-      if (!name) {
-        Swal.showValidationMessage('กรุณากรอกชื่อหมวดหมู่');
-        return false;
-      }
-      return { category_name: name, category_type: type };
-    }
-  });
-
-  if (formValues) {
-    try {
-      await FinanceService.createCategory(currentServerId, { ...formValues, user_name: currentUserName });
-      Swal.fire({ icon: 'success', title: 'เพิ่มสำเร็จ!', timer: 1500, showConfirmButton: false });
-      fetchSettingsData();
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'เพิ่มหมวดหมู่ไม่สำเร็จ',
-        confirmButtonColor: UI_COLOR.brand
-      });
-    }
-  }
+const handleAddCategory = () => {
+  if (!ensureAdmin()) return;
+  editingCategory.value = null;
+  categoryForm.category_name = '';
+  categoryForm.category_type = 'income';
+  categorySheetOpen.value = true;
 };
 
-const handleEditCategory = async (category: Category) => {
-  if (!isAdmin.value)
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: UI_COLOR.brand
-    });
+const handleEditCategory = (category: Category) => {
+  if (!ensureAdmin()) return;
+  editingCategory.value = category;
+  categoryForm.category_name = category.category_name;
+  categoryForm.category_type = category.category_type;
+  categorySheetOpen.value = true;
+};
 
-  const { value: name } = await Swal.fire({
-    title: 'แก้ไขชื่อหมวดหมู่',
-    input: 'text',
-    inputValue: category.category_name,
-    showCancelButton: true,
-    confirmButtonText: 'บันทึก',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-    inputValidator: (value) => {
-      if (!value) return 'กรุณากรอกชื่อหมวดหมู่';
-      return null;
-    }
-  });
-
-  if (name) {
-    try {
-      await FinanceService.updateCategory(currentServerId, category.id, name, currentUserName);
-      Swal.fire({ icon: 'success', title: 'แก้ไขสำเร็จ!', timer: 1500, showConfirmButton: false });
-      fetchSettingsData();
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'แก้ไขหมวดหมู่ไม่สำเร็จ',
-        confirmButtonColor: UI_COLOR.brand
+const saveCategory = async () => {
+  const name = categoryForm.category_name.trim();
+  if (!name) {
+    void dialog.alert('กรอกข้อมูลไม่ครบ', 'กรุณากรอกชื่อหมวดหมู่', 'warning');
+    return;
+  }
+  isSavingCategory.value = true;
+  try {
+    if (editingCategory.value) {
+      await FinanceService.updateCategory(currentServerId, editingCategory.value.id, name, currentUserName);
+      dialog.notify('แก้ไขหมวดหมู่แล้ว');
+    } else {
+      await FinanceService.createCategory(currentServerId, {
+        category_name: name,
+        category_type: categoryForm.category_type,
+        user_name: currentUserName
       });
+      dialog.notify('เพิ่มหมวดหมู่แล้ว');
     }
+    categorySheetOpen.value = false;
+    await fetchSettingsData();
+  } catch (error: unknown) {
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'บันทึกหมวดหมู่ไม่สำเร็จ',
+      'error'
+    );
+  } finally {
+    isSavingCategory.value = false;
   }
 };
 
 const handleDeleteCategory = async (id: number) => {
-  if (!isAdmin.value)
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะแอดมินเท่านั้น',
-      confirmButtonColor: UI_COLOR.brand
-    });
+  if (!ensureAdmin()) return;
 
-  const result = await Swal.fire({
-    title: 'ลบหมวดหมู่?',
-    text: 'การลบหมวดหมู่อาจส่งผลต่อการจัดกลุ่มรายงาน',
+  const result = await dialog.confirm('ลบหมวดหมู่?', 'การลบหมวดหมู่อาจส่งผลต่อการจัดกลุ่มรายงาน', {
     icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ลบทันที',
-    cancelButtonText: 'ยกเลิก'
+    danger: true,
+    confirmButtonText: 'ลบทันที'
   });
+  if (!result.isConfirmed) return;
 
-  if (result.isConfirmed) {
-    try {
-      await FinanceService.deleteCategory(currentServerId, id);
-      Swal.fire({ icon: 'success', title: 'ลบสำเร็จ!', timer: 1500, showConfirmButton: false });
-      fetchSettingsData();
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'เกิดข้อผิดพลาด',
-        text: error instanceof Error ? error.message : 'ลบหมวดหมู่ไม่สำเร็จ',
-        confirmButtonColor: UI_COLOR.brand
-      });
-    }
+  try {
+    await FinanceService.deleteCategory(currentServerId, id);
+    dialog.notify('ลบหมวดหมู่แล้ว');
+    await fetchSettingsData();
+  } catch (error: unknown) {
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'ลบหมวดหมู่ไม่สำเร็จ',
+      'error'
+    );
   }
 };
 
@@ -418,7 +312,7 @@ const formatNumber = (num: number) => {
       <!-- กระเป๋าเงินห้อง -->
       <div class="page-card h-fit overflow-hidden">
         <div
-          class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5"
+          class="flex items-center justify-between gap-3 border-b border-line bg-canvas px-4 py-3 sm:px-5"
         >
           <h2 class="section-title flex min-w-0 items-center gap-2">
             <i class="bi bi-wallet2 text-brand-700" aria-hidden="true"></i>
@@ -442,18 +336,18 @@ const formatNumber = (num: number) => {
             <div
               v-for="acc in accounts"
               :key="acc.id"
-              class="group flex items-center justify-between gap-3 rounded-xl border border-stone-200 p-3 transition-colors hover:border-stone-300"
+              class="group flex items-center justify-between gap-3 rounded-control border border-line p-3 transition-colors hover:border-ink-3/30"
             >
               <div class="min-w-0">
-                <p class="truncate font-bold text-stone-900">{{ acc.account_name }}</p>
-                <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-stone-500">
+                <p class="truncate font-bold text-ink-1">{{ acc.account_name }}</p>
+                <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-ink-3">
                   <span>
                     คงเหลือ
                     <span class="num font-bold text-brand-700">฿ {{ formatNumber(acc.balance) }}</span>
                   </span>
                   <!-- 🏦 ช่องทางจ่ายที่ใบสำคัญจ่ายจะพิมพ์ — แสดงเสมอแม้ไม่ได้ตั้งค่า
                        ไม่งั้นผู้ใช้ไม่มีทางรู้ว่ายัง "ไม่ได้ตั้ง" (ช่องว่างอ่านได้สองความหมาย) -->
-                  <span class="chip bg-stone-100 text-stone-600">
+                  <span class="chip bg-canvas text-ink-2">
                     <i
                       class="bi"
                       :class="(acc.account_kind ?? 'cash') === 'transfer' ? 'bi-bank' : 'bi-cash'"
@@ -472,7 +366,7 @@ const formatNumber = (num: number) => {
                 class="flex shrink-0 items-center gap-1 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:focus-within:opacity-100"
               >
                 <button
-                  class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                  class="flex h-11 w-11 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-canvas hover:text-brand-700"
                   title="แก้ไข"
                   aria-label="แก้ไขกระเป๋าเงิน"
                   @click="handleEditAccount(acc)"
@@ -493,7 +387,7 @@ const formatNumber = (num: number) => {
       <!-- หมวดหมู่รายการ -->
       <div class="page-card h-fit overflow-hidden">
         <div
-          class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5"
+          class="flex items-center justify-between gap-3 border-b border-line bg-canvas px-4 py-3 sm:px-5"
         >
           <h2 class="section-title flex min-w-0 items-center gap-2">
             <i class="bi bi-tags text-brand-700" aria-hidden="true"></i>
@@ -508,12 +402,12 @@ const formatNumber = (num: number) => {
         <div class="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:gap-4 sm:p-5">
           <!-- รายรับ -->
           <div class="min-w-0">
-            <div class="mb-3 flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
+            <div class="mb-3 flex items-center justify-between gap-2 border-b border-line pb-2">
               <span class="chip bg-ok-50 text-ok-700">
                 <i class="bi bi-arrow-down-left" aria-hidden="true"></i>
                 รายรับ
               </span>
-              <span class="num text-xs font-bold text-stone-500">{{ incomeCategories.length }}</span>
+              <span class="num text-xs font-bold text-ink-3">{{ incomeCategories.length }}</span>
             </div>
 
             <StateBlock
@@ -528,12 +422,12 @@ const formatNumber = (num: number) => {
               <div
                 v-for="cat in incomeCategories"
                 :key="cat.id"
-                class="group flex items-center justify-between gap-2 rounded-xl border border-stone-200 px-3 py-1.5"
+                class="group flex items-center justify-between gap-2 rounded-control border border-line px-3 py-1.5"
               >
-                <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
+                <span class="truncate text-sm font-bold text-ink-1">{{ cat.category_name }}</span>
                 <div v-if="isAdmin" class="flex shrink-0 items-center gap-1">
                   <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    class="flex h-11 w-11 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-canvas hover:text-brand-700"
                     title="แก้ไข"
                     aria-label="แก้ไขหมวดหมู่"
                     @click.stop="handleEditCategory(cat)"
@@ -552,12 +446,12 @@ const formatNumber = (num: number) => {
 
           <!-- รายจ่าย -->
           <div class="min-w-0">
-            <div class="mb-3 flex items-center justify-between gap-2 border-b border-stone-100 pb-2">
+            <div class="mb-3 flex items-center justify-between gap-2 border-b border-line pb-2">
               <span class="chip bg-danger-50 text-danger-700">
                 <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
                 รายจ่าย
               </span>
-              <span class="num text-xs font-bold text-stone-500">{{ expenseCategories.length }}</span>
+              <span class="num text-xs font-bold text-ink-3">{{ expenseCategories.length }}</span>
             </div>
 
             <StateBlock
@@ -572,12 +466,12 @@ const formatNumber = (num: number) => {
               <div
                 v-for="cat in expenseCategories"
                 :key="cat.id"
-                class="group flex items-center justify-between gap-2 rounded-xl border border-stone-200 px-3 py-1.5"
+                class="group flex items-center justify-between gap-2 rounded-control border border-line px-3 py-1.5"
               >
-                <span class="truncate text-sm font-bold text-stone-700">{{ cat.category_name }}</span>
+                <span class="truncate text-sm font-bold text-ink-1">{{ cat.category_name }}</span>
                 <div v-if="isAdmin" class="flex shrink-0 items-center gap-1">
                   <button
-                    class="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-brand-700"
+                    class="flex h-11 w-11 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-canvas hover:text-brand-700"
                     title="แก้ไข"
                     aria-label="แก้ไขหมวดหมู่"
                     @click.stop="handleEditCategory(cat)"
@@ -596,5 +490,166 @@ const formatNumber = (num: number) => {
         </div>
       </div>
     </div>
+
+    <!-- 🏦 ฟอร์มกระเป๋าเงิน — AppSheet แทน `Swal.fire({ html })` -->
+    <AppSheet
+      :open="accountSheetOpen"
+      :label="editingAccount ? 'แก้ไขกระเป๋าเงิน' : 'เพิ่มกระเป๋าเงินใหม่'"
+      :title="editingAccount ? 'แก้ไขกระเป๋าเงิน' : 'เพิ่มกระเป๋าเงินใหม่'"
+      size="form"
+      :dismissible="!isSavingAccount"
+      @close="accountSheetOpen = false"
+    >
+      <div class="space-y-4">
+        <div>
+          <label class="field-label" for="accountName">
+            ชื่อกระเป๋าเงิน <span class="text-danger-600">*</span>
+          </label>
+          <input
+            id="accountName"
+            v-model="accountForm.account_name"
+            type="text"
+            class="field"
+            placeholder="เช่น เงินสด, ธนาคาร"
+          />
+        </div>
+
+        <div v-if="!editingAccount">
+          <label class="field-label" for="accountBalance">เงินตั้งต้น (฿)</label>
+          <input
+            id="accountBalance"
+            v-model="accountForm.initial_balance"
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            class="field num"
+          />
+        </div>
+
+        <div>
+          <label class="field-label" for="accountKind">ช่องทางจ่าย</label>
+          <select id="accountKind" v-model="accountForm.account_kind" class="field">
+            <option value="cash">เงินสด</option>
+            <option value="transfer">โอนเข้าบัญชี</option>
+          </select>
+          <p class="mt-1 text-xs leading-relaxed text-ink-3">
+            ช่องทางนี้จะถูกพิมพ์ในใบสำคัญจ่ายโดยอัตโนมัติ
+          </p>
+        </div>
+
+        <div
+          v-if="accountForm.account_kind === 'transfer'"
+          class="space-y-3 rounded-control border border-line bg-canvas p-3"
+        >
+          <div>
+            <label class="field-label" for="accountBank">ธนาคาร</label>
+            <input
+              id="accountBank"
+              v-model="accountForm.bank_name"
+              type="text"
+              class="field"
+              placeholder="เช่น ธ.ไทยพาณิชย์"
+            />
+          </div>
+          <div>
+            <label class="field-label" for="accountNo">เลขที่บัญชี</label>
+            <input
+              id="accountNo"
+              v-model="accountForm.bank_account_no"
+              type="text"
+              inputmode="numeric"
+              class="field num"
+              placeholder="เช่น 123-4-56789-0"
+            />
+          </div>
+          <div>
+            <label class="field-label" for="accountOwner">ชื่อเจ้าของบัญชี</label>
+            <input
+              id="accountOwner"
+              v-model="accountForm.bank_account_name"
+              type="text"
+              class="field"
+              placeholder="ชื่อ-นามสกุลเจ้าของบัญชี"
+            />
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            class="btn-ghost-ui"
+            :disabled="isSavingAccount"
+            @click="accountSheetOpen = false"
+          >
+            ยกเลิก
+          </button>
+          <button type="button" class="btn-primary" :disabled="isSavingAccount" @click="saveAccount">
+            <span
+              v-if="isSavingAccount"
+              class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              aria-hidden="true"
+            ></span>
+            <template v-else><i class="bi bi-check-lg" aria-hidden="true"></i> บันทึกข้อมูล</template>
+          </button>
+        </div>
+      </template>
+    </AppSheet>
+
+    <!-- 🏷️ ฟอร์มหมวดหมู่ — AppSheet -->
+    <AppSheet
+      :open="categorySheetOpen"
+      :label="editingCategory ? 'แก้ไขหมวดหมู่' : 'เพิ่มหมวดหมู่ใหม่'"
+      :title="editingCategory ? 'แก้ไขชื่อหมวดหมู่' : 'เพิ่มหมวดหมู่ใหม่'"
+      size="form"
+      :dismissible="!isSavingCategory"
+      @close="categorySheetOpen = false"
+    >
+      <div class="space-y-4">
+        <div v-if="!editingCategory">
+          <label class="field-label" for="categoryType">ประเภทรายการ</label>
+          <select id="categoryType" v-model="categoryForm.category_type" class="field">
+            <option value="income">รายรับ</option>
+            <option value="expense">รายจ่าย</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label" for="categoryName">
+            ชื่อหมวดหมู่ <span class="text-danger-600">*</span>
+          </label>
+          <input
+            id="categoryName"
+            v-model="categoryForm.category_name"
+            type="text"
+            class="field"
+            placeholder="เช่น ค่าอุปกรณ์, ค่าพาน"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            class="btn-ghost-ui"
+            :disabled="isSavingCategory"
+            @click="categorySheetOpen = false"
+          >
+            ยกเลิก
+          </button>
+          <button type="button" class="btn-primary" :disabled="isSavingCategory" @click="saveCategory">
+            <span
+              v-if="isSavingCategory"
+              class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              aria-hidden="true"
+            ></span>
+            <template v-else><i class="bi bi-check-lg" aria-hidden="true"></i> บันทึก</template>
+          </button>
+        </div>
+      </template>
+    </AppSheet>
   </div>
 </template>

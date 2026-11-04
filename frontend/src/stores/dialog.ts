@@ -37,6 +37,8 @@ export interface DialogOptions {
   /** ปิดเองหลังผ่านไปกี่มิลลิวินาที (นับเป็น "ยืนยันแล้ว") */
   timer?: number
   position?: 'responsive' | 'center' | 'bottom'
+  /** แสดงสถานะกำลังทำงาน — ซ่อนปุ่มทั้งหมดและปิดด้วย Esc/ฉากหลังไม่ได้ */
+  loading?: boolean
 }
 
 export interface DialogResult {
@@ -116,6 +118,13 @@ export const useDialogStore = defineStore('dialog', () => {
       ...extra,
     })
 
+  /** กล่อง "กำลังทำงาน" ที่ไม่มีปุ่ม — ปิดด้วย `close()` เมื่อเสร็จ */
+  const loading = (title: string, text?: string): Promise<DialogResult> =>
+    fire({ title, text, loading: true, position: 'center' })
+
+  /** ปิดกล่องปัจจุบันโดยไม่ยืนยัน */
+  const close = () => dismiss()
+
   /** กดปุ่มยืนยัน — ผ่าน `preConfirm` ก่อนถ้ามี */
   const accept = async () => {
     const current = options.value
@@ -173,6 +182,8 @@ export const useDialogStore = defineStore('dialog', () => {
     alert,
     confirm,
     input,
+    loading,
+    close,
     accept,
     dismiss,
     notify,

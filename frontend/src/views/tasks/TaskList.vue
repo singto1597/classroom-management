@@ -5,7 +5,6 @@ import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import type { Task, DailyNote } from '@/types/task'
-import Swal from 'sweetalert2'
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
@@ -13,11 +12,12 @@ import RowActionMenu from '@/components/ui/RowActionMenu.vue'
 import AppTabs from '@/components/ui/AppTabs.vue'
 import type { AppTabItem } from '@/components/ui/AppTabs.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
 import { TASK_STATUS_LABELS } from '@/constants/statusLabels'
 import { daysFromThaiToday, formatThaiDate, relativeThaiDay, todayIso } from '@/utils/datetime'
 
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
 // ที่อ่าน detail จาก response ของ axios ไว้
@@ -90,15 +90,6 @@ watch(
 // สถานะผิดพลาด — เดิมแจ้งด้วย toast อย่างเดียว ตอนนี้ใช้โชว์ StateBlock ด้วย
 const hasError = ref(false)
 
-// ตั้งค่า Toast สำหรับ SweetAlert ให้แจ้งเตือนแบบสมูท ไม่บล็อกหน้าจอ
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
-})
-
 const fetchData = async () => {
   isLoading.value = true
   hasError.value = false
@@ -112,7 +103,7 @@ const fetchData = async () => {
       tasks.value = tasksResult.value as Task[]
     } else {
       hasError.value = true
-      Toast.fire({ icon: 'error', title: 'ดึงข้อมูลงานไม่สำเร็จ' })
+      dialog.notify('ดึงข้อมูลงานไม่สำเร็จ', 'error')
     }
 
     if (notesResult.status === 'fulfilled') {
@@ -221,7 +212,7 @@ const emptyState = computed(() => {
 
 // โทนสีป้ายสถานะตาม Design Contract (โทนพาสเทล + ตัวอักษรเข้ม)
 const getStatusBadgeClass = (task: Task) => {
-  if (task.status === 'done') return 'bg-stone-100 text-stone-600'
+  if (task.status === 'done') return 'bg-canvas text-ink-2'
 
   const diffDays = diffDaysFromToday(task.due_date)
 
@@ -254,49 +245,36 @@ const getStatusText = (task: Task) => {
 }
 
 const toggleStatus = async (task: Task) => {
-  if (!canManageTasks.value) return Toast.fire({ icon: 'warning', title: 'เฉพาะผู้ดูแลเท่านั้น' })
+  if (!canManageTasks.value) return dialog.notify('เฉพาะผู้ดูแลเท่านั้น', 'warning')
   try {
     if (task.status === 'pending') {
       await TaskService.markDone(currentRoomId, task.id, currentUserName)
-      Toast.fire({ icon: 'success', title: '🎉 ยินดีด้วย! งานเสร็จแล้ว' })
+      dialog.notify('🎉 ยินดีด้วย! งานเสร็จแล้ว')
     } else {
       await TaskService.markPending(currentRoomId, task.id, currentUserName)
-      Toast.fire({ icon: 'info', title: '🔄 เปลี่ยนกลับเป็นยังไม่เสร็จ' })
+      dialog.notify('🔄 เปลี่ยนกลับเป็นยังไม่เสร็จ', 'info')
     }
     await fetchData()
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถอัปเดตสถานะได้'
-    })
+    void dialog.alert('ข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถอัปเดตสถานะได้', 'error')
   }
 }
 
 const deleteTask = async (taskId: number) => {
-  if (!canManageTasks.value) return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลเท่านั้น', 'error')
-  const result = await Swal.fire({
-    title: 'ลบงานนี้ทิ้งเลยไหม?',
-    text: "คุณจะไม่สามารถกู้คืนข้อมูลได้!",
+  if (!canManageTasks.value) return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลเท่านั้น', 'error')
+  const result = await dialog.confirm('ลบงานนี้ทิ้งเลยไหม?', 'คุณจะไม่สามารถกู้คืนข้อมูลได้!', {
     icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ลบข้อมูล',
-    cancelButtonText: 'ยกเลิก'
+    danger: true,
+    confirmButtonText: 'ลบข้อมูล'
   })
 
   if (result.isConfirmed) {
     try {
       await TaskService.deleteTask(currentRoomId, taskId, currentUserName)
-      Toast.fire({ icon: 'success', title: '🗑️ ลบงานเรียบร้อยแล้ว' })
+      dialog.notify('🗑️ ลบงานเรียบร้อยแล้ว')
       await fetchData()
     } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'ข้อผิดพลาด',
-        text: apiErrorDetail(error) || 'ไม่สามารถลบงานได้'
-      })
+      void dialog.alert('ข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถลบงานได้', 'error')
     }
   }
 }
@@ -331,7 +309,7 @@ onMounted(fetchData)
       description="จัดการการบ้านและอัปเดตประกาศรายวันของห้อง"
     >
       <template #actions>
-        <RouterLink v-if="canManageTasks" to="/tasks/add" class="btn-primary">
+        <RouterLink v-if="canManageTasks" to="/tasks/add" class="btn-primary hidden lg:inline-flex">
           <i class="bi bi-plus-lg" aria-hidden="true" />
           สร้างใหม่
         </RouterLink>
@@ -384,14 +362,14 @@ onMounted(fetchData)
 
             <div class="min-w-0 flex-1 space-y-1.5">
               <div class="flex items-start gap-2">
-                <i class="bi bi-backpack-fill mt-0.5 shrink-0 text-stone-500" aria-hidden="true"></i>
-                <p class="min-w-0 break-words text-sm leading-relaxed text-stone-600">
-                  เตรียม: <span class="font-bold text-stone-900">{{ note.bring_items || '-' }}</span>
+                <i class="bi bi-backpack-fill mt-0.5 shrink-0 text-ink-3" aria-hidden="true"></i>
+                <p class="min-w-0 break-words text-sm leading-relaxed text-ink-2">
+                  เตรียม: <span class="font-bold text-ink-1">{{ note.bring_items || '-' }}</span>
                 </p>
               </div>
               <div class="flex items-start gap-2">
-                <i class="bi bi-megaphone-fill mt-0.5 shrink-0 text-stone-500" aria-hidden="true"></i>
-                <p class="min-w-0 break-words text-sm leading-relaxed text-stone-600">
+                <i class="bi bi-megaphone-fill mt-0.5 shrink-0 text-ink-3" aria-hidden="true"></i>
+                <p class="min-w-0 break-words text-sm leading-relaxed text-ink-2">
                   {{ note.announcement || 'ไม่มีประกาศ' }}
                 </p>
               </div>
@@ -448,15 +426,15 @@ onMounted(fetchData)
           <!-- min-width ที่ sm: ทำให้ flex-wrap ทำงานจริง ป้ายสถานะจึงตกบรรทัดแทนที่จะบีบชื่องาน -->
           <div class="min-w-0 flex-1 sm:min-w-[16rem]">
             <h3
-              class="break-words font-display text-base font-bold leading-snug text-stone-900"
-              :class="{ 'line-through text-stone-500': task.status === 'done' }"
+              class="break-words font-display text-base font-bold leading-snug text-ink-1"
+              :class="{ 'line-through text-ink-3': task.status === 'done' }"
             >
               {{ task.task_name }}
             </h3>
-            <p class="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs font-bold text-stone-500">
-              <i class="bi bi-calendar-event text-stone-500" aria-hidden="true"></i>
+            <p class="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs font-bold text-ink-3">
+              <i class="bi bi-calendar-event text-ink-3" aria-hidden="true"></i>
               กำหนดส่ง
-              <span class="num text-stone-700">{{ formatDueDate(task.due_date) }}</span>
+              <span class="num text-ink-2">{{ formatDueDate(task.due_date) }}</span>
             </p>
           </div>
 
@@ -477,8 +455,8 @@ onMounted(fetchData)
         </div>
 
         <p
-          class="mt-3 grow whitespace-pre-wrap break-words text-sm leading-relaxed text-stone-600"
-          :class="{ 'line-through text-stone-500': task.status === 'done' }"
+          class="mt-3 grow whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-2"
+          :class="{ 'line-through text-ink-3': task.status === 'done' }"
         >
           {{ task.task_detail || 'ไม่มีรายละเอียดเพิ่มเติม' }}
         </p>

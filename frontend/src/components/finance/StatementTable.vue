@@ -45,7 +45,7 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
 </script>
 
 <template>
-  <div v-if="!hasRows" class="px-4 py-9 text-center text-sm text-stone-500 sm:px-6">
+  <div v-if="!hasRows" class="px-4 py-9 text-center text-sm text-ink-3 sm:px-6">
     {{ emptyText }}
   </div>
 
@@ -67,28 +67,28 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
         <tbody>
           <template v-for="(row, index) in rows" :key="`${row.group ?? row.code ?? row.name}-${index}`">
             <!-- แถวหัวกลุ่ม (เช่น "สินทรัพย์") -->
-            <tr v-if="row.group" class="bg-stone-50">
+            <tr v-if="row.group" class="bg-canvas">
               <td
                 :colspan="columns.length"
-                class="font-display text-sm font-bold text-stone-700"
+                class="font-display text-sm font-bold text-ink-2"
               >
                 {{ row.group }}
               </td>
             </tr>
-            <tr v-else :class="row.isTotal ? 'border-t-2 border-stone-300' : ''">
+            <tr v-else :class="row.isTotal ? 'border-t-2 border-line' : ''">
               <td
                 v-for="col in columns"
                 :key="col.key"
                 :class="[
                   col.numeric ? 'num text-right whitespace-nowrap' : '',
-                  col.key === 'code' ? 'num w-24 text-stone-500' : '',
-                  row.isTotal ? 'font-bold text-stone-900' : '',
-                  !row.isTotal && col.key === 'name' ? 'text-stone-700' : '',
+                  col.key === 'code' ? 'num w-24 text-ink-3' : '',
+                  row.isTotal ? 'font-bold text-ink' : '',
+                  !row.isTotal && col.key === 'name' ? 'text-ink-2' : '',
                 ]"
               >
                 <span
                   :class="
-                    isNegative(row, col.key) ? 'font-bold text-danger-600' : row.isTotal ? 'text-stone-900' : ''
+                    isNegative(row, col.key) ? 'font-bold text-danger-600' : row.isTotal ? 'text-ink' : ''
                   "
                 >
                   {{ isNegative(row, col.key) ? '−' : '' }}{{ cellText(row, col.key) }}
@@ -105,7 +105,7 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
       <template v-for="(row, index) in rows" :key="`m-${row.group ?? row.code ?? row.name}-${index}`">
         <p
           v-if="row.group"
-          class="font-display pt-2 text-sm font-bold text-stone-500"
+          class="font-display pt-2 text-sm font-bold text-ink-3"
         >
           {{ row.group }}
         </p>
@@ -118,11 +118,11 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
             <div class="min-w-0">
               <p
                 class="truncate font-bold"
-                :class="row.isTotal ? 'text-stone-900' : 'text-stone-700'"
+                :class="row.isTotal ? 'text-ink' : 'text-ink-2'"
               >
                 {{ row.name || '—' }}
               </p>
-              <p v-if="row.code" class="num mt-0.5 text-xs text-stone-500">รหัส {{ row.code }}</p>
+              <p v-if="row.code" class="num mt-0.5 text-xs text-ink-3">รหัส {{ row.code }}</p>
             </div>
 
             <div class="shrink-0 text-right">
@@ -130,9 +130,9 @@ const isNegative = (row: StatementRow, key: StatementColumnKey): boolean => {
                 v-for="col in columns.filter((c) => c.numeric)"
                 :key="col.key"
                 class="num text-sm font-bold whitespace-nowrap"
-                :class="isNegative(row, col.key) ? 'text-danger-600' : 'text-stone-900'"
+                :class="isNegative(row, col.key) ? 'text-danger-600' : 'text-ink'"
               >
-                <span v-if="columns.filter((c) => c.numeric).length > 1" class="me-1 text-[11px] font-medium text-stone-500">
+                <span v-if="columns.filter((c) => c.numeric).length > 1" class="me-1 text-xs font-medium text-ink-3">
                   {{ col.label }}
                 </span>
                 {{ isNegative(row, col.key) ? '−' : '' }}{{ cellText(row, col.key) }}

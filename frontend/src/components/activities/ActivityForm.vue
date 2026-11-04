@@ -31,9 +31,8 @@ import BatchApplyModal from '@/components/activities/BatchApplyModal.vue'
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
 import { confirmLeave, useFormDraft, useUnsavedGuard } from '@/composables/useFormDraft'
+import { useDialog } from '@/composables/useDialog'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -43,6 +42,7 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'saved', activityId: number): void }>()
 
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -53,7 +53,7 @@ const editActivityId = computed(() =>
 const isLoading = ref(true)
 const isSaving = ref(false)
 const hasError = ref(false)
-// สถานะแสดงข้อความ validation แบบ inline (แทน Swal ที่เด้งทีละข้อ)
+// สถานะแสดงข้อความ validation แบบ inline (แทนกล่องแจ้งเตือนทีละข้อ)
 const showErrors = ref(false)
 const touchedTitle = ref(false)
 const touchedDate = ref(false)
@@ -87,7 +87,7 @@ const addPosition = () => {
   const value = newPosition.value.trim()
   if (!value) return
   if (positions.value.some((p) => p === value)) {
-    return Swal.fire({ icon: 'warning', title: 'ซ้ำ', text: `ตำแหน่ง "${value}" มีอยู่แล้ว` })
+    return dialog.alert('ซ้ำ', `ตำแหน่ง "${value}" มีอยู่แล้ว`, 'warning')
   }
   positions.value.push(value)
   newPosition.value = ''
@@ -304,11 +304,11 @@ const saveInfoModal = (payload: {
   participantMeta.value = { ...participantMeta.value, [no]: payload.metadata }
   infoModalOpen.value = false
   infoModalKey.value = null
-  Swal.fire({
+  void dialog.fire({
     icon: 'success',
     title: 'บันทึกข้อมูลของนักเรียนคนนี้แล้ว',
     text: 'ยังไม่บันทึกกิจกรรม',
-    confirmButtonColor: UI_COLOR.brand,
+    timer: 1500,
   })
 }
 
@@ -323,7 +323,7 @@ const openBatchModal = () => {
 const applyBatch = (payload: { dutyPosition: string; typeB: Record<string, unknown> }) => {
   const targets = Array.from(selectedNos.value)
   if (targets.length === 0) {
-    Swal.fire('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม', 'warning')
+    void dialog.alert('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม', 'warning')
     return
   }
   for (const no of targets) {
@@ -348,11 +348,11 @@ const applyBatch = (payload: { dutyPosition: string; typeB: Record<string, unkno
   dutyNote.value = { ...dutyNote.value }
   participantMeta.value = { ...participantMeta.value }
   batchModalOpen.value = false
-  Swal.fire({
+  void dialog.fire({
     icon: 'success',
     title: `ตั้งค่าแบบกลุ่มให้ ${targets.length} คนแล้ว`,
     text: 'ยังไม่บันทึกกิจกรรม',
-    confirmButtonColor: UI_COLOR.brand,
+    timer: 1500,
   })
 }
 
@@ -426,7 +426,7 @@ const load = async () => {
   } catch (error: unknown) {
     hasError.value = true
     const msg = error instanceof Error ? error.message : 'โหลดรายชื่อนักเรียนไม่สำเร็จ'
-    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: msg })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   } finally {
     isLoading.value = false
   }
@@ -471,7 +471,7 @@ onBeforeRouteLeave(() => confirmLeave(isDirty))
 // ================================================================
 const submit = async () => {
   if (!canManage.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น', 'error')
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น', 'error')
   }
   // ปุ่มถูก disable ไว้แล้ว แต่ยังกันซ้ำ (เช่นกด Enter ในช่องข้อความ)
   if (!formValid.value) {
@@ -490,16 +490,11 @@ const submit = async () => {
       .map((no) => students.value.find((s) => s.student_no === no))
       .filter(Boolean)
       .map((s) => displayName(s!))
-    const result = await Swal.fire({
-      icon: 'warning',
-      title: 'ตำแหน่งที่เลือกไม่อยู่ในรายการ',
-      text: `${names.join(', ')} ยังมีตำแหน่งเก่าที่ถูกลบจากรายการแล้ว — บันทึกต่อไหม?`,
-      showCancelButton: true,
-      confirmButtonText: 'บันทึกต่อ',
-      cancelButtonText: 'กลับไปแก้',
-      confirmButtonColor: UI_COLOR.brand,
-      cancelButtonColor: UI_COLOR.neutral,
-    })
+    const result = await dialog.confirm(
+      'ตำแหน่งที่เลือกไม่อยู่ในรายการ',
+      `${names.join(', ')} ยังมีตำแหน่งเก่าที่ถูกลบจากรายการแล้ว — บันทึกต่อไหม?`,
+      { icon: 'warning', confirmButtonText: 'บันทึกต่อ', cancelButtonText: 'กลับไปแก้' }
+    )
     if (!result.isConfirmed) return
   }
 
@@ -561,11 +556,11 @@ const submit = async () => {
       })
       // ✅ บันทึกสำเร็จ = ล้างร่าง ไม่งั้นเปิดฟอร์มครั้งหน้าจะเจอข้อมูลเก่า
       draft.clear()
-      await Swal.fire({
+      await dialog.fire({
         icon: 'success',
         title: 'สร้างกิจกรรมสำเร็จ! 🎪',
         text: `"${form.value.title}" พร้อมผู้เข้าร่วม ${participants.length} คน ถูกบันทึกแล้ว`,
-        confirmButtonColor: UI_COLOR.brand,
+        timer: 1500,
       })
       emit('saved', 0)
     } else {
@@ -583,17 +578,17 @@ const submit = async () => {
         participants,
         user_name: currentUserName,
       })
-      await Swal.fire({
+      await dialog.fire({
         icon: 'success',
         title: 'แก้ไขกิจกรรมสำเร็จ! ✏️',
         text: `"${form.value.title}" ถูกอัปเดตแล้ว`,
-        confirmButtonColor: UI_COLOR.brand,
+        timer: 1500,
       })
       emit('saved', activityId)
     }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ'
-    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: msg })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   } finally {
     isSaving.value = false
   }
@@ -722,7 +717,7 @@ const submit = async () => {
           <h2 class="section-title flex items-center gap-2">
             <i class="bi bi-diagram-3 text-brand-700" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
           </h2>
-          <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
+          <p class="mt-1.5 text-xs leading-relaxed text-ink-3">
             กำหนดรายการตำแหน่งที่ใช้ในกิจกรรมนี้ — ผู้เข้าร่วมเลือกจากรายการนี้
             และตั้งค่าแบบกลุ่มได้ (เช่น หัวหน้ากลุ่ม, ทีมงาน, ฝ่ายทะเบียน)
           </p>
@@ -743,7 +738,7 @@ const submit = async () => {
 
           <p
             v-if="positions.length === 0"
-            class="mt-3 rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-500 sm:mt-4"
+            class="mt-3 rounded-control border border-line bg-canvas px-4 py-3.5 text-center text-xs text-ink-3 sm:mt-4"
           >
             ยังไม่มีตำแหน่ง — เพิ่มด้านบน หรือใช้ค่าเริ่มต้น
           </p>
@@ -751,14 +746,14 @@ const submit = async () => {
             <div
               v-for="(pos, index) in positions"
               :key="pos"
-              class="inline-flex items-center gap-0.5 rounded-xl border border-brand-200 bg-brand-50 py-0.5 pe-0.5 ps-3 text-xs font-bold text-brand-700"
+              class="inline-flex items-center gap-0.5 rounded-control border border-brand-200 bg-brand-50 py-0.5 pe-0.5 ps-3 text-xs font-bold text-brand-700"
             >
               <span class="max-w-[6.5rem] truncate sm:max-w-[10rem]">{{ pos }}</span>
               <button
                 v-if="positions.length > 1"
                 type="button"
                 :disabled="index === 0"
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
                 title="เลื่อนขึ้น"
                 aria-label="เลื่อนตำแหน่งขึ้น"
                 @click="movePosition(index, -1)"
@@ -769,7 +764,7 @@ const submit = async () => {
                 v-if="positions.length > 1"
                 type="button"
                 :disabled="index === positions.length - 1"
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-brand-700/60 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-30"
                 title="เลื่อนลง"
                 aria-label="เลื่อนตำแหน่งลง"
                 @click="movePosition(index, 1)"
@@ -778,7 +773,7 @@ const submit = async () => {
               </button>
               <button
                 type="button"
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-danger-50 hover:text-danger-600"
                 title="ลบตำแหน่ง"
                 aria-label="ลบตำแหน่ง"
                 @click="removePosition(index)"
@@ -794,7 +789,7 @@ const submit = async () => {
           <h2 class="section-title flex items-center gap-2">
             <i class="bi bi-asterisk text-brand-700" aria-hidden="true"></i> ข้อมูลเพิ่มเติมของกิจกรรม
           </h2>
-          <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
+          <p class="mt-1.5 text-xs leading-relaxed text-ink-3">
             เพิ่มข้อมูลที่อยากให้คนเห็น เช่น สถานที่, ลิงก์แผนที่, กำหนดการ — แค่บอกหัวข้อกับค่า
           </p>
           <div class="mt-3 sm:mt-4">
@@ -822,7 +817,7 @@ const submit = async () => {
                 <i class="bi bi-list-check text-brand-700" aria-hidden="true"></i>
                 ข้อมูลที่จัดเก็บของนักเรียน
               </h2>
-              <p class="mt-1 text-xs leading-relaxed text-stone-500">
+              <p class="mt-1 text-xs leading-relaxed text-ink-3">
                 ติ๊กเลือกฟิลด์ → ผู้เข้าร่วมต้องกรอกข้อมูลเหล่านี้ ·
                 <i class="bi bi-lock-fill" aria-hidden="true"></i> = ดึงจากโปรไฟล์อัตโนมัติ
               </p>
@@ -834,7 +829,7 @@ const submit = async () => {
 
           <div v-for="cat in ACTIVITY_FIELD_CATEGORY_ORDER" :key="cat" class="mt-3 sm:mt-4">
             <h3
-              class="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-stone-500"
+              class="mb-2.5 flex items-center gap-1.5 text-xs font-bold text-ink-3"
             >
               <i
                 class="bi"
@@ -847,11 +842,11 @@ const submit = async () => {
               <label
                 v-for="field in ALL_ACTIVITY_FIELDS.filter((f) => f.category === cat)"
                 :key="field.key"
-                class="flex cursor-pointer select-none items-start gap-2.5 rounded-xl border px-3 py-2 transition-colors sm:py-2.5"
+                class="flex cursor-pointer select-none items-start gap-2.5 rounded-control border px-3 py-2 transition-colors sm:py-2.5"
                 :class="
                   requiredFields.has(field.key)
                     ? 'border-brand-200 bg-brand-50'
-                    : 'border-stone-200 bg-white hover:bg-stone-50'
+                    : 'border-line bg-surface hover:bg-canvas'
                 "
               >
                 <input
@@ -861,16 +856,16 @@ const submit = async () => {
                   @change="toggleRequiredField(field.key)"
                 />
                 <span class="min-w-0">
-                  <span class="block text-xs font-bold text-stone-700">
+                  <span class="block text-xs font-bold text-ink-1">
                     {{ field.label }}
                     <i
                       v-if="cat === 'profile'"
-                      class="bi bi-lock-fill text-[10px] text-brand-700"
+                      class="bi bi-lock-fill text-xs text-brand-700"
                       title="ระบบจะดึงจากโปรไฟล์ให้อัตโนมัติ ไม่ต้องให้คนกรอกใหม่"
                       aria-hidden="true"
                     ></i>
                   </span>
-                  <span class="mt-0.5 hidden truncate text-[10px] text-stone-500 sm:block">{{
+                  <span class="mt-0.5 hidden truncate text-xs text-ink-3 sm:block">{{
                     field.hint || field.placeholder || ''
                   }}</span>
                 </span>
@@ -884,13 +879,13 @@ const submit = async () => {
           <h2 class="section-title flex items-center gap-2">
             <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i> เลือกผู้เข้าร่วม
           </h2>
-          <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
+          <p class="mt-1.5 text-xs leading-relaxed text-ink-3">
             ติ๊กชื่อ → ตั้งหน้าที่/ข้อมูลเพิ่มเติมของแต่ละคน หรือใช้ "ตั้งค่าแบบกลุ่ม"
             สำหรับหลายคนพร้อมกัน
           </p>
 
           <div
-            class="mt-3 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700 sm:mt-4"
+            class="mt-3 flex items-center gap-2 rounded-control border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700 sm:mt-4"
           >
             <i class="bi bi-person-check-fill" aria-hidden="true"></i> เลือกแล้ว
             <span class="num">{{ selectedCount }}</span> คน
@@ -940,7 +935,7 @@ const submit = async () => {
 
           <p
             v-if="typeBColumns.length === 0 && students.length > 0"
-            class="mt-3 text-[11px] text-stone-500"
+            class="mt-3 text-xs text-ink-3"
           >
             ยังไม่ได้เลือกฟิลด์ Type B → ติ๊กในส่วน "ข้อมูลที่จัดเก็บของนักเรียน" ด้านบน
             แล้วผู้เข้าร่วมจะกรอกได้ในปุ่ม "ข้อมูลเพิ่มเติม"

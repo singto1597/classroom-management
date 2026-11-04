@@ -16,11 +16,11 @@
  *    ไม่ใช่ `watch` ที่ยิงเองตอนโหลดหน้า
  */
 import { computed, onMounted, ref } from 'vue';
-import Swal from 'sweetalert2';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import QuietHoursCard from '@/components/settings/QuietHoursCard.vue';
+import { useDialog } from '@/composables/useDialog';
 import PushStatsCard from '@/components/settings/PushStatsCard.vue';
 import { NotificationService } from '@/services/notification';
 import {
@@ -36,10 +36,10 @@ import {
 import { isServiceWorkerSupported } from '@/services/pwa';
 import { useAuthStore } from '@/stores/auth';
 import { useNotificationStore } from '@/stores/notifications';
-import { UI_COLOR } from '@/constants/theme';
 import { NOTIFICATION_GROUPS } from '@/constants/notificationGroups';
 import type { MutableNotificationGroup, NotificationPreference } from '@/types/notification';
 
+const dialog = useDialog();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const roomId = authStore.currentRoomId ?? 0;
@@ -124,12 +124,7 @@ const toggleDevicePush = async () => {
     // เลิกสมัครสำเร็จ = ไม่ต้องกวนด้วยกล่องข้อความ (ผู้ใช้เพิ่งสั่งให้ปิด)
     if (outcome === 'unsubscribed') return;
     const message = OUTCOME_MESSAGES[outcome];
-    await Swal.fire({
-      icon: message.icon,
-      title: message.title,
-      text: message.text,
-      confirmButtonColor: UI_COLOR.brand,
-    });
+    await dialog.fire({ icon: message.icon, title: message.title, text: message.text });
   } finally {
     isPushBusy.value = false;
   }
@@ -189,12 +184,11 @@ const updatePreference = async (
     // คืนค่าที่เห็นบนจอ แล้วดึงความจริงจากเซิร์ฟเวอร์ทับอีกชั้น
     Object.assign(previous, original);
     await loadPreferences();
-    await Swal.fire({
-      icon: 'error',
-      title: 'บันทึกการตั้งค่าไม่สำเร็จ',
-      text: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดจากระบบ โปรดลองใหม่',
-      confirmButtonColor: UI_COLOR.brand,
-    });
+    void dialog.alert(
+      'บันทึกการตั้งค่าไม่สำเร็จ',
+      error instanceof Error ? error.message : 'เกิดข้อผิดพลาดจากระบบ โปรดลองใหม่',
+      'error',
+    );
   } finally {
     savingGroup.value = null;
   }
@@ -209,15 +203,15 @@ const updatePreference = async (
 
     <!-- ชั้นที่ 1: อุปกรณ์นี้ -->
     <section class="page-card p-4 sm:p-6">
-      <div class="flex items-start gap-3 border-b border-stone-100 pb-3 sm:pb-4">
+      <div class="flex items-start gap-3 border-b border-line pb-3 sm:pb-4">
         <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700"
         >
           <i class="bi bi-phone-fill text-base" aria-hidden="true"></i>
         </div>
         <div class="min-w-0">
           <h2 class="section-title">การแจ้งเตือนบนเครื่องนี้</h2>
-          <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
+          <p class="mt-0.5 text-xs leading-relaxed text-ink-3">
             ผูกกับเบราว์เซอร์ที่กำลังใช้ — เครื่องอื่นต้องเปิดแยก
           </p>
         </div>
@@ -227,14 +221,14 @@ const updatePreference = async (
 
       <div v-else class="mt-3 flex flex-wrap items-center justify-between gap-3 sm:mt-4">
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-bold text-stone-800">
+          <p class="text-sm font-bold text-ink">
             <template v-if="!pushSupported">เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน</template>
             <template v-else-if="!pushReady">ยังไม่พร้อมใช้งาน</template>
             <template v-else-if="permission === 'denied'">ถูกบล็อกในตั้งค่าเบราว์เซอร์</template>
             <template v-else-if="deviceSubscribed">เปิดอยู่บนเครื่องนี้</template>
             <template v-else>ปิดอยู่บนเครื่องนี้</template>
           </p>
-          <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
+          <p class="mt-0.5 text-xs leading-relaxed text-ink-3">
             <template v-if="!pushSupported">
               ยังใช้การแจ้งเตือนในแอปได้ตามปกติ
             </template>
@@ -257,21 +251,21 @@ const updatePreference = async (
           :aria-checked="deviceSubscribed"
           aria-label="การแจ้งเตือนบนเครื่องนี้"
           class="flex h-11 shrink-0 items-center gap-2 rounded-full border px-3 transition-colors disabled:opacity-60"
-          :class="deviceSubscribed ? 'border-brand-200 bg-brand-50' : 'border-stone-200 bg-stone-50'"
+          :class="deviceSubscribed ? 'border-brand-200 bg-brand-50' : 'border-line bg-canvas'"
           :disabled="isPushBusy"
           @click="toggleDevicePush"
         >
           <span
             class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors"
-            :class="deviceSubscribed ? 'bg-brand-700' : 'bg-stone-300'"
+            :class="deviceSubscribed ? 'bg-brand-700' : 'bg-ink-3/40'"
             aria-hidden="true"
           >
             <span
-              class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform"
+              class="inline-block h-5 w-5 transform rounded-full bg-surface shadow transition-transform"
               :class="deviceSubscribed ? 'translate-x-[22px]' : 'translate-x-0.5'"
             ></span>
           </span>
-          <span class="text-xs font-bold text-stone-700">
+          <span class="text-xs font-bold text-ink-2">
             {{ isPushBusy ? 'กำลังทำ…' : deviceSubscribed ? 'เปิด' : 'ปิด' }}
           </span>
         </button>
@@ -280,15 +274,15 @@ const updatePreference = async (
 
     <!-- ชั้นที่ 2: กลุ่มแจ้งเตือน -->
     <section class="page-card p-4 sm:p-6">
-      <div class="flex items-start gap-3 border-b border-stone-100 pb-3 sm:pb-4">
+      <div class="flex items-start gap-3 border-b border-line pb-3 sm:pb-4">
         <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700"
         >
           <i class="bi bi-sliders2 text-base" aria-hidden="true"></i>
         </div>
         <div class="min-w-0">
           <h2 class="section-title">กลุ่มแจ้งเตือน</h2>
-          <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
+          <p class="mt-0.5 text-xs leading-relaxed text-ink-3">
             ตั้งตามบัญชี — ใช้กับทุกเครื่องที่ล็อกอินด้วยบัญชีนี้
           </p>
         </div>
@@ -304,7 +298,7 @@ const updatePreference = async (
         @retry="loadPreferences"
       />
 
-      <ul v-else class="mt-3 divide-y divide-stone-100 sm:mt-4">
+      <ul v-else class="mt-3 divide-y divide-line sm:mt-4">
         <li
           v-for="group in NOTIFICATION_GROUPS"
           :key="group.group"
@@ -312,20 +306,20 @@ const updatePreference = async (
         >
           <div class="flex items-start gap-3">
             <span
-              class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600"
+              class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-canvas text-ink-2"
               aria-hidden="true"
             >
               <i :class="['bi', group.icon, 'text-base']"></i>
             </span>
             <div class="min-w-0 flex-1">
-              <p class="text-sm font-bold text-stone-800">{{ group.label }}</p>
-              <p class="mt-0.5 text-xs leading-relaxed text-stone-500">{{ group.hint }}</p>
+              <p class="text-sm font-bold text-ink">{{ group.label }}</p>
+              <p class="mt-0.5 text-xs leading-relaxed text-ink-3">{{ group.hint }}</p>
 
               <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
                 <label class="flex min-h-11 cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
-                    class="h-4 w-4 accent-brand-700"
+                    class="h-4 w-4 accent-brand"
                     :checked="findPreference(group.group)?.inapp ?? true"
                     :disabled="savingGroup !== null || !findPreference(group.group)"
                     @change="
@@ -334,12 +328,12 @@ const updatePreference = async (
                       })
                     "
                   />
-                  <span class="text-xs font-bold text-stone-700">ในแอป</span>
+                  <span class="text-xs font-bold text-ink-2">ในแอป</span>
                 </label>
                 <label class="flex min-h-11 cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
-                    class="h-4 w-4 accent-brand-700"
+                    class="h-4 w-4 accent-brand"
                     :checked="findPreference(group.group)?.push ?? true"
                     :disabled="savingGroup !== null || !findPreference(group.group)"
                     @change="
@@ -348,7 +342,7 @@ const updatePreference = async (
                       })
                     "
                   />
-                  <span class="text-xs font-bold text-stone-700">บนมือถือ (push)</span>
+                  <span class="text-xs font-bold text-ink-2">บนมือถือ (push)</span>
                 </label>
               </div>
             </div>
@@ -359,17 +353,17 @@ const updatePreference = async (
         <li class="py-3 last:pb-0">
           <div class="flex items-start gap-3">
             <span
-              class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600"
+              class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-canvas text-ink-2"
               aria-hidden="true"
             >
               <i class="bi bi-megaphone text-base"></i>
             </span>
             <div class="min-w-0 flex-1">
-              <p class="flex items-center gap-1.5 text-sm font-bold text-stone-800">
+              <p class="flex items-center gap-1.5 text-sm font-bold text-ink">
                 ประกาศ
-                <i class="bi bi-lock-fill text-xs text-stone-400" aria-hidden="true"></i>
+                <i class="bi bi-lock-fill text-xs text-ink-3" aria-hidden="true"></i>
               </p>
-              <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
+              <p class="mt-0.5 text-xs leading-relaxed text-ink-3">
                 ประกาศของห้องเป็นช่องทางราชการ — ปิดไม่ได้ แต่ประกาศ "ด่วน" ยังทะลุช่วงงดรบกวนเสมอ
               </p>
             </div>

@@ -14,12 +14,13 @@ import { useAuthStore } from '@/stores/auth';
 import { monthToRange, todayThaiYearMonth } from '@/utils/period';
 import { downloadBlob } from '@/utils/download';
 import { createLatestGuard } from '@/utils/latest';
-import Swal from 'sweetalert2';
+import { useDialog } from '@/composables/useDialog';
 import { CHART_COLORS, UI_COLOR } from '@/constants/theme'
 
 ChartJS.register(Title, Tooltip, Legend, ArcElement, CategoryScale);
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 const currentServerId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName || 'ผู้ดูแลระบบ';
 
@@ -104,7 +105,7 @@ const chartData = computed(() => {
     labels: summary.value.expense_breakdown.map(item => item.category_name),
     datasets: [{
       data: summary.value.expense_breakdown.map(item => item.total_amount),
-      // 🎨 ธีม Academic Ledger: เฉดน้ำเงิน brand ไล่ระดับ + เทา stone (ไม่ใช้สีรุ้ง)
+      // 🎨 เฉดน้ำเงิน brand ไล่ระดับแล้วจางลงเป็นเทา (ไม่ใช้สีรุ้ง)
       backgroundColor: [
         ...CHART_COLORS
       ],
@@ -134,7 +135,7 @@ const chartOptions: ChartOptions<'doughnut'> = {
     },
     tooltip: {
       enabled: () => (summary.value?.expense_breakdown.length ?? 0) > 0,
-      backgroundColor: 'rgba(28, 25, 23, 0.92)', // stone-900
+      backgroundColor: 'rgba(31, 35, 40, 0.92)', // ink-1
       titleFont: { family: "'Noto Sans Thai', sans-serif", size: 13 },
       bodyFont: { family: "'Noto Sans Thai', sans-serif", size: 13, weight: 'bold' },
       padding: 12,
@@ -204,14 +205,12 @@ const runExport = async (kind: ExportKind) => {
   isExportMenuOpen.value = false;
 
   const isJournal = kind === 'journal';
-  Swal.fire({
-    title: isJournal ? 'กำลังคราฟต์สมุดรายวัน...' : 'กำลังคราฟต์ไฟล์ Excel...',
-    text: isJournal
+  void dialog.loading(
+    isJournal ? 'กำลังคราฟต์สมุดรายวัน...' : 'กำลังคราฟต์ไฟล์ Excel...',
+    isJournal
       ? 'ระบบกำลังรวบรวมรายการเดบิต/เครดิตของเดือนที่เลือกให้คุณ'
       : 'ระบบกำลังรวบรวมประวัติการทำรายการให้คุณ',
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading()
-  });
+  );
 
   try {
     const blob = isJournal
@@ -232,26 +231,26 @@ const runExport = async (kind: ExportKind) => {
 
     downloadBlob(blob, filename);
 
-    Swal.fire({
+    dialog.close();
+    await dialog.fire({
       icon: 'success',
       title: 'สำเร็จ!',
       text: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว',
-      timer: 1500,
-      showConfirmButton: false
+      timer: 1500
     });
   } catch (error) {
     console.error(error);
+    dialog.close();
     // แสดงข้อความจริงจาก backend ก่อน — interceptor ใน `services/api.ts` คลี่ Blob error body
     // ออกมาเป็นภาษาไทยแล้ว (คำขอนี้เป็น `responseType: 'blob'` จึงเข้าเส้นทางนั้น)
     // ถ้าทับด้วยข้อความกลาง ๆ ผู้ใช้จะไม่รู้ว่าติดสิทธิ์ (403) หรือแค่ลองใหม่ก็หาย
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: error instanceof Error && error.message
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error && error.message
         ? error.message
         : 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
-      confirmButtonColor: UI_COLOR.brand
-    });
+      'error',
+    );
   } finally {
     isExporting.value = false;
   }
@@ -283,7 +282,7 @@ watch([selectedMonth, selectedYear], () => {
             </option>
           </select>
           <i
-            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
+            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-ink-3"
             aria-hidden="true"
           ></i>
         </div>
@@ -295,7 +294,7 @@ watch([selectedMonth, selectedYear], () => {
             </option>
           </select>
           <i
-            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
+            class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-ink-3"
             aria-hidden="true"
           ></i>
         </div>
@@ -319,44 +318,44 @@ watch([selectedMonth, selectedYear], () => {
           <!-- Dropdown Menu: 2 ตัวเลือก -->
           <div
             v-if="isExportMenuOpen"
-            class="absolute end-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white"
+            class="absolute end-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-card border border-line bg-surface"
           >
             <!-- แบบที่ 1: สรุปรายการ (แบบปกติ) -->
             <button
               @click="runExport('summary')"
-              class="group flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-stone-50 active:scale-[0.99]"
+              class="group flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-canvas active:scale-[0.99]"
               title="ดาวน์โหลดสรุป รายรับ/รายจ่าย + ยอดคงเหลือรายบัญชี"
             >
               <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 transition-colors group-hover:bg-brand-700 group-hover:text-white"
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700 transition-colors group-hover:bg-brand-700 group-hover:text-white"
               >
                 <i class="bi bi-file-earmark-excel text-xl" aria-hidden="true"></i>
               </div>
               <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-bold text-stone-900">ดาวน์โหลดสรุปรายการ (แบบปกติ)</p>
-                <p class="mt-0.5 text-xs text-stone-500">รายรับ/รายจ่าย แยกหมวดหมู่ + ยอดคงเหลือบัญชี</p>
+                <p class="truncate text-sm font-bold text-ink">ดาวน์โหลดสรุปรายการ (แบบปกติ)</p>
+                <p class="mt-0.5 text-xs text-ink-3">รายรับ/รายจ่าย แยกหมวดหมู่ + ยอดคงเหลือบัญชี</p>
               </div>
-              <i class="bi bi-chevron-right shrink-0 self-center text-stone-300" aria-hidden="true"></i>
+              <i class="bi bi-chevron-right shrink-0 self-center text-line" aria-hidden="true"></i>
             </button>
 
-            <div class="mx-4 border-t border-stone-100"></div>
+            <div class="mx-4 border-t border-line"></div>
 
             <!-- แบบที่ 2: สมุดรายวัน (แบบนักบัญชี) -->
             <button
               @click="runExport('journal')"
-              class="group flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-stone-50 active:scale-[0.99]"
+              class="group flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-canvas active:scale-[0.99]"
               title="ดาวน์โหลดสมุดรายวันทั่วไป (เดบิต/เครดิต) สำหรับนักบัญชี"
             >
               <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600 transition-colors group-hover:bg-stone-800 group-hover:text-white"
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-canvas text-ink-3 transition-colors group-hover:bg-ink group-hover:text-white"
               >
                 <i class="bi bi-journal-text text-xl" aria-hidden="true"></i>
               </div>
               <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-bold text-stone-900">ดาวน์โหลดสมุดรายวัน (แบบนักบัญชี)</p>
-                <p class="mt-0.5 text-xs text-stone-500">รายการ เดบิต/เครดิต รายบัญชี (สมุดรายวันทั่วไป)</p>
+                <p class="truncate text-sm font-bold text-ink">ดาวน์โหลดสมุดรายวัน (แบบนักบัญชี)</p>
+                <p class="mt-0.5 text-xs text-ink-3">รายการ เดบิต/เครดิต รายบัญชี (สมุดรายวันทั่วไป)</p>
               </div>
-              <i class="bi bi-chevron-right shrink-0 self-center text-stone-300" aria-hidden="true"></i>
+              <i class="bi bi-chevron-right shrink-0 self-center text-line" aria-hidden="true"></i>
             </button>
           </div>
         </div>
@@ -378,14 +377,14 @@ watch([selectedMonth, selectedYear], () => {
       :aria-label="`ดูงบที่ใช้เกิน ${budgetOverview?.over_count ?? 0} หมวดของเดือนนี้`"
       class="page-card flex items-center gap-3 border-s-4 border-s-danger-500 p-3.5 transition-colors hover:bg-danger-50/40 active:scale-[0.99] sm:p-4"
     >
-      <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-danger-50 text-danger-600">
+      <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-danger-50 text-danger-600">
         <i class="bi bi-exclamation-octagon-fill text-xl" aria-hidden="true"></i>
       </span>
       <span class="min-w-0 flex-1">
         <span class="block text-sm font-bold text-danger-700">
           มี {{ budgetOverview?.over_count }} หมวดที่ใช้เกินงบเดือนนี้
         </span>
-        <span class="block truncate text-xs text-stone-500">
+        <span class="block truncate text-xs text-ink-3">
           ใช้ไป {{ formatNumber(budgetOverview?.total_used ?? 0) }} จากงบ
           {{ formatNumber(budgetOverview?.total_budget ?? 0) }} บาท — กดเพื่อดูรายละเอียด
         </span>
@@ -401,38 +400,38 @@ watch([selectedMonth, selectedYear], () => {
       <!-- KPI การเงิน: ยอดคงเหลือ / ค้างชำระ / รายรับ / รายจ่าย -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="page-card col-span-2 border-s-4 border-s-brand-700 p-3.5 sm:p-5 lg:col-span-1">
-          <p class="text-[11px] font-bold text-stone-500">เงินคงเหลือรวม</p>
-          <p class="font-display num mt-2 break-words text-2xl font-bold text-stone-900 sm:text-3xl">
-            <span class="me-1 text-lg text-stone-500">฿</span>{{ formatNumber(summary.net_worth) }}
+          <p class="text-caption font-bold text-ink-3">เงินคงเหลือรวม</p>
+          <p class="num mt-2 break-words text-2xl font-bold text-ink sm:text-3xl">
+            <span class="me-1 text-lg text-ink-3">฿</span>{{ formatNumber(summary.net_worth) }}
           </p>
         </div>
 
         <div class="page-card col-span-2 p-3.5 sm:p-5 lg:col-span-1">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
+          <p class="flex items-center gap-1.5 text-caption font-bold text-ink-3">
             <i class="bi bi-hourglass-split text-warn-600" aria-hidden="true"></i>
             ยอดที่เพื่อนค้างจ่ายรวม
           </p>
-          <p class="font-display num mt-2 break-words text-2xl font-bold text-warn-700 sm:text-3xl">
+          <p class="num mt-2 break-words text-2xl font-bold text-warn-700 sm:text-3xl">
             <span class="me-1 text-lg text-warn-500/70">฿</span>{{ formatNumber(summary.pending_collection_amount) }}
           </p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
+          <p class="flex items-center gap-1.5 text-caption font-bold text-ink-3">
             <i class="bi bi-graph-up-arrow text-ok-600" aria-hidden="true"></i>
             รายรับเดือนนี้
           </p>
-          <p class="font-display num mt-2 break-words text-base font-bold text-ok-600 sm:text-2xl">
+          <p class="num mt-2 break-words text-base font-bold text-ok-600 sm:text-2xl">
             +{{ formatNumber(summary.total_income) }}
           </p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
+          <p class="flex items-center gap-1.5 text-caption font-bold text-ink-3">
             <i class="bi bi-graph-down-arrow text-danger-600" aria-hidden="true"></i>
             รายจ่ายเดือนนี้
           </p>
-          <p class="font-display num mt-2 break-words text-base font-bold text-danger-600 sm:text-2xl">
+          <p class="num mt-2 break-words text-base font-bold text-danger-600 sm:text-2xl">
             -{{ formatNumber(summary.total_expense) }}
           </p>
         </div>
@@ -443,54 +442,54 @@ watch([selectedMonth, selectedYear], () => {
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <RouterLink
             to="/finance/transactions"
-            class="flex flex-col items-center gap-1.5 rounded-xl border border-stone-200 px-2 py-2.5 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+            class="flex flex-col items-center gap-1.5 rounded-control border border-line px-2 py-2.5 text-center transition-colors hover:bg-canvas active:scale-[0.97]"
           >
-            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+            <span class="flex h-9 w-9 items-center justify-center rounded-control bg-brand-50 text-brand-700">
               <i class="bi bi-receipt text-xl" aria-hidden="true"></i>
             </span>
-            <span class="text-xs font-bold text-stone-600">ประวัติรายการ</span>
+            <span class="text-xs font-bold text-ink-3">ประวัติรายการ</span>
           </RouterLink>
 
           <RouterLink
             to="/finance/collections"
-            class="flex flex-col items-center gap-1.5 rounded-xl border border-stone-200 px-2 py-2.5 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+            class="flex flex-col items-center gap-1.5 rounded-control border border-line px-2 py-2.5 text-center transition-colors hover:bg-canvas active:scale-[0.97]"
           >
-            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+            <span class="flex h-9 w-9 items-center justify-center rounded-control bg-brand-50 text-brand-700">
               <i class="bi bi-box-seam text-xl" aria-hidden="true"></i>
             </span>
-            <span class="text-xs font-bold text-stone-600">โปรเจกต์เก็บเงิน</span>
+            <span class="text-xs font-bold text-ink-3">โปรเจกต์เก็บเงิน</span>
           </RouterLink>
 
           <RouterLink
             to="/finance/debtors"
-            class="flex flex-col items-center gap-1.5 rounded-xl border border-stone-200 px-2 py-2.5 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+            class="flex flex-col items-center gap-1.5 rounded-control border border-line px-2 py-2.5 text-center transition-colors hover:bg-canvas active:scale-[0.97]"
           >
-            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+            <span class="flex h-9 w-9 items-center justify-center rounded-control bg-brand-50 text-brand-700">
               <i class="bi bi-exclamation-triangle text-xl" aria-hidden="true"></i>
             </span>
-            <span class="text-xs font-bold text-stone-600">สรุปยอดค้างจ่าย</span>
+            <span class="text-xs font-bold text-ink-3">สรุปยอดค้างจ่าย</span>
           </RouterLink>
 
           <!-- Admin Only: ถ้าไม่ใช่แอดมิน ช่องนี้แสดงแบบปิดการใช้งาน -->
           <div
             v-if="!authStore.isAdmin"
-            class="flex flex-col items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50/60 px-2 py-2.5 text-center"
+            class="flex flex-col items-center gap-1.5 rounded-control border border-line bg-canvas px-2 py-2.5 text-center"
           >
-            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-stone-600">
+            <span class="flex h-9 w-9 items-center justify-center rounded-control bg-canvas text-ink-3">
               <i class="bi bi-gear text-xl" aria-hidden="true"></i>
             </span>
-            <span class="text-xs font-bold text-stone-500">ตั้งค่า (แอดมิน)</span>
+            <span class="text-xs font-bold text-ink-3">ตั้งค่า (แอดมิน)</span>
           </div>
 
           <RouterLink
             v-else
             to="/finance/settings"
-            class="flex flex-col items-center gap-1.5 rounded-xl border border-stone-200 px-2 py-2.5 text-center transition-colors hover:bg-stone-50 active:scale-[0.97]"
+            class="flex flex-col items-center gap-1.5 rounded-control border border-line px-2 py-2.5 text-center transition-colors hover:bg-canvas active:scale-[0.97]"
           >
-            <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-100 text-stone-600">
+            <span class="flex h-9 w-9 items-center justify-center rounded-control bg-canvas text-ink-3">
               <i class="bi bi-gear text-xl" aria-hidden="true"></i>
             </span>
-            <span class="text-xs font-bold text-stone-600">ตั้งค่าการเงิน</span>
+            <span class="text-xs font-bold text-ink-3">ตั้งค่าการเงิน</span>
           </RouterLink>
         </div>
 
@@ -501,29 +500,29 @@ watch([selectedMonth, selectedYear], () => {
         -->
         <RouterLink
           to="/finance/statements"
-          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
         >
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
             <i class="bi bi-clipboard-data text-xl" aria-hidden="true"></i>
           </span>
           <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-bold text-stone-700">งบการเงิน</span>
-            <span class="block truncate text-xs text-stone-500">งบทดลอง · กำไรขาดทุน · งบดุล</span>
+            <span class="block truncate text-sm font-bold text-ink-2">งบการเงิน</span>
+            <span class="block truncate text-xs text-ink-3">งบทดลอง · กำไรขาดทุน · งบดุล</span>
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </RouterLink>
 
         <!-- งบประมาณ — ลิงก์เต็มความกว้างเหมือนงบการเงิน (กริด 4 ช่องเดิมเต็มพอดี) -->
         <RouterLink
           to="/finance/budgets"
-          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
         >
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
             <i class="bi bi-piggy-bank text-xl" aria-hidden="true"></i>
           </span>
           <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-bold text-stone-700">งบประมาณ</span>
-            <span class="block truncate text-xs text-stone-500">
+            <span class="block truncate text-sm font-bold text-ink-2">งบประมาณ</span>
+            <span class="block truncate text-xs text-ink-3">
               วงเงินต่อหมวด · ยอดใช้จริง · เตือนก่อนเกิน
             </span>
           </span>
@@ -538,24 +537,24 @@ watch([selectedMonth, selectedYear], () => {
           >
             เกิน {{ budgetOverview?.over_count }}
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </RouterLink>
 
         <!-- ใบเสร็จ / ใบแจ้งหนี้ — ลิงก์เต็มความกว้างแบบเดียวกัน (F3) -->
         <RouterLink
           to="/finance/receipts"
-          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
         >
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
             <i class="bi bi-receipt-cutoff text-xl" aria-hidden="true"></i>
           </span>
           <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-bold text-stone-700">ใบเสร็จ / ใบแจ้งหนี้</span>
-            <span class="block truncate text-xs text-stone-500">
+            <span class="block truncate text-sm font-bold text-ink-2">ใบเสร็จ / ใบแจ้งหนี้</span>
+            <span class="block truncate text-xs text-ink-3">
               ทะเบียนเอกสาร · พิมพ์ซ้ำได้ · ดาวน์โหลด PDF
             </span>
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </RouterLink>
 
         <!--
@@ -566,18 +565,18 @@ watch([selectedMonth, selectedYear], () => {
         -->
         <RouterLink
           to="/finance/credits"
-          class="mt-2 flex min-h-11 items-center gap-3 rounded-xl border border-stone-200 px-3 py-2.5 transition-colors hover:bg-stone-50 active:scale-[0.97]"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
         >
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
             <i class="bi bi-piggy-bank text-xl" aria-hidden="true"></i>
           </span>
           <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-bold text-stone-700">เงินรับล่วงหน้า</span>
-            <span class="block truncate text-xs text-stone-500">
+            <span class="block truncate text-sm font-bold text-ink-2">เงินรับล่วงหน้า</span>
+            <span class="block truncate text-xs text-ink-3">
               เครดิตคงเหลือรายคน · หักปิดบิล · ยังไม่นับเป็นรายได้จนกว่าจะหัก
             </span>
           </span>
-          <i class="bi bi-chevron-right shrink-0 text-stone-500" aria-hidden="true"></i>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </RouterLink>
       </div>
 
@@ -609,12 +608,12 @@ watch([selectedMonth, selectedYear], () => {
             <div
               v-for="acc in accounts"
               :key="acc.id"
-              class="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3.5"
+              class="flex min-w-0 items-center justify-between gap-3 rounded-control border border-line bg-canvas p-3.5"
             >
-              <p class="min-w-0 truncate font-display text-base font-bold text-stone-900">
+              <p class="min-w-0 truncate text-base font-bold text-ink">
                 {{ acc.account_name }}
               </p>
-              <p class="num shrink-0 font-display text-base font-bold text-brand-700">
+              <p class="num shrink-0 text-base font-bold text-brand-700">
                 ฿ {{ formatNumber(acc.balance) }}
               </p>
             </div>
@@ -624,7 +623,7 @@ watch([selectedMonth, selectedYear], () => {
         <!-- สัดส่วนรายจ่าย -->
         <div class="page-card flex flex-col p-4 sm:p-5">
           <h2 class="section-title mb-4 flex items-center gap-2">
-            <i class="bi bi-pie-chart text-stone-500" aria-hidden="true"></i>
+            <i class="bi bi-pie-chart text-ink-3" aria-hidden="true"></i>
             สัดส่วนรายจ่าย
           </h2>
           <div class="relative h-[240px] w-full sm:h-[280px]">
@@ -633,8 +632,8 @@ watch([selectedMonth, selectedYear], () => {
               v-if="!summary?.expense_breakdown.length"
               class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
             >
-              <i class="bi bi-cup-hot mb-1 text-3xl text-stone-300" aria-hidden="true"></i>
-              <p class="text-xs font-bold text-stone-500">ยังไม่มีรายจ่าย</p>
+              <i class="bi bi-cup-hot mb-1 text-3xl text-line" aria-hidden="true"></i>
+              <p class="text-xs font-bold text-ink-3">ยังไม่มีรายจ่าย</p>
             </div>
             <div class="h-full w-full">
               <Doughnut :data="chartData" :options="chartOptions" />

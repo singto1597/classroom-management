@@ -97,7 +97,7 @@ const WORKER_MESSAGE: Record<WorkerState, { icon: string; title: string; hint: s
     icon: 'bi-question-circle-fill',
     title: 'ยังไม่ทราบสถานะตัวส่ง',
     hint: 'ยังไม่ได้รับรายงานจากตัวส่ง — ถ้าแจ้งเตือนบนมือถือไม่เข้า ให้แจ้งผู้ดูแลระบบ',
-    box: 'border-stone-200 bg-stone-50',
+    box: 'border-line bg-canvas',
   },
 };
 
@@ -112,15 +112,15 @@ const workerHint = computed(() => {
 
 <template>
   <section class="page-card p-4 sm:p-6">
-    <div class="flex items-start gap-3 border-b border-stone-100 pb-3 sm:pb-4">
+    <div class="flex items-start gap-3 border-b border-line pb-3 sm:pb-4">
       <div
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700"
       >
         <i class="bi bi-bar-chart-line-fill text-base" aria-hidden="true"></i>
       </div>
       <div class="min-w-0 flex-1">
         <h2 class="section-title">สถานะการส่งแจ้งเตือน</h2>
-        <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
+        <p class="mt-0.5 text-xs leading-relaxed text-ink-3">
           คิวของห้องนี้ และรอบล่าสุดของตัวส่ง (ใช้ร่วมทุกห้อง) — สำหรับผู้ดูแลเท่านั้น
         </p>
       </div>
@@ -142,30 +142,30 @@ const workerHint = computed(() => {
 
     <div v-else-if="stats" class="mt-3 space-y-4 sm:mt-4">
       <!-- สถานะของตัวส่ง — ต้องมาก่อนตัวเลข เพื่อไม่ให้อ่านตัวเลขผิดความหมาย -->
-      <div class="flex items-start gap-3 rounded-xl border px-3.5 py-3" :class="workerMessage.box">
+      <div class="flex items-start gap-3 rounded-control border px-3.5 py-3" :class="workerMessage.box">
         <i :class="['bi', workerMessage.icon, 'mt-0.5 text-base']" aria-hidden="true"></i>
         <div class="min-w-0">
-          <p class="text-sm font-bold text-stone-800">{{ workerMessage.title }}</p>
-          <p class="mt-0.5 text-xs leading-relaxed text-stone-600">{{ workerHint }}</p>
+          <p class="text-sm font-bold text-ink">{{ workerMessage.title }}</p>
+          <p class="mt-0.5 text-xs leading-relaxed text-ink-2">{{ workerHint }}</p>
         </div>
       </div>
 
       <!-- ตัวเลขคิวของห้องนี้ -->
       <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <div class="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
-          <p class="text-[11px] font-bold text-stone-500">ส่งสำเร็จ (24 ชม.)</p>
+        <div class="rounded-control border border-line bg-canvas px-3 py-2.5">
+          <p class="text-xs font-bold text-ink-3">ส่งสำเร็จ (24 ชม.)</p>
           <p class="num mt-0.5 text-xl font-bold text-ok-700">{{ stats.queue.sent_24h }}</p>
         </div>
-        <div class="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
-          <p class="text-[11px] font-bold text-stone-500">รอส่ง</p>
-          <p class="num mt-0.5 text-xl font-bold text-stone-800">{{ stats.queue.pending }}</p>
+        <div class="rounded-control border border-line bg-canvas px-3 py-2.5">
+          <p class="text-xs font-bold text-ink-3">รอส่ง</p>
+          <p class="num mt-0.5 text-xl font-bold text-ink">{{ stats.queue.pending }}</p>
         </div>
-        <div class="rounded-xl border border-warn-200 bg-warn-50 px-3 py-2.5">
-          <p class="text-[11px] font-bold text-warn-700">จะลองใหม่</p>
+        <div class="rounded-control border border-warn-200 bg-warn-50 px-3 py-2.5">
+          <p class="text-xs font-bold text-warn-700">จะลองใหม่</p>
           <p class="num mt-0.5 text-xl font-bold text-warn-700">{{ stats.queue.retry }}</p>
         </div>
-        <div class="rounded-xl border border-danger-200 bg-danger-50 px-3 py-2.5">
-          <p class="text-[11px] font-bold text-danger-700">ยอมแพ้แล้ว</p>
+        <div class="rounded-control border border-danger-200 bg-danger-50 px-3 py-2.5">
+          <p class="text-xs font-bold text-danger-700">ยอมแพ้แล้ว</p>
           <p class="num mt-0.5 text-xl font-bold text-danger-700">{{ gaveUp }}</p>
         </div>
       </div>
@@ -177,7 +177,7 @@ const workerHint = computed(() => {
         รอนานที่สุด <span class="num font-bold">{{ formatAge(stats.queue.oldest_due_seconds) }}</span>
       </p>
 
-      <p v-if="gaveUp > 0" class="text-xs leading-relaxed text-stone-600">
+      <p v-if="gaveUp > 0" class="text-xs leading-relaxed text-ink-2">
         <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
         "ยอมแพ้" คือเลิกส่งแล้วจริง ๆ — แยกเป็นครบจำนวนครั้ง
         <span class="num font-bold">{{ stats.queue.dropped }}</span> รายการ
@@ -187,46 +187,46 @@ const workerHint = computed(() => {
       </p>
 
       <!-- รอบล่าสุดของ worker — ทั้งระบบ -->
-      <div class="rounded-xl border border-stone-200 px-3.5 py-3">
-        <p class="text-xs font-bold text-stone-700">
+      <div class="rounded-control border border-line px-3.5 py-3">
+        <p class="text-xs font-bold text-ink-2">
           รอบล่าสุดของตัวส่ง
-          <span class="font-normal text-stone-500">— ใช้ร่วมทุกห้อง ไม่ใช่เฉพาะห้องนี้</span>
+          <span class="font-normal text-ink-3">— ใช้ร่วมทุกห้อง ไม่ใช่เฉพาะห้องนี้</span>
         </p>
 
-        <p v-if="!stats.last_round" class="mt-1.5 text-xs leading-relaxed text-stone-500">
+        <p v-if="!stats.last_round" class="mt-1.5 text-xs leading-relaxed text-ink-3">
           <i class="bi bi-dash-circle me-1" aria-hidden="true"></i>
           ยังไม่ได้รับรายงานรอบล่าสุด — ไม่ได้หมายความว่าไม่มีอะไรถูกส่ง
         </p>
 
         <template v-else>
-          <p class="mt-1 text-[11px] font-bold text-stone-500">
+          <p class="mt-1 text-xs font-bold text-ink-3">
             {{ formatThaiDateTime(stats.last_round.at) }} น.
           </p>
           <dl class="mt-2 grid grid-cols-3 gap-y-2 text-xs sm:grid-cols-5">
             <div>
-              <dt class="text-stone-500">หยิบมา</dt>
-              <dd class="num font-bold text-stone-800">{{ stats.last_round.claimed }}</dd>
+              <dt class="text-ink-3">หยิบมา</dt>
+              <dd class="num font-bold text-ink">{{ stats.last_round.claimed }}</dd>
             </div>
             <div>
-              <dt class="text-stone-500">สำเร็จ</dt>
+              <dt class="text-ink-3">สำเร็จ</dt>
               <dd class="num font-bold text-ok-700">{{ stats.last_round.sent }}</dd>
             </div>
             <div>
-              <dt class="text-stone-500">ลองใหม่</dt>
+              <dt class="text-ink-3">ลองใหม่</dt>
               <dd class="num font-bold text-warn-700">{{ stats.last_round.retry }}</dd>
             </div>
             <div>
-              <dt class="text-stone-500">งดรบกวน</dt>
-              <dd class="num font-bold text-stone-800">{{ stats.last_round.deferred }}</dd>
+              <dt class="text-ink-3">งดรบกวน</dt>
+              <dd class="num font-bold text-ink">{{ stats.last_round.deferred }}</dd>
             </div>
             <div>
-              <dt class="text-stone-500">ทิ้ง/หมดอายุ</dt>
+              <dt class="text-ink-3">ทิ้ง/หมดอายุ</dt>
               <dd class="num font-bold text-danger-700">
                 {{ stats.last_round.dropped + stats.last_round.stale }}
               </dd>
             </div>
           </dl>
-          <p class="mt-2 text-[11px] leading-relaxed text-stone-500">
+          <p class="mt-2 text-xs leading-relaxed text-ink-3">
             "งดรบกวน" = เลื่อนการส่งออกไปโดยยังไม่นับเป็นการลองที่ล้มเหลว —
             เกิดจากช่วงงดรบกวนของห้อง ไม่ใช่ความผิดพลาด
           </p>

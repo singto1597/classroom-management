@@ -7,8 +7,6 @@ import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import type { Student } from '@/types/student';
-import Swal from 'sweetalert2';
-import { UI_COLOR } from '@/constants/theme'
 
 // Types
 interface DepartmentNode {
@@ -103,12 +101,7 @@ const fetchStudents = async () => {
     const data = await StudentService.getStudents(roomId);
     students.value = Array.isArray(data) ? data : [];
   } catch {
-    Swal.fire({
-      icon: 'error',
-      title: 'โหลดข้อมูลไม่สำเร็จ',
-      text: 'ไม่สามารถดึงข้อมูลรายชื่อนักเรียนได้',
-      confirmButtonColor: UI_COLOR.brand
-    });
+    // หน้าแสดง StateBlock พร้อมปุ่มลองใหม่แล้ว — ไม่ต้องเด้งกล่องซ้ำบนหน้าจอ
     hasError.value = true;
   } finally {
     isLoading.value = false;
@@ -163,35 +156,35 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
       <li class="flex gap-3 sm:gap-4">
         <div class="flex flex-col items-center" aria-hidden="true">
           <span class="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-700"></span>
-          <span class="mt-1 w-px flex-1 bg-stone-200"></span>
+          <span class="mt-1 w-px flex-1 bg-line"></span>
         </div>
 
         <div class="min-w-0 flex-1 pb-4">
-          <p class="mb-1.5 text-[11px] font-bold text-stone-500">หัวหน้าห้องเรียน</p>
+          <p class="mb-1.5 text-xs font-bold text-ink-3">หัวหน้าห้องเรียน</p>
 
           <RouterLink
             v-if="president"
             :to="getStudentLink(president)"
-            class="card-hover flex items-center gap-3 rounded-xl border border-stone-100 bg-stone-50/60 p-3"
+            class="card-hover flex items-center gap-3 rounded-control border border-line bg-canvas p-3"
           >
             <div
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl"
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-xl"
               :class="getThemeClasses('amber', 'iconBg')"
             >
               <i class="bi bi-award-fill" aria-hidden="true"></i>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="truncate font-bold text-stone-900">{{ displayName(president) }}</p>
-              <p class="num mt-0.5 truncate text-xs text-stone-500">
+              <p class="truncate font-bold text-ink">{{ displayName(president) }}</p>
+              <p class="num mt-0.5 truncate text-xs text-ink-3">
                 เลขที่ {{ president.student_no }}
               </p>
             </div>
-            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
           </RouterLink>
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
+            class="flex items-center gap-2 rounded-control border border-line bg-canvas px-3 py-2 text-xs font-bold text-ink-3"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             หัวหน้าห้อง · ว่าง
@@ -203,33 +196,33 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
       <li class="flex gap-3 sm:gap-4">
         <div class="flex flex-col items-center" aria-hidden="true">
           <span class="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-700"></span>
-          <span class="mt-1 w-px flex-1 bg-stone-200"></span>
+          <span class="mt-1 w-px flex-1 bg-line"></span>
         </div>
 
         <div class="min-w-0 flex-1 pb-4">
-          <p class="mb-1.5 text-[11px] font-bold text-stone-500">คณะบริหาร</p>
+          <p class="mb-1.5 text-xs font-bold text-ink-3">คณะบริหาร</p>
 
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <template v-for="slot in execSlots" :key="slot.role">
               <RouterLink
                 v-if="slot.student"
                 :to="getStudentLink(slot.student)"
-                class="card-hover flex items-center gap-3 rounded-xl border border-stone-100 bg-stone-50/60 p-3"
+                class="card-hover flex items-center gap-3 rounded-control border border-line bg-canvas p-3"
               >
                 <div
-                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base"
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-base"
                   :class="getThemeClasses(slot.config.theme, 'iconBg')"
                 >
                   <i :class="`bi ${slot.config.icon}`" aria-hidden="true"></i>
                 </div>
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-[11px] font-bold text-stone-500">
+                  <p class="truncate text-xs font-bold text-ink-3">
                     {{ slot.config.label }}
                   </p>
-                  <p class="truncate text-sm font-bold text-stone-900">
+                  <p class="truncate text-sm font-bold text-ink">
                     {{ displayName(slot.student) }}
                   </p>
-                  <p class="num truncate text-xs text-stone-500">
+                  <p class="num truncate text-xs text-ink-3">
                     เลขที่ {{ slot.student.student_no }}
                   </p>
                 </div>
@@ -237,7 +230,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
               <div
                 v-else
-                class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
+                class="flex items-center gap-2 rounded-control border border-line bg-canvas px-3 py-2 text-xs font-bold text-ink-3"
               >
                 <i class="bi bi-dash-circle" aria-hidden="true"></i>
                 {{ slot.config.label }} · ว่าง
@@ -251,7 +244,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
       <li v-for="dept in departments" :key="dept.role" class="flex gap-3 sm:gap-4">
         <div class="flex flex-col items-center" aria-hidden="true">
           <span class="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-700"></span>
-          <span class="mt-1 w-px flex-1 bg-stone-200"></span>
+          <span class="mt-1 w-px flex-1 bg-line"></span>
         </div>
 
         <div class="min-w-0 flex-1 pb-4">
@@ -259,27 +252,27 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
           <RouterLink
             v-if="dept.head"
             :to="getStudentLink(dept.head)"
-            class="card-hover flex items-center gap-3 rounded-xl border border-stone-100 bg-stone-50/60 p-3"
+            class="card-hover flex items-center gap-3 rounded-control border border-line bg-canvas p-3"
           >
             <div
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg"
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-control text-lg"
               :class="getThemeClasses(dept.colorTheme, 'iconBg')"
             >
               <i :class="`bi ${dept.icon}`" aria-hidden="true"></i>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="truncate text-[11px] font-bold text-stone-500">
+              <p class="truncate text-xs font-bold text-ink-3">
                 {{ rolesConfig[dept.role]?.label || dept.label }}
               </p>
-              <p class="truncate font-bold text-stone-900">{{ displayName(dept.head) }}</p>
-              <p class="num truncate text-xs text-stone-500">เลขที่ {{ dept.head.student_no }}</p>
+              <p class="truncate font-bold text-ink">{{ displayName(dept.head) }}</p>
+              <p class="num truncate text-xs text-ink-3">เลขที่ {{ dept.head.student_no }}</p>
             </div>
-            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
           </RouterLink>
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
+            class="flex items-center gap-2 rounded-control border border-line bg-canvas px-3 py-2 text-xs font-bold text-ink-3"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             {{ rolesConfig[dept.role]?.label || dept.label }} · ว่าง
@@ -288,25 +281,25 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
           <!-- กรรมการในฝ่าย (ซ้อนใต้หัวหน้าฝ่าย) -->
           <div
             v-if="dept.staffs.length > 0"
-            class="mt-2 space-y-1.5 border-s border-stone-200 ps-3 sm:ps-4"
+            class="mt-2 space-y-1.5 border-s border-line ps-3 sm:ps-4"
           >
             <RouterLink
               v-for="staff in dept.staffs"
               :key="staff.id"
               :to="getStudentLink(staff)"
-              class="flex items-center gap-3 rounded-xl border border-stone-200 px-3 py-2 transition-colors hover:border-stone-300 hover:bg-stone-50 active:scale-[0.99]"
+              class="flex items-center gap-3 rounded-control border border-line px-3 py-2 transition-colors hover:border-ink-3/40 hover:bg-canvas active:scale-[0.99]"
             >
               <span
-                class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-xs font-bold text-stone-600"
+                class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-canvas text-xs font-bold text-ink-2"
               >
                 {{ staff.student_no }}
               </span>
               <div class="min-w-0 flex-1">
-                <p class="truncate text-xs text-stone-900">
+                <p class="truncate text-xs text-ink">
                   <span class="font-bold">{{ displayName(staff) }}</span>
                   <span
                     v-if="personDisplayName(staff) !== displayName(staff)"
-                    class="text-stone-500"
+                    class="text-ink-3"
                   >· {{ personDisplayName(staff) }}</span>
                 </p>
               </div>
@@ -322,29 +315,29 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
         </div>
 
         <div class="min-w-0 flex-1">
-          <p class="mb-1.5 text-[11px] font-bold text-stone-500">เหรัญญิก</p>
+          <p class="mb-1.5 text-xs font-bold text-ink-3">เหรัญญิก</p>
 
           <RouterLink
             v-if="treasurer"
             :to="getStudentLink(treasurer)"
-            class="card-hover flex items-center gap-3 rounded-xl border border-stone-100 bg-stone-50/60 p-3"
+            class="card-hover flex items-center gap-3 rounded-control border border-line bg-canvas p-3"
           >
             <div
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg"
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-control text-lg"
               :class="getThemeClasses('amber', 'iconBg')"
             >
               <i class="bi bi-safe2-fill" aria-hidden="true"></i>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="truncate font-bold text-stone-900">{{ displayName(treasurer) }}</p>
-              <p class="num truncate text-xs text-stone-500">เลขที่ {{ treasurer.student_no }}</p>
+              <p class="truncate font-bold text-ink">{{ displayName(treasurer) }}</p>
+              <p class="num truncate text-xs text-ink-3">เลขที่ {{ treasurer.student_no }}</p>
             </div>
-            <i class="bi bi-chevron-right shrink-0 text-stone-300" aria-hidden="true"></i>
+            <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
           </RouterLink>
 
           <div
             v-else
-            class="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-xs font-bold text-stone-500"
+            class="flex items-center gap-2 rounded-control border border-line bg-canvas px-3 py-2 text-xs font-bold text-ink-3"
           >
             <i class="bi bi-dash-circle" aria-hidden="true"></i>
             ตำแหน่งว่าง

@@ -2,7 +2,7 @@
 /**
  * 👥 ParticipantRosterList — รายชื่อผู้เข้าร่วม/นักเรียนแบบการ์ด (ตามแบบ StudentList.vue)
  * ใช้ร่วมทั้งหน้าแก้ไขกิจกรรม (ActivityForm) และหน้ารายละเอียด (ActivityDetail)
- * - การ์ด rounded-2xl: badge เลขที่ + ชื่อ/status dot/ชื่อเล่น + หน้าที่/ตำแหน่ง + หมายเหตุ
+ * - การ์ด rounded-card: badge เลขที่ + ชื่อ/status dot/ชื่อเล่น + หน้าที่/ตำแหน่ง + หมายเหตุ
  * - Search ชื่อ/เลขที่/ชื่อเล่น
  * - Toolbar: ตั้งค่าแบบกลุ่ม (เมื่อมีการติ๊ก) / เลือกทั้งหมด / ล้าง
  *
@@ -95,7 +95,7 @@ const statusDot = (status: string) => {
 const actionClass = (status: string) => {
   if (status === 'attended') return 'bg-ok-50 text-ok-700 border-ok-200'
   if (status === 'cancelled') return 'bg-danger-50 text-danger-700 border-danger-200'
-  return 'bg-white text-stone-500 border-stone-200 hover:border-ok-300 hover:text-ok-700'
+  return 'bg-surface text-ink-3 border-line hover:border-ok-300 hover:text-ok-700'
 }
 
 /** ป้ายปุ่มเช็คอิน — "มาแล้ว" เมื่อ attend แล้ว, "ยังไม่มา" เมื่อยังไม่เช็คอิน */
@@ -161,7 +161,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
     <div class="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="relative w-full md:max-w-xs md:flex-1">
         <span
-          class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 text-stone-500"
+          class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 text-ink-3"
         >
           <i class="bi bi-search" aria-hidden="true"></i>
         </span>
@@ -247,16 +247,16 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                   />
                 </td>
 
-                <td class="num font-bold text-stone-700">{{ item.student_no }}</td>
+                <td class="num font-bold text-ink-2">{{ item.student_no }}</td>
 
                 <td>
                   <div class="min-w-0">
-                    <p class="truncate font-bold text-stone-900">
+                    <p class="truncate font-bold text-ink">
                       {{ item.prefix ? item.prefix + ' ' : '' }}{{ displayName(item) }}
                     </p>
                     <p
                       v-if="item.nickname || item.nickname_en"
-                      class="truncate text-[11px] text-stone-500"
+                      class="truncate text-xs text-ink-3"
                     >
                       {{ item.nickname || item.nickname_en }}
                     </p>
@@ -264,7 +264,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                 </td>
 
                 <td>
-                  <span class="chip bg-stone-100 text-stone-600">
+                  <span class="chip bg-canvas text-ink-2">
                     <span
                       class="h-1.5 w-1.5 shrink-0 rounded-full"
                       :class="statusDot(item.status)"
@@ -280,7 +280,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                     <span v-if="dutyOf(item).position" class="chip bg-brand-50 text-brand-700">
                       <i class="bi bi-diagram-3" aria-hidden="true"></i> {{ dutyOf(item).position }}
                     </span>
-                    <span v-else class="text-stone-500">—</span>
+                    <span v-else class="text-ink-3">—</span>
                   </template>
                   <select
                     v-else
@@ -303,10 +303,10 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                 <!-- หมายเหตุ -->
                 <td>
                   <template v-if="readOnly || hideDutyEditor">
-                    <span v-if="dutyOf(item).note" class="text-stone-600">{{
+                    <span v-if="dutyOf(item).note" class="text-ink-2">{{
                       dutyOf(item).note
                     }}</span>
-                    <span v-else class="text-stone-500">—</span>
+                    <span v-else class="text-ink-3">—</span>
                   </template>
                   <input
                     v-else
@@ -319,7 +319,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                   />
                 </td>
 
-                <td class="num text-right font-bold text-stone-700">
+                <td class="num text-right font-bold text-ink-2">
                   {{ item.earned_hours > 0 ? item.earned_hours : '—' }}
                 </td>
 
@@ -330,7 +330,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                       v-if="showStatusToggle"
                       type="button"
                       @click="emit('toggleStatus', item.key)"
-                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors active:scale-[0.97]"
+                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-control border px-2.5 py-1.5 text-xs font-bold transition-colors active:scale-[0.97]"
                       :class="actionClass(item.status)"
                     >
                       <i
@@ -348,7 +348,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                       @click="emit('openInfo', item.key)"
                       :disabled="isDisabled(item)"
                       title="ข้อมูลเพิ่มเติม"
-                      class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-stone-600 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97]"
+                      class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-xs font-bold text-ink-2 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97]"
                     >
                       <i class="bi bi-info-circle" aria-hidden="true"></i> ข้อมูลเพิ่มเติม
                     </button>
@@ -357,7 +357,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                       v-if="showRemove && (!readOnly || canManage)"
                       type="button"
                       @click="emit('remove', item.key)"
-                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
+                      class="inline-flex shrink-0 items-center justify-center gap-1 rounded-control px-2.5 py-1.5 text-xs font-bold text-ink-3 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
                     >
                       <i class="bi bi-trash3" aria-hidden="true"></i> นำออก
                     </button>
@@ -398,7 +398,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 
             <!-- เลขที่ badge (เล็กลงบนมือถือ ให้ชื่อมีที่) -->
             <div
-              class="num flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-stone-50 text-sm font-bold text-stone-600 transition-colors sm:h-12 sm:w-12 sm:text-lg"
+              class="num flex h-10 w-10 shrink-0 items-center justify-center rounded-control border border-line bg-canvas text-sm font-bold text-ink-2 transition-colors sm:h-12 sm:w-12 sm:text-lg"
               :class="
                 readOnly
                   ? 'group-hover:border-brand-200 group-hover:bg-brand-50 group-hover:text-brand-700'
@@ -416,16 +416,16 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                   :class="statusDot(item.status)"
                   aria-hidden="true"
                 ></span>
-                <p class="truncate text-sm font-bold text-stone-900 sm:text-[15px]">
+                <p class="truncate text-sm font-bold text-ink sm:text-[15px]">
                   {{ item.prefix ? item.prefix + ' ' : '' }}{{ displayName(item) }}
                 </p>
               </div>
-              <div class="flex items-center gap-1.5 text-[11px] text-stone-500 sm:text-xs">
+              <div class="flex items-center gap-1.5 text-xs text-ink-3 sm:text-xs">
                 <span v-if="item.nickname || item.nickname_en" class="truncate">{{
                   item.nickname || item.nickname_en
                 }}</span>
                 <template v-if="item.earned_hours > 0">
-                  <span class="text-stone-300">•</span>
+                  <span class="text-ink-3">•</span>
                   <span class="num whitespace-nowrap font-bold text-ok-600"
                     >{{ item.earned_hours }} ชม.</span
                   >
@@ -438,7 +438,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="readOnly && showStatusToggle"
               type="button"
               @click.stop="emit('toggleStatus', item.key)"
-              class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-lg border px-3 py-2 text-xs font-bold transition-colors active:scale-[0.97] sm:text-[11px]"
+              class="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-control border px-3 py-2 text-xs font-bold transition-colors active:scale-[0.97] sm:text-xs"
               :class="actionClass(item.status)"
             >
               <i
@@ -457,10 +457,10 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               :disabled="isDisabled(item)"
               title="ข้อมูลเพิ่มเติม"
               aria-label="ข้อมูลเพิ่มเติม"
-              class="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-stone-200 bg-white text-stone-600 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97] sm:h-auto sm:w-auto sm:px-3 sm:py-2"
+              class="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-control border border-line bg-surface text-ink-2 transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:pointer-events-none disabled:opacity-40 active:scale-[0.97] sm:h-auto sm:w-auto sm:px-3 sm:py-2"
             >
               <i class="bi bi-info-circle" aria-hidden="true"></i>
-              <span class="hidden text-[11px] font-bold sm:inline">ข้อมูลเพิ่มเติม</span>
+              <span class="hidden text-xs font-bold sm:inline">ข้อมูลเพิ่มเติม</span>
             </button>
 
             <!-- เมนูจุด 3 จุด (readOnly: "นำออก" ซ่อนไว้ที่นี่ แบบ StudentList) -->
@@ -468,7 +468,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               <button
                 type="button"
                 @click.stop="toggleMenu(item.key, $event)"
-                class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
+                class="flex h-11 w-11 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-canvas hover:text-ink-2"
                 aria-label="เมนูเพิ่มเติม"
               >
                 <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
@@ -477,7 +477,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               <transition name="fade">
                 <div
                   v-if="openMenu === item.key"
-                  class="absolute end-0 top-11 z-20 w-36 origin-top-right overflow-hidden rounded-xl border border-stone-200 bg-white py-1 shadow-[0_10px_30px_-14px_rgba(28,25,23,0.28)]"
+                  class="absolute end-0 top-11 z-20 w-36 origin-top-right overflow-hidden rounded-control border border-line bg-surface py-1 shadow-sheet"
                 >
                   <button
                     type="button"
@@ -497,7 +497,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
             <span v-if="dutyOf(item).position" class="chip bg-brand-50 text-brand-700">
               <i class="bi bi-diagram-3" aria-hidden="true"></i> {{ dutyOf(item).position }}
             </span>
-            <span v-if="dutyOf(item).note" class="chip bg-stone-100 text-stone-600">
+            <span v-if="dutyOf(item).note" class="chip bg-canvas text-ink-2">
               {{ dutyOf(item).note }}
             </span>
           </div>
@@ -540,7 +540,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="showStatusToggle"
               type="button"
               @click="emit('toggleStatus', item.key)"
-              class="min-h-11 shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition-colors active:scale-[0.97]"
+              class="min-h-11 shrink-0 rounded-control border px-3 py-2 text-xs font-bold transition-colors active:scale-[0.97]"
               :class="actionClass(item.status)"
             >
               {{ actionLabel(item.status) }}
@@ -549,7 +549,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
               v-if="showRemove"
               type="button"
               @click="emit('remove', item.key)"
-              class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
+              class="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-control px-3 py-2 text-xs font-bold text-ink-3 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
             >
               <i class="bi bi-trash3" aria-hidden="true"></i> นำออก
             </button>

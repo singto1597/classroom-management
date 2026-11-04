@@ -144,7 +144,7 @@ const roles = [
         >
           <div class="max-w-2xl">
             <p
-              class="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-[13px] font-semibold text-ink-2"
+              class="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink-2"
             >
               <span class="h-2 w-2 rounded-full bg-brand" aria-hidden="true"></span>
               ระบบจัดการห้องเรียนครบวงจร
@@ -170,20 +170,20 @@ const roles = [
               <a href="#features" class="btn-ghost-ui h-12 px-6 text-[15px]">ดูฟีเจอร์ทั้งหมด</a>
             </div>
 
-            <p class="mt-5 text-[13px] text-ink-3">
+            <p class="mt-5 text-sm text-ink-3">
               เข้าสู่ระบบด้วย Google หรือ Discord · ฟรีสำหรับห้องเรียน
             </p>
           </div>
 
           <!-- ภาพตัวอย่างหน้าจอ (ไม่ใช่ข้อมูลจริง) -->
           <div class="relative mt-14 lg:mt-0" aria-label="ตัวอย่างหน้าจอระบบ">
-            <p class="mb-3 text-right text-[11px] font-semibold text-ink-3">ตัวอย่างหน้าจอ</p>
+            <p class="mb-3 text-right text-xs font-semibold text-ink-3">ตัวอย่างหน้าจอ</p>
 
             <div class="space-y-3">
               <div class="rounded-card border border-line bg-surface p-4 shadow-sm sm:p-5">
                 <div class="flex items-center justify-between gap-3">
                   <p class="text-sm font-bold text-ink-1">รายชื่อนักเรียน</p>
-                  <span class="rounded-full bg-brand-tint px-2.5 py-1 text-[11px] font-bold text-brand">
+                  <span class="rounded-full bg-brand-tint px-2.5 py-1 text-xs font-bold text-brand">
                     40 คน
                   </span>
                 </div>
@@ -198,8 +198,8 @@ const roles = [
                     >
                       {{ name.charAt(0) }}
                     </span>
-                    <span class="flex-1 text-[13px] font-semibold text-ink-1">{{ name }}</span>
-                    <span class="text-[11px] font-medium text-ink-3">เลขที่ {{ index + 1 }}</span>
+                    <span class="flex-1 text-sm font-semibold text-ink-1">{{ name }}</span>
+                    <span class="text-xs font-medium text-ink-3">เลขที่ {{ index + 1 }}</span>
                   </li>
                 </ul>
               </div>
@@ -211,13 +211,13 @@ const roles = [
                   <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-canvas">
                     <div class="h-full w-3/4 rounded-full bg-brand"></div>
                   </div>
-                  <p class="mt-2 text-[11px] font-medium text-ink-3">ส่งแล้ว 30 จาก 40 คน</p>
+                  <p class="mt-2 text-xs font-medium text-ink-3">ส่งแล้ว 30 จาก 40 คน</p>
                 </div>
 
                 <div class="rounded-card border border-line bg-surface p-4 shadow-sm">
                   <p class="text-xs font-semibold text-ink-3">เงินคงเหลือของห้อง</p>
                   <p class="font-display mt-1 text-title-m font-bold text-ink-1">฿ 4,250</p>
-                  <p class="mt-3 flex items-center gap-1.5 text-[11px] font-semibold text-ok-700">
+                  <p class="mt-3 flex items-center gap-1.5 text-xs font-semibold text-ok-700">
                     <i class="bi bi-arrow-down-left" aria-hidden="true"></i>
                     รายรับล่าสุด ฿ 1,200
                   </p>
@@ -232,7 +232,7 @@ const roles = [
       <section id="features" class="scroll-mt-24 border-t border-line bg-surface py-16 lg:py-24">
         <div class="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
           <div class="max-w-2xl">
-            <p class="text-[13px] font-bold text-brand">ฟีเจอร์</p>
+            <p class="text-sm font-bold text-brand">ฟีเจอร์</p>
             <h2 class="font-display mt-2 text-2xl font-bold text-ink-1 sm:text-3xl">
               ทุกงานของห้อง อยู่ในที่เดียว
             </h2>
@@ -260,7 +260,7 @@ const roles = [
       <section id="steps" class="scroll-mt-24 py-16 lg:py-24">
         <div class="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
           <div class="max-w-2xl">
-            <p class="text-[13px] font-bold text-brand">ขั้นตอนการใช้งาน</p>
+            <p class="text-sm font-bold text-brand">ขั้นตอนการใช้งาน</p>
             <h2 class="font-display mt-2 text-2xl font-bold text-ink-1 sm:text-3xl">
               เริ่มใช้ได้ในสามขั้นตอน
             </h2>
@@ -288,7 +288,7 @@ const roles = [
         <div class="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
           <div class="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
             <div>
-              <p class="text-[13px] font-bold text-brand-300">สิทธิ์และความปลอดภัย</p>
+              <p class="text-sm font-bold text-brand-300">สิทธิ์และความปลอดภัย</p>
               <h2 class="font-display mt-2 text-2xl font-bold sm:text-3xl">
                 ทุกคนเห็นเท่าที่ควรเห็น
               </h2>
@@ -317,10 +317,10 @@ const roles = [
               <div
                 v-for="role in roles"
                 :key="role.label"
-                class="rounded-card border border-white/10 bg-white/5 p-5"
+                class="rounded-card border border-white/10 bg-surface/5 p-5"
               >
                 <p class="text-sm font-bold text-white">{{ role.label }}</p>
-                <p class="mt-1.5 text-[13px] leading-relaxed text-white/60">{{ role.desc }}</p>
+                <p class="mt-1.5 text-sm leading-relaxed text-white/60">{{ role.desc }}</p>
               </div>
             </div>
           </div>

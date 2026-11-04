@@ -14,13 +14,15 @@
  *    (การอ่านการเงินของห้องเปิดให้สมาชิกทุกคนโดยเจตนา) ห้ามเปลี่ยนเป็น canManageFinance
  */
 import { computed, onMounted, ref, watch } from 'vue';
-import Swal from 'sweetalert2';
 
 import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import AppTabs from '@/components/ui/AppTabs.vue';
+import type { AppTabItem } from '@/components/ui/AppTabs.vue';
 import PeriodPicker from '@/components/finance/PeriodPicker.vue';
 import StatementTable from '@/components/finance/StatementTable.vue';
+import { useDialog } from '@/composables/useDialog';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
@@ -45,9 +47,9 @@ import type {
   TrialBalance,
   TrialBalanceLedgerRow,
 } from '@/types/finance';
-import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 const currentRoomId = authStore.currentRoomId!;
 
 type StatementTab = 'trial-balance' | 'income-statement' | 'balance-sheet';
@@ -55,12 +57,12 @@ type StatementTab = 'trial-balance' | 'income-statement' | 'balance-sheet';
 const TAB_ORDER: StatementTab[] = ['trial-balance', 'income-statement', 'balance-sheet'];
 
 // Record keyed by tab (ไม่ใช่ array + find) → การเข้าถึงด้วย StatementTab ได้ค่าที่ไม่ใช่ undefined
-const TAB_CONFIG: Record<StatementTab, { label: string; icon: string; modes: PeriodMode[] }> = {
+const TAB_CONFIG: Record<StatementTab, { label: string; modes: PeriodMode[] }> = {
   // งบทดลอง = ยอด ณ วัน → asof (หรือรายเดือน ซึ่งแปลงเป็น "วันสิ้นเดือน" ได้)
-  'trial-balance': { label: 'งบทดลอง', icon: 'bi-list-columns-reverse', modes: ['asof', 'month'] },
+  'trial-balance': { label: 'งบทดลอง', modes: ['asof', 'month'] },
   // งบกำไรขาดทุน = ของ "ช่วง" → range/month เท่านั้น (asof แปลงเป็นช่วงไม่ได้ ห้ามเดา)
-  'income-statement': { label: 'งบกำไรขาดทุน', icon: 'bi-graph-up-arrow', modes: ['month', 'range'] },
-  'balance-sheet': { label: 'งบดุล', icon: 'bi-bank', modes: ['asof', 'month'] },
+  'income-statement': { label: 'งบกำไรขาดทุน', modes: ['month', 'range'] },
+  'balance-sheet': { label: 'งบดุล', modes: ['asof', 'month'] },
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -70,6 +72,11 @@ const TYPE_LABELS: Record<string, string> = {
   revenue: 'รายได้',
   expense: 'ค่าใช้จ่าย',
 };
+
+const tabs: AppTabItem[] = TAB_ORDER.map((tab) => ({
+  value: tab,
+  label: TAB_CONFIG[tab].label,
+}));
 
 const activeTab = ref<StatementTab>('trial-balance');
 const period = ref<PeriodValue>({ mode: 'asof', asOfDate: todayIso() });
@@ -282,6 +289,11 @@ const selectTab = (tab: StatementTab) => {
   }
 };
 
+const setTab = (value: string) => {
+  if (!TAB_ORDER.includes(value as StatementTab)) return;
+  selectTab(value as StatementTab);
+};
+
 // activeTab และ period ถูก watch รวมกัน → แก้ทั้งคู่ในจังหวะเดียว (selectTab) ยังได้ load ครั้งเดียว
 watch([activeTab, period], () => {
   void load();
@@ -307,12 +319,7 @@ const exportExcel = async () => {
     ? `งบการเงิน_${range.startDate}_${range.endDate}.xlsx`
     : `งบการเงิน_${String(monthYear!.month).padStart(2, '0')}-${monthYear!.year + 543}.xlsx`;
 
-  Swal.fire({
-    title: 'กำลังสร้างไฟล์ Excel...',
-    text: 'ระบบกำลังรวบรวมงบการเงินให้คุณ',
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading(),
-  });
+  void dialog.loading('กำลังสร้างไฟล์ Excel...', 'ระบบกำลังรวบรวมงบการเงินให้คุณ');
 
   try {
     const blob = await FinanceService.exportJournalExcel(
@@ -323,25 +330,25 @@ const exportExcel = async () => {
       range?.endDate,
     );
     downloadBlob(blob, filename);
-    Swal.fire({
+    dialog.close();
+    await dialog.fire({
       icon: 'success',
       title: 'สำเร็จ!',
       text: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว',
       timer: 1500,
-      showConfirmButton: false,
     });
   } catch (error) {
     console.error('Export failed:', error);
+    dialog.close();
     // ใช้ข้อความจริงจาก backend — `services/api.ts` คลี่ Blob error body ให้แล้ว
     // (คำขอนี้เป็น `responseType: 'blob'`) ข้อความกลาง ๆ จะกลบสาเหตุจริง เช่น 403 ติดสิทธิ์
-    Swal.fire({
-      icon: 'error',
-      title: 'ส่งออกไม่สำเร็จ',
-      text: error instanceof Error && error.message
+    void dialog.alert(
+      'ส่งออกไม่สำเร็จ',
+      error instanceof Error && error.message
         ? error.message
         : 'ไม่สามารถสร้างไฟล์ Excel ได้ กรุณาลองใหม่อีกครั้ง',
-      confirmButtonColor: UI_COLOR.brand,
-    });
+      'error',
+    );
   } finally {
     isExporting.value = false;
   }
@@ -362,35 +369,19 @@ const exportExcel = async () => {
     </PageIntro>
 
     <!-- แท็บงบ: เส้นใต้บาง (คนละแบบกับสวิตช์โหมดใน PeriodPicker ซึ่งเป็น pill ทึบ) -->
-    <nav
-      class="-mx-4 flex gap-1 overflow-x-auto overscroll-contain border-b border-stone-200 px-4 sm:mx-0 sm:px-0"
-      aria-label="เลือกงบการเงิน"
-    >
-      <button
-        v-for="tab in TAB_ORDER"
-        :key="tab"
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === tab"
-        class="-mb-px flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-bold transition-colors"
-        :class="
-          activeTab === tab
-            ? 'border-brand-700 text-brand-700'
-            : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-900'
-        "
-        @click="selectTab(tab)"
-      >
-        <i class="bi text-base" :class="TAB_CONFIG[tab].icon" aria-hidden="true"></i>
-        {{ TAB_CONFIG[tab].label }}
-      </button>
-    </nav>
+    <AppTabs
+      :model-value="activeTab"
+      :tabs="tabs"
+      group-label="เลือกงบการเงิน"
+      @update:model-value="setTab"
+    />
 
     <PeriodPicker v-model="period" :modes="activeModes" />
 
     <!-- ⚠️ note = ตัวเลขครอบช่วงแคบกว่าที่ผู้ใช้เลือก → ต้องเด่นพอที่จะไม่ถูกอ่านข้าม -->
     <div
       v-if="activeNote"
-      class="flex items-start gap-2.5 rounded-2xl border border-warn-200 bg-warn-50 p-3.5 sm:p-4"
+      class="flex items-start gap-2.5 rounded-card border border-warn-200 bg-warn-50 p-3.5 sm:p-4"
       role="status"
     >
       <i class="bi bi-exclamation-triangle-fill mt-0.5 shrink-0 text-warn-600" aria-hidden="true"></i>
@@ -421,25 +412,25 @@ const exportExcel = async () => {
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <template v-if="activeTab === 'trial-balance' && trialBalance">
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">รวมเดบิต</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
+            <p class="text-caption font-bold text-ink-3">รวมเดบิต</p>
+            <p class="num mt-2 break-words text-lg font-bold text-ink sm:text-2xl">
               {{ formatMoney(trialBalance.total_debit) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">รวมเครดิต</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
+            <p class="text-caption font-bold text-ink-3">รวมเครดิต</p>
+            <p class="num mt-2 break-words text-lg font-bold text-ink sm:text-2xl">
               {{ formatMoney(trialBalance.total_credit) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">จำนวนบัญชี</p>
-            <p class="font-display num mt-2 text-lg font-bold text-stone-900 sm:text-2xl">
+            <p class="text-caption font-bold text-ink-3">จำนวนบัญชี</p>
+            <p class="num mt-2 text-lg font-bold text-ink sm:text-2xl">
               {{ trialBalance.ledgers.length }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">สถานะ</p>
+            <p class="text-caption font-bold text-ink-3">สถานะ</p>
             <p class="mt-2">
               <span
                 class="chip"
@@ -462,54 +453,54 @@ const exportExcel = async () => {
 
         <template v-else-if="activeTab === 'income-statement' && incomeStatement">
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">รายได้รวม</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-ok-600 sm:text-2xl">
+            <p class="text-caption font-bold text-ink-3">รายได้รวม</p>
+            <p class="num mt-2 break-words text-lg font-bold text-ok-600 sm:text-2xl">
               {{ formatMoney(incomeStatement.total_revenue) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">ค่าใช้จ่ายรวม</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-danger-600 sm:text-2xl">
+            <p class="text-caption font-bold text-ink-3">ค่าใช้จ่ายรวม</p>
+            <p class="num mt-2 break-words text-lg font-bold text-danger-600 sm:text-2xl">
               {{ formatMoney(incomeStatement.total_expense) }}
             </p>
           </div>
           <div class="page-card p-3.5 border-s-4 border-s-brand-700 sm:p-5 lg:col-span-2">
-            <p class="text-[11px] font-bold text-stone-500">
+            <p class="text-caption font-bold text-ink-3">
               กำไร (ขาดทุน) สุทธิ
             </p>
             <p
-              class="font-display num mt-2 break-words text-lg font-bold sm:text-2xl"
-              :class="incomeStatement.net_income < 0 ? 'text-danger-600' : 'text-stone-900'"
+              class="num mt-2 break-words text-lg font-bold sm:text-2xl"
+              :class="incomeStatement.net_income < 0 ? 'text-danger-600' : 'text-ink'"
             >
               {{ formatMoney(incomeStatement.net_income) }}
             </p>
-            <p class="mt-1 text-xs font-bold text-stone-500">{{ periodCaption }}</p>
+            <p class="mt-1 text-xs font-bold text-ink-3">{{ periodCaption }}</p>
           </div>
         </template>
 
         <template v-else-if="balanceSheet">
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">สินทรัพย์รวม</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
+            <p class="text-caption font-bold text-ink-3">สินทรัพย์รวม</p>
+            <p class="num mt-2 break-words text-lg font-bold text-ink sm:text-2xl">
               {{ formatMoney(balanceSheet.assets_total) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">หนี้สินรวม</p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
+            <p class="text-caption font-bold text-ink-3">หนี้สินรวม</p>
+            <p class="num mt-2 break-words text-lg font-bold text-ink sm:text-2xl">
               {{ formatMoney(balanceSheet.liability_total) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">
+            <p class="text-caption font-bold text-ink-3">
               ส่วนของเจ้าของ
             </p>
-            <p class="font-display num mt-2 break-words text-lg font-bold text-stone-900 sm:text-2xl">
+            <p class="num mt-2 break-words text-lg font-bold text-ink sm:text-2xl">
               {{ formatMoney(balanceSheet.total_equity_side) }}
             </p>
           </div>
           <div class="page-card p-3.5 sm:p-5">
-            <p class="text-[11px] font-bold text-stone-500">สถานะ</p>
+            <p class="text-caption font-bold text-ink-3">สถานะ</p>
             <p class="mt-2">
               <span
                 class="chip"
@@ -525,7 +516,7 @@ const exportExcel = async () => {
                 {{ balanceSheet.is_balanced ? 'สมดุล' : 'ไม่สมดุล' }}
               </span>
             </p>
-            <p class="num mt-1.5 text-xs font-bold text-stone-500">
+            <p class="num mt-1.5 text-xs font-bold text-ink-3">
               กำไรของงวด {{ formatMoney(balanceSheet.period_net_income) }}
             </p>
           </div>
@@ -533,11 +524,11 @@ const exportExcel = async () => {
       </div>
 
       <div class="page-card overflow-hidden">
-        <div class="flex flex-col gap-1.5 border-b border-stone-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div class="flex flex-col gap-1.5 border-b border-line p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <h2 class="section-title min-w-0 truncate">
             {{ activeTabConfig.label }}
           </h2>
-          <p class="min-w-0 truncate text-xs font-bold text-stone-500">{{ periodCaption }}</p>
+          <p class="min-w-0 truncate text-xs font-bold text-ink-3">{{ periodCaption }}</p>
         </div>
 
         <StatementTable :rows="activeRows" :columns="activeColumns" />

@@ -3,17 +3,17 @@ import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import type { Debtor, Account, StudentDebtItem, InvoiceBatchIssueResult } from '@/types/finance'
-import { escapeHtml } from '@/utils/html'
 import { createLatestGuard } from '@/utils/latest'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
-import Swal from 'sweetalert2'
 
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
-import { UI_COLOR } from '@/constants/theme'
+import AppSheet from '@/components/ui/AppSheet.vue'
+import { useDialog } from '@/composables/useDialog'
 
 const authStore = useAuthStore()
+const dialog = useDialog()
 const currentServerId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
 const isAdmin = computed(() => authStore.isAdmin)
@@ -82,7 +82,7 @@ const fetchDebtors = async () => {
     // คำขอเก่าที่ล้มไม่ควรขึ้นจอ ถ้าคำขอใหม่กว่าไปถึงแล้ว
     if (!listGuard.isCurrent(token)) return
     hasError.value = true
-    Swal.fire('เกิดข้อผิดพลาด', 'โหลดข้อมูลลูกหนี้ไม่สำเร็จ', 'error')
+    void dialog.alert('เกิดข้อผิดพลาด', 'โหลดข้อมูลลูกหนี้ไม่สำเร็จ', 'error')
   } finally {
     if (listGuard.isCurrent(token)) isLoading.value = false
   }
@@ -91,7 +91,7 @@ const fetchDebtors = async () => {
 const handleClearDebt = async (debtor: Debtor) => {
   // ดักฝั่ง Script: ป้องกันคนกดเรียกฟังก์ชันข้าม UI
   if (!isAdmin.value) {
-    Swal.fire('ไม่มีสิทธิ์เข้าถึง', 'เฉพาะแอดมินเท่านั้นที่สามารถเคลียร์หนี้ได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์เข้าถึง', 'เฉพาะแอดมินเท่านั้นที่สามารถเคลียร์หนี้ได้', 'error')
     return
   }
 
@@ -132,7 +132,7 @@ const handleClearDebt = async (debtor: Debtor) => {
   } catch {
     // ⚠️ ห้ามปิดโมดัลทิ้งถ้าเป็นคำขอเก่า — ผู้ใช้อาจเปิดโมดัลของคนใหม่ไปแล้ว
     if (!debtGuard.isCurrent(token)) return
-    Swal.fire('เกิดข้อผิดพลาด', 'ดึงรายการค้างชำระไม่สำเร็จ', 'error')
+    void dialog.alert('เกิดข้อผิดพลาด', 'ดึงรายการค้างชำระไม่สำเร็จ', 'error')
     isModalOpen.value = false
   } finally {
     if (debtGuard.isCurrent(token)) isLoadingDebts.value = false
@@ -206,10 +206,8 @@ const COMBINED_PDF_MAX = 100
 
 /** คำเตือนที่ต้องมีทุกครั้งก่อนออกใบแจ้งหนี้ — พฤติกรรมนี้ต่างจากใบเสร็จโดยสิ้นเชิง */
 const POINT_IN_TIME_HINT =
-  `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
-  'ใบแจ้งหนี้เป็นเอกสาร <b>ณ จุดเวลา</b> — ยอดค้างเปลี่ยนเมื่อนักเรียนจ่ายเพิ่ม ' +
-  'การออกซ้ำจึงได้ <b>เลขใหม่ทุกครั้ง</b> (ต่างจากใบเสร็จที่ได้เลขเดิม)' +
-  '</span>'
+  'ใบแจ้งหนี้เป็นเอกสาร ณ จุดเวลา — ยอดค้างเปลี่ยนเมื่อนักเรียนจ่ายเพิ่ม ' +
+  'การออกซ้ำจึงได้เลขใหม่ทุกครั้ง (ต่างจากใบเสร็จที่ได้เลขเดิม)'
 
 const isIssuingInvoices = ref(false)
 const isDownloadingCombined = ref(false)
@@ -218,7 +216,7 @@ const isDownloadingCombined = ref(false)
 const downloadCombined = async (kind: 'receipts' | 'invoices', nos: string[]) => {
   if (isDownloadingCombined.value || nos.length === 0) return
   if (nos.length > COMBINED_PDF_MAX) {
-    return Swal.fire(
+    return dialog.alert(
       'รวมไฟล์ไม่ได้ในครั้งเดียว',
       `เลือกไว้ ${nos.length} ฉบับ แต่รวมได้ครั้งละไม่เกิน ${COMBINED_PDF_MAX} ฉบับ ` +
         '— กรุณาแบ่งดาวน์โหลดเป็นรอบ',
@@ -226,14 +224,15 @@ const downloadCombined = async (kind: 'receipts' | 'invoices', nos: string[]) =>
     )
   }
   isDownloadingCombined.value = true
-  Swal.fire({ title: 'กำลังสร้างไฟล์ PDF...', allowOutsideClick: false, didOpen: () => Swal.showLoading() })
+  void dialog.loading('กำลังสร้างไฟล์ PDF...', 'ระบบกำลังรวมเอกสารเป็นไฟล์เดียว')
   try {
     const blob = await FinanceService.downloadCombinedPdf(currentServerId, nos)
     downloadBlob(blob, combinedPdfFilename(nos, kind))
-    Swal.close()
+    dialog.close()
   } catch (error: unknown) {
     // 502 = Gotenberg ต่อไม่ได้/เรนเดอร์ไม่ผ่าน — service แปลงเป็นข้อความไทยให้แล้ว
-    Swal.fire(
+    dialog.close()
+    void dialog.alert(
       'สร้างไฟล์ PDF ไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -254,60 +253,43 @@ const runInvoiceIssue = async (
   description: string,
   title: string,
 ) => {
-  const confirmed = await Swal.fire({
-    title,
-    html: `${description}<br><br>${POINT_IN_TIME_HINT}`,
+  const confirmed = await dialog.confirm(title, `${description} — ${POINT_IN_TIME_HINT}`, {
     icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
     confirmButtonText: 'ออกใบแจ้งหนี้',
-    cancelButtonText: 'ยกเลิก',
   })
   if (!confirmed.isConfirmed) return
 
   isIssuingInvoices.value = true
-  Swal.fire({
-    title: 'กำลังออกใบแจ้งหนี้...',
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading(),
-  })
+  void dialog.loading('กำลังออกใบแจ้งหนี้...', 'ระบบกำลังสร้างเอกสารให้ทุกคนที่เลือก')
   try {
     const res = await action()
     const nos = res.receipts.map((r) => r.receipt_no)
     const canDownload = nos.length > 0 && nos.length <= COMBINED_PDF_MAX
     // 📋 ข้อความต้องรายงาน **คนที่ถูกข้าม** ด้วย ไม่งั้นผู้ใช้ที่เห็น "ออก 38 ฉบับ"
     //    ทั้งที่มี 40 คน จะไม่รู้เลยว่าอีก 2 คนเป็นใครและเพราะอะไร (backend ส่ง `skipped` มาให้)
-    // 🔒 escape ชื่อ/เลขที่นักเรียนตอน **ประกอบ** สตริง เพราะค่านี้ถูก interpolate ลง
-    //    `html:` ตรง ๆ (มาร์กอัป <span>/<br> ของหมายเหตุคงไว้ตามเดิม)
     const skippedNote = res.skipped.length
-      ? `<br><span style="font-size:0.85em;color:${UI_COLOR.warn}">ข้าม ${res.skipped.length} คน ` +
-        `ที่มียอดค้างน้อยกว่า 0.01 บาท: ${res.skipped
-          .map((s) => escapeHtml(s.student_name || `#${s.student_no ?? s.student_id}`))
-          .join(', ')}</span>`
+      ? ` · ข้าม ${res.skipped.length} คนที่มียอดค้างน้อยกว่า 0.01 บาท: ${res.skipped
+          .map((s) => s.student_name || `#${s.student_no ?? s.student_id}`)
+          .join(', ')}`
       : ''
 
-    const after = await Swal.fire({
-      icon: 'success',
-      title: 'ออกใบแจ้งหนี้เรียบร้อย',
-      html:
-        `ออกใหม่ <b>${res.issued_count}</b> ฉบับ (1 คน = 1 ใบ)<br>` +
-        `เลขที่ล่าสุด <b class="num">${nos[nos.length - 1] ?? '—'}</b>` +
-        skippedNote +
-        (canDownload
-          ? `<br><br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">รวมเป็นไฟล์เดียวได้ ` +
-            `(${nos.length} หน้า — หน้าละคน) เหมาะสำหรับพิมพ์แจก</span>`
-          : ''),
-      showCancelButton: canDownload,
-      confirmButtonText: 'ดาวน์โหลด PDF รวม',
-      cancelButtonText: 'ปิด',
-      confirmButtonColor: UI_COLOR.brand,
-      cancelButtonColor: UI_COLOR.neutral,
-    })
+    const summary =
+      `ออกใหม่ ${res.issued_count} ฉบับ (1 คน = 1 ใบ) · เลขที่ล่าสุด ${nos[nos.length - 1] ?? '—'}` +
+      skippedNote +
+      (canDownload ? ` · รวมเป็นไฟล์เดียวได้ (${nos.length} หน้า — หน้าละคน) เหมาะสำหรับพิมพ์แจก` : '')
+
+    const after = canDownload
+      ? await dialog.confirm('ออกใบแจ้งหนี้เรียบร้อย', summary, {
+          icon: 'success',
+          confirmButtonText: 'ดาวน์โหลด PDF รวม',
+          cancelButtonText: 'ปิด',
+        })
+      : await dialog.alert('ออกใบแจ้งหนี้เรียบร้อย', summary, 'success')
     if (canDownload && after.isConfirmed) await downloadCombined('invoices', nos)
     selectedStudentIds.value = []
   } catch (error: unknown) {
-    Swal.fire(
+    dialog.close()
+    void dialog.alert(
       'ออกใบแจ้งหนี้ไม่สำเร็จ',
       error instanceof Error ? error.message : 'ไม่มีเอกสารใดถูกออก (ยกเลิกทั้งชุด)',
       'error',
@@ -320,13 +302,13 @@ const runInvoiceIssue = async (
 /** ออกใบแจ้งหนี้ให้ **นักเรียนที่ติ๊กไว้** (1 คน = 1 ใบ — ยอดค้างรวมของคนนั้น) */
 const handleIssueSelectedInvoices = () => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
   }
   if (selectedStudentIds.value.length === 0) {
-    return Swal.fire('อ๊ะ!', 'กรุณาติ๊กเลือกนักเรียนที่ต้องการออกใบแจ้งหนี้', 'warning')
+    return dialog.alert('อ๊ะ!', 'กรุณาติ๊กเลือกนักเรียนที่ต้องการออกใบแจ้งหนี้', 'warning')
   }
   if (selectedStudentIds.value.length > ISSUE_PER_REQUEST_MAX) {
-    return Swal.fire(
+    return dialog.alert(
       'เลือกไว้มากเกินไป',
       `เลือก ${selectedStudentIds.value.length} คน แต่ระบบออกได้ครั้งละไม่เกิน ` +
         `${ISSUE_PER_REQUEST_MAX} ใบ`,
@@ -339,8 +321,8 @@ const handleIssueSelectedInvoices = () => {
         student_ids: [...selectedStudentIds.value],
         user_name: currentUserName,
       }),
-    `จะออกใบแจ้งหนี้ <b>${selectedStudentIds.value.length}</b> ฉบับ (1 คน = 1 ใบ)<br>` +
-      `ยอดค้างชำระรวมที่จะเรียกเก็บ <b>${formatNumber(selectedInvoiceAmount.value)}</b> บาท`,
+    `จะออกใบแจ้งหนี้ ${selectedStudentIds.value.length} ฉบับ (1 คน = 1 ใบ) · ` +
+      `ยอดค้างชำระรวมที่จะเรียกเก็บ ${formatNumber(selectedInvoiceAmount.value)} บาท`,
     'ออกใบแจ้งหนี้ที่เลือก?',
   )
 }
@@ -354,16 +336,15 @@ const handleIssueSelectedInvoices = () => {
  */
 const handleIssueRoomInvoices = () => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ออกเอกสารได้', 'error')
   }
   if (!debtors.value.length) {
-    return Swal.fire('ไม่มีใครค้างชำระ', 'ห้องนี้ไม่มีนักเรียนที่มียอดค้างชำระในขณะนี้', 'info')
+    return dialog.alert('ไม่มีใครค้างชำระ', 'ห้องนี้ไม่มีนักเรียนที่มียอดค้างชำระในขณะนี้', 'info')
   }
   return runInvoiceIssue(
     () => FinanceService.issueRoomInvoices(currentServerId, { user_name: currentUserName }),
-    `จะออกใบแจ้งหนี้ให้ <b>${debtors.value.length}</b> คนที่มียอดค้างชำระ <b>ขณะนี้</b> ` +
-      `(1 คน = 1 ใบ)<br>ยอดค้างชำระรวมทั้งห้อง ` +
-      `<b>${formatNumber(totalOutstanding.value)}</b> บาท`,
+    `จะออกใบแจ้งหนี้ให้ ${debtors.value.length} คนที่มียอดค้างชำระขณะนี้ (1 คน = 1 ใบ) · ` +
+      `ยอดค้างชำระรวมทั้งห้อง ${formatNumber(totalOutstanding.value)} บาท`,
     'ออกใบแจ้งหนี้ทั้งห้อง?',
   )
 }
@@ -371,16 +352,16 @@ const handleIssueRoomInvoices = () => {
 const handleBatchPay = async () => {
   // ดักอีกชั้นตอนกดยืนยันจ่ายเงิน
   if (!isAdmin.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error')
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้น', 'error')
   }
 
   if (selectedPaymentIds.value.length === 0) {
-    return Swal.fire('อ๊ะ!', 'กรุณาเลือกรายการที่ต้องการชำระเงิน', 'warning')
+    return dialog.alert('อ๊ะ!', 'กรุณาเลือกรายการที่ต้องการชำระเงิน', 'warning')
   }
 
   // ✅ กันเผลอกดยืนยันตอนไม่มีกระเป๋าเงินเป้าหมาย
   if (!paidToAccountId.value) {
-    return Swal.fire('ยังไม่เลือกบัญชี', 'กรุณาเลือกกระเป๋าเงินที่รับเงินก่อน', 'warning')
+    return dialog.alert('ยังไม่เลือกบัญชี', 'กรุณาเลือกกระเป๋าเงินที่รับเงินก่อน', 'warning')
   }
 
   // จดจำการตั้งค่าก่อนกดยืนยัน
@@ -389,11 +370,7 @@ const handleBatchPay = async () => {
     .map((d) => d.collection_id)
 
   try {
-    Swal.fire({
-      title: 'กำลังบันทึก...',
-      allowOutsideClick: false,
-      didOpen: () => Swal.showLoading(),
-    })
+    void dialog.loading('กำลังบันทึก...', 'ระบบกำลังบันทึกการรับเงินและออกใบเสร็จ')
 
     // ✨ ยิงครั้งเดียวแบบ Batch — backend ประมวลผลทั้งหมดใน transaction เดียว
     // (atomic + Discord แจ้งเตือนรอบเดียว ไม่เด้งหลาย embed เหมือนลูปยิงทีละบิล)
@@ -420,43 +397,38 @@ const handleBatchPay = async () => {
     const nos = res.receipts.map((r) => r.receipt_no)
     if (nos.length > 0) {
       const canDownload = nos.length <= COMBINED_PDF_MAX
-      const after = await Swal.fire({
-        icon: 'success',
-        title: 'รับเงินและออกใบเสร็จแล้ว',
-        html:
-          `บันทึกการรับเงินรวบยอดเรียบร้อย<br>` +
-          `ออกใบเสร็จ <b>${res.issued_count}</b> ใบ` +
-          (res.batch_id ? ' — รวมเป็นชุดเดียว' : '') +
-          `<br>เลขที่ล่าสุด <b class="num">${nos[nos.length - 1] ?? '—'}</b>` +
-          (canDownload
-            ? `<br><br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">รวมเป็นไฟล์เดียวได้ ` +
-              `(${nos.length} หน้า) เหมาะสำหรับพิมพ์แจก</span>`
-            : `<br><br><span style="font-size:0.85em;color:${UI_COLOR.warn}">มี ${nos.length} ใบ ` +
-              `เกินกว่าจะรวมเป็นไฟล์เดียว (สูงสุด ${COMBINED_PDF_MAX}) — ` +
-              `ดาวน์โหลดเป็นชุด ๆ ได้ที่หน้าทะเบียนเอกสาร</span>`),
-        showCancelButton: canDownload,
-        confirmButtonText: 'ดาวน์โหลด PDF รวม',
-        cancelButtonText: 'ปิด',
-        confirmButtonColor: UI_COLOR.brand,
-        cancelButtonColor: UI_COLOR.neutral,
-      })
+      const summary =
+        `บันทึกการรับเงินรวบยอดเรียบร้อย · ออกใบเสร็จ ${res.issued_count} ใบ` +
+        (res.batch_id ? ' — รวมเป็นชุดเดียว' : '') +
+        ` · เลขที่ล่าสุด ${nos[nos.length - 1] ?? '—'}` +
+        (canDownload
+          ? ` · รวมเป็นไฟล์เดียวได้ (${nos.length} หน้า) เหมาะสำหรับพิมพ์แจก`
+          : ` · มี ${nos.length} ใบ เกินกว่าจะรวมเป็นไฟล์เดียว (สูงสุด ${COMBINED_PDF_MAX}) — ` +
+            'ดาวน์โหลดเป็นชุด ๆ ได้ที่หน้าทะเบียนเอกสาร')
+      const after = canDownload
+        ? await dialog.confirm('รับเงินและออกใบเสร็จแล้ว', summary, {
+            icon: 'success',
+            confirmButtonText: 'ดาวน์โหลด PDF รวม',
+            cancelButtonText: 'ปิด',
+          })
+        : await dialog.alert('รับเงินและออกใบเสร็จแล้ว', summary, 'success')
       if (canDownload && after.isConfirmed) await downloadCombined('receipts', nos)
       return
     }
 
-    Swal.fire({
+    void dialog.fire({
       icon: 'success',
       title: 'สำเร็จ!',
       text: 'บันทึกการรับเงินรวบยอดเรียบร้อย',
       timer: 1500,
-      showConfirmButton: false,
     })
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ',
-    })
+    dialog.close()
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ',
+      'error',
+    )
   }
 }
 
@@ -551,11 +523,11 @@ onMounted(() => {
                   class="peer sr-only"
                 />
                 <span
-                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-control border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
                   :class="
                     selectedStudentIds.includes(d.student_id)
                       ? 'border-brand-700 bg-brand-700'
-                      : 'border-stone-300 bg-white'
+                      : 'border-ink-3/30 bg-surface'
                   "
                 >
                   <i
@@ -565,14 +537,14 @@ onMounted(() => {
                   ></i>
                 </span>
               </label>
-              <span class="chip num shrink-0 bg-stone-100 text-stone-600">#{{ d.student_no }}</span>
-              <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
+              <span class="chip num shrink-0 bg-canvas text-ink-2">#{{ d.student_no }}</span>
+              <h2 class="font-display min-w-0 truncate text-base font-bold text-ink-1">
                 {{ d.student_name }}
               </h2>
             </div>
 
             <div class="shrink-0 text-right">
-              <p class="text-[11px] font-bold text-stone-500">ต้องเก็บจริง</p>
+              <p class="text-xs font-bold text-ink-3">ต้องเก็บจริง</p>
               <!--
                 💰 [F4] ตัวเลขหลัก = `net_pending_amount` (หักเครดิตแล้ว) — เป็นยอดที่ครู
                 ต้องไปเก็บจริง ⇒ ไม่ต้องให้ครูคิดเลขเองบนจอ
@@ -588,7 +560,7 @@ onMounted(() => {
               </p>
               <p
                 v-if="d.credit_balance > 0"
-                class="num mt-0.5 whitespace-nowrap text-[11px] text-stone-500 line-through"
+                class="num mt-0.5 whitespace-nowrap text-xs text-ink-3 line-through"
               >
                 ฿{{ formatNumber(d.total_pending_amount) }}
               </p>
@@ -596,7 +568,7 @@ onMounted(() => {
           </div>
 
           <div
-            class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
+            class="mt-2.5 flex items-center justify-between gap-3 border-t border-line pt-2.5"
           >
             <div class="flex min-w-0 flex-wrap items-center gap-2">
               <span class="chip shrink-0 bg-warn-50 text-warn-700">
@@ -623,7 +595,7 @@ onMounted(() => {
               <i class="bi bi-wallet2" aria-hidden="true"></i>
               เคลียร์หนี้
             </button>
-            <span v-else class="chip shrink-0 bg-stone-100 text-stone-600">
+            <span v-else class="chip shrink-0 bg-canvas text-ink-2">
               <i class="bi bi-lock" aria-hidden="true"></i>
               รอแอดมินดำเนินการ
             </span>
@@ -648,7 +620,7 @@ onMounted(() => {
                     />
                     <span
                       class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                      :class="allSelected ? 'border-brand-700 bg-brand-700' : 'border-stone-300 bg-white'"
+                      :class="allSelected ? 'border-brand-700 bg-brand-700' : 'border-ink-3/30 bg-surface'"
                     >
                       <i
                         v-if="allSelected"
@@ -681,7 +653,7 @@ onMounted(() => {
                       :class="
                         selectedStudentIds.includes(d.student_id)
                           ? 'border-brand-700 bg-brand-700'
-                          : 'border-stone-300 bg-white'
+                          : 'border-ink-3/30 bg-surface'
                       "
                     >
                       <i
@@ -692,8 +664,8 @@ onMounted(() => {
                     </span>
                   </label>
                 </td>
-                <td class="num font-bold text-stone-500">#{{ d.student_no }}</td>
-                <td class="font-bold text-stone-900">{{ d.student_name }}</td>
+                <td class="num font-bold text-ink-3">#{{ d.student_no }}</td>
+                <td class="font-bold text-ink-1">{{ d.student_name }}</td>
                 <td class="text-center">
                   <div class="flex flex-wrap items-center justify-center gap-1.5">
                     <span class="chip bg-warn-50 text-warn-700">
@@ -722,7 +694,7 @@ onMounted(() => {
                   </span>
                   <span
                     v-if="d.credit_balance > 0"
-                    class="num mt-0.5 block text-[11px] font-normal text-stone-500 line-through"
+                    class="num mt-0.5 block text-xs font-normal text-ink-3 line-through"
                   >
                     ฿{{ formatNumber(d.total_pending_amount) }}
                   </span>
@@ -738,7 +710,7 @@ onMounted(() => {
                       <i class="bi bi-wallet2" aria-hidden="true"></i>
                       เคลียร์หนี้
                     </button>
-                    <span v-else class="chip bg-stone-100 text-stone-600">
+                    <span v-else class="chip bg-canvas text-ink-2">
                       <i class="bi bi-lock" aria-hidden="true"></i>
                       รอแอดมิน
                     </span>
@@ -751,191 +723,167 @@ onMounted(() => {
       </div>
     </template>
 
-    <!-- รับเงินรวบยอด: bottom sheet บนมือถือ / modal กลางจอบนเดสก์ท็อป -->
-    <div
-      v-if="isModalOpen && isAdmin"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 md:items-center md:p-4"
+    <AppSheet
+      v-if="isAdmin"
+      :open="isModalOpen"
+      label="บันทึกรับเงินรวบยอด"
+      title="บันทึกรับเงินรวบยอด"
+      :description="selectedStudent?.name"
+      size="form"
+      @close="isModalOpen = false"
     >
+
+    <div v-if="isLoadingDebts" class="flex justify-center py-10">
       <div
-        class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-t-3xl border border-stone-200 bg-white md:max-h-[85vh] md:rounded-2xl"
+        class="h-8 w-8 animate-spin rounded-full border-2 border-line border-b-brand-700"
+        role="status"
+        aria-label="กำลังโหลดรายการค้างชำระ"
+      ></div>
+    </div>
+
+    <div v-else class="space-y-3">
+      <p class="text-xs font-bold text-ink-3">
+        เลือกรายการบิลที่ต้องการชำระ
+      </p>
+
+      <label
+        v-for="debt in studentDebts"
+        :key="debt.payment_id"
+        class="relative flex cursor-pointer items-center gap-3 rounded-card border p-4 transition-colors md:gap-4"
+        :class="
+          selectedPaymentIds.includes(debt.payment_id)
+            ? 'border-brand-200 bg-brand-50'
+            : 'border-line bg-surface hover:border-ink-3/30'
+        "
       >
-        <div
-          class="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-4 py-4 sm:px-6"
+        <!-- ช่องทำเครื่องหมาย: input จริงซ่อนแบบ sr-only เพื่อให้ยังโฟกัสด้วยคีย์บอร์ดได้ -->
+        <input
+          v-model="selectedPaymentIds"
+          type="checkbox"
+          :value="debt.payment_id"
+          class="peer sr-only"
+        />
+        <span
+          class="flex h-6 w-6 shrink-0 items-center justify-center rounded-control border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+          :class="
+            selectedPaymentIds.includes(debt.payment_id)
+              ? 'border-brand-700 bg-brand-700'
+              : 'border-ink-3/30 bg-surface'
+          "
         >
-          <div class="min-w-0">
-            <h2 class="font-display truncate text-lg font-bold text-stone-900">
-              บันทึกรับเงินรวบยอด
-            </h2>
-            <p class="mt-0.5 flex items-center gap-1 truncate text-sm font-bold text-brand-700">
-              <i class="bi bi-person-fill shrink-0" aria-hidden="true"></i>
-              {{ selectedStudent?.name }}
-            </p>
-          </div>
-          <button
-            type="button"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
-            aria-label="ปิดหน้าต่าง"
-            @click="isModalOpen = false"
+          <i
+            v-if="selectedPaymentIds.includes(debt.payment_id)"
+            class="bi bi-check-lg text-sm font-bold text-white"
+            aria-hidden="true"
+          ></i>
+        </span>
+
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-bold text-ink-1">{{ debt.title }}</p>
+          <p class="num mt-0.5 text-xs font-bold text-danger-600">
+            ยอดค้าง: ฿{{ formatNumber(debt.amount) }}
+          </p>
+        </div>
+
+        <div class="relative w-32 shrink-0 sm:w-36">
+          <span
+            class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-2.5 text-sm font-bold text-ink-3"
+            aria-hidden="true"
           >
-            <i class="bi bi-x-lg text-lg" aria-hidden="true"></i>
-          </button>
+            ฿
+          </span>
+          <input
+            v-model="payAmounts[debt.payment_id]"
+            type="number"
+            :disabled="!selectedPaymentIds.includes(debt.payment_id)"
+            :aria-label="`ยอดรับเงิน ${debt.title}`"
+            class="field num ps-6 pe-1.5 text-right"
+          />
         </div>
+      </label>
+    </div>
 
-        <div class="flex-1 overflow-y-auto overscroll-contain bg-stone-50/50 p-4 sm:p-6">
-          <div v-if="isLoadingDebts" class="flex justify-center py-10">
-            <div
-              class="h-8 w-8 animate-spin rounded-full border-2 border-stone-200 border-b-brand-700"
-              role="status"
-              aria-label="กำลังโหลดรายการค้างชำระ"
-            ></div>
-          </div>
-
-          <div v-else class="space-y-3">
-            <p class="text-[11px] font-bold text-stone-500">
-              เลือกรายการบิลที่ต้องการชำระ
-            </p>
-
-            <label
-              v-for="debt in studentDebts"
-              :key="debt.payment_id"
-              class="relative flex cursor-pointer items-center gap-3 rounded-2xl border p-4 transition-colors md:gap-4"
-              :class="
-                selectedPaymentIds.includes(debt.payment_id)
-                  ? 'border-brand-200 bg-brand-50'
-                  : 'border-stone-200 bg-white hover:border-stone-300'
-              "
-            >
-              <!-- ช่องทำเครื่องหมาย: input จริงซ่อนแบบ sr-only เพื่อให้ยังโฟกัสด้วยคีย์บอร์ดได้ -->
-              <input
-                v-model="selectedPaymentIds"
-                type="checkbox"
-                :value="debt.payment_id"
-                class="peer sr-only"
-              />
-              <span
-                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                :class="
-                  selectedPaymentIds.includes(debt.payment_id)
-                    ? 'border-brand-700 bg-brand-700'
-                    : 'border-stone-300 bg-white'
-                "
-              >
-                <i
-                  v-if="selectedPaymentIds.includes(debt.payment_id)"
-                  class="bi bi-check-lg text-sm font-bold text-white"
-                  aria-hidden="true"
-                ></i>
-              </span>
-
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-bold text-stone-900">{{ debt.title }}</p>
-                <p class="num mt-0.5 text-[11px] font-bold text-danger-600">
-                  ยอดค้าง: ฿{{ formatNumber(debt.amount) }}
-                </p>
-              </div>
-
-              <div class="relative w-32 shrink-0 sm:w-36">
-                <span
-                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-2.5 text-sm font-bold text-stone-500"
-                  aria-hidden="true"
-                >
-                  ฿
-                </span>
-                <input
-                  v-model="payAmounts[debt.payment_id]"
-                  type="number"
-                  :disabled="!selectedPaymentIds.includes(debt.payment_id)"
-                  :aria-label="`ยอดรับเงิน ${debt.title}`"
-                  class="field num ps-6 pe-1.5 text-right"
-                />
-              </div>
-            </label>
-          </div>
-
-          <div class="page-card mt-6 p-4 sm:p-5">
-            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <label class="field-label" for="payAccount">รับเข้ากระเป๋า</label>
-                <select id="payAccount" v-model="paidToAccountId" class="field">
-                  <option v-for="acc in accounts" :key="acc.id" :value="acc.id.toString()">
-                    {{ acc.account_name }}
-                  </option>
-                </select>
-              </div>
-              <div>
-                <label class="field-label" for="paySlip">URL รูปสลิป (ถ้ามี)</label>
-                <input
-                  id="paySlip"
-                  v-model="slipImageUrl"
-                  type="url"
-                  class="field"
-                  placeholder="https://..."
-                />
-              </div>
-            </div>
-
-            <!--
-              🧾 [F5] ออกใบเสร็จอัตโนมัติ — ติ๊กไว้เป็นค่าเริ่มต้นตามคำขอผู้ใช้
-              ("กดเคลียร์หนี้แล้วอยากให้มันออกใบเสร็จมาพร้อมกันหมดเลย")
-              ⚠️ ข้อความต้องบอกผลของการปิดติ๊กให้ครบทั้งสองด้าน: ไม่มีใบเสร็จ **และ**
-                 ไม่มีอะไรถูกบันทึกเลยถ้าเลขเอกสารไม่พอ — ครูที่ถือเงินสดอยู่ต้องรู้ก่อนกด
-            -->
-            <label
-              class="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border border-stone-200 bg-white p-3 transition-colors hover:border-stone-300"
-            >
-              <input v-model="issueReceipts" type="checkbox" class="peer sr-only" />
-              <span
-                class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                :class="
-                  issueReceipts ? 'border-brand-700 bg-brand-700' : 'border-stone-300 bg-white'
-                "
-              >
-                <i
-                  v-if="issueReceipts"
-                  class="bi bi-check-lg text-sm font-bold text-white"
-                  aria-hidden="true"
-                ></i>
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-bold text-stone-900">
-                  ออกใบเสร็จให้ทุกรายการที่เคลียร์
-                </span>
-                <span class="mt-0.5 block text-[11px] font-bold text-stone-500">
-                  ออกพร้อมกับการบันทึกรับเงินในครั้งเดียว — ถ้าเลขเอกสารไม่พอ
-                  ระบบจะไม่บันทึกการรับเงินเลย
-                </span>
-              </span>
-            </label>
-          </div>
+    <div class="page-card mt-6 p-4 sm:p-5">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <label class="field-label" for="payAccount">รับเข้ากระเป๋า</label>
+          <select id="payAccount" v-model="paidToAccountId" class="field">
+            <option v-for="acc in accounts" :key="acc.id" :value="acc.id.toString()">
+              {{ acc.account_name }}
+            </option>
+          </select>
         </div>
-
-        <div
-          class="flex shrink-0 flex-col gap-3 border-t border-stone-200 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:pt-4 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
-        >
-          <div class="flex items-center justify-between gap-3 sm:block">
-            <p class="text-[11px] font-bold text-stone-500">
-              ยอดรวมที่เลือกชำระ
-            </p>
-            <p class="font-display num text-2xl font-bold text-danger-600">
-              ฿{{ formatNumber(totalSelectedAmount) }}
-            </p>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row">
-            <!--
-              🚫 ปุ่ม "ออกใบแจ้งหนี้" ถูก **ย้ายออกจากที่นี่** ไปอยู่ที่หัวหน้า (PageIntro #actions)
-              เหตุผล: (ก) ยอดบนใบคือยอดค้างรวมทุกบิลของคนนั้น ⇒ การติ๊กบิลในโมดัลนี้ไม่ได้
-              มีผลกับยอดบนใบเลย (ข) โมดัลนี้ gate ด้วย `isAdmin` ⇒ เหรัญญิกที่มี
-              MANAGE_FINANCE จะกดไม่ได้
-              ⇒ ในโมดัลนี้เหลือเฉพาะ "บันทึกรับเงิน" ซึ่งเป็นหน้าที่เดียวของมัน
-            -->
-            <button type="button" class="btn-primary w-full sm:w-auto" @click="handleBatchPay">
-              <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
-              ยืนยันการรับเงิน
-            </button>
-          </div>
+        <div>
+          <label class="field-label" for="paySlip">URL รูปสลิป (ถ้ามี)</label>
+          <input
+            id="paySlip"
+            v-model="slipImageUrl"
+            type="url"
+            class="field"
+            placeholder="https://..."
+          />
         </div>
       </div>
+
+      <!--
+        🧾 [F5] ออกใบเสร็จอัตโนมัติ — ติ๊กไว้เป็นค่าเริ่มต้นตามคำขอผู้ใช้
+        ("กดเคลียร์หนี้แล้วอยากให้มันออกใบเสร็จมาพร้อมกันหมดเลย")
+        ⚠️ ข้อความต้องบอกผลของการปิดติ๊กให้ครบทั้งสองด้าน: ไม่มีใบเสร็จ **และ**
+           ไม่มีอะไรถูกบันทึกเลยถ้าเลขเอกสารไม่พอ — ครูที่ถือเงินสดอยู่ต้องรู้ก่อนกด
+      -->
+      <label
+        class="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-card border border-line bg-surface p-3 transition-colors hover:border-ink-3/30"
+      >
+        <input v-model="issueReceipts" type="checkbox" class="peer sr-only" />
+        <span
+          class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-control border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+          :class="
+            issueReceipts ? 'border-brand-700 bg-brand-700' : 'border-ink-3/30 bg-surface'
+          "
+        >
+          <i
+            v-if="issueReceipts"
+            class="bi bi-check-lg text-sm font-bold text-white"
+            aria-hidden="true"
+          ></i>
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-sm font-bold text-ink-1">
+            ออกใบเสร็จให้ทุกรายการที่เคลียร์
+          </span>
+          <span class="mt-0.5 block text-xs font-bold text-ink-3">
+            ออกพร้อมกับการบันทึกรับเงินในครั้งเดียว — ถ้าเลขเอกสารไม่พอ
+            ระบบจะไม่บันทึกการรับเงินเลย
+          </span>
+        </span>
+      </label>
     </div>
+
+      <template #footer>
+
+      <div class="flex items-center justify-between gap-3 sm:block">
+        <p class="text-xs font-bold text-ink-3">
+          ยอดรวมที่เลือกชำระ
+        </p>
+        <p class="font-display num text-2xl font-bold text-danger-600">
+          ฿{{ formatNumber(totalSelectedAmount) }}
+        </p>
+      </div>
+      <div class="flex flex-col gap-2 sm:flex-row">
+        <!--
+          🚫 ปุ่ม "ออกใบแจ้งหนี้" ถูก **ย้ายออกจากที่นี่** ไปอยู่ที่หัวหน้า (PageIntro #actions)
+          เหตุผล: (ก) ยอดบนใบคือยอดค้างรวมทุกบิลของคนนั้น ⇒ การติ๊กบิลในโมดัลนี้ไม่ได้
+          มีผลกับยอดบนใบเลย (ข) โมดัลนี้ gate ด้วย `isAdmin` ⇒ เหรัญญิกที่มี
+          MANAGE_FINANCE จะกดไม่ได้
+          ⇒ ในโมดัลนี้เหลือเฉพาะ "บันทึกรับเงิน" ซึ่งเป็นหน้าที่เดียวของมัน
+        -->
+        <button type="button" class="btn-primary w-full sm:w-auto" @click="handleBatchPay">
+          <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+          ยืนยันการรับเงิน
+        </button>
+      </div>
+      </template>
+    </AppSheet>
   </div>
 </template>
 

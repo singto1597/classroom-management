@@ -15,7 +15,6 @@
  *    ว่าเห็นไม่หมด (ไม่ใช่ปล่อยเงียบ ๆ แล้วให้อ่านเป็น "มีเท่านี้") — ดู `hitsLimit`
  */
 import { computed, onMounted, ref, watch } from 'vue';
-import Swal from 'sweetalert2';
 
 import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
@@ -24,8 +23,8 @@ import PeriodPicker from '@/components/finance/PeriodPicker.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
+import { useDialog } from '@/composables/useDialog';
 import { downloadBlob, combinedPdfFilename } from '@/utils/download';
-import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
 import {
   allVisibleSelected,
@@ -51,6 +50,7 @@ import {
 import type { ReceiptDocType, ReceiptListItem } from '@/types/finance';
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 const currentRoomId = authStore.currentRoomId!;
 
 // 🔒 ปุ่มจัดการ **ชุด** ต้องใช้ `canManageFinance` (ไม่ใช่ `isAdmin`) ตามกฎเดียวกับปุ่มเขียน
@@ -115,7 +115,7 @@ const rangeOf = (p: PeriodValue): { startDate: string; endDate: string } | null 
 const docChipClass = (docType: string): string => {
   if (docType === 'receipt' || docType === 'income') return 'bg-ok-50 text-ok-700';
   if (docType === 'deposit') return 'bg-info-50 text-info-700';
-  if (docType === 'payment_voucher') return 'bg-stone-100 text-stone-700';
+  if (docType === 'payment_voucher') return 'bg-canvas text-ink-2';
   return 'bg-warn-50 text-warn-700';
 };
 
@@ -297,15 +297,17 @@ const selectedVisibleNos = computed(() => {
 
 const organizeSelectedAsBatch = async () => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'การจัดชุดเอกสารต้องมีสิทธิ์จัดการการเงิน', 'warning');
+    void dialog.alert('ไม่มีสิทธิ์', 'การจัดชุดเอกสารต้องมีสิทธิ์จัดการการเงิน', 'warning');
+    return;
   }
   const nos = selectedVisibleNos.value;
   if (nos.length < BATCH_MIN) {
-    return Swal.fire(
+    void dialog.alert(
       'เลือกไม่พอ',
       `ต้องเลือกอย่างน้อย ${BATCH_MIN} ฉบับจึงจะจัดเป็นชุดได้ (เลือกไว้ ${nos.length} ฉบับ)`,
       'warning',
     );
+    return;
   }
   isOrganizing.value = true;
   try {
@@ -313,14 +315,22 @@ const organizeSelectedAsBatch = async () => {
     // 🔁 `created: false` = มีชุดที่สมาชิกชุดเดียวกันอยู่แล้ว — ไม่ใช่ความผิดพลาด
     //    ⇒ ต้องบอกให้ตรง อย่าขึ้น "สร้างสำเร็จ" ซึ่งทำให้ผู้ใช้คิดว่ามีชุดซ้ำ
     if (res.created) {
-      await Swal.fire('จัดเป็นชุดแล้ว', `รวม ${nos.length} ฉบับไว้ในชุดเดียวกัน`, 'success');
+      await dialog.fire({
+        icon: 'success',
+        title: 'จัดเป็นชุดแล้ว',
+        text: `รวม ${nos.length} ฉบับไว้ในชุดเดียวกัน`,
+      });
     } else {
-      await Swal.fire('มีชุดนี้อยู่แล้ว', 'เอกสารชุดนี้ถูกจัดเป็นชุดไว้ก่อนหน้านี้แล้ว', 'info');
+      await dialog.fire({
+        icon: 'info',
+        title: 'มีชุดนี้อยู่แล้ว',
+        text: 'เอกสารชุดนี้ถูกจัดเป็นชุดไว้ก่อนหน้านี้แล้ว',
+      });
     }
     selectedNos.value = [];
     await load();
   } catch (error: unknown) {
-    Swal.fire(
+    void dialog.alert(
       'จัดชุดไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -332,14 +342,10 @@ const organizeSelectedAsBatch = async () => {
 
 /** เปลี่ยนชื่อชุด — เว้นว่าง = ล้างชื่อกลับไปใช้ชื่อที่ระบบประกอบให้ */
 const renameBatch = async (batchId: number, currentTitle: string | null, fallback: string) => {
-  const answer = await Swal.fire({
-    title: 'ตั้งชื่อชุดเอกสาร',
-    input: 'text',
+  const answer = await dialog.input('ตั้งชื่อชุดเอกสาร', {
     inputValue: currentTitle ?? '',
     inputPlaceholder: fallback,
-    showCancelButton: true,
     confirmButtonText: 'บันทึก',
-    cancelButtonText: 'ยกเลิก',
     // ⚠️ ส่ง `null` (ไม่ใช่ `''`) เมื่อเว้นว่าง — backend แยก "ล้างชื่อ" ออกจาก "ไม่แก้"
     //    ด้วย `exclude_unset` ⇒ สตริงว่างจะกลายเป็นชื่อว่างจริง ๆ ไม่ใช่ชื่อที่ระบบประกอบ
     preConfirm: (value: string) => value.trim(),
@@ -354,11 +360,11 @@ const renameBatch = async (batchId: number, currentTitle: string | null, fallbac
     await FinanceService.updateReceiptBatch(currentRoomId, batchId, { title: next });
     await load();
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'แก้ชื่อไม่สำเร็จ',
-      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
-    });
+    void dialog.alert(
+      'แก้ชื่อไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    );
   } finally {
     busyBatchId.value = null;
   }
@@ -369,18 +375,11 @@ const renameBatch = async (batchId: number, currentTitle: string | null, fallbac
  * ใบเสร็จที่พิมพ์แจกไปแล้วจะหายไปด้วย
  */
 const dissolveBatch = async (batchId: number, name: string, memberCount: number) => {
-  const confirmed = await Swal.fire({
-    title: 'ยุบชุดเอกสาร?',
-    // 🔒 escape เฉพาะชื่อชุดเอกสารที่ interpolate — มาร์กอัป (<p>, <b>) คงไว้ตามเดิม
-    html:
-      `<p class="text-sm">${escapeHtml(name)}</p>` +
-      `<p class="mt-2 text-sm"><b>เอกสารทั้ง ${memberCount} ฉบับยังอยู่ครบ</b> — ` +
-      'แค่หลุดออกจากชุด ยังดูและพิมพ์ได้ตามปกติ</p>',
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonText: 'ยุบชุด',
-    cancelButtonText: 'ยกเลิก',
-  });
+  const confirmed = await dialog.confirm(
+    'ยุบชุดเอกสาร?',
+    `${name} · เอกสารทั้ง ${memberCount} ฉบับยังอยู่ครบ — แค่หลุดออกจากชุด ยังดูและพิมพ์ได้ตามปกติ`,
+    { icon: 'warning', confirmButtonText: 'ยุบชุด' },
+  );
   if (!confirmed.isConfirmed) return;
 
   busyBatchId.value = batchId;
@@ -388,13 +387,17 @@ const dissolveBatch = async (batchId: number, name: string, memberCount: number)
     const res = await FinanceService.deleteReceiptBatch(currentRoomId, batchId);
     expandedBatchIds.value = expandedBatchIds.value.filter((id) => id !== batchId);
     await load();
-    await Swal.fire('ยุบชุดแล้ว', `ปลด ${res.detached_count} ฉบับออกจากชุด (เอกสารยังอยู่ครบ)`, 'success');
-  } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'ยุบชุดไม่สำเร็จ',
-      text: error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+    await dialog.fire({
+      icon: 'success',
+      title: 'ยุบชุดแล้ว',
+      text: `ปลด ${res.detached_count} ฉบับออกจากชุด (เอกสารยังอยู่ครบ)`,
     });
+  } catch (error: unknown) {
+    void dialog.alert(
+      'ยุบชุดไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    );
   } finally {
     busyBatchId.value = null;
   }
@@ -409,28 +412,26 @@ const dissolveBatch = async (batchId: number, name: string, memberCount: number)
 const downloadCombined = async () => {
   if (isDownloadingCombined.value || selectedNos.value.length === 0) return;
   if (selectedNos.value.length > COMBINED_PDF_MAX) {
-    return Swal.fire(
+    void dialog.alert(
       'รวมไฟล์ไม่ได้ในครั้งเดียว',
       `เลือกไว้ ${selectedNos.value.length} ฉบับ แต่รวมได้ครั้งละไม่เกิน ${COMBINED_PDF_MAX} ฉบับ ` +
         '— กรุณาแคบช่วงวันที่ลงหรือเลือกน้อยลง',
       'warning',
     );
+    return;
   }
   isDownloadingCombined.value = true;
-  Swal.fire({
-    title: 'กำลังสร้างไฟล์ PDF...',
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading(),
-  });
+  void dialog.loading('กำลังสร้างไฟล์ PDF...', 'ระบบกำลังรวมเอกสารเป็นไฟล์เดียว');
   try {
     const nos = [...selectedNos.value];
     const blob = await FinanceService.downloadCombinedPdf(currentRoomId, nos);
     // 🏷️ 'documents' เพราะในทะเบียนนี้เลือกปนกันได้ทั้งใบเสร็จและใบแจ้งหนี้
     //    ⇒ ชื่อไฟล์ต้องไม่แอบอ้างว่าเป็นชนิดใดชนิดหนึ่ง
     downloadBlob(blob, combinedPdfFilename(nos, 'documents'));
-    Swal.close();
+    dialog.close();
   } catch (error: unknown) {
-    Swal.fire(
+    dialog.close();
+    void dialog.alert(
       'สร้างไฟล์ PDF ไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -455,7 +456,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
     downloadBlob(blob, `${receipt.doc_type}-${receipt.receipt_no}.pdf`);
   } catch (error: unknown) {
     // 502 = Gotenberg ต่อไม่ได้/เรนเดอร์ไม่ผ่าน — ข้อความไทยมาจาก service แล้ว
-    Swal.fire(
+    void dialog.alert(
       'สร้างไฟล์ PDF ไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -490,11 +491,11 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
           :key="f.value"
           type="button"
           :aria-pressed="docTypeFilter === f.value"
-          class="flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-sm font-bold transition-colors active:scale-[0.97] sm:px-4"
+          class="flex min-h-11 items-center justify-center gap-1.5 rounded-control px-2 py-2 text-sm font-bold transition-colors active:scale-[0.97] sm:px-4"
           :class="
             docTypeFilter === f.value
               ? 'bg-brand-700 text-white'
-              : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'
+              : 'text-ink-3 hover:bg-canvas hover:text-ink'
           "
           @click="docTypeFilter = f.value"
         >
@@ -507,33 +508,33 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
     <!-- สรุปช่วงที่กำลังดู — ตัวเลขมาจากชุดที่กรองแล้วตรง ๆ ไม่ใช่ยอดสะสมของห้อง -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-500">เอกสาร</p>
-        <p class="font-display num mt-1 text-xl font-bold text-stone-900">{{ items.length }}</p>
-        <p class="mt-0.5 text-[11px] text-stone-500">{{ describePeriod(period) }}</p>
+        <p class="text-caption font-bold text-ink-3">เอกสาร</p>
+        <p class="num mt-1 text-xl font-bold text-ink">{{ items.length }}</p>
+        <p class="mt-0.5 text-caption text-ink-3">{{ describePeriod(period) }}</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-500">ยอดรับเงิน</p>
-        <p class="font-display num mt-1 text-xl font-bold text-ok-700">
+        <p class="text-caption font-bold text-ink-3">ยอดรับเงิน</p>
+        <p class="num mt-1 text-xl font-bold text-ok-700">
           {{ formatMoney(receivedTotal) }}
         </p>
-        <p class="mt-0.5 text-[11px] text-stone-500">เฉพาะที่แสดงอยู่ (ไม่รวมใบแจ้งหนี้)</p>
+        <p class="mt-0.5 text-caption text-ink-3">เฉพาะที่แสดงอยู่ (ไม่รวมใบแจ้งหนี้)</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-500">ยอดจ่ายเงิน</p>
-        <p class="font-display num mt-1 text-xl font-bold text-stone-900">
+        <p class="text-caption font-bold text-ink-3">ยอดจ่ายเงิน</p>
+        <p class="num mt-1 text-xl font-bold text-ink">
           {{ formatMoney(paidTotal) }}
         </p>
-        <p class="mt-0.5 text-[11px] text-stone-500">ใบสำคัญจ่ายที่แสดงอยู่</p>
+        <p class="mt-0.5 text-caption text-ink-3">ใบสำคัญจ่ายที่แสดงอยู่</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-500">เอกสารรับเงิน</p>
-        <p class="font-display num mt-1 text-xl font-bold text-ok-700">{{ receiptCount }}</p>
-        <p class="mt-0.5 text-[11px] text-stone-500">ใบเสร็จ · รับล่วงหน้า · ใบรับเงิน</p>
+        <p class="text-caption font-bold text-ink-3">เอกสารรับเงิน</p>
+        <p class="num mt-1 text-xl font-bold text-ok-700">{{ receiptCount }}</p>
+        <p class="mt-0.5 text-caption text-ink-3">ใบเสร็จ · รับล่วงหน้า · ใบรับเงิน</p>
       </div>
       <div class="page-card p-3.5">
-        <p class="text-[11px] font-bold text-stone-500">ใบแจ้งหนี้</p>
-        <p class="font-display num mt-1 text-xl font-bold text-warn-700">{{ invoiceCount }}</p>
-        <p class="mt-0.5 text-[11px] text-stone-500">เอกสารเรียกเก็บ</p>
+        <p class="text-caption font-bold text-ink-3">ใบแจ้งหนี้</p>
+        <p class="num mt-1 text-xl font-bold text-warn-700">{{ invoiceCount }}</p>
+        <p class="mt-0.5 text-caption text-ink-3">เอกสารเรียกเก็บ</p>
       </div>
     </div>
 
@@ -567,7 +568,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
               <i class="bi" :class="allSelected ? 'bi-x-square' : 'bi-check2-square'" aria-hidden="true"></i>
               {{ allSelected ? 'ล้างที่เลือก' : 'เลือกทั้งหมดในหน้านี้' }}
             </button>
-            <p class="min-w-0 truncate text-xs font-bold text-stone-500">
+            <p class="min-w-0 truncate text-xs font-bold text-ink-3">
               <template v-if="selectedNos.length">
                 เลือก <span class="num text-brand-700">{{ selectedNos.length }}</span> ฉบับ —
                 รวม {{ formatMoney(selectedAmount) }}
@@ -634,7 +635,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
                         :class="
                           rowState(row) === 'none'
-                            ? 'border-stone-300 bg-white'
+                            ? 'border-line bg-surface'
                             : 'border-brand-700 bg-brand-700'
                         "
                       >
@@ -658,11 +659,11 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         @click="toggleExpand(row.batchId)"
                       >
                         <i
-                          class="bi shrink-0 text-stone-500 transition-transform"
+                          class="bi shrink-0 text-ink-3 transition-transform"
                           :class="isExpanded(row.batchId) ? 'bi-chevron-down' : 'bi-chevron-right'"
                           aria-hidden="true"
                         ></i>
-                        <span class="truncate font-bold text-stone-900">
+                        <span class="truncate font-bold text-ink">
                           {{ batchDisplayName(row) }}
                         </span>
                       </button>
@@ -682,10 +683,10 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                     </div>
                   </div>
                   <div class="shrink-0 text-right">
-                    <p class="font-display num text-base font-bold text-stone-900">
+                    <p class="num text-base font-bold text-ink">
                       {{ formatMoney(rowAmount(row)) }}
                     </p>
-                    <span class="chip mt-1 bg-stone-100 text-stone-600">
+                    <span class="chip mt-1 bg-canvas text-ink-2">
                       {{ row.visibleCount }}/{{ row.batchSize }} ใบ
                     </span>
                   </div>
@@ -694,7 +695,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                 <!-- 🔒 ปุ่มจัดการชุด — gate ด้วย canManageFinance -->
                 <div
                   v-if="canManageFinance"
-                  class="mt-2.5 flex items-center justify-end gap-2 border-t border-stone-100 pt-2.5"
+                  class="mt-2.5 flex items-center justify-end gap-2 border-t border-line pt-2.5"
                 >
                   <button
                     type="button"
@@ -718,11 +719,11 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
               </div>
 
               <!-- กางออก = สมาชิกที่เห็นในตัวกรองปัจจุบัน (ป้ายด้านบนบอกถ้าไม่ครบ) -->
-              <div v-if="isExpanded(row.batchId)" class="space-y-2 border-t border-stone-100 p-3">
+              <div v-if="isExpanded(row.batchId)" class="space-y-2 border-t border-line p-3">
                 <div
                   v-for="m in row.items"
                   :key="m.id"
-                  class="rounded-xl bg-stone-50 p-3"
+                  class="rounded-control bg-canvas p-3"
                 >
                   <div class="flex items-start justify-between gap-3">
                     <label class="flex min-w-0 cursor-pointer items-center gap-2">
@@ -738,7 +739,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         :class="
                           selectedNos.includes(m.receipt_no)
                             ? 'border-brand-700 bg-brand-700'
-                            : 'border-stone-300 bg-white'
+                            : 'border-line bg-surface'
                         "
                       >
                         <i
@@ -747,16 +748,16 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                           aria-hidden="true"
                         ></i>
                       </span>
-                      <span class="num truncate text-sm font-bold text-stone-900">
+                      <span class="num truncate text-sm font-bold text-ink">
                         {{ m.receipt_no }}
                       </span>
                     </label>
-                    <p class="font-display num shrink-0 text-sm font-bold text-stone-900">
+                    <p class="num shrink-0 text-sm font-bold text-ink">
                       {{ formatMoney(m.amount) }}
                     </p>
                   </div>
                   <div class="mt-1.5 flex items-center justify-between gap-3">
-                    <p class="min-w-0 truncate text-xs text-stone-500">
+                    <p class="min-w-0 truncate text-xs text-ink-3">
                       {{ m.issued_to_name || '—' }}
                       <span v-if="m.student_no" class="num">— เลขที่ {{ m.student_no }}</span>
                     </p>
@@ -805,7 +806,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                       :class="
                         selectedNos.includes(row.item.receipt_no)
                           ? 'border-brand-700 bg-brand-700'
-                          : 'border-stone-300 bg-white'
+                          : 'border-line bg-surface'
                       "
                     >
                       <i
@@ -814,22 +815,22 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         aria-hidden="true"
                       ></i>
                     </span>
-                    <span class="num truncate text-sm font-bold text-stone-900">
+                    <span class="num truncate text-sm font-bold text-ink">
                       {{ row.item.receipt_no }}
                     </span>
                   </label>
-                  <p class="mt-0.5 truncate text-xs text-stone-500">
+                  <p class="mt-0.5 truncate text-xs text-ink-3">
                     {{ row.item.issued_to_name || '—' }}
                     <span v-if="row.item.student_no" class="num">
                       — เลขที่ {{ row.item.student_no }}
                     </span>
                   </p>
-                  <p v-if="row.item.collection_title" class="truncate text-xs text-stone-500">
+                  <p v-if="row.item.collection_title" class="truncate text-xs text-ink-3">
                     {{ row.item.collection_title }}
                   </p>
                 </div>
                 <div class="shrink-0 text-right">
-                  <p class="font-display num text-base font-bold text-stone-900">
+                  <p class="num text-base font-bold text-ink">
                     {{ formatMoney(row.item.amount) }}
                   </p>
                   <span class="chip mt-1" :class="docChipClass(row.item.doc_type)">
@@ -839,9 +840,9 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
               </div>
 
               <div
-                class="mt-2.5 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5"
+                class="mt-2.5 flex items-center justify-between gap-3 border-t border-line pt-2.5"
               >
-                <small class="num truncate text-[11px] font-bold text-stone-500">
+                <small class="num truncate text-caption font-bold text-ink-3">
                   <i class="bi bi-clock" aria-hidden="true"></i>
                   {{ formatThaiDateTime(row.item.issued_at) }}
                 </small>
@@ -893,7 +894,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                       <span
                         class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
                         :class="
-                          allSelected ? 'border-brand-700 bg-brand-700' : 'border-stone-300 bg-white'
+                          allSelected ? 'border-brand-700 bg-brand-700' : 'border-line bg-surface'
                         "
                       >
                         <i
@@ -917,7 +918,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                 <template v-for="row in rows" :key="row.key">
                   <!-- 📚 แถวชุด — ยุบไว้ก่อน กดchevron เพื่อกางเอกสารข้างในออกมา -->
                   <template v-if="row.kind === 'batch'">
-                    <tr class="bg-stone-50/80">
+                    <tr class="bg-canvas">
                       <td>
                         <label class="flex cursor-pointer items-center">
                           <input
@@ -932,7 +933,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                             class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
                             :class="
                               rowState(row) === 'none'
-                                ? 'border-stone-300 bg-white'
+                                ? 'border-line bg-surface'
                                 : 'border-brand-700 bg-brand-700'
                             "
                           >
@@ -957,15 +958,15 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                           @click="toggleExpand(row.batchId)"
                         >
                           <i
-                            class="bi shrink-0 text-stone-500"
+                            class="bi shrink-0 text-ink-3"
                             :class="isExpanded(row.batchId) ? 'bi-chevron-down' : 'bi-chevron-right'"
                             aria-hidden="true"
                           ></i>
-                          <span class="chip shrink-0 bg-stone-200 text-stone-700">
+                          <span class="chip shrink-0 bg-line text-ink-2">
                             <i class="bi bi-collection" aria-hidden="true"></i>
                             ชุด
                           </span>
-                          <span class="min-w-0 truncate font-bold text-stone-900">
+                          <span class="min-w-0 truncate font-bold text-ink">
                             {{ batchDisplayName(row) }}
                           </span>
                           <!-- 🔴 บอกตามจริงเมื่อตัวกรองตัดสมาชิกออก — ห้ามเงียบ -->
@@ -985,7 +986,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         </button>
                       </td>
                       <td
-                        class="font-display num whitespace-nowrap text-right font-bold text-stone-900"
+                        class="num whitespace-nowrap text-right font-bold text-ink"
                       >
                         {{ formatMoney(rowAmount(row)) }}
                       </td>
@@ -1020,7 +1021,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                       v-for="m in row.items"
                       v-show="isExpanded(row.batchId)"
                       :key="`m:${m.id}`"
-                      class="border-l-2 border-stone-200"
+                      class="border-l-2 border-line"
                     >
                       <td class="pl-4">
                         <label class="flex cursor-pointer items-center">
@@ -1036,7 +1037,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                             :class="
                               selectedNos.includes(m.receipt_no)
                                 ? 'border-brand-700 bg-brand-700'
-                                : 'border-stone-300 bg-white'
+                                : 'border-line bg-surface'
                             "
                           >
                             <i
@@ -1047,8 +1048,8 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                           </span>
                         </label>
                       </td>
-                      <td class="num pl-4 font-bold text-stone-900">{{ m.receipt_no }}</td>
-                      <td class="num whitespace-nowrap text-stone-500">
+                      <td class="num pl-4 font-bold text-ink">{{ m.receipt_no }}</td>
+                      <td class="num whitespace-nowrap text-ink-3">
                         {{ formatThaiDateTime(m.issued_at) }}
                       </td>
                       <td>
@@ -1057,16 +1058,16 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         </span>
                       </td>
                       <td>
-                        <p class="font-bold text-stone-900">{{ m.issued_to_name || '—' }}</p>
-                        <p v-if="m.student_no" class="num text-xs text-stone-500">
+                        <p class="font-bold text-ink">{{ m.issued_to_name || '—' }}</p>
+                        <p v-if="m.student_no" class="num text-xs text-ink-3">
                           เลขที่ {{ m.student_no }}
                         </p>
                       </td>
-                      <td class="max-w-[18rem] truncate text-stone-500">
+                      <td class="max-w-[18rem] truncate text-ink-3">
                         {{ m.collection_title || '—' }}
                       </td>
                       <td
-                        class="font-display num whitespace-nowrap text-right font-bold text-stone-900"
+                        class="num whitespace-nowrap text-right font-bold text-ink"
                       >
                         {{ formatMoney(m.amount) }}
                       </td>
@@ -1116,7 +1117,7 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                           :class="
                             selectedNos.includes(row.item.receipt_no)
                               ? 'border-brand-700 bg-brand-700'
-                              : 'border-stone-300 bg-white'
+                              : 'border-line bg-surface'
                           "
                         >
                           <i
@@ -1127,8 +1128,8 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                         </span>
                       </label>
                     </td>
-                    <td class="num font-bold text-stone-900">{{ row.item.receipt_no }}</td>
-                    <td class="num whitespace-nowrap text-stone-500">
+                    <td class="num font-bold text-ink">{{ row.item.receipt_no }}</td>
+                    <td class="num whitespace-nowrap text-ink-3">
                       {{ formatThaiDateTime(row.item.issued_at) }}
                     </td>
                     <td>
@@ -1137,16 +1138,16 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
                       </span>
                     </td>
                     <td>
-                      <p class="font-bold text-stone-900">{{ row.item.issued_to_name || '—' }}</p>
-                      <p v-if="row.item.student_no" class="num text-xs text-stone-500">
+                      <p class="font-bold text-ink">{{ row.item.issued_to_name || '—' }}</p>
+                      <p v-if="row.item.student_no" class="num text-xs text-ink-3">
                         เลขที่ {{ row.item.student_no }}
                       </p>
                     </td>
-                    <td class="max-w-[18rem] truncate text-stone-500">
+                    <td class="max-w-[18rem] truncate text-ink-3">
                       {{ row.item.collection_title || '—' }}
                     </td>
                     <td
-                      class="font-display num whitespace-nowrap text-right font-bold text-stone-900"
+                      class="num whitespace-nowrap text-right font-bold text-ink"
                     >
                       {{ formatMoney(row.item.amount) }}
                     </td>

@@ -28,7 +28,7 @@ const hasUnread = computed(() => props.unreadCount > 0);
 <template>
   <button
     type="button"
-    class="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
+    class="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-2 transition-colors hover:bg-canvas hover:text-ink active:scale-[0.97]"
     aria-label="การแจ้งเตือน"
     aria-haspopup="dialog"
     :aria-expanded="expanded === true"
@@ -40,7 +40,7 @@ const hasUnread = computed(() => props.unreadCount > 0);
     <!-- จุดสี: บอกว่ามีของใหม่โดยไม่ต้องอ่านตัวเลข -->
     <span
       v-if="hasUnread"
-      class="pointer-events-none absolute end-1.5 top-1.5 flex min-w-[18px] items-center justify-center rounded-full bg-danger-600 px-1 text-[10px] font-bold leading-[18px] text-white"
+      class="pointer-events-none absolute end-1.5 top-1.5 flex min-w-[18px] items-center justify-center rounded-full bg-danger-600 px-1 text-xs font-bold leading-[18px] text-white"
       aria-hidden="true"
     >
       {{ displayCount }}

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
-import Swal from 'sweetalert2';
 import PageIntro from '@/components/ui/PageIntro.vue';
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog';
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 
 const currentRoomCode = computed(() => {
   return authStore.currentRoomCode || 'N/A';
@@ -22,19 +22,17 @@ const hasBotInviteUrl = computed(() => botInviteUrl.value.length > 0);
 const copyRoomCode = async () => {
   try {
     await navigator.clipboard.writeText(currentRoomCode.value);
-    Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: 'คัดลอกแล้ว!',
       text: `รหัสห้อง "${currentRoomCode.value}" ถูกคัดลอกไปยังคลิปบอร์ดแล้ว`,
       timer: 2000,
-      showConfirmButton: false,
     });
   } catch {
-    Swal.fire({
+    await dialog.fire({
       icon: 'error',
       title: 'ไม่สามารถคัดลอกได้',
       text: 'กรุณาคัดลอกด้วยตนเอง',
-      confirmButtonColor: UI_COLOR.brand,
     });
   }
 };
@@ -47,30 +45,28 @@ const copyRoomCode = async () => {
     />
 
     <div class="page-card overflow-hidden">
-      <div class="flex items-center gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
-        <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
-        >
+      <div class="flex items-center gap-3 border-b border-line bg-canvas px-4 py-3.5 sm:px-5">
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand text-white">
           <i class="bi bi-discord text-base" aria-hidden="true"></i>
         </div>
         <div class="min-w-0">
           <p class="section-title truncate">ขั้นตอนการเชื่อมต่อ</p>
-          <p class="truncate text-xs text-stone-500">ทำตามลำดับสองขั้นตอนด้านล่าง</p>
+          <p class="truncate text-caption text-ink-3">ทำตามลำดับสองขั้นตอนด้านล่าง</p>
         </div>
       </div>
 
-      <!-- ลำดับขั้นด้วยเลข font-display คั่นด้วยเส้น hairline ไม่ใช่การ์ดซ้อนการ์ด -->
-      <ol class="divide-y divide-stone-100">
+      <!-- ลำดับขั้นด้วยเลขคั่นด้วยเส้น hairline ไม่ใช่การ์ดซ้อนการ์ด -->
+      <ol class="divide-y divide-line">
         <li class="flex gap-3 p-4 sm:gap-4 sm:p-5">
           <span
-            class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 font-display text-sm font-bold text-brand-700"
+            class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-bold text-brand-700"
             aria-hidden="true"
           >
             1
           </span>
           <div class="min-w-0 flex-1">
             <h2 class="section-title">เชิญบอทเข้าเซิร์ฟเวอร์ของคุณ</h2>
-            <p class="mt-1 text-sm leading-relaxed text-stone-500">
+            <p class="mt-1 text-sm leading-relaxed text-ink-3">
               คลิกปุ่มด้านล่างเพื่อเพิ่มบอทลงในเซิร์ฟเวอร์ Discord
               ที่คุณต้องการรับการแจ้งเตือน
             </p>
@@ -99,29 +95,29 @@ const copyRoomCode = async () => {
 
         <li class="flex gap-3 p-4 sm:gap-4 sm:p-5">
           <span
-            class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 font-display text-sm font-bold text-brand-700"
+            class="num flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-bold text-brand-700"
             aria-hidden="true"
           >
             2
           </span>
           <div class="min-w-0 flex-1">
             <h2 class="section-title">พิมพ์คำสั่งใน Discord</h2>
-            <p class="mt-1 text-sm leading-relaxed text-stone-500">
+            <p class="mt-1 text-sm leading-relaxed text-ink-3">
               หลังจากเพิ่มบอทแล้ว ให้พิมพ์คำสั่งด้านล่างในช่องแชท
               (หรือ DM หาบอท) เพื่อเชื่อมต่อบัญชีของคุณกับห้องเรียน
             </p>
 
-            <div class="mt-3 space-y-2.5 rounded-xl bg-stone-50 p-3.5">
+            <div class="mt-3 space-y-2.5 rounded-control border border-line bg-canvas p-3.5">
               <div
-                class="overflow-x-auto whitespace-nowrap rounded-xl bg-stone-900 px-3.5 py-3 font-mono text-sm text-ok-300"
+                class="overflow-x-auto whitespace-nowrap rounded-control border border-line bg-surface px-3.5 py-3 font-mono text-sm text-ink"
               >
-                <span class="text-stone-500">/</span>sync_room
-                <span class="text-warn-300">{{ currentRoomCode }}&nbsp;</span><span
-                  class="text-brand-300"
+                <span class="text-ink-3">/</span>sync_room
+                <span class="text-warn-700">{{ currentRoomCode }}&nbsp;</span><span
+                  class="text-brand-700"
                   >5</span
                 >
               </div>
-              <p class="text-xs leading-relaxed text-stone-500">
+              <p class="text-xs leading-relaxed text-ink-3">
                 เปลี่ยนเลข
                 <span class="font-bold text-brand-700">5</span>
                 เป็นเลขที่ของคุณ (เช่น
@@ -132,9 +128,9 @@ const copyRoomCode = async () => {
             </div>
 
             <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-              <span class="text-sm font-semibold text-stone-500">รหัสห้อง:</span>
+              <span class="text-sm font-semibold text-ink-3">รหัสห้อง:</span>
               <code
-                class="min-w-0 max-w-full self-start truncate rounded-lg bg-stone-100 px-3 py-1.5 font-mono text-sm font-bold text-stone-800"
+                class="min-w-0 max-w-full self-start truncate rounded-control bg-canvas px-3 py-1.5 font-mono text-sm font-bold text-ink"
               >
                 {{ currentRoomCode }}
               </code>

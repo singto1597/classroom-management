@@ -64,10 +64,10 @@ const onSheetClose = () => emit('close');
     <template #header>
       <div class="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-3">
         <div class="flex min-w-0 items-center gap-2">
-          <h2 class="font-display text-lg font-bold text-stone-900">การแจ้งเตือน</h2>
+          <h2 class="font-display text-lg font-bold text-ink">การแจ้งเตือน</h2>
           <span
             v-if="store.unreadCount > 0"
-            class="rounded-full bg-danger-100 px-2 py-0.5 text-[11px] font-bold text-danger-800"
+            class="rounded-full bg-danger-100 px-2 py-0.5 text-xs font-bold text-danger-800"
           >
             ยังไม่อ่าน {{ store.unreadCount }}
           </span>
@@ -77,14 +77,14 @@ const onSheetClose = () => emit('close');
           <button
             v-if="store.unreadCount > 0"
             type="button"
-            class="min-h-11 rounded-lg px-2.5 text-xs font-bold text-brand-700 transition-colors hover:bg-brand-50"
+            class="min-h-11 rounded-control px-2.5 text-xs font-bold text-brand-700 transition-colors hover:bg-brand-50"
             @click="store.markAllRead()"
           >
             อ่านทั้งหมด
           </button>
           <button
             type="button"
-            class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800"
+            class="flex h-11 w-11 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-canvas hover:text-ink"
             aria-label="ปิดการแจ้งเตือน"
             @click="onSheetClose"
           >
@@ -119,7 +119,7 @@ const onSheetClose = () => emit('close');
       <!-- ผิดพลาดระหว่างรีเฟรช: เตือนเบา ๆ ไม่ทับของเดิม -->
       <p
         v-if="store.error"
-        class="rounded-xl border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
+        class="rounded-control border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
         role="status"
       >
         อัปเดตล่าสุดไม่สำเร็จ — ข้อมูลที่เห็นอาจไม่ใช่ล่าสุด
@@ -129,17 +129,17 @@ const onSheetClose = () => emit('close');
         <li v-for="item in store.items" :key="item.id">
           <button
             type="button"
-            class="flex w-full items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors active:scale-[0.99]"
+            class="flex w-full items-start gap-3 rounded-card border p-3.5 text-left transition-colors active:scale-[0.99]"
             :class="
               item.read_at
-                ? 'border-stone-200 bg-white hover:bg-stone-50'
+                ? 'border-line bg-surface hover:bg-canvas'
                 : 'border-brand-200 bg-brand-50/70 hover:bg-brand-50'
             "
             @click="openItem(item)"
           >
             <span
-              class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-              :class="item.read_at ? 'bg-stone-100 text-stone-500' : 'bg-brand-100 text-brand-700'"
+              class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-control"
+              :class="item.read_at ? 'bg-canvas text-ink-3' : 'bg-brand-100 text-brand-700'"
               aria-hidden="true"
             >
               <i :class="['bi', NOTIFICATION_GROUP_ICONS[item.group_type], 'text-base']"></i>
@@ -147,35 +147,35 @@ const onSheetClose = () => emit('close');
 
             <span class="min-w-0 flex-1">
               <span class="flex flex-wrap items-center gap-1.5">
-                <span class="text-[10px] font-bold text-stone-500">
+                <span class="text-xs font-bold text-ink-3">
                   {{ NOTIFICATION_GROUP_LABELS[item.group_type] }}
                 </span>
                 <span
                   v-if="item.priority !== 'normal'"
-                  class="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                  class="rounded-full px-1.5 py-0.5 text-xs font-bold"
                   :class="PRIORITY_BADGE_CLASSES[item.priority]"
                 >
                   {{ PRIORITY_LABELS[item.priority] }}
                 </span>
                 <span
                   v-if="!item.read_at"
-                  class="inline-flex items-center gap-1 text-[10px] font-bold text-brand-700"
+                  class="inline-flex items-center gap-1 text-xs font-bold text-brand-700"
                 >
                   <span class="h-1.5 w-1.5 rounded-full bg-brand-600" aria-hidden="true"></span>
                   ใหม่
                 </span>
               </span>
 
-              <span class="mt-0.5 block break-words text-sm font-bold text-stone-900">
+              <span class="mt-0.5 block break-words text-sm font-bold text-ink">
                 {{ item.title }}
               </span>
               <span
                 v-if="item.body"
-                class="mt-0.5 line-clamp-2 block break-words text-xs leading-relaxed text-stone-600"
+                class="mt-0.5 line-clamp-2 block break-words text-xs leading-relaxed text-ink-2"
               >
                 {{ item.body }}
               </span>
-              <span class="mt-1 block text-[11px] font-bold text-stone-400">
+              <span class="mt-1 block text-xs font-bold text-ink-3">
                 {{ formatThaiDateTime(item.created_at) }}
               </span>
             </span>

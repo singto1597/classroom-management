@@ -5,11 +5,11 @@ import { StudentService } from '@/services/student';
 import { downloadBlob } from '@/utils/download';
 import { todayIso } from '@/utils/datetime';
 import PageIntro from '@/components/ui/PageIntro.vue';
-import Swal from 'sweetalert2';
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog';
 import draggable from 'vuedraggable'; // 📦 vuedraggable สำหรับ Vue 3
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 const roomId = computed(() => authStore.currentRoomId!);
 const userName = computed(() => authStore.currentUserName || 'ผู้ดูแลระบบ');
 
@@ -136,23 +136,13 @@ const clearAll = () => { selectedColumns.value = []; };
 // --- 🚀 4. ฟังก์ชันส่งออก ---
 const handleExport = async () => {
   if (selectedColumns.value.length === 0) {
-    return Swal.fire({
-      icon: 'warning',
-      title: 'แจ้งเตือน',
-      text: 'กรุณาเลือกข้อมูลอย่างน้อย 1 คอลัมน์ครับ!',
-      confirmButtonColor: UI_COLOR.brand
-    });
+    return dialog.alert('แจ้งเตือน', 'กรุณาเลือกข้อมูลอย่างน้อย 1 คอลัมน์ครับ!', 'warning')
   }
 
   const finalFieldsOrder = selectedColumns.value.map(col => col.id);
 
   try {
-    Swal.fire({
-      title: 'กำลังคราฟต์ไฟล์ Excel...',
-      text: 'ระบบกำลังจัดเรียงคอลัมน์ให้คุณ',
-      allowOutsideClick: false,
-      didOpen: () => Swal.showLoading()
-    });
+    void dialog.loading('กำลังคราฟต์ไฟล์ Excel...', 'ระบบกำลังจัดเรียงคอลัมน์ให้คุณ')
 
     // ดึงก้อน Blob ออกมาจาก API
     const blob = await StudentService.exportStudentsExcel(roomId.value, finalFieldsOrder, userName.value);
@@ -166,25 +156,25 @@ const handleExport = async () => {
     const dateStr = todayIso();
     downloadBlob(blob, `Custom_Export_${roomId.value}_${dateStr}.xlsx`);
 
-    Swal.fire({
+    dialog.close();
+    void dialog.fire({
       icon: 'success',
       title: 'สำเร็จ!',
       text: 'ดาวน์โหลดไฟล์ Excel เรียบร้อยแล้ว',
-      timer: 1500,
-      showConfirmButton: false
+      timer: 1500
     });
   } catch (error) {
     console.error(error);
     // แสดงข้อความจาก backend (interceptor แกะ Blob ที่เป็น error body ให้แล้ว)
     // ⇒ ผู้ใช้แยกออกว่าเป็น "ไม่มีสิทธิ์" หรือ "พลาดชั่วคราว" ซึ่งตัดสินใจได้ว่าควรรอ/ลองใหม่ไหม
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: error instanceof Error && error.message
+    dialog.close();
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error && error.message
         ? error.message
         : 'ไม่สามารถส่งออกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
-      confirmButtonColor: UI_COLOR.brand
-    });
+      'error'
+    );
   }
 };
 </script>
@@ -212,12 +202,12 @@ const handleExport = async () => {
           <!-- Category Header (เป็นปุ่มจริงเพื่อให้กดด้วยคีย์บอร์ด/โปรแกรมอ่านจอได้) -->
           <button
             type="button"
-            class="flex w-full cursor-pointer select-none items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 text-left transition-colors hover:bg-stone-100 sm:px-5"
+            class="flex w-full cursor-pointer select-none items-center justify-between gap-3 border-b border-line bg-canvas px-4 py-3.5 text-left transition-colors hover:bg-canvas sm:px-5"
             :aria-pressed="isCategoryAllSelected(cat)"
             @click="toggleCategory(cat)"
           >
             <h3 class="flex min-w-0 items-center gap-2.5">
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-stone-200">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-surface ring-1 ring-line">
                 <i :class="[cat.icon, cat.color, 'text-base']" aria-hidden="true"></i>
               </span>
               <span class="section-title truncate">{{ cat.name }}</span>
@@ -225,15 +215,15 @@ const handleExport = async () => {
 
             <!-- Checkbox เลือกทั้งหมวด -->
             <div
-              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-all"
+              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-control border-2 transition-all"
               :class="isCategoryAllSelected(cat)
                 ? CHECK_COLORS[cat.color]?.checked || 'bg-brand-700 border-transparent'
                 : isCategoryPartialSelected(cat)
                   ? CHECK_COLORS[cat.color]?.partial || 'bg-brand-300 border-transparent'
-                  : 'border-stone-300 bg-white'"
+                  : 'border-line bg-surface'"
             >
               <i v-if="isCategoryAllSelected(cat)" class="bi bi-check-lg text-sm font-black text-white" aria-hidden="true"></i>
-              <i v-else-if="isCategoryPartialSelected(cat)" class="bi bi-dash-lg text-sm font-black text-stone-600" aria-hidden="true"></i>
+              <i v-else-if="isCategoryPartialSelected(cat)" class="bi bi-dash-lg text-sm font-black text-ink-2" aria-hidden="true"></i>
             </div>
           </button>
 
@@ -243,18 +233,18 @@ const handleExport = async () => {
               v-for="field in cat.fields"
               :key="field.id"
               type="button"
-              class="flex min-h-11 select-none items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+              class="flex min-h-11 select-none items-center gap-2 rounded-control border px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
               :class="isFieldSelected(field.id)
                 ? `${cat.color} ${cat.bg} border-transparent ring-1 ring-inset ${cat.ring}`
-                : 'border-stone-200 text-stone-500 hover:border-stone-300 hover:bg-stone-50'"
+                : 'border-line text-ink-3 hover:border-line hover:bg-canvas'"
               @click="toggleField(field, cat)"
             >
               <span
                 class="flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors"
-                :class="isFieldSelected(field.id) ? 'border-brand-700 bg-brand-700' : 'border-stone-300'"
+                :class="isFieldSelected(field.id) ? 'border-brand-700 bg-brand-700' : 'border-line'"
                 aria-hidden="true"
               >
-                <i v-if="isFieldSelected(field.id)" class="bi bi-check text-[10px] font-black leading-none text-white"></i>
+                <i v-if="isFieldSelected(field.id)" class="bi bi-check text-xs font-black leading-none text-white"></i>
               </span>
               {{ field.label }}
             </button>
@@ -265,12 +255,12 @@ const handleExport = async () => {
       <!-- ➡️ ขวา: จัดลำดับการส่งออก (แสดงก่อนบนมือถือ เพราะเป็น action หลัก) -->
       <div class="page-card order-first overflow-hidden xl:order-none xl:col-span-5 xl:sticky xl:top-8">
 
-        <div class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3.5 sm:px-5">
+        <div class="flex items-center justify-between gap-3 border-b border-line bg-canvas px-4 py-3.5 sm:px-5">
           <div class="min-w-0">
             <h3 class="section-title flex items-center gap-2">
               <i class="bi bi-list-ol text-brand-700" aria-hidden="true"></i> ลำดับคอลัมน์ Excel
             </h3>
-            <p class="mt-0.5 text-xs text-stone-500">
+            <p class="mt-0.5 text-xs text-ink-3">
               เลือกแล้ว <span class="num font-bold text-brand-700">{{ selectedColumns.length }}</span> รายการ
             </p>
           </div>
@@ -289,10 +279,10 @@ const handleExport = async () => {
           <!-- กล่องว่างเปล่า -->
           <div
             v-if="selectedColumns.length === 0"
-            class="flex flex-col items-center justify-center gap-3 rounded-2xl border border-stone-300 px-5 py-8 text-center sm:px-6 sm:py-12"
+            class="flex flex-col items-center justify-center gap-3 rounded-card border border-line px-5 py-8 text-center sm:px-6 sm:py-12"
           >
-            <i class="bi bi-cursor text-3xl text-stone-300" aria-hidden="true"></i>
-            <p class="text-sm leading-normal text-stone-500">
+            <i class="bi bi-cursor text-3xl text-ink-3" aria-hidden="true"></i>
+            <p class="text-sm leading-normal text-ink-3">
               <span class="sm:hidden">แตะเลือกข้อมูลจากด้านล่าง</span><span class="hidden sm:inline">คลิกเลือกข้อมูลจากฝั่งซ้าย</span><br />เพื่อนำมาจัดลำดับที่นี่
             </p>
           </div>
@@ -309,19 +299,19 @@ const handleExport = async () => {
             drag-class="cursor-grabbing"
           >
             <template #item="{ element, index }">
-              <div class="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-white p-3 transition-colors hover:border-stone-300">
+              <div class="flex items-center justify-between gap-2 rounded-control border border-line bg-surface p-3 transition-colors hover:border-line">
 
                 <div class="flex min-w-0 items-center gap-2.5">
                   <!-- จุดจับลาก (Drag Handle) — พื้นที่แตะ 44px ตามสัญญา DESIGN ข้อ 6 (-my-2 ไม่ให้แถวสูงขึ้น) -->
                   <div
-                    class="drag-handle -my-2 -ms-1 flex h-11 w-11 shrink-0 cursor-grab items-center justify-center text-stone-500 transition-colors hover:text-brand-700"
+                    class="drag-handle -my-2 -ms-1 flex h-11 w-11 shrink-0 cursor-grab items-center justify-center text-ink-3 transition-colors hover:text-brand-700"
                     role="button"
                     aria-label="ลากเพื่อจัดลำดับคอลัมน์"
                   >
                     <i class="bi bi-grip-vertical text-lg" aria-hidden="true"></i>
                   </div>
 
-                  <span class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-stone-100 text-[11px] font-bold text-stone-600">
+                  <span class="num flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-canvas text-xs font-bold text-ink-2">
                     {{ index + 1 }}
                   </span>
 
@@ -331,12 +321,12 @@ const handleExport = async () => {
                 <!-- ปุ่มลบ — พื้นที่แตะ 44px (-my-1.5 คุมความสูงแถวไม่ให้บวม) -->
                 <button
                   type="button"
-                  class="-my-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
+                  class="-my-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-danger-50 hover:text-danger-600 active:scale-[0.97]"
                   title="ลบออก"
                   aria-label="ลบออก"
                   @click.stop="toggleField(element, { color: element.catColor })"
                 >
-                  <i class="bi bi-x-lg text-[10px] font-black" aria-hidden="true"></i>
+                  <i class="bi bi-x-lg text-xs font-black" aria-hidden="true"></i>
                 </button>
 
               </div>

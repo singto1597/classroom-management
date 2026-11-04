@@ -30,20 +30,20 @@ const canGoBack = computed(() => typeof window !== 'undefined' && window.history
 </script>
 
 <template>
-  <div class="flex min-h-screen min-h-dvh flex-col bg-paper font-sans text-ink">
-    <header class="border-b border-stone-200 bg-white">
+  <div class="flex min-h-screen min-h-dvh flex-col bg-canvas font-sans text-ink">
+    <header class="border-b border-line bg-surface">
       <div class="page-wrap flex h-14 items-center justify-between gap-3 px-4 sm:h-16 sm:px-6 lg:px-8">
         <RouterLink
           to="/"
-          class="flex min-w-0 items-center gap-2.5 rounded-lg focus-visible:ring-2 focus-visible:ring-brand-500/30"
+          class="flex min-w-0 items-center gap-2.5 rounded-control focus-visible:ring-2 focus-visible:ring-brand-500/30"
         >
           <span
-            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-700 text-white"
           >
             <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
           </span>
-          <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-stone-900">
-            SYNC<span class="font-normal text-stone-500">ROOM</span>
+          <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-ink">
+            SYNC<span class="font-normal text-ink-3">ROOM</span>
           </span>
         </RouterLink>
       </div>
@@ -51,22 +51,22 @@ const canGoBack = computed(() => typeof window !== 'undefined' && window.history
 
     <main class="flex flex-1 items-center justify-center px-4 py-12 sm:px-6">
       <div class="w-full max-w-lg text-center">
-        <p class="font-display text-6xl font-bold leading-none tracking-tight text-stone-200" aria-hidden="true">
+        <p class="font-display text-6xl font-bold leading-none tracking-tight text-line" aria-hidden="true">
           404
         </p>
 
-        <h1 class="font-display mt-4 text-2xl font-bold text-stone-900 sm:text-3xl">
+        <h1 class="font-display mt-4 text-2xl font-bold text-ink sm:text-3xl">
           ไม่พบหน้าที่ต้องการ
         </h1>
 
-        <p class="mt-2 text-sm leading-relaxed text-stone-600">
+        <p class="mt-2 text-sm leading-relaxed text-ink-2">
           หน้านี้อาจถูกย้าย ลบไปแล้ว หรือที่อยู่ในแถบที่อยู่พิมพ์ผิด
         </p>
 
         <!-- Path ที่พยายามเปิด — ช่วยให้ผู้ใช้เห็นว่าผิดตรงไหน (Vue escape ให้แล้ว) -->
         <p class="mt-4 flex justify-center">
           <code
-            class="max-w-full truncate rounded-lg border border-stone-200 bg-white px-3 py-1.5 font-mono text-xs text-stone-500"
+            class="max-w-full truncate rounded-control border border-line bg-surface px-3 py-1.5 font-mono text-xs text-ink-3"
             :title="route.fullPath"
           >
             {{ route.fullPath }}

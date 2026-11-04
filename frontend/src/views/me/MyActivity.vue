@@ -21,7 +21,6 @@
  */
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
-import Swal from 'sweetalert2';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import AppTabs from '@/components/ui/AppTabs.vue';
 import AppButton from '@/components/ui/AppButton.vue';
@@ -33,8 +32,8 @@ import { AcademicService } from '@/services/academic';
 import { BookmarkService } from '@/services/bookmark';
 import { useAuthStore } from '@/stores/auth';
 import { formatThaiDate, formatThaiDateTime } from '@/utils/datetime';
+import { useDialog } from '@/composables/useDialog';
 import { formatMoney } from '@/utils/money';
-import { UI_COLOR } from '@/constants/theme';
 import { BOOKMARK_ENTITY_LABELS } from '@/types/bookmark';
 import type { BookmarkItem } from '@/types/bookmark';
 import type { AppTabItem } from '@/components/ui/AppTabs.vue';
@@ -46,6 +45,7 @@ type TabValue = 'feed' | 'saved';
 /** ตรงกับ DEFAULT_PAGE_SIZE ฝั่ง backend */
 const PAGE_SIZE = 20;
 
+const dialog = useDialog();
 const authStore = useAuthStore();
 const roomId = authStore.currentRoomId ?? 0;
 
@@ -260,26 +260,17 @@ const removeSaved = async (item: BookmarkItem) => {
     await BookmarkService.remove(roomId, item.bookmark_id);
     savedItems.value = savedItems.value.filter((row) => row.bookmark_id !== item.bookmark_id);
 
-    const undo = await Swal.fire({
+    const { isConfirmed } = await dialog.confirm('ยกเลิกการบันทึกแล้ว', item.title, {
       icon: 'success',
-      title: 'ยกเลิกการบันทึกแล้ว',
-      text: item.title,
       confirmButtonText: 'บันทึกกลับ',
-      showCancelButton: true,
       cancelButtonText: 'ปิด',
-      confirmButtonColor: UI_COLOR.brand,
     });
-    if (undo.isConfirmed) {
+    if (isConfirmed) {
       await BookmarkService.add(roomId, item.entity_type, item.entity_id);
       await loadSaved(true);
     }
   } catch (err) {
-    await Swal.fire({
-      icon: 'error',
-      title: 'ยกเลิกการบันทึกไม่สำเร็จ',
-      text: messageOf(err),
-      confirmButtonColor: UI_COLOR.brand,
-    });
+    void dialog.alert('ยกเลิกการบันทึกไม่สำเร็จ', messageOf(err), 'error');
   }
 };
 
@@ -322,10 +313,10 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
       />
       <div v-else-if="stats" class="space-y-2" :aria-busy="statsRefreshing">
         <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <h2 class="text-xs font-bold text-stone-500">สถิติของฉัน</h2>
-          <p class="text-[11px] font-bold text-stone-500">
+          <h2 class="text-xs font-bold text-ink-3">สถิติของฉัน</h2>
+          <p class="text-xs font-bold text-ink-3">
             ช่วงที่ใช้: {{ statsPeriodLabel }}
-            <span v-if="statsPeriodSource === 'current'" class="font-normal text-stone-400">
+            <span v-if="statsPeriodSource === 'current'" class="font-normal text-ink-3">
               (ระบบเลือกให้)
             </span>
           </p>
@@ -334,13 +325,13 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
         <!-- 🗓️ ตัวกรองปี/เทอม — มีผลกับ "การ์ดสถิติ" เท่านั้น -->
         <div
           v-if="yearOptions.length > 0"
-          class="flex flex-wrap items-end gap-2 rounded-2xl border border-stone-200 bg-white p-3"
+          class="flex flex-wrap items-end gap-2 rounded-card border border-line bg-surface p-3"
         >
           <label class="min-w-[10rem] flex-1">
-            <span class="text-[11px] font-bold text-stone-600">ดูสถิติตามปี</span>
+            <span class="text-xs font-bold text-ink-2">ดูสถิติตามปี</span>
             <select
               :value="filterYearId ?? ''"
-              class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+              class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
               @change="setYear"
             >
               <option value="">อัตโนมัติ (ปี/เทอมปัจจุบัน)</option>
@@ -351,10 +342,10 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
           </label>
 
           <label v-if="selectedYear" class="min-w-[10rem] flex-1">
-            <span class="text-[11px] font-bold text-stone-600">เทอม</span>
+            <span class="text-xs font-bold text-ink-2">เทอม</span>
             <select
               :value="filterTermId ?? ''"
-              class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+              class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
               @change="setTerm"
             >
               <option value="">ทั้งปี</option>
@@ -373,47 +364,47 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
           class="grid grid-cols-2 gap-2 transition-opacity sm:grid-cols-4"
           :class="statsRefreshing ? 'opacity-60' : ''"
         >
-          <div class="rounded-2xl border border-stone-200 bg-white p-3">
-            <p class="text-[11px] font-bold text-stone-500">กิจกรรมที่เข้าร่วม</p>
-            <p class="mt-1 text-xl font-black text-stone-900">{{ stats.activities_joined }}</p>
-            <p class="text-[11px] font-bold text-stone-400">กิจกรรม</p>
+          <div class="rounded-card border border-line bg-surface p-3">
+            <p class="text-xs font-bold text-ink-3">กิจกรรมที่เข้าร่วม</p>
+            <p class="mt-1 text-xl font-black text-ink">{{ stats.activities_joined }}</p>
+            <p class="text-xs font-bold text-ink-3">กิจกรรม</p>
           </div>
-          <div class="rounded-2xl border border-stone-200 bg-white p-3">
-            <p class="text-[11px] font-bold text-stone-500">ชั่วโมงกิจกรรม</p>
-            <p class="mt-1 text-xl font-black text-stone-900">{{ stats.activity_hours }}</p>
-            <p class="text-[11px] font-bold text-stone-400">ชั่วโมง</p>
+          <div class="rounded-card border border-line bg-surface p-3">
+            <p class="text-xs font-bold text-ink-3">ชั่วโมงกิจกรรม</p>
+            <p class="mt-1 text-xl font-black text-ink">{{ stats.activity_hours }}</p>
+            <p class="text-xs font-bold text-ink-3">ชั่วโมง</p>
           </div>
-          <div class="rounded-2xl border border-stone-200 bg-white p-3">
-            <p class="text-[11px] font-bold text-stone-500">จ่ายแล้ว</p>
+          <div class="rounded-card border border-line bg-surface p-3">
+            <p class="text-xs font-bold text-ink-3">จ่ายแล้ว</p>
             <p class="mt-1 text-xl font-black text-ok-700">{{ formatMoney(stats.paid_total) }}</p>
-            <p class="text-[11px] font-bold text-stone-400">จากใบเสร็จที่ยังใช้งาน</p>
+            <p class="text-xs font-bold text-ink-3">จากใบเสร็จที่ยังใช้งาน</p>
           </div>
-          <div class="rounded-2xl border border-stone-200 bg-white p-3">
-            <p class="text-[11px] font-bold text-stone-500">ค้างชำระ</p>
+          <div class="rounded-card border border-line bg-surface p-3">
+            <p class="text-xs font-bold text-ink-3">ค้างชำระ</p>
             <p
               class="mt-1 text-xl font-black"
-              :class="stats.outstanding > 0 ? 'text-danger-700' : 'text-stone-900'"
+              :class="stats.outstanding > 0 ? 'text-danger-700' : 'text-ink'"
             >
               {{ formatMoney(stats.outstanding) }}
             </p>
-            <p class="text-[11px] font-bold text-stone-400">{{ stats.unpaid_bills }} บิล</p>
+            <p class="text-xs font-bold text-ink-3">{{ stats.unpaid_bills }} บิล</p>
           </div>
         </div>
 
         <p
           v-if="hasNoStats"
-          class="rounded-xl border border-info-200 bg-info-50 px-3 py-2 text-xs font-bold text-info-800"
+          class="rounded-control border border-info-200 bg-info-50 px-3 py-2 text-xs font-bold text-info-800"
           role="status"
         >
           บัญชีนี้ยังไม่ได้ผูกกับรายชื่อนักเรียนในห้อง — ตัวเลขส่วนตัวจึงเป็น 0
         </p>
 
-        <p class="text-[11px] font-bold text-stone-400">
+        <p class="text-xs font-bold text-ink-3">
           งานของห้อง: เสร็จ {{ stats.room_tasks_done }} · ค้าง {{ stats.room_tasks_pending }}
           (นับทั้งห้อง ไม่ใช่ของฉัน)
         </p>
 
-        <p class="text-[11px] leading-relaxed text-stone-400">
+        <p class="text-xs leading-relaxed text-ink-3">
           ตัวกรองปี/เทอมมีผลกับ <span class="font-bold">การ์ดสถิติด้านบนเท่านั้น</span> —
           รายการด้านล่างยังเป็นทั้งหมด · ยอดค้างชำระและงานของห้องคือสถานะปัจจุบัน ไม่ขึ้นกับช่วงที่เลือก
         </p>
@@ -441,7 +432,7 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
       <div v-else-if="feedLoaded" class="space-y-3">
         <p
           v-if="feedError"
-          class="rounded-xl border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
+          class="rounded-control border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
           role="status"
         >
           อัปเดตล่าสุดไม่สำเร็จ — ข้อมูลที่เห็นอาจไม่ใช่ล่าสุด
@@ -451,17 +442,17 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
           <li v-for="item in feedItems" :key="`${item.kind}-${item.entity_id}`">
             <RouterLink
               :to="item.url"
-              class="flex gap-3 rounded-2xl border border-stone-200 bg-white p-4 transition-colors hover:bg-stone-50"
+              class="flex gap-3 rounded-card border border-line bg-surface p-4 transition-colors hover:bg-canvas"
             >
               <span
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-control"
                 :class="feedIconClass(item)"
               >
                 <i :class="['bi', feedIcon(item)]" aria-hidden="true"></i>
               </span>
               <div class="min-w-0 flex-1">
                 <div class="flex items-start justify-between gap-2">
-                  <p class="break-words text-sm font-bold text-stone-900">{{ item.title }}</p>
+                  <p class="break-words text-sm font-bold text-ink">{{ item.title }}</p>
                   <span
                     v-if="item.kind === 'payment' && item.amount !== null"
                     class="shrink-0 text-sm font-black text-ok-700"
@@ -471,11 +462,11 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
                 </div>
                 <p
                   v-if="item.detail"
-                  class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-stone-600"
+                  class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-ink-2"
                 >
                   {{ item.detail }}
                 </p>
-                <p class="mt-1 text-[11px] font-bold text-stone-400">
+                <p class="mt-1 text-xs font-bold text-ink-3">
                   {{ feedWhen(item) }}
                   <span v-if="item.reference"> · {{ item.reference }}</span>
                   <span v-if="item.kind === 'activity' && item.activity_date">
@@ -524,7 +515,7 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
       <div v-else-if="savedLoaded" class="space-y-3">
         <p
           v-if="savedError"
-          class="rounded-xl border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
+          class="rounded-control border border-danger-200 bg-danger-50 px-3 py-2 text-xs font-bold text-danger-800"
           role="status"
         >
           อัปเดตล่าสุดไม่สำเร็จ — ข้อมูลที่เห็นอาจไม่ใช่ล่าสุด
@@ -534,16 +525,16 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
           <li
             v-for="item in savedItems"
             :key="item.bookmark_id"
-            class="flex gap-3 rounded-2xl border border-stone-200 bg-white p-4"
+            class="flex gap-3 rounded-card border border-line bg-surface p-4"
           >
             <div class="min-w-0 flex-1">
               <div class="mb-1 flex flex-wrap items-center gap-1.5">
-                <span class="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-bold text-stone-600">
+                <span class="rounded-full bg-canvas px-2 py-0.5 text-xs font-bold text-ink-2">
                   {{ BOOKMARK_ENTITY_LABELS[item.entity_type] }}
                 </span>
                 <span
                   v-if="!item.available"
-                  class="rounded-full bg-danger-50 px-2 py-0.5 text-[11px] font-bold text-danger-700"
+                  class="rounded-full bg-danger-50 px-2 py-0.5 text-xs font-bold text-danger-700"
                 >
                   ถูกลบแล้ว
                 </span>
@@ -556,15 +547,15 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
               >
                 {{ item.title }}
               </RouterLink>
-              <p v-else class="break-words text-sm font-bold text-stone-500">{{ item.title }}</p>
+              <p v-else class="break-words text-sm font-bold text-ink-3">{{ item.title }}</p>
 
               <p
                 v-if="item.snippet"
-                class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-stone-600"
+                class="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-ink-2"
               >
                 {{ item.snippet }}
               </p>
-              <p class="mt-1 text-[11px] font-bold text-stone-400">
+              <p class="mt-1 text-xs font-bold text-ink-3">
                 <span v-if="item.occurred_on">{{ formatThaiDate(item.occurred_on) }} · </span>
                 บันทึกเมื่อ {{ formatThaiDateTime(item.created_at) }}
               </p>
@@ -572,7 +563,7 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
 
             <button
               type="button"
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-700"
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-danger-50 hover:text-danger-700"
               aria-label="เลิกบันทึกไว้"
               title="เลิกบันทึกไว้"
               @click="removeSaved(item)"

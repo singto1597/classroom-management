@@ -23,12 +23,12 @@ import PageIntro from '@/components/ui/PageIntro.vue'
 import BookmarkButton from '@/components/me/BookmarkButton.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -75,14 +75,6 @@ const positions = computed<string[]>(() => {
 const activityInfoRows = computed<ActivityInfoRow[]>(() =>
   renderActivityInfo(activity.value?.metadata),
 )
-
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
-})
 
 /**
  * 🚩 แบนเนอร์สถานะ — ประโยคเดียวที่ตอบว่า "กิจกรรมนี้อยู่ขั้นไหน และต้องทำอะไรต่อ"
@@ -133,12 +125,7 @@ const fetchData = async () => {
     activity.value = await ActivityService.getActivity(currentRoomId, activityId)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ไม่พบกิจกรรม'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
     router.push('/activities')
   } finally {
     isLoading.value = false
@@ -220,18 +207,10 @@ const toggleParticipantStatus = async (key: string | number) => {
     )
     participant.status = next
     activity.value = { ...activity.value! }
-    Toast.fire({
-      icon: 'success',
-      title: next === 'attended' ? '✅ เช็คอินแล้ว' : '🔄 เปลี่ยนกลับ',
-    })
+    dialog.notify(next === 'attended' ? '✅ เช็คอินแล้ว' : '🔄 เปลี่ยนกลับ')
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'อัปเดตสถานะไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -239,15 +218,11 @@ const toggleParticipantStatus = async (key: string | number) => {
 const removeParticipant = async (key: string | number) => {
   const participant = participantByKey(key)
   if (!participant || !canManage.value) return
-  const result = await Swal.fire({
-    title: 'นำออกจากกิจกรรม?',
-    text: `${displayName(participant)} จะถูกนำออก`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    confirmButtonText: 'นำออก',
-    cancelButtonText: 'ยกเลิก',
-  })
+  const result = await dialog.confirm(
+    'นำออกจากกิจกรรม?',
+    `${displayName(participant)} จะถูกนำออก`,
+    { icon: 'warning', danger: true, confirmButtonText: 'นำออก' }
+  )
   if (result.isConfirmed) {
     try {
       await ActivityService.removeParticipant(
@@ -256,16 +231,11 @@ const removeParticipant = async (key: string | number) => {
         participant.id,
         currentUserName,
       )
-      Toast.fire({ icon: 'success', title: 'นำออกแล้ว' })
+      dialog.notify('นำออกแล้ว')
       await fetchData()
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'นำออกไม่สำเร็จ'
-      Swal.fire({
-        icon: 'error',
-        title: 'ข้อผิดพลาด',
-        text: msg,
-        confirmButtonColor: UI_COLOR.brand,
-      })
+      void dialog.alert('ข้อผิดพลาด', msg, 'error')
     }
   }
 }
@@ -280,15 +250,10 @@ const changeStatus = async (status: string) => {
       user_name: currentUserName,
     })
     activity.value!.status = status
-    Toast.fire({ icon: 'success', title: 'อัปเดตสถานะกิจกรรมแล้ว' })
+    dialog.notify('อัปเดตสถานะกิจกรรมแล้ว')
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'อัปเดตสถานะไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -312,15 +277,10 @@ const exportExcel = async () => {
     //     ซึ่ง Firefox ไม่เริ่มดาวน์โหลดให้ anchor ที่ลอยอยู่)
     // 🌟 ชื่อไฟล์ใช้ชื่อกิจกรรม (สอดคล้องกับชื่อที่ backend สร้าง) ไม่ใช่ activity_<id>
     downloadBlob(blob, `${safeActivityFilename(activity.value.title)}_รายชื่อผู้เข้าร่วม.xlsx`)
-    Toast.fire({ icon: 'success', title: 'Export Excel เรียบร้อย 📄' })
+    dialog.notify('Export Excel เรียบร้อย 📄')
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Export ไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   } finally {
     isExporting.value = false
   }
@@ -398,7 +358,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
               <div class="relative">
                 <button
                   type="button"
-                  class="flex h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-500 transition-colors hover:bg-stone-50 hover:text-stone-900 active:scale-[0.97]"
+                  class="flex h-11 w-11 items-center justify-center rounded-control border border-line bg-surface text-ink-3 transition-colors hover:bg-canvas hover:text-ink-1 active:scale-[0.97]"
                   title="การจัดการกิจกรรม"
                   aria-label="การจัดการกิจกรรม"
                   @click="toggleActionMenu"
@@ -409,10 +369,10 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                 <transition name="fade">
                   <div
                     v-if="actionMenuOpen"
-                    class="absolute right-0 top-12 z-30 w-56 origin-top-right overflow-hidden rounded-2xl border border-stone-200 bg-white py-1 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
+                    class="absolute right-0 top-12 z-30 w-56 origin-top-right overflow-hidden rounded-control border border-line bg-surface py-1 shadow-sheet"
                   >
                     <!-- เปลี่ยนสถานะ -->
-                    <p class="px-4 pb-1 pt-2.5 text-[11px] font-bold text-stone-500">
+                    <p class="px-4 pb-1 pt-2.5 text-xs font-bold text-ink-3">
                       เปลี่ยนสถานะ
                     </p>
                     <button
@@ -423,7 +383,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                       :class="
                         activity.status === key
                           ? 'bg-brand-50/60 font-bold text-brand-700'
-                          : 'text-stone-600 hover:bg-stone-50'
+                          : 'text-ink-2 hover:bg-canvas'
                       "
                       @click="changeStatus(key)"
                     >
@@ -442,19 +402,19 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
                       ></i>
                     </button>
 
-                    <div class="my-1 border-t border-stone-100"></div>
+                    <div class="my-1 border-t border-line"></div>
 
                     <!-- แก้ไข / Export -->
                     <router-link
                       :to="`/activities/${activityId}/edit`"
-                      class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-50"
+                      class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-canvas"
                     >
-                      <i class="bi bi-pencil-square text-stone-500" aria-hidden="true"></i>
+                      <i class="bi bi-pencil-square text-ink-3" aria-hidden="true"></i>
                       แก้ไขกิจกรรม
                     </router-link>
                     <button
                       type="button"
-                      class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-50 disabled:opacity-50"
+                      class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink-2 transition-colors hover:bg-canvas disabled:opacity-50"
                       :disabled="isExporting"
                       @click="exportExcel"
                     >
@@ -487,21 +447,21 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
         <i class="bi mt-0.5 text-lg" :class="[statusBanner.icon, statusBanner.text]" aria-hidden="true"></i>
         <div class="min-w-0">
           <p class="text-sm font-bold" :class="statusBanner.text">{{ statusBanner.label }}</p>
-          <p class="mt-0.5 text-xs leading-relaxed text-stone-600">{{ statusBanner.hint }}</p>
+          <p class="mt-0.5 text-xs leading-relaxed text-ink-2">{{ statusBanner.hint }}</p>
         </div>
       </div>
 
       <!-- ข้อมูลประกอบย่อ -->
       <div class="flex flex-wrap items-center gap-2">
-        <span class="chip bg-stone-100 text-stone-600">
+        <span class="chip bg-canvas text-ink-2">
           <i class="bi bi-calendar-event" aria-hidden="true"></i>
           <span class="num">{{ formatThaiDate(activity.activity_date, 'long') }}</span>
         </span>
-        <span class="chip bg-stone-100 text-stone-600">
+        <span class="chip bg-canvas text-ink-2">
           <i class="bi bi-clock-history" aria-hidden="true"></i>
           <span class="num">{{ activity.base_hours }}</span> ชม.
         </span>
-        <span class="chip bg-stone-100 text-stone-600">
+        <span class="chip bg-canvas text-ink-2">
           <i class="bi bi-people-fill" aria-hidden="true"></i>
           <span class="num">{{ activity.participant_count }}</span> คน
         </span>
@@ -517,7 +477,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           <h2 class="section-title mb-3 flex items-center gap-2">
             <i class="bi bi-card-text text-brand-700" aria-hidden="true"></i> รายละเอียด
           </h2>
-          <p class="whitespace-pre-wrap text-sm leading-relaxed text-stone-600">
+          <p class="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">
             {{ activity.description || 'ไม่มีรายละเอียด' }}
           </p>
         </div>
@@ -525,20 +485,20 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
           <h2 class="section-title mb-3 flex items-center gap-2">
             <i class="bi bi-asterisk text-brand-700" aria-hidden="true"></i> ข้อมูลเพิ่มเติม
           </h2>
-          <div v-if="activityInfoRows.length === 0" class="text-sm text-stone-500">
+          <div v-if="activityInfoRows.length === 0" class="text-sm text-ink-3">
             ไม่มีข้อมูลเพิ่มเติม
           </div>
           <!-- Definition list แบบแน่น: label ซ้าย / ค่าขวา คั่นด้วยเส้นบาง -->
-          <dl v-else class="divide-y divide-stone-100">
+          <dl v-else class="divide-y divide-line">
             <div
               v-for="(row, i) in activityInfoRows"
               :key="i"
               class="flex flex-wrap items-baseline gap-x-3 py-2.5 first:pt-0 last:pb-0"
             >
-              <dt class="w-full text-xs font-bold text-stone-500 sm:w-32 sm:shrink-0">
+              <dt class="w-full text-xs font-bold text-ink-3 sm:w-32 sm:shrink-0">
                 {{ row.label }}
               </dt>
-              <dd class="min-w-0 flex-1 break-all text-sm text-stone-700">
+              <dd class="min-w-0 flex-1 break-all text-sm text-ink-1">
                 <!-- ลิงก์แผนที่ -->
                 <a
                   v-if="row.kind === 'link'"
@@ -598,7 +558,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
             มาแล้ว {{ attendedCount }}/{{ activity.participants.length }}
           </span>
         </div>
-        <p v-if="canManage" class="mb-3 text-xs text-stone-500">
+        <p v-if="canManage" class="mb-3 text-xs text-ink-3">
           <i class="bi bi-info-circle me-1" aria-hidden="true"></i>กด "ยังไม่มา" เพื่อเช็คอิน
         </p>
 
@@ -633,7 +593,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
       -->
       <div
         v-if="canManage"
-        class="sticky bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-30 rounded-2xl border border-stone-200 bg-white/95 p-3 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.35)] backdrop-blur lg:bottom-6"
+        class="sticky bottom-[calc(var(--app-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] z-30 rounded-card border border-line bg-surface p-3 lg:bottom-6"
       >
         <router-link :to="`/activities/${activityId}/manage`" class="btn-primary w-full justify-center">
           <i class="bi bi-sliders" aria-hidden="true"></i> จัดการผู้เข้าร่วม

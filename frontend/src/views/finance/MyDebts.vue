@@ -122,15 +122,15 @@ const overdueCount = computed(
     <template v-else>
       <!-- สรุปยอด — ยอดรวมต้องเท่ากับผลรวมของแถวในลิสต์ล่าง (คนละคำขอ แต่ชุดเดียวกัน) -->
       <div class="page-card p-4 sm:p-5">
-        <p class="text-[11px] font-bold text-stone-500">ยอดค้างชำระรวม</p>
+        <p class="text-xs font-bold text-ink-3">ยอดค้างชำระรวม</p>
         <p class="font-display num mt-1 text-3xl font-bold text-danger-600">
           {{ formatMoney(totalPending) }}
         </p>
-        <p class="mt-1 text-xs font-bold text-stone-500">
+        <p class="mt-1 text-xs font-bold text-ink-3">
           {{ debts.length }} บิล
           <template v-if="overdueCount > 0"> · เลยกำหนดแล้ว {{ overdueCount }} บิล</template>
         </p>
-        <p v-if="studentName" class="mt-2 truncate text-xs text-stone-400">
+        <p v-if="studentName" class="mt-2 truncate text-xs text-ink-3">
           ในชื่อ {{ studentName }}
         </p>
       </div>
@@ -139,25 +139,25 @@ const overdueCount = computed(
         <li v-for="item in debts" :key="item.payment_id">
           <RouterLink
             :to="`/finance/collections/${item.collection_id}`"
-            class="block rounded-2xl border border-stone-200 bg-white p-4 transition-colors hover:bg-stone-50"
+            class="block rounded-card border border-line bg-surface p-4 transition-colors hover:bg-canvas"
           >
             <div class="flex flex-wrap items-start justify-between gap-2">
-              <p class="min-w-0 flex-1 break-words text-sm font-bold text-stone-900">
+              <p class="min-w-0 flex-1 break-words text-sm font-bold text-ink">
                 {{ item.title }}
               </p>
-              <p class="font-display num shrink-0 text-sm font-bold text-stone-900">
+              <p class="font-display num shrink-0 text-sm font-bold text-ink">
                 {{ formatMoney(item.amount) }}
               </p>
             </div>
             <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
               <span
                 v-if="dueBadge(item)"
-                class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                class="rounded-full px-2 py-0.5 text-xs font-bold"
                 :class="dueBadge(item)?.classes"
               >
                 {{ dueBadge(item)?.text }}
               </span>
-              <span class="text-[11px] font-bold text-stone-400">
+              <span class="text-xs font-bold text-ink-3">
                 กำหนดชำระ {{ formatThaiDate(item.due_date) }}
               </span>
             </div>
@@ -165,7 +165,7 @@ const overdueCount = computed(
         </li>
       </ul>
 
-      <p class="px-1 text-[11px] leading-relaxed text-stone-400">
+      <p class="px-1 text-xs leading-relaxed text-ink-3">
         การชำระเงินทำผ่านผู้ดูแลการเงินของห้อง — กดบิลเพื่อดูรายละเอียดโปรเจกต์เก็บเงิน
       </p>
     </template>

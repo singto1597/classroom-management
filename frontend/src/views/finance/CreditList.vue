@@ -38,18 +38,18 @@ import type {
 } from '@/types/finance'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
-import { escapeHtml } from '@/utils/html'
 import { createLatestGuard } from '@/utils/latest'
 import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
 import { formatThaiDateTime } from '@/utils/datetime'
-import Swal from 'sweetalert2'
 
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
-import { UI_COLOR } from '@/constants/theme'
+import AppSheet from '@/components/ui/AppSheet.vue'
+import { useDialog } from '@/composables/useDialog'
 
 const authStore = useAuthStore()
+const dialog = useDialog()
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
 
@@ -87,7 +87,7 @@ const fetchCredits = async () => {
   } catch {
     if (!listGuard.isCurrent(token)) return
     hasError.value = true
-    Swal.fire('เกิดข้อผิดพลาด', 'โหลดข้อมูลเงินรับล่วงหน้าไม่สำเร็จ', 'error')
+    void dialog.alert('เกิดข้อผิดพลาด', 'โหลดข้อมูลเงินรับล่วงหน้าไม่สำเร็จ', 'error')
   } finally {
     if (listGuard.isCurrent(token)) isLoading.value = false
   }
@@ -122,11 +122,12 @@ const openTopUp = (student: StudentCreditBalance) => {
     topUpKey.value = newIdempotencyKey()
   } catch (error: unknown) {
     // เบราว์เซอร์ที่สร้างคีย์ปลอดภัยไม่ได้ ⇒ **ไม่ทำรายการต่อ** (ดูเหตุผลใน utils/money.ts)
-    return Swal.fire(
+    void dialog.alert(
       'ทำรายการไม่ได้',
       error instanceof Error ? error.message : 'สร้างรหัสกันบันทึกซ้ำไม่สำเร็จ',
       'error',
     )
+    return
   }
   isTopUpOpen.value = true
 }
@@ -139,16 +140,19 @@ const topUpAmountNumber = computed(() => {
 
 const handleTopUp = async () => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่เติมเงินล่วงหน้าได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่เติมเงินล่วงหน้าได้', 'error')
+    return
   }
   const student = topUpTarget.value
   if (!student) return
   // ⚠️ เช็คซ้ำที่นี่ (ไม่พึ่ง `disabled` ของปุ่ม) — backend ยังบังคับอีกชั้นและตอบ 400
   if (topUpAmountNumber.value <= 0) {
-    return Swal.fire('อ๊ะ!', 'กรุณากรอกจำนวนเงินมากกว่า 0 บาท', 'warning')
+    void dialog.alert('อ๊ะ!', 'กรุณากรอกจำนวนเงินมากกว่า 0 บาท', 'warning')
+    return
   }
   if (!topUpAccountId.value) {
-    return Swal.fire('ยังไม่เลือกกระเป๋า', 'กรุณาเลือกกระเป๋าเงินที่รับเงินจริงก่อน', 'warning')
+    void dialog.alert('ยังไม่เลือกกระเป๋า', 'กรุณาเลือกกระเป๋าเงินที่รับเงินจริงก่อน', 'warning')
+    return
   }
 
   isToppingUp.value = true
@@ -165,19 +169,12 @@ const handleTopUp = async () => {
     // 💡 `reused` = true แปลว่ากดซ้ำด้วยคีย์เดิม ⇒ **ไม่ใช่ความผิดพลาด** แต่ต้องบอก
     //    ให้ตรงความจริง ไม่งั้นผู้ใช้จะนึกว่าเงินเข้าอีกรอบ (หรือนึกว่าไม่เข้าเลย)
     const depNo = res.receipt?.receipt_no ?? '—'
-    await Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: res.reused ? 'รายการนี้ถูกบันทึกไว้แล้ว' : 'เติมเงินล่วงหน้าเรียบร้อย',
-      // 🔒 escape เฉพาะชื่อนักเรียนที่ interpolate — มาร์กอัป (<b>, <span>) คงไว้ตามเดิม
-      html: res.reused
-        ? `ระบบตรวจพบว่าเป็นการกดซ้ำจากรายการเดิม จึง <b>ไม่บันทึกซ้ำ</b><br>` +
-          `เครดิตคงเหลือ <b class="num">${formatMoney(res.balance_after)}</b>`
-        : `รับเงิน <b class="num">${formatMoney(res.amount)}</b> จาก <b>${escapeHtml(res.student_name)}</b><br>` +
-          `เครดิตคงเหลือ <b class="num">${formatMoney(res.balance_after)}</b><br>` +
-          `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
-          `ออกใบรับเงินล่วงหน้าเลขที่ <b>${depNo}</b> แล้ว — ` +
-          `เงินก้อนนี้จะยัง <b>ไม่นับเป็นรายได้</b> จนกว่าจะถูกหักปิดบิล</span>`,
-      confirmButtonColor: UI_COLOR.brand,
+      text: res.reused
+        ? `ระบบตรวจพบว่าเป็นการกดซ้ำจากรายการเดิม จึงไม่บันทึกซ้ำ · เครดิตคงเหลือ ${formatMoney(res.balance_after)}`
+        : `รับเงิน ${formatMoney(res.amount)} จาก ${res.student_name} · เครดิตคงเหลือ ${formatMoney(res.balance_after)} · ออกใบรับเงินล่วงหน้าเลขที่ ${depNo} แล้ว — เงินก้อนนี้จะยังไม่นับเป็นรายได้ จนกว่าจะถูกหักปิดบิล`,
     })
 
     isTopUpOpen.value = false
@@ -185,7 +182,7 @@ const handleTopUp = async () => {
     // ⚠️ ล้างคีย์หลังสำเร็จ ⇒ การเปิดโมดัลครั้งถัดไปคือ "รายการใหม่" จริง ๆ
     topUpKey.value = ''
   } catch (error: unknown) {
-    Swal.fire(
+    void dialog.alert(
       'เติมเงินล่วงหน้าไม่สำเร็จ',
       error instanceof Error ? error.message : 'ไม่มีรายการใดถูกบันทึก',
       'error',
@@ -240,10 +237,12 @@ const planGuard = createLatestGuard()
  */
 const openApplyPreview = async () => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่หักเครดิตได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่หักเครดิตได้', 'error')
+    return
   }
   if (selectedIds.value.length === 0) {
-    return Swal.fire('อ๊ะ!', 'กรุณาติ๊กเลือกนักเรียนที่ต้องการหักเครดิต', 'warning')
+    void dialog.alert('อ๊ะ!', 'กรุณาติ๊กเลือกนักเรียนที่ต้องการหักเครดิต', 'warning')
+    return
   }
 
   const token = planGuard.begin()
@@ -253,17 +252,18 @@ const openApplyPreview = async () => {
     if (!planGuard.isCurrent(token)) return
     // 🛡️ ไม่มีบิลให้หักเลย = ไม่มีอะไรเกิดขึ้น ⇒ บอกให้รู้แทนที่จะเปิดหน้าว่าง ๆ
     if (plan.total_applied <= 0) {
-      return Swal.fire(
+      void dialog.alert(
         'ไม่มีบิลให้หัก',
         'นักเรียนที่เลือกยังไม่มีบิลค้างชำระ (หรือไม่มีเครดิตเหลือ) — จึงไม่มีอะไรต้องทำ',
         'info',
       )
+      return
     }
     applyPlan.value = plan
     isApplyOpen.value = true
   } catch (error: unknown) {
     if (!planGuard.isCurrent(token)) return
-    Swal.fire(
+    void dialog.alert(
       'ดูข้อเสนอการหักไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -280,36 +280,24 @@ const planAllocations = computed<CreditAllocationItem[]>(
 
 const handleApply = async () => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่หักเครดิตได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่หักเครดิตได้', 'error')
+    return
   }
   const plan = applyPlan.value
   if (!plan) return
 
-  const confirmed = await Swal.fire({
-    title: 'ยืนยันการหักเครดิต?',
-    html:
-      `จะหักเครดิตของ <b>${plan.items.length}</b> คน ไปปิดบิลรวม ` +
-      `<b>${planAllocations.value.length}</b> รายการ<br>` +
-      `ยอดที่หักรวม <b class="num">${formatMoney(plan.total_applied)}</b><br><br>` +
-      `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
-      `การหักเครดิต <b>ไม่มีเงินเคลื่อนไหว</b> (เงินเข้ามาตั้งแต่ตอนเติม) ` +
-      `และ <b>ไม่มีการออกใบเสร็จใหม่</b> — หลักฐานคือใบรับเงินล่วงหน้าที่ออกไว้แล้ว<br>` +
-      `รายการนี้ยกเลิกได้ภายหลังหากหักผิด</span>`,
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.brand,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ยืนยันหักเครดิต',
-    cancelButtonText: 'ยกเลิก',
-  })
+  const confirmed = await dialog.confirm(
+    'ยืนยันการหักเครดิต?',
+    `จะหักเครดิตของ ${plan.items.length} คน ไปปิดบิลรวม ${planAllocations.value.length} รายการ · ` +
+      `ยอดที่หักรวม ${formatMoney(plan.total_applied)} · ` +
+      `การหักเครดิตไม่มีเงินเคลื่อนไหว (เงินเข้ามาตั้งแต่ตอนเติม) และไม่มีการออกใบเสร็จใหม่ — ` +
+      `หลักฐานคือใบรับเงินล่วงหน้าที่ออกไว้แล้ว · รายการนี้ยกเลิกได้ภายหลังหากหักผิด`,
+    { confirmButtonText: 'ยืนยันหักเครดิต' },
+  )
   if (!confirmed.isConfirmed) return
 
   isApplying.value = true
-  Swal.fire({
-    title: 'กำลังหักเครดิต...',
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading(),
-  })
+  void dialog.loading('กำลังหักเครดิต...')
   try {
     const res = await FinanceService.applyCredit(currentRoomId, {
       student_ids: plan.items.map((i) => i.student_id),
@@ -317,24 +305,23 @@ const handleApply = async () => {
     })
 
     isApplyOpen.value = false
-    await Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: 'หักเครดิตเรียบร้อย',
-      html:
-        `หักไป <b class="num">${formatMoney(res.total_applied)}</b> ` +
-        `ปิดบิล ${res.bills_paid ?? 0} รายการ<br>` +
-        `เครดิตคงเหลือรวม <b class="num">${formatMoney(res.total_balance_after)}</b>`,
-      confirmButtonColor: UI_COLOR.brand,
+      text:
+        `หักไป ${formatMoney(res.total_applied)} ปิดบิล ${res.bills_paid ?? 0} รายการ · ` +
+        `เครดิตคงเหลือรวม ${formatMoney(res.total_balance_after)}`,
     })
     selectedIds.value = []
     await fetchCredits()
   } catch (error: unknown) {
     // all-or-nothing: ล้มแล้ว **ไม่มีอะไรถูกหักเลย** — ต้องบอกให้ชัด ไม่งั้นผู้ใช้
     // จะไม่กล้ากดซ้ำเพราะนึกว่าหักไปบางส่วนแล้ว
-    Swal.fire(
+    dialog.close()
+    void dialog.alert(
       'หักเครดิตไม่สำเร็จ',
       (error instanceof Error ? error.message : 'เกิดข้อผิดพลาด') +
-        `<br><span style="font-size:0.85em;color:${UI_COLOR.neutral}">ยังไม่มีรายการใดถูกหัก (ยกเลิกทั้งชุด)</span>`,
+        ' — ยังไม่มีรายการใดถูกหัก (ยกเลิกทั้งชุด)',
       'error',
     )
   } finally {
@@ -375,7 +362,7 @@ const openHistory = async (student: StudentCreditBalance) => {
     historyEntries.value = res.entries
   } catch (error: unknown) {
     if (!historyGuard.isCurrent(token)) return
-    Swal.fire(
+    void dialog.alert(
       'โหลดประวัติไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -389,22 +376,20 @@ const openHistory = async (student: StudentCreditBalance) => {
 /** ↩️ ยกเลิก "การหัก" 1 รายการ (คืนเครดิต + เปิดบิลกลับเป็นค้าง) */
 const handleUndo = async (entry: StudentCreditEntry) => {
   if (!canManageFinance.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ยกเลิกได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ยกเลิกได้', 'error')
+    return
   }
-  const confirmed = await Swal.fire({
-    title: 'ยกเลิกการหักนี้?',
-    html:
-      `คืนเครดิต <b class="num">${formatMoney(entry.amount)}</b> ` +
-      `เข้ากระเป๋านักเรียน และเปิดบิลกลับเป็น "ค้างชำระ"<br>` +
-      `<span style="font-size:0.85em;color:${UI_COLOR.neutral}">` +
-      `บิล: ${escapeHtml(entry.collection_title ?? '—')} · รายการนี้จะยังอยู่ในประวัติ (ไม่ถูกลบ)</span>`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.dangerStrong,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ยืนยันยกเลิกการหัก',
-    cancelButtonText: 'ไม่ใช่',
-  })
+  const confirmed = await dialog.confirm(
+    'ยกเลิกการหักนี้?',
+    `คืนเครดิต ${formatMoney(entry.amount)} เข้ากระเป๋านักเรียน และเปิดบิลกลับเป็น "ค้างชำระ" · ` +
+      `บิล: ${entry.collection_title ?? '—'} · รายการนี้จะยังอยู่ในประวัติ (ไม่ถูกลบ)`,
+    {
+      icon: 'warning',
+      danger: true,
+      confirmButtonText: 'ยืนยันยกเลิกการหัก',
+      cancelButtonText: 'ไม่ใช่',
+    },
+  )
   if (!confirmed.isConfirmed) return
 
   try {
@@ -412,19 +397,18 @@ const handleUndo = async (entry: StudentCreditEntry) => {
       credit_entry_id: entry.id,
       user_name: currentUserName,
     })
-    await Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: 'ยกเลิกการหักเรียบร้อย',
-      html:
-        `คืนเครดิต <b class="num">${formatMoney(res.reverted_amount)}</b><br>` +
-        `เครดิตคงเหลือ <b class="num">${formatMoney(res.credit_balance_after)}</b>`,
-      confirmButtonColor: UI_COLOR.brand,
+      text:
+        `คืนเครดิต ${formatMoney(res.reverted_amount)} · ` +
+        `เครดิตคงเหลือ ${formatMoney(res.credit_balance_after)}`,
     })
     // โหลดใหม่ทั้งสองส่วน — ประวัติเปลี่ยน (แถวเดิมถูกลบ, แถว reverse ถูกเพิ่ม)
     if (historyTarget.value) await openHistory(historyTarget.value)
     await fetchCredits()
   } catch (error: unknown) {
-    Swal.fire(
+    void dialog.alert(
       'ยกเลิกไม่สำเร็จ',
       error instanceof Error ? error.message : 'ไม่มีอะไรถูกเปลี่ยนแปลง',
       'error',
@@ -436,7 +420,7 @@ const handleUndo = async (entry: StudentCreditEntry) => {
 const entryChipClass = (type: string): string => {
   if (type === 'topup') return 'bg-ok-50 text-ok-700'
   if (type === 'apply') return 'bg-warn-50 text-warn-700'
-  return 'bg-stone-100 text-stone-600'
+  return 'bg-canvas text-ink-2'
 }
 
 onMounted(() => {
@@ -476,20 +460,20 @@ onMounted(() => {
     <!-- 📊 สรุปภาพรวม — ตัวเลขหลักคือ "เงินที่ถือไว้" ซึ่ง **ไม่ใช่รายได้** -->
     <div v-if="!isLoading && !hasError" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div class="page-card p-4">
-        <p class="text-[11px] font-bold text-stone-500">เงินที่ห้องถือไว้ให้ทุกคน</p>
-        <p class="font-display num mt-1 text-2xl font-bold text-stone-900">
+        <p class="text-caption font-bold text-ink-3">เงินที่ห้องถือไว้ให้ทุกคน</p>
+        <p class="num mt-1 text-2xl font-bold text-ink">
           {{ formatMoney(totalHeld) }}
         </p>
-        <p class="mt-1 text-[11px] text-stone-500">
+        <p class="mt-1 text-caption text-ink-3">
           ยังไม่นับเป็นรายได้ — จะนับก็ต่อเมื่อหักปิดบิลแล้ว
         </p>
       </div>
       <div class="page-card p-4">
-        <p class="text-[11px] font-bold text-stone-500">จำนวนคนที่มีเครดิตคงเหลือ</p>
-        <p class="font-display num mt-1 text-2xl font-bold text-stone-900">
-          {{ holdersCount }} <span class="text-base font-bold text-stone-500">คน</span>
+        <p class="text-caption font-bold text-ink-3">จำนวนคนที่มีเครดิตคงเหลือ</p>
+        <p class="num mt-1 text-2xl font-bold text-ink">
+          {{ holdersCount }} <span class="text-base font-bold text-ink-3">คน</span>
         </p>
-        <p class="mt-1 text-[11px] text-stone-500">จากทั้งหมด {{ credits.length }} คนในห้อง</p>
+        <p class="mt-1 text-caption text-ink-3">จากทั้งหมด {{ credits.length }} คนในห้อง</p>
       </div>
     </div>
 
@@ -515,7 +499,7 @@ onMounted(() => {
         v-if="canManageFinance && selectedIds.length > 0"
         class="page-card flex flex-wrap items-center justify-between gap-3 border-s-4 border-s-brand-700 p-3"
       >
-        <p class="min-w-0 text-sm font-bold text-stone-700">
+        <p class="min-w-0 text-sm font-bold text-ink-2">
           เลือกไว้ <span class="num">{{ selectedIds.length }}</span> คน ·
           เครดิตที่เลือก <span class="num text-ok-600">{{ formatMoney(selectedBalance) }}</span>
         </p>
@@ -550,11 +534,11 @@ onMounted(() => {
                   @change="toggleOne(c.student_id)"
                 />
                 <span
-                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
+                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-control border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
                   :class="
                     selectedIds.includes(c.student_id)
                       ? 'border-brand-700 bg-brand-700'
-                      : 'border-stone-300 bg-white'
+                      : 'border-line bg-surface'
                   "
                 >
                   <i
@@ -564,25 +548,25 @@ onMounted(() => {
                   ></i>
                 </span>
               </label>
-              <span class="chip num shrink-0 bg-stone-100 text-stone-600">#{{ c.student_no }}</span>
-              <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
+              <span class="chip num shrink-0 bg-canvas text-ink-2">#{{ c.student_no }}</span>
+              <h2 class="min-w-0 truncate text-base font-bold text-ink">
                 {{ c.student_name }}
               </h2>
             </div>
 
             <div class="shrink-0 text-right">
-              <p class="text-[11px] font-bold text-stone-500">เครดิตคงเหลือ</p>
+              <p class="text-caption font-bold text-ink-3">เครดิตคงเหลือ</p>
               <p
-                class="font-display num mt-0.5 whitespace-nowrap text-lg font-bold"
-                :class="c.credit_balance > 0 ? 'text-ok-600' : 'text-stone-300'"
+                class="num mt-0.5 whitespace-nowrap text-lg font-bold"
+                :class="c.credit_balance > 0 ? 'text-ok-600' : 'text-ink-3'"
               >
                 {{ formatMoney(c.credit_balance) }}
               </p>
             </div>
           </div>
 
-          <div class="mt-2.5 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-2.5">
-            <span class="chip shrink-0 bg-stone-100 text-stone-600">
+          <div class="mt-2.5 flex flex-wrap items-center gap-2 border-t border-line pt-2.5">
+            <span class="chip shrink-0 bg-canvas text-ink-2">
               ค้าง {{ formatMoney(c.total_pending_amount) }}
             </span>
             <span
@@ -631,7 +615,7 @@ onMounted(() => {
                     <span
                       class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
                       :class="
-                        allSelected ? 'border-brand-700 bg-brand-700' : 'border-stone-300 bg-white'
+                        allSelected ? 'border-brand-700 bg-brand-700' : 'border-line bg-surface'
                       "
                     >
                       <i
@@ -666,7 +650,7 @@ onMounted(() => {
                       :class="
                         selectedIds.includes(c.student_id)
                           ? 'border-brand-700 bg-brand-700'
-                          : 'border-stone-300 bg-white'
+                          : 'border-line bg-surface'
                       "
                     >
                       <i
@@ -677,15 +661,15 @@ onMounted(() => {
                     </span>
                   </label>
                 </td>
-                <td class="num font-bold text-stone-500">#{{ c.student_no }}</td>
-                <td class="font-bold text-stone-900">{{ c.student_name }}</td>
+                <td class="num font-bold text-ink-3">#{{ c.student_no }}</td>
+                <td class="font-bold text-ink">{{ c.student_name }}</td>
                 <td
-                  class="font-display num whitespace-nowrap text-right font-bold"
-                  :class="c.credit_balance > 0 ? 'text-ok-600' : 'text-stone-300'"
+                  class="num whitespace-nowrap text-right font-bold"
+                  :class="c.credit_balance > 0 ? 'text-ok-600' : 'text-ink-3'"
                 >
                   {{ formatMoney(c.credit_balance) }}
                 </td>
-                <td class="num whitespace-nowrap text-right text-stone-500">
+                <td class="num whitespace-nowrap text-right text-ink-3">
                   {{ formatMoney(c.total_pending_amount) }}
                 </td>
                 <td
@@ -729,82 +713,66 @@ onMounted(() => {
       </div>
     </template>
 
-    <!-- ══════════════════════ โมดัล: เติมเงินล่วงหน้า ══════════════════════ -->
-    <div
-      v-if="isTopUpOpen && topUpTarget"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 md:items-center md:p-4"
-      @click.self="isTopUpOpen = false"
+    <!-- ══════════════════════ แผ่น: เติมเงินล่วงหน้า ══════════════════════ -->
+    <AppSheet
+      :open="isTopUpOpen && !!topUpTarget"
+      label="เติมเงินล่วงหน้า"
+      title="เติมเงินล่วงหน้า"
+      :description="
+        topUpTarget
+          ? `${topUpTarget.student_name} · เครดิตปัจจุบัน ${formatMoney(topUpTarget.credit_balance)}`
+          : undefined
+      "
+      size="form"
+      :dismissible="!isToppingUp"
+      @close="isTopUpOpen = false"
     >
-      <div
-        class="page-card max-h-[90vh] w-full overflow-y-auto overscroll-contain rounded-t-3xl p-4 md:max-h-[85vh] md:max-w-lg md:rounded-2xl md:p-6"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="eyebrow">Prepaid Top-up</p>
-            <h2 class="page-title truncate">เติมเงินล่วงหน้า</h2>
-            <!-- ⚠️ ห้ามใส่ `truncate` ที่บรรทัดนี้ — ที่ 375px มันตัด **ตัวเลขเงิน** กลางคัน
-                 ("เครดิตปัจจุบัน ฿1,50…") ซึ่งอ่านผิดความหมายได้ (ดูเหมือน ฿1,50 ไม่ใช่ ฿1,500.00)
-                 ⇒ ให้ตัดบรรทัดแทน · ตัว `<h2>` ข้างบนยัง `truncate` ได้เพราะเป็นข้อความคงที่ -->
-            <p class="page-lede">
-              {{ topUpTarget.student_name }} · เครดิตปัจจุบัน
-              {{ formatMoney(topUpTarget.credit_balance) }}
-            </p>
-          </div>
-          <button
-            type="button"
-            class="btn-ghost-ui shrink-0"
-            aria-label="ปิด"
-            @click="isTopUpOpen = false"
-          >
-            <i class="bi bi-x-lg" aria-hidden="true"></i>
-          </button>
+      <div class="space-y-3">
+        <div>
+          <label class="field-label" for="topup-amount">จำนวนเงินที่รับมา (บาท)</label>
+          <input
+            id="topup-amount"
+            v-model="topUpAmount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            inputmode="decimal"
+            class="field num"
+            placeholder="0.00"
+          />
         </div>
 
-        <div class="mt-4 space-y-3">
-          <div>
-            <label class="field-label" for="topup-amount">จำนวนเงินที่รับมา (บาท)</label>
-            <input
-              id="topup-amount"
-              v-model="topUpAmount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              inputmode="decimal"
-              class="field num"
-              placeholder="0.00"
-            />
-          </div>
-
-          <div>
-            <label class="field-label" for="topup-account">กระเป๋าที่เงินเข้าจริง</label>
-            <select id="topup-account" v-model="topUpAccountId" class="field">
-              <option v-for="a in accounts" :key="a.id" :value="a.id.toString()">
-                {{ a.account_name }}
-              </option>
-            </select>
-          </div>
-
-          <div>
-            <label class="field-label" for="topup-note">หมายเหตุ (ไม่บังคับ)</label>
-            <input
-              id="topup-note"
-              v-model="topUpNote"
-              type="text"
-              maxlength="255"
-              class="field"
-              placeholder="เช่น โอนพร้อมเพย์เมื่อ 10 ก.ย."
-            />
-          </div>
-
-          <!-- 💡 เตือนความหมายให้ถูกตั้งแต่ก่อนกด — กันเข้าใจว่า "รายได้เข้าแล้ว" -->
-          <p class="rounded-xl bg-stone-50 p-3 text-[11px] text-stone-600">
-            เงินก้อนนี้จะถูกเก็บเป็น <b>เครดิตคงเหลือ</b> ของนักเรียน และยัง
-            <b>ไม่นับเป็นรายได้</b> ของห้อง — ระบบจะออก
-            <b>ใบรับเงินล่วงหน้า (DEP)</b> ให้เป็นหลักฐานทันที
-          </p>
+        <div>
+          <label class="field-label" for="topup-account">กระเป๋าที่เงินเข้าจริง</label>
+          <select id="topup-account" v-model="topUpAccountId" class="field">
+            <option v-for="a in accounts" :key="a.id" :value="a.id.toString()">
+              {{ a.account_name }}
+            </option>
+          </select>
         </div>
 
-        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div>
+          <label class="field-label" for="topup-note">หมายเหตุ (ไม่บังคับ)</label>
+          <input
+            id="topup-note"
+            v-model="topUpNote"
+            type="text"
+            maxlength="255"
+            class="field"
+            placeholder="เช่น โอนพร้อมเพย์เมื่อ 10 ก.ย."
+          />
+        </div>
+
+        <!-- 💡 เตือนความหมายให้ถูกตั้งแต่ก่อนกด — กันเข้าใจว่า "รายได้เข้าแล้ว" -->
+        <p class="rounded-control bg-canvas p-3 text-caption text-ink-2">
+          เงินก้อนนี้จะถูกเก็บเป็น <b>เครดิตคงเหลือ</b> ของนักเรียน และยัง
+          <b>ไม่นับเป็นรายได้</b> ของห้อง — ระบบจะออก
+          <b>ใบรับเงินล่วงหน้า (DEP)</b> ให้เป็นหลักฐานทันที
+        </p>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button type="button" class="btn-ghost-ui" @click="isTopUpOpen = false">ยกเลิก</button>
           <button
             type="button"
@@ -816,181 +784,155 @@ onMounted(() => {
             ยืนยันเติม {{ topUpAmountNumber > 0 ? formatMoney(topUpAmountNumber) : '' }}
           </button>
         </div>
-      </div>
-    </div>
+      </template>
+    </AppSheet>
 
-    <!-- ══════════════ โมดัล: ตรวจข้อเสนอการหัก (ระบบเสนอ → ครูยืนยัน) ══════════════ -->
-    <div
-      v-if="isApplyOpen && applyPlan"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 md:items-center md:p-4"
-      @click.self="isApplyOpen = false"
+    <!-- ══════════════ แผ่น: ตรวจข้อเสนอการหัก (ระบบเสนอ → ครูยืนยัน) ══════════════ -->
+    <AppSheet
+      :open="isApplyOpen && !!applyPlan"
+      label="ตรวจข้อเสนอการหักเครดิต"
+      title="ตรวจข้อเสนอการหักเครดิต"
+      description="ระบบจะหักบิลที่ครบกำหนดก่อน — ยังไม่มีอะไรถูกบันทึกจนกว่าจะยืนยัน"
+      size="form"
+      :dismissible="!isApplying"
+      @close="isApplyOpen = false"
     >
-      <div
-        class="page-card max-h-[90vh] w-full overflow-y-auto overscroll-contain rounded-t-3xl p-4 md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-6"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="eyebrow">Review Before Apply</p>
-            <h2 class="page-title truncate">ตรวจข้อเสนอการหักเครดิต</h2>
-            <p class="page-lede">
-              ระบบจะหักบิลที่ <b>ครบกำหนดก่อน</b> ก่อน — ยังไม่มีอะไรถูกบันทึกจนกว่าจะยืนยัน
-            </p>
-          </div>
-          <button
-            type="button"
-            class="btn-ghost-ui shrink-0"
-            aria-label="ปิด"
-            @click="isApplyOpen = false"
-          >
-            <i class="bi bi-x-lg" aria-hidden="true"></i>
-          </button>
-        </div>
-
-        <div class="mt-4 space-y-3">
-          <div v-for="item in applyPlan.items" :key="item.student_id" class="page-card p-3">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <p class="font-display truncate font-bold text-stone-900">
-                  {{ item.student_name ?? `#${item.student_id}` }}
-                </p>
-                <p class="text-[11px] text-stone-500">
-                  เครดิตก่อนหัก {{ formatMoney(item.balance_before) }}
-                </p>
-              </div>
-              <div class="shrink-0 text-right">
-                <p class="num font-display font-bold text-stone-900">
-                  −{{ formatMoney(item.total_applied) }}
-                </p>
-                <p class="text-[11px] text-stone-500">
-                  เหลือ {{ formatMoney(item.balance_after) }}
-                </p>
-              </div>
+      <div v-if="applyPlan" class="space-y-3">
+        <div v-for="item in applyPlan.items" :key="item.student_id" class="rounded-control border border-line p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="truncate font-bold text-ink">
+                {{ item.student_name ?? `#${item.student_id}` }}
+              </p>
+              <p class="text-caption text-ink-3">
+                เครดิตก่อนหัก {{ formatMoney(item.balance_before) }}
+              </p>
             </div>
-
-            <p v-if="!item.allocations.length" class="mt-2 text-[11px] text-stone-500">
-              ไม่มีบิลให้หัก — เครดิตคงอยู่เต็มจำนวน
-            </p>
-
-            <ul v-else class="mt-2 space-y-1.5 border-t border-stone-100 pt-2">
-              <li
-                v-for="a in item.allocations"
-                :key="a.payment_id"
-                class="flex items-start justify-between gap-3 text-[12px]"
-              >
-                <span class="min-w-0 truncate text-stone-600">
-                  {{ a.title ?? 'รายการชำระเงิน' }}
-                  <span v-if="a.due_date" class="text-stone-500">
-                    ({{ a.due_date }})
-                  </span>
-                </span>
-                <span class="num shrink-0 text-right font-bold text-stone-800">
-                  {{ formatMoney(a.apply_amount) }}
-                </span>
-              </li>
-            </ul>
+            <div class="shrink-0 text-right">
+              <p class="num font-bold text-ink">
+                −{{ formatMoney(item.total_applied) }}
+              </p>
+              <p class="text-caption text-ink-3">
+                เหลือ {{ formatMoney(item.balance_after) }}
+              </p>
+            </div>
           </div>
+
+          <p v-if="!item.allocations.length" class="mt-2 text-caption text-ink-3">
+            ไม่มีบิลให้หัก — เครดิตคงอยู่เต็มจำนวน
+          </p>
+
+          <ul v-else class="mt-2 space-y-1.5 border-t border-line pt-2">
+            <li
+              v-for="a in item.allocations"
+              :key="a.payment_id"
+              class="flex items-start justify-between gap-3 text-caption"
+            >
+              <span class="min-w-0 truncate text-ink-2">
+                {{ a.title ?? 'รายการชำระเงิน' }}
+                <span v-if="a.due_date" class="text-ink-3">
+                  ({{ a.due_date }})
+                </span>
+              </span>
+              <span class="num shrink-0 text-right font-bold text-ink">
+                {{ formatMoney(a.apply_amount) }}
+              </span>
+            </li>
+          </ul>
         </div>
 
-        <div class="mt-4 flex items-center justify-between border-t border-stone-200 pt-3">
-          <span class="text-sm font-bold text-stone-600">รวมที่จะหัก</span>
-          <span class="num font-display text-lg font-bold text-stone-900">
+        <div class="flex items-center justify-between border-t border-line pt-3">
+          <span class="text-sm font-bold text-ink-2">รวมที่จะหัก</span>
+          <span class="num text-lg font-bold text-ink">
             {{ formatMoney(applyPlan.total_applied) }}
           </span>
         </div>
 
-        <p class="mt-3 rounded-xl bg-stone-50 p-3 text-[11px] text-stone-600">
+        <p class="rounded-control bg-canvas p-3 text-caption text-ink-2">
           การหักเครดิต <b>ไม่มีเงินเคลื่อนไหว</b> และ <b>ไม่ออกใบเสร็จใหม่</b> —
           รายได้ของห้องจะถูกนับ <b>ณ จังหวะนี้</b> และหลักฐานคือใบรับเงินล่วงหน้าที่ออกไว้แล้ว
         </p>
+      </div>
 
-        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <template #footer>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button type="button" class="btn-ghost-ui" @click="isApplyOpen = false">ยกเลิก</button>
           <button type="button" class="btn-primary" :disabled="isApplying" @click="handleApply">
             <i class="bi bi-check-lg" aria-hidden="true"></i>
             ยืนยันหักเครดิต
           </button>
         </div>
-      </div>
-    </div>
+      </template>
+    </AppSheet>
 
-    <!-- ══════════════════════ โมดัล: ประวัติเครดิต ══════════════════════ -->
-    <div
-      v-if="isHistoryOpen && historyTarget"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 md:items-center md:p-4"
-      @click.self="isHistoryOpen = false"
+    <!-- ══════════════════════ แผ่น: ประวัติเครดิต ══════════════════════ -->
+    <AppSheet
+      :open="isHistoryOpen && !!historyTarget"
+      label="ประวัติเครดิต"
+      title="ประวัติเครดิต"
+      :description="
+        historyTarget
+          ? `${historyTarget.student_name} · คงเหลือ ${formatMoney(historyTarget.credit_balance)}`
+          : undefined
+      "
+      size="form"
+      @close="isHistoryOpen = false"
     >
-      <div
-        class="page-card max-h-[90vh] w-full overflow-y-auto overscroll-contain rounded-t-3xl p-4 md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:p-6"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="eyebrow">Credit Ledger</p>
-            <h2 class="page-title truncate">ประวัติเครดิต</h2>
-            <p class="page-lede truncate">
-              {{ historyTarget.student_name }} · คงเหลือ
-              {{ formatMoney(historyTarget.credit_balance) }}
-            </p>
-          </div>
-          <button
-            type="button"
-            class="btn-ghost-ui shrink-0"
-            aria-label="ปิด"
-            @click="isHistoryOpen = false"
-          >
-            <i class="bi bi-x-lg" aria-hidden="true"></i>
-          </button>
-        </div>
+      <SkeletonRows v-if="isHistoryLoading" :rows="3" height="h-16" />
 
-        <SkeletonRows v-if="isHistoryLoading" :rows="3" height="h-16" />
+      <StateBlock
+        v-else-if="!historyEntries.length"
+        variant="empty"
+        icon="bi-journal"
+        title="ยังไม่มีรายการเครดิต"
+        hint="เมื่อมีการเติมเงินล่วงหน้าหรือหักปิดบิล รายการจะปรากฏที่นี่"
+      />
 
-        <StateBlock
-          v-else-if="!historyEntries.length"
-          variant="empty"
-          icon="bi-journal"
-          title="ยังไม่มีรายการเครดิต"
-          hint="เมื่อมีการเติมเงินล่วงหน้าหรือหักปิดบิล รายการจะปรากฏที่นี่"
-        />
-
-        <ul v-else class="mt-4 space-y-2">
-          <li v-for="e in historyEntries" :key="e.id" class="page-card p-3">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="chip shrink-0" :class="entryChipClass(e.entry_type)">
-                    {{ e.entry_type_label ?? e.entry_type }}
-                  </span>
-                  <span class="text-[11px] text-stone-500">{{ formatThaiDateTime(e.created_at) }}</span>
-                </div>
-                <p class="mt-1 min-w-0 truncate text-[12px] text-stone-600">
-                  <template v-if="e.collection_title">{{ e.collection_title }}</template>
-                  <template v-else-if="e.receipt_no">ใบรับเงินล่วงหน้า {{ e.receipt_no }}</template>
-                  <template v-else>{{ e.note ?? '—' }}</template>
-                </p>
-                <p v-if="e.recorded_by" class="mt-0.5 text-[11px] text-stone-500">
-                  โดย {{ e.recorded_by }}
-                </p>
+      <ul v-else class="space-y-2">
+        <li v-for="e in historyEntries" :key="e.id" class="rounded-control border border-line p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="chip shrink-0" :class="entryChipClass(e.entry_type)">
+                  {{ e.entry_type_label ?? e.entry_type }}
+                </span>
+                <span class="text-caption text-ink-3">{{ formatThaiDateTime(e.created_at) }}</span>
               </div>
-              <div class="shrink-0 text-right">
-                <p class="num font-display font-bold text-stone-900">
-                  {{ formatMoney(e.amount) }}
-                </p>
-                <p class="text-[11px] text-stone-500">
-                  คงเหลือ {{ formatMoney(e.balance_after) }}
-                </p>
-                <button
-                  v-if="canManageFinance && e.entry_type === 'apply'"
-                  type="button"
-                  class="btn-ghost-ui mt-1.5"
-                  @click="handleUndo(e)"
-                >
-                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
-                  ยกเลิกการหักนี้
-                </button>
-              </div>
+              <p class="mt-1 min-w-0 truncate text-caption text-ink-2">
+                <template v-if="e.collection_title">{{ e.collection_title }}</template>
+                <template v-else-if="e.receipt_no">ใบรับเงินล่วงหน้า {{ e.receipt_no }}</template>
+                <template v-else>{{ e.note ?? '—' }}</template>
+              </p>
+              <p v-if="e.recorded_by" class="mt-0.5 text-caption text-ink-3">
+                โดย {{ e.recorded_by }}
+              </p>
             </div>
-          </li>
-        </ul>
-      </div>
-    </div>
+            <div class="shrink-0 text-right">
+              <p class="num font-bold text-ink">
+                {{ formatMoney(e.amount) }}
+              </p>
+              <p class="text-caption text-ink-3">
+                คงเหลือ {{ formatMoney(e.balance_after) }}
+              </p>
+              <button
+                v-if="canManageFinance && e.entry_type === 'apply'"
+                type="button"
+                class="btn-ghost-ui mt-1.5"
+                @click="handleUndo(e)"
+              >
+                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+                ยกเลิกการหักนี้
+              </button>
+            </div>
+          </div>
+        </li>
+      </ul>
+
+      <template #footer>
+        <div class="flex justify-end">
+          <button type="button" class="btn-ghost-ui" @click="isHistoryOpen = false">ปิด</button>
+        </div>
+      </template>
+    </AppSheet>
   </div>
 </template>

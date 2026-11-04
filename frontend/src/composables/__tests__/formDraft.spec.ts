@@ -17,13 +17,14 @@ import { confirmLeave, useFormDraft, useUnsavedGuard } from '@/composables/useFo
  *    ⇒ ใช้ `mount()` แทนเรียกฟังก์ชันลอย ๆ (ไม่งั้นได้ warning และ listener ไม่ถูกถอด)
  */
 
-// SweetAlert2 ถูก mock เพราะเทสต์นี้สนใจ "ตัดสินใจเรียกไหม" ไม่ใช่หน้าตาของ dialog
-type SwalAskOptions = { showCancelButton?: boolean }
-const swalFire = vi.fn<(options?: SwalAskOptions) => Promise<{ isConfirmed: boolean }>>(
-  (_options) => Promise.resolve({ isConfirmed: true }),
-)
-vi.mock('sweetalert2', () => ({
-  default: { fire: (options?: SwalAskOptions) => swalFire(options) },
+// dialog store ถูก mock เพราะเทสต์นี้สนใจ "ตัดสินใจถามไหม + คืนค่าอะไร" ไม่ใช่หน้าตาแผ่น
+const { dialogConfirm } = vi.hoisted(() => ({
+  dialogConfirm: vi.fn<(title: string) => Promise<{ isConfirmed: boolean; isDismissed: boolean; value: string }>>(
+    (_title) => Promise.resolve({ isConfirmed: true, isDismissed: false, value: '' }),
+  ),
+}))
+vi.mock('@/stores/dialog', () => ({
+  useDialogStore: () => ({ confirm: dialogConfirm }),
 }))
 
 const mountDraft = <T extends object>(
@@ -46,7 +47,7 @@ const mountDraft = <T extends object>(
 
 beforeEach(() => {
   sessionStorage.clear()
-  swalFire.mockClear()
+  dialogConfirm.mockClear()
 })
 
 afterEach(() => {
@@ -195,15 +196,15 @@ describe('useUnsavedGuard', () => {
 describe('confirmLeave', () => {
   it('ไม่ถามเมื่อฟอร์มสะอาด', async () => {
     await expect(confirmLeave(() => false)).resolves.toBe(true)
-    expect(swalFire).not.toHaveBeenCalled()
+    expect(dialogConfirm).not.toHaveBeenCalled()
   })
 
-  it('ถามด้วย Swal เมื่อฟอร์มยังไม่บันทึก และคืนผลตามที่ผู้ใช้เลือก', async () => {
+  it('ถามด้วย dialog เมื่อฟอร์มยังไม่บันทึก และคืนผลตามที่ผู้ใช้เลือก', async () => {
     await expect(confirmLeave(() => true)).resolves.toBe(true)
-    expect(swalFire).toHaveBeenCalledTimes(1)
-    expect(swalFire.mock.calls[0]?.[0]?.showCancelButton).toBe(true)
+    expect(dialogConfirm).toHaveBeenCalledTimes(1)
+    expect(dialogConfirm.mock.calls[0]?.[0]).toBe('ยังไม่ได้บันทึก')
 
-    swalFire.mockResolvedValueOnce({ isConfirmed: false })
+    dialogConfirm.mockResolvedValueOnce({ isConfirmed: false, isDismissed: false, value: '' })
     await expect(confirmLeave(() => true)).resolves.toBe(false)
   })
 })

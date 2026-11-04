@@ -4,15 +4,14 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { AnnouncementService } from '@/services/announcement';
 import { ClassroomService } from '@/services/classroom';
-import { escapeHtml } from '@/utils/html';
-import Swal from 'sweetalert2';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog';
 import type { AnnouncementPriority } from '@/types/announcement';
 
 const router = useRouter();
+const dialog = useDialog();
 const authStore = useAuthStore();
 
 const currentRoomId = authStore.currentRoomId!;
@@ -64,14 +63,17 @@ const priorityLabel: Record<AnnouncementPriority, string> = {
 
 const handleSend = async () => {
   if (!canSendMessage.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแล (หรือผู้ที่มีสิทธิ์จัดการตั้งค่าห้อง) เท่านั้นที่ส่งประกาศได้', 'error');
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแล (หรือผู้ที่มีสิทธิ์จัดการตั้งค่าห้อง) เท่านั้นที่ส่งประกาศได้', 'error');
+    return;
   }
 
   if (!messageForm.title.trim()) {
-    return Swal.fire('กรุณากรอกหัวข้อ', 'หัวข้อประกาศต้องไม่ว่างเปล่า', 'warning');
+    void dialog.alert('กรุณากรอกหัวข้อ', 'หัวข้อประกาศต้องไม่ว่างเปล่า', 'warning');
+    return;
   }
   if (!messageForm.message.trim()) {
-    return Swal.fire('กรุณากรอกข้อความ', 'ข้อความประกาศต้องไม่ว่างเปล่า', 'warning');
+    void dialog.alert('กรุณากรอกข้อความ', 'ข้อความประกาศต้องไม่ว่างเปล่า', 'warning');
+    return;
   }
 
   isSubmitting.value = true;
@@ -83,25 +85,22 @@ const handleSend = async () => {
       pinned: messageForm.pinned,
     });
     const extra = isDiscordLinked.value ? ' และใน Discord' : '';
-    await Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: 'ประกาศเรียบร้อยแล้ว!',
-      // 🔒 escape เฉพาะหัวข้อที่ผู้ใช้พิมพ์ — ข้อความรอบ ๆ เป็นข้อความล้วน ไม่มีมาร์กอัป
-      html: `"${escapeHtml(result.item.title)}" ถูกส่งถึงสมาชิก ${result.delivered_count} คน${extra} 🎉`,
+      text: `“${result.item.title}” ถูกส่งถึงสมาชิก ${result.delivered_count} คน${extra} 🎉`,
       timer: 2500,
-      showConfirmButton: false
     });
     messageForm.title = '';
     messageForm.message = '';
     messageForm.priority = 'normal';
     messageForm.pinned = false;
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'ส่งประกาศไม่สำเร็จ',
-      text: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดจากระบบ โปรดลองใหม่อีกครั้ง',
-      confirmButtonColor: UI_COLOR.brand
-    });
+    void dialog.alert(
+      'ส่งประกาศไม่สำเร็จ',
+      error instanceof Error ? error.message : 'เกิดข้อผิดพลาดจากระบบ โปรดลองใหม่อีกครั้ง',
+      'error',
+    );
   } finally {
     isSubmitting.value = false;
   }
@@ -142,7 +141,7 @@ const handleSend = async () => {
       class="page-card flex items-start gap-3 border-warn-200 bg-warn-50 p-4 sm:gap-4 sm:p-5"
     >
       <div
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-warn-100 text-warn-700"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-warn-100 text-warn-700"
       >
         <i class="bi bi-discord text-lg" aria-hidden="true"></i>
       </div>
@@ -163,7 +162,7 @@ const handleSend = async () => {
       class="page-card flex items-start gap-3 border-ok-200 bg-ok-50 p-4 sm:gap-4 sm:p-5"
     >
       <div
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ok-100 text-ok-700"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-ok-100 text-ok-700"
       >
         <i class="bi bi-discord text-lg" aria-hidden="true"></i>
       </div>
@@ -179,15 +178,15 @@ const handleSend = async () => {
       <!-- ฟอร์ม -->
       <div class="page-card p-4 sm:p-6 lg:col-span-2">
         <form class="space-y-4" @submit.prevent="handleSend">
-          <div class="flex items-center gap-3 border-b border-stone-100 pb-3 sm:pb-4">
+          <div class="flex items-center gap-3 border-b border-line pb-3 sm:pb-4">
             <div
-              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700"
             >
               <i class="bi bi-megaphone-fill text-base" aria-hidden="true"></i>
             </div>
             <div class="min-w-0">
               <p class="section-title truncate">แบบฟอร์มประกาศ</p>
-              <p class="truncate text-xs text-stone-500">
+              <p class="truncate text-xs text-ink-3">
                 ประกาศโดย {{ currentUserName }}
               </p>
             </div>
@@ -218,7 +217,7 @@ const handleSend = async () => {
               placeholder="รายละเอียดประกาศ เช่น วันเวลา สถานที่ หรือสิ่งที่ต้องเตรียม..."
               required
             ></textarea>
-            <div class="num mt-1 text-right text-xs font-bold text-stone-500">
+            <div class="num mt-1 text-right text-xs font-bold text-ink-3">
               {{ charCount }} / 5000
             </div>
           </div>
@@ -236,26 +235,26 @@ const handleSend = async () => {
                 <option value="high">สำคัญ</option>
                 <option value="urgent">ด่วน (ทะลุเวลางดรบกวน)</option>
               </select>
-              <p class="mt-1 text-xs leading-relaxed text-stone-500">
+              <p class="mt-1 text-xs leading-relaxed text-ink-3">
                 ประกาศ "ด่วน" จะแจ้งเตือนแม้อยู่นอกเวลา และ @ทุกคนใน Discord
               </p>
             </div>
 
             <div>
               <span class="field-label">ปักหมุด</span>
-              <label class="flex min-h-11 items-center gap-2.5 rounded-xl border border-stone-200 px-3">
+              <label class="flex min-h-11 items-center gap-2.5 rounded-control border border-line px-3">
                 <input
                   v-model="messageForm.pinned"
                   type="checkbox"
                   :disabled="!canSendMessage"
-                  class="h-4 w-4 accent-brand-700"
+                  class="h-4 w-4 accent-brand"
                 />
-                <span class="text-sm font-bold text-stone-700">ปักหมุดไว้บนสุดของหน้าประกาศ</span>
+                <span class="text-sm font-bold text-ink-2">ปักหมุดไว้บนสุดของหน้าประกาศ</span>
               </label>
             </div>
           </div>
 
-          <div class="border-t border-stone-100 pt-3 sm:pt-4">
+          <div class="border-t border-line pt-3 sm:pt-4">
             <template v-if="canSendMessage">
               <button type="submit" class="btn-primary w-full" :disabled="isSubmitting">
                 <span
@@ -269,7 +268,7 @@ const handleSend = async () => {
             </template>
             <div
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-center text-sm font-bold text-stone-500"
+              class="flex w-full items-center justify-center gap-2 rounded-control border border-line bg-canvas px-4 py-2.5 text-center text-sm font-bold text-ink-3"
             >
               <i class="bi bi-lock-fill" aria-hidden="true"></i>
               เฉพาะผู้ดูแล / ผู้มีสิทธิ์จัดการตั้งค่าห้อง
@@ -280,33 +279,33 @@ const handleSend = async () => {
 
       <!-- ตัวอย่างประกาศ -->
       <div class="page-card order-first h-fit p-4 sm:p-5 lg:order-none">
-        <p class="mb-2 text-[11px] font-bold text-stone-500">ตัวอย่างประกาศ</p>
-        <div class="rounded-xl border-s-4 border-s-brand-700 bg-stone-50 p-3.5">
+        <p class="mb-2 text-xs font-bold text-ink-3">ตัวอย่างประกาศ</p>
+        <div class="rounded-control border-s-4 border-s-brand-700 bg-canvas p-3.5">
           <p class="mb-1.5 flex items-center gap-1.5">
             <span
               v-if="messageForm.pinned"
-              class="inline-flex items-center gap-1 rounded-full bg-warn-100 px-2 py-0.5 text-[11px] font-bold text-warn-800"
+              class="inline-flex items-center gap-1 rounded-full bg-warn-100 px-2 py-0.5 text-xs font-bold text-warn-800"
             >
               <i class="bi bi-pin-angle-fill" aria-hidden="true"></i>
               ปักหมุด
             </span>
             <span
               v-if="messageForm.priority !== 'normal'"
-              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
+              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold"
               :class="messageForm.priority === 'urgent' ? 'bg-danger-100 text-danger-800' : 'bg-info-100 text-info-800'"
             >
               {{ priorityLabel[messageForm.priority] }}
             </span>
           </p>
-          <p class="min-w-0 break-words font-display text-sm font-bold text-stone-900">
+          <p class="min-w-0 break-words text-sm font-bold text-ink">
             {{ messageForm.title || 'หัวข้อประกาศ' }}
           </p>
           <p
-            class="mt-1 whitespace-pre-line break-words text-sm leading-relaxed text-stone-600"
+            class="mt-1 whitespace-pre-line break-words text-sm leading-relaxed text-ink-2"
           >
             {{ messageForm.message || 'รายละเอียดประกาศจะแสดงที่นี่' }}
           </p>
-          <p class="mt-3 truncate border-t border-stone-200 pt-2.5 text-xs font-bold text-stone-500">
+          <p class="mt-3 truncate border-t border-line pt-2.5 text-xs font-bold text-ink-3">
             ประกาศโดย {{ currentUserName }}
           </p>
         </div>
