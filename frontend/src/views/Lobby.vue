@@ -256,7 +256,7 @@ const submitJoinRoom = async () => {
       icon: 'success',
       title: 'สำเร็จ!',
       text: result.message || 'เข้าสู่ห้องเรียนสำเร็จ',
-      confirmButtonText: 'เข้าสู่แดชบอร์ด',
+      confirmButtonText: 'เข้าสู่หน้าแรก',
     });
     showJoinModal.value = false;
 
