@@ -34,7 +34,7 @@ import { createLatestGuard } from '@/utils/latest'
 import type { Activity, ActivityCompare, CompareRegion } from '@/types/activity'
 import ActivityVennDiagram from '@/components/activities/ActivityVennDiagram.vue'
 import RegionMemberNames from '@/components/activities/RegionMemberNames.vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import { UI_COLOR } from '@/constants/theme'
@@ -337,11 +337,9 @@ onMounted(() => {
 
 <template>
   <div class="page-wrap space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Activity Comparison"
-      title="เปรียบเทียบกิจกรรม"
+    <PageIntro
       description="เลือก 2–3 กิจกรรม ดูว่าใครอยู่ร่วมกันบ้าง แล้ว export เฉพาะภูมิภาคที่ต้องการ"
-    ></PageHeader>
+    ></PageIntro>
 
     <!-- ── เลือกกิจกรรม ─────────────────────────────────────────── -->
     <section class="page-card p-4 sm:p-5">
@@ -371,11 +369,11 @@ onMounted(() => {
             v-for="activity in activities"
             :key="activity.id"
             type="button"
-            class="chip min-h-9 gap-1.5 px-3 transition-colors"
+            class="chip min-h-11 gap-1.5 px-3 transition-colors"
             :class="
               selectedIds.includes(activity.id)
-                ? 'bg-brand-700 text-white'
-                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                ? 'bg-brand text-white'
+                : 'bg-canvas text-ink-2 hover:bg-line'
             "
             :aria-pressed="selectedIds.includes(activity.id)"
             @click="toggleActivity(activity.id)"

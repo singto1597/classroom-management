@@ -8,7 +8,7 @@ import { FinanceService } from '@/services/finance';
 import type { Transaction, TransactionQueryParams } from '@/types/finance';
 import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
@@ -192,9 +192,7 @@ const resetFilters = () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Transaction Ledger"
-      title="ประวัติการทำรายการ"
+    <PageIntro
       description="รายการรับ จ่าย และโอนเงินทั้งหมดของห้อง"
     >
       <template #actions>
@@ -203,7 +201,7 @@ const resetFilters = () => {
           บันทึกรายการใหม่
         </RouterLink>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- ตัวกรอง -->
     <div class="page-card p-4 sm:p-5">

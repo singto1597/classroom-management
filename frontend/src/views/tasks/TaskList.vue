@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import type { Task, DailyNote } from '@/types/task'
 import Swal from 'sweetalert2'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue'
@@ -327,9 +327,7 @@ onMounted(fetchData)
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Classroom Tasks"
-      title="รายการงาน & โน้ต"
+    <PageIntro
       description="จัดการการบ้านและอัปเดตประกาศรายวันของห้อง"
     >
       <template #actions>
@@ -338,7 +336,7 @@ onMounted(fetchData)
           สร้างใหม่
         </RouterLink>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!--
       📅 ตัวกรองกำหนดส่ง — มาจากการ์ดหน้าหลัก (filter=today|overdue)

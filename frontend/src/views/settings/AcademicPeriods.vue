@@ -27,7 +27,7 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppEmptyState from '@/components/ui/AppEmptyState.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -350,8 +350,7 @@ const describeRange = (start: string, end: string): string =>
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      title="ปีการศึกษาและเทอม"
+    <PageIntro
       description="กำหนดปฏิทินของห้องเพื่อกรองสถิติตามปี/เทอม — ไม่ได้ย้ายนักเรียนไปปีใหม่"
     />
 

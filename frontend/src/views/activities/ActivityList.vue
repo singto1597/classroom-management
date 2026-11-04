@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import type { Activity } from '@/types/activity'
 import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue'
@@ -240,9 +240,7 @@ onMounted(fetchData)
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Classroom Activities"
-      title="กิจกรรม & ผู้เข้าร่วม"
+    <PageIntro
       description="บันทึกกิจกรรม หน้าที่ และชั่วโมงจิตอาสาของห้อง"
     >
       <template #actions>
@@ -250,7 +248,7 @@ onMounted(fetchData)
           <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างกิจกรรม
         </router-link>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- แถบกรองแบบเส้นใต้บาง (ไม่ใช่ปุ่ม pill ทึบสี) -->
     <nav
@@ -278,11 +276,11 @@ onMounted(fetchData)
     <nav class="flex gap-2 overflow-x-auto overscroll-contain pb-1" aria-label="กรองตามหมวดกิจกรรม">
       <button
         type="button"
-        class="chip min-h-9 shrink-0 border"
+        class="chip min-h-11 shrink-0 border"
         :class="
           categoryFilter === 'all'
-            ? 'border-brand-700 bg-brand-50 text-brand-700'
-            : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+            ? 'border-brand bg-brand-tint text-brand'
+            : 'border-line bg-surface text-ink-2 hover:border-ink-3/40'
         "
         :aria-pressed="categoryFilter === 'all'"
         @click="categoryFilter = 'all'"
@@ -294,11 +292,11 @@ onMounted(fetchData)
         v-for="c in ACTIVITY_CATEGORIES"
         :key="c.value"
         type="button"
-        class="chip min-h-9 shrink-0 border"
+        class="chip min-h-11 shrink-0 border"
         :class="
           categoryFilter === c.value
-            ? 'border-brand-700 bg-brand-50 text-brand-700'
-            : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+            ? 'border-brand bg-brand-tint text-brand'
+            : 'border-line bg-surface text-ink-2 hover:border-ink-3/40'
         "
         :aria-pressed="categoryFilter === c.value"
         @click="categoryFilter = c.value"

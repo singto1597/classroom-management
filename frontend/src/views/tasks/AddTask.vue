@@ -6,7 +6,6 @@ import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import { todayIso } from '@/utils/datetime'
 import Swal from 'sweetalert2'
-import PageHeader from '@/components/ui/PageHeader.vue'
 import FormSuccess from '@/components/ui/FormSuccess.vue'
 import { confirmLeave, useFormDraft, useUnsavedGuard } from '@/composables/useFormDraft'
 
@@ -186,8 +185,6 @@ const handleAddNote = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader eyebrow="New Entry" title="สร้างรายการใหม่" />
-
     <!-- ✅ ผลลัพธ์ค้างบนจอ พร้อมทางไปต่อ -->
     <FormSuccess v-if="submitted" :title="submitted.title" :hint="submitted.hint">
       <RouterLink to="/tasks" class="btn-primary">

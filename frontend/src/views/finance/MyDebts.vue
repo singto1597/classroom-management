@@ -15,7 +15,7 @@
  *    ไม่งั้นนักเรียนใหม่จะอ่านว่า "จ่ายครบแล้ว" ซึ่งผิดคนละเรื่อง
  */
 import { computed, onMounted, ref } from 'vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import AppEmptyState from '@/components/ui/AppEmptyState.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
@@ -91,7 +91,9 @@ const overdueCount = computed(
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader title="ยอดค้างชำระของฉัน" description="บิลที่ยังไม่ได้ชำระครบของฉันในห้องนี้" />
+    <PageIntro
+      description="บิลที่ยังไม่ได้ชำระครบของฉันในห้องนี้"
+    />
 
     <SkeletonRows v-if="isLoading" :rows="3" height="h-16" />
 

@@ -6,7 +6,7 @@ import { Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, ArcElement, CategoryScale } from 'chart.js';
 import type { ChartOptions } from 'chart.js';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
@@ -271,9 +271,7 @@ watch([selectedMonth, selectedYear], () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Finance Overview"
-      title="ภาพรวมการเงิน"
+    <PageIntro
       :description="`สรุปการเงินประจำเดือน ${thaiMonths[selectedMonth - 1]} ${selectedYear + 543}`"
     >
       <template #actions>
@@ -363,7 +361,7 @@ watch([selectedMonth, selectedYear], () => {
           </div>
         </div>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!--
       🚨 แบนเนอร์เตือนเกินงบ — อยู่นอก skeleton หลักโดยเจตนา

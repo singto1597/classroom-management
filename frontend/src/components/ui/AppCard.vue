@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * AppCard — การ์ดพื้นฐานของการออกแบบ "Academic Ledger"
- * ขอบทึบ hairline + มุมโค้ง 2xl + พื้นขาว บนกระดาษ stone
+ * AppCard — การ์ดพื้นฐานของระบบ (PIRIvoice: canvas/surface/line)
+ * ขอบเส้นบาง + มุมโค้ง 16px + พื้นขาว บนพื้น canvas
  *
  * ⚠️ ห้ามใส่ `border-dashed` — เส้นประสื่อ "ช่องที่ยังกรอกไม่ครบ" ไม่ใช่การ์ด
  *

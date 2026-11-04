@@ -5,7 +5,7 @@ import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import StudentService from '@/services/student'
 import type { Student, StudentForm, StudentUpdatePayload } from '@/types/student'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import Swal from 'sweetalert2'
@@ -212,9 +212,7 @@ onMounted(() => {
 <template>
   <div class="space-y-4 sm:space-y-5">
 
-    <PageHeader
-      eyebrow="Student Record"
-      title="จัดการข้อมูลโปรไฟล์"
+    <PageIntro
       :description="`รหัสนักเรียน #${studentNo}`"
     >
       <template #actions>
@@ -249,7 +247,7 @@ onMounted(() => {
           <i class="bi bi-lock-fill" aria-hidden="true"></i> สิทธิ์จำกัด
         </div>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <SkeletonRows v-if="loading" :rows="5" height="h-24" />
 

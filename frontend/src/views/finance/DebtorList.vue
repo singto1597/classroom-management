@@ -8,7 +8,7 @@ import { createLatestGuard } from '@/utils/latest'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
 import Swal from 'sweetalert2'
 
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import { UI_COLOR } from '@/constants/theme'
@@ -471,9 +471,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Outstanding Balances"
-      title="สรุปผู้ค้างชำระ"
+    <PageIntro
       description="รายชื่อผู้ค้างจ่ายเงินจากทุกโปรเจกต์ (รวมโปรเจกต์ที่ปิดไปแล้ว)"
     >
       <template #actions>
@@ -519,7 +517,7 @@ onMounted(() => {
           เงินรับล่วงหน้า
         </RouterLink>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <SkeletonRows v-if="isLoading" :rows="5" height="h-24" />
 
@@ -924,7 +922,7 @@ onMounted(() => {
           </div>
           <div class="flex flex-col gap-2 sm:flex-row">
             <!--
-              🚫 ปุ่ม "ออกใบแจ้งหนี้" ถูก **ย้ายออกจากที่นี่** ไปอยู่ที่หัวหน้า (PageHeader #actions)
+              🚫 ปุ่ม "ออกใบแจ้งหนี้" ถูก **ย้ายออกจากที่นี่** ไปอยู่ที่หัวหน้า (PageIntro #actions)
               เหตุผล: (ก) ยอดบนใบคือยอดค้างรวมทุกบิลของคนนั้น ⇒ การติ๊กบิลในโมดัลนี้ไม่ได้
               มีผลกับยอดบนใบเลย (ข) โมดัลนี้ gate ด้วย `isAdmin` ⇒ เหรัญญิกที่มี
               MANAGE_FINANCE จะกดไม่ได้

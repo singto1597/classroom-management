@@ -6,7 +6,7 @@ import type { Account, AccountKind, Category } from '@/types/finance';
 import { escapeAttr } from '@/utils/html';
 import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
@@ -401,11 +401,9 @@ const formatNumber = (num: number) => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Finance Settings"
-      title="ตั้งค่าระบบการเงิน"
+    <PageIntro
       description="จัดการกระเป๋าเงินห้องและหมวดหมู่สำหรับบันทึกรายรับ/รายจ่าย"
-    ></PageHeader>
+    ></PageIntro>
 
     <!-- สถานะโหลด / ผิดพลาด -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />

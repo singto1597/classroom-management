@@ -7,7 +7,7 @@ import StudentService from '@/services/student'
 import type { Student } from '@/types/student'
 import { displayName } from '@/utils/name'
 import { avatarInitial } from '@/utils/avatar'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import AppChip from '@/components/ui/AppChip.vue'
@@ -163,16 +163,14 @@ onMounted(() => {
 <template>
   <div class="space-y-4 sm:space-y-5">
 
-    <PageHeader
-      eyebrow="Student Profile"
-      title="โปรไฟล์นักเรียน"
+    <PageIntro
       description="ข้อมูลส่วนตัว การติดต่อ และข้อมูลสุขภาพ"
     >
       <!--
         📌 P1.10 — action ของหน้าย้ายไปเป็นแถบเดียวติดล่าง (ดูท้ายไฟล์)
            ⇒ หัวหน้าไม่ต้องมีปุ่มที่ต้องเอื้อมบนมือถือ และไม่ซ้ำกับแถบล่าง
       -->
-    </PageHeader>
+    </PageIntro>
 
     <!-- โหลด -->
     <SkeletonRows v-if="loading" :rows="4" height="h-24" />

@@ -214,14 +214,13 @@ const select = (item: RowActionItem) => {
 const itemClass = (item: RowActionItem) => [
   // `py-3` ไม่ใช่ `py-2.5` — แถวที่กดได้ต้อง ≥44px (DESIGN.md §2) เท่ากับ `ITEM_HEIGHT` ข้างบน
   'flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-bold transition-colors',
-  'focus-visible:outline-none focus-visible:bg-stone-100',
-  // `text-stone-500` = "ตัวอักษรเบา" ตัวสุดท้ายที่ DESIGN.md §2 อนุญาต
-  // (stone-300 ไม่อยู่ในชุดที่อนุญาต และคอนทราสต์ ~1.6:1 อ่านไม่ออก)
+  'focus-visible:bg-canvas focus-visible:outline-none',
+  // `text-ink-3` = "ตัวอักษรเบา" ตัวสุดท้ายที่อนุญาต (คอนทราสต์ผ่าน AA)
   item.disabled
-    ? 'cursor-not-allowed text-stone-500'
+    ? 'cursor-not-allowed text-ink-3'
     : item.tone === 'danger'
       ? 'text-danger-600 hover:bg-danger-50'
-      : 'text-stone-700 hover:bg-stone-50',
+      : 'text-ink-1 hover:bg-canvas',
 ];
 
 // ออกจากหน้าไปทั้ง component (เช่น RouterLink ในเมนู หรือเปลี่ยน route)
@@ -233,7 +232,7 @@ onBeforeUnmount(close);
   <button
     ref="triggerRef"
     type="button"
-    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-300 active:scale-[0.97]"
+    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-2 transition-colors hover:bg-canvas hover:text-ink-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-line active:scale-[0.97]"
     :title="label"
     :aria-label="label"
     aria-haspopup="menu"
@@ -257,7 +256,7 @@ onBeforeUnmount(close);
         role="menu"
         :aria-label="label"
         :style="panelStyle"
-        class="fixed z-[80] max-h-[calc(100vh_-_1.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-stone-200 bg-white py-1 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
+        class="fixed z-[80] max-h-[calc(100vh_-_1.5rem)] overflow-y-auto overscroll-contain rounded-control border border-line bg-surface py-1 shadow-lg"
       >
         <template v-for="item in items" :key="item.key">
           <RouterLink

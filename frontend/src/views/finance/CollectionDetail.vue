@@ -10,7 +10,7 @@ import { formatThaiDateTime } from '@/utils/datetime'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
 import Swal from 'sweetalert2'
 
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import { UI_COLOR } from '@/constants/theme'
@@ -367,9 +367,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Collection Detail"
-      :title="data ? `รายละเอียดโปรเจกต์ #${data.collection_id}` : 'รายละเอียดโปรเจกต์'"
+    <PageIntro
       description="ติดตามความคืบหน้าการเก็บเงินและบันทึกการรับชำระของนักเรียนแต่ละคน"
     >
       <template #actions>
@@ -387,7 +385,7 @@ onMounted(() => {
           {{ isEditMode ? 'ปิดโหมดแก้ไข' : 'โหมดจัดการรายชื่อ' }}
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- ความคืบหน้าของแคมเปญ (การ์ดสรุปตัวเลข → padding มือถือหนึ่งขั้นที่แน่นกว่า) -->
     <div v-if="data" class="page-card p-3.5 sm:p-5">

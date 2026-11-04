@@ -5,7 +5,7 @@ import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import Swal from 'sweetalert2'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import { UI_COLOR } from '@/constants/theme'
@@ -97,9 +97,7 @@ onMounted(fetchTask)
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Edit Entry"
-      title="แก้ไขข้อมูลงาน"
+    <PageIntro
       description="อัปเดตรายละเอียด หรือเลื่อนกำหนดส่งของการบ้าน"
     />
 

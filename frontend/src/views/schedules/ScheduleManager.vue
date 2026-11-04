@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ScheduleService } from '@/services/schedule'
 import { todayIso } from '@/utils/datetime'
 import Swal from 'sweetalert2'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 
 const authStore = useAuthStore()
 
@@ -112,9 +112,7 @@ const handleSaveOverride = async () => {
 <template>
   <div class="space-y-4 sm:space-y-5">
     <!-- ไม่มีปุ่มใน #actions: ทางออกมาจากปุ่มย้อนของ header (route meta `headerBack`) -->
-    <PageHeader
-      eyebrow="Class Schedule"
-      title="จัดการตารางเรียน"
+    <PageIntro
       description="ตั้งค่าตารางเรียนยืนพื้น และข้อยกเว้นการแต่งกายรายวัน"
     />
 

@@ -44,7 +44,7 @@ import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
 import { formatThaiDateTime } from '@/utils/datetime'
 import Swal from 'sweetalert2'
 
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import { UI_COLOR } from '@/constants/theme'
@@ -446,9 +446,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Prepaid Credits"
-      title="เงินรับล่วงหน้า"
+    <PageIntro
       description="เงินที่ห้องถือไว้ให้เพื่อนแต่ละคน — จะกลายเป็นรายได้ก็ต่อเมื่อถูกหักไปปิดบิล"
     >
       <template #actions>
@@ -473,7 +471,7 @@ onMounted(() => {
           ยอดค้างชำระ
         </RouterLink>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- 📊 สรุปภาพรวม — ตัวเลขหลักคือ "เงินที่ถือไว้" ซึ่ง **ไม่ใช่รายได้** -->
     <div v-if="!isLoading && !hasError" class="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -16,7 +16,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import PeriodPicker from '@/components/finance/PeriodPicker.vue';
@@ -350,9 +350,7 @@ const exportExcel = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Financial Statements"
-      title="งบการเงิน"
+    <PageIntro
       description="งบทดลอง งบกำไรขาดทุน และงบดุล ของห้องนี้"
     >
       <template #actions>
@@ -361,7 +359,7 @@ const exportExcel = async () => {
           ส่งออก Excel
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- แท็บงบ: เส้นใต้บาง (คนละแบบกับสวิตช์โหมดใน PeriodPicker ซึ่งเป็น pill ทึบ) -->
     <nav

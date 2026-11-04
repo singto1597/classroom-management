@@ -14,7 +14,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppEmptyState from '@/components/ui/AppEmptyState.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -140,14 +140,16 @@ const refreshUnread = () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader title="ประกาศ" description="ประกาศของห้อง — ยังไม่อ่านจะขึ้นป้าย ใหม่">
+    <PageIntro
+      description="ประกาศของห้อง — ยังไม่อ่านจะขึ้นป้าย ใหม่"
+    >
       <template #actions>
         <AppButton v-if="canSend" variant="primary" to="/messages">
           <i class="bi bi-megaphone-fill" aria-hidden="true"></i>
           ส่งประกาศ
         </AppButton>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <div class="flex flex-wrap items-center gap-2">
       <label

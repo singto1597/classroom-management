@@ -19,7 +19,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
@@ -392,9 +392,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Budget Control"
-      title="งบประมาณ"
+    <PageIntro
       :description="`วงเงินและยอดใช้จริง — ${describePeriod(period)}`"
     >
       <template #actions>
@@ -408,7 +406,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           ตั้งงบประมาณ
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- ตัวเลือกช่วงเวลา — เต็มความกว้างในเนื้อหา ไม่ยัดใน header เพราะมี 2 ช่องวันที่ -->
     <div class="page-card p-3.5 sm:p-4">

@@ -43,14 +43,14 @@ const emit = defineEmits<{ retry: [] }>();
 
   <div
     v-else
-    class="flex flex-col items-center justify-center gap-2 rounded-2xl border border-danger-200 bg-white px-5 py-9 text-center sm:gap-2.5 sm:px-6 sm:py-12"
+    class="flex flex-col items-center justify-center gap-2 rounded-card border border-danger-200 bg-surface px-5 py-9 text-center sm:gap-2.5 sm:px-6 sm:py-12"
     role="alert"
   >
-    <i :class="['bi', icon || 'bi-wifi-off', 'text-3xl text-stone-500']" aria-hidden="true"></i>
+    <i :class="['bi', icon || 'bi-wifi-off', 'text-3xl text-danger-500']" aria-hidden="true"></i>
 
-    <p class="font-display text-base font-bold text-stone-700">{{ title || 'โหลดข้อมูลไม่สำเร็จ' }}</p>
+    <p class="font-display text-title-m font-bold text-ink-1">{{ title || 'โหลดข้อมูลไม่สำเร็จ' }}</p>
 
-    <p v-if="hint" class="max-w-sm text-sm leading-relaxed text-stone-500">{{ hint }}</p>
+    <p v-if="hint" class="max-w-sm text-sm leading-relaxed text-ink-2">{{ hint }}</p>
 
     <button type="button" class="btn-ghost-ui mt-1.5" @click="emit('retry')">
       <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>

@@ -6,7 +6,7 @@ import { AnnouncementService } from '@/services/announcement';
 import { ClassroomService } from '@/services/classroom';
 import { escapeHtml } from '@/utils/html';
 import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import { UI_COLOR } from '@/constants/theme'
@@ -110,9 +110,7 @@ const handleSend = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Announcement"
-      title="ประกาศ"
+    <PageIntro
       description="ส่งประกาศถึงเพื่อนทุกคน — ขึ้นในแอป แจ้งเตือนบนมือถือ และ Discord (ถ้าเชื่อมต่อไว้)"
     >
       <template #actions>
@@ -126,7 +124,7 @@ const handleSend = async () => {
           กลับหน้าหลัก
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- ⚠️ สถานะการผูก Discord ของห้อง -->
     <SkeletonRows v-if="isLoadingRoom" :rows="1" height="h-20" />

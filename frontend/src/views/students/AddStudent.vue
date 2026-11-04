@@ -4,7 +4,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { StudentService } from '@/services/student'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import FormSuccess from '@/components/ui/FormSuccess.vue'
 import Swal from 'sweetalert2'
 import { UI_COLOR } from '@/constants/theme'
@@ -233,11 +233,9 @@ const submitBulk = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="New Student"
-      title="เพิ่มนักเรียนใหม่"
+    <PageIntro
       description="เพิ่มรายชื่อเพื่อนในห้องคนเดียว หรือนำเข้าแบบรวดเดียว"
-    ></PageHeader>
+    ></PageIntro>
 
     <!-- ✅ หน้ายืนยันสำเร็จ — ค้างไว้ให้อ่านและไปต่อ -->
     <FormSuccess

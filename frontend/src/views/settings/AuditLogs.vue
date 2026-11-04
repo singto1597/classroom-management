@@ -23,7 +23,7 @@
  *     เป็นข้อมูลสำหรับสืบเหตุ ไม่ใช่อ่านประจำวัน
  */
 import { computed, onMounted, reactive, ref } from 'vue';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppEmptyState from '@/components/ui/AppEmptyState.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -167,8 +167,7 @@ const prettyJson = (value: unknown): string => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      title="บันทึกกิจกรรม"
+    <PageIntro
       description="ตรวจย้อนว่าใครทำอะไรกับข้อมูลห้อง เมื่อไร และจากอุปกรณ์/IP ใด"
     />
 

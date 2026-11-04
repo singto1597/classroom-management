@@ -4,7 +4,7 @@ import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import { downloadBlob } from '@/utils/download';
 import { todayIso } from '@/utils/datetime';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
 import draggable from 'vuedraggable'; // 📦 vuedraggable สำหรับ Vue 3
@@ -192,9 +192,7 @@ const handleExport = async () => {
 <template>
   <div class="space-y-4 sm:space-y-5">
 
-    <PageHeader
-      eyebrow="Export Builder"
-      title="เครื่องมือสร้างไฟล์ Export"
+    <PageIntro
       description="เลือกหมวดหมู่ และลากวางคอลัมน์เพื่อจัดลำดับไฟล์ Excel"
     >
       <template #actions>
@@ -203,7 +201,7 @@ const handleExport = async () => {
           สร้างไฟล์ Excel
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <div class="grid grid-cols-1 items-start gap-4 sm:gap-5 xl:grid-cols-12">
 

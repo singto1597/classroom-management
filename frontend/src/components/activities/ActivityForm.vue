@@ -28,7 +28,7 @@ import ExtraInfoRows from '@/components/activities/ExtraInfoRows.vue'
 import ParticipantRosterList from '@/components/activities/ParticipantRosterList.vue'
 import ParticipantInfoModal from '@/components/activities/ParticipantInfoModal.vue'
 import BatchApplyModal from '@/components/activities/BatchApplyModal.vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
@@ -602,9 +602,7 @@ const submit = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Activity Setup"
-      :title="mode === 'edit' ? 'แก้ไขกิจกรรม' : 'สร้างกิจกรรมใหม่'"
+    <PageIntro
       :description="
         mode === 'edit' ? 'แก้ไขข้อมูลและผู้เข้าร่วม' : 'ตั้งค่ากิจกรรมและเลือกผู้เข้าร่วม'
       "
@@ -618,7 +616,7 @@ const submit = async () => {
           {{ mode === 'edit' ? 'กลับหน้ารายละเอียด' : 'กลับรายการ' }}
         </router-link>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
 

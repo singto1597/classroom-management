@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth';
 import { downloadBlob } from '@/utils/download';
 import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
@@ -229,7 +229,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader eyebrow="New Transaction" title="บันทึกรายการเงิน"></PageHeader>
+    <PageIntro></PageIntro>
 
     <!-- สถานะโหลด / ผิดพลาด / ยังไม่มีกระเป๋าเงิน -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-14" />

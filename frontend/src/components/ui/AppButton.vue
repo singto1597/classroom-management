@@ -39,7 +39,7 @@ const VARIANT_CLASS = {
   secondary: 'btn-ghost-ui',
   danger: 'btn-danger',
   quiet:
-    'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-brand-700 transition-colors hover:bg-brand-50 active:scale-[0.97]',
+    'inline-flex min-h-11 items-center justify-center gap-2 rounded-control px-3 py-2.5 text-sm font-bold text-brand transition-colors hover:bg-brand-tint active:scale-[0.97]',
 } as const
 
 const classes = computed(() => [

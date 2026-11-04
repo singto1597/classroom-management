@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { StudentService } from '@/services/student';
 import { displayName as personDisplayName } from '@/utils/name';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import type { Student } from '@/types/student';
@@ -131,9 +131,7 @@ const getThemeClasses = (_theme: string, type: keyof typeof themeClasses) => the
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Classroom Structure"
-      title="แผนผังห้องเรียน"
+    <PageIntro
       description="โครงสร้างการบริหารและ Roadmap การทำงานของห้อง"
     />
 

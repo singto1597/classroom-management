@@ -17,7 +17,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import PeriodPicker from '@/components/finance/PeriodPicker.vue';
@@ -468,11 +468,9 @@ const downloadPdf = async (receipt: ReceiptListItem) => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Finance Documents"
-      title="ใบเสร็จ / ใบแจ้งหนี้"
+    <PageIntro
       description="ทะเบียนเอกสารที่ออกแล้วของห้อง — เลขที่เอกสารเรียงตามปี พ.ศ. ของวันรับเงิน"
-    ></PageHeader>
+    ></PageIntro>
 
     <PeriodPicker v-model="period" :modes="['month', 'range']" />
 

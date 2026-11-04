@@ -17,7 +17,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 
@@ -132,11 +132,9 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Finance Document"
-      :title="detail?.receipt_no || 'รายละเอียดเอกสาร'"
+    <PageIntro
       :description="detail?.doc_type_label || 'เอกสารการเงิน'"
-    ></PageHeader>
+    ></PageIntro>
 
     <SkeletonRows v-if="isLoading" :rows="4" height="h-20" />
 

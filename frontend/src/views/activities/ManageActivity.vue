@@ -35,7 +35,7 @@ import BatchApplyModal from '@/components/activities/BatchApplyModal.vue'
 import AddStudentsModal from '@/components/activities/AddStudentsModal.vue'
 import CheckinSheetSection from '@/components/activities/CheckinSheetSection.vue'
 import DynamicFieldManager from '@/components/activities/DynamicFieldManager.vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import Swal from 'sweetalert2'
@@ -509,9 +509,7 @@ onMounted(() => {
     <template v-else-if="activity">
       <!-- Header -->
       <div>
-        <PageHeader
-          eyebrow="Activity Management"
-          title="จัดการผู้เข้าร่วม"
+        <PageIntro
           :description="activity.title"
         >
           <template #actions>
@@ -522,7 +520,7 @@ onMounted(() => {
               <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไขกิจกรรม
             </router-link>
           </template>
-        </PageHeader>
+        </PageIntro>
       </div>
 
       <!-- ========== ☑️ ผู้เข้าร่วม (เลือกเพื่อตั้งค่าแบบกลุ่ม) ========== -->

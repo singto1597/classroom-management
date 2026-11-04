@@ -18,7 +18,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import BookmarkButton from '@/components/me/BookmarkButton.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -172,8 +172,7 @@ const goToList = () => {
     </StateBlock>
 
     <template v-else-if="announcement">
-      <PageHeader
-        :title="announcement.title"
+      <PageIntro
         :description="`ประกาศเมื่อ ${formatThaiDateTime(announcement.created_at)}`"
       >
         <template #actions>
@@ -184,7 +183,7 @@ const goToList = () => {
             รายการประกาศ
           </AppButton>
         </template>
-      </PageHeader>
+      </PageIntro>
 
       <article class="page-card p-4 sm:p-6">
         <div class="flex flex-wrap items-center gap-1.5 border-b border-stone-100 pb-3 sm:pb-4">

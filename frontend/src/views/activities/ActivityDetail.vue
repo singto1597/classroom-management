@@ -19,7 +19,7 @@ import {
 } from '@/constants/activityFields'
 import ParticipantRosterList from '@/components/activities/ParticipantRosterList.vue'
 import ParticipantInfoModal from '@/components/activities/ParticipantInfoModal.vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import BookmarkButton from '@/components/me/BookmarkButton.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
@@ -381,9 +381,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
     <template v-else-if="activity">
       <!-- Header -->
       <div>
-        <PageHeader
-          eyebrow="Activity"
-          :title="activity.title"
+        <PageIntro
           description="รายละเอียดกิจกรรม ผู้เข้าร่วม และการเช็คอิน"
         >
           <template #actions>
@@ -477,7 +475,7 @@ onUnmounted(() => document.removeEventListener('click', closeActionMenu))
               </div>
             </template>
           </template>
-        </PageHeader>
+        </PageIntro>
       </div>
 
       <!-- 🚩 สถานะ = แบนเนอร์ (คำอธิบาย) ไม่ใช่ชิปโดด ๆ — ที่เดียวในหน้า -->

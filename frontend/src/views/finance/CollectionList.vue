@@ -8,7 +8,7 @@ import { escapeHtml } from '@/utils/html'
 import { formatThaiDate } from '@/utils/datetime'
 import Swal from 'sweetalert2'
 
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import { UI_COLOR } from '@/constants/theme'
@@ -196,9 +196,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Fundraising"
-      title="โปรเจกต์เก็บเงิน"
+    <PageIntro
       description="จัดการแคมเปญระดมทุนและการเก็บเงินเพื่อนในห้อง"
     >
       <template #actions>
@@ -207,7 +205,7 @@ onMounted(() => {
           สร้างโปรเจกต์ใหม่
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <SkeletonRows v-if="isLoading" :rows="3" height="h-44" />
 

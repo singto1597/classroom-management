@@ -22,7 +22,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppTabs from '@/components/ui/AppTabs.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppEmptyState from '@/components/ui/AppEmptyState.vue';
@@ -299,7 +299,9 @@ const hasNoStats = computed(() => stats.value !== null && !stats.value.has_profi
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader title="ของฉัน" description="ไทม์ไลน์ส่วนตัว · สถิติ · รายการที่บันทึกไว้" />
+    <PageIntro
+      description="ไทม์ไลน์ส่วนตัว · สถิติ · รายการที่บันทึกไว้"
+    />
 
     <AppTabs
       :model-value="tab"

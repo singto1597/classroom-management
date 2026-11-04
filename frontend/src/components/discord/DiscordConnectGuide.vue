@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
@@ -42,9 +42,7 @@ const copyRoomCode = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Discord Integration"
-      title="เชื่อมต่อ Discord"
+    <PageIntro
       description="รับการแจ้งเตือนและเช็คข้อมูลส่วนตัวผ่านบอท"
     />
 

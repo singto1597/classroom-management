@@ -17,7 +17,7 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import QuietHoursCard from '@/components/settings/QuietHoursCard.vue';
@@ -203,8 +203,7 @@ const updatePreference = async (
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      title="ตั้งค่าการแจ้งเตือน"
+    <PageIntro
       description="เลือกว่าจะให้แจ้งอะไร ทางไหน และช่วงเวลาไหน — ตั้งค่าแยกตามอุปกรณ์และตามบัญชี"
     />
 

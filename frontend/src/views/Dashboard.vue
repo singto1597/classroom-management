@@ -21,7 +21,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { HomeService } from '@/services/home';
 import { StudentService } from '@/services/student';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import Swal from 'sweetalert2';
@@ -33,6 +33,7 @@ import {
   relativeThaiDay,
 } from '@/utils/datetime';
 import { formatMoney } from '@/utils/money';
+import { usePageTitle } from '@/composables/usePageTitle';
 import type { HomeSummary } from '@/types/home';
 
 const router = useRouter();
@@ -47,6 +48,8 @@ const greeting = computed(() => {
   return 'สวัสดีตอนเย็น';
 });
 const greetingTitle = computed(() => `${greeting.value}, ${userName.value}`);
+// 🏷️ header เป็นเจ้าของ <h1> — หน้าหลักแสดงคำทักทายตามเวลาแทนชื่อ route
+usePageTitle(greetingTitle);
 const role = computed(() => authStore.currentRoleLabel);
 const isAdmin = computed(() => authStore.isAdmin);
 
@@ -139,7 +142,7 @@ const goToMyProfile = async () => {
     <!-- ========================================== -->
     <!-- 1. หัวหน้า                                  -->
     <!-- ========================================== -->
-    <PageHeader eyebrow="Classroom Dashboard" :title="greetingTitle">
+    <PageIntro>
       <template #actions>
         <button type="button" class="btn-ghost-ui" title="สลับห้องเรียน" @click="handleChangeRoom">
           <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
@@ -147,7 +150,7 @@ const goToMyProfile = async () => {
           <span class="sm:hidden">สลับห้อง</span>
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- ========================================== -->
     <!-- 2. สรุป — โหลด / ผิดพลาด / ข้อมูล           -->

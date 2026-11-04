@@ -8,7 +8,7 @@ import type { Student, PendingStudentRequest } from '@/types/student';
 import { displayName } from '@/utils/name';
 import { avatarInitial } from '@/utils/avatar';
 import { formatThaiDateTime } from '@/utils/datetime';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
@@ -242,9 +242,7 @@ const rejectJoin = async (studentNo: number) => {
 <template>
   <div class="space-y-4 sm:space-y-5">
 
-    <PageHeader
-      eyebrow="Academic Records"
-      title="จัดการนักเรียน"
+    <PageIntro
       description="รายชื่อนักเรียนในห้องนี้"
     >
       <template #actions>
@@ -261,7 +259,7 @@ const rejectJoin = async (studentNo: number) => {
           <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
         </RouterLink>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- แท็บ: ทะเบียนนักเรียน / คำขอรออนุมัติ -->
     <div v-if="canManageStudents" class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-stone-50 p-1">

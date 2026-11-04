@@ -23,11 +23,11 @@ withDefaults(
 
 <template>
   <div
-    class="flex flex-col items-center justify-center gap-2 rounded-2xl border border-stone-200 bg-white px-5 py-9 text-center sm:gap-2.5 sm:px-6 sm:py-12"
+    class="flex flex-col items-center justify-center gap-2 rounded-card border border-line bg-surface px-5 py-9 text-center sm:gap-2.5 sm:px-6 sm:py-12"
   >
-    <i :class="['bi', icon, 'text-3xl text-stone-300']" aria-hidden="true"></i>
-    <p class="font-display text-base font-bold text-stone-700">{{ title }}</p>
-    <p v-if="hint" class="max-w-sm text-sm leading-relaxed text-stone-500">{{ hint }}</p>
+    <i :class="['bi', icon, 'text-3xl text-ink-3']" aria-hidden="true"></i>
+    <p class="font-display text-title-m font-bold text-ink-1">{{ title }}</p>
+    <p v-if="hint" class="max-w-sm text-sm leading-relaxed text-ink-2">{{ hint }}</p>
     <slot />
   </div>
 </template>
