@@ -164,6 +164,35 @@ describe('หน้าแรกสาธารณะ + โครงสร้า�
   });
 });
 
+describe('เปลือก GlobalLayout — หน้า "นอกห้องเรียน"', () => {
+  it('lobby / onboarding / account อยู่ใต้เปลือกเดียวกันและใช้ URL เดิม', () => {
+    const globalParent = routes.find((r) => r.path === '/start');
+    expect(globalParent).toBeDefined();
+
+    const children = (globalParent?.children ?? []) as unknown as Array<{ path: string }>;
+    const paths = children.map((child) => child.path);
+
+    for (const expected of ['/lobby', '/onboarding', '/account', '/account/profile']) {
+      expect(paths).toContain(expected);
+    }
+
+    // path ลูก absolute ⇒ URL ของผู้ใช้ไม่เปลี่ยนจากการย้ายเข้าเปลือก
+    for (const child of children) {
+      expect(child.path.startsWith('/')).toBe(true);
+    }
+  });
+
+  it('บัญชีส่วนกลางไม่บังคับให้มีห้อง — อยู่ในกลุ่ม global ของ guard', () => {
+    // ตรวจสัญญาแบบเบา ๆ: route มีจริงและไม่ได้อยู่ใต้ MainLayout
+    const account = flat.find((r) => r.name === 'account');
+    expect(account?.path).toBe('/account');
+    expect(account?.title).toBeTruthy();
+    const profile = flat.find((r) => r.name === 'account-profile');
+    expect(profile?.path).toBe('/account/profile');
+    expect(profile?.title).toBeTruthy();
+  });
+});
+
 describe('navTab ใต้ MainLayout', () => {
   const mainLayoutChildren = flat.filter(
     (r) => r.path.startsWith('/') && !r.path.startsWith('/lobby') && r.name && !r.isCatchAll,
@@ -177,6 +206,9 @@ describe('navTab ใต้ MainLayout', () => {
         'discord-callback',
         'onboarding',
         'lobby',
+        // 👤 บัญชีส่วนกลางอยู่นอก MainLayout (ไม่มีแท็บล่าง)
+        'account',
+        'account-profile',
       ].includes(r.name ?? ''),
   );
 

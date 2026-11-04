@@ -6,7 +6,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ClassroomService } from '@/services/classroom';
 import { StudentService } from '@/services/student';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
+import AppSheet from '@/components/ui/AppSheet.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import type { UserRoom } from '@/types/classroom';
@@ -15,6 +16,7 @@ import Swal from 'sweetalert2';
 import { UI_COLOR } from '@/constants/theme'
 import { STUDENT_STATUS_LABELS, UNKNOWN_STATUS_LABEL } from '@/constants/statusLabels';
 import { unavailableTarget } from '@/router/unavailable';
+import { avatarInitial } from '@/utils/avatar';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -68,6 +70,18 @@ const acceptInvite = async (invite: Invite) => {
 // --- Modal States ---
 const showCreateModal = ref(false);
 const showJoinModal = ref(false);
+
+// 👤 การ์ดบัญชีส่วนกลาง — ยืนยันก่อนออกจากระบบด้วย AppSheet (ไม่ใช้ Swal)
+const isLogoutOpen = ref(false);
+const confirmLogout = () => {
+  isLogoutOpen.value = false;
+  authStore.logout();
+};
+
+const accountName = computed(
+  () => authStore.currentUserName || authStore.firstName || authStore.firstNameEn || 'ผู้ใช้งาน',
+);
+const accountAvatar = computed(() => avatarInitial(accountName.value, 'ส'));
 
 const createForm = ref({ room_name: '' });
 const joinForm = ref({ room_code: '', student_no: null as number | null, first_name: '', last_name: '', first_name_en: '', last_name_en: '' });
@@ -142,7 +156,7 @@ type StatusMeta = { chip: string; icon: string; label: string };
 
 // สถานะที่ไม่รู้จัก/ถูกระงับ ใช้ป้ายกลาง ๆ ไม่ให้ป้ายหายไปทั้งอัน
 const STATUS_FALLBACK: StatusMeta = {
-  chip: 'bg-stone-100 text-stone-600',
+  chip: 'bg-canvas text-ink-2',
   icon: 'bi-slash-circle-fill',
   label: UNKNOWN_STATUS_LABEL,
 };
@@ -151,7 +165,7 @@ const STATUS_FALLBACK: StatusMeta = {
 const STATUS_META: Record<string, StatusMeta> = {
   active: { chip: 'bg-ok-50 text-ok-700', icon: 'bi-check-circle-fill', label: STUDENT_STATUS_LABELS.active },
   pending: { chip: 'bg-warn-50 text-warn-700', icon: 'bi-clock-fill', label: STUDENT_STATUS_LABELS.pending },
-  inactive: { chip: 'bg-stone-100 text-stone-600', icon: 'bi-dash-circle-fill', label: STUDENT_STATUS_LABELS.inactive },
+  inactive: { chip: 'bg-canvas text-ink-2', icon: 'bi-dash-circle-fill', label: STUDENT_STATUS_LABELS.inactive },
 };
 
 const statusMeta = (status: string) => STATUS_META[status] ?? STATUS_FALLBACK;
@@ -310,13 +324,9 @@ const submitCreateRoom = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <!-- ============================================ -->
-    <!-- หัวหน้าแบบบรรณาธิการ                          -->
-    <!-- ============================================ -->
-    <PageHeader
-      eyebrow="Choose a Classroom"
-      :title="`ยินดีต้อนรับ, ${authStore.firstName || authStore.firstNameEn || 'ผู้ใช้งาน'}`"
-      description="เลือกห้องเรียนของคุณเพื่อเริ่มต้นการจัดการ หรือเข้าร่วมห้องใหม่ด้วยรหัสห้อง"
+    <!-- ── คำโปรย + ปุ่มหลัก (ชื่อหน้าอยู่บน header) ───────────────── -->
+    <PageIntro
+      :description="`ยินดีต้อนรับ, ${authStore.firstName || authStore.firstNameEn || 'ผู้ใช้งาน'} — เลือกห้องเรียนของคุณเพื่อเริ่มต้น หรือเข้าร่วมห้องใหม่ด้วยรหัสห้อง`"
     >
       <template #actions>
         <button type="button" class="btn-ghost-ui flex-1 sm:flex-none" @click="openJoinModal">
@@ -326,12 +336,44 @@ const submitCreateRoom = async () => {
           <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างห้อง
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
+
+    <!-- ── 👤 บัญชีส่วนกลาง — ไม่ผูกกับห้องใดห้องหนึ่ง ──────────────── -->
+    <section class="page-card p-4 sm:p-5">
+      <div class="flex flex-wrap items-center gap-3">
+        <div
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-tint text-base font-bold text-brand"
+        >
+          {{ accountAvatar }}
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-bold text-ink-1">{{ accountName }}</p>
+          <p class="mt-0.5 truncate text-caption text-ink-3">
+            {{ authStore.email || 'บัญชีส่วนกลางใช้ร่วมทุกห้องเรียน' }}
+          </p>
+        </div>
+
+        <div class="flex w-full gap-2 sm:w-auto">
+          <RouterLink to="/account" class="btn-ghost-ui flex-1 sm:flex-none">
+            <i class="bi bi-person-gear" aria-hidden="true"></i>
+            จัดการบัญชี
+          </RouterLink>
+          <button
+            type="button"
+            class="btn-ghost-ui flex-1 text-danger-600 hover:border-danger-200 hover:bg-danger-50 sm:flex-none"
+            @click="isLogoutOpen = true"
+          >
+            <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+            ออกจากระบบ
+          </button>
+        </div>
+      </div>
+    </section>
 
     <!-- ค้นหาห้อง -->
     <div class="relative">
       <div class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5">
-        <i class="bi bi-search text-stone-500" aria-hidden="true"></i>
+        <i class="bi bi-search text-ink-3" aria-hidden="true"></i>
       </div>
       <input
         v-model="searchQuery"
@@ -359,8 +401,8 @@ const submitCreateRoom = async () => {
                 <i class="bi bi-building-add text-lg" aria-hidden="true"></i>
               </div>
               <div class="min-w-0">
-                <p class="truncate font-bold text-stone-900">{{ invite.room_name }}</p>
-                <p class="num mt-0.5 truncate text-xs text-stone-500">
+                <p class="truncate font-bold text-ink-1">{{ invite.room_name }}</p>
+                <p class="num mt-0.5 truncate text-xs text-ink-3">
                   เลขที่ {{ invite.student_no }} · เชิญโดย {{ inviterName(invite) }}
                 </p>
                 <p class="mt-1 text-[11px] font-medium text-warn-600">
@@ -411,14 +453,14 @@ const submitCreateRoom = async () => {
       >
         <div class="flex items-start justify-between gap-3">
           <div
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-600"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-canvas text-ink-2"
           >
             <i class="bi bi-buildings text-lg" aria-hidden="true"></i>
           </div>
 
           <!-- 🎯 โซนโชว์ป้าย (Role & Admin Badges) -->
           <div class="flex flex-wrap items-center justify-end gap-1.5">
-            <span class="chip shrink-0 bg-stone-100 text-stone-600">{{ roleLabel(room.role) }}</span>
+            <span class="chip shrink-0 bg-canvas text-ink-2">{{ roleLabel(room.role) }}</span>
             <span v-if="room.is_admin" class="chip shrink-0 bg-brand-50 text-brand-700">
               <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> ผู้ดูแลระบบ
             </span>
@@ -431,22 +473,22 @@ const submitCreateRoom = async () => {
           </div>
         </div>
 
-        <p class="font-display mt-3 truncate text-base font-bold text-stone-900">
+        <p class="font-display mt-3 truncate text-base font-bold text-ink-1">
           {{ room.room_name }}
         </p>
         <p
-          class="font-display num mt-0.5 flex min-w-0 items-center gap-1.5 text-sm font-bold tracking-widest text-stone-500"
+          class="font-display num mt-0.5 flex min-w-0 items-center gap-1.5 text-sm font-bold tracking-widest text-ink-3"
         >
-          <i class="bi bi-key shrink-0 text-stone-300" aria-hidden="true"></i>
+          <i class="bi bi-key shrink-0 text-ink-3" aria-hidden="true"></i>
           <span class="truncate">{{ room.room_code || 'ไม่มีรหัส' }}</span>
         </p>
 
-        <div class="mt-3 flex items-center justify-between gap-3 border-t border-stone-100 pt-2.5">
+        <div class="mt-3 flex items-center justify-between gap-3 border-t border-line pt-2.5">
           <span class="chip shrink-0" :class="statusMeta(room.status).chip">
             <i class="bi" :class="statusMeta(room.status).icon" aria-hidden="true"></i>
             {{ statusMeta(room.status).label }}
           </span>
-          <i class="bi bi-arrow-right shrink-0 text-stone-300" aria-hidden="true"></i>
+          <i class="bi bi-arrow-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </div>
       </button>
     </div>
@@ -457,7 +499,7 @@ const submitCreateRoom = async () => {
     <Transition name="fade">
       <div
         v-if="showJoinModal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-ink-1/40 p-4"
       >
         <div class="page-card w-full max-w-md max-h-[90vh] overflow-y-auto overscroll-contain p-4 sm:p-6">
           <div
@@ -465,8 +507,8 @@ const submitCreateRoom = async () => {
           >
             <i class="bi bi-door-open-fill text-xl" aria-hidden="true"></i>
           </div>
-          <h2 class="font-display mt-3 text-xl font-bold text-stone-900 sm:mt-4">เข้าร่วมห้องเรียน</h2>
-          <p class="mt-1 text-sm leading-relaxed text-stone-500">
+          <h2 class="font-display mt-3 text-xl font-bold text-ink-1 sm:mt-4">เข้าร่วมห้องเรียน</h2>
+          <p class="mt-1 text-sm leading-relaxed text-ink-3">
             กรอกรหัส 6 หลัก และตรวจสอบชื่อของคุณให้ตรงกับระบบเพื่อยืนยันตัวตน
           </p>
 
@@ -517,21 +559,21 @@ const submitCreateRoom = async () => {
               <div>
                 <label class="field-label" for="joinFirstNameEn">
                   ชื่อจริง (อังกฤษ)
-                  <span class="font-normal normal-case text-stone-500">ไม่บังคับ</span>
+                  <span class="font-normal normal-case text-ink-3">ไม่บังคับ</span>
                 </label>
                 <input id="joinFirstNameEn" v-model="joinForm.first_name_en" type="text" class="field" />
               </div>
               <div>
                 <label class="field-label" for="joinLastNameEn">
                   นามสกุล (อังกฤษ)
-                  <span class="font-normal normal-case text-stone-500">ไม่บังคับ</span>
+                  <span class="font-normal normal-case text-ink-3">ไม่บังคับ</span>
                 </label>
                 <input id="joinLastNameEn" v-model="joinForm.last_name_en" type="text" class="field" />
               </div>
             </div>
 
             <div
-              class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4"
+              class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end sm:pt-4"
             >
               <button type="button" class="btn-ghost-ui" @click="showJoinModal = false">ยกเลิก</button>
               <button type="submit" class="btn-primary">ยืนยันเข้าร่วม</button>
@@ -544,7 +586,7 @@ const submitCreateRoom = async () => {
     <Transition name="fade">
       <div
         v-if="showCreateModal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-ink-1/40 p-4"
       >
         <div class="page-card w-full max-w-md p-4 sm:p-6">
           <div
@@ -552,8 +594,8 @@ const submitCreateRoom = async () => {
           >
             <i class="bi bi-plus-circle-fill text-xl" aria-hidden="true"></i>
           </div>
-          <h2 class="font-display mt-3 text-xl font-bold text-stone-900 sm:mt-4">สร้างห้องเรียนใหม่</h2>
-          <p class="mt-1 text-sm leading-relaxed text-stone-500">
+          <h2 class="font-display mt-3 text-xl font-bold text-ink-1 sm:mt-4">สร้างห้องเรียนใหม่</h2>
+          <p class="mt-1 text-sm leading-relaxed text-ink-3">
             ตั้งชื่อห้องเรียนของคุณ ระบบจะสร้างรหัสสำหรับแชร์ให้นักเรียนอัตโนมัติ
           </p>
 
@@ -573,7 +615,7 @@ const submitCreateRoom = async () => {
             </div>
 
             <div
-              class="mt-4 flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4"
+              class="mt-4 flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end sm:pt-4"
             >
               <button type="button" class="btn-ghost-ui" @click="showCreateModal = false">ยกเลิก</button>
               <button type="submit" class="btn-primary">สร้างห้อง</button>
@@ -582,6 +624,22 @@ const submitCreateRoom = async () => {
         </div>
       </div>
     </Transition>
+
+    <!-- ── ยืนยันออกจากระบบ (AppSheet แทน Swal) ───────────────────── -->
+    <AppSheet
+      :open="isLogoutOpen"
+      label="ยืนยันออกจากระบบ"
+      title="ออกจากระบบ?"
+      @close="isLogoutOpen = false"
+    >
+      <p class="text-sm leading-relaxed text-ink-2">
+        คุณจะต้องเข้าสู่ระบบใหม่เพื่อใช้งาน และห้องที่เปิดอยู่จะถูกปิดในแท็บนี้
+      </p>
+      <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" class="btn-ghost-ui" @click="isLogoutOpen = false">ยกเลิก</button>
+        <button type="button" class="btn-danger" @click="confirmLogout">ออกจากระบบ</button>
+      </div>
+    </AppSheet>
   </div>
 </template>
 

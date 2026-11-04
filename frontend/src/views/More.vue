@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'MoreView' });
+
 /**
  * ➕ หน้า "เพิ่มเติม" — ทางเข้าทั้งหมดที่ไม่อยู่ใน 4 แท็บหลัก
  *
@@ -118,6 +120,17 @@ const confirmLogout = () => {
     <!-- บัญชี -->
     <section class="page-card overflow-hidden">
       <h2 class="px-5 pb-1 pt-4 text-caption font-bold text-ink-3">บัญชี</h2>
+
+      <!-- 👤 บัญชีส่วนกลาง — profile, การเชื่อมต่อ OAuth, ออกจากระบบ -->
+      <RouterLink
+        to="/account"
+        class="flex min-h-12 items-center gap-3 border-t border-line px-5 py-3 text-sm font-semibold text-ink-1 transition-colors hover:bg-canvas"
+      >
+        <i class="bi bi-person-circle w-5 shrink-0 text-lg text-ink-3" aria-hidden="true"></i>
+        <span class="flex-1">บัญชีส่วนกลาง</span>
+        <i class="bi bi-chevron-right text-xs text-ink-3" aria-hidden="true"></i>
+      </RouterLink>
+
       <button
         type="button"
         class="flex min-h-12 w-full items-center gap-3 border-t border-line px-5 py-3 text-left text-sm font-semibold text-danger-600 transition-colors hover:bg-danger-50"

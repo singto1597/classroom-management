@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'LandingView' });
+
 /**
  * 🏠 หน้าแรกสาธารณะ (ก่อนล็อกอิน)
  *

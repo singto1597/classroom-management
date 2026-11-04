@@ -41,6 +41,8 @@ router.beforeEach((to, _from) => {
     const isRoomlessGlobal =
       to.path.startsWith('/lobby') ||
       to.path.startsWith('/auth/') ||
+      // 👤 บัญชีส่วนกลาง (รวม `/account/profile`) ใช้ได้ก่อนกรอกโปรไฟล์ในห้อง
+      to.path.startsWith('/account') ||
       to.path === '/login' ||
       to.path === '/' ||
       // 🌐 ลิงก์แชร์กิจกรรมต้องเปิดได้แม้บัญชีนี้ยังไม่ได้กรอกโปรไฟล์
@@ -61,6 +63,7 @@ router.beforeEach((to, _from) => {
   // (สำคัญ: callback ใช้ผูกบัญชีตอนยังไม่มีห้องได้ — ต้องไม่ถูก redirect ไป lobby)
   const isGlobalRoute =
     to.path.startsWith('/lobby') ||
+    to.path.startsWith('/account') ||
     to.path === '/' ||
     to.path === '/login' ||
     to.path === '/onboarding' ||

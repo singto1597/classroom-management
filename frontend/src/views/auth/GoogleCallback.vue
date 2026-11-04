@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { linkGoogleAccount, loginWithGoogle } from '@/services/auth';
+import { OAUTH_LINK_RETURN_KEY } from '@/constants/storageKeys';
 import Swal from 'sweetalert2';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import { UI_COLOR } from '@/constants/theme'
@@ -30,12 +31,17 @@ onMounted(async () => {
       // 🔗 โหมดผูกบัญชี
       const response = await linkGoogleAccount(code);
       await authStore.fetchProfile();
+
+      // 🔗 กลับหน้าที่เริ่มผูกบัญชี (`/account`) ไม่ใช่เด้งไปแดชบอร์ดเสมอ
+      const returnTo = sessionStorage.getItem(OAUTH_LINK_RETURN_KEY) ?? '/dashboard';
+      sessionStorage.removeItem(OAUTH_LINK_RETURN_KEY);
+
       Swal.fire({
         icon: 'success',
         title: 'สำเร็จ!',
         text: response?.message || 'ผูกบัญชี Google เข้ากับระบบสำเร็จแล้ว',
         confirmButtonColor: UI_COLOR.brand,
-      }).then(() => router.push('/dashboard'));
+      }).then(() => router.push(returnTo));
 
     } else {
       // 🔑 โหมดเข้าสู่ระบบ

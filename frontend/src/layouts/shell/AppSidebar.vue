@@ -119,11 +119,12 @@ const allGroups = (): ReadonlyArray<{ title: string; items: readonly NavItem[] }
 
       <!-- ผู้ใช้ -->
       <div class="shrink-0 border-t border-line p-3">
+        <!-- 👤 ไปหน้าบัญชีส่วนกลาง (ไม่ใช่หน้า "เพิ่มเติม") — บัญชีอยู่นอกห้อง -->
         <RouterLink
-          to="/more"
+          to="/account"
           class="flex items-center gap-2 rounded-control p-1.5 transition-colors hover:bg-canvas"
           :class="collapsed ? 'justify-center p-1' : ''"
-          :title="collapsed ? userName : undefined"
+          :title="collapsed ? `${userName} · บัญชีส่วนกลาง` : 'บัญชีส่วนกลาง'"
         >
           <div
             class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-tint text-sm font-bold text-brand"

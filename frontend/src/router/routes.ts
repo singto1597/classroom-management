@@ -39,27 +39,50 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/DiscordCallback.vue'),
     meta: { requiresAuth: false, title: routeTitles['discord-callback'] },
   },
-  // 🌟 เพิ่มหน้า Onboarding (บังคับกรอกชื่อ)
   {
-    path: '/onboarding',
-    name: 'onboarding',
-    component: () => import('@/views/auth/Onboarding.vue'),
-    meta: { requiresAuth: true, title: routeTitles.onboarding },
-  },
-  {
-    path: '/lobby',
-    // 🧩 layout เป็น lazy chunk ด้วยเหตุผลเดียวกับ view — แต่ **บังคับ** ที่นี่:
-    //    `MainLayout` import `stores/auth` ซึ่ง import `router/index` ที่ import ไฟล์นี้
-    //    ⇒ ถ้า import แบบ static จะเกิดวงจรและ `routes` เป็น undefined ตอน `createRouter()`
-    //    (รีโปนี้เจอบั๊กนี้จริงตอนเพิ่มเทสต์ router — ดู docs/skills.md)
+    /**
+     * 🌐 เปลือก "นอกห้องเรียน" — เลือกห้อง · กรอกโปรไฟล์ · บัญชีส่วนกลาง
+     *
+     * ทุกอย่างข้างในเป็นหน้า **นอกห้องเรียน**: path ลูกเป็น absolute
+     * (`/lobby`, `/onboarding`, `/account`, …) ⇒ URL เดิมไม่เปลี่ยน และเพิ่มหน้าใหม่
+     * ได้โดยไม่ต้องแตะ path ของผู้ใช้ แต่ละหน้าเข้าถึงได้แม้ยังไม่เลือกห้อง
+     * (router guard ปล่อยผ่านด้วย `isRoomlessGlobal` / `isGlobalRoute`)
+     *
+     * ⚠️ layout เป็น lazy chunk เพราะ `GlobalLayout` import `stores/auth`
+     *    ซึ่ง import `router/index` ที่ import ไฟล์นี้ — static import จะเป็นวงจร
+     */
+    path: '/start',
     component: () => import('@/layouts/GlobalLayout.vue'),
     meta: { requiresAuth: true },
+    redirect: '/lobby',
     children: [
       {
-        path: '',
+        path: '/lobby',
         name: 'lobby',
         component: () => import('@/views/Lobby.vue'),
-        meta: { title: routeTitles.lobby },
+        meta: { title: routeTitles.lobby, width: 'wide' },
+      },
+      {
+        // 🌟 บังคับกรอกโปรไฟล์ครั้งแรก (ก่อนเข้าห้อง)
+        path: '/onboarding',
+        name: 'onboarding',
+        component: () => import('@/views/auth/Onboarding.vue'),
+        meta: { title: routeTitles.onboarding, width: 'form' },
+      },
+      {
+        // 👤 บัญชีส่วนกลาง — profile, การเชื่อมต่อ OAuth, ออกจากระบบ
+        //    ไม่ผูกกับห้องใดห้องหนึ่ง ⇒ ใช้ได้ก่อนเลือกห้องและเมื่อมีหลายห้อง
+        path: '/account',
+        name: 'account',
+        component: () => import('@/views/account/AccountView.vue'),
+        meta: { title: routeTitles.account, width: 'reading', headerBack: true },
+      },
+      {
+        // ✏️ โหมดแก้ไขของฟอร์มเดียวกัน — ส่งกลับ `/account` หลังบันทึก
+        path: '/account/profile',
+        name: 'account-profile',
+        component: () => import('@/views/auth/Onboarding.vue'),
+        meta: { title: routeTitles['account-profile'], width: 'form', headerBack: true },
       },
     ],
   },
