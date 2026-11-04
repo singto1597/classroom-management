@@ -81,11 +81,11 @@ const install = async () => {
 <template>
   <div
     v-if="visible && !dismissed"
-    class="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-40 lg:inset-x-auto lg:end-6 lg:bottom-6 lg:w-80"
+    class="fixed inset-x-3 bottom-[calc(var(--app-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] z-40 lg:inset-x-auto lg:end-6 lg:bottom-6 lg:w-80"
     role="region"
     aria-label="ติดตั้งแอป SYNCROOM"
   >
-    <div class="rounded-2xl border border-stone-200 bg-white p-3.5">
+    <div class="rounded-card border border-line bg-surface p-3.5 shadow-sheet">
       <div class="flex items-start gap-3">
         <img
           src="/icons/icon-192.png"

@@ -37,8 +37,12 @@ export default {
       },
       colors: {
         // 🎨 สีเน้นเดียวของ SYNCROOM — น้ำเงินเข้ม #1D4ED8
-        // ใช้ brand-* เท่านั้น ห้าม hardcode hex ในเทมเพลต
+        // PIRIvoice ใช้ `brand` (DEFAULT/strong/tint) — คงสเกลตัวเลขเดิมไว้
+        // เพื่อไม่ให้คลาส brand-700 ที่มีอยู่ทั่วโปรเจกต์แตก
         brand: {
+          DEFAULT: '#1D4ED8', // brand-700
+          strong: '#1E40AF', // brand-800
+          tint: '#EFF6FF', // brand-50
           50: '#EFF6FF',
           100: '#DBEAFE',
           200: '#BFDBFE',
@@ -51,14 +55,42 @@ export default {
           900: '#1E3A8A',
           950: '#172554',
         },
-        // กระดาษและหมึก (โทน stone)
-        paper: '#FAFAF9',
-        ink: '#1C1917',
+        // ── PIRIvoice neutrals ──────────────────────────────────────────
+        // canvas = พื้นหลังแอป · surface = การ์ด/ชีต · line = เส้นบาง · ink = ตัวอักษร
+        canvas: '#F7F7F8',
+        surface: '#FFFFFF',
+        line: '#E7E7EA',
+        // คง `paper` ไว้เป็น alias เพื่อไม่ต้องแก้ทุกหน้าในคอมมิตเดียว
+        paper: '#F7F7F8',
+        ink: {
+          DEFAULT: '#1F2328',
+          1: '#1F2328',
+          2: '#5F6368',
+          3: '#6B6F76',
+        },
         // สถานะ — ใช้ชื่อความหมาย ไม่ใช่ชื่อสี
         ok: colors.emerald,
         warn: colors.amber,
         danger: colors.red,
         info: colors.sky,
+      },
+      borderRadius: {
+        // PIRIvoice: การ์ด 16 · คอนโทรล 12 · ชีต 24
+        card: '16px',
+        control: '12px',
+        sheet: '24px',
+      },
+      boxShadow: {
+        // เงาน้อยที่สุดเท่าที่จำเป็น — ใช้กับ FAB/ชีตเท่านั้น
+        fab: '0 10px 30px -10px rgb(31 35 40 / 0.35)',
+        sheet: '0 -16px 48px -24px rgb(31 35 40 / 0.35)',
+      },
+      fontSize: {
+        // PIRIvoice type scale (line-height อยู่ในค่าเดียวกัน)
+        caption: ['12px', '18px'],
+        body: ['16px', '26px'],
+        'title-m': ['18px', '28px'],
+        'title-l': ['22px', '32px'],
       },
       maxWidth: {
         '8xl': '88rem',

@@ -5,8 +5,8 @@
 @tailwind utilities;
 
 /* ============================================================
-   🎨 SYNCROOM — Design Tokens ("Academic Ledger")
-   กระดาษ stone + น้ำเงินเข้มสีเดียว + เส้นบาง hairline
+   🎨 SYNCROOM — Design Tokens (PIRIvoice-derived)
+   canvas/surface/line/ink + น้ำเงินเข้มสีเดียว + เส้นบาง hairline
    ไม่มี gradient / glass / glow ทั้งโปรเจกต์
    ============================================================ */
 :root {
@@ -20,7 +20,15 @@
 
   --brand: #1d4ed8;
   --brand-strong: #1e40af;
-  --paper: #fafaf9;
+  --canvas: #f7f7f8;
+  --surface: #ffffff;
+  --line: #e7e7ea;
+  --ink-1: #1f2328;
+  --ink-2: #5f6368;
+  --ink-3: #6b6f76;
+  --paper: var(--canvas);
+  /* ความสูงแถบนำทางล่าง — ใช้ร่วมกับ safe-area ใน MainLayout/FAB/sticky bars */
+  --app-nav-h: 3.5rem;
 }
 
 html {
@@ -30,8 +38,8 @@ html {
 body {
   margin: 0;
   min-height: 100dvh;
-  background-color: var(--paper);
-  color: #1c1917;
+  background-color: var(--canvas);
+  color: var(--ink-1);
   /* ⚠️ ห้าม overflow-x: hidden — จะทำให้ position: sticky พังทั้งแอป
      ใช้ clip แทน (บทเรียนจากโปรเจคพี่น้อง) */
   overflow-x: clip;
@@ -49,7 +57,7 @@ body {
 /* Scrollbar บาง ๆ แบบมินิมอล */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #d6d3d1 transparent;
+  scrollbar-color: var(--line) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
@@ -59,11 +67,11 @@ body {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: #d6d3d1;
+  background: #d4d4d8;
   border-radius: 9999px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #a8a29e;
+  background: #a1a1aa;
 }
 
 /* 🍎 กัน iOS auto-zoom — input ต้อง ≥16px บนมือถือเท่านั้น
@@ -101,49 +109,48 @@ body {
 @layer components {
   /* ---------------- การ์ด ---------------- */
   .page-card {
-    @apply rounded-2xl border border-stone-200 bg-white;
+    @apply rounded-card border border-line bg-surface;
   }
   .card-hover {
-    @apply transition-all duration-200 hover:-translate-y-px hover:border-stone-300;
+    @apply transition-colors duration-200 hover:border-ink-3/40;
   }
 
   /* ---------------- หัวข้อแบบบรรณาธิการ ---------------- */
+  /* label อังกฤษเท่านั้น — ห้ามใช้กับข้อความไทย (lint:thai ตรวจในเทมเพลต) */
   .eyebrow {
-    @apply text-[11px] font-bold uppercase tracking-[0.18em] text-brand-700;
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-brand;
   }
   .page-title {
-    /* สเกลไล่ขึ้น 3 ขั้น แทนการกระโดด 24 → 30px — หัวข้อไทยยาว ๆ บนมือถือเตี้ยลงและตัดบรรทัดสวยขึ้น */
-    @apply font-display text-[1.375rem] font-bold leading-snug tracking-tight text-stone-900
-           sm:text-2xl lg:text-3xl;
+    @apply font-display text-title-l font-bold text-ink-1;
   }
   .page-lede {
-    @apply text-sm leading-relaxed text-stone-500;
+    @apply text-[15px] leading-relaxed text-ink-2;
   }
   .section-title {
-    @apply font-display text-base font-bold tracking-tight text-stone-900;
+    @apply font-display text-title-m font-bold text-ink-1;
   }
 
   /* ---------------- ปุ่ม ----------------
      min-h-11 = 44px ตามพื้นที่กดขั้นต่ำที่ DESIGN.md §6 กำหนด (py-2.5 เดิมได้แค่ 40px) */
   .btn-primary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5
-           text-sm font-bold text-white transition-colors hover:bg-brand-800
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand px-4 py-2.5
+           text-sm font-bold text-white transition-colors hover:bg-brand-strong
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40
-           focus-visible:ring-offset-2 active:scale-[0.97]
+           focus-visible:ring-offset-2 active:scale-[0.98]
            disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-ghost-ui {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-200
-           bg-white px-4 py-2.5 text-sm font-bold text-stone-600 transition-colors
-           hover:bg-stone-50 hover:text-stone-900 focus-visible:outline-none
-           focus-visible:ring-2 focus-visible:ring-stone-300 active:scale-[0.97]
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line
+           bg-surface px-4 py-2.5 text-sm font-bold text-ink-2 transition-colors
+           hover:bg-canvas hover:text-ink-1 focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-line active:scale-[0.98]
            disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-danger {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-danger-200
-           bg-white px-4 py-2.5 text-sm font-bold text-danger-600 transition-colors
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-danger-200
+           bg-surface px-4 py-2.5 text-sm font-bold text-danger-600 transition-colors
            hover:bg-danger-50 focus-visible:outline-none focus-visible:ring-2
-           focus-visible:ring-danger-300 active:scale-[0.97]
+           focus-visible:ring-danger-300 active:scale-[0.98]
            disabled:pointer-events-none disabled:opacity-50;
   }
 
@@ -159,13 +166,13 @@ body {
      — stone-400 (#A8A29E) ได้แค่ 2.52:1 ตกข้อกำหนด WCAG AA 4.5:1 (วัด 2026-11-01)
      `disabled:text-stone-400` คงไว้ได้ เพราะข้อความในคอนโทรลที่ปิดใช้งานได้รับยกเว้น */
   .field {
-    @apply min-h-11 w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm
-           text-stone-900 placeholder:text-stone-500 transition-colors
+    @apply min-h-11 w-full rounded-control border border-line bg-surface px-3.5 py-2.5 text-sm
+           text-ink-1 placeholder:text-ink-3 transition-colors
            focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/15
-           disabled:bg-stone-50 disabled:text-stone-400;
+           disabled:bg-canvas disabled:text-ink-3;
   }
   .field-label {
-    @apply mb-1.5 block text-xs font-bold text-stone-600;
+    @apply mb-1.5 block text-xs font-bold text-ink-2;
   }
 
   /* ---------------- ตาราง (desktop) ---------------- */
@@ -174,14 +181,14 @@ body {
   }
   .data-table thead th {
     /* หัวคอลัมน์เป็นภาษาไทย — ห้าม uppercase/letter-spacing (ทำให้สระ/วรรณยุกต์ห่างกัน) */
-    @apply whitespace-nowrap border-b border-stone-200 bg-stone-50/70 px-4 py-2.5
-           text-[11px] font-bold text-stone-500;
+    @apply whitespace-nowrap border-b border-line bg-canvas px-4 py-2.5
+           text-caption font-bold text-ink-3;
   }
   .data-table tbody td {
-    @apply border-b border-stone-100 px-4 py-2.5 align-middle text-stone-700;
+    @apply border-b border-line/70 px-4 py-2.5 align-middle text-ink-2;
   }
   .data-table tbody tr {
-    @apply transition-colors hover:bg-stone-50/70;
+    @apply transition-colors hover:bg-canvas;
   }
 
   /* ---------------- ป้าย / ตัวเลข ---------------- */

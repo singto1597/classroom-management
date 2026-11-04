@@ -27,7 +27,7 @@ import path from 'node:path'
 import { chromium } from '@playwright/test'
 
 const BRAND = '#1D4ED8' // = brand-700 ใน tailwind.config.js
-const PAPER = '#FAFAF9'
+const PAPER = '#F7F7F8'
 
 // เส้นทางของไอคอน bootstrap-icons `box-fill` (viewBox 16×16) — ตัวเดียวกับ favicon
 const GLYPH =
