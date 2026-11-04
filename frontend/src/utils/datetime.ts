@@ -80,6 +80,23 @@ export const formatThaiDate = (
 };
 
 /**
+ * วันที่แบบยาว "วันพุธที่ 4 พฤศจิกายน 2569" — ใช้บนหัวหน้าแรก (date-only)
+ *
+ * รับ ISO วันที่ (ค่าเริ่มต้น = วันนี้ตามเวลาไทย) และประกอบ Date จากชิ้นส่วน local
+ * แบบเดียวกับ `formatThaiDate` — locale `th-TH` ใส่ "วัน…ที่" และปี พ.ศ. ให้เอง
+ */
+export const formatThaiLongDate = (iso: string = todayIso()): string => {
+  const parsed = parseIsoDate(iso);
+  if (!parsed) return iso;
+  return new Date(parsed.y, parsed.m - 1, parsed.d).toLocaleDateString('th-TH', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+};
+
+/**
  * วัน **และเวลา** แบบไทยจาก timestamp จริง — "5 ส.ค. 2569 14:30 น."
  *
  * ⚠️ ห้ามใช้ `formatThaiDate` กับ timestamp: มันตัดเอาแค่ส่วนวันที่ของสตริง ISO

@@ -101,7 +101,7 @@ const goBack = () => {
         v-else
         to="/dashboard"
         class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-brand text-white lg:hidden"
-        aria-label="หน้าหลัก"
+        aria-label="หน้าแรก"
       >
         <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
       </RouterLink>

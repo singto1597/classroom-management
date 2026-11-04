@@ -46,7 +46,7 @@ export interface NavGroup {
  * ⚠️ ลำดับคือลำดับที่ผู้ใช้เห็น — เรียงตามความถี่การใช้งาน ไม่ใช่ตามตัวอักษร
  */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { name: 'แดชบอร์ด', path: '/dashboard', icon: 'bi-grid' },
+  { name: 'หน้าแรก', path: '/dashboard', icon: 'bi-grid' },
   { name: 'นักเรียน', path: '/students', icon: 'bi-people' },
   { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check' },
   { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
@@ -78,7 +78,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
  *    เทสต์จึงต้องยกเว้นให้เฉพาะแท็บนี้
  */
 export const NAV_TABS: readonly NavTab[] = [
-  { key: 'home', name: 'หน้าหลัก', path: '/dashboard', icon: 'bi-house-door' },
+  { key: 'home', name: 'หน้าแรก', path: '/dashboard', icon: 'bi-house-door' },
   { key: 'students', name: 'นักเรียน', path: '/students', icon: 'bi-people' },
   { key: 'tasks', name: 'งาน', path: '/tasks', icon: 'bi-clipboard-check' },
   { key: 'finance', name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
@@ -161,7 +161,7 @@ export const routeTitles = {
   'not-found': 'ไม่พบหน้านี้',
 
   // ── หน้าหลัก ────────────────────────────────────────────────────────────
-  dashboard: 'แดชบอร์ด',
+  dashboard: 'หน้าแรก',
   more: 'เพิ่มเติม',
   roadmap: 'แผนผังห้องเรียน',
   schedules: 'ตารางเรียน',

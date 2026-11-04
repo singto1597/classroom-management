@@ -21,18 +21,17 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { HomeService } from '@/services/home';
 import { StudentService } from '@/services/student';
-import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import {
   bangkokHour,
   daysFromThaiToday,
   formatThaiDate,
+  formatThaiLongDate,
   relativeThaiDay,
 } from '@/utils/datetime';
 import { formatMoney } from '@/utils/money';
 import { useDialog } from '@/composables/useDialog';
-import { usePageTitle } from '@/composables/usePageTitle';
 import type { HomeSummary } from '@/types/home';
 
 const router = useRouter();
@@ -47,9 +46,8 @@ const greeting = computed(() => {
   if (hour < 17) return 'สวัสดีตอนบ่าย';
   return 'สวัสดีตอนเย็น';
 });
-const greetingTitle = computed(() => `${greeting.value}, ${userName.value}`);
-// 🏷️ header เป็นเจ้าของ <h1> — หน้าหลักแสดงคำทักทายตามเวลาแทนชื่อ route
-usePageTitle(greetingTitle);
+// 🏷️ ชื่อหน้าอยู่ที่ header ("หน้าแรก") — คำทักทายเป็นเนื้อหาในหน้าแบบ PIRIvoice
+const todayLabel = computed(() => formatThaiLongDate());
 const role = computed(() => authStore.currentRoleLabel);
 const isAdmin = computed(() => authStore.isAdmin);
 
@@ -110,11 +108,6 @@ const hasNote = computed(
   () => Boolean(summary.value?.note?.bring_items || summary.value?.note?.announcement),
 );
 
-// ✨ ไปหน้าเลือกห้อง — ไม่ล้างห้องที่เปิดอยู่ (ปุ่มสลับห้องแบบเร็วอยู่ใน header ของ MainLayout)
-const handleChangeRoom = () => {
-  router.push('/lobby');
-};
-
 const goToMyProfile = async () => {
   void dialog.loading('กำลังดึงข้อมูล...', 'ระบบกำลังเปิดโปรไฟล์ของนักเรียน');
   try {
@@ -135,17 +128,14 @@ const goToMyProfile = async () => {
 <template>
   <div class="space-y-4 sm:space-y-5">
     <!-- ========================================== -->
-    <!-- 1. หัวหน้า                                  -->
+    <!-- 1. ทักทาย — บรรทัดเดียวแบบ PIRIvoice          -->
+    <!--    ชื่อหน้าอยู่บน header ("หน้าแรก") แล้ว      -->
+    <!--    ที่นี่จึงเหลือเฉพาะคำทักทาย + วันที่ไทย     -->
     <!-- ========================================== -->
-    <PageIntro>
-      <template #actions>
-        <button type="button" class="btn-ghost-ui" title="สลับห้องเรียน" @click="handleChangeRoom">
-          <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
-          <span class="hidden sm:inline">สลับห้องเรียน</span>
-          <span class="sm:hidden">สลับห้อง</span>
-        </button>
-      </template>
-    </PageIntro>
+    <header class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <p class="text-body font-semibold text-ink-1">{{ greeting }}, {{ userName }}</p>
+      <p class="text-caption font-medium text-ink-3">{{ todayLabel }}</p>
+    </header>
 
     <!-- ========================================== -->
     <!-- 2. สรุป — โหลด / ผิดพลาด / ข้อมูล           -->
