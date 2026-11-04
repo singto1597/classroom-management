@@ -5,12 +5,14 @@ import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
 import { todayIso } from '@/utils/datetime'
-import Swal from 'sweetalert2'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import AppTabs from '@/components/ui/AppTabs.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import FormSuccess from '@/components/ui/FormSuccess.vue'
+import { useDialog } from '@/composables/useDialog'
 import { confirmLeave, useFormDraft, useUnsavedGuard } from '@/composables/useFormDraft'
 
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
 // ที่อ่าน detail จาก response ของ axios ไว้
@@ -30,6 +32,13 @@ const canManageTasks = computed(
 )
 
 const activeTab = ref<'task' | 'note'>('task')
+const tabs = [
+  { value: 'task', label: 'งาน / การบ้าน' },
+  { value: 'note', label: 'โน้ต / ประกาศ' },
+] as const
+const setTab = (value: string) => {
+  activeTab.value = value === 'note' ? 'note' : 'task'
+}
 const isSubmitting = ref(false)
 const showErrors = ref(false)
 // แตะแล้วแต่ยังไม่กรอก → แสดงข้อความทันที (ปุ่มบันทึกถูก disable ตั้งแต่แรก)
@@ -116,7 +125,7 @@ const resetNote = () => {
 
 const handleAddTask = async () => {
   if (!canManageTasks.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มงานได้', 'error')
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มงานได้', 'error')
   }
 
   if (!taskValid.value) {
@@ -139,11 +148,7 @@ const handleAddTask = async () => {
     }
     taskDraft.clear()
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มงานได้',
-    })
+    void dialog.alert('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถเพิ่มงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -151,7 +156,7 @@ const handleAddTask = async () => {
 
 const handleAddNote = async () => {
   if (!canManageTasks.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มประกาศได้', 'error')
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถเพิ่มประกาศได้', 'error')
   }
 
   if (!noteValid.value) {
@@ -173,11 +178,7 @@ const handleAddNote = async () => {
     }
     noteDraft.clear()
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถเพิ่มโน้ตได้',
-    })
+    void dialog.alert('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถเพิ่มโน้ตได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -186,7 +187,13 @@ const handleAddNote = async () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader eyebrow="New Entry" title="สร้างรายการใหม่" />
+    <PageIntro
+      :description="
+        activeTab === 'task'
+          ? 'เพิ่มงานพร้อมกำหนดส่งให้สมาชิกในห้อง'
+          : 'บันทึกโน้ตหรือประกาศสั้น ๆ ให้สมาชิกเห็นบนหน้าแรก'
+      "
+    />
 
     <!-- ✅ ผลลัพธ์ค้างบนจอ พร้อมทางไปต่อ -->
     <FormSuccess v-if="submitted" :title="submitted.title" :hint="submitted.hint">
@@ -211,29 +218,14 @@ const handleAddNote = async () => {
 
     <div v-else class="page-card overflow-hidden">
       <!-- สลับฟอร์ม: งาน / โน้ต -->
-      <div class="border-b border-stone-100 p-1.5">
-        <div class="flex items-center gap-1">
-          <button
-            type="button"
-            :aria-pressed="activeTab === 'task'"
-            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-            :class="activeTab === 'task' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
-            @click="activeTab = 'task'"
-          >
-            <i class="bi bi-journal-plus text-base" aria-hidden="true"></i>
-            งาน / การบ้าน
-          </button>
-          <button
-            type="button"
-            :aria-pressed="activeTab === 'note'"
-            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-            :class="activeTab === 'note' ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'"
-            @click="activeTab = 'note'"
-          >
-            <i class="bi bi-sticky text-base" aria-hidden="true"></i>
-            โน้ต / ประกาศ
-          </button>
-        </div>
+      <div class="border-b border-line p-3 sm:px-6">
+        <AppTabs
+          :model-value="activeTab"
+          :tabs="tabs"
+          group-label="ประเภทที่ต้องการเพิ่ม"
+          variant="segmented"
+          @update:model-value="setTab"
+        />
       </div>
 
       <div class="p-4 sm:p-6">
@@ -288,7 +280,7 @@ const handleAddNote = async () => {
             </p>
           </div>
 
-          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
+          <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
               <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
               <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting || !taskValid">
@@ -302,7 +294,7 @@ const handleAddNote = async () => {
             </template>
             <p
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-50 py-2.5 text-sm font-bold text-stone-500"
+              class="flex w-full items-center justify-center gap-2 rounded-control bg-canvas py-2.5 text-sm font-bold text-ink-3"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะแอดมิน
             </p>
@@ -352,7 +344,7 @@ const handleAddNote = async () => {
             ></textarea>
           </div>
 
-          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
+          <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
               <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
               <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting || !noteValid">
@@ -366,7 +358,7 @@ const handleAddNote = async () => {
             </template>
             <p
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-50 py-2.5 text-sm font-bold text-stone-500"
+              class="flex w-full items-center justify-center gap-2 rounded-control bg-canvas py-2.5 text-sm font-bold text-ink-3"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะแอดมิน
             </p>

@@ -35,15 +35,15 @@ import BatchApplyModal from '@/components/activities/BatchApplyModal.vue'
 import AddStudentsModal from '@/components/activities/AddStudentsModal.vue'
 import CheckinSheetSection from '@/components/activities/CheckinSheetSection.vue'
 import DynamicFieldManager from '@/components/activities/DynamicFieldManager.vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -52,14 +52,6 @@ const activityId = Number(route.params.id)
 const canManage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
 )
-
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
-})
 
 // ================================================================
 // 📦 ข้อมูลกิจกรรม
@@ -98,12 +90,7 @@ const fetchData = async () => {
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ไม่พบกิจกรรม'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
     router.push('/activities')
   } finally {
     isLoading.value = false
@@ -194,16 +181,11 @@ async function saveInfoModal(payload: {
       user_name: currentUserName,
     })
     closeInfoModal()
-    Toast.fire({ icon: 'success', title: 'บันทึกข้อมูลนักเรียนแล้ว' })
+    dialog.notify('บันทึกข้อมูลนักเรียนแล้ว')
     await fetchData()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -214,12 +196,7 @@ const batchModalOpen = ref(false)
 
 function openBatch() {
   if (selectedCount.value === 0) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'เลือกก่อน',
-      text: 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('เลือกก่อน', 'กรุณาเลือกผู้เข้าร่วมอย่างน้อย 1 คนก่อนตั้งค่าแบบกลุ่ม', 'warning')
     return
   }
   batchModalOpen.value = true
@@ -251,19 +228,11 @@ async function applyBatch(payload: {
       user_name: currentUserName,
     })
     batchModalOpen.value = false
-    Toast.fire({
-      icon: 'success',
-      title: `ตั้งค่าแบบกลุ่มให้ ${items.length} คนแล้ว (คนที่ไม่ได้ติ๊กไม่ถูกแตะ)`,
-    })
+    dialog.notify(`ตั้งค่าแบบกลุ่มให้ ${items.length} คนแล้ว (คนที่ไม่ได้ติ๊กไม่ถูกแตะ)`)
     await fetchData()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ตั้งค่าแบบกลุ่มไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -281,12 +250,7 @@ async function openAddStudents() {
     availableStudents.value = await ActivityService.getAvailableStudents(currentRoomId, activityId)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'โหลดรายชื่อนักเรียนไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   } finally {
     availableLoading.value = false
   }
@@ -301,16 +265,11 @@ async function handleAddStudents(studentNos: number[]) {
       currentUserName,
     )
     addStudentsOpen.value = false
-    Toast.fire({ icon: 'success', title: `เพิ่มผู้เข้าร่วม ${studentNos.length} คนแล้ว` })
+    dialog.notify(`เพิ่มผู้เข้าร่วม ${studentNos.length} คนแล้ว`)
     await fetchData() // reload activity + sheets (ผู้เข้าร่วมใหม่ปรากฏในแผ่นเช็คชื่อด้วย)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'เพิ่มนักเรียนไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -333,12 +292,7 @@ async function loadSheets() {
 async function addSheet() {
   const title = newSheetTitle.value.trim()
   if (!title) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'กรอกชื่อก่อน',
-      text: 'ต้องระบุชื่อแผ่นเช็คชื่อ เช่น "เช็คขึ้นรถ"',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('กรอกชื่อก่อน', 'ต้องระบุชื่อแผ่นเช็คชื่อ เช่น "เช็คขึ้นรถ"', 'warning')
     return
   }
   try {
@@ -350,29 +304,20 @@ async function addSheet() {
     showAddSheet.value = false
     newSheetTitle.value = ''
     newSheetDate.value = ''
-    Toast.fire({ icon: 'success', titleText: `สร้างแผ่น "${title}" แล้ว` })
+    dialog.notify(`สร้างแผ่น "${title}" แล้ว`)
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'สร้างแผ่นเช็คชื่อไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
 async function deleteSheet(sheet: CheckinSheet) {
-  const result = await Swal.fire({
-    title: 'ลบแผ่นเช็คชื่อนี้ไหม?',
-    text: `"${sheet.title}" และประวัติการเช็คทั้งหมดจะถูกลบ`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    confirmButtonText: 'ลบแผ่น',
-    cancelButtonText: 'ยกเลิก',
-  })
+  const result = await dialog.confirm(
+    'ลบแผ่นเช็คชื่อนี้ไหม?',
+    `"${sheet.title}" และประวัติการเช็คทั้งหมดจะถูกลบ`,
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบแผ่น' }
+  )
   if (!result.isConfirmed) return
   try {
     await ActivityService.deleteCheckinSheet(currentRoomId, activityId, sheet.id, currentUserName)
@@ -380,16 +325,11 @@ async function deleteSheet(sheet: CheckinSheet) {
       expandedSheetId.value = null
       delete sheetDetails.value[sheet.id]
     }
-    Toast.fire({ icon: 'success', title: 'ลบแผ่นเช็คชื่อแล้ว' })
+    dialog.notify('ลบแผ่นเช็คชื่อแล้ว')
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ลบแผ่นเช็คชื่อไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -405,12 +345,7 @@ async function toggleExpandSheet(sheetId: number) {
     sheetDetails.value[sheetId] = await ActivityService.getCheckinSheet(currentRoomId, activityId, sheetId)
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'โหลดแผ่นเช็คชื่อไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   } finally {
     sheetLoadingId.value = null
   }
@@ -432,12 +367,7 @@ async function togglePresent(sheetId: number, participantId: number, next: boole
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'เช็คชื่อไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -452,7 +382,7 @@ async function markAllPresent(sheetId: number) {
     await ActivityService.batchUpdateCheckinRecords(
       currentRoomId, activityId, sheetId, targets, currentUserName,
     )
-    Toast.fire({ icon: 'success', title: `เช็คทั้งหมดแล้ว ${targets.length} คน` })
+    dialog.notify(`เช็คทั้งหมดแล้ว ${targets.length} คน`)
     for (const p of detail.participants) {
       if (!p.is_present) {
         p.is_present = true
@@ -462,12 +392,7 @@ async function markAllPresent(sheetId: number) {
     await loadSheets()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'เช็คทั้งหมดไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -480,16 +405,11 @@ async function updateDynamicFields(defs: DynamicFieldDef[]) {
       metadata: { dynamic_fields: defs },
       user_name: currentUserName,
     })
-    Toast.fire({ icon: 'success', title: 'อัปเดตฟิลด์เพิ่มเติมแล้ว' })
+    dialog.notify('อัปเดตฟิลด์เพิ่มเติมแล้ว')
     await fetchData()
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'อัปเดตฟิลด์ไม่สำเร็จ'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
   }
 }
 
@@ -509,9 +429,7 @@ onMounted(() => {
     <template v-else-if="activity">
       <!-- Header -->
       <div>
-        <PageHeader
-          eyebrow="Activity Management"
-          title="จัดการผู้เข้าร่วม"
+        <PageIntro
           :description="activity.title"
         >
           <template #actions>
@@ -522,7 +440,7 @@ onMounted(() => {
               <i class="bi bi-pencil-square" aria-hidden="true"></i> แก้ไขกิจกรรม
             </router-link>
           </template>
-        </PageHeader>
+        </PageIntro>
       </div>
 
       <!-- ========== ☑️ ผู้เข้าร่วม (เลือกเพื่อตั้งค่าแบบกลุ่ม) ========== -->
@@ -544,7 +462,7 @@ onMounted(() => {
 
         <div
           v-if="selectedCount > 0"
-          class="mb-3 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700"
+          class="mb-3 flex items-center gap-2 rounded-control border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700"
         >
           <i class="bi bi-check2-square" aria-hidden="true"></i>
           เลือกแล้ว {{ selectedCount }} คน
@@ -594,14 +512,14 @@ onMounted(() => {
             <i class="bi bi-plus-lg" aria-hidden="true"></i> เพิ่มการเช็คชื่อ
           </button>
         </div>
-        <p class="mb-3 text-xs text-stone-500 sm:mb-4">
+        <p class="mb-3 text-xs text-ink-3 sm:mb-4">
           สร้างแผ่นเช็คชื่อแยกตามเหตุการณ์ เช่น เช็คขึ้นรถ, เช็คเข้าฐาน — กดแผ่นเพื่อเช็คชื่อคน
         </p>
 
         <!-- inline form สร้างแผ่น -->
         <div
           v-if="showAddSheet"
-          class="mb-3 space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-3.5 sm:mb-4 sm:p-4"
+          class="mb-3 space-y-3 rounded-card border border-line bg-canvas p-3.5 sm:mb-4 sm:p-4"
         >
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -620,7 +538,7 @@ onMounted(() => {
               <input id="newSheetDate" v-model="newSheetDate" type="date" class="field" />
             </div>
           </div>
-          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end">
+          <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end">
             <button type="button" class="btn-ghost-ui" @click="showAddSheet = false">ยกเลิก</button>
             <button type="button" class="btn-primary" @click="addSheet">
               <i class="bi bi-check-lg" aria-hidden="true"></i> สร้างแผ่นเช็คชื่อ
@@ -659,7 +577,7 @@ onMounted(() => {
           <i class="bi bi-puzzle text-brand-700" aria-hidden="true"></i>
           <span class="truncate">ฟิลด์เพิ่มเติม</span>
         </h2>
-        <p class="mb-3 text-xs text-stone-500 sm:mb-4">
+        <p class="mb-3 text-xs text-ink-3 sm:mb-4">
           สร้างฟิลด์ข้อมูลที่ต้องการเก็บเพิ่มเติม (เช่น หมายเลขกลุ่ม, รถคันที่ลง) — ฟิลด์ใหม่จะ
           ปรากฏกับผู้เข้าร่วมทุกคน และตั้งค่าแบบกลุ่มได้
         </p>

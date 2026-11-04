@@ -495,8 +495,8 @@ describe('RowActionMenu', () => {
       // ทางตา/ทาง screen reader: ต้องถูกประกาศว่าปิด และเห็นชัดว่ากดไม่ได้
       expect(item.hasAttribute('disabled')).toBe(true)
       expect(item.className).toContain('cursor-not-allowed')
-      // สีต้องอยู่ในชุดที่ DESIGN.md §2 อนุญาต (stone-300 ไม่อยู่ และคอนทราสต์อ่านไม่ออก)
-      expect(item.className).toContain('text-stone-500')
+      // สีต้องอยู่ในชุดโทเคนที่อ่านออก (ink-3 = ตัวอักษรเบาสุดที่อนุญาต)
+      expect(item.className).toContain('text-ink-3')
 
       // ทาง event: ยิง click เข้ามาตรง ๆ (ข้ามการกันของเบราว์เซอร์) ก็ต้องไม่ผ่าน
       // ⚠️ ต้องใช้ dispatchEvent ไม่ใช่ `.click()` — `.click()` บนปุ่ม `disabled`
@@ -509,14 +509,14 @@ describe('RowActionMenu', () => {
       expect(menuInBody()).not.toBeNull()
     })
 
-    it('โทน danger ได้สีแดง ส่วนไอเทมปกติได้สีเทา (DESIGN.md §2 ใช้ได้เฉพาะ stone-*/brand-*/red-*)', async () => {
+    it('โทน danger ได้สีแดง ส่วนไอเทมปกติได้สีตัวอักษรหลัก', async () => {
       mountMenu()
       await clickTrigger(1)
 
       const [toggle, , del] = menuItems()
       expect(del!.className).toContain('text-danger-600')
-      expect(del!.className).not.toContain('text-stone-700')
-      expect(toggle!.className).toContain('text-stone-700')
+      expect(del!.className).not.toContain('text-ink-1')
+      expect(toggle!.className).toContain('text-ink-1')
       expect(toggle!.className).not.toContain('text-danger-600')
     })
 

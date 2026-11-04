@@ -15,8 +15,15 @@
  */
 
 export const UI_COLOR = {
+  // ── PIRIvoice neutrals ────────────────────────────────────────────────
+  canvas: '#f7f7f8',
+  line: '#e7e7ea',
+  ink1: '#1f2328',
+  ink2: '#5f6368',
+  ink3: '#6b6f76',
+
   // ── แบรนด์ (สิ่งที่กดได้ / สิ่งที่ต้องดู) ──────────────────────────────
-  brand: '#1d4ed8', // brand-700 — ปุ่มยืนยันของ Swal, ลิงก์
+  brand: '#1d4ed8', // brand — ปุ่มยืนยัน, ลิงก์
   brandStrong: '#1e40af', // brand-800
   brandMid: '#2563eb', // brand-600
   brandLight: '#3b82f6', // brand-500
@@ -34,12 +41,12 @@ export const UI_COLOR = {
   dangerBorder: '#fecaca', // danger-200
 
   // ── กลาง (stone) ──────────────────────────────────────────────────────
-  ink: '#1c1917', // stone-900 — ตัวอักษรหลัก
-  neutral: '#78716c', // stone-500 — ปุ่มยกเลิก, คำอธิบาย
-  subtle: '#a8a29e', // stone-400 — ข้อความจาง
-  border: '#e7e5e4', // stone-200
-  surface: '#f5f5f4', // stone-100
-  paper: '#fafaf9', // paper
+  ink: '#1f2328', // ink-1 — ตัวอักษรหลัก
+  neutral: '#5f6368', // ink-2 — ปุ่มยกเลิก, คำอธิบาย
+  subtle: '#6b6f76', // ink-3 — ข้อความจาง
+  border: '#e7e7ea', // line
+  surface: '#f7f7f8', // canvas (พื้นรอง)
+  paper: '#f7f7f8', // canvas
   white: '#ffffff',
 } as const
 

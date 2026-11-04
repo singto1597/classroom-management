@@ -7,21 +7,24 @@ import StudentService from '@/services/student'
 import type { Student } from '@/types/student'
 import { displayName } from '@/utils/name'
 import { avatarInitial } from '@/utils/avatar'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import AppChip from '@/components/ui/AppChip.vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { STUDENT_STATUS_LABELS, UNKNOWN_STATUS_LABEL } from '@/constants/statusLabels'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const studentNo = route.params.id as string
 const student = ref<Student | null>(null)
 const loading = ref(true)
+
+usePageTitle(() => (student.value ? displayName(student.value) : `นักเรียนเลขที่ ${studentNo}`))
 
 // ให้ StateBlock มีสถานะผิดพลาดของตัวเอง (เดิมพึ่ง Swal อย่างเดียว)
 const hasError = ref(false)
@@ -91,8 +94,8 @@ const statusMeta = computed<{
       icon: 'bi-dash-circle-fill',
       label: STUDENT_STATUS_LABELS.inactive,
       hint: 'พ้นสภาพแล้ว — เก็บข้อมูลไว้ดูย้อนหลัง แต่ไม่นับในรายการปัจจุบัน',
-      cls: 'border-s-stone-300 bg-stone-50',
-      text: 'text-stone-700',
+      cls: 'border-s-ink-3 bg-canvas',
+      text: 'text-ink-2',
     };
   }
   return {
@@ -100,8 +103,8 @@ const statusMeta = computed<{
     icon: 'bi-question-circle',
     label: UNKNOWN_STATUS_LABEL,
     hint: 'ระบบไม่รู้จักสถานะนี้ — ตรวจสอบข้อมูลกับผู้ดูแลห้อง',
-    cls: 'border-s-stone-300 bg-stone-50',
-    text: 'text-stone-700',
+    cls: 'border-s-ink-3 bg-canvas',
+    text: 'text-ink-2',
   };
 });
 
@@ -144,12 +147,11 @@ const fetchStudent = async () => {
   } catch (error: unknown) {
     hasError.value = true
     console.error('Error fetching student:', error)
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลนักเรียนได้',
-      confirmButtonColor: UI_COLOR.brand
-    })
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลนักเรียนได้',
+      'error'
+    )
   } finally {
     loading.value = false
   }
@@ -163,16 +165,14 @@ onMounted(() => {
 <template>
   <div class="space-y-4 sm:space-y-5">
 
-    <PageHeader
-      eyebrow="Student Profile"
-      title="โปรไฟล์นักเรียน"
+    <PageIntro
       description="ข้อมูลส่วนตัว การติดต่อ และข้อมูลสุขภาพ"
     >
       <!--
         📌 P1.10 — action ของหน้าย้ายไปเป็นแถบเดียวติดล่าง (ดูท้ายไฟล์)
            ⇒ หัวหน้าไม่ต้องมีปุ่มที่ต้องเอื้อมบนมือถือ และไม่ซ้ำกับแถบล่าง
       -->
-    </PageHeader>
+    </PageIntro>
 
     <!-- โหลด -->
     <SkeletonRows v-if="loading" :rows="4" height="h-24" />
@@ -198,27 +198,27 @@ onMounted(() => {
       <!-- Profile Hero                                -->
       <!-- ========================================== -->
       <div class="page-card overflow-hidden">
-        <div class="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-          <p class="text-[11px] font-bold text-stone-500">เลขที่ในห้อง</p>
+        <div class="flex items-center justify-between gap-3 border-b border-line bg-canvas px-4 py-3 sm:px-5">
+          <p class="text-xs font-bold text-ink-3">เลขที่ในห้อง</p>
           <span class="num font-display text-lg font-bold text-brand-700">#{{ student.student_no }}</span>
         </div>
 
         <div class="p-4 sm:p-5">
           <div class="flex items-start gap-3.5">
             <div
-              class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand-50 font-display text-xl font-bold text-brand-700 sm:h-16 sm:w-16 sm:text-2xl"
+              class="flex h-14 w-14 shrink-0 items-center justify-center rounded-card bg-brand-50 font-display text-xl font-bold text-brand-700 sm:h-16 sm:w-16 sm:text-2xl"
               aria-hidden="true"
             >
               {{ avatarInitial(displayName(student)) }}
             </div>
 
             <div class="min-w-0 flex-1">
-              <h2 class="font-display text-xl font-bold leading-tight text-stone-900 sm:text-2xl">
+              <h2 class="font-display text-xl font-bold leading-tight text-ink-1 sm:text-2xl">
                 {{ student.prefix }}{{ displayName(student) }}
               </h2>
 
-              <p class="num mt-1 text-sm text-stone-500">
-                <i class="bi bi-person-vcard me-1 text-stone-500" aria-hidden="true"></i>
+              <p class="num mt-1 text-sm text-ink-3">
+                <i class="bi bi-person-vcard me-1 text-ink-3" aria-hidden="true"></i>
                 {{ student.student_id || 'ไม่ระบุรหัส' }}
                 <span v-if="student.nickname || student.nickname_en"> · ชื่อเล่น: {{ student.nickname || student.nickname_en }}</span>
               </p>
@@ -258,7 +258,7 @@ onMounted(() => {
         ></i>
         <div class="min-w-0">
           <p class="text-sm font-bold" :class="statusMeta.text">{{ statusMeta.label }}</p>
-          <p class="mt-0.5 text-xs leading-relaxed text-stone-600">{{ statusMeta.hint }}</p>
+          <p class="mt-0.5 text-xs leading-relaxed text-ink-2">{{ statusMeta.hint }}</p>
         </div>
       </div>
 
@@ -272,59 +272,59 @@ onMounted(() => {
 
           <!-- ข้อมูลการติดต่อ -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+            <div class="flex items-center gap-2.5 border-b border-line bg-canvas px-4 py-3 sm:px-5">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
                 <i class="bi bi-link-45deg" aria-hidden="true"></i>
               </span>
               <h3 class="section-title">ช่องทางการติดต่อ</h3>
             </div>
 
             <div class="px-4 py-1.5 sm:px-5">
-              <div class="flex items-start justify-between gap-3 border-b border-stone-100 py-2.5">
-                <span class="shrink-0 text-xs font-bold text-stone-500">เบอร์โทรศัพท์</span>
-                <span v-if="student.phone_number === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="text-xs font-bold text-stone-500">
+              <div class="flex items-start justify-between gap-3 border-b border-line py-2.5">
+                <span class="shrink-0 text-xs font-bold text-ink-3">เบอร์โทรศัพท์</span>
+                <span v-if="student.phone_number === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="text-xs font-bold text-ink-3">
                   <i class="bi bi-lock-fill" aria-hidden="true"></i> ปิดบังข้อมูล
                 </span>
-                <span v-else class="num min-w-0 truncate text-right text-sm font-bold text-stone-800">
+                <span v-else class="num min-w-0 truncate text-right text-sm font-bold text-ink-1">
                   {{ student.phone_number || '-' }}
                 </span>
               </div>
 
-              <div class="flex items-start justify-between gap-3 border-b border-stone-100 py-2.5">
-                <span class="shrink-0 text-xs font-bold text-stone-500">Line ID</span>
-                <span class="min-w-0 truncate text-right text-sm font-bold text-stone-800">{{ student.line_id || '-' }}</span>
+              <div class="flex items-start justify-between gap-3 border-b border-line py-2.5">
+                <span class="shrink-0 text-xs font-bold text-ink-3">Line ID</span>
+                <span class="min-w-0 truncate text-right text-sm font-bold text-ink-1">{{ student.line_id || '-' }}</span>
               </div>
 
               <div class="flex items-start justify-between gap-3 py-2.5">
-                <span class="shrink-0 text-xs font-bold text-stone-500">Instagram</span>
-                <span class="min-w-0 truncate text-right text-sm font-bold text-stone-800">{{ student.ig_username || '-' }}</span>
+                <span class="shrink-0 text-xs font-bold text-ink-3">Instagram</span>
+                <span class="min-w-0 truncate text-right text-sm font-bold text-ink-1">{{ student.ig_username || '-' }}</span>
               </div>
             </div>
           </section>
 
           <!-- ผู้ติดต่อฉุกเฉิน -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-danger-50 text-danger-600">
+            <div class="flex items-center gap-2.5 border-b border-line bg-canvas px-4 py-3 sm:px-5">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-danger-50 text-danger-600">
                 <i class="bi bi-shield-plus" aria-hidden="true"></i>
               </span>
               <h3 class="section-title">ผู้ติดต่อฉุกเฉิน</h3>
             </div>
 
             <div class="px-4 py-1.5 sm:px-5">
-              <div class="flex items-start justify-between gap-3 border-b border-stone-100 py-2.5">
-                <span class="shrink-0 text-xs font-bold text-stone-500">เกี่ยวข้องเป็น</span>
-                <span v-if="student.phone_number_parent_relation === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="text-xs font-bold text-stone-500">
+              <div class="flex items-start justify-between gap-3 border-b border-line py-2.5">
+                <span class="shrink-0 text-xs font-bold text-ink-3">เกี่ยวข้องเป็น</span>
+                <span v-if="student.phone_number_parent_relation === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="text-xs font-bold text-ink-3">
                   <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิด
                 </span>
-                <span v-else class="min-w-0 truncate text-right text-sm font-bold text-stone-800">
+                <span v-else class="min-w-0 truncate text-right text-sm font-bold text-ink-1">
                   {{ student.phone_number_parent_relation || 'ผู้ปกครอง' }}
                 </span>
               </div>
 
               <div class="flex items-start justify-between gap-3 py-2.5">
-                <span class="shrink-0 text-xs font-bold text-stone-500">เบอร์โทรศัพท์</span>
-                <span v-if="student.phone_number_parent === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="text-xs font-bold text-stone-500">
+                <span class="shrink-0 text-xs font-bold text-ink-3">เบอร์โทรศัพท์</span>
+                <span v-if="student.phone_number_parent === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="text-xs font-bold text-ink-3">
                   <i class="bi bi-lock-fill" aria-hidden="true"></i> ไม่มีสิทธิ์
                 </span>
                 <a
@@ -345,8 +345,8 @@ onMounted(() => {
 
           <!-- ข้อมูลสุขภาพ -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+            <div class="flex items-center gap-2.5 border-b border-line bg-canvas px-4 py-3 sm:px-5">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
                 <i class="bi bi-info-circle-fill" aria-hidden="true"></i>
               </span>
               <h3 class="section-title">ข้อมูลสุขภาพ</h3>
@@ -354,37 +354,37 @@ onMounted(() => {
 
             <div class="p-4 sm:p-5">
               <div class="grid grid-cols-2 gap-3">
-                <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-                  <p class="text-[11px] font-bold text-stone-500">กรุ๊ปเลือด</p>
-                  <p v-if="student.blood_group === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-500">
+                <div class="rounded-control border border-line bg-canvas/60 p-3">
+                  <p class="text-xs font-bold text-ink-3">กรุ๊ปเลือด</p>
+                  <p v-if="student.blood_group === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-ink-3">
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                   </p>
                   <p v-else class="num font-display text-lg font-bold text-danger-600">{{ student.blood_group || '-' }}</p>
                 </div>
 
-                <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-                  <p class="text-[11px] font-bold text-stone-500">ไซส์เสื้อ</p>
-                  <p v-if="student.shirt_size === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-500">
+                <div class="rounded-control border border-line bg-canvas/60 p-3">
+                  <p class="text-xs font-bold text-ink-3">ไซส์เสื้อ</p>
+                  <p v-if="student.shirt_size === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-ink-3">
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                   </p>
                   <p v-else class="num font-display text-lg font-bold text-brand-700">{{ student.shirt_size || '-' }}</p>
                 </div>
               </div>
 
-              <div class="mt-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-                <p class="text-[11px] font-bold text-stone-500">แพ้อาหาร / โรคประจำตัว</p>
-                <p v-if="student.food_allergy === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-stone-500">
+              <div class="mt-3 rounded-control border border-line bg-canvas/60 p-3">
+                <p class="text-xs font-bold text-ink-3">แพ้อาหาร / โรคประจำตัว</p>
+                <p v-if="student.food_allergy === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-0.5 text-xs font-bold text-ink-3">
                   <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                 </p>
-                <p v-else class="mt-0.5 text-sm font-bold text-stone-800">{{ student.food_allergy || 'ไม่มีประวัติ' }}</p>
+                <p v-else class="mt-0.5 text-sm font-bold text-ink-1">{{ student.food_allergy || 'ไม่มีประวัติ' }}</p>
               </div>
             </div>
           </section>
 
           <!-- ที่อยู่ตามทะเบียนบ้าน -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+            <div class="flex items-center gap-2.5 border-b border-line bg-canvas px-4 py-3 sm:px-5">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
                 <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>
               </span>
               <h3 class="section-title">ที่อยู่ตามทะเบียนบ้าน</h3>
@@ -392,12 +392,12 @@ onMounted(() => {
 
             <div class="p-4 sm:p-5">
               <template v-if="student.address_house_no === '🔒 ไม่มีสิทธิ์เข้าถึง'">
-                <p class="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-bold text-stone-500">
+                <p class="flex items-center gap-1.5 rounded-control border border-line bg-canvas/60 p-3 text-sm font-bold text-ink-3">
                   <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> สงวนสิทธิ์การเข้าถึงข้อมูล
                 </p>
               </template>
               <template v-else>
-                <p class="rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700">
+                <p class="rounded-control border border-line bg-canvas/60 p-3 text-sm font-medium leading-relaxed text-ink-2">
                   {{ addressText || 'ยังไม่มีข้อมูลที่อยู่' }}
                 </p>
               </template>
@@ -406,8 +406,8 @@ onMounted(() => {
 
           <!-- วิชาการและผลงาน -->
           <section class="page-card overflow-hidden">
-            <div class="flex items-center gap-2.5 border-b border-stone-200 bg-stone-50/70 px-4 py-3 sm:px-5">
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+            <div class="flex items-center gap-2.5 border-b border-line bg-canvas px-4 py-3 sm:px-5">
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
                 <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>
               </span>
               <h3 class="section-title">วิชาการและผลงาน</h3>
@@ -415,26 +415,26 @@ onMounted(() => {
 
             <div class="space-y-4 p-4 sm:p-5">
               <div>
-                <p class="text-[11px] font-bold text-stone-500">คณะที่ใฝ่ฝัน</p>
-                <p v-if="student.target_faculty === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-1 text-sm font-bold text-stone-500">
+                <p class="text-xs font-bold text-ink-3">คณะที่ใฝ่ฝัน</p>
+                <p v-if="student.target_faculty === '🔒 ไม่มีสิทธิ์เข้าถึง'" class="mt-1 text-sm font-bold text-ink-3">
                   <i class="bi bi-lock-fill" aria-hidden="true"></i> ปกปิดข้อมูล
                 </p>
-                <p v-else class="mt-1 rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-bold text-stone-800">
+                <p v-else class="mt-1 rounded-control border border-line bg-canvas/60 p-3 text-sm font-bold text-ink-1">
                   {{ student.target_faculty || 'ยังไม่ได้ระบุ' }}
                 </p>
               </div>
 
-              <div class="grid grid-cols-1 gap-3 border-t border-stone-100 pt-3 sm:gap-4 sm:pt-4 md:grid-cols-2">
+              <div class="grid grid-cols-1 gap-3 border-t border-line pt-3 sm:gap-4 sm:pt-4 md:grid-cols-2">
                 <div>
-                  <p class="text-[11px] font-bold text-stone-500">สอวน. / ค่ายวิชาการ</p>
-                  <p class="mt-1.5 whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700 md:min-h-[100px]">
+                  <p class="text-xs font-bold text-ink-3">สอวน. / ค่ายวิชาการ</p>
+                  <p class="mt-1.5 whitespace-pre-line rounded-control border border-line bg-canvas/60 p-3 text-sm font-medium leading-relaxed text-ink-2 md:min-h-[100px]">
                     {{ student.olympic_camp || '-' }}
                   </p>
                 </div>
 
                 <div>
-                  <p class="text-[11px] font-bold text-stone-500">ผลงาน / รางวัล</p>
-                  <p class="mt-1.5 whitespace-pre-line rounded-xl border border-stone-200 bg-stone-50/60 p-3 text-sm font-medium leading-relaxed text-stone-700 md:min-h-[100px]">
+                  <p class="text-xs font-bold text-ink-3">ผลงาน / รางวัล</p>
+                  <p class="mt-1.5 whitespace-pre-line rounded-control border border-line bg-canvas/60 p-3 text-sm font-medium leading-relaxed text-ink-2 md:min-h-[100px]">
                     {{ student.portfolio || '-' }}
                   </p>
                 </div>
@@ -453,7 +453,7 @@ onMounted(() => {
       -->
       <div
         v-if="canEdit && student"
-        class="sticky bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-30 rounded-2xl border border-stone-200 bg-white/95 p-3 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.35)] backdrop-blur lg:bottom-6"
+        class="sticky bottom-[calc(var(--app-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] z-30 rounded-card border border-line bg-surface p-3 shadow-fab lg:bottom-6"
       >
         <RouterLink
           :to="`/students/${student.student_no}/edit`"

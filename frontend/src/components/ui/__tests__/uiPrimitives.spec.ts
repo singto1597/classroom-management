@@ -9,6 +9,7 @@ import AppEmptyState from '@/components/ui/AppEmptyState.vue'
 import AppSheet from '@/components/ui/AppSheet.vue'
 import AppTabs from '@/components/ui/AppTabs.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
@@ -136,15 +137,33 @@ describe('AppTabs', () => {
     expect(buttons[2]?.text()).not.toContain('0')
   })
 
-  it('aria-pressed และ tabindex ตามแท็บที่เลือก', () => {
+  it('เป็น tablist และใช้ aria-selected ตามแท็บที่เลือก', () => {
     const w = mount(AppTabs, {
       props: { modelValue: 'done', tabs, groupLabel: 'กรองสถานะ' },
     })
-    const buttons = w.findAll('button')
-    expect(buttons[0]?.attributes('aria-pressed')).toBe('false')
-    expect(buttons[1]?.attributes('aria-pressed')).toBe('true')
+    expect(w.get('[role="tablist"]').attributes('aria-label')).toBe('กรองสถานะ')
+    const buttons = w.findAll('button[role="tab"]')
+    expect(buttons[0]?.attributes('aria-selected')).toBe('false')
+    expect(buttons[1]?.attributes('aria-selected')).toBe('true')
     expect(buttons[0]?.attributes('tabindex')).toBe('-1')
     expect(buttons[1]?.attributes('tabindex')).toBe('0')
+  })
+
+  it('ค่าเริ่มต้นเป็นแท็บขีดเส้นใต้ ไม่ใช่พิลแบ่งส่วน', () => {
+    const w = mount(AppTabs, {
+      props: { modelValue: 'pending', tabs, groupLabel: 'กรองสถานะ' },
+    })
+    expect(w.html()).toContain('border-b')
+    expect(w.find('[role="tablist"]').classes()).toContain('border-b')
+  })
+
+  it('variant="segmented" ใช้พิลในกรอบเดียว', () => {
+    const w = mount(AppTabs, {
+      props: { modelValue: 'pending', tabs, groupLabel: 'กรองสถานะ', variant: 'segmented' },
+    })
+    expect(w.find('[role="tablist"]').classes()).not.toContain('border-b')
+    expect(w.html()).toContain('rounded-control')
+    expect(w.findAll('button[role="tab"]')).toHaveLength(3)
   })
 
   it('คลิกแล้วส่งค่าใหม่', async () => {
@@ -159,8 +178,8 @@ describe('AppTabs', () => {
     const w = mount(AppTabs, {
       props: { modelValue: 'pending', tabs, groupLabel: 'กรองสถานะ' },
     })
-    const group = w.get('[role="group"]')
-    await group.trigger('keydown', { key: 'ArrowRight' })
+    const list = w.get('[role="tablist"]')
+    await list.trigger('keydown', { key: 'ArrowRight' })
     expect(w.emitted('update:modelValue')?.[0]).toEqual(['done'])
   })
 
@@ -168,8 +187,25 @@ describe('AppTabs', () => {
     const w = mount(AppTabs, {
       props: { modelValue: 'pending', tabs, groupLabel: 'กรองสถานะ' },
     })
-    await w.get('[role="group"]').trigger('keydown', { key: 'End' })
+    await w.get('[role="tablist"]').trigger('keydown', { key: 'End' })
     expect(w.emitted('update:modelValue')?.[0]).toEqual(['all'])
+  })
+})
+
+describe('PageIntro', () => {
+  it('แสดงคำโปรยและปุ่ม โดยไม่สร้าง h1 (header เป็นเจ้าของชื่อหน้า)', () => {
+    const w = mount(PageIntro, {
+      props: { description: 'รายชื่อนักเรียนในห้องนี้' },
+      slots: { actions: '<button>เพิ่มนักเรียน</button>' },
+    })
+    expect(w.find('h1').exists()).toBe(false)
+    expect(w.text()).toContain('รายชื่อนักเรียนในห้องนี้')
+    expect(w.find('button').text()).toBe('เพิ่มนักเรียน')
+  })
+
+  it('ไม่มีคำโปรยและไม่มีปุ่ม ⇒ ไม่เรนเดอร์อะไร', () => {
+    const w = mount(PageIntro)
+    expect(w.find('header').exists()).toBe(false)
   })
 })
 
@@ -210,7 +246,7 @@ describe('AppCard', () => {
 
 describe('AppSheet', () => {
   it('ย้ายเนื้อหาไป body และผูก aria กับชื่อแผ่น', async () => {
-    mount(AppSheet, {
+    const w = mount(AppSheet, {
       props: { open: true, label: 'ตัวกรอง', title: 'กรองรายการ' },
       attachTo: document.body,
     })
@@ -221,6 +257,7 @@ describe('AppSheet', () => {
     const labelledBy = dialog?.getAttribute('aria-labelledby')
     expect(labelledBy).toBeTruthy()
     expect(document.getElementById(labelledBy ?? '')?.textContent).toContain('กรองรายการ')
+    w.unmount()
   })
 
   it('Esc ส่ง close', async () => {
@@ -231,6 +268,7 @@ describe('AppSheet', () => {
     await Promise.resolve()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(w.emitted('close')).toHaveLength(1)
+    w.unmount()
   })
 
   it('ปิดแล้วไม่มี dialog ค้างใน body', async () => {
@@ -240,5 +278,78 @@ describe('AppSheet', () => {
     })
     await w.setProps({ open: false })
     expect(document.querySelector('[role="dialog"]')).toBeNull()
+    w.unmount()
+  })
+
+  it('ผูก aria-describedby กับคำอธิบาย และเรนเดอร์ footer ในแผ่น', async () => {
+    const w = mount(AppSheet, {
+      props: { open: true, label: 'ยืนยัน', title: 'ลบข้อมูล', description: 'ย้อนกลับไม่ได้' },
+      slots: { footer: '<button>ยืนยัน</button>' },
+      attachTo: document.body,
+    })
+    await Promise.resolve()
+    const dialog = document.querySelector('[role="dialog"]')
+    const describedBy = dialog?.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy ?? '')?.textContent).toContain('ย้อนกลับไม่ได้')
+    expect(dialog?.querySelector('footer button')?.textContent).toBe('ยืนยัน')
+    w.unmount()
+  })
+
+  it('dismissible=false ปิดด้วย Esc ไม่ได้', async () => {
+    const w = mount(AppSheet, {
+      props: { open: true, label: 'กำลังบันทึก', dismissible: false },
+      attachTo: document.body,
+    })
+    await Promise.resolve()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(w.emitted('close')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('Tab วนอยู่ในแผ่น (focus trap) และคืนโฟกัสเมื่อปิด', async () => {
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    trigger.focus()
+
+    const w = mount(AppSheet, {
+      props: { open: false, label: 'ฟอร์ม' },
+      slots: { default: '<button id="first">หนึ่ง</button><button id="last">สอง</button>' },
+      attachTo: document.body,
+    })
+    await w.setProps({ open: true })
+    await Promise.resolve()
+
+    const close = document.querySelector<HTMLButtonElement>(
+      '[role="dialog"] button[aria-label="ปิดแผ่น"]',
+    )
+    const last = document.getElementById('last')
+    expect(close).not.toBeNull()
+    expect(last).not.toBeNull()
+
+    // โฟกัสอยู่ที่ตัวสุดท้าย → Tab ต้องกลับไปตัวแรกในแผ่น (ปุ่มปิด)
+    last?.focus()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+    expect(document.activeElement).toBe(close)
+
+    // Shift+Tab จากตัวแรก → ย้อนกลับไปตัวสุดท้าย
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true }))
+    expect(document.activeElement).toBe(last)
+
+    await w.setProps({ open: false })
+    expect(document.activeElement).toBe(trigger)
+    w.unmount()
+  })
+
+  it('ล็อกการเลื่อนหน้าไว้ระหว่างเปิดและคืนค่าเมื่อปิด', async () => {
+    const w = mount(AppSheet, {
+      props: { open: false, label: 'ตัวเลือก' },
+      attachTo: document.body,
+    })
+    await w.setProps({ open: true })
+    expect(document.body.style.overflow).toBe('hidden')
+    await w.setProps({ open: false })
+    expect(document.body.style.overflow).not.toBe('hidden')
+    w.unmount()
   })
 })

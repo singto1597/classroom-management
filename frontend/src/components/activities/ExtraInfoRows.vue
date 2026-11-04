@@ -47,7 +47,7 @@ function removeRow(index: number) {
     <template v-if="readOnly">
       <div
         v-if="rows.length === 0"
-        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-500"
+        class="rounded-control border border-line bg-canvas py-5 text-center text-xs text-ink-3"
       >
         ไม่มีข้อมูลเพิ่มเติม
       </div>
@@ -55,10 +55,10 @@ function removeRow(index: number) {
         <div
           v-for="(row, index) in rows"
           :key="index"
-          class="flex flex-col gap-x-2 gap-y-0.5 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2 text-sm sm:flex-row sm:items-baseline"
+          class="flex flex-col gap-x-2 gap-y-0.5 rounded-control border border-line bg-canvas px-3 py-2 text-sm sm:flex-row sm:items-baseline"
         >
           <span v-if="row.label" class="shrink-0 text-xs font-bold text-brand-700">{{ row.label }}:</span>
-          <span class="min-w-0 break-words text-stone-600">{{ row.value }}</span>
+          <span class="min-w-0 break-words text-ink-2">{{ row.value }}</span>
         </div>
       </div>
     </template>
@@ -81,7 +81,7 @@ function removeRow(index: number) {
       <!-- Rows -->
       <div
         v-if="rows.length === 0"
-        class="rounded-xl border border-stone-200 bg-stone-50/60 py-5 text-center text-xs text-stone-500"
+        class="rounded-control border border-line bg-canvas py-5 text-center text-xs text-ink-3"
       >
         ยังไม่มีข้อมูลเพิ่มเติม — กดปุ่มด้านล่างเพื่อเพิ่ม
       </div>
@@ -90,7 +90,7 @@ function removeRow(index: number) {
         <div
           v-for="(row, index) in rows"
           :key="index"
-          class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white p-2"
+          class="flex items-center gap-2 rounded-control border border-line bg-surface p-2"
         >
           <div class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
             <input
@@ -113,7 +113,7 @@ function removeRow(index: number) {
           <button
             type="button"
             @click="removeRow(index)"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
             title="ลบข้อมูลนี้"
             aria-label="ลบข้อมูลนี้"
           >

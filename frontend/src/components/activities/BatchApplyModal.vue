@@ -9,6 +9,7 @@
 import { ref, watch } from 'vue'
 import type { ActivityField } from '@/constants/activityFields'
 import ActivityFieldControl from '@/components/activities/ActivityFieldControl.vue'
+import AppSheet from '@/components/ui/AppSheet.vue'
 
 const props = defineProps<{
   open: boolean
@@ -94,192 +95,147 @@ function handleApply() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="fade">
-      <div
-        v-if="open"
-        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:items-center md:px-4 md:py-4"
-        @click.self="emit('close')"
+  <AppSheet
+    :open="open"
+    label="ตั้งค่าแบบกลุ่ม"
+    title="ตั้งค่าแบบกลุ่ม"
+    description="ใช้กับคนที่ติ๊กเท่านั้น — คนที่ไม่ได้ติ๊กจะไม่ถูกแตะ"
+    size="form"
+    @close="emit('close')"
+  >
+    <!-- หน้าที่/ตำแหน่ง -->
+    <div v-if="positions.length > 0" class="mb-4">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-diagram-3 text-ink-3" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
+      </div>
+      <select v-model="dutyPosition" aria-label="หน้าที่/ตำแหน่ง" class="field">
+        <option value="">— ตั้งหน้าที่ทั้งหมด —</option>
+        <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
+      </select>
+      <p
+        v-if="dutyPosition"
+        class="mt-1.5 flex items-start gap-1 text-xs font-semibold leading-relaxed text-warn-700"
       >
-        <div
-          class="max-h-[85dvh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-4 sm:p-6 md:max-w-lg"
-        >
-          <!-- Header -->
-          <div class="mb-4 flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h4 class="flex items-center gap-2 font-display text-base font-bold text-stone-900">
-                <i class="bi bi-lightning-charge-fill shrink-0 text-brand-700" aria-hidden="true"></i>
-                ตั้งค่าแบบกลุ่ม
-              </h4>
-              <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
-                ใช้กับคนที่ติ๊กเท่านั้น — คนที่ไม่ได้ติ๊กจะไม่ถูกแตะ
-              </p>
-            </div>
-            <button
-              type="button"
-              class="-me-1.5 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
-              aria-label="ปิดหน้าต่าง"
-              @click="emit('close')"
-            >
-              <i class="bi bi-x-lg" aria-hidden="true"></i>
-            </button>
-          </div>
+        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> จะแทนที่หน้าที่เดิมทั้งหมดของ
+        {{ count }} คนนี้
+      </p>
+    </div>
 
-          <!-- หน้าที่/ตำแหน่ง -->
-          <div v-if="positions.length > 0" class="mb-4">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-diagram-3 text-stone-500" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
-            </div>
-            <select v-model="dutyPosition" aria-label="หน้าที่/ตำแหน่ง" class="field">
-              <option value="">— ตั้งหน้าที่ทั้งหมด —</option>
-              <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
-            </select>
-            <p
-              v-if="dutyPosition"
-              class="mt-1.5 flex items-start gap-1 text-xs font-semibold leading-relaxed text-warn-700"
-            >
-              <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> จะแทนที่หน้าที่เดิมทั้งหมดของ
-              {{ count }} คนนี้
-            </p>
-          </div>
+    <!-- role_type / status / earned_hours -->
+    <div
+      v-if="showRoleType || showStatus || showEarnedHours"
+      class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
+    >
+      <div v-if="showRoleType">
+        <label class="field-label" for="batch-role">บทบาท</label>
+        <select id="batch-role" v-model="roleType" class="field">
+          <option value="">— ไม่เปลี่ยน —</option>
+          <option v-for="opt in ROLE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </div>
+      <div v-if="showStatus">
+        <label class="field-label" for="batch-status">สถานะ</label>
+        <select id="batch-status" v-model="status" class="field">
+          <option value="">— ไม่เปลี่ยน —</option>
+          <option v-for="opt in STATUS_OPTIONS" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </div>
+      <div v-if="showEarnedHours">
+        <label class="field-label" for="batch-hours">ชั่วโมงจิตอาสา</label>
+        <input
+          id="batch-hours"
+          v-model.number="earnedHours"
+          type="number"
+          min="0"
+          step="0.5"
+          placeholder="ไม่เปลี่ยน"
+          class="field num"
+        />
+      </div>
+    </div>
 
-          <!-- 🌟 role_type / status / earned_hours (หน้า ManageActivity) -->
-          <div
-            v-if="showRoleType || showStatus || showEarnedHours"
-            class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
-          >
-            <div v-if="showRoleType">
-              <label class="field-label" for="batch-role">บทบาท</label>
-              <select id="batch-role" v-model="roleType" class="field">
-                <option value="">— ไม่เปลี่ยน —</option>
-                <option v-for="opt in ROLE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-            </div>
-            <div v-if="showStatus">
-              <label class="field-label" for="batch-status">สถานะ</label>
-              <select id="batch-status" v-model="status" class="field">
-                <option value="">— ไม่เปลี่ยน —</option>
-                <option v-for="opt in STATUS_OPTIONS" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-            </div>
-            <div v-if="showEarnedHours">
-              <label class="field-label" for="batch-hours">ชั่วโมงจิตอาสา</label>
-              <input
-                id="batch-hours"
-                v-model.number="earnedHours"
-                type="number"
-                min="0"
-                step="0.5"
-                placeholder="ไม่เปลี่ยน"
-                class="field num"
-              />
-            </div>
-          </div>
-
-          <!-- 🌟 Dynamic Fields (ฟิลด์เพิ่มเติมที่ผู้จัดการสร้างเอง) -->
-          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-4">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-puzzle text-stone-500" aria-hidden="true"></i> ฟิลด์เพิ่มเติม
-            </div>
-            <div class="space-y-3">
-              <div v-for="field in dynamicFields" :key="field.key">
-                <div class="field-label">{{ field.label }}</div>
-                <ActivityFieldControl
-                  :field="field"
-                  :aria-label="field.label"
-                  :model-value="typeBValues[field.key]"
-                  @update:model-value="
-                    (v: unknown) => {
-                      typeBValues[field.key] = v
-                    }
-                  "
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Type B fields -->
-          <div v-if="typeBFields.length > 0">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-list-check text-stone-500" aria-hidden="true"></i> ข้อมูลที่จัดเก็บ
-            </div>
-            <div class="space-y-3">
-              <div v-for="field in typeBFields" :key="field.key">
-                <div class="field-label flex items-center gap-1.5">
-                  <i
-                    class="bi text-stone-500"
-                    :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"
-                    aria-hidden="true"
-                  ></i>
-                  {{ field.label }}
-                </div>
-                <ActivityFieldControl
-                  :field="field"
-                  :aria-label="field.label"
-                  :model-value="typeBValues[field.key]"
-                  @update:model-value="
-                    (v: unknown) => {
-                      typeBValues[field.key] = v
-                    }
-                  "
-                />
-              </div>
-            </div>
-          </div>
-
-          <div
-            v-if="
-              positions.length === 0 &&
-              typeBFields.length === 0 &&
-              !showRoleType &&
-              !showStatus &&
-              !showEarnedHours &&
-              !(dynamicFields && dynamicFields.length > 0)
+    <!-- Dynamic Fields -->
+    <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-4">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-puzzle text-ink-3" aria-hidden="true"></i> ฟิลด์เพิ่มเติม
+      </div>
+      <div class="space-y-3">
+        <div v-for="field in dynamicFields" :key="field.key">
+          <div class="field-label">{{ field.label }}</div>
+          <ActivityFieldControl
+            :field="field"
+            :aria-label="field.label"
+            :model-value="typeBValues[field.key]"
+            @update:model-value="
+              (v: unknown) => {
+                typeBValues[field.key] = v
+              }
             "
-            class="rounded-2xl border border-stone-200 bg-stone-50/60 p-4 text-center text-sm leading-relaxed text-stone-500"
-          >
-            ยังไม่มีค่าที่ตั้งค่าแบบกลุ่มได้ — เพิ่มตำแหน่ง/หน้าที่ หรือเลือกฟิลด์ในส่วน Required
-            Data ก่อน
-          </div>
-
-          <!-- Actions — sticky ให้ปุ่มหลักกดถึงเสมอแม้ฟอร์มยาว -->
-          <div
-            class="sticky bottom-0 -mx-4 mt-4 flex flex-col-reverse gap-2 border-t border-stone-100 bg-white px-4 pt-4 sm:-mx-6 sm:px-6"
-          >
-            <button type="button" class="btn-ghost-ui" @click="emit('close')">ยกเลิก</button>
-            <button
-              type="button"
-              class="btn-primary"
-              :disabled="!hasSomethingToSet()"
-              @click="handleApply"
-            >
-              <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
-              ใช้ค่ากับ {{ count }} คน
-            </button>
-          </div>
+          />
         </div>
       </div>
-    </Transition>
-  </Teleport>
-</template>
+    </div>
 
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>
+    <!-- Type B fields -->
+    <div v-if="typeBFields.length > 0">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-list-check text-ink-3" aria-hidden="true"></i> ข้อมูลที่จัดเก็บ
+      </div>
+      <div class="space-y-3">
+        <div v-for="field in typeBFields" :key="field.key">
+          <div class="field-label flex items-center gap-1.5">
+            <i
+              class="bi text-ink-3"
+              :class="field.type === 'boolean' ? 'bi-check-circle' : 'bi-pencil'"
+              aria-hidden="true"
+            ></i>
+            {{ field.label }}
+          </div>
+          <ActivityFieldControl
+            :field="field"
+            :aria-label="field.label"
+            :model-value="typeBValues[field.key]"
+            @update:model-value="
+              (v: unknown) => {
+                typeBValues[field.key] = v
+              }
+            "
+          />
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="
+        positions.length === 0 &&
+        typeBFields.length === 0 &&
+        !showRoleType &&
+        !showStatus &&
+        !showEarnedHours &&
+        !(dynamicFields && dynamicFields.length > 0)
+      "
+      class="rounded-control border border-line bg-canvas p-4 text-center text-sm leading-relaxed text-ink-3"
+    >
+      ยังไม่มีค่าที่ตั้งค่าแบบกลุ่มได้ — เพิ่มตำแหน่ง/หน้าที่ หรือเลือกฟิลด์ในส่วน Required Data ก่อน
+    </div>
+
+    <template #footer>
+      <div class="flex flex-col-reverse gap-2 sm:flex-row">
+        <button type="button" class="btn-ghost-ui sm:flex-1" @click="emit('close')">ยกเลิก</button>
+        <button
+          type="button"
+          class="btn-primary sm:flex-[2]"
+          :disabled="!hasSomethingToSet()"
+          @click="handleApply"
+        >
+          <i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>
+          ใช้ค่ากับ {{ count }} คน
+        </button>
+      </div>
+    </template>
+  </AppSheet>
+</template>

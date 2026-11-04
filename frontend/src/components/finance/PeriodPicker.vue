@@ -146,11 +146,11 @@ const asOfDate = computed({
             :key="m"
             type="button"
             :aria-pressed="modelValue.mode === m"
-            class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
+            class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-control px-2 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
             :class="
               modelValue.mode === m
                 ? 'bg-brand-700 text-white'
-                : 'text-stone-500 hover:bg-stone-100 hover:text-stone-900'
+                : 'text-ink-3 hover:bg-canvas hover:text-ink'
             "
             @click="switchMode(m)"
           >
@@ -170,7 +170,7 @@ const asOfDate = computed({
                 <option v-for="(name, i) in THAI_MONTHS" :key="name" :value="i + 1">{{ name }}</option>
               </select>
               <i
-                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
+                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-ink-3"
                 aria-hidden="true"
               ></i>
             </div>
@@ -182,7 +182,7 @@ const asOfDate = computed({
                 <option v-for="y in yearOptions" :key="y" :value="y">{{ y + 543 }}</option>
               </select>
               <i
-                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-stone-500"
+                class="bi bi-chevron-down pointer-events-none absolute inset-y-0 end-3 flex items-center text-xs text-ink-3"
                 aria-hidden="true"
               ></i>
             </div>

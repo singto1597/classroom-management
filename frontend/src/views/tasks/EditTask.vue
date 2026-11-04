@@ -4,15 +4,15 @@ import { useRouter, useRoute } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { TaskService } from '@/services/task'
-import Swal from 'sweetalert2'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
 // ที่อ่าน detail จาก response ของ axios ไว้
@@ -62,7 +62,7 @@ const fetchTask = async () => {
 
 const handleUpdateTask = async () => {
   if (!canManageTasks.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถแก้ไขงานได้', 'error')
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะแอดมินเท่านั้นที่สามารถแก้ไขงานได้', 'error')
   }
 
   if (!form.task_name) return
@@ -73,20 +73,14 @@ const handleUpdateTask = async () => {
       ...form,
       user_name: currentUserName
     })
-    await Swal.fire({
+    void dialog.fire({
       icon: 'success',
       title: 'แก้ไขงานเรียบร้อย!',
-      timer: 1500,
-      showConfirmButton: false,
-      confirmButtonColor: UI_COLOR.brand
+      timer: 1500
     })
     router.push('/tasks')
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถอัปเดตงานได้'
-    })
+    void dialog.alert('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถอัปเดตงานได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -97,19 +91,17 @@ onMounted(fetchTask)
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Edit Entry"
-      title="แก้ไขข้อมูลงาน"
+    <PageIntro
       description="อัปเดตรายละเอียด หรือเลื่อนกำหนดส่งของการบ้าน"
     />
 
     <div class="page-card overflow-hidden">
       <!-- แถบรหัสงาน — ไม่ซ้ำกับหัวข้อหน้า และไม่กินพื้นที่แนวตั้งเกินจำเป็น -->
       <div
-        class="flex items-center gap-2 border-b border-stone-100 px-4 py-2.5 text-xs text-stone-500 sm:px-6"
+        class="flex items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-ink-3 sm:px-6"
       >
         <i class="bi bi-hash shrink-0" aria-hidden="true"></i>
-        รหัสงาน <span class="num text-stone-700">#{{ taskId }}</span>
+        รหัสงาน <span class="num text-ink-2">#{{ taskId }}</span>
       </div>
 
       <div class="p-4 sm:p-6">
@@ -166,7 +158,7 @@ onMounted(fetchTask)
             />
           </div>
 
-          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4">
+          <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end sm:pt-4">
             <template v-if="canManageTasks">
               <RouterLink to="/tasks" class="btn-ghost-ui">ยกเลิก</RouterLink>
               <button type="submit" class="btn-primary w-full sm:w-auto" :disabled="isSubmitting">
@@ -180,7 +172,7 @@ onMounted(fetchTask)
             </template>
             <p
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-50 py-2.5 text-sm font-bold text-stone-500"
+              class="flex w-full items-center justify-center gap-2 rounded-control bg-canvas py-2.5 text-sm font-bold text-ink-3"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขได้
             </p>

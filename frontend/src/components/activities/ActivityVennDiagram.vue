@@ -16,7 +16,7 @@
  *    backend (`services/activity/sets.py:region_key`) ที่นี่อ่าน `region.key` เท่านั้น
  *    (mask ที่คำนวณด้านล่างใช้แค่ **หาตำแหน่งป้าย** ไม่ได้ใช้สร้างคีย์)
  *
- * 🎨 สี: `brand-*` + `stone-*` + `paper` เท่านั้น (frontend.md §6)
+ * 🎨 สี: `brand-*` + `ink/line/canvas` เท่านั้น (frontend.md §6)
  *    - คลาสทั้งหมดเป็น **literal ใน array คงที่** เพราะ Tailwind JIT ไม่ compile
  *      คลาสที่ประกอบตอน runtime (skills.md — บั๊กเดียวกับ `ExportStudent`)
  *    - ไม่ใช้สีเป็นช่องทางเดียว: แต่ละวงมี `stroke-dasharray` ต่างกัน + มีป้ายชื่อกิจกรรม
@@ -66,9 +66,9 @@ const CIRCLE_DASH = ['9 5', '2 4', '16 4 3 4'] as const
 
 /** 🎨 คลาสของป้ายภูมิภาค */
 const PILL_SELECTED_CLASSES = 'fill-brand-700 stroke-brand-800'
-const PILL_IDLE_CLASSES = 'fill-paper stroke-stone-300'
+const PILL_IDLE_CLASSES = 'fill-paper stroke-line'
 const PILL_TEXT_SELECTED = 'fill-white'
-const PILL_TEXT_IDLE = 'fill-stone-700'
+const PILL_TEXT_IDLE = 'fill-ink-2'
 
 const PILL_R = 11
 
@@ -198,7 +198,7 @@ function toggle(key: string): void {
           :y="circle.label.y"
           text-anchor="middle"
           font-size="12"
-          class="fill-stone-600 font-medium"
+          class="fill-ink-2 font-medium"
         >
           {{ circle.title }}
         </text>
@@ -244,7 +244,7 @@ function toggle(key: string): void {
       </svg>
     </div>
 
-    <p v-if="unplacedCount > 0" class="mt-2 text-xs text-stone-500">
+    <p v-if="unplacedCount > 0" class="mt-2 text-xs text-ink-3">
       มี {{ unplacedCount }} ภูมิภาคที่แสดงบนแผนภาพไม่ได้ — ดูรายละเอียดได้ในรายการภูมิภาคด้านล่าง
     </p>
   </div>

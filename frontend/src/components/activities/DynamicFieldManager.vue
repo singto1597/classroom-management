@@ -6,9 +6,10 @@
  * Presentational — parent ยิง PATCH activity metadata และ refetch
  */
 import { ref, computed } from 'vue'
-import Swal from 'sweetalert2'
 import type { DynamicFieldDef, DynamicFieldType } from '@/types/activity'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
+
+const dialog = useDialog()
 
 const props = defineProps<{
   /** รายการ def ปัจจุบัน */
@@ -63,15 +64,15 @@ function buildOptions(): { value: string; label: string }[] | undefined {
 function addField() {
   const label = newLabel.value.trim()
   if (!label) {
-    Swal.fire('กรอกหัวข้อก่อน', 'ต้องระบุหัวข้อของฟิลด์ที่ต้องการเพิ่ม', 'warning')
+    void dialog.alert('กรอกหัวข้อก่อน', 'ต้องระบุหัวข้อของฟิลด์ที่ต้องการเพิ่ม', 'warning')
     return
   }
   if (hasDuplicateLabel.value) {
-    Swal.fire({ icon: 'warning', title: 'ซ้ำ', text: `ฟิลด์ "${label}" มีอยู่แล้ว` })
+    void dialog.alert('ซ้ำ', `ฟิลด์ "${label}" มีอยู่แล้ว`, 'warning')
     return
   }
   if (newType.value === 'dropdown' && !buildOptions()) {
-    Swal.fire('กรอกตัวเลือกก่อน', 'ฟิลด์แบบตัวเลือกต้องมีตัวเลือกอย่างน้อย 1 ตัว', 'warning')
+    void dialog.alert('กรอกตัวเลือกก่อน', 'ฟิลด์แบบตัวเลือกต้องมีตัวเลือกอย่างน้อย 1 ตัว', 'warning')
     return
   }
   const def: DynamicFieldDef = {
@@ -87,24 +88,17 @@ function addField() {
   showAddRow.value = false
 }
 
-function removeField(def: DynamicFieldDef) {
-  Swal.fire({
-    title: 'ลบฟิลด์นี้ไหม?',
-    text: `"${def.label}" จะถูกลบออกจากกิจกรรม — ค่าที่กรอกไว้แล้วในผู้เข้าร่วมจะไม่แสดงอีก`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ลบฟิลด์',
-    cancelButtonText: 'ยกเลิก',
-  }).then((result) => {
-    if (result.isConfirmed) {
-      emit(
-        'update',
-        props.defs.filter((d) => d.key !== def.key),
-      )
-    }
-  })
+async function removeField(def: DynamicFieldDef) {
+  const result = await dialog.confirm(
+    'ลบฟิลด์นี้ไหม?',
+    `"${def.label}" จะถูกลบออกจากกิจกรรม — ค่าที่กรอกไว้แล้วในผู้เข้าร่วมจะไม่แสดงอีก`,
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบฟิลด์' }
+  )
+  if (!result.isConfirmed) return
+  emit(
+    'update',
+    props.defs.filter((d) => d.key !== def.key),
+  )
 }
 </script>
 
@@ -115,21 +109,21 @@ function removeField(def: DynamicFieldDef) {
       <div
         v-for="def in defs"
         :key="def.key"
-        class="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-1.5 transition-colors hover:bg-stone-50"
+        class="flex items-center gap-2 rounded-control border border-line bg-surface px-3 py-1.5 transition-colors hover:bg-canvas"
       >
-        <span class="num hidden w-10 shrink-0 text-[11px] font-bold text-stone-500 sm:block">{{
+        <span class="num hidden w-10 shrink-0 text-xs font-bold text-ink-3 sm:block">{{
           def.key
         }}</span>
         <span class="min-w-0 flex-1">
-          <span class="block truncate text-xs font-bold text-stone-700">{{ def.label }}</span>
-          <span class="mt-0.5 block text-xs text-stone-500">{{ TYPE_LABELS[def.type] }}</span>
+          <span class="block truncate text-xs font-bold text-ink-1">{{ def.label }}</span>
+          <span class="mt-0.5 block text-xs text-ink-3">{{ TYPE_LABELS[def.type] }}</span>
         </span>
         <button
           type="button"
           @click="removeField(def)"
           title="ลบฟิลด์"
           aria-label="ลบฟิลด์"
-          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-danger-50 hover:text-danger-600 sm:h-9 sm:w-9"
         >
           <i class="bi bi-x-lg text-base sm:text-sm" aria-hidden="true"></i>
         </button>
@@ -137,7 +131,7 @@ function removeField(def: DynamicFieldDef) {
     </div>
     <div
       v-else
-      class="rounded-xl border border-stone-200 bg-stone-50/60 px-4 py-3.5 text-center text-xs text-stone-500"
+      class="rounded-control border border-line bg-canvas px-4 py-3.5 text-center text-xs text-ink-3"
     >
       ยังไม่มีฟิลด์เพิ่มเติม — กด "เพิ่มฟิลด์" เพื่อเริ่มต้น
     </div>
@@ -153,7 +147,7 @@ function removeField(def: DynamicFieldDef) {
     </button>
 
     <!-- แบบฟอร์มเพิ่มฟิลด์ -->
-    <div v-else class="space-y-3 rounded-xl border border-stone-200 bg-stone-50/70 p-3">
+    <div v-else class="space-y-3 rounded-control border border-line bg-canvas p-3">
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label class="field-label" for="dfLabel">หัวข้อฟิลด์ *</label>
@@ -186,7 +180,7 @@ function removeField(def: DynamicFieldDef) {
         />
       </div>
 
-      <div class="flex flex-col-reverse gap-2 border-t border-stone-200 pt-3 sm:flex-row sm:justify-end">
+      <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:justify-end">
         <button type="button" class="btn-ghost-ui" @click="showAddRow = false">ยกเลิก</button>
         <button type="button" class="btn-primary" @click="addField">
           <i class="bi bi-check-lg" aria-hidden="true"></i> เพิ่มฟิลด์

@@ -22,7 +22,7 @@ withDefaults(
     <div
       v-for="i in rows"
       :key="i"
-      class="animate-pulse rounded-2xl border border-stone-200 bg-white"
+      class="animate-pulse rounded-card border border-line bg-surface"
       :class="height"
     ></div>
     <span class="sr-only">กำลังโหลดข้อมูล</span>

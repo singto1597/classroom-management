@@ -5,18 +5,20 @@ import { useAuthStore } from '@/stores/auth'
 import { ActivityService } from '@/services/activity'
 import type { Activity } from '@/types/activity'
 import { ACTIVITY_STATUS_LABELS } from '@/types/activity'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
+import AppTabs from '@/components/ui/AppTabs.vue'
+import type { AppTabItem } from '@/components/ui/AppTabs.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue'
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
 import { formatThaiDate, relativeThaiDay } from '@/utils/datetime'
 import { ACTIVITY_CATEGORIES, activityCategoryLabel } from '@/constants/activityCategories'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -52,7 +54,7 @@ function toggleSelect(activity: Activity) {
     next.delete(activity.id)
   } else {
     if (next.size >= MAX_COMPARE) {
-      Toast.fire({ icon: 'warning', title: `เปรียบเทียบได้สูงสุด ${MAX_COMPARE} กิจกรรม` })
+      dialog.notify(`เปรียบเทียบได้สูงสุด ${MAX_COMPARE} กิจกรรม`, 'warning')
       return
     }
     next.add(activity.id)
@@ -82,14 +84,6 @@ function statusChip(status: unknown): string {
   return 'bg-brand-50 text-brand-700'
 }
 
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
-})
-
 const fetchData = async () => {
   isLoading.value = true
   hasError.value = false
@@ -103,7 +97,7 @@ const fetchData = async () => {
   } catch (error: unknown) {
     hasError.value = true
     const msg = error instanceof Error ? error.message : 'ดึงข้อมูลกิจกรรมไม่สำเร็จ'
-    Toast.fire({ icon: 'error', titleText: msg })
+    dialog.notify(msg, 'error')
   } finally {
     isLoading.value = false
   }
@@ -156,6 +150,20 @@ const statusCount = computed(() => {
   return counts
 })
 
+const filterTabs = computed<AppTabItem[]>(() => [
+  { value: 'all', label: 'ทั้งหมด', count: statusCount.value.all },
+  { value: 'upcoming', label: ACTIVITY_STATUS_LABELS.upcoming ?? 'กำลังจะมา', count: statusCount.value.upcoming },
+  { value: 'ongoing', label: ACTIVITY_STATUS_LABELS.ongoing ?? 'กำลังดำเนินการ', count: statusCount.value.ongoing },
+  { value: 'completed', label: ACTIVITY_STATUS_LABELS.completed ?? 'เสร็จสิ้น', count: statusCount.value.completed },
+  { value: 'cancelled', label: ACTIVITY_STATUS_LABELS.cancelled ?? 'ยกเลิก', count: statusCount.value.cancelled },
+])
+
+const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'upcoming', 'ongoing', 'completed', 'cancelled']
+
+const setFilter = (value: string) => {
+  if (STATUS_FILTERS.includes(value as StatusFilter)) filter.value = value as StatusFilter
+}
+
 // 📍 เอา metadata.tags มาทำ Badge หมวดหมู่
 const getTags = (activity: Activity): string[] => {
   const tags = activity.metadata?.tags
@@ -188,35 +196,20 @@ const openActivity = (activity: Activity) => {
 
 const deleteActivity = async (activity: Activity) => {
   if (!canManageActivities.value)
-    return Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น',
-      confirmButtonColor: UI_COLOR.brand,
-    })
-  const result = await Swal.fire({
-    title: 'ลบกิจกรรมนี้ไหม?',
-    text: `"${activity.title}" จะถูกลบ (soft delete) พร้อมผู้เข้าร่วมทั้งหมด`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ลบข้อมูล',
-    cancelButtonText: 'ยกเลิก',
-  })
+    return dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้น', 'error')
+  const result = await dialog.confirm(
+    'ลบกิจกรรมนี้ไหม?',
+    `"${activity.title}" จะถูกลบ (soft delete) พร้อมผู้เข้าร่วมทั้งหมด`,
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบข้อมูล' }
+  )
   if (result.isConfirmed) {
     try {
       await ActivityService.deleteActivity(currentRoomId, activity.id, currentUserName)
-      Toast.fire({ icon: 'success', title: '🗑️ ลบกิจกรรมเรียบร้อยแล้ว' })
+      dialog.notify('🗑️ ลบกิจกรรมเรียบร้อยแล้ว')
       await fetchData()
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'ไม่สามารถลบกิจกรรมได้'
-      Swal.fire({
-        icon: 'error',
-        title: 'ข้อผิดพลาด',
-        text: msg,
-        confirmButtonColor: UI_COLOR.brand,
-      })
+      void dialog.alert('ข้อผิดพลาด', msg, 'error')
     }
   }
 }
@@ -240,71 +233,55 @@ onMounted(fetchData)
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Classroom Activities"
-      title="กิจกรรม & ผู้เข้าร่วม"
+    <PageIntro
       description="บันทึกกิจกรรม หน้าที่ และชั่วโมงจิตอาสาของห้อง"
     >
       <template #actions>
-        <router-link v-if="canManageActivities" to="/activities/create" class="btn-primary">
+        <router-link v-if="canManageActivities" to="/activities/create" class="btn-primary hidden lg:inline-flex">
           <i class="bi bi-plus-lg" aria-hidden="true"></i> สร้างกิจกรรม
         </router-link>
       </template>
-    </PageHeader>
+    </PageIntro>
 
-    <!-- แถบกรองแบบเส้นใต้บาง (ไม่ใช่ปุ่ม pill ทึบสี) -->
-    <nav
-      class="-mx-4 flex gap-1 overflow-x-auto overscroll-contain border-b border-stone-200 px-4 sm:mx-0 sm:px-0"
-      aria-label="กรองตามสถานะกิจกรรม"
-    >
-      <button
-        v-for="f in ['all', 'upcoming', 'ongoing', 'completed', 'cancelled'] as const"
-        :key="f"
-        type="button"
-        @click="filter = f"
-        class="-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-3 py-2 text-sm font-bold transition-colors"
-        :class="
-          filter === f
-            ? 'border-brand-700 text-brand-700'
-            : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-900'
-        "
-      >
-        {{ f === 'all' ? 'ทั้งหมด' : ACTIVITY_STATUS_LABELS[f] }}
-        <span class="num ms-1 text-[11px] font-bold opacity-60">{{ statusCount[f] }}</span>
-      </button>
-    </nav>
+    <!-- แท็บกรองสถานะ — ตัวเลขคือจำนวนจริงของแต่ละสถานะ -->
+    <AppTabs
+      :model-value="filter"
+      :tabs="filterTabs"
+      group-label="กรองตามสถานะกิจกรรม"
+      @update:model-value="setFilter"
+    />
 
     <!-- 🏷️ ชิปกรองหมวดกิจกรรม — เลื่อนแนวนอนได้ · "ทั้งหมด" อยู่ซ้ายเสมอ -->
     <nav class="flex gap-2 overflow-x-auto overscroll-contain pb-1" aria-label="กรองตามหมวดกิจกรรม">
       <button
         type="button"
-        class="chip min-h-9 shrink-0 border"
+        class="chip min-h-11 shrink-0 border"
         :class="
           categoryFilter === 'all'
-            ? 'border-brand-700 bg-brand-50 text-brand-700'
-            : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+            ? 'border-brand bg-brand-tint text-brand'
+            : 'border-line bg-surface text-ink-2 hover:border-ink-3/40'
         "
         :aria-pressed="categoryFilter === 'all'"
         @click="categoryFilter = 'all'"
       >
         ทั้งหมด
-        <span class="num ms-1 text-[11px] font-bold opacity-60">{{ categoryCount.all }}</span>
+        <span class="num ms-1 text-xs font-bold opacity-60">{{ categoryCount.all }}</span>
       </button>
       <button
         v-for="c in ACTIVITY_CATEGORIES"
         :key="c.value"
         type="button"
-        class="chip min-h-9 shrink-0 border"
+        class="chip min-h-11 shrink-0 border"
         :class="
           categoryFilter === c.value
-            ? 'border-brand-700 bg-brand-50 text-brand-700'
-            : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300'
+            ? 'border-brand bg-brand-tint text-brand'
+            : 'border-line bg-surface text-ink-2 hover:border-ink-3/40'
         "
         :aria-pressed="categoryFilter === c.value"
         @click="categoryFilter = c.value"
       >
         {{ c.label }}
-        <span class="num ms-1 text-[11px] font-bold opacity-60">{{ categoryCount[c.value] }}</span>
+        <span class="num ms-1 text-xs font-bold opacity-60">{{ categoryCount[c.value] }}</span>
       </button>
     </nav>
 
@@ -370,16 +347,16 @@ onMounted(fetchData)
             :aria-checked="selectedIds.has(activity.id)"
             :aria-label="`เลือก ${activity.title} เพื่อเปรียบเทียบ`"
             @click.stop="toggleSelect(activity)"
-            class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors active:scale-[0.97]"
+            class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-control border transition-colors active:scale-[0.97]"
             :class="
               selectedIds.has(activity.id)
                 ? 'border-brand-700 bg-brand-700 text-white'
-                : 'border-stone-300 text-transparent hover:border-brand-400'
+                : 'border-line text-transparent hover:border-brand'
             "
           >
             <i class="bi bi-check-lg" aria-hidden="true"></i>
           </button>
-          <h2 class="min-w-0 flex-1 truncate font-display text-base font-bold text-stone-900">
+          <h2 class="min-w-0 flex-1 truncate font-display text-base font-bold text-ink-1">
             {{ activity.title }}
           </h2>
           <span class="chip shrink-0" :class="statusChip(activity.status)">
@@ -406,14 +383,14 @@ onMounted(fetchData)
           <span
             v-for="tag in getTags(activity)"
             :key="tag"
-            class="chip bg-stone-100 text-stone-600"
+            class="chip bg-canvas text-ink-2"
           >
             #{{ tag }}
           </span>
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          <span class="chip bg-stone-100 text-stone-600">
+          <span class="chip bg-canvas text-ink-2">
             <i class="bi bi-calendar-event" aria-hidden="true"></i>
             <span class="num">{{ formatDate(activity.activity_date) }}</span>
           </span>
@@ -423,12 +400,12 @@ onMounted(fetchData)
           </span>
         </div>
 
-        <p class="mt-3 line-clamp-2 flex-1 text-sm leading-relaxed text-stone-600">
+        <p class="mt-3 line-clamp-2 flex-1 text-sm leading-relaxed text-ink-2">
           {{ activity.description || 'ไม่มีรายละเอียด' }}
         </p>
 
-        <div class="mt-3 flex items-center justify-between gap-2 border-t border-stone-100 pt-3">
-          <span class="inline-flex items-center gap-1.5 text-xs font-bold text-stone-500">
+        <div class="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+          <span class="inline-flex items-center gap-1.5 text-xs font-bold text-ink-3">
             <i class="bi bi-people-fill text-brand-700" aria-hidden="true"></i>
             <span class="num">{{ activity.participant_count }}</span> คน
           </span>
@@ -458,9 +435,9 @@ onMounted(fetchData)
     -->
     <div
       v-if="canManageActivities && selectedCount > 0"
-      class="sticky bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-30 rounded-2xl border border-brand-200 bg-white/95 p-3 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.35)] backdrop-blur lg:bottom-6"
+      class="sticky bottom-[calc(var(--app-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] z-30 rounded-card border border-brand-200 bg-surface p-3 shadow-fab lg:bottom-6"
     >
-      <p class="truncate text-xs text-stone-500">
+      <p class="truncate text-xs text-ink-3">
         เลือกแล้ว <span class="num font-bold text-brand-700">{{ selectedCount }}</span> กิจกรรม:
         {{ selectedTitles.join(' + ') }}
       </p>
@@ -478,7 +455,7 @@ onMounted(fetchData)
           <i class="bi bi-x-lg" aria-hidden="true"></i> ล้าง
         </button>
       </div>
-      <p v-if="!canCompare" class="mt-1.5 text-center text-[11px] text-stone-500">
+      <p v-if="!canCompare" class="mt-1.5 text-center text-xs text-ink-3">
         เลือกอีก 1 กิจกรรมเพื่อเริ่มเปรียบเทียบ
       </p>
     </div>

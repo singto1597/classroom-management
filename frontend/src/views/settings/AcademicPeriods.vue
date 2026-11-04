@@ -23,24 +23,24 @@
  *     แต่ **การทับซ้อนของเทอม/ช่วงที่หลุดออกจากปีให้ backend ตัดสิน** — มันมีกติกา
  *     เดียวกันทั้ง API และหน้าจอ จึงไม่เขียนกฎซ้ำสองที่ให้เพี้ยนกันได้
  *  5. ลบ = soft delete (ผู้ใช้ยังกู้ไม่ได้ผ่าน UI เพราะยังไม่มี endpoint กู้คืน)
- *     ⇒ ต้องยืนยันด้วย `Swal` และบอกว่าจะเกิดอะไรกับเทอมในปีนั้น
+ *     ⇒ ต้องยืนยันด้วย `dialog.confirm` และบอกว่าจะเกิดอะไรกับเทอมในปีนั้น
  */
 import { computed, onMounted, reactive, ref } from 'vue';
-import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppEmptyState from '@/components/ui/AppEmptyState.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import { AcademicService } from '@/services/academic';
 import { useAuthStore } from '@/stores/auth';
+import { useDialog } from '@/composables/useDialog';
 import { formatThaiDate } from '@/utils/datetime';
-import { UI_COLOR } from '@/constants/theme';
 import type { AcademicPeriods, AcademicTerm, AcademicYear } from '@/types/academic';
 
 const MIN_YEAR_BE = 2500;
 const MAX_YEAR_BE = 2699;
 
+const dialog = useDialog();
 const authStore = useAuthStore();
 const roomId = authStore.currentRoomId ?? 0;
 
@@ -82,13 +82,8 @@ onMounted(() => {
   void load();
 });
 
-const showError = async (title: string, err: unknown) => {
-  await Swal.fire({
-    icon: 'error',
-    title,
-    text: messageOf(err),
-    confirmButtonColor: UI_COLOR.brand,
-  });
+const showError = (title: string, err: unknown) => {
+  void dialog.alert(title, messageOf(err), 'error');
 };
 
 // ── สร้างปี ────────────────────────────────────────────────────────────────
@@ -279,34 +274,25 @@ const setCurrent = async (yearId: number | null, termId: number | null = null) =
 };
 
 const clearCurrent = async () => {
-  const confirmed = await Swal.fire({
-    icon: 'question',
-    title: 'ปลดปีปัจจุบัน?',
-    text: 'สถิติของทุกคนจะกลับไปนับทั้งหมด (ไม่กรองตามปี/เทอม) จนกว่าจะตั้งใหม่',
-    showCancelButton: true,
-    confirmButtonText: 'ปลด',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.brand,
-  });
-  if (confirmed.isConfirmed) await setCurrent(null);
+  const { isConfirmed } = await dialog.confirm(
+    'ปลดปีปัจจุบัน?',
+    'สถิติของทุกคนจะกลับไปนับทั้งหมด (ไม่กรองตามปี/เทอม) จนกว่าจะตั้งใหม่',
+    { icon: 'question', confirmButtonText: 'ปลด', cancelButtonText: 'ยกเลิก' },
+  );
+  if (isConfirmed) await setCurrent(null);
 };
 
 // ── ลบ (soft) ──────────────────────────────────────────────────────────────
 const deleteYear = async (year: AcademicYear) => {
   const termCount = year.terms.length;
-  const confirmed = await Swal.fire({
-    icon: 'warning',
-    title: `ลบปีการศึกษา ${year.year_be}?`,
-    text:
-      termCount > 0
-        ? `เทอมทั้งหมด ${termCount} เทอมในปีนี้จะถูกลบไปด้วย (ข้อมูลการเงิน/กิจกรรมไม่ถูกลบ)`
-        : 'ข้อมูลการเงินและกิจกรรมของปีนี้จะไม่ถูกลบ — แต่จะมองไม่เห็นปฏิทินปีนี้อีก',
-    showCancelButton: true,
-    confirmButtonText: 'ลบ',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.danger,
-  });
-  if (!confirmed.isConfirmed) return;
+  const { isConfirmed } = await dialog.confirm(
+    `ลบปีการศึกษา ${year.year_be}?`,
+    termCount > 0
+      ? `เทอมทั้งหมด ${termCount} เทอมในปีนี้จะถูกลบไปด้วย (ข้อมูลการเงิน/กิจกรรมไม่ถูกลบ)`
+      : 'ข้อมูลการเงินและกิจกรรมของปีนี้จะไม่ถูกลบ — แต่จะมองไม่เห็นปฏิทินปีนี้อีก',
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบ', cancelButtonText: 'ยกเลิก' },
+  );
+  if (!isConfirmed) return;
   try {
     await AcademicService.deleteYear(roomId, year.id);
     await load();
@@ -316,16 +302,12 @@ const deleteYear = async (year: AcademicYear) => {
 };
 
 const deleteTerm = async (term: AcademicTerm) => {
-  const confirmed = await Swal.fire({
-    icon: 'warning',
-    title: `ลบ ${term.name}?`,
-    text: 'ช่วงเวลานี้จะใช้กรองสถิติไม่ได้อีก แต่ตัวเลขการเงิน/กิจกรรมยังอยู่ครบ',
-    showCancelButton: true,
-    confirmButtonText: 'ลบ',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.danger,
-  });
-  if (!confirmed.isConfirmed) return;
+  const { isConfirmed } = await dialog.confirm(
+    `ลบ ${term.name}?`,
+    'ช่วงเวลานี้จะใช้กรองสถิติไม่ได้อีก แต่ตัวเลขการเงิน/กิจกรรมยังอยู่ครบ',
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบ', cancelButtonText: 'ยกเลิก' },
+  );
+  if (!isConfirmed) return;
   try {
     await AcademicService.deleteTerm(roomId, term.id);
     await load();
@@ -350,17 +332,16 @@ const describeRange = (start: string, end: string): string =>
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      title="ปีการศึกษาและเทอม"
+    <PageIntro
       description="กำหนดปฏิทินของห้องเพื่อกรองสถิติตามปี/เทอม — ไม่ได้ย้ายนักเรียนไปปีใหม่"
     />
 
     <!-- ภาพรวมปัจจุบัน: ค่าที่สถิติใช้เมื่อไม่ได้เลือกเอง -->
-    <section class="rounded-2xl border border-stone-200 bg-white p-4" aria-label="ช่วงเวลาปัจจุบัน">
+    <section class="rounded-card border border-line bg-surface p-4" aria-label="ช่วงเวลาปัจจุบัน">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="min-w-0">
-          <p class="text-[11px] font-bold text-stone-500">ปี/เทอมปัจจุบัน</p>
-          <p class="mt-0.5 break-words text-sm font-bold text-stone-900">{{ currentLabel }}</p>
+          <p class="text-xs font-bold text-ink-3">ปี/เทอมปัจจุบัน</p>
+          <p class="mt-0.5 break-words text-sm font-bold text-ink">{{ currentLabel }}</p>
         </div>
         <AppButton
           v-if="canManage && data?.current_year_id"
@@ -371,7 +352,7 @@ const describeRange = (start: string, end: string): string =>
           ปลดปีปัจจุบัน
         </AppButton>
       </div>
-      <p class="mt-2 text-xs leading-relaxed text-stone-500">
+      <p class="mt-2 text-xs leading-relaxed text-ink-3">
         สถิติของฉันจะใช้ช่วงนี้โดยอัตโนมัติ · สมาชิกยังเลือกดูปีอื่นเองได้ในหน้าของฉัน
       </p>
     </section>
@@ -400,16 +381,16 @@ const describeRange = (start: string, end: string): string =>
         <li v-for="year in data?.years ?? []" :key="year.id" class="page-card p-4 sm:p-5">
           <div class="flex flex-wrap items-start justify-between gap-2">
             <div class="min-w-0">
-              <p class="flex flex-wrap items-center gap-1.5 text-sm font-bold text-stone-900">
+              <p class="flex flex-wrap items-center gap-1.5 text-sm font-bold text-ink">
                 ปีการศึกษา {{ year.year_be }}
                 <span
                   v-if="year.is_current"
-                  class="rounded-full bg-ok-50 px-2 py-0.5 text-[11px] font-bold text-ok-700"
+                  class="rounded-full bg-ok-50 px-2 py-0.5 text-xs font-bold text-ok-700"
                 >
                   ปัจจุบัน
                 </span>
               </p>
-              <p class="mt-0.5 break-words text-xs text-stone-500">
+              <p class="mt-0.5 break-words text-xs text-ink-3">
                 {{ year.name || 'ไม่มีชื่อกำกับ' }} · {{ describeRange(year.start_date, year.end_date) }}
               </p>
             </div>
@@ -431,35 +412,35 @@ const describeRange = (start: string, end: string): string =>
           <!-- ฟอร์มแก้ไขปี -->
           <form
             v-if="isEditingYear(year)"
-            class="mt-3 space-y-2 rounded-xl border border-stone-200 bg-stone-50 p-3"
+            class="mt-3 space-y-2 rounded-control border border-line bg-canvas p-3"
             @submit.prevent="saveEdit"
           >
             <div class="grid gap-2 sm:grid-cols-3">
               <label class="block">
-                <span class="text-[11px] font-bold text-stone-600">ชื่อกำกับ (ไม่บังคับ)</span>
+                <span class="text-xs font-bold text-ink-2">ชื่อกำกับ (ไม่บังคับ)</span>
                 <input
                   v-model="editForm.name"
                   type="text"
                   maxlength="60"
-                  class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                  class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
                 />
               </label>
               <label class="block">
-                <span class="text-[11px] font-bold text-stone-600">วันเริ่มต้น</span>
+                <span class="text-xs font-bold text-ink-2">วันเริ่มต้น</span>
                 <input
                   v-model="editForm.start_date"
                   type="date"
                   required
-                  class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                  class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
                 />
               </label>
               <label class="block">
-                <span class="text-[11px] font-bold text-stone-600">วันสิ้นสุด (รวมวันนี้)</span>
+                <span class="text-xs font-bold text-ink-2">วันสิ้นสุด (รวมวันนี้)</span>
                 <input
                   v-model="editForm.end_date"
                   type="date"
                   required
-                  class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                  class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
                 />
               </label>
             </div>
@@ -473,27 +454,27 @@ const describeRange = (start: string, end: string): string =>
           </form>
 
           <!-- เทอมในปีนี้ -->
-          <div class="mt-3 border-t border-stone-100 pt-3">
-            <p class="text-[11px] font-bold text-stone-500">เทอม</p>
+          <div class="mt-3 border-t border-line pt-3">
+            <p class="text-xs font-bold text-ink-3">เทอม</p>
 
-            <p v-if="year.terms.length === 0" class="mt-1 text-xs text-stone-500">
+            <p v-if="year.terms.length === 0" class="mt-1 text-xs text-ink-3">
               ยังไม่มีเทอม — สถิติของปีนี้จึงนับทั้งปี
             </p>
 
             <ul v-else class="mt-1 space-y-1.5">
-              <li v-for="term in year.terms" :key="term.id" class="rounded-xl bg-stone-50 p-2.5">
+              <li v-for="term in year.terms" :key="term.id" class="rounded-control bg-canvas p-2.5">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <div class="min-w-0">
-                    <p class="flex flex-wrap items-center gap-1.5 text-sm font-bold text-stone-800">
+                    <p class="flex flex-wrap items-center gap-1.5 text-sm font-bold text-ink">
                       {{ term.name }}
                       <span
                         v-if="term.is_current"
-                        class="rounded-full bg-ok-50 px-2 py-0.5 text-[11px] font-bold text-ok-700"
+                        class="rounded-full bg-ok-50 px-2 py-0.5 text-xs font-bold text-ok-700"
                       >
                         เทอมปัจจุบัน
                       </span>
                     </p>
-                    <p class="text-[11px] text-stone-500">
+                    <p class="text-xs text-ink-3">
                       {{ describeRange(term.start_date, term.end_date) }}
                     </p>
                   </div>
@@ -513,36 +494,36 @@ const describeRange = (start: string, end: string): string =>
 
                 <form
                   v-if="isEditingTerm(term)"
-                  class="mt-2 space-y-2 rounded-xl border border-stone-200 bg-white p-2.5"
+                  class="mt-2 space-y-2 rounded-control border border-line bg-surface p-2.5"
                   @submit.prevent="saveEdit"
                 >
                   <div class="grid gap-2 sm:grid-cols-3">
                     <label class="block">
-                      <span class="text-[11px] font-bold text-stone-600">ชื่อเทอม</span>
+                      <span class="text-xs font-bold text-ink-2">ชื่อเทอม</span>
                       <input
                         v-model="editForm.name"
                         type="text"
                         maxlength="60"
                         required
-                        class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 px-3 text-sm"
+                        class="mt-1 min-h-11 w-full rounded-control border border-line px-3 text-sm"
                       />
                     </label>
                     <label class="block">
-                      <span class="text-[11px] font-bold text-stone-600">วันเริ่มต้น</span>
+                      <span class="text-xs font-bold text-ink-2">วันเริ่มต้น</span>
                       <input
                         v-model="editForm.start_date"
                         type="date"
                         required
-                        class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 px-3 text-sm"
+                        class="mt-1 min-h-11 w-full rounded-control border border-line px-3 text-sm"
                       />
                     </label>
                     <label class="block">
-                      <span class="text-[11px] font-bold text-stone-600">วันสิ้นสุด (รวมวันนี้)</span>
+                      <span class="text-xs font-bold text-ink-2">วันสิ้นสุด (รวมวันนี้)</span>
                       <input
                         v-model="editForm.end_date"
                         type="date"
                         required
-                        class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 px-3 text-sm"
+                        class="mt-1 min-h-11 w-full rounded-control border border-line px-3 text-sm"
                       />
                     </label>
                   </div>
@@ -570,41 +551,41 @@ const describeRange = (start: string, end: string): string =>
 
               <form
                 v-else
-                class="space-y-2 rounded-xl border border-brand-200 bg-brand-50/40 p-3"
+                class="space-y-2 rounded-control border border-brand-200 bg-brand-tint p-3"
                 @submit.prevent="submitTerm(year)"
               >
                 <div class="grid gap-2 sm:grid-cols-3">
                   <label class="block">
-                    <span class="text-[11px] font-bold text-stone-600">ชื่อเทอม</span>
+                    <span class="text-xs font-bold text-ink-2">ชื่อเทอม</span>
                     <input
                       v-model="newTerm.name"
                       type="text"
                       maxlength="60"
                       placeholder="เช่น เทอม 1"
                       required
-                      class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                      class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
                     />
                   </label>
                   <label class="block">
-                    <span class="text-[11px] font-bold text-stone-600">วันเริ่มต้น</span>
+                    <span class="text-xs font-bold text-ink-2">วันเริ่มต้น</span>
                     <input
                       v-model="newTerm.start_date"
                       type="date"
                       required
-                      class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                      class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
                     />
                   </label>
                   <label class="block">
-                    <span class="text-[11px] font-bold text-stone-600">วันสิ้นสุด (รวมวันนี้)</span>
+                    <span class="text-xs font-bold text-ink-2">วันสิ้นสุด (รวมวันนี้)</span>
                     <input
                       v-model="newTerm.end_date"
                       type="date"
                       required
-                      class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                      class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
                     />
                   </label>
                 </div>
-                <p class="text-[11px] text-stone-500">
+                <p class="text-xs text-ink-3">
                   เทอมต้องอยู่ในช่วงของปีนี้และต้องไม่ทับกับเทอมอื่น
                 </p>
                 <p v-if="termFormError" class="text-xs font-bold text-danger-700" role="alert">
@@ -623,14 +604,14 @@ const describeRange = (start: string, end: string): string =>
       <!-- ฟอร์มสร้างปี -->
       <section v-if="canManage" class="page-card p-4 sm:p-6">
         <h2 class="section-title">เพิ่มปีการศึกษา</h2>
-        <p class="mt-0.5 text-xs leading-relaxed text-stone-500">
+        <p class="mt-0.5 text-xs leading-relaxed text-ink-3">
           ใส่ปี พ.ศ. (เช่น 2569) — ระบบไม่ย้ายนักเรียน จึงเพิ่มปีล่วงหน้าได้โดยไม่กระทบข้อมูลเดิม
         </p>
 
         <form class="mt-3 space-y-3" @submit.prevent="submitYear">
           <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <label class="block">
-              <span class="text-[11px] font-bold text-stone-600">ปี พ.ศ.</span>
+              <span class="text-xs font-bold text-ink-2">ปี พ.ศ.</span>
               <input
                 v-model="newYear.year_be"
                 type="number"
@@ -639,35 +620,35 @@ const describeRange = (start: string, end: string): string =>
                 inputmode="numeric"
                 placeholder="2569"
                 required
-                class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
               />
             </label>
             <label class="block">
-              <span class="text-[11px] font-bold text-stone-600">ชื่อกำกับ (ไม่บังคับ)</span>
+              <span class="text-xs font-bold text-ink-2">ชื่อกำกับ (ไม่บังคับ)</span>
               <input
                 v-model="newYear.name"
                 type="text"
                 maxlength="60"
                 placeholder="ปีการศึกษา 2569"
-                class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
               />
             </label>
             <label class="block">
-              <span class="text-[11px] font-bold text-stone-600">วันเริ่มต้น</span>
+              <span class="text-xs font-bold text-ink-2">วันเริ่มต้น</span>
               <input
                 v-model="newYear.start_date"
                 type="date"
                 required
-                class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
               />
             </label>
             <label class="block">
-              <span class="text-[11px] font-bold text-stone-600">วันสิ้นสุด (รวมวันนี้)</span>
+              <span class="text-xs font-bold text-ink-2">วันสิ้นสุด (รวมวันนี้)</span>
               <input
                 v-model="newYear.end_date"
                 type="date"
                 required
-                class="mt-1 min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm"
+                class="mt-1 min-h-11 w-full rounded-control border border-line bg-surface px-3 text-sm"
               />
             </label>
           </div>
@@ -680,7 +661,7 @@ const describeRange = (start: string, end: string): string =>
         </form>
       </section>
 
-      <p v-else class="text-xs leading-relaxed text-stone-500">
+      <p v-else class="text-xs leading-relaxed text-ink-3">
         สมาชิกทุกคนดูปฏิทินของห้องได้ — การเพิ่ม/แก้ไขต้องมีสิทธิ์ตั้งค่าห้องเรียน
       </p>
     </template>

@@ -23,7 +23,7 @@
  *     เป็นข้อมูลสำหรับสืบเหตุ ไม่ใช่อ่านประจำวัน
  */
 import { computed, onMounted, reactive, ref } from 'vue';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppEmptyState from '@/components/ui/AppEmptyState.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -167,8 +167,7 @@ const prettyJson = (value: unknown): string => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      title="บันทึกกิจกรรม"
+    <PageIntro
       description="ตรวจย้อนว่าใครทำอะไรกับข้อมูลห้อง เมื่อไร และจากอุปกรณ์/IP ใด"
     />
 
@@ -183,41 +182,41 @@ const prettyJson = (value: unknown): string => {
 
     <template v-else>
       <!-- ── ตัวกรอง ──────────────────────────────────────────────────── -->
-      <section class="rounded-2xl border border-stone-200 bg-white p-4" aria-label="ตัวกรอง">
+      <section class="rounded-card border border-line bg-surface p-4" aria-label="ตัวกรอง">
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <label class="block text-xs font-bold text-stone-600">
+          <label class="block text-xs font-bold text-ink-2">
             ตั้งแต่
             <input
               v-model="filters.date_from"
               type="date"
-              class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-normal text-stone-900"
+              class="mt-1 w-full rounded-control border border-line px-3 py-2 text-sm font-normal text-ink"
               @change="resetAndLoad"
             />
           </label>
-          <label class="block text-xs font-bold text-stone-600">
+          <label class="block text-xs font-bold text-ink-2">
             ถึง
             <input
               v-model="filters.date_to"
               type="date"
-              class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-normal text-stone-900"
+              class="mt-1 w-full rounded-control border border-line px-3 py-2 text-sm font-normal text-ink"
               @change="resetAndLoad"
             />
           </label>
-          <label class="block text-xs font-bold text-stone-600">
+          <label class="block text-xs font-bold text-ink-2">
             คำค้น
             <input
               v-model="filters.q"
               type="search"
               placeholder="ชื่อผู้ทำ / endpoint / รหัส entity"
-              class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-normal text-stone-900"
+              class="mt-1 w-full rounded-control border border-line px-3 py-2 text-sm font-normal text-ink"
               @change="resetAndLoad"
             />
           </label>
-          <label class="block text-xs font-bold text-stone-600">
+          <label class="block text-xs font-bold text-ink-2">
             บริการ
             <select
               v-model="filters.service_name"
-              class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-normal text-stone-900"
+              class="mt-1 w-full rounded-control border border-line px-3 py-2 text-sm font-normal text-ink"
               @change="resetAndLoad"
             >
               <option value="">ทั้งหมด</option>
@@ -226,11 +225,11 @@ const prettyJson = (value: unknown): string => {
               </option>
             </select>
           </label>
-          <label class="block text-xs font-bold text-stone-600">
+          <label class="block text-xs font-bold text-ink-2">
             การกระทำ
             <select
               v-model="filters.action"
-              class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-normal text-stone-900"
+              class="mt-1 w-full rounded-control border border-line px-3 py-2 text-sm font-normal text-ink"
               @change="resetAndLoad"
             >
               <option value="">ทั้งหมด</option>
@@ -239,11 +238,11 @@ const prettyJson = (value: unknown): string => {
               </option>
             </select>
           </label>
-          <label class="block text-xs font-bold text-stone-600">
+          <label class="block text-xs font-bold text-ink-2">
             สถานะ
             <select
               v-model="filters.status"
-              class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-normal text-stone-900"
+              class="mt-1 w-full rounded-control border border-line px-3 py-2 text-sm font-normal text-ink"
               @change="resetAndLoad"
             >
               <option value="">ทั้งหมด</option>
@@ -288,19 +287,19 @@ const prettyJson = (value: unknown): string => {
           <li v-for="item in items" :key="item.id" class="page-card p-4 sm:p-5">
             <div class="flex flex-wrap items-start justify-between gap-2">
               <div class="min-w-0">
-                <p class="flex flex-wrap items-center gap-1.5 text-sm font-bold text-stone-900">
+                <p class="flex flex-wrap items-center gap-1.5 text-sm font-bold text-ink">
                   <span>{{ actorLabel(item) }}</span>
-                  <span class="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-bold text-stone-600">
+                  <span class="rounded-full bg-canvas px-2 py-0.5 text-xs font-bold text-ink-2">
                     {{ item.action }}
                   </span>
                   <span
                     v-if="isFailure(item)"
-                    class="rounded-full bg-danger-50 px-2 py-0.5 text-[11px] font-bold text-danger-700"
+                    class="rounded-full bg-danger-50 px-2 py-0.5 text-xs font-bold text-danger-700"
                   >
                     ล้มเหลว
                   </span>
                 </p>
-                <p class="mt-0.5 break-words text-xs text-stone-500">
+                <p class="mt-0.5 break-words text-xs text-ink-3">
                   {{ item.service_name }}<template v-if="item.entity_type">
                     · {{ item.entity_type }}<template v-if="item.entity_id"> #{{ item.entity_id }}</template>
                   </template>
@@ -309,18 +308,18 @@ const prettyJson = (value: unknown): string => {
                   </template>
                 </p>
               </div>
-              <time class="shrink-0 text-xs text-stone-500" :datetime="item.created_at">
+              <time class="shrink-0 text-xs text-ink-3" :datetime="item.created_at">
                 {{ formatThaiDateTime(item.created_at) }}
               </time>
             </div>
 
-            <p v-if="actorDetail(item)" class="mt-1 text-[11px] text-stone-400">
+            <p v-if="actorDetail(item)" class="mt-1 text-xs text-ink-3">
               {{ actorDetail(item) }} · {{ item.client_source }}
             </p>
 
             <p
               v-if="item.error_detail"
-              class="mt-2 rounded-lg bg-danger-50 px-3 py-2 text-xs text-danger-700"
+              class="mt-2 rounded-control bg-danger-50 px-3 py-2 text-xs text-danger-700"
             >
               {{ item.error_detail }}
             </p>
@@ -328,17 +327,17 @@ const prettyJson = (value: unknown): string => {
             <!-- รายละเอียดเชิงสืบเหตุ — ซ่อนไว้เป็นค่าเริ่มต้น -->
             <details class="mt-2">
               <summary class="cursor-pointer text-xs font-bold text-brand-700">รายละเอียด</summary>
-              <dl class="mt-2 space-y-1 text-xs text-stone-600">
+              <dl class="mt-2 space-y-1 text-xs text-ink-2">
                 <div v-if="item.ip_address" class="flex gap-2">
-                  <dt class="w-24 shrink-0 text-stone-500">IP</dt>
+                  <dt class="w-24 shrink-0 text-ink-3">IP</dt>
                   <dd class="break-all">{{ item.ip_address }}</dd>
                 </div>
                 <div v-if="item.user_agent" class="flex gap-2">
-                  <dt class="w-24 shrink-0 text-stone-500">อุปกรณ์</dt>
+                  <dt class="w-24 shrink-0 text-ink-3">อุปกรณ์</dt>
                   <dd class="break-all">{{ item.user_agent }}</dd>
                 </div>
                 <div v-if="item.execution_time_ms !== null" class="flex gap-2">
-                  <dt class="w-24 shrink-0 text-stone-500">เวลาทำงาน</dt>
+                  <dt class="w-24 shrink-0 text-ink-3">เวลาทำงาน</dt>
                   <dd>{{ item.execution_time_ms }} ms</dd>
                 </div>
               </dl>
@@ -347,16 +346,16 @@ const prettyJson = (value: unknown): string => {
                 class="mt-2 grid gap-2 sm:grid-cols-2"
               >
                 <div v-if="item.old_values !== null">
-                  <p class="text-[11px] font-bold text-stone-500">ก่อนแก้</p>
+                  <p class="text-xs font-bold text-ink-3">ก่อนแก้</p>
                   <pre
-                    class="mt-1 max-h-56 overflow-auto rounded-lg bg-stone-50 p-2 text-[11px] leading-relaxed"
+                    class="mt-1 max-h-56 overflow-auto rounded-control bg-canvas p-2 text-xs leading-relaxed"
                     v-text="prettyJson(item.old_values)"
                   ></pre>
                 </div>
                 <div v-if="item.new_values !== null">
-                  <p class="text-[11px] font-bold text-stone-500">หลังแก้</p>
+                  <p class="text-xs font-bold text-ink-3">หลังแก้</p>
                   <pre
-                    class="mt-1 max-h-56 overflow-auto rounded-lg bg-stone-50 p-2 text-[11px] leading-relaxed"
+                    class="mt-1 max-h-56 overflow-auto rounded-control bg-canvas p-2 text-xs leading-relaxed"
                     v-text="prettyJson(item.new_values)"
                   ></pre>
                 </div>
@@ -378,7 +377,7 @@ const prettyJson = (value: unknown): string => {
             โหลดเพิ่ม
           </AppButton>
         </div>
-        <p v-else class="text-center text-xs text-stone-400">แสดงครบทั้งหมดแล้ว</p>
+        <p v-else class="text-center text-xs text-ink-3">แสดงครบทั้งหมดแล้ว</p>
       </template>
     </template>
   </div>

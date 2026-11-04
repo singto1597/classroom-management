@@ -1,21 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue';
-import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
 import { formatThaiDateTimeParts } from '@/utils/datetime';
 import { useAuthStore } from '@/stores/auth';
 import { FinanceService } from '@/services/finance';
 import type { Transaction, TransactionQueryParams } from '@/types/finance';
-import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog';
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 const currentServerId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName!;
 
@@ -71,11 +70,11 @@ const fetchTransactions = async () => {
     // error ของคำขอที่ถูกแทนที่แล้วต้องเงียบ — ไม่งั้น Swal เด้งทั้งที่จอโหลดปกติอยู่
     if (!listGuard.isCurrent(token)) return;
     hasError.value = true;
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ',
-    });
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ',
+      'error',
+    );
   } finally {
     // ตัวที่เก่ากว่าต้องไม่ปิด spinner ของตัวที่ใหม่กว่า (ไม่งั้นจอว่างทั้งที่ยังโหลดอยู่)
     if (listGuard.isCurrent(token)) isLoading.value = false;
@@ -97,35 +96,37 @@ const handleRevert = async (transaction: Transaction, key: string) => {
 
   // เพิ่ม Guard ป้องกันเผื่อมีคนเรียกฟังก์ชันนี้ข้าม UI
   if (!isAdmin.value) {
-    Swal.fire('ไม่มีสิทธิ์เข้าถึง', 'เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถยกเลิกรายการได้', 'error');
+    void dialog.alert(
+      'ไม่มีสิทธิ์เข้าถึง',
+      'เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถยกเลิกรายการได้',
+      'error',
+    );
     return;
   }
 
-  const result = await Swal.fire({
-    title: 'ต้องการยกเลิก?',
-    // ใช้ inline style เพราะ SweetAlert2 ไม่ผ่าน Tailwind JIT
-    // 🔒 escape เฉพาะคำอธิบายที่ interpolate — มาร์กอัป/สไตล์ที่ตั้งใจไว้คงเดิม
-    html: `คุณกำลังจะยกเลิกรายการ:<br><b style="display:block;margin-top:8px;font-size:16px;color:${UI_COLOR.ink}">"${escapeHtml(transaction.description)}"</b><span style="display:block;margin-top:8px;padding:8px 12px;border-radius:10px;border:1px solid ${UI_COLOR.dangerBorder};background:${UI_COLOR.dangerSoft};color:${UI_COLOR.dangerStrong};font-size:13px;font-weight:600">ยอดเงินจะถูกคืนกลับกระเป๋าเดิม<br>หากเป็นรายการรับเงินจากเพื่อน สถานะบิลจะถูกตีกลับเป็น "ค้างจ่าย" ทันที</span>`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ยืนยันการยกเลิก',
-    cancelButtonText: 'ปิด'
-  });
+  const result = await dialog.confirm(
+    'ต้องการยกเลิก?',
+    `คุณกำลังจะยกเลิกรายการ: "${transaction.description}" — ยอดเงินจะถูกคืนกลับกระเป๋าเดิม · หากเป็นรายการรับเงินจากเพื่อน สถานะบิลจะถูกตีกลับเป็น "ค้างจ่าย" ทันที`,
+    {
+      icon: 'warning',
+      danger: true,
+      confirmButtonText: 'ยืนยันการยกเลิก',
+      cancelButtonText: 'ปิด',
+    },
+  );
 
-  if (result.isConfirmed) {
-    try {
-      await FinanceService.revertTransaction(currentServerId, transaction.id, currentUserName);
-      Swal.fire({ icon: 'success', title: 'ยกเลิกรายการสำเร็จ!', timer: 1500, showConfirmButton: false });
-      fetchTransactions();
-    } catch (error: unknown) {
-      Swal.fire({
-        icon: 'error',
-        title: 'ยกเลิกไม่ได้',
-        text: error instanceof Error ? error.message : 'ยกเลิกรายการไม่สำเร็จ',
-      });
-    }
+  if (!result.isConfirmed) return;
+
+  try {
+    await FinanceService.revertTransaction(currentServerId, transaction.id, currentUserName);
+    await dialog.fire({ icon: 'success', title: 'ยกเลิกรายการสำเร็จ!', timer: 1500 });
+    fetchTransactions();
+  } catch (error: unknown) {
+    void dialog.alert(
+      'ยกเลิกไม่ได้',
+      error instanceof Error ? error.message : 'ยกเลิกรายการไม่สำเร็จ',
+      'error',
+    );
   }
 };
 
@@ -192,9 +193,7 @@ const resetFilters = () => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Transaction Ledger"
-      title="ประวัติการทำรายการ"
+    <PageIntro
       description="รายการรับ จ่าย และโอนเงินทั้งหมดของห้อง"
     >
       <template #actions>
@@ -203,7 +202,7 @@ const resetFilters = () => {
           บันทึกรายการใหม่
         </RouterLink>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- ตัวกรอง -->
     <div class="page-card p-4 sm:p-5">
@@ -233,13 +232,13 @@ const resetFilters = () => {
 
     <!-- จำนวนผลลัพธ์ + จำนวนแถวต่อหน้า -->
     <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-      <p class="flex items-center gap-1.5 text-sm font-bold text-stone-500">
+      <p class="flex items-center gap-1.5 text-sm font-bold text-ink-3">
         พบข้อมูลทั้งหมด
         <span class="chip num bg-brand-50 text-brand-700">{{ totalCount }}</span>
         รายการ
       </p>
       <div class="flex shrink-0 items-center gap-2">
-        <span class="text-xs font-bold text-stone-500">แสดง</span>
+        <span class="text-xs font-bold text-ink-3">แสดง</span>
         <select v-model="filters.limit" class="field w-auto" aria-label="จำนวนแถวต่อหน้า">
           <option :value="10">10 แถว</option>
           <option :value="50">50 แถว</option>
@@ -270,27 +269,27 @@ const resetFilters = () => {
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="break-words font-bold text-stone-900">{{ t.description }}</p>
-              <p class="num mt-1 flex items-center gap-1.5 text-[11px] font-medium text-stone-500">
+              <p class="break-words font-bold text-ink">{{ t.description }}</p>
+              <p class="num mt-1 flex items-center gap-1.5 text-caption font-medium text-ink-3">
                 <i class="bi bi-clock" aria-hidden="true"></i>
                 {{ formatDate(t.created_at).date }} • {{ formatDate(t.created_at).time }} น.
               </p>
             </div>
             <p
-              class="num font-display shrink-0 text-base font-bold"
+              class="num shrink-0 text-base font-bold"
               :class="t.transaction_type === 'income' ? 'text-ok-600' : 'text-danger-600'"
             >
               {{ t.transaction_type === 'income' ? '+' : '-' }}฿{{ formatNumber(t.amount) }}
             </p>
           </div>
 
-          <div class="mt-3 flex items-center justify-between gap-3 border-t border-stone-100 pt-3">
+          <div class="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
             <div class="flex min-w-0 flex-wrap items-center gap-1.5">
               <span class="chip bg-brand-50 text-brand-700">
                 <i class="bi bi-wallet2" aria-hidden="true"></i>
                 {{ t.account_name || 'ไม่ระบุ' }}
               </span>
-              <span v-if="t.category_name" class="chip bg-stone-100 text-stone-600">
+              <span v-if="t.category_name" class="chip bg-canvas text-ink-3">
                 {{ t.category_name }}
               </span>
             </div>
@@ -330,20 +329,20 @@ const resetFilters = () => {
             <tbody>
               <tr v-for="t in transactions" :key="t.id">
                 <td>
-                  <div class="num font-bold text-stone-700">{{ formatDate(t.created_at).date }}</div>
-                  <div class="num mt-0.5 text-xs text-stone-500">
+                  <div class="num font-bold text-ink-2">{{ formatDate(t.created_at).date }}</div>
+                  <div class="num mt-0.5 text-xs text-ink-3">
                     {{ formatDate(t.created_at).time }} น.
                   </div>
                 </td>
                 <td>
-                  <div class="min-w-0 max-w-[380px] truncate font-bold text-stone-900" :title="t.description">
+                  <div class="min-w-0 max-w-[380px] truncate font-bold text-ink" :title="t.description">
                     {{ t.description }}
                   </div>
                   <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                    <span v-if="t.category_name" class="chip bg-stone-100 text-stone-600">
+                    <span v-if="t.category_name" class="chip bg-canvas text-ink-3">
                       {{ t.category_name }}
                     </span>
-                    <span class="flex items-center gap-1 text-[11px] font-medium text-stone-500">
+                    <span class="flex items-center gap-1 text-caption font-medium text-ink-3">
                       <i class="bi bi-person-circle" aria-hidden="true"></i> {{ t.recorded_by }}
                     </span>
                   </div>
@@ -356,7 +355,7 @@ const resetFilters = () => {
                 </td>
                 <td class="text-right">
                   <span
-                    class="num font-display font-bold"
+                    class="num font-bold"
                     :class="t.transaction_type === 'income' ? 'text-ok-600' : 'text-danger-600'"
                   >
                     {{ t.transaction_type === 'income' ? '+' : '-' }} ฿{{ formatNumber(t.amount) }}
@@ -390,8 +389,8 @@ const resetFilters = () => {
           <button
             v-for="page in visiblePages"
             :key="page"
-            class="num h-11 min-w-[44px] rounded-lg px-2 text-sm font-bold transition-colors active:scale-[0.97]"
-            :class="currentPage === page ? 'bg-brand-700 text-white' : 'text-stone-500 hover:bg-stone-100'"
+            class="num h-11 min-w-[44px] rounded-control px-2 text-sm font-bold transition-colors active:scale-[0.97]"
+            :class="currentPage === page ? 'bg-brand-700 text-white' : 'text-ink-3 hover:bg-canvas'"
             :aria-current="currentPage === page ? 'page' : undefined"
             @click="currentPage = page"
           >

@@ -1,6 +1,5 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialogStore } from '@/stores/dialog'
 
 /**
  * 📝 ร่างฟอร์มใน `sessionStorage` — กันข้อมูลหายเมื่อผู้ใช้เผลอปิดแท็บ/กดย้อน/เน็ตหลุด
@@ -86,7 +85,7 @@ export function useFormDraft<T extends object>(
  * 🚪 เตือนก่อนปิดแท็บ/รีโหลด เมื่อฟอร์มยังไม่ถูกบันทึก
  *
  * การเปลี่ยน route ใช้ `confirmLeave()` คู่กับ `onBeforeRouteLeave` ของหน้า
- * (SweetAlert2 เท่านั้นตามกฎโปรเจกต์ ส่วนข้อความของ `beforeunload` แก้ไม่ได้ตามสเปก)
+ * (กล่องสนทนากลางเท่านั้น ส่วนข้อความของ `beforeunload` แก้ไม่ได้ตามสเปก)
  *
  * `isDirty()` ต้องคืน false หลังบันทึกสำเร็จ ไม่งั้นผู้ใช้เจอคำถามซ้ำทั้งที่ส่งไปแล้ว
  */
@@ -107,15 +106,15 @@ export function useUnsavedGuard(isDirty: () => boolean) {
 /** ใช้ใน `onBeforeRouteLeave` ของหน้า — แยกฟังก์ชันเพื่อให้อ่าน/ทดสอบง่าย */
 export async function confirmLeave(isDirty: () => boolean): Promise<boolean> {
   if (!isDirty()) return true
-  const result = await Swal.fire({
-    icon: 'warning',
-    title: 'ยังไม่ได้บันทึก',
-    text: 'ข้อมูลที่กรอกไว้จะหายไปถ้าออกจากหน้านี้',
-    showCancelButton: true,
-    confirmButtonText: 'ออกโดยไม่บันทึก',
-    cancelButtonText: 'อยู่ต่อ',
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-  })
+  const result = await useDialogStore().confirm(
+    'ยังไม่ได้บันทึก',
+    'ข้อมูลที่กรอกไว้จะหายไปถ้าออกจากหน้านี้',
+    {
+      icon: 'warning',
+      danger: true,
+      confirmButtonText: 'ออกโดยไม่บันทึก',
+      cancelButtonText: 'อยู่ต่อ',
+    },
+  )
   return result.isConfirmed
 }

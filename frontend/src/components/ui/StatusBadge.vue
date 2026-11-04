@@ -19,11 +19,11 @@ withDefaults(
 )
 
 const TONE_CLASS = {
-  neutral: 'bg-stone-100 text-stone-600',
+  neutral: 'bg-canvas text-ink-2',
   ok: 'bg-ok-50 text-ok-700',
   warn: 'bg-warn-50 text-warn-700',
   danger: 'bg-danger-50 text-danger-700',
-  brand: 'bg-brand-50 text-brand-700',
+  brand: 'bg-brand-tint text-brand',
 } as const
 </script>
 

@@ -23,6 +23,32 @@
  */
 export type NavTabKey = 'home' | 'students' | 'tasks' | 'finance' | 'more';
 
+/**
+ * ความกว้างของเนื้อหาหลัก — ใช้ร่วมกับ `MainLayout`/`AppHeader`
+ *
+ *   wide    → รายการ/แดชบอร์ด (max-w-7xl)
+ *   reading → รายละเอียด/โปรไฟล์/ตั้งค่า (max-w-3xl)
+ *   form    → ฟอร์มแคบ อ่านง่าย (max-w-2xl)
+ */
+export type PageWidth = 'wide' | 'reading' | 'form';
+
+/**
+ * ปุ่มลอย (FAB) ประจำหน้า — แสดงเฉพาะเมื่อผู้ใช้มีสิทธิ์ `permission`
+ *
+ * ⚠️ ประกาศที่ route ของ **หน้ารายการ** เท่านั้น ไม่ใช่ detail/edit
+ *    ไม่งั้นปุ่ม "เพิ่ม" จะลอยทับฟอร์มที่กำลังแก้อยู่
+ */
+export interface FabMeta {
+  /** ปลายทางของฟอร์มสร้างรายการ */
+  to: string;
+  /** ชื่อปุ่มสำหรับ screen reader และ tooltip */
+  label: string;
+  /** ไอคอน bootstrap-icons เช่น `bi-plus-lg` */
+  icon: string;
+  /** สิทธิ์ที่ต้องมี (ตรวจด้วย `authStore.hasPermission`) */
+  permission?: string;
+}
+
 declare module 'vue-router' {
   interface RouteMeta {
     /** ต้องล็อกอินก่อนเข้าหรือไม่ */
@@ -37,6 +63,10 @@ declare module 'vue-router' {
     headerHidden?: boolean;
     /** ซ่อนทั้ง header และแถบนำทาง — หน้าสแกน QR/กล้องเต็มจอ (P1) */
     fullscreen?: boolean;
+    /** ความกว้างเนื้อหาหลัก — ไม่ระบุ = `wide` */
+    width?: PageWidth;
+    /** ปุ่มลอยประจำหน้า (เฉพาะหน้ารายการ) */
+    fab?: FabMeta;
   }
 }
 

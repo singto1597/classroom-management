@@ -8,17 +8,19 @@ import type { Student, PendingStudentRequest } from '@/types/student';
 import { displayName } from '@/utils/name';
 import { avatarInitial } from '@/utils/avatar';
 import { formatThaiDateTime } from '@/utils/datetime';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
+import AppTabs from '@/components/ui/AppTabs.vue';
+import type { AppTabItem } from '@/components/ui/AppTabs.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
-import Swal from 'sweetalert2';
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog';
 import { studentStatusLabel } from '@/constants/statusLabels'
 
 const router = useRouter();
 const authStore = useAuthStore();
+const dialog = useDialog();
 const currentRoomId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName!;
 
@@ -34,6 +36,10 @@ const pendingStudents = ref<PendingStudentRequest[]>([]);
 const isLoading = ref(true);
 const searchQuery = ref('');
 const showInactive = ref(false);
+const tabs = computed<AppTabItem[]>(() => [
+  { value: 'active', label: 'นักเรียน' },
+  { value: 'pending', label: 'รออนุมัติ', count: pendingStudents.value.length || undefined },
+]);
 
 // ให้ StateBlock มีสถานะผิดพลาดของตัวเอง (เดิมพึ่ง Swal อย่างเดียว)
 const hasError = ref(false);
@@ -85,14 +91,14 @@ const fetchData = async () => {
     }
   } catch (error: unknown) {
     hasError.value = true;
-    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลได้' });
+    void dialog.alert('ข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถโหลดข้อมูลได้', 'error');
   } finally {
     isLoading.value = false;
   }
 };
 
-const switchTab = (tab: 'active' | 'pending') => {
-  currentTab.value = tab;
+const switchTab = (tab: string) => {
+  currentTab.value = tab === 'pending' ? 'pending' : 'active';
   fetchData();
 };
 
@@ -185,24 +191,19 @@ const runEmptyAction = () => {
 const confirmDelete = async (student: Student) => {
   if (!canManageStudents.value) return;
 
-  const result = await Swal.fire({
-    title: 'ยืนยันการลบ?',
-    text: `ลบ ${displayName(student)} (เลขที่ ${student.student_no}) ใช่หรือไม่?`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ลบข้อมูล',
-    cancelButtonText: 'ยกเลิก'
-  });
+  const result = await dialog.confirm(
+    'ยืนยันการลบ?',
+    `ลบ ${displayName(student)} (เลขที่ ${student.student_no}) ใช่หรือไม่?`,
+    { icon: 'warning', danger: true, confirmButtonText: 'ลบข้อมูล' }
+  );
 
   if (result.isConfirmed) {
     try {
       await StudentService.deleteStudent(currentRoomId, student.student_no, currentUserName);
-      Swal.fire({ title: 'ลบสำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false });
+      void dialog.notify('ลบสำเร็จ');
       fetchData();
     } catch (error: unknown) {
-      Swal.fire({ icon: 'error', title: 'ลบไม่สำเร็จ', text: apiErrorDetail(error) });
+      void dialog.alert('ลบไม่สำเร็จ', apiErrorDetail(error), 'error');
     }
   }
 };
@@ -211,29 +212,24 @@ const approveJoin = async (studentNo: number) => {
   try {
     await StudentService.approveStudent(currentRoomId, studentNo);
     await fetchData();
-    Swal.fire({ title: 'อนุมัติสำเร็จ', icon: 'success', timer: 1500, showConfirmButton: false });
+    void dialog.notify('อนุมัติสำเร็จ');
   } catch (error: unknown) {
-    Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: apiErrorDetail(error) });
+    void dialog.alert('ข้อผิดพลาด', apiErrorDetail(error), 'error');
   }
 };
 
 const rejectJoin = async (studentNo: number) => {
-  const result = await Swal.fire({
-    title: 'ปฏิเสธคำขอ?',
-    text: 'คำขอนี้จะถูกลบออกจากระบบ',
+  const result = await dialog.confirm('ปฏิเสธคำขอ?', 'คำขอนี้จะถูกลบออกจากระบบ', {
     icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: UI_COLOR.danger,
-    cancelButtonColor: UI_COLOR.neutral,
-    confirmButtonText: 'ปฏิเสธ',
-    cancelButtonText: 'ยกเลิก'
+    danger: true,
+    confirmButtonText: 'ปฏิเสธ'
   });
   if (result.isConfirmed) {
     try {
       await StudentService.rejectStudent(currentRoomId, studentNo);
       await fetchData();
     } catch (error: unknown) {
-      Swal.fire({ icon: 'error', title: 'ข้อผิดพลาด', text: apiErrorDetail(error) });
+      void dialog.alert('ข้อผิดพลาด', apiErrorDetail(error), 'error');
     }
   }
 };
@@ -242,9 +238,7 @@ const rejectJoin = async (studentNo: number) => {
 <template>
   <div class="space-y-4 sm:space-y-5">
 
-    <PageHeader
-      eyebrow="Academic Records"
-      title="จัดการนักเรียน"
+    <PageIntro
       description="รายชื่อนักเรียนในห้องนี้"
     >
       <template #actions>
@@ -257,38 +251,25 @@ const rejectJoin = async (studentNo: number) => {
           <i class="bi bi-file-earmark-excel-fill text-base" aria-hidden="true"></i>
           <span>ส่งออก</span>
         </RouterLink>
-        <RouterLink v-if="canManageStudents" to="/students/add" class="btn-primary">
+        <RouterLink
+          v-if="canManageStudents"
+          to="/students/add"
+          class="btn-primary hidden lg:inline-flex"
+        >
           <i class="bi bi-person-plus-fill" aria-hidden="true"></i> เพิ่มนักเรียน
         </RouterLink>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- แท็บ: ทะเบียนนักเรียน / คำขอรออนุมัติ -->
-    <div v-if="canManageStudents" class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-stone-50 p-1">
-      <button
-        type="button"
-        class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-        :class="currentTab === 'active'
-          ? 'border-stone-200 bg-white text-brand-700'
-          : 'border-transparent text-stone-500 hover:text-stone-800'"
-        @click="switchTab('active')"
-      >
-        นักเรียน
-      </button>
-      <button
-        type="button"
-        class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border px-4 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-        :class="currentTab === 'pending'
-          ? 'border-stone-200 bg-white text-brand-700'
-          : 'border-transparent text-stone-500 hover:text-stone-800'"
-        @click="switchTab('pending')"
-      >
-        รออนุมัติ
-        <span v-if="pendingStudents.length > 0" class="chip num bg-warn-100 text-warn-700">
-          {{ pendingStudents.length }}
-        </span>
-      </button>
-    </div>
+    <AppTabs
+      v-if="canManageStudents"
+      :model-value="currentTab"
+      :tabs="tabs"
+      group-label="มุมมองรายชื่อนักเรียน"
+      variant="segmented"
+      @update:model-value="switchTab"
+    />
 
     <!-- ค้นหา + ตัวกรอง -->
     <div
@@ -297,7 +278,7 @@ const rejectJoin = async (studentNo: number) => {
     >
       <div class="relative min-w-0 flex-1">
         <i
-          class="bi bi-search pointer-events-none absolute inset-y-0 start-0 flex w-10 items-center justify-center text-stone-500"
+          class="bi bi-search pointer-events-none absolute inset-y-0 start-0 flex w-10 items-center justify-center text-ink-3"
           aria-hidden="true"
         ></i>
         <input
@@ -309,14 +290,14 @@ const rejectJoin = async (studentNo: number) => {
         />
       </div>
 
-      <div class="flex shrink-0 items-center border-t border-stone-100 pt-3 sm:border-t-0 sm:pt-0">
+      <div class="flex shrink-0 items-center border-t border-line pt-3 sm:border-t-0 sm:pt-0">
         <label class="flex cursor-pointer select-none items-center">
           <input v-model="showInactive" type="checkbox" class="peer sr-only" />
           <span
-            class="relative h-5 w-10 shrink-0 rounded-full bg-stone-200 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-700 peer-checked:after:translate-x-full"
+            class="relative h-5 w-10 shrink-0 rounded-full bg-line transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-surface after:transition-all after:content-[''] peer-checked:bg-brand-700 peer-checked:after:translate-x-full"
             aria-hidden="true"
           ></span>
-          <span class="ms-2.5 text-sm font-bold text-stone-600">แสดงนักเรียนที่พ้นสภาพ</span>
+          <span class="ms-2.5 text-sm font-bold text-ink-2">แสดงนักเรียนที่พ้นสภาพ</span>
         </label>
       </div>
     </div>
@@ -367,11 +348,11 @@ const rejectJoin = async (studentNo: number) => {
                 :class="{ 'opacity-60': student.status === 'inactive' }"
                 @click="goToStudent(student.student_no)"
               >
-                <td class="num font-bold text-stone-900">{{ student.student_no }}</td>
+                <td class="num font-bold text-ink-1">{{ student.student_no }}</td>
 
                 <td>
                   <div class="flex min-w-0 items-center gap-2">
-                    <span class="truncate font-bold text-stone-900">
+                    <span class="truncate font-bold text-ink-1">
                       {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
                     </span>
                     <i
@@ -383,7 +364,7 @@ const rejectJoin = async (studentNo: number) => {
                     <!-- 🏠 ยังไม่ยืนยันตัวตน — ข้อมูลที่ห้องบันทึกไว้ยังใช้ได้; ผู้จัดการห้องเห็นข้อมูลส่วนตัว -->
                     <span
                       v-if="student.identity_claimed === false"
-                      class="chip shrink-0 bg-stone-100 text-stone-600"
+                      class="chip shrink-0 bg-canvas text-ink-2"
                       title="ยังไม่ยืนยันตัวตน — ข้อมูลส่วนตัวเห็นได้เฉพาะผู้จัดการห้อง"
                     >
                       <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
@@ -391,7 +372,7 @@ const rejectJoin = async (studentNo: number) => {
                   </div>
                 </td>
 
-                <td class="text-stone-500">
+                <td class="text-ink-3">
                   <span class="block truncate">{{ student.nickname || student.nickname_en || '-' }}</span>
                 </td>
 
@@ -400,7 +381,7 @@ const rejectJoin = async (studentNo: number) => {
                     class="chip"
                     :class="student.class_role && student.class_role !== 'student'
                       ? 'bg-brand-50 text-brand-700'
-                      : 'bg-stone-100 text-stone-600'"
+                      : 'bg-canvas text-ink-2'"
                   >
                     {{ roleLabel(student.class_role) }}
                   </span>
@@ -412,7 +393,7 @@ const rejectJoin = async (studentNo: number) => {
                     :class="{
                       'bg-ok-50 text-ok-700': student.status === 'active',
                       'bg-warn-50 text-warn-700': student.status === 'pending',
-                      'bg-stone-100 text-stone-600': student.status === 'inactive'
+                      'bg-canvas text-ink-2': student.status === 'inactive'
                     }"
                   >
                     <i
@@ -436,7 +417,7 @@ const rejectJoin = async (studentNo: number) => {
                       :items="studentMenuItems(student)"
                       @select="handleStudentAction(student, $event)"
                     />
-                    <i v-else class="bi bi-chevron-right p-2 text-stone-300" aria-hidden="true"></i>
+                    <i v-else class="bi bi-chevron-right p-2 text-ink-3" aria-hidden="true"></i>
                   </div>
                 </td>
               </tr>
@@ -456,7 +437,7 @@ const rejectJoin = async (studentNo: number) => {
             <div class="flex items-start gap-3">
               <!-- avatar ตัวอักษรแรก -->
               <div
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 font-display text-base font-bold text-brand-700"
+                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-brand-50 font-display text-base font-bold text-brand-700"
                 aria-hidden="true"
               >
                 {{ avatarInitial(displayName(student)) }}
@@ -464,7 +445,7 @@ const rejectJoin = async (studentNo: number) => {
 
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <p class="truncate font-display text-[15px] font-bold text-stone-900">
+                  <p class="truncate font-display text-[15px] font-bold text-ink-1">
                     {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
                   </p>
                   <i
@@ -475,7 +456,7 @@ const rejectJoin = async (studentNo: number) => {
                   ></i>
                 </div>
 
-                <p class="num mt-0.5 truncate text-xs text-stone-500">
+                <p class="num mt-0.5 truncate text-xs text-ink-3">
                   เลขที่ {{ student.student_no }}
                   <span v-if="student.nickname || student.nickname_en"> · {{ student.nickname || student.nickname_en }}</span>
                 </p>
@@ -485,7 +466,7 @@ const rejectJoin = async (studentNo: number) => {
                     class="chip"
                     :class="student.class_role && student.class_role !== 'student'
                       ? 'bg-brand-50 text-brand-700'
-                      : 'bg-stone-100 text-stone-600'"
+                      : 'bg-canvas text-ink-2'"
                   >
                     {{ roleLabel(student.class_role) }}
                   </span>
@@ -495,7 +476,7 @@ const rejectJoin = async (studentNo: number) => {
                     :class="{
                       'bg-ok-50 text-ok-700': student.status === 'active',
                       'bg-warn-50 text-warn-700': student.status === 'pending',
-                      'bg-stone-100 text-stone-600': student.status === 'inactive'
+                      'bg-canvas text-ink-2': student.status === 'inactive'
                     }"
                   >
                     <i
@@ -513,7 +494,7 @@ const rejectJoin = async (studentNo: number) => {
                   <!-- 🏠 ยังไม่ยืนยันตัวตน — ข้อมูลที่ห้องบันทึกไว้ยังใช้ได้; ผู้จัดการห้องเห็นข้อมูลส่วนตัว -->
                   <span
                     v-if="student.identity_claimed === false"
-                    class="chip bg-stone-100 text-stone-600"
+                    class="chip bg-canvas text-ink-2"
                     title="ยังไม่ยืนยันตัวตน — ข้อมูลส่วนตัวเห็นได้เฉพาะผู้จัดการห้อง"
                   >
                     <i class="bi bi-lock-fill" aria-hidden="true"></i> ยังไม่ยืนยันตัวตน
@@ -530,7 +511,7 @@ const rejectJoin = async (studentNo: number) => {
                 />
               </div>
 
-              <i v-else class="bi bi-chevron-right shrink-0 p-2 text-stone-300" aria-hidden="true"></i>
+              <i v-else class="bi bi-chevron-right shrink-0 p-2 text-ink-3" aria-hidden="true"></i>
             </div>
           </RouterLink>
         </div>
@@ -556,7 +537,7 @@ const rejectJoin = async (studentNo: number) => {
             <!-- ซ้าย: ข้อมูล -->
             <div class="flex min-w-0 items-start gap-3">
               <div
-                class="num flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warn-50 font-display text-base font-bold text-warn-700"
+                class="num flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-warn-50 font-display text-base font-bold text-warn-700"
               >
                 {{ req.student_no }}
               </div>
@@ -564,11 +545,11 @@ const rejectJoin = async (studentNo: number) => {
               <div class="min-w-0 flex-1">
                 <!-- 🛡️ claim_request: มีคนขออ้างสิทธิ์ ghost → แอดมินเห็นชื่อเดิม vs ชื่อผู้ขอ แล้วตัดสิน -->
                 <template v-if="req.request_type === 'claim_request'">
-                  <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
+                  <p class="truncate font-display text-[15px] font-bold leading-snug text-ink-1">
                     {{ displayName(req) }} <span class="text-warn-700">อ้างสิทธิ์เลขที่นี้</span>
                   </p>
-                  <p class="mt-0.5 text-sm text-stone-500">
-                    ชื่อในระบบเดิม: <span class="font-bold text-stone-700">{{ req.ghost_first_name || '-' }} {{ req.ghost_last_name || '-' }}</span>
+                  <p class="mt-0.5 text-sm text-ink-3">
+                    ชื่อในระบบเดิม: <span class="font-bold text-ink-2">{{ req.ghost_first_name || '-' }} {{ req.ghost_last_name || '-' }}</span>
                     <span
                       v-if="req.name_match !== undefined"
                       class="chip ms-1.5"
@@ -577,18 +558,18 @@ const rejectJoin = async (studentNo: number) => {
                       {{ req.name_match ? 'ชื่อตรงกัน' : 'ชื่อไม่ตรง' }}
                     </span>
                   </p>
-                  <p class="mt-0.5 text-xs text-stone-500">
+                  <p class="mt-0.5 text-xs text-ink-3">
                     <i class="bi bi-person-check me-1" aria-hidden="true"></i>ตรวจสอบว่าเป็นคนเดียวกันก่อนอนุมัติ
                   </p>
                 </template>
 
                 <!-- join_request: ขอเข้าห้องเอง ปกติ -->
                 <template v-else>
-                  <p class="truncate font-display text-[15px] font-bold leading-snug text-stone-900">
+                  <p class="truncate font-display text-[15px] font-bold leading-snug text-ink-1">
                     {{ displayName(req) }}
                   </p>
-                  <p class="mt-0.5 flex items-center gap-1.5 text-sm text-stone-500">
-                    <i class="bi bi-clock text-stone-500" aria-hidden="true"></i> ขอเข้าร่วมเมื่อ {{ formatThaiDateTime(req.created_at) }}
+                  <p class="mt-0.5 flex items-center gap-1.5 text-sm text-ink-3">
+                    <i class="bi bi-clock text-ink-3" aria-hidden="true"></i> ขอเข้าร่วมเมื่อ {{ formatThaiDateTime(req.created_at) }}
                   </p>
                 </template>
               </div>

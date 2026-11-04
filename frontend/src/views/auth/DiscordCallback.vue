@@ -3,13 +3,14 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { linkDiscordAccount, loginWithDiscord } from '@/services/auth';
-import Swal from 'sweetalert2';
+import { OAUTH_LINK_RETURN_KEY } from '@/constants/storageKeys';
 import StateBlock from '@/components/ui/StateBlock.vue';
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const dialog = useDialog();
 const errorMsg = ref<string | null>(null);
 const botInviteUrl = computed(() => import.meta.env.VITE_DISCORD_BOT_INVITE_URL || '#');
 
@@ -30,12 +31,17 @@ onMounted(async () => {
     if (authStore.isAuthenticated) {
       const response = await linkDiscordAccount(code);
       await authStore.fetchProfile();
-      Swal.fire({
+
+      // 🔗 กลับหน้าที่เริ่มผูกบัญชี (`/account`) ไม่ใช่เด้งไปแดชบอร์ดเสมอ
+      const returnTo = sessionStorage.getItem(OAUTH_LINK_RETURN_KEY) ?? '/dashboard';
+      sessionStorage.removeItem(OAUTH_LINK_RETURN_KEY);
+
+      await dialog.fire({
         icon: 'success',
         title: 'สำเร็จ!',
         text: response?.message || 'ผูกบัญชี Discord สำเร็จแล้ว',
-        confirmButtonColor: UI_COLOR.brand,
-      }).then(() => router.push('/dashboard'));
+      });
+      await router.push(returnTo);
     } else {
       const response = await loginWithDiscord(code);
       authStore.setToken(response.access_token);
@@ -63,17 +69,17 @@ const goBackToLogin = () => router.push('/login');
 <template>
   <!-- ⚠️ หน้านี้อยู่นอก MainLayout จึงต้องจัดระยะขอบ + จัดกลางจอเอง -->
   <div
-    class="flex min-h-screen min-h-dvh flex-col items-center justify-center bg-paper px-4 py-10 font-sans text-ink"
+    class="flex min-h-screen min-h-dvh flex-col items-center justify-center bg-canvas px-4 py-10 font-sans text-ink"
   >
     <div class="w-full max-w-md">
       <div class="mb-6 flex items-center justify-center gap-2.5">
         <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand text-white"
         >
           <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
         </div>
-        <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-stone-900">
-          SYNC<span class="font-normal text-stone-500">ROOM</span>
+        <span class="truncate text-lg font-bold tracking-[0.2em] text-ink">
+          SYNC<span class="font-normal text-ink-3">ROOM</span>
         </span>
       </div>
 
@@ -84,7 +90,7 @@ const goBackToLogin = () => router.push('/login');
         aria-live="polite"
       >
         <div class="relative mx-auto mb-4 h-14 w-14">
-          <div class="absolute inset-0 rounded-full border-2 border-stone-200"></div>
+          <div class="absolute inset-0 rounded-full border-2 border-line"></div>
           <div
             class="absolute inset-0 animate-spin rounded-full border-2 border-brand-700 border-t-transparent"
           ></div>
@@ -93,10 +99,10 @@ const goBackToLogin = () => router.push('/login');
             aria-hidden="true"
           ></i>
         </div>
-        <h1 class="font-display text-xl font-bold text-stone-900">
+        <h1 class="text-xl font-bold text-ink">
           {{ authStore.isAuthenticated ? 'กำลังผูกบัญชี Discord...' : 'กำลังเข้าสู่ระบบ...' }}
         </h1>
-        <p class="mt-1 text-sm leading-relaxed text-stone-500">
+        <p class="mt-1 text-sm leading-relaxed text-ink-3">
           กรุณารอสักครู่ ระบบกำลังสื่อสารกับเซิร์ฟเวอร์อย่างปลอดภัย
         </p>
       </div>
@@ -126,7 +132,7 @@ const goBackToLogin = () => router.push('/login');
         </a>
       </template>
 
-      <p class="mt-4 text-center text-xs text-stone-500">ระบบจัดการห้องเรียน</p>
+      <p class="mt-4 text-center text-xs text-ink-3">ระบบจัดการห้องเรียน</p>
     </div>
   </div>
 </template>

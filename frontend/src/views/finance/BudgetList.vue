@@ -17,19 +17,19 @@
  */
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
+import AppSheet from '@/components/ui/AppSheet.vue';
 import PeriodPicker from '@/components/finance/PeriodPicker.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
-import { escapeHtml } from '@/utils/html';
 import { createLatestGuard } from '@/utils/latest';
+import { useDialog } from '@/composables/useDialog';
 import { formatThaiDate } from '@/utils/datetime';
 import {
   describePeriod,
@@ -45,9 +45,9 @@ import type {
   BudgetUpdatePayload,
   Category,
 } from '@/types/finance';
-import { UI_COLOR } from '@/constants/theme'
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 const currentRoomId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName ?? '—';
 
@@ -298,15 +298,14 @@ const submit = async () => {
     }
 
     closeModal();
-    Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: editing ? 'อัปเดตงบแล้ว' : 'ตั้งงบแล้ว',
       timer: 1500,
-      showConfirmButton: false,
     });
     await load();
   } catch (error: unknown) {
-    Swal.fire(
+    void dialog.alert(
       'บันทึกไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -319,24 +318,24 @@ const submit = async () => {
 const confirmDelete = async (item: BudgetItem) => {
   if (!canManageFinance.value) return;
 
-  const result = await Swal.fire({
-    icon: 'warning',
-    title: 'ลบงบประมาณนี้?',
-    // 🔒 escape เฉพาะชื่อหมวดที่ interpolate — มาร์กอัป (<b>, <br>, <span>) คงไว้ตามเดิม
-    html: `งบของ <b>${escapeHtml(item.category_name)}</b> ช่วง ${formatThaiDate(item.period_start)} – ${formatThaiDate(item.period_end)}<br><span class="text-sm">รายการจะหายจากหน้าจอ แต่ประวัติยังอยู่</span>`,
-    showCancelButton: true,
-    confirmButtonText: 'ลบงบ',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.danger,
-  });
+  const result = await dialog.confirm(
+    'ลบงบประมาณนี้?',
+    `งบของ ${item.category_name} ช่วง ${formatThaiDate(item.period_start)} – ${formatThaiDate(item.period_end)} — รายการจะหายจากหน้าจอ แต่ประวัติยังอยู่`,
+    {
+      icon: 'warning',
+      danger: true,
+      confirmButtonText: 'ลบงบ',
+      cancelButtonText: 'ยกเลิก',
+    },
+  );
   if (!result.isConfirmed) return;
 
   try {
     await FinanceService.deleteBudget(currentRoomId, item.budget_id, currentUserName);
-    Swal.fire({ icon: 'success', title: 'ลบแล้ว', timer: 1200, showConfirmButton: false });
+    await dialog.fire({ icon: 'success', title: 'ลบแล้ว', timer: 1200 });
     await load();
   } catch (error: unknown) {
-    Swal.fire(
+    void dialog.alert(
       'ลบไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -392,9 +391,7 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Budget Control"
-      title="งบประมาณ"
+    <PageIntro
       :description="`วงเงินและยอดใช้จริง — ${describePeriod(period)}`"
     >
       <template #actions>
@@ -408,12 +405,12 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           ตั้งงบประมาณ
         </button>
       </template>
-    </PageHeader>
+    </PageIntro>
 
     <!-- ตัวเลือกช่วงเวลา — เต็มความกว้างในเนื้อหา ไม่ยัดใน header เพราะมี 2 ช่องวันที่ -->
     <div class="page-card p-3.5 sm:p-4">
       <PeriodPicker v-model="period" :modes="['month', 'range']" label="ช่วงที่ต้องการดูงบ" />
-      <p class="mt-2 text-xs text-stone-500">
+      <p class="mt-2 text-xs text-ink-3">
         แสดงเฉพาะงบที่คาบเกี่ยวกับช่วงนี้ — ยอด "ใช้ไป" ของแต่ละแถวคิดจากช่วงของงบนั้นเอง
       </p>
     </div>
@@ -421,13 +418,13 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
     <!-- 🔎 มาจากแบนเนอร์ "เกินงบ" บนแดชบอร์ดการเงิน — บอกให้รู้ว่ากำลังกรองอะไรอยู่ -->
     <div
       v-if="overOnly"
-      class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-danger-200 bg-danger-50 px-3.5 py-2.5"
+      class="flex flex-wrap items-center justify-between gap-2 rounded-control border border-danger-200 bg-danger-50 px-3.5 py-2.5"
     >
       <p class="flex min-w-0 items-center gap-2 text-xs font-bold text-danger-700">
         <i class="bi bi-funnel-fill shrink-0" aria-hidden="true"></i>
         <span class="min-w-0">
           แสดงเฉพาะงบที่ใช้เกิน ({{ visibleItems.length }} รายการ)
-          <span class="block font-normal text-stone-600 sm:inline">
+          <span class="block font-normal text-ink-3 sm:inline">
             · ตัวเลข KPI ด้านล่างยังเป็นยอดรวมทั้งช่วง
           </span>
         </span>
@@ -471,34 +468,34 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
       <!-- KPI: งบรวม / ใช้ไป / คงเหลือ / เกินงบ -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold text-stone-500">งบรวม</p>
+          <p class="text-caption font-bold text-ink-3">งบรวม</p>
           <p
-            class="font-display num mt-2 break-words text-2xl font-bold text-stone-900 sm:text-3xl"
+            class="num mt-2 break-words text-2xl font-bold text-ink sm:text-3xl"
           >
             {{ formatMoney(overview?.total_budget ?? 0) }}
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-500">{{ items.length }} รายการ</p>
+          <p class="mt-1 text-xs font-bold text-ink-3">{{ items.length }} รายการ</p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold text-stone-500">ใช้ไป</p>
+          <p class="text-caption font-bold text-ink-3">ใช้ไป</p>
           <p
-            class="font-display num mt-2 break-words text-2xl font-bold text-brand-700 sm:text-3xl"
+            class="num mt-2 break-words text-2xl font-bold text-brand-700 sm:text-3xl"
           >
             {{ formatMoney(overview?.total_used ?? 0) }}
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-500">เฉพาะงบที่แสดงอยู่</p>
+          <p class="mt-1 text-xs font-bold text-ink-3">เฉพาะงบที่แสดงอยู่</p>
         </div>
 
         <div class="page-card p-3.5 sm:p-5">
-          <p class="text-[11px] font-bold text-stone-500">คงเหลือ</p>
+          <p class="text-caption font-bold text-ink-3">คงเหลือ</p>
           <p
-            class="font-display num mt-2 break-words text-2xl font-bold sm:text-3xl"
+            class="num mt-2 break-words text-2xl font-bold sm:text-3xl"
             :class="isTotalOver ? 'text-danger-600' : 'text-ok-600'"
           >
             {{ formatMoney(totalRemaining) }}
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-500">
+          <p class="mt-1 text-xs font-bold text-ink-3">
             {{ isTotalOver ? 'ใช้เกินงบรวมแล้ว' : 'งบรวม − ใช้ไป' }}
           </p>
         </div>
@@ -507,15 +504,15 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
           class="page-card p-3.5 sm:p-5"
           :class="(overview?.over_count ?? 0) > 0 ? 'border-s-4 border-s-danger-500' : ''"
         >
-          <p class="text-[11px] font-bold text-stone-500">เกินงบ</p>
+          <p class="text-caption font-bold text-ink-3">เกินงบ</p>
           <p
-            class="font-display num mt-2 text-2xl font-bold sm:text-3xl"
-            :class="(overview?.over_count ?? 0) > 0 ? 'text-danger-600' : 'text-stone-900'"
+            class="num mt-2 text-2xl font-bold sm:text-3xl"
+            :class="(overview?.over_count ?? 0) > 0 ? 'text-danger-600' : 'text-ink'"
           >
             {{ overview?.over_count ?? 0 }}
-            <span class="text-base font-bold text-stone-500">รายการ</span>
+            <span class="text-base font-bold text-ink-3">รายการ</span>
           </p>
-          <p class="mt-1 text-xs font-bold text-stone-500">
+          <p class="mt-1 text-xs font-bold text-ink-3">
             ใกล้เต็มอีก {{ overview?.warning_count ?? 0 }} รายการ
           </p>
         </div>
@@ -531,10 +528,10 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <h2 class="font-display min-w-0 truncate text-base font-bold text-stone-900">
+              <h2 class="min-w-0 truncate text-base font-bold text-ink">
                 {{ item.category_name }}
               </h2>
-              <p class="num mt-0.5 truncate text-[11px] font-bold text-stone-500">
+              <p class="num mt-0.5 truncate text-caption font-bold text-ink-3">
                 {{ formatThaiDate(item.period_start) }} – {{ formatThaiDate(item.period_end) }}
               </p>
             </div>
@@ -546,14 +543,14 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
 
           <div class="mt-3">
             <div class="flex items-baseline justify-between gap-2">
-              <p class="font-display num text-lg font-bold text-stone-900">
+              <p class="num text-lg font-bold text-ink">
                 {{ formatMoney(item.used) }}
               </p>
-              <p class="num shrink-0 text-xs font-bold text-stone-500">
+              <p class="num shrink-0 text-xs font-bold text-ink-3">
                 / {{ formatMoney(item.amount) }}
               </p>
             </div>
-            <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-stone-100">
+            <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-canvas">
               <div
                 class="h-full rounded-full transition-[width]"
                 :class="barClass(item)"
@@ -561,10 +558,10 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
               ></div>
             </div>
             <div class="mt-1.5 flex items-center justify-between gap-2">
-              <span class="num text-[11px] font-bold text-stone-500">{{ pctLabel(item) }}</span>
+              <span class="num text-caption font-bold text-ink-3">{{ pctLabel(item) }}</span>
               <span
-                class="num text-[11px] font-bold"
-                :class="item.remaining < 0 ? 'text-danger-600' : 'text-stone-500'"
+                class="num text-caption font-bold"
+                :class="item.remaining < 0 ? 'text-danger-600' : 'text-ink-3'"
               >
                 คงเหลือ {{ formatMoney(item.remaining) }}
               </span>
@@ -573,12 +570,12 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
 
           <p
             v-if="item.note"
-            class="mt-2.5 border-t border-stone-100 pt-2.5 text-xs text-stone-500"
+            class="mt-2.5 border-t border-line pt-2.5 text-xs text-ink-3"
           >
             {{ item.note }}
           </p>
 
-          <div v-if="canManageFinance" class="mt-3 flex items-center gap-2 border-t border-stone-100 pt-3">
+          <div v-if="canManageFinance" class="mt-3 flex items-center gap-2 border-t border-line pt-3">
             <button type="button" class="btn-ghost-ui min-w-0 flex-1" @click="openEdit(item)">
               <i class="bi bi-pencil" aria-hidden="true"></i>
               แก้ไข
@@ -615,15 +612,15 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                 :class="item.is_over ? 'border-s-4 border-s-danger-500' : ''"
               >
                 <td>
-                  <p class="font-bold text-stone-900">{{ item.category_name }}</p>
-                  <p v-if="item.note" class="mt-0.5 max-w-xs truncate text-xs text-stone-500">
+                  <p class="font-bold text-ink">{{ item.category_name }}</p>
+                  <p v-if="item.note" class="mt-0.5 max-w-xs truncate text-xs text-ink-3">
                     {{ item.note }}
                   </p>
                 </td>
-                <td class="num whitespace-nowrap text-stone-500">
+                <td class="num whitespace-nowrap text-ink-3">
                   {{ formatThaiDate(item.period_start) }} – {{ formatThaiDate(item.period_end) }}
                 </td>
-                <td class="num whitespace-nowrap text-right font-bold text-stone-900">
+                <td class="num whitespace-nowrap text-right font-bold text-ink">
                   {{ formatMoney(item.amount) }}
                 </td>
                 <td class="num whitespace-nowrap text-right font-bold text-brand-700">
@@ -631,19 +628,19 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
                 </td>
                 <td
                   class="num whitespace-nowrap text-right font-bold"
-                  :class="item.remaining < 0 ? 'text-danger-600' : 'text-stone-700'"
+                  :class="item.remaining < 0 ? 'text-danger-600' : 'text-ink-2'"
                 >
                   {{ formatMoney(item.remaining) }}
                 </td>
                 <td>
-                  <div class="h-2 w-full overflow-hidden rounded-full bg-stone-100">
+                  <div class="h-2 w-full overflow-hidden rounded-full bg-canvas">
                     <div
                       class="h-full rounded-full transition-[width]"
                       :class="barClass(item)"
                       :style="{ width: barWidth(item) }"
                     ></div>
                   </div>
-                  <p class="num mt-1 text-[11px] font-bold text-stone-500">{{ pctLabel(item) }}</p>
+                  <p class="num mt-1 text-caption font-bold text-ink-3">{{ pctLabel(item) }}</p>
                 </td>
                 <td class="text-center">
                   <span class="chip" :class="STATUS_CHIP[statusOf(item)].cls">
@@ -677,13 +674,13 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
 
       <!-- แถบสรุปรวม — บนเดสก์ท็อปยอดรวมอยู่ใน KPI แล้ว จึงแสดงเฉพาะที่ตารางเพื่อเทียบรายแถว -->
       <div class="page-card hidden items-center justify-between gap-4 p-4 lg:flex">
-        <p class="text-sm font-bold text-stone-500">
+        <p class="text-sm font-bold text-ink-3">
           รวม {{ items.length }} รายการ · เกินงบ {{ overview?.over_count ?? 0 }} · ใกล้เต็ม
           {{ overview?.warning_count ?? 0 }}
         </p>
         <p
-          class="num font-display text-lg font-bold"
-          :class="isTotalOver ? 'text-danger-600' : 'text-stone-900'"
+          class="num text-lg font-bold"
+          :class="isTotalOver ? 'text-danger-600' : 'text-ink'"
         >
           ใช้ไป {{ formatMoney(overview?.total_used ?? 0) }} /
           {{ formatMoney(overview?.total_budget ?? 0) }}
@@ -691,123 +688,97 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
       </div>
     </template>
 
-    <!-- ตั้ง/แก้ไขงบ: bottom sheet บนมือถือ / modal กลางจอบนเดสก์ท็อป (pattern เดียวกับ DebtorList) -->
-    <div
-      v-if="isModalOpen && canManageFinance"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/40 md:items-center md:p-4"
+    <!-- ตั้ง/แก้ไขงบ: bottom sheet บนมือถือ / modal กลางจอบนเดสก์ท็อป -->
+    <AppSheet
+      v-if="canManageFinance"
+      :open="isModalOpen"
+      label="ตั้งงบประมาณ"
+      :title="isEditing ? 'แก้ไขงบประมาณ' : 'ตั้งงบประมาณ'"
+      description="วงเงินต่อหมวดในช่วงวันที่ที่กำหนด — ระบบคิดเดือน/ปีให้เองจากช่วงนี้"
+      size="form"
+      :dismissible="!isSaving"
+      @close="closeModal"
     >
-      <div
-        class="flex max-h-[90vh] w-full max-w-lg flex-col rounded-t-3xl border border-stone-200 bg-white md:max-h-[85vh] md:rounded-2xl"
-      >
-        <div
-          class="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-4 py-4 sm:px-6"
-        >
-          <div class="min-w-0">
-            <h2 class="font-display truncate text-lg font-bold text-stone-900">
-              {{ isEditing ? 'แก้ไขงบประมาณ' : 'ตั้งงบประมาณ' }}
-            </h2>
-            <p class="mt-0.5 truncate text-xs text-stone-500">
-              วงเงินต่อหมวดในช่วงวันที่ที่กำหนด — ระบบคิดเดือน/ปีให้เองจากช่วงนี้
-            </p>
-          </div>
-          <button
-            type="button"
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900 active:scale-[0.97]"
-            aria-label="ปิดหน้าต่าง"
-            @click="closeModal"
-          >
-            <i class="bi bi-x-lg text-lg" aria-hidden="true"></i>
-          </button>
+      <div class="space-y-4">
+        <div>
+          <label class="field-label" for="budgetCategory">หมวดหมู่</label>
+          <!-- หมวดย้ายไม่ได้หลังสร้างแล้ว — backend ไม่รับ category_id ใน PATCH -->
+          <select id="budgetCategory" v-model="formCategoryId" class="field" :disabled="isEditing">
+            <option value="" disabled>— เลือกหมวดหมู่ —</option>
+            <option v-for="c in categoryOptions" :key="c.id" :value="String(c.id)">
+              {{ c.label }}{{ c.alreadyBudgeted ? ' · มีงบอยู่แล้ว' : '' }}
+            </option>
+          </select>
+          <p v-if="isEditing" class="mt-1 text-xs text-ink-3">
+            เปลี่ยนหมวดไม่ได้ — ถ้าต้องการย้าย ให้ลบงบนี้แล้วสร้างใหม่
+          </p>
+          <p v-else-if="!categoryOptions.length" class="mt-1 text-xs text-warn-700">
+            ยังไม่มีหมวดหมู่ในห้องนี้ — เพิ่มได้ที่หน้าตั้งค่าการเงิน
+          </p>
         </div>
 
-        <div class="flex-1 overflow-y-auto overscroll-contain bg-stone-50/50 p-4 sm:p-6">
-          <div class="space-y-4">
-            <div>
-              <label class="field-label" for="budgetCategory">หมวดหมู่</label>
-              <!-- หมวดย้ายไม่ได้หลังสร้างแล้ว — backend ไม่รับ category_id ใน PATCH -->
-              <select
-                id="budgetCategory"
-                v-model="formCategoryId"
-                class="field"
-                :disabled="isEditing"
-              >
-                <option value="" disabled>— เลือกหมวดหมู่ —</option>
-                <option v-for="c in categoryOptions" :key="c.id" :value="String(c.id)">
-                  {{ c.label }}{{ c.alreadyBudgeted ? ' · มีงบอยู่แล้ว' : '' }}
-                </option>
-              </select>
-              <p v-if="isEditing" class="mt-1 text-xs text-stone-500">
-                เปลี่ยนหมวดไม่ได้ — ถ้าต้องการย้าย ให้ลบงบนี้แล้วสร้างใหม่
-              </p>
-              <p v-else-if="!categoryOptions.length" class="mt-1 text-xs text-warn-700">
-                ยังไม่มีหมวดหมู่ในห้องนี้ — เพิ่มได้ที่หน้าตั้งค่าการเงิน
-              </p>
-            </div>
-
-            <div>
-              <label class="field-label" for="budgetAmount">วงเงิน (บาท)</label>
-              <div class="relative">
-                <span
-                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3 text-sm font-bold text-stone-500"
-                  aria-hidden="true"
-                >
-                  ฿
-                </span>
-                <input
-                  id="budgetAmount"
-                  v-model="formAmount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputmode="decimal"
-                  class="field num ps-7 text-right"
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label class="field-label" for="budgetStart">วันเริ่มต้น</label>
-                <input id="budgetStart" v-model="formStart" type="date" class="field num" />
-              </div>
-              <div>
-                <label class="field-label" for="budgetEnd">วันสิ้นสุด</label>
-                <input id="budgetEnd" v-model="formEnd" type="date" class="field num" />
-              </div>
-            </div>
-            <p class="text-xs text-stone-500">
-              ใส่ให้ครอบทั้งเดือน (1 ถึงวันสุดท้ายของเดือน) ระบบจะติดป้ายเป็นงบ "รายเดือน" ให้เอง —
-              ช่วงอื่นที่ไม่ตรงเดือน/ปี จะถูกติดป้ายเป็น "กำหนดเอง"
-            </p>
-
-            <div>
-              <label class="field-label" for="budgetNote">หมายเหตุ (ถ้ามี)</label>
-              <input
-                id="budgetNote"
-                v-model="formNote"
-                type="text"
-                maxlength="255"
-                class="field"
-                placeholder="เช่น งบอาหารกลางวันภาคเรียนที่ 1"
-              />
-            </div>
-
-            <!-- สองระดับ: แดง = บันทึกไม่ได้ (ดักไว้ก่อน), เหลือง = บันทึกได้แต่ backend อาจตีกลับ -->
-            <p v-if="formError" class="chip w-full justify-start bg-danger-50 text-danger-700">
-              <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
-              {{ formError }}
-            </p>
-            <p v-else-if="formWarning" class="chip w-full justify-start bg-warn-50 text-warn-700">
-              <i class="bi bi-info-circle" aria-hidden="true"></i>
-              {{ formWarning }}
-            </p>
+        <div>
+          <label class="field-label" for="budgetAmount">วงเงิน (บาท)</label>
+          <div class="relative">
+            <span
+              class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3 text-sm font-bold text-ink-3"
+              aria-hidden="true"
+            >
+              ฿
+            </span>
+            <input
+              id="budgetAmount"
+              v-model="formAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              inputmode="decimal"
+              class="field num ps-7 text-right"
+              placeholder="0.00"
+            />
           </div>
         </div>
 
-        <div
-          class="flex shrink-0 flex-col gap-3 border-t border-stone-200 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:flex-row sm:items-center sm:justify-end sm:px-6 sm:pt-4 sm:pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
-        >
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="field-label" for="budgetStart">วันเริ่มต้น</label>
+            <input id="budgetStart" v-model="formStart" type="date" class="field num" />
+          </div>
+          <div>
+            <label class="field-label" for="budgetEnd">วันสิ้นสุด</label>
+            <input id="budgetEnd" v-model="formEnd" type="date" class="field num" />
+          </div>
+        </div>
+        <p class="text-xs text-ink-3">
+          ใส่ให้ครอบทั้งเดือน (1 ถึงวันสุดท้ายของเดือน) ระบบจะติดป้ายเป็นงบ "รายเดือน" ให้เอง —
+          ช่วงอื่นที่ไม่ตรงเดือน/ปี จะถูกติดป้ายเป็น "กำหนดเอง"
+        </p>
+
+        <div>
+          <label class="field-label" for="budgetNote">หมายเหตุ (ถ้ามี)</label>
+          <input
+            id="budgetNote"
+            v-model="formNote"
+            type="text"
+            maxlength="255"
+            class="field"
+            placeholder="เช่น งบอาหารกลางวันภาคเรียนที่ 1"
+          />
+        </div>
+
+        <!-- สองระดับ: แดง = บันทึกไม่ได้ (ดักไว้ก่อน), เหลือง = บันทึกได้แต่ backend อาจตีกลับ -->
+        <p v-if="formError" class="chip w-full justify-start bg-danger-50 text-danger-700">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+          {{ formError }}
+        </p>
+        <p v-else-if="formWarning" class="chip w-full justify-start bg-warn-50 text-warn-700">
+          <i class="bi bi-info-circle" aria-hidden="true"></i>
+          {{ formWarning }}
+        </p>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <button type="button" class="btn-ghost-ui w-full sm:w-auto" @click="closeModal">
             ยกเลิก
           </button>
@@ -825,8 +796,8 @@ const statusOf = (item: BudgetItem) => (item.is_over ? 'over' : item.is_near ? '
             {{ isSaving ? 'กำลังบันทึก...' : isEditing ? 'บันทึกการแก้ไข' : 'ตั้งงบประมาณ' }}
           </button>
         </div>
-      </div>
-    </div>
+      </template>
+    </AppSheet>
   </div>
 </template>
 

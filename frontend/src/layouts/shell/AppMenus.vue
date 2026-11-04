@@ -1,44 +1,25 @@
 <script setup lang="ts">
 /**
- * 🗂️ Dropdown ที่ Teleport ไป body — สลับห้องเรียน และเมนูโปรไฟล์
+ * 🗂️ Dropdown สลับห้องเรียน — Teleport ไป body เพื่อไม่ให้ z-index แพ้ stacking
+ * context ของ layout
  *
- * รวมไว้ไฟล์เดียวเพราะใช้สไตล์/การวางตำแหน่งชุดเดียวกัน และถูกเปิดจาก header ที่เดียว
+ * เหลือเมนูเดียวโดยเจตนา: งานบัญชี/โปรไฟล์ย้ายไปหน้า "เพิ่มเติม" และ `/account`
+ * ⇒ header ไม่ต้องถือสถานะเมนูโปรไฟล์อีก
  */
-import { onMounted, ref } from 'vue';
 import type { UserRoom } from '@/types/classroom';
 import type { ShellMenu } from './useAppShell';
-import { VersionService } from '@/services/version';
 
 defineProps<{
   which: ShellMenu | null;
   position: { top: string; left: string; bottom?: string };
   rooms: readonly UserRoom[];
   currentRoomId: number | null;
-  userName: string;
-  roleLabel: string;
-  avatarChar: string;
 }>();
-
-// แสดง v<version> · <sha> จาก backend จริง — ถ้าเรียกไม่ได้ใช้ค่าที่ฝังตอน build
-const versionLabel = ref(`v${__APP_VERSION__}`);
-
-onMounted(async () => {
-  try {
-    const info = await VersionService.getVersion();
-    const sha = info.git_sha === 'unknown' ? 'dev' : info.git_sha.slice(0, 7);
-    versionLabel.value = `v${info.version} · ${sha}`;
-  } catch {
-    // backend ไม่ตอบ — คงเวอร์ชันจาก package.json ไว้
-  }
-});
 
 const emit = defineEmits<{
   close: [];
   selectRoom: [room: UserRoom];
   changeRoom: [];
-  myProfile: [];
-  profileSettings: [];
-  logout: [];
 }>();
 </script>
 
@@ -46,18 +27,15 @@ const emit = defineEmits<{
   <Teleport to="body">
     <div v-if="which" class="fixed inset-0 z-[70]" @click="emit('close')"></div>
 
-    <!-- สลับห้องเรียน -->
     <Transition name="dropdown-anim">
       <div
         v-if="which === 'roomSwitcher'"
-        class="fixed z-[80] w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white py-1.5 shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
+        class="fixed z-[80] w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-card border border-line bg-surface py-1.5 shadow-lg"
         :style="position"
         role="menu"
         aria-label="สลับห้องเรียน"
       >
-        <p
-          class="mb-1 border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[10px] font-bold text-stone-500"
-        >
+        <p class="border-b border-line px-4 py-2.5 text-caption font-semibold text-ink-3">
           ห้องเรียนของฉัน
         </p>
 
@@ -67,101 +45,36 @@ const emit = defineEmits<{
             :key="room.room_id"
             type="button"
             role="menuitem"
-            class="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-brand-50"
+            class="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-canvas"
             @click.stop="emit('selectRoom', room)"
           >
             <i
               :class="[
                 'bi text-base',
                 room.room_id === currentRoomId
-                  ? 'bi-check-circle-fill text-brand-700'
-                  : 'bi-circle text-stone-300',
+                  ? 'bi-check-circle-fill text-brand'
+                  : 'bi-circle text-ink-3',
               ]"
               aria-hidden="true"
             ></i>
             <span class="min-w-0 flex-1">
-              <span class="block truncate text-sm font-bold text-stone-700">
+              <span class="block truncate text-sm font-semibold text-ink-1">
                 {{ room.room_name }}
               </span>
             </span>
           </button>
         </div>
 
-        <div class="mx-3 my-1.5 h-px bg-stone-100"></div>
+        <div class="mx-3 my-1.5 h-px bg-line"></div>
         <button
           type="button"
           role="menuitem"
-          class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-brand-50 hover:text-brand-700"
+          class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-2 transition-colors hover:bg-canvas hover:text-brand"
           @click.stop="emit('changeRoom')"
         >
-          <i class="bi bi-grid-3x3-gap text-base opacity-70" aria-hidden="true"></i>
+          <i class="bi bi-grid-3x3-gap text-base" aria-hidden="true"></i>
           ดูห้องทั้งหมด
         </button>
-      </div>
-    </Transition>
-
-    <!-- โปรไฟล์ -->
-    <Transition name="dropdown-anim">
-      <div
-        v-if="which === 'headerSettings'"
-        class="fixed z-[80] flex w-64 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-[0_16px_40px_-16px_rgba(28,25,23,0.3)]"
-        :style="position"
-        role="menu"
-        aria-label="เมนูโปรไฟล์"
-      >
-        <div class="flex items-center gap-3 border-b border-stone-100 bg-stone-50/70 px-5 py-4">
-          <div
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-700 text-base font-bold text-white"
-          >
-            {{ avatarChar }}
-          </div>
-          <div class="min-w-0">
-            <p class="truncate text-sm font-bold leading-tight text-stone-800">{{ userName }}</p>
-            <p class="mt-0.5 truncate text-[11px] font-bold text-brand-700">{{ roleLabel }}</p>
-          </div>
-        </div>
-        <div class="py-1.5">
-          <button
-            type="button"
-            role="menuitem"
-            class="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-50 hover:text-brand-700"
-            @click.stop="emit('myProfile')"
-          >
-            <i class="bi bi-person-badge text-lg opacity-70" aria-hidden="true"></i>
-            โปรไฟล์ของฉัน
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            class="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-50 hover:text-brand-700"
-            @click.stop="emit('profileSettings')"
-          >
-            <i class="bi bi-link-45deg text-xl opacity-70" aria-hidden="true"></i>
-            จัดการบัญชีเชื่อมต่อ
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            class="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm font-bold text-stone-600 transition-colors hover:bg-stone-50 hover:text-brand-700"
-            @click.stop="emit('changeRoom')"
-          >
-            <i class="bi bi-grid-3x3-gap text-base opacity-70" aria-hidden="true"></i>
-            สลับห้องเรียน
-          </button>
-        </div>
-        <div class="border-t border-stone-100 bg-stone-50/60 p-2">
-          <button
-            type="button"
-            role="menuitem"
-            class="w-full rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-center text-sm font-bold text-danger-600 transition-colors hover:border-danger-200 hover:bg-danger-50"
-            @click.stop="emit('logout')"
-          >
-            ออกจากระบบ
-          </button>
-          <p class="mt-2 text-center text-[10px] font-medium text-stone-500">
-            {{ versionLabel }}
-          </p>
-        </div>
       </div>
     </Transition>
   </Teleport>

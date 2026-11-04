@@ -15,11 +15,11 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import { useDialog } from '@/composables/useDialog';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
@@ -30,6 +30,7 @@ import type { ReceiptDetail } from '@/types/finance';
 
 const route = useRoute();
 const authStore = useAuthStore();
+const dialog = useDialog();
 const currentRoomId = authStore.currentRoomId!;
 
 const receiptNo = String(route.params.receiptNo ?? '');
@@ -115,7 +116,7 @@ const downloadPdf = async () => {
     downloadBlob(blob, `${detail.value.doc_type}-${detail.value.receipt_no}.pdf`);
   } catch (error: unknown) {
     // 502 = Gotenberg ล่ม/เรนเดอร์ไม่ผ่าน (ไม่ใช่ 500 ของโค้ดเรา) — service แปลงเป็นไทยให้แล้ว
-    Swal.fire(
+    void dialog.alert(
       'สร้างไฟล์ PDF ไม่สำเร็จ',
       error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
       'error',
@@ -132,11 +133,9 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Finance Document"
-      :title="detail?.receipt_no || 'รายละเอียดเอกสาร'"
+    <PageIntro
       :description="detail?.doc_type_label || 'เอกสารการเงิน'"
-    ></PageHeader>
+    ></PageIntro>
 
     <SkeletonRows v-if="isLoading" :rows="4" height="h-20" />
 
@@ -154,47 +153,47 @@ onMounted(() => {
       <div class="page-card p-4 sm:p-6">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="min-w-0">
-            <h2 class="font-display text-lg font-bold text-stone-900">
+            <h2 class="text-lg font-bold text-ink">
               {{ detail.doc_type_label || detail.doc_type }}
             </h2>
-            <p class="text-sm text-stone-500">
+            <p class="text-sm text-ink-3">
               {{ detail.room_name || '—' }}
               <span v-if="detail.room_code" class="num">({{ detail.room_code }})</span>
             </p>
           </div>
           <div class="shrink-0 sm:text-right">
-            <p class="num font-display text-base font-bold text-stone-900">
+            <p class="num text-base font-bold text-ink">
               เลขที่ {{ detail.receipt_no }}
             </p>
-            <p class="num text-xs text-stone-500">
+            <p class="num text-xs text-ink-3">
               วันที่ {{ formatThaiDateTime(detail.issued_at) }}
             </p>
           </div>
         </div>
 
-        <hr class="my-4 border-t-2 border-stone-900" />
+        <hr class="my-4 border-t-2 border-ink" />
 
         <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div>
-            <dt class="text-xs font-bold text-stone-500">
+            <dt class="text-xs font-bold text-ink-3">
               <!-- ⚠️ ใบแจ้งหนี้ "ยังไม่ได้รับเงิน" — ใช้ "ได้รับเงินจาก" ไม่ได้ (ความหมายผิด)
                    💸 ใบสำคัญจ่าย "จ่ายออก" — ใช้ได้แค่ "ผู้เบิก/ผู้รับเงิน" -->
               {{ isVoucher ? 'ผู้เบิก/ผู้รับเงิน' : isReceipt ? 'ได้รับเงินจาก' : 'เรียกเก็บจาก' }}
             </dt>
-            <dd class="mt-0.5 font-bold text-stone-900">
+            <dd class="mt-0.5 font-bold text-ink">
               {{ detail.issued_to_name || '—' }}
-              <span v-if="detail.student_no" class="num text-sm font-normal text-stone-500">
+              <span v-if="detail.student_no" class="num text-sm font-normal text-ink-3">
                 — เลขที่ {{ detail.student_no }}
               </span>
             </dd>
           </div>
 
           <div>
-            <dt class="text-xs font-bold text-stone-500">
+            <dt class="text-xs font-bold text-ink-3">
               <!-- 💸 ใบสำคัญจ่ายไม่มีแคมเปญ — สิ่งที่ต้องรู้คือ "หมวดหมู่" ที่ตัดงบ -->
               {{ isVoucher ? 'หมวดหมู่งบประมาณ' : 'รายการ' }}
             </dt>
-            <dd class="mt-0.5 text-stone-700">
+            <dd class="mt-0.5 text-ink-2">
               <template v-if="isVoucher">{{ detail.category_name || '—' }}</template>
               <template v-else>
                 <RouterLink
@@ -210,15 +209,15 @@ onMounted(() => {
           </div>
 
           <div v-if="detail.collection_due_date">
-            <dt class="text-xs font-bold text-stone-500">กำหนดชำระ</dt>
-            <dd class="num mt-0.5 text-stone-700">
+            <dt class="text-xs font-bold text-ink-3">กำหนดชำระ</dt>
+            <dd class="num mt-0.5 text-ink-2">
               {{ formatThaiDate(detail.collection_due_date) }}
             </dd>
           </div>
 
           <div>
-            <dt class="text-xs font-bold text-stone-500">ผู้ออกเอกสาร</dt>
-            <dd class="mt-0.5 text-stone-700">{{ detail.issued_by_name || '—' }}</dd>
+            <dt class="text-xs font-bold text-ink-3">ผู้ออกเอกสาร</dt>
+            <dd class="mt-0.5 text-ink-2">{{ detail.issued_by_name || '—' }}</dd>
           </div>
         </dl>
 
@@ -230,7 +229,7 @@ onMounted(() => {
                 ส่วนจอนี้ **ไม่ตัด** เพราะเลื่อนดูได้ ⇒ จอนี้คือ "รายละเอียดทั้งหมด"
                 ที่กระดาษอ้างถึง — ข้อมูลชุดเดียวกัน แค่กระดาษเห็นไม่ครบทุกบรรทัด -->
         <section v-if="detail.line_items?.length" class="mt-4">
-          <h3 class="text-xs font-bold text-stone-500">
+          <h3 class="text-xs font-bold text-ink-3">
             รายการที่ค้างชำระ ({{ detail.line_items.length }} โครงการ)
           </h3>
 
@@ -239,17 +238,17 @@ onMounted(() => {
             <li
               v-for="(item, index) in detail.line_items"
               :key="`${index}-${item.title}`"
-              class="flex items-start justify-between gap-3 rounded-xl border border-stone-200 px-3 py-2"
+              class="flex items-start justify-between gap-3 rounded-control border border-line px-3 py-2"
             >
               <div class="min-w-0">
-                <p class="text-sm font-bold text-stone-900">
+                <p class="text-sm font-bold text-ink">
                   {{ item.title || 'รายการชำระเงิน' }}
                 </p>
-                <p v-if="item.due_date" class="num text-xs text-stone-500">
+                <p v-if="item.due_date" class="num text-xs text-ink-3">
                   กำหนดชำระ {{ formatThaiDate(item.due_date) }}
                 </p>
               </div>
-              <span class="num shrink-0 text-sm text-stone-900">{{ formatMoney(item.amount) }}</span>
+              <span class="num shrink-0 text-sm text-ink">{{ formatMoney(item.amount) }}</span>
             </li>
           </ul>
 
@@ -268,7 +267,7 @@ onMounted(() => {
                   <td class="num">{{ index + 1 }}</td>
                   <td>
                     {{ item.title || 'รายการชำระเงิน' }}
-                    <span v-if="item.due_date" class="num text-xs text-stone-500">
+                    <span v-if="item.due_date" class="num text-xs text-ink-3">
                       (กำหนดชำระ {{ formatThaiDate(item.due_date) }})
                     </span>
                   </td>
@@ -285,7 +284,7 @@ onMounted(() => {
           </div>
 
           <p
-            class="num mt-2 flex items-center justify-between gap-3 rounded-xl bg-stone-50 px-3 py-2 text-sm font-bold text-stone-900 lg:hidden"
+            class="num mt-2 flex items-center justify-between gap-3 rounded-control bg-canvas px-3 py-2 text-sm font-bold text-ink lg:hidden"
           >
             <span>รวมทั้งสิ้น</span>
             <span>{{ formatMoney(detail.amount) }}</span>
@@ -294,12 +293,12 @@ onMounted(() => {
 
         <!-- 💰 กล่องยอดเงิน + คำอ่าน — หัวใจของเอกสาร ใช้ดีไซน์เดียวกับ .amount-box ใน PDF -->
         <div
-          class="mt-4 flex flex-col gap-1.5 rounded-2xl border-2 border-stone-900 px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
+          class="mt-4 flex flex-col gap-1.5 rounded-card border-2 border-ink px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
         >
-          <span class="font-display text-base font-bold text-stone-900">
+          <span class="text-base font-bold text-ink">
             ({{ detail.amount_text || '—' }})
           </span>
-          <span class="font-display num text-xl font-bold text-stone-900">
+          <span class="num text-xl font-bold text-ink">
             {{ formatMoney(detail.amount) }}
           </span>
         </div>
@@ -309,21 +308,21 @@ onMounted(() => {
                 ช่องว่างบนใบจ่ายอ่านได้ว่า "ไม่มีงบ" ซึ่งต่างจาก "ยังไม่ได้ตั้งงบ" -->
         <dl v-if="isVoucher" class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div v-if="voucherChannel">
-            <dt class="text-xs font-bold text-stone-500">จ่ายเงินผ่าน</dt>
-            <dd class="mt-0.5 text-stone-700">
+            <dt class="text-xs font-bold text-ink-3">จ่ายเงินผ่าน</dt>
+            <dd class="mt-0.5 text-ink-2">
               {{ voucherChannel }}
-              <span v-if="detail.account_name" class="text-stone-500">({{ detail.account_name }})</span>
+              <span v-if="detail.account_name" class="text-ink-3">({{ detail.account_name }})</span>
             </dd>
           </div>
 
           <div v-if="detail.approver_name">
-            <dt class="text-xs font-bold text-stone-500">ผู้อนุมัติ</dt>
-            <dd class="mt-0.5 text-stone-700">{{ detail.approver_name }}</dd>
+            <dt class="text-xs font-bold text-ink-3">ผู้อนุมัติ</dt>
+            <dd class="mt-0.5 text-ink-2">{{ detail.approver_name }}</dd>
           </div>
 
           <div>
-            <dt class="text-xs font-bold text-stone-500">เอกสารแนบ</dt>
-            <dd class="mt-0.5 text-stone-700">
+            <dt class="text-xs font-bold text-ink-3">เอกสารแนบ</dt>
+            <dd class="mt-0.5 text-ink-2">
               <template v-if="detail.attachment_count > 0">
                 แนบมาด้วย <span class="num">{{ detail.attachment_count }}</span> ใบ
                 (บิลเงินสด/ใบเสร็จจากร้านค้า)
@@ -333,10 +332,10 @@ onMounted(() => {
           </div>
 
           <div class="sm:col-span-2">
-            <dt class="text-xs font-bold text-stone-500">
+            <dt class="text-xs font-bold text-ink-3">
               หมวดหมู่งบประมาณ (F2)
             </dt>
-            <dd class="mt-0.5 text-stone-700">
+            <dd class="mt-0.5 text-ink-2">
               <!-- ⚠️ `.length` ตรง ๆ **โดยเจตนา ไม่เติม `?.`** — คีย์นี้ backend รับประกัน
                    ว่ามีเสมอ (`VoucherFields` ใน models/finance_schemas.py + เทสต์ที่ยิง
                    เส้นทาง JSON ตรง ๆ) ⇒ ถ้าวันหนึ่งมันหายไปอีก ให้ **throw** แล้วรู้ตัว
@@ -368,21 +367,21 @@ onMounted(() => {
                 (`collection_amount` เป็น NULL) ⇒ แสดงไปก็มีแต่ทำให้อ่านผิด -->
         <dl v-else class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <div v-if="detail.collection_amount !== null">
-            <dt class="text-xs font-bold text-stone-500">
+            <dt class="text-xs font-bold text-ink-3">
               ยอดเต็มของรายการ
             </dt>
-            <dd class="num mt-0.5 text-stone-700">{{ formatMoney(detail.collection_amount) }}</dd>
+            <dd class="num mt-0.5 text-ink-2">{{ formatMoney(detail.collection_amount) }}</dd>
           </div>
 
           <div>
-            <dt class="text-xs font-bold uppercase tracking-wider text-stone-500">
+            <dt class="text-xs font-bold text-ink-3">
               {{ paidTotalLabel }}
             </dt>
-            <dd class="num mt-0.5 text-stone-700">{{ formatMoney(detail.paid_total_after) }}</dd>
+            <dd class="num mt-0.5 text-ink-2">{{ formatMoney(detail.paid_total_after) }}</dd>
           </div>
 
           <div v-if="remaining !== null">
-            <dt class="text-xs font-bold text-stone-500">
+            <dt class="text-xs font-bold text-ink-3">
               {{ isReceipt ? 'คงเหลือ' : 'ยอดค้างชำระ' }}
             </dt>
             <dd
@@ -394,9 +393,9 @@ onMounted(() => {
           </div>
         </dl>
 
-        <p v-if="detail.note" class="mt-4 text-sm text-stone-500">หมายเหตุ: {{ detail.note }}</p>
+        <p v-if="detail.note" class="mt-4 text-sm text-ink-3">หมายเหตุ: {{ detail.note }}</p>
 
-        <p class="num mt-5 text-center text-[11px] text-stone-500">
+        <p class="num mt-5 text-center text-caption text-ink-3">
           เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ detail.receipt_no }}
         </p>
       </div>
@@ -407,7 +406,7 @@ onMounted(() => {
           class="bi bi-info-circle mt-0.5 shrink-0 text-lg text-brand-700"
           aria-hidden="true"
         ></i>
-        <p class="text-sm leading-relaxed text-stone-600">
+        <p class="text-sm leading-relaxed text-ink-2">
           <template v-if="isVoucher">
             ใบสำคัญจ่ายผูกกับ <b>รายจ่ายที่บันทึกไว้</b> หนึ่งรายการ — พิมพ์ซ้ำได้เลขเดิมเสมอ
             <br />💰 หมวดหมู่/ช่องทางจ่าย/งบประมาณบนใบนี้เป็น <b>snapshot ณ วันที่ออกเอกสาร</b>

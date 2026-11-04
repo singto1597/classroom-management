@@ -4,10 +4,13 @@ import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { ScheduleService } from '@/services/schedule'
 import { todayIso } from '@/utils/datetime'
-import Swal from 'sweetalert2'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import AppTabs from '@/components/ui/AppTabs.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
+import { useDialog } from '@/composables/useDialog'
+import type { AppTabItem } from '@/components/ui/AppTabs.vue'
 
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 // ดึงข้อความ error จาก backend แบบปลอดภัย (catch ได้ unknown) — คงรูปแบบเดิมของโปรเจค
 // ที่อ่าน detail จาก response ของ axios ไว้
@@ -29,6 +32,17 @@ const canManageSchedule = computed(
 const activeTab = ref<'default' | 'override'>('default')
 const isSubmitting = ref(false)
 
+const tabs: AppTabItem[] = [
+  { value: 'default', label: 'ตารางปกติ' },
+  { value: 'override', label: 'ข้อยกเว้นพิเศษ' },
+]
+
+// AppTabs ส่ง string กลับมา — แคบชนิดให้ตรงกับ union ก่อนเขียนลง state
+const setTab = (value: string) => {
+  if (value !== 'default' && value !== 'override') return
+  activeTab.value = value
+}
+
 const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์']
 
 const defaultForm = reactive({
@@ -49,7 +63,8 @@ const overrideForm = reactive({
 const handleSaveDefault = async () => {
   // Guard ดักฝั่ง Script ป้องกันนักเรียนแอบยิง API
   if (!canManageSchedule.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้', 'error')
+    return
   }
 
   if (!defaultForm.attire || !defaultForm.subjects) return
@@ -60,18 +75,13 @@ const handleSaveDefault = async () => {
       ...defaultForm,
       user_name: currentUserName
     })
-    Swal.fire({
+    await dialog.fire({
       icon: 'success',
-      titleText: `บันทึกตารางวัน${defaultForm.day_of_week} เรียบร้อยแล้ว!`,
+      title: `บันทึกตารางวัน${defaultForm.day_of_week} เรียบร้อยแล้ว!`,
       timer: 2000,
-      showConfirmButton: false
     })
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถบันทึกตารางได้'
-    })
+    void dialog.alert('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถบันทึกตารางได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -80,7 +90,8 @@ const handleSaveDefault = async () => {
 const handleSaveOverride = async () => {
   // Guard ดักฝั่ง Script
   if (!canManageSchedule.value) {
-    return Swal.fire('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้', 'error')
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้', 'error')
+    return
   }
 
   if (!overrideForm.new_attire || !overrideForm.note) return
@@ -91,18 +102,13 @@ const handleSaveOverride = async () => {
       ...overrideForm,
       user_name: currentUserName
     })
-    Swal.fire({
+    await dialog.fire({
       icon: 'success',
-      titleText: `ตั้งข้อยกเว้นสำหรับวันที่ ${overrideForm.target_date} เรียบร้อย!`,
+      title: `ตั้งข้อยกเว้นสำหรับวันที่ ${overrideForm.target_date} เรียบร้อย!`,
       timer: 2000,
-      showConfirmButton: false
     })
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'เกิดข้อผิดพลาด',
-      text: apiErrorDetail(error) || 'ไม่สามารถบันทึกข้อยกเว้นได้'
-    })
+    void dialog.alert('เกิดข้อผิดพลาด', apiErrorDetail(error) || 'ไม่สามารถบันทึกข้อยกเว้นได้', 'error')
   } finally {
     isSubmitting.value = false
   }
@@ -112,35 +118,20 @@ const handleSaveOverride = async () => {
 <template>
   <div class="space-y-4 sm:space-y-5">
     <!-- ไม่มีปุ่มใน #actions: ทางออกมาจากปุ่มย้อนของ header (route meta `headerBack`) -->
-    <PageHeader
-      eyebrow="Class Schedule"
-      title="จัดการตารางเรียน"
+    <PageIntro
       description="ตั้งค่าตารางเรียนยืนพื้น และข้อยกเว้นการแต่งกายรายวัน"
     />
 
     <div class="page-card overflow-hidden">
       <!-- สลับโหมด: ตารางปกติ / ข้อยกเว้น -->
-      <div class="border-b border-stone-100 p-3 sm:p-4">
-        <div class="flex items-center gap-1 rounded-xl bg-stone-100 p-1">
-          <button
-            type="button"
-            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
-            :class="activeTab === 'default' ? 'bg-brand-50 text-brand-700' : 'text-stone-500 hover:bg-stone-200/60 hover:text-stone-900'"
-            @click="activeTab = 'default'"
-          >
-            <i class="bi bi-calendar-week text-base" aria-hidden="true"></i>
-            ตารางปกติ
-          </button>
-          <button
-            type="button"
-            class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-bold transition-colors active:scale-[0.97]"
-            :class="activeTab === 'override' ? 'bg-brand-50 text-brand-700' : 'text-stone-500 hover:bg-stone-200/60 hover:text-stone-900'"
-            @click="activeTab = 'override'"
-          >
-            <i class="bi bi-exclamation-triangle text-base" aria-hidden="true"></i>
-            ข้อยกเว้นพิเศษ
-          </button>
-        </div>
+      <div class="border-b border-line p-3 sm:p-4">
+        <AppTabs
+          :model-value="activeTab"
+          :tabs="tabs"
+          variant="segmented"
+          group-label="เลือกโหมดตารางเรียน"
+          @update:model-value="setTab"
+        />
       </div>
 
       <div class="p-4 sm:p-6">
@@ -151,7 +142,7 @@ const handleSaveOverride = async () => {
             ตั้งตารางเรียนยืนพื้น (จันทร์ - อาทิตย์)
           </h2>
 
-          <div class="space-y-3.5 border-t border-stone-100 pt-3 sm:pt-4">
+          <div class="space-y-3.5 border-t border-line pt-3 sm:pt-4">
             <div>
               <label class="field-label" for="dayOfWeek">วันในสัปดาห์</label>
               <select id="dayOfWeek" v-model="defaultForm.day_of_week" class="field font-bold">
@@ -183,7 +174,7 @@ const handleSaveOverride = async () => {
             </div>
           </div>
 
-          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
+          <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
             <template v-if="canManageSchedule">
               <button
                 type="submit"
@@ -201,7 +192,7 @@ const handleSaveOverride = async () => {
             </template>
             <div
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500 sm:w-auto"
+              class="flex w-full items-center justify-center gap-2 rounded-control border border-line bg-canvas py-3 text-sm font-bold text-ink-3 sm:w-auto"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
             </div>
@@ -217,7 +208,7 @@ const handleSaveOverride = async () => {
             </h2>
           </div>
 
-          <div class="space-y-3.5 border-t border-stone-100 pt-3 sm:pt-4">
+          <div class="space-y-3.5 border-t border-line pt-3 sm:pt-4">
             <div>
               <label class="field-label" for="overrideDate">วันที่เกิดการยกเว้น</label>
               <input
@@ -253,7 +244,7 @@ const handleSaveOverride = async () => {
             </div>
           </div>
 
-          <div class="flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
+          <div class="flex flex-col-reverse gap-2 border-t border-line pt-3 sm:flex-row sm:items-center sm:justify-end sm:pt-4">
             <template v-if="canManageSchedule">
               <button
                 type="submit"
@@ -271,7 +262,7 @@ const handleSaveOverride = async () => {
             </template>
             <div
               v-else
-              class="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-bold text-stone-500 sm:w-auto"
+              class="flex w-full items-center justify-center gap-2 rounded-control border border-line bg-canvas py-3 text-sm font-bold text-ink-3 sm:w-auto"
             >
               <i class="bi bi-lock-fill" aria-hidden="true" /> เฉพาะผู้ดูแลเท่านั้นที่แก้ไขตารางได้
             </div>

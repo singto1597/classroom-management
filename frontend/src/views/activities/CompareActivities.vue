@@ -18,7 +18,6 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import Swal from 'sweetalert2'
 
 import { ActivityService } from '@/services/activity'
 import { useAuthStore } from '@/stores/auth'
@@ -34,10 +33,10 @@ import { createLatestGuard } from '@/utils/latest'
 import type { Activity, ActivityCompare, CompareRegion } from '@/types/activity'
 import ActivityVennDiagram from '@/components/activities/ActivityVennDiagram.vue'
 import RegionMemberNames from '@/components/activities/RegionMemberNames.vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import PageIntro from '@/components/ui/PageIntro.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
 
 /** เพดานกิจกรรมที่เปรียบเทียบได้ — เกินนี้แผนภาพเวนไม่ครอบคลุมทุกภูมิภาคทางเรขาคณิต */
 const MAX_ACTIVITIES = 3
@@ -46,6 +45,7 @@ const MIN_ACTIVITIES = 2
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const currentRoomId = authStore.currentRoomId!
 const currentUserName = authStore.currentUserName!
@@ -53,14 +53,6 @@ const currentUserName = authStore.currentUserName!
 const canManageActivities = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_ACTIVITIES'),
 )
-
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
-})
 
 // --- รายการกิจกรรมของห้อง (ตัวเลือก) ---
 const activities = ref<Activity[]>([])
@@ -149,10 +141,7 @@ const fetchActivities = async () => {
   } catch (error: unknown) {
     if (!listGuard.isCurrent(token)) return
     listError.value = true
-    Toast.fire({
-      icon: 'error',
-      titleText: error instanceof Error ? error.message : 'ดึงรายการกิจกรรมไม่สำเร็จ',
-    })
+    dialog.notify(error instanceof Error ? error.message : 'ดึงรายการกิจกรรมไม่สำเร็จ', 'error')
   } finally {
     if (listGuard.isCurrent(token)) isLoadingList.value = false
   }
@@ -180,10 +169,7 @@ const fetchCompare = async () => {
     compare.value = null
     selectedRegionKeys.value = []
     compareError.value = true
-    Toast.fire({
-      icon: 'error',
-      titleText: error instanceof Error ? error.message : 'เปรียบเทียบกิจกรรมไม่สำเร็จ',
-    })
+    dialog.notify(error instanceof Error ? error.message : 'เปรียบเทียบกิจกรรมไม่สำเร็จ', 'error')
   } finally {
     if (compareGuard.isCurrent(token)) isLoadingCompare.value = false
   }
@@ -206,10 +192,7 @@ function toggleActivity(id: number): void {
     return
   }
   if (selectedIds.value.length >= MAX_ACTIVITIES) {
-    Toast.fire({
-      icon: 'warning',
-      title: `เปรียบเทียบได้สูงสุด ${MAX_ACTIVITIES} กิจกรรม`,
-    })
+    dialog.notify(`เปรียบเทียบได้สูงสุด ${MAX_ACTIVITIES} กิจกรรม`, 'warning')
     return
   }
   // เรียงตาม id เสมอ — ให้ตรงกับบิตของ mask ฝั่ง backend (ตำแหน่งป้ายบนแผนภาพอ้างค่านี้)
@@ -272,10 +255,7 @@ const presets = computed<PresetButton[]>(() => {
 
 function applyPreset(preset: PresetButton): void {
   if (preset.keys.length === 0) {
-    Toast.fire({
-      icon: 'info',
-      title: 'ไม่มีภูมิภาคที่ตรงเงื่อนไข — ลองติ๊กภูมิภาคเองบนแผนภาพ',
-    })
+    dialog.notify('ไม่มีภูมิภาคที่ตรงเงื่อนไข — ลองติ๊กภูมิภาคเองบนแผนภาพ', 'info')
     return
   }
   selectedRegionKeys.value = [...preset.keys]
@@ -283,21 +263,11 @@ function applyPreset(preset: PresetButton): void {
 
 const exportExcel = async () => {
   if (!canManageActivities.value) {
-    void Swal.fire({
-      icon: 'error',
-      title: 'ไม่มีสิทธิ์',
-      text: 'เฉพาะผู้ดูแลกิจกรรมเท่านั้นที่ export ได้',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลกิจกรรมเท่านั้นที่ export ได้', 'error')
     return
   }
   if (selectedRegionKeys.value.length === 0) {
-    void Swal.fire({
-      icon: 'warning',
-      title: 'ยังไม่ได้เลือกภูมิภาค',
-      text: 'เลือกอย่างน้อย 1 ภูมิภาคก่อน export',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ยังไม่ได้เลือกภูมิภาค', 'เลือกอย่างน้อย 1 ภูมิภาคก่อน export', 'warning')
     return
   }
 
@@ -314,14 +284,9 @@ const exportExcel = async () => {
     // ⚠️ ห้ามเขียน anchor เอง — ต้องผ่าน downloadBlob เพราะ revoke ต้องเลื่อนคาบ
     const titles = selectedIds.value.map(titleOf)
     downloadBlob(blob, combinedActivityFilename(titles))
-    Toast.fire({ icon: 'success', title: 'Export Excel เรียบร้อย 📄' })
+    dialog.notify('Export Excel เรียบร้อย 📄')
   } catch (error: unknown) {
-    void Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: error instanceof Error ? error.message : 'Export ไม่สำเร็จ',
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', error instanceof Error ? error.message : 'Export ไม่สำเร็จ', 'error')
   } finally {
     isExporting.value = false
   }
@@ -336,18 +301,16 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page-wrap space-y-4 sm:space-y-5">
-    <PageHeader
-      eyebrow="Activity Comparison"
-      title="เปรียบเทียบกิจกรรม"
+  <div class="space-y-4 sm:space-y-5">
+    <PageIntro
       description="เลือก 2–3 กิจกรรม ดูว่าใครอยู่ร่วมกันบ้าง แล้ว export เฉพาะภูมิภาคที่ต้องการ"
-    ></PageHeader>
+    ></PageIntro>
 
     <!-- ── เลือกกิจกรรม ─────────────────────────────────────────── -->
     <section class="page-card p-4 sm:p-5">
       <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 class="font-display text-base font-bold text-stone-900">เลือกกิจกรรม</h2>
-        <p class="num text-xs font-bold text-stone-500">
+        <h2 class="font-display text-base font-bold text-ink-1">เลือกกิจกรรม</h2>
+        <p class="num text-xs font-bold text-ink-3">
           เลือกแล้ว {{ selectedIds.length }}/{{ MAX_ACTIVITIES }} กิจกรรม
         </p>
       </div>
@@ -371,11 +334,11 @@ onMounted(() => {
             v-for="activity in activities"
             :key="activity.id"
             type="button"
-            class="chip min-h-9 gap-1.5 px-3 transition-colors"
+            class="chip min-h-11 gap-1.5 px-3 transition-colors"
             :class="
               selectedIds.includes(activity.id)
-                ? 'bg-brand-700 text-white'
-                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                ? 'bg-brand text-white'
+                : 'bg-canvas text-ink-2 hover:bg-line'
             "
             :aria-pressed="selectedIds.includes(activity.id)"
             @click="toggleActivity(activity.id)"
@@ -389,7 +352,7 @@ onMounted(() => {
         </div>
 
         <div v-if="selectedIds.length" class="mt-3 flex items-center justify-between gap-2">
-          <p class="min-w-0 truncate text-xs text-stone-500">
+          <p class="min-w-0 truncate text-xs text-ink-3">
             กำลังเปรียบเทียบ: {{ selectedIds.map(titleOf).join(' + ') }}
           </p>
           <button type="button" class="btn-ghost-ui shrink-0" @click="clearActivities">
@@ -429,7 +392,7 @@ onMounted(() => {
         <!-- ── แผนภาพ + ตัวเลือกภูมิภาค ───────────────────────── -->
         <section class="page-card p-4 sm:p-5">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="font-display text-base font-bold text-stone-900">แผนภาพภูมิภาค</h2>
+            <h2 class="font-display text-base font-bold text-ink-1">แผนภาพภูมิภาค</h2>
             <p class="num text-xs font-bold text-brand-700">
               เลือกแล้ว {{ selectedRegionKeys.length }}/{{ regions.length }} ภูมิภาค ·
               {{ selectedMemberCount }} คน
@@ -446,7 +409,7 @@ onMounted(() => {
             @toggle="toggleRegion"
           />
 
-          <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">
+          <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
             <button
               v-for="preset in presets"
               :key="preset.key"
@@ -466,7 +429,7 @@ onMounted(() => {
           <!-- 📋 รายการภูมิภาค — แสดงชื่อเล่น **ครบทุกคน** (ป้ายบนแผนภาพมีที่จำกัด)
                ห้าม truncate ข้อมูลอ่านอย่างเดียว ⇒ ที่นี่คือแหล่งอ้างอิงจริงของผู้ใช้
                กติกาการตัดบรรทัดอยู่ใน `RegionMemberNames` -->
-          <ul class="mt-4 divide-y divide-stone-100 border-t border-stone-100">
+          <ul class="mt-4 divide-y divide-line border-t border-line">
             <li v-for="row in regionRows" :key="row.key">
               <label class="flex min-h-11 cursor-pointer items-start gap-3 py-3">
                 <input
@@ -477,14 +440,14 @@ onMounted(() => {
                 />
                 <span class="min-w-0 flex-1">
                   <span class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <span class="text-sm font-bold text-stone-900">{{ row.membership }}</span>
+                    <span class="text-sm font-bold text-ink-1">{{ row.membership }}</span>
                     <span class="chip bg-brand-50 text-brand-700">
                       <span class="num">{{ row.count }}</span> คน
                     </span>
                   </span>
                   <RegionMemberNames
                     :names="row.names"
-                    class="mt-1 block text-sm leading-relaxed text-stone-600"
+                    class="mt-1 block text-sm leading-relaxed text-ink-2"
                   />
                 </span>
               </label>
@@ -494,10 +457,10 @@ onMounted(() => {
 
         <!-- ── Export ──────────────────────────────────────────── -->
         <section class="page-card p-4 sm:p-5">
-          <h2 class="font-display text-base font-bold text-stone-900">Export Excel</h2>
-          <p class="mt-1 text-sm text-stone-600">
+          <h2 class="font-display text-base font-bold text-ink-1">Export Excel</h2>
+          <p class="mt-1 text-sm text-ink-2">
             จะได้รายชื่อ
-            <span class="font-bold text-stone-900">{{ selectedMemberCount }} คน</span>
+            <span class="font-bold text-ink-1">{{ selectedMemberCount }} คน</span>
             จาก {{ selectedRegionKeys.length }} ภูมิภาค พร้อมคอลัมน์ติ๊กถูกเทียบทุกกิจกรรม
           </p>
 
@@ -510,7 +473,7 @@ onMounted(() => {
               type="checkbox"
               class="h-4 w-4 shrink-0 accent-brand-700"
             />
-            <span class="text-sm text-stone-700">
+            <span class="text-sm text-ink-1">
               รวมข้อมูลที่เก็บรายคนของแต่ละกิจกรรม (วันที่ หน้าที่ และฟิลด์ที่สร้างเอง)
             </span>
           </label>
@@ -529,7 +492,7 @@ onMounted(() => {
               ></i>
               {{ isExporting ? 'กำลังสร้างไฟล์...' : 'Export Excel' }}
             </button>
-            <p v-else class="text-sm text-stone-500">
+            <p v-else class="text-sm text-ink-3">
               <i class="bi bi-lock" aria-hidden="true"></i>
               ดูแผนภาพได้ทุกคน แต่การ export ต้องมีสิทธิ์จัดการกิจกรรม
             </p>

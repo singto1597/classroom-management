@@ -51,18 +51,18 @@ const goBackToLogin = () => {
 <template>
   <!-- ⚠️ หน้านี้อยู่นอก MainLayout จึงต้องจัดระยะขอบ + จัดกลางจอเอง -->
   <div
-    class="flex min-h-screen min-h-dvh flex-col items-center justify-center bg-paper px-4 py-10 font-sans text-ink"
+    class="flex min-h-screen min-h-dvh flex-col items-center justify-center bg-canvas px-4 py-10 font-sans text-ink"
   >
     <div class="w-full max-w-md">
       <!-- ตราสัญลักษณ์ — จุดยึดสายตาระหว่างรอเปลี่ยนหน้า -->
       <div class="mb-6 flex items-center justify-center gap-2.5">
         <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-700 text-white"
         >
           <i class="bi bi-box-fill text-base" aria-hidden="true"></i>
         </div>
-        <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-stone-900">
-          SYNC<span class="font-normal text-stone-500">ROOM</span>
+        <span class="font-display truncate text-lg font-bold tracking-[0.2em] text-ink">
+          SYNC<span class="font-normal text-ink-3">ROOM</span>
         </span>
       </div>
 
@@ -74,7 +74,7 @@ const goBackToLogin = () => {
         aria-live="polite"
       >
         <div class="relative mx-auto mb-4 h-14 w-14">
-          <div class="absolute inset-0 rounded-full border-2 border-stone-200"></div>
+          <div class="absolute inset-0 rounded-full border-2 border-line"></div>
           <div
             class="absolute inset-0 animate-spin rounded-full border-2 border-brand-700 border-t-transparent"
           ></div>
@@ -83,10 +83,10 @@ const goBackToLogin = () => {
             aria-hidden="true"
           ></i>
         </div>
-        <h1 class="font-display text-xl font-bold text-stone-900">
+        <h1 class="font-display text-xl font-bold text-ink">
           กำลังยืนยันตัวตน...
         </h1>
-        <p class="mt-1 text-sm leading-relaxed text-stone-500">
+        <p class="mt-1 text-sm leading-relaxed text-ink-3">
           กรุณารอสักครู่ ระบบกำลังเข้าสู่ระบบอย่างปลอดภัย
         </p>
       </div>
@@ -101,7 +101,7 @@ const goBackToLogin = () => {
         @retry="goBackToLogin"
       />
 
-      <p class="mt-4 text-center text-xs text-stone-500">ระบบจัดการห้องเรียน</p>
+      <p class="mt-4 text-center text-xs text-ink-3">ระบบจัดการห้องเรียน</p>
     </div>
   </div>
 </template>

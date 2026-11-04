@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { routes } from '@/router/routes';
-import { NAV_ITEMS, NAV_TABS, MORE_NAV_ITEMS, routeTitles } from '@/constants/nav';
+import {
+  NAV_ITEMS,
+  NAV_TABS,
+  MORE_NAV_ITEMS,
+  MORE_NAV_GROUPS,
+  routeTitles,
+} from '@/constants/nav';
 import { pageTitle, DEFAULT_TITLE, APP_NAME } from '@/router/meta';
 
 /**
@@ -95,17 +101,29 @@ describe('เมนู (constants/nav.ts) ต้องชี้ path ที่�
     },
   );
 
-  it('แท็บมือถือทุกแท็บต้องมีอยู่ในเมนูหลักด้วย', () => {
-    const menuPaths = new Set(NAV_ITEMS.map((item) => item.path));
+  it('แท็บมือถือทุกแท็บมี route จริง (รวม /more ที่ไม่อยู่ใน NAV_ITEMS)', () => {
     for (const tab of NAV_TABS) {
+      expect(leafPaths.has(tab.path)).toBe(true);
+    }
+  });
+
+  it('แท็บอื่นนอกจาก "เพิ่มเติม" ต้องอยู่ในเมนูหลักด้วย', () => {
+    const menuPaths = new Set(NAV_ITEMS.map((item) => item.path));
+    for (const tab of NAV_TABS.filter((t) => t.path !== '/more')) {
       expect(menuPaths.has(tab.path)).toBe(true);
     }
   });
 
-  it('ชีต "เพิ่มเติม" = เมนูหลักลบแท็บล่าง', () => {
+  it('หน้า "เพิ่มเติม" = เมนูหลักลบแท็บล่าง', () => {
     const tabPaths = new Set(NAV_TABS.map((tab) => tab.path));
     const expected = NAV_ITEMS.filter((item) => !tabPaths.has(item.path));
     expect(MORE_NAV_ITEMS).toEqual(expected);
+  });
+
+  it('ทุกเมนูในหน้า "เพิ่มเติม" ถูกจัดกลุ่มครั้งเดียว — ไม่หาย ไม่ซ้ำ', () => {
+    const grouped = MORE_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.path));
+    expect(new Set(grouped).size).toBe(grouped.length);
+    expect([...grouped].sort()).toEqual(MORE_NAV_ITEMS.map((item) => item.path).sort());
   });
 
   it('ไม่มี path เมนูซ้ำกัน', () => {
@@ -128,6 +146,53 @@ describe('routeTitles — แหล่งเดียวของชื่อห
   });
 });
 
+describe('หน้าแรกสาธารณะ + โครงสร้าง MainLayout', () => {
+  it('มี landing ที่ "/" และไม่บังคับล็อกอิน', () => {
+    const landing = flat.find((r) => r.name === 'landing');
+    expect(landing?.path).toBe('/');
+    expect(landing?.requiresAuth).toBe(false);
+  });
+
+  it('path ลูกของ MainLayout เป็น absolute — URL เดิมทั้งหมดต้องไม่เปลี่ยน', () => {
+    const appParent = routes.find((r) => r.path === '/app');
+    expect(appParent).toBeDefined();
+    const children = (appParent?.children ?? []) as unknown as Array<{ path: string }>;
+    expect(children.length).toBeGreaterThan(20);
+    for (const child of children) {
+      expect(child.path.startsWith('/')).toBe(true);
+    }
+  });
+});
+
+describe('เปลือก GlobalLayout — หน้า "นอกห้องเรียน"', () => {
+  it('lobby / onboarding / account อยู่ใต้เปลือกเดียวกันและใช้ URL เดิม', () => {
+    const globalParent = routes.find((r) => r.path === '/start');
+    expect(globalParent).toBeDefined();
+
+    const children = (globalParent?.children ?? []) as unknown as Array<{ path: string }>;
+    const paths = children.map((child) => child.path);
+
+    for (const expected of ['/lobby', '/onboarding', '/account', '/account/profile']) {
+      expect(paths).toContain(expected);
+    }
+
+    // path ลูก absolute ⇒ URL ของผู้ใช้ไม่เปลี่ยนจากการย้ายเข้าเปลือก
+    for (const child of children) {
+      expect(child.path.startsWith('/')).toBe(true);
+    }
+  });
+
+  it('บัญชีส่วนกลางไม่บังคับให้มีห้อง — อยู่ในกลุ่ม global ของ guard', () => {
+    // ตรวจสัญญาแบบเบา ๆ: route มีจริงและไม่ได้อยู่ใต้ MainLayout
+    const account = flat.find((r) => r.name === 'account');
+    expect(account?.path).toBe('/account');
+    expect(account?.title).toBeTruthy();
+    const profile = flat.find((r) => r.name === 'account-profile');
+    expect(profile?.path).toBe('/account/profile');
+    expect(profile?.title).toBeTruthy();
+  });
+});
+
 describe('navTab ใต้ MainLayout', () => {
   const mainLayoutChildren = flat.filter(
     (r) => r.path.startsWith('/') && !r.path.startsWith('/lobby') && r.name && !r.isCatchAll,
@@ -135,11 +200,15 @@ describe('navTab ใต้ MainLayout', () => {
   const appPages = mainLayoutChildren.filter(
     (r) =>
       ![
+        'landing',
         'login',
         'google-callback',
         'discord-callback',
         'onboarding',
         'lobby',
+        // 👤 บัญชีส่วนกลางอยู่นอก MainLayout (ไม่มีแท็บล่าง)
+        'account',
+        'account-profile',
       ].includes(r.name ?? ''),
   );
 

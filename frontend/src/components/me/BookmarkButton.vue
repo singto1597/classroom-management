@@ -13,11 +13,10 @@
  *  4. โหลดสถานะไม่สำเร็จ = ปุ่มยังใช้งานได้ (เริ่มจาก "ยังไม่บันทึก") ไม่ทำให้หน้าล้ม
  */
 import { onMounted, ref } from 'vue';
-import Swal from 'sweetalert2';
 import IconButton from '@/components/ui/IconButton.vue';
 import { BookmarkService } from '@/services/bookmark';
 import { useAuthStore } from '@/stores/auth';
-import { UI_COLOR } from '@/constants/theme';
+import { useDialog } from '@/composables/useDialog';
 import type { BookmarkEntityType } from '@/types/bookmark';
 
 const props = defineProps<{
@@ -26,6 +25,7 @@ const props = defineProps<{
 }>();
 
 const authStore = useAuthStore();
+const dialog = useDialog();
 const roomId = authStore.currentRoomId ?? 0;
 
 const bookmarked = ref(false);
@@ -55,15 +55,11 @@ const toggle = async () => {
       bookmarked.value = false;
       bookmarkId.value = null;
 
-      const undo = await Swal.fire({
-        icon: 'success',
-        title: 'ยกเลิกการบันทึกแล้ว',
-        text: 'รายการนี้จะหายจากหน้า "ของฉัน"',
-        confirmButtonText: 'บันทึกกลับ',
-        showCancelButton: true,
-        cancelButtonText: 'ปิด',
-        confirmButtonColor: UI_COLOR.brand,
-      });
+      const undo = await dialog.confirm(
+        'ยกเลิกการบันทึกแล้ว',
+        'รายการนี้จะหายจากหน้า "ของฉัน"',
+        { icon: 'success', confirmButtonText: 'บันทึกกลับ', cancelButtonText: 'ปิด' },
+      );
       if (undo.isConfirmed) {
         const created = await BookmarkService.add(roomId, props.entityType, props.entityId);
         bookmarked.value = true;
@@ -73,20 +69,18 @@ const toggle = async () => {
       const created = await BookmarkService.add(roomId, props.entityType, props.entityId);
       bookmarked.value = true;
       bookmarkId.value = created.id;
-      await Swal.fire({
+      await dialog.fire({
         icon: 'success',
         title: 'บันทึกไว้แล้ว',
         text: 'ดูรายการทั้งหมดได้ที่เมนู "ของฉัน"',
         timer: 1600,
-        showConfirmButton: false,
       });
     }
   } catch (err) {
-    await Swal.fire({
+    await dialog.fire({
       icon: 'error',
       title: 'ทำรายการไม่สำเร็จ',
       text: messageOf(err),
-      confirmButtonColor: UI_COLOR.brand,
     });
   } finally {
     isBusy.value = false;

@@ -34,6 +34,18 @@ export const getGoogleAuthUrl = (): string => {
   return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOGLE_REDIRECT_URI)}&response_type=code&scope=${scope}`;
 };
 
+/**
+ * URL เริ่มต้น OAuth โหมด **ผูกบัญชี** (ผู้ใช้ล็อกอินอยู่แล้ว)
+ *
+ * ใช้ endpoint เดียวกับโหมดล็อกอิน — ตัว callback แยกโหมดเองจาก
+ * `authStore.isAuthenticated` ⇒ ไม่ต้องมี state/พารามิเตอร์พิเศษ
+ * แต่หน้าบัญชีต้องไม่ประกอบ URL เอง (ค่าจาก env อยู่ที่บริการนี้ที่เดียว)
+ */
+export const getDiscordLinkUrl = (): string => getDiscordAuthUrl();
+
+/** ดู {@link getDiscordLinkUrl} */
+export const getGoogleLinkUrl = (): string => getGoogleAuthUrl();
+
 /** ผลลัพธ์จากการเข้าสู่ระบบ — ตรงกับ TokenResponse ฝั่ง backend */
 export interface LoginResult {
   access_token: string;
@@ -113,6 +125,17 @@ export interface UserProfileResponse {
   discord_id: number | null;
   google_id: string | null;
 }
+
+/**
+ * โปรไฟล์ของ **บัญชีส่วนกลาง** (ไม่ผูกกับห้อง) — `GET /api/auth/me`
+ *
+ * ต่างจาก `StudentService.getMyProfile(roomId)` ที่คืนข้อมูลสมาชิกในห้องใดห้องหนึ่ง:
+ * ฟังก์ชันนี้ใช้กับหน้าบัญชี `/account` และฟอร์มแก้ไขโปรไฟล์ ซึ่งต้องเข้าถึงได้
+ * แม้ผู้ใช้ยังไม่ได้เลือกห้อง (birthday/line/ที่อยู่ จึงต้องดึงจากที่นี่ ไม่ใช่จาก store)
+ */
+export const getMyProfile = async (): Promise<UserProfileResponse> => {
+  return await api.get('/api/auth/me');
+};
 
 /** ผูกบัญชี Discord เข้ากับบัญชีที่ล็อกอินอยู่ (โหมด link) */
 export const linkDiscordAccount = async (code: string): Promise<LinkAccountResult> => {

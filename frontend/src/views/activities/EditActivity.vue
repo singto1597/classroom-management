@@ -7,31 +7,30 @@ import type { Activity } from '@/types/activity'
 import ActivityForm from '@/components/activities/ActivityForm.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
-import Swal from 'sweetalert2'
-import { UI_COLOR } from '@/constants/theme'
+import { useDialog } from '@/composables/useDialog'
+import { usePageTitle } from '@/composables/usePageTitle'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const dialog = useDialog()
 
 const currentRoomId = authStore.currentRoomId!
 const activityId = Number(route.params.id)
 
 const isLoading = ref(true)
 const activity = ref<Activity | null>(null)
+const pageTitle = ref<string | null>(null)
+usePageTitle(pageTitle)
 
 const load = async () => {
   isLoading.value = true
   try {
     activity.value = await ActivityService.getActivity(currentRoomId, activityId)
+    pageTitle.value = `แก้ไข · ${activity.value.title}`
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'ไม่พบกิจกรรม'
-    Swal.fire({
-      icon: 'error',
-      title: 'ข้อผิดพลาด',
-      text: msg,
-      confirmButtonColor: UI_COLOR.brand,
-    })
+    void dialog.alert('ข้อผิดพลาด', msg, 'error')
     router.push('/activities')
   } finally {
     isLoading.value = false

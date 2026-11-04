@@ -5,14 +5,17 @@ import { FinanceService } from '@/services/finance';
 import type { Account, Category } from '@/types/finance';
 import { useAuthStore } from '@/stores/auth';
 import { downloadBlob } from '@/utils/download';
-import Swal from 'sweetalert2';
 
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import AppTabs from '@/components/ui/AppTabs.vue';
+import type { AppTabItem } from '@/components/ui/AppTabs.vue';
+import { useDialog } from '@/composables/useDialog';
 
 const authStore = useAuthStore();
 const router = useRouter();
+const dialog = useDialog();
 
 const currentServerId = authStore.currentRoomId!;
 const currentUserName = authStore.currentUserName!;
@@ -24,7 +27,12 @@ const isLoading = ref(true);
 const isSubmitting = ref(false);
 
 // รายการแท็บสำหรับ segmented control (พิมพ์ type ไว้ให้ template รู้จัก union โดยไม่ต้อง cast)
-const tabs: Array<'expense' | 'income' | 'transfer'> = ['expense', 'income', 'transfer'];
+const TAB_VALUES: readonly ('expense' | 'income' | 'transfer')[] = ['expense', 'income', 'transfer'];
+const tabs: AppTabItem[] = [
+  { value: 'expense', label: 'รายจ่าย' },
+  { value: 'income', label: 'รายรับ' },
+  { value: 'transfer', label: 'โอนเงิน' },
+];
 
 // สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
 const hasError = ref(false);
@@ -56,7 +64,7 @@ const fetchInitData = async () => {
     categories.value = catRes;
   } catch {
     hasError.value = true;
-    Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลเริ่มต้นได้', 'error');
+    void dialog.alert('เกิดข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลเริ่มต้นได้', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -103,6 +111,11 @@ const switchTab = (tab: 'expense' | 'income' | 'transfer') => {
   form.value.attachment_count = 0;
 };
 
+const setTab = (value: string) => {
+  if (!TAB_VALUES.includes(value as 'expense' | 'income' | 'transfer')) return;
+  switchTab(value as 'expense' | 'income' | 'transfer');
+};
+
 /**
  * 🖨️ แจ้งผลสำเร็จ + เสนอโหลด PDF ของเอกสารที่เพิ่งออกให้
  *
@@ -115,25 +128,20 @@ const offerDocumentDownload = async (
   docTypeLabel: string | null
 ) => {
   if (!receiptNo) {
-    await Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: 'บันทึกสำเร็จ!',
       text: 'รายการของคุณถูกบันทึกเรียบร้อยแล้ว',
-      timer: 1500,
-      showConfirmButton: false
+      timer: 1500
     });
     return;
   }
 
-  const answer = await Swal.fire({
-    icon: 'success',
-    title: 'บันทึกสำเร็จ!',
-    text: `ออก${docTypeLabel ?? 'เอกสาร'} เลขที่ ${receiptNo} แล้ว`,
-    showCancelButton: true,
-    confirmButtonText: 'ดาวน์โหลด PDF',
-    cancelButtonText: 'ปิด',
-    reverseButtons: true
-  });
+  const answer = await dialog.confirm(
+    'บันทึกสำเร็จ!',
+    `ออก${docTypeLabel ?? 'เอกสาร'} เลขที่ ${receiptNo} แล้ว`,
+    { icon: 'success', confirmButtonText: 'ดาวน์โหลด PDF', cancelButtonText: 'ปิด' }
+  );
 
   if (!answer.isConfirmed) return;
 
@@ -143,7 +151,7 @@ const offerDocumentDownload = async (
   } catch (error: unknown) {
     // 502 = Gotenberg ล่ม (ไม่ใช่ 500 ของโค้ดเรา) — service แปลงเป็นข้อความไทยให้แล้ว
     // 🔑 รายการถูกบันทึกไปแล้ว ⇒ ต้องบอกให้ชัด ไม่งั้นผู้ใช้จะกดบันทึกซ้ำ
-    Swal.fire(
+    void dialog.alert(
       'สร้างไฟล์ PDF ไม่สำเร็จ',
       `${error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง'} — รายการถูกบันทึกแล้ว สามารถโหลดเอกสารซ้ำได้ที่ทะเบียนเอกสาร`,
       'error'
@@ -154,23 +162,26 @@ const offerDocumentDownload = async (
 const handleSubmit = async () => {
   if (activeTab.value === 'transfer') {
     if (form.value.from_account_id === form.value.to_account_id) {
-      return Swal.fire('ห๊ะ!', 'จะโอนเข้ากระเป๋าตัวเองทำไมครับพี่!', 'warning');
+      void dialog.alert('ห๊ะ!', 'จะโอนเข้ากระเป๋าตัวเองทำไมครับพี่!', 'warning');
+      return;
     }
   }
 
   // ✅ ป้องกันกรอกจำนวนเงินติดลบ / ศูนย์
   if (!form.value.amount || Number(form.value.amount) <= 0) {
-    return Swal.fire('ตรวจสอบจำนวนเงิน', 'กรุณากรอกจำนวนเงินที่มากกว่า 0', 'warning');
+    void dialog.alert('ตรวจสอบจำนวนเงิน', 'กรุณากรอกจำนวนเงินที่มากกว่า 0', 'warning');
+    return;
   }
 
   // 🧾 ตรวจ "อีกฝ่าย" ที่ฝั่งจอก่อน เพื่อให้ได้ข้อความที่บอกทางออกทันที
   //    (backend บังคับซ้ำที่ชั้น service — ด่านนี้ไม่ใช่ด่านเดียว)
   if (activeTab.value !== 'transfer' && !form.value.payee_name.trim()) {
-    return Swal.fire(
+    void dialog.alert(
       `ตรวจสอบ${payeeLabel.value}`,
       'กรุณาระบุชื่อคู่กรณี เพราะชื่อนี้พิมพ์ลงบนเอกสารที่ออกให้',
       'warning'
     );
+    return;
   }
 
   isSubmitting.value = true;
@@ -183,12 +194,11 @@ const handleSubmit = async () => {
         description: form.value.description,
         user_name: currentUserName
       });
-      await Swal.fire({
+      await dialog.fire({
         icon: 'success',
         title: 'บันทึกสำเร็จ!',
         text: 'รายการของคุณถูกบันทึกเรียบร้อยแล้ว',
-        timer: 1500,
-        showConfirmButton: false
+        timer: 1500
       });
     } else {
       const result = await FinanceService.addTransaction(currentServerId, {
@@ -212,11 +222,11 @@ const handleSubmit = async () => {
 
     router.push('/finance/transactions');
   } catch (error: unknown) {
-    Swal.fire({
-      icon: 'error',
-      title: 'พัง!',
-      text: error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ',
-    });
+    void dialog.alert(
+      'พัง!',
+      error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ',
+      'error',
+    );
   } finally {
     isSubmitting.value = false;
   }
@@ -229,7 +239,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 sm:space-y-5">
-    <PageHeader eyebrow="New Transaction" title="บันทึกรายการเงิน"></PageHeader>
+    <PageIntro></PageIntro>
 
     <!-- สถานะโหลด / ผิดพลาด / ยังไม่มีกระเป๋าเงิน -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-14" />
@@ -243,25 +253,13 @@ onMounted(() => {
 
     <template v-else>
       <!-- เลือกประเภท: segmented ขอบบาง -->
-      <div class="flex gap-1 rounded-xl border border-stone-200 bg-stone-50 p-1">
-        <button
-          v-for="tab in tabs"
-          :key="tab"
-          type="button"
-          class="flex-1 rounded-lg px-2 py-2.5 text-sm font-bold transition-colors active:scale-[0.97]"
-          :class="
-            activeTab === tab
-              ? 'border border-stone-200 bg-white text-brand-700'
-              : 'border border-transparent text-stone-500 hover:text-stone-800'
-          "
-          :aria-pressed="activeTab === tab"
-          @click="switchTab(tab)"
-        >
-          <span v-if="tab === 'expense'"><i class="bi bi-arrow-up-right me-1" aria-hidden="true"></i>รายจ่าย</span>
-          <span v-if="tab === 'income'"><i class="bi bi-arrow-down-left me-1" aria-hidden="true"></i>รายรับ</span>
-          <span v-if="tab === 'transfer'"><i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>โอนเงิน</span>
-        </button>
-      </div>
+      <AppTabs
+        :model-value="activeTab"
+        :tabs="tabs"
+        group-label="ประเภทของรายการ"
+        variant="segmented"
+        @update:model-value="setTab"
+      />
 
       <div class="page-card p-4 sm:p-6">
         <form class="space-y-4" @submit.prevent="handleSubmit">
@@ -271,7 +269,7 @@ onMounted(() => {
             <input
               id="amount"
               v-model="form.amount"
-              class="field num font-display text-right !text-xl font-bold"
+              class="field num text-right !text-xl font-bold"
               type="number"
               inputmode="decimal"
               step="0.01"
@@ -350,7 +348,7 @@ onMounted(() => {
               "
               required
             />
-            <p class="mt-1 text-xs text-stone-500">
+            <p class="mt-1 text-xs text-ink-3">
               ชื่อนี้จะพิมพ์อยู่บน{{ activeTab === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย' }}ที่ออกให้
             </p>
           </div>
@@ -380,7 +378,7 @@ onMounted(() => {
                 step="1"
                 placeholder="0"
               />
-              <p class="mt-1 text-xs text-stone-500">บิลเงินสด/ใบเสร็จจากร้านค้าที่แนบมาด้วย</p>
+              <p class="mt-1 text-xs text-ink-3">บิลเงินสด/ใบเสร็จจากร้านค้าที่แนบมาด้วย</p>
             </div>
           </div>
 
@@ -396,7 +394,7 @@ onMounted(() => {
             />
           </div>
 
-          <div class="border-t border-stone-100 pt-3 sm:pt-4">
+          <div class="border-t border-line pt-3 sm:pt-4">
             <button type="submit" class="btn-primary w-full py-3" :disabled="isSubmitting">
               <span
                 v-if="isSubmitting"

@@ -1,22 +1,29 @@
 <script setup lang="ts">
 /**
- * 🧱 MainLayout — ประกอบเปลือกแอปเท่านั้น
+ * 🧱 MainLayout — เปลือกแอปแบบ PIRIvoice
  *
- * ชิ้นส่วนจริงอยู่ใน `layouts/shell/`:
- *   AppSidebar · AppHeader · AppBottomNav · AppMoreSheet · AppMenus
- * สถานะ/คำสั่งอยู่ใน `useAppShell` และกล่องโปรไฟล์อยู่ใน `useProfileDialogs`
+ *   ┌──────────┬──────────────────────────────┐
+ *   │ Sidebar  │ Header (in-flow, h-14)       │
+ *   │ (lg+)    ├──────────────────────────────┤
+ *   │          │ Main — scroll ที่นี่ที่เดียว │
+ *   ├──────────┴──────────────────────────────┤
+ *   │ BottomNav (mobile) · FAB (absolute)     │
+ *   └─────────────────────────────────────────┘
  *
- * ⚠️ `fullscreen`/`headerHidden` มาจาก `route.meta` (router/meta.ts) — หน้าลูก
- *    ห้ามซ่อน header ด้วย CSS เอง เพราะจะเหลือที่ว่างและปุ่มย้อนค้าง
+ * 🔑 root ตรึง `h-[100dvh] overflow-hidden` ⇒ มี scroll container เดียวคือ `<main>`
+ *    ซึ่งทำให้ header อยู่นิ่ง, `position: sticky` ในหน้าเนื้อหาทำงาน, และ
+ *    safe-area ของแถบล่างไม่ทับเนื้อหาสุดท้าย
+ *
+ * ความกว้างเนื้อหาอ่านจาก `route.meta.width` (wide/reading/form)
+ * — header ใช้ค่าเดียวกันจึงจัดแนวคอลัมน์ตรงกัน
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import { useAppShell } from './shell/useAppShell';
-import { useProfileDialogs } from './shell/useProfileDialogs';
 import AppSidebar from './shell/AppSidebar.vue';
 import AppHeader from './shell/AppHeader.vue';
 import AppBottomNav from './shell/AppBottomNav.vue';
-import AppMoreSheet from './shell/AppMoreSheet.vue';
+import AppFab from './shell/AppFab.vue';
 import AppMenus from './shell/AppMenus.vue';
 import InstallPrompt from '@/components/pwa/InstallPrompt.vue';
 import NotificationCenter from '@/components/notifications/NotificationCenter.vue';
@@ -24,14 +31,25 @@ import { useNotificationStore } from '@/stores/notifications';
 
 const route = useRoute();
 const shell = useAppShell();
-const profile = useProfileDialogs();
 const notifications = useNotificationStore();
 
 const isNotificationCenterOpen = ref(false);
 const openNotificationCenter = () => {
-  closeOverlays();
+  shell.closeDropdowns();
   isNotificationCenterOpen.value = true;
 };
+
+/** ความกว้างเดียวกับ AppHeader — จัดหัวข้อกับเนื้อหาให้อยู่คอลัมน์เดียวกัน */
+const widthClass = computed(() => {
+  switch (route.meta.width) {
+    case 'reading':
+      return 'max-w-3xl';
+    case 'form':
+      return 'max-w-2xl';
+    default:
+      return 'max-w-7xl';
+  }
+});
 
 /**
  * 🔔 สตรีมแจ้งเตือนมีชีวิตเท่าที่เปลือกแอปมีชีวิต
@@ -52,49 +70,23 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', notifications.handleVisibility);
   notifications.stopStream();
 });
-
-const closeOverlays = () => {
-  shell.closeDropdowns();
-  shell.closeMoreSheet();
-};
-
-const openMyProfile = () => {
-  closeOverlays();
-  profile.goToMyProfile();
-};
-
-const openProfileSettings = () => {
-  closeOverlays();
-  profile.goToProfileSettings();
-};
-
-const openAccountInfo = () => {
-  closeOverlays();
-  profile.showAccountInfo();
-};
 </script>
 
 <template>
-  <div class="relative flex h-screen h-dvh overflow-hidden bg-paper font-sans text-ink">
+  <div class="relative flex h-[100dvh] overflow-hidden bg-canvas font-sans text-ink-1">
     <AppSidebar
       :collapsed="shell.isSidebarCollapsed.value"
       :user-name="shell.displayName.value"
       :role-label="shell.authStore.currentRoleLabel"
       :avatar-char="shell.avatarChar.value"
       @toggle-collapse="shell.toggleSidebarCollapse"
-      @open-account="openAccountInfo"
     />
 
-    <!-- พื้นที่หลัก (Header + เนื้อหา) -->
     <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <AppHeader
         v-if="!route.meta.headerHidden && !route.meta.fullscreen"
         :room-id="shell.authStore.currentRoomId"
         :room-name="shell.authStore.currentRoomName || ''"
-        :sub-menu-name="shell.currentSubMenuName.value"
-        :user-name="shell.displayName.value"
-        :role-label="shell.authStore.currentRoleLabel"
-        :avatar-char="shell.avatarChar.value"
         :active-dropdown="shell.activeDropdown.value"
         :unread-count="notifications.unreadCount"
         :notifications-open="isNotificationCenterOpen"
@@ -104,14 +96,10 @@ const openAccountInfo = () => {
       />
 
       <!-- เนื้อหา — scroll เกิดที่นี่ที่เดียว -->
-      <!--
-        ⚠️ ต้องใช้ sm:px-* / sm:pt-* ไม่ใช่ sm:p-* — เพราะ sm:p-6 จะเขียนทับ padding-bottom
-        ที่กันแท็บล่างไว้ และแท็บล่างซ่อนที่ lg: เท่านั้น (640–1023px ยังเห็นอยู่)
-      -->
       <main
-        class="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] focus:outline-none sm:px-6 sm:pt-6 lg:px-8 lg:pb-8 lg:pt-8"
+        class="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-4 pb-[calc(var(--app-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] focus:outline-none sm:px-6 lg:px-8 lg:pt-6 lg:pb-8"
       >
-        <div class="page-wrap">
+        <div class="mx-auto w-full" :class="widthClass">
           <!--
             ⚠️ key ต้องมี roomId ด้วย ไม่ใช่แค่ path — วิวส่วนใหญ่อ่าน currentRoomId
             ใส่ `const` ตอน setup (ไม่ reactive) ⇒ สลับห้องแล้วไม่ remount จะยิง API ห้องเดิมต่อ
@@ -128,19 +116,13 @@ const openAccountInfo = () => {
     </div>
 
     <template v-if="!route.meta.fullscreen">
-      <AppBottomNav :more-open="shell.isMoreSheetOpen.value" @open-more="shell.openMoreSheet" />
+      <AppBottomNav />
+
+      <!-- ➕ FAB ของหน้ารายการ (ถ้า route ประกาศ `fab` และผู้ใช้มีสิทธิ์) -->
+      <AppFab />
 
       <!-- 📲 แถบชวนติดตั้ง — ซ่อนเองเมื่อไม่ใช่มือถือ/ติดตั้งแล้ว/เคยปิด -->
       <InstallPrompt />
-
-      <AppMoreSheet
-        :open="shell.isMoreSheetOpen.value"
-        :room-name="shell.authStore.currentRoomName || ''"
-        @close="shell.closeMoreSheet"
-        @my-profile="openMyProfile"
-        @profile-settings="openProfileSettings"
-        @logout="shell.logout"
-      />
     </template>
 
     <!-- 🔔 แผงแจ้งเตือน — Teleport ไป body เอง (z-index ชนะ layout) -->
@@ -154,15 +136,9 @@ const openAccountInfo = () => {
       :position="shell.dropdownStyle.value"
       :rooms="shell.authStore.rooms"
       :current-room-id="shell.authStore.currentRoomId"
-      :user-name="shell.displayName.value"
-      :role-label="shell.authStore.currentRoleLabel"
-      :avatar-char="shell.avatarChar.value"
       @close="shell.closeDropdowns"
       @select-room="shell.switchRoom"
       @change-room="shell.handleChangeRoom"
-      @my-profile="openMyProfile"
-      @profile-settings="openProfileSettings"
-      @logout="shell.logout"
     />
   </div>
 </template>

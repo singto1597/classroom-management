@@ -4,7 +4,7 @@
  * แบ่งส่วน: หน้าที่ / ข้อมูลที่จัดเก็บ (Type B + custom_fields) / ข้อมูลจากโปรไฟล์ (Type A 🔒)
  * Presentational — parent เป็นคนยิง API ตอนกดบันทึก
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   splitDutyRole,
   joinDutyRole,
@@ -14,7 +14,12 @@ import {
 import ActivityFieldControl from '@/components/activities/ActivityFieldControl.vue'
 import ExtraInfoRows from '@/components/activities/ExtraInfoRows.vue'
 import { displayName } from '@/utils/name'
+import AppSheet from '@/components/ui/AppSheet.vue'
 import type { RosterItem } from '@/types/activity'
+
+const sheetLabel = computed(
+  () => (props.item ? `ข้อมูลเพิ่มเติม — ${displayName(props.item)}` : 'ข้อมูลเพิ่มเติม'),
+)
 
 const props = defineProps<{
   open: boolean
@@ -92,206 +97,156 @@ function handleSave() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="fade">
-      <div
-        v-if="open && item"
-        class="fixed inset-0 z-[70] flex items-end justify-center bg-stone-900/40 px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:items-center md:p-4"
-        @click.self="emit('close')"
-      >
+  <AppSheet
+    :open="open && !!item"
+    :label="sheetLabel"
+    :title="sheetLabel"
+    :description="item ? `เลขที่ ${item.student_no}` : undefined"
+    size="form"
+    @close="emit('close')"
+  >
+    <!-- หน้าที่ -->
+    <div class="mb-4">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-diagram-3 shrink-0 text-ink-3" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
+      </div>
+      <template v-if="readOnly">
         <div
-          class="max-h-[85dvh] w-full overflow-y-auto overscroll-contain rounded-2xl border border-stone-200 bg-white p-4 sm:p-6 md:max-w-xl"
+          v-if="!dutyPosition && !dutyNote"
+          class="rounded-control border border-line bg-canvas px-3 py-2.5 text-sm text-ink-3"
         >
-          <!-- Header -->
-          <div class="mb-4 flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h4 class="flex items-center gap-2 font-display text-base font-bold text-stone-900">
-                <i class="bi bi-person-badge shrink-0 text-brand-700" aria-hidden="true"></i>
-                <span class="min-w-0 truncate">ข้อมูลเพิ่มเติม — {{ displayName(item) }}</span>
-              </h4>
-              <p class="mt-0.5 text-xs text-stone-500">
-                เลขที่ <span class="num">{{ item.student_no }}</span>
-              </p>
-            </div>
-            <button
-              type="button"
-              class="me-1 mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
-              aria-label="ปิดหน้าต่าง"
-              @click="emit('close')"
-            >
-              <i class="bi bi-x-lg" aria-hidden="true"></i>
-            </button>
-          </div>
+          — ไม่มีหน้าที่ —
+        </div>
+        <div v-else class="flex flex-wrap gap-1.5">
+          <span v-if="dutyPosition" class="chip bg-brand-50 text-brand-700">
+            <i class="bi bi-diagram-3" aria-hidden="true"></i> {{ dutyPosition }}
+          </span>
+          <span v-if="dutyNote" class="chip bg-canvas text-ink-2">
+            {{ dutyNote }}
+          </span>
+        </div>
+      </template>
+      <div v-else class="flex flex-col gap-2 sm:flex-row">
+        <select
+          v-model="dutyPosition"
+          :disabled="!canManage"
+          class="field min-w-0 flex-1"
+          aria-label="หน้าที่/ตำแหน่ง"
+        >
+          <option value="">— ไม่มีหน้าที่ —</option>
+          <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
+        </select>
+        <input
+          v-model="dutyNote"
+          type="text"
+          placeholder="หมายเหตุ (เพิ่มเติม)"
+          :disabled="!canManage"
+          class="field min-w-0 flex-1"
+        />
+      </div>
+    </div>
 
-          <!-- หน้าที่ -->
-          <div class="mb-4">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-diagram-3 shrink-0 text-stone-500" aria-hidden="true"></i> หน้าที่/ตำแหน่ง
-            </div>
-            <!-- readOnly: แสดงเป็น text -->
-            <template v-if="readOnly">
-              <div
-                v-if="!dutyPosition && !dutyNote"
-                class="rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2.5 text-sm text-stone-500"
-              >
-                — ไม่มีหน้าที่ —
-              </div>
-              <div v-else class="flex flex-wrap gap-1.5">
-                <span v-if="dutyPosition" class="chip bg-brand-50 text-brand-700">
-                  <i class="bi bi-diagram-3" aria-hidden="true"></i> {{ dutyPosition }}
-                </span>
-                <span v-if="dutyNote" class="chip bg-stone-100 text-stone-600">
-                  {{ dutyNote }}
-                </span>
-              </div>
-            </template>
-            <!-- mode แก้ไข: select + input -->
-            <div v-else class="flex flex-col gap-2 sm:flex-row">
-              <select
-                v-model="dutyPosition"
-                :disabled="!canManage"
-                class="field min-w-0 flex-1"
-                aria-label="หน้าที่/ตำแหน่ง"
-              >
-                <option value="">— ไม่มีหน้าที่ —</option>
-                <option v-for="pos in positions" :key="pos" :value="pos">{{ pos }}</option>
-              </select>
-              <input
-                v-model="dutyNote"
-                type="text"
-                placeholder="หมายเหตุ (เพิ่มเติม)"
-                :disabled="!canManage"
-                class="field min-w-0 flex-1"
-              />
-            </div>
-          </div>
-
-          <!-- Type B ข้อมูลที่จัดเก็บ -->
-          <div v-if="typeBFields.length > 0" class="mb-4">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-list-check shrink-0 text-stone-500" aria-hidden="true"></i> ข้อมูลที่จัดเก็บของกิจกรรมนี้
-            </div>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div v-for="field in typeBFields" :key="field.key">
-                <label class="field-label">{{ field.label }}</label>
-                <ActivityFieldControl
-                  :field="field"
-                  :model-value="typeBValues[field.key]"
-                  :disabled="!canManage || readOnly"
-                  @update:model-value="
-                    (v: unknown) => {
-                      typeBValues[field.key] = v
-                    }
-                  "
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- 🌟 Dynamic Fields (ฟิลด์เพิ่มเติมของกิจกรรมนี้) -->
-          <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-4">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-puzzle shrink-0 text-stone-500" aria-hidden="true"></i> ฟิลด์เพิ่มเติมของกิจกรรมนี้
-            </div>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div v-for="field in dynamicFields" :key="field.key">
-                <label class="field-label">{{ field.label }}</label>
-                <ActivityFieldControl
-                  :field="field"
-                  :model-value="typeBValues[field.key]"
-                  :disabled="!canManage || readOnly"
-                  @update:model-value="
-                    (v: unknown) => {
-                      typeBValues[field.key] = v
-                    }
-                  "
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- ข้อมูลเพิ่มเติม (หัวข้อ+ค่า) -->
-          <div class="mb-4">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-asterisk shrink-0 text-stone-500" aria-hidden="true"></i> ข้อมูลเพิ่มเติมเฉพาะคนนี้
-            </div>
-            <ExtraInfoRows
-              :rows="customFields"
-              compact
-              :placeholder="'เช่น เบอร์ที่นั่ง, ขนาดเสื้อ, อาหารที่ชอบ'"
-              :quick-add="[]"
-              :read-only="readOnly"
-              @update:rows="
-                (rows: CustomFieldEntry[]) => {
-                  customFields = rows
-                }
-              "
-            />
-          </div>
-
-          <!-- Type A (🔒 จากโปรไฟล์) -->
-          <div v-if="typeAFields.length > 0" class="mb-4">
-            <div
-              class="mb-2 flex items-center gap-1.5 border-b border-stone-100 pb-1.5 text-sm font-bold text-stone-900"
-            >
-              <i class="bi bi-lock-fill shrink-0 text-stone-500" aria-hidden="true"></i> จากโปรไฟล์ส่วนตัว (อ่านอย่างเดียว)
-            </div>
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div
-                v-for="field in typeAFields"
-                :key="field.key"
-                class="flex items-center justify-between gap-2 rounded-xl border border-stone-200 bg-stone-50/60 px-3 py-2"
-              >
-                <span class="shrink-0 text-[11px] font-semibold text-stone-500">{{ field.label }}</span>
-                <span
-                  class="min-w-0 break-words text-end text-xs font-bold leading-snug text-stone-700"
-                  :title="String(profileValue(field) ?? '—')"
-                >
-                  {{ String(profileValue(field) ?? '—') }}
-                </span>
-              </div>
-            </div>
-            <p class="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-stone-500">
-              <i class="bi bi-lock-fill shrink-0 text-stone-500" aria-hidden="true"></i>
-              <span>ข้อมูลนี้อัปเดตได้ที่หน้าโปรไฟล์ของนักเรียน ไม่ถูกบันทึกลงกิจกรรมนี้</span>
-            </p>
-          </div>
-
-          <!-- Actions -->
-          <div
-            class="mt-3 flex flex-col-reverse gap-2 border-t border-stone-100 pt-3 sm:flex-row sm:justify-end sm:pt-4"
-          >
-            <button type="button" class="btn-ghost-ui" @click="emit('close')">ปิด</button>
-            <button
-              v-if="canManage && !readOnly"
-              type="button"
-              class="btn-primary"
-              @click="handleSave"
-            >
-              <i class="bi bi-check-lg" aria-hidden="true"></i> บันทึก
-            </button>
-          </div>
+    <!-- Type B ข้อมูลที่จัดเก็บ -->
+    <div v-if="typeBFields.length > 0" class="mb-4">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-list-check shrink-0 text-ink-3" aria-hidden="true"></i> ข้อมูลที่จัดเก็บของกิจกรรมนี้
+      </div>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div v-for="field in typeBFields" :key="field.key">
+          <label class="field-label">{{ field.label }}</label>
+          <ActivityFieldControl
+            :field="field"
+            :model-value="typeBValues[field.key]"
+            :disabled="!canManage || readOnly"
+            @update:model-value="
+              (v: unknown) => {
+                typeBValues[field.key] = v
+              }
+            "
+          />
         </div>
       </div>
-    </Transition>
-  </Teleport>
-</template>
+    </div>
 
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>
+    <!-- 🌟 Dynamic Fields -->
+    <div v-if="dynamicFields && dynamicFields.length > 0" class="mb-4">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-puzzle shrink-0 text-ink-3" aria-hidden="true"></i> ฟิลด์เพิ่มเติมของกิจกรรมนี้
+      </div>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div v-for="field in dynamicFields" :key="field.key">
+          <label class="field-label">{{ field.label }}</label>
+          <ActivityFieldControl
+            :field="field"
+            :model-value="typeBValues[field.key]"
+            :disabled="!canManage || readOnly"
+            @update:model-value="
+              (v: unknown) => {
+                typeBValues[field.key] = v
+              }
+            "
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- ข้อมูลเพิ่มเติม (หัวข้อ+ค่า) -->
+    <div class="mb-4">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-asterisk shrink-0 text-ink-3" aria-hidden="true"></i> ข้อมูลเพิ่มเติมเฉพาะคนนี้
+      </div>
+      <ExtraInfoRows
+        :rows="customFields"
+        compact
+        :placeholder="'เช่น เบอร์ที่นั่ง, ขนาดเสื้อ, อาหารที่ชอบ'"
+        :quick-add="[]"
+        :read-only="readOnly"
+        @update:rows="
+          (rows: CustomFieldEntry[]) => {
+            customFields = rows
+          }
+        "
+      />
+    </div>
+
+    <!-- Type A (🔒 จากโปรไฟล์) -->
+    <div v-if="typeAFields.length > 0">
+      <div class="mb-2 flex items-center gap-1.5 border-b border-line pb-1.5 text-sm font-bold text-ink-1">
+        <i class="bi bi-lock-fill shrink-0 text-ink-3" aria-hidden="true"></i> จากโปรไฟล์ส่วนตัว (อ่านอย่างเดียว)
+      </div>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div
+          v-for="field in typeAFields"
+          :key="field.key"
+          class="flex items-center justify-between gap-2 rounded-control border border-line bg-canvas px-3 py-2"
+        >
+          <span class="shrink-0 text-xs font-semibold text-ink-3">{{ field.label }}</span>
+          <span
+            class="min-w-0 break-words text-end text-xs font-bold leading-snug text-ink-1"
+            :title="String(profileValue(field) ?? '—')"
+          >
+            {{ String(profileValue(field) ?? '—') }}
+          </span>
+        </div>
+      </div>
+      <p class="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-ink-3">
+        <i class="bi bi-lock-fill shrink-0 text-ink-3" aria-hidden="true"></i>
+        <span>ข้อมูลนี้อัปเดตได้ที่หน้าโปรไฟล์ของนักเรียน ไม่ถูกบันทึกลงกิจกรรมนี้</span>
+      </p>
+    </div>
+
+    <template #footer>
+      <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" class="btn-ghost-ui" @click="emit('close')">ปิด</button>
+        <button
+          v-if="canManage && !readOnly"
+          type="button"
+          class="btn-primary"
+          @click="handleSave"
+        >
+          <i class="bi bi-check-lg" aria-hidden="true"></i> บันทึก
+        </button>
+      </div>
+    </template>
+  </AppSheet>
+</template>

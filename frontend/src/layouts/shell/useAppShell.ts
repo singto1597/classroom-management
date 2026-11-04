@@ -2,14 +2,19 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { ClassroomService } from '@/services/classroom';
-import { navSectionName } from '@/constants/nav';
 import { avatarInitial } from '@/utils/avatar';
 import type { UserRoom } from '@/types/classroom';
 
 /** ชื่อคีย์ localStorage ที่จำสถานะย่อ sidebar */
 const COLLAPSE_KEY = 'syncroom_sidebar_collapsed';
 
-export type ShellMenu = 'roomSwitcher' | 'headerSettings';
+/**
+ * เมนูที่เปิดจาก header — เหลือตัวสลับห้องเรียนเท่านั้น
+ *
+ * เดิมมี `headerSettings` (โปรไฟล์/ผูกบัญชี/ออกจากระบบ) ⇒ ย้ายงานบัญชีไปหน้า
+ * "เพิ่มเติม"/`/account` แล้ว header จึงไม่ต้องถือสถานะของเมนูที่สอง
+ */
+export type ShellMenu = 'roomSwitcher';
 
 /**
  * 🧭 สถานะและคำสั่งของเปลือกแอป (sidebar · header · bottom nav · sheet)
@@ -22,7 +27,6 @@ export function useAppShell() {
   const router = useRouter();
   const route = useRoute();
 
-  const isMoreSheetOpen = ref(false);
   const isSidebarCollapsed = ref(false);
   const activeDropdown = ref<ShellMenu | null>(null);
   const dropdownStyle = ref<{ top: string; left: string; bottom?: string }>({
@@ -31,9 +35,6 @@ export function useAppShell() {
   });
 
   const displayName = computed(() => authStore.currentUserName);
-
-  /** ชื่อเมนูแม่ของหน้าปัจจุบัน — ใช้ทำ breadcrumb */
-  const currentSubMenuName = computed(() => navSectionName(route.path));
 
   // ✨ อักษรย่อจากชื่อเล่น (หรือชื่อจริง) — ข้ามสระนำไทย (เก่ง → ก) ตาม utils/avatar
   const avatarChar = computed(() => {
@@ -62,15 +63,6 @@ export function useAppShell() {
     activeDropdown.value = null;
   };
 
-  const closeMoreSheet = () => {
-    isMoreSheetOpen.value = false;
-  };
-
-  const openMoreSheet = () => {
-    closeDropdowns();
-    isMoreSheetOpen.value = true;
-  };
-
   /** เปิด/ปิด dropdown และวางตำแหน่งให้ไม่ล้นจอ */
   const toggleDropdown = (event: MouseEvent, menu: ShellMenu) => {
     if (activeDropdown.value === menu) {
@@ -83,7 +75,7 @@ export function useAppShell() {
     const trigger = event.currentTarget as HTMLElement;
     const rect = trigger.getBoundingClientRect();
     const panelWidth = 240;
-    const panelHeight = menu === 'headerSettings' ? 300 : 220;
+    const panelHeight = 240;
 
     let left = rect.right - panelWidth;
     left = Math.max(12, Math.min(left, window.innerWidth - panelWidth - 12));
@@ -117,7 +109,6 @@ export function useAppShell() {
    */
   const handleChangeRoom = () => {
     closeDropdowns();
-    closeMoreSheet();
     router.push('/lobby');
   };
 
@@ -130,17 +121,10 @@ export function useAppShell() {
    */
   const switchRoom = (room: UserRoom) => {
     closeDropdowns();
-    closeMoreSheet();
     if (room.room_id === authStore.currentRoomId) return;
 
     authStore.setActiveRoom(room.room_id);
     if (route.path !== '/dashboard') router.push('/dashboard');
-  };
-
-  const logout = () => {
-    closeDropdowns();
-    closeMoreSheet();
-    authStore.logout();
   };
 
   onMounted(async () => {
@@ -165,7 +149,6 @@ export function useAppShell() {
   watch(
     () => route.path,
     () => {
-      closeMoreSheet();
       closeDropdowns();
     },
   );
@@ -174,18 +157,13 @@ export function useAppShell() {
     authStore,
     displayName,
     avatarChar,
-    currentSubMenuName,
-    isMoreSheetOpen,
     isSidebarCollapsed,
     activeDropdown,
     dropdownStyle,
     toggleDropdown,
     closeDropdowns,
-    openMoreSheet,
-    closeMoreSheet,
     toggleSidebarCollapse,
     handleChangeRoom,
     switchRoom,
-    logout,
   };
 }

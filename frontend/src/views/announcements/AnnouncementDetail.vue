@@ -17,8 +17,7 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import Swal from 'sweetalert2';
-import PageHeader from '@/components/ui/PageHeader.vue';
+import PageIntro from '@/components/ui/PageIntro.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import BookmarkButton from '@/components/me/BookmarkButton.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -27,14 +26,16 @@ import { AnnouncementService } from '@/services/announcement';
 import { useAuthStore } from '@/stores/auth';
 import { useNotificationStore } from '@/stores/notifications';
 import { formatThaiDateTime } from '@/utils/datetime';
+import { useDialog } from '@/composables/useDialog';
+import { usePageTitle } from '@/composables/usePageTitle';
 import { PRIORITY_BADGE_CLASSES, PRIORITY_LABELS } from '@/constants/notificationGroups';
-import { UI_COLOR } from '@/constants/theme';
 import type { AnnouncementItem } from '@/types/announcement';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
+const dialog = useDialog();
 const roomId = authStore.currentRoomId ?? 0;
 
 const announcementId = Number(route.params.id);
@@ -42,6 +43,8 @@ const announcement = ref<AnnouncementItem | null>(null);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
 const isBusy = ref(false);
+const pageTitle = ref<string | null>(null);
+usePageTitle(pageTitle);
 
 const canManage = computed(
   () => authStore.isAdmin || authStore.currentPermissions.includes('MANAGE_CLASSROOM_SETTINGS'),
@@ -56,6 +59,7 @@ const load = async () => {
   try {
     const item = await AnnouncementService.get(roomId, announcementId);
     announcement.value = item;
+    pageTitle.value = item.title;
 
     if (item.is_unread) {
       // การอ่านล้มเหลวไม่ควรทำให้หน้า detail ล้มทั้งหน้า
@@ -91,19 +95,13 @@ const togglePin = async () => {
     announcement.value = await AnnouncementService.update(roomId, item.id, {
       pinned: !item.pinned,
     });
-    await Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: announcement.value.pinned ? 'ปักหมุดแล้ว' : 'เลิกปักหมุดแล้ว',
       timer: 1600,
-      showConfirmButton: false,
     });
   } catch (err) {
-    await Swal.fire({
-      icon: 'error',
-      title: 'ทำรายการไม่สำเร็จ',
-      text: messageOf(err),
-      confirmButtonColor: UI_COLOR.brand,
-    });
+    await dialog.alert('ทำรายการไม่สำเร็จ', messageOf(err), 'error');
   } finally {
     isBusy.value = false;
   }
@@ -114,35 +112,25 @@ const toggleArchive = async () => {
   if (!item || isBusy.value) return;
 
   const archiving = !item.archived_at;
-  const confirm = await Swal.fire({
-    icon: 'question',
-    title: archiving ? 'เก็บประกาศนี้เข้าคลัง?' : 'นำประกาศกลับมาแสดง?',
-    text: archiving
+  const confirm = await dialog.confirm(
+    archiving ? 'เก็บประกาศนี้เข้าคลัง?' : 'นำประกาศกลับมาแสดง?',
+    archiving
       ? 'ประกาศจะหายจากรายการปกติ แต่เปิดดูย้อนหลังได้เสมอ — ไม่ใช่การลบ'
       : 'ประกาศจะกลับไปอยู่ในรายการปกติของทุกคน',
-    showCancelButton: true,
-    confirmButtonText: archiving ? 'เก็บเข้าคลัง' : 'นำกลับมา',
-    cancelButtonText: 'ยกเลิก',
-    confirmButtonColor: UI_COLOR.brand,
-  });
+    { icon: 'question', confirmButtonText: archiving ? 'เก็บเข้าคลัง' : 'นำกลับมา' },
+  );
   if (!confirm.isConfirmed) return;
 
   isBusy.value = true;
   try {
     announcement.value = await AnnouncementService.setArchived(roomId, item.id, archiving);
-    await Swal.fire({
+    await dialog.fire({
       icon: 'success',
       title: archiving ? 'เก็บเข้าคลังแล้ว' : 'นำกลับมาแสดงแล้ว',
       timer: 1600,
-      showConfirmButton: false,
     });
   } catch (err) {
-    await Swal.fire({
-      icon: 'error',
-      title: 'ทำรายการไม่สำเร็จ',
-      text: messageOf(err),
-      confirmButtonColor: UI_COLOR.brand,
-    });
+    await dialog.alert('ทำรายการไม่สำเร็จ', messageOf(err), 'error');
   } finally {
     isBusy.value = false;
   }
@@ -172,8 +160,7 @@ const goToList = () => {
     </StateBlock>
 
     <template v-else-if="announcement">
-      <PageHeader
-        :title="announcement.title"
+      <PageIntro
         :description="`ประกาศเมื่อ ${formatThaiDateTime(announcement.created_at)}`"
       >
         <template #actions>
@@ -184,27 +171,27 @@ const goToList = () => {
             รายการประกาศ
           </AppButton>
         </template>
-      </PageHeader>
+      </PageIntro>
 
       <article class="page-card p-4 sm:p-6">
-        <div class="flex flex-wrap items-center gap-1.5 border-b border-stone-100 pb-3 sm:pb-4">
+        <div class="flex flex-wrap items-center gap-1.5 border-b border-line pb-3 sm:pb-4">
           <span
             v-if="announcement.pinned"
-            class="inline-flex items-center gap-1 rounded-full bg-warn-100 px-2 py-0.5 text-[11px] font-bold text-warn-800"
+            class="inline-flex items-center gap-1 rounded-full bg-warn-100 px-2 py-0.5 text-xs font-bold text-warn-800"
           >
             <i class="bi bi-pin-angle-fill" aria-hidden="true"></i>
             ปักหมุด
           </span>
           <span
             v-if="announcement.priority !== 'normal'"
-            class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+            class="rounded-full px-2 py-0.5 text-xs font-bold"
             :class="PRIORITY_BADGE_CLASSES[announcement.priority]"
           >
             {{ PRIORITY_LABELS[announcement.priority] }}
           </span>
           <span
             v-if="announcement.archived_at"
-            class="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-bold text-stone-600"
+            class="rounded-full bg-canvas px-2 py-0.5 text-xs font-bold text-ink-2"
           >
             เก็บถาวรแล้ว
           </span>
@@ -212,15 +199,15 @@ const goToList = () => {
 
         <p
           v-if="announcement.body"
-          class="mt-3 whitespace-pre-line break-words text-sm leading-relaxed text-stone-700 sm:mt-4"
+          class="mt-3 whitespace-pre-line break-words text-sm leading-relaxed text-ink-1 sm:mt-4"
         >
           {{ announcement.body }}
         </p>
-        <p v-else class="mt-3 text-sm italic text-stone-500 sm:mt-4">
+        <p v-else class="mt-3 text-sm italic text-ink-3 sm:mt-4">
           ประกาศนี้มีแค่หัวข้อ ไม่มีรายละเอียดเพิ่มเติม
         </p>
 
-        <p class="mt-4 border-t border-stone-100 pt-3 text-[11px] font-bold text-stone-400">
+        <p class="mt-4 border-t border-line pt-3 text-xs font-bold text-ink-3">
           แก้ไขล่าสุด {{ formatThaiDateTime(announcement.updated_at) }}
         </p>
       </article>
@@ -228,7 +215,7 @@ const goToList = () => {
       <!-- การกระทำของผู้ดูแล -->
       <section v-if="canManage" class="page-card p-4 sm:p-6">
         <h2 class="section-title">จัดการประกาศ</h2>
-        <p class="mt-1 text-xs leading-relaxed text-stone-500">
+        <p class="mt-1 text-xs leading-relaxed text-ink-3">
           การแก้ไขเหล่านี้ไม่สร้างแจ้งเตือนใหม่ให้สมาชิก
         </p>
 

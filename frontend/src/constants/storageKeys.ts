@@ -85,5 +85,13 @@ export const ALL_LOCAL_STORAGE_KEYS: readonly string[] = [
  */
 export const SESSION_ROOM_KEY = 'active_room_id';
 
+/**
+ * หน้าที่จะพาผู้ใช้กลับไปหลังผูกบัญชี OAuth สำเร็จ (เช่น `/account`)
+ *
+ * ใช้ sessionStorage เพราะเป็นของแท็บนี้เท่านั้น และ OAuth redirect กลับมาแท็บเดิม
+ * ⇒ `/account` กด "ผูกบัญชี" แล้วกลับมาที่ `/account` ไม่ใช่ `/dashboard`
+ */
+export const OAUTH_LINK_RETURN_KEY = 'oauth_link_return';
+
 /** ทุกคีย์ใน sessionStorage ที่เป็นของแอปนี้ */
-export const ALL_SESSION_STORAGE_KEYS: readonly string[] = [SESSION_ROOM_KEY];
+export const ALL_SESSION_STORAGE_KEYS: readonly string[] = [SESSION_ROOM_KEY, OAUTH_LINK_RETURN_KEY];

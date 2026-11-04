@@ -24,8 +24,8 @@ withDefaults(
 const emit = defineEmits<{ click: [event: MouseEvent] }>()
 
 const TONE_CLASS = {
-  neutral: 'text-stone-500 hover:bg-stone-100 hover:text-stone-800',
-  brand: 'text-brand-700 hover:bg-brand-50',
+  neutral: 'text-ink-2 hover:bg-canvas hover:text-ink-1',
+  brand: 'text-brand hover:bg-brand-tint',
   danger: 'text-danger-600 hover:bg-danger-50',
 } as const
 </script>
@@ -33,7 +33,7 @@ const TONE_CLASS = {
 <template>
   <button
     :type="type"
-    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors active:scale-[0.97]"
+    class="flex h-11 w-11 shrink-0 items-center justify-center rounded-control transition-colors active:scale-[0.97]"
     :class="TONE_CLASS[tone]"
     :aria-label="label"
     :title="label"
