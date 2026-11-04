@@ -23,6 +23,14 @@ router.beforeEach((to, _from) => {
   if (to.meta.requiresAuth && !isAuthenticated) {
     return { name: 'login' };
   }
+
+  // 🏠 ผู้ที่ล็อกอินแล้วไม่ควรค้างหน้า landing สาธารณะ — พาไปที่ที่ใช้งานต่อได้ทันที
+  if (to.name === 'landing' && isAuthenticated) {
+    if (!isOnboarded) return { name: 'onboarding' };
+    if (!currentRoomId || !currentRole) return toLobbyFor('/dashboard');
+    return { name: 'dashboard' };
+  }
+
   if (to.path === '/login' && isAuthenticated) {
     return { name: 'lobby' };
   }
@@ -34,6 +42,7 @@ router.beforeEach((to, _from) => {
       to.path.startsWith('/lobby') ||
       to.path.startsWith('/auth/') ||
       to.path === '/login' ||
+      to.path === '/' ||
       // 🌐 ลิงก์แชร์กิจกรรมต้องเปิดได้แม้บัญชีนี้ยังไม่ได้กรอกโปรไฟล์
       to.path.startsWith('/share/') ||
       isNotFound;
@@ -52,6 +61,7 @@ router.beforeEach((to, _from) => {
   // (สำคัญ: callback ใช้ผูกบัญชีตอนยังไม่มีห้องได้ — ต้องไม่ถูก redirect ไป lobby)
   const isGlobalRoute =
     to.path.startsWith('/lobby') ||
+    to.path === '/' ||
     to.path === '/login' ||
     to.path === '/onboarding' ||
     to.path.startsWith('/auth/') ||

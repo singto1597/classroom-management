@@ -150,6 +150,7 @@ export function isNavItemActive(itemPath: string, currentPath: string): boolean 
  */
 export const routeTitles = {
   // ── Global (ไม่ต้องมีห้อง) ──────────────────────────────────────────────
+  landing: 'หน้าแรก',
   login: 'เข้าสู่ระบบ',
   'google-callback': 'กำลังเข้าสู่ระบบ',
   'discord-callback': 'กำลังเข้าสู่ระบบ',

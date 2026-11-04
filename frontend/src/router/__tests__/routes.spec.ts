@@ -146,6 +146,24 @@ describe('routeTitles — แหล่งเดียวของชื่อห
   });
 });
 
+describe('หน้าแรกสาธารณะ + โครงสร้าง MainLayout', () => {
+  it('มี landing ที่ "/" และไม่บังคับล็อกอิน', () => {
+    const landing = flat.find((r) => r.name === 'landing');
+    expect(landing?.path).toBe('/');
+    expect(landing?.requiresAuth).toBe(false);
+  });
+
+  it('path ลูกของ MainLayout เป็น absolute — URL เดิมทั้งหมดต้องไม่เปลี่ยน', () => {
+    const appParent = routes.find((r) => r.path === '/app');
+    expect(appParent).toBeDefined();
+    const children = (appParent?.children ?? []) as unknown as Array<{ path: string }>;
+    expect(children.length).toBeGreaterThan(20);
+    for (const child of children) {
+      expect(child.path.startsWith('/')).toBe(true);
+    }
+  });
+});
+
 describe('navTab ใต้ MainLayout', () => {
   const mainLayoutChildren = flat.filter(
     (r) => r.path.startsWith('/') && !r.path.startsWith('/lobby') && r.name && !r.isCatchAll,
@@ -153,6 +171,7 @@ describe('navTab ใต้ MainLayout', () => {
   const appPages = mainLayoutChildren.filter(
     (r) =>
       ![
+        'landing',
         'login',
         'google-callback',
         'discord-callback',
