@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 271 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 272 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -275,6 +275,7 @@
 - [🎪 กิจกรรม = ทะเบียนบันทึกผู้เข้าร่วม ไม่ใช่ระบบรับลงทะเบียน — อย่ายืม capacity/waitlist/QR/ลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง](#กิจกรรม-ทะเบียนบันทึกผู้เข้าร่วม-ไม่ใช่ระบบรับลงทะเบียน-อย่ายืม-capacitywaitlistqrลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง)
 - [🧬 mixin ใหม่ที่ตั้งชื่อ helper ซ้ำกับ mixin เดิม = override เงียบ ๆ ผ่าน MRO (จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)](#mixin-ใหม่ที่ตั้งชื่อ-helper-ซ้ำกับ-mixin-เดิม-override-เงียบ-ๆ-ผ่าน-mro-จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)
 - [🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)](#ฟิลด์ที่-frontend-ต้องใช้-แต่-responsemodel-ไม่ประกาศ-pydantic-กรองทิ้งเงียบ-ๆ-http-200-เทสต์เขียว-ui-พัง)
+- [📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`](#ส่งวันละครั้ง-ต้องจองสิทธิ์ใน-db-ไม่ใช่ใน-memory-และตัวเช็กเวลาต้องเป็น-ไม่ใช่)
 
 <!-- TOC:END -->
 
@@ -4615,7 +4616,8 @@
   - ตรวจด้วยสคริปต์ก่อน commit: ไล่ `^    (async )?def (\w+)\(` ในทุกไฟล์ใต้ `services/finance/` แล้วรายงานชื่อที่ซ้ำกัน (ตอนนี้เหลือศูนย์) — ทำเป็นนิสัยเมื่อเพิ่ม mixin ใหม่
   - เทสต์ที่จับได้คือชุดของ mixin **อีกตัว** ไม่ใช่ชุดของตัวที่แก้ ⇒ อย่าด่วนสรุปว่าความล้มเหลวอยู่ที่ไฟล์เดียวกับที่เพิ่งแก้ ให้ตาม traceback ไปที่ `cls.` ที่ MRO เลือกผิด
 - **Rule:** (1) 🔴 helper ใน mixin ต้องมีชื่อเฉพาะโดเมน (`_shape_fine_batch`, `_shape_receipt_batch`) — ห้ามใช้ชื่อกลางเหมือน mixin ตัวอื่น (2) 🔴 `cls.<helper>` ใน mixin คือ MRO dispatch ไม่ใช่ lexical ⇒ การทดสอบ mixin เดี่ยว ๆ ไม่พอ ต้องมีชุดทดสอบของ mixin อื่นที่ใช้ชื่อเดียวกันด้วย (3) 🔴 เมื่อเพิ่ม mixin ให้รันเช็กชื่อซ้ำก่อน merge
-- **Tests/Verification:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "python -m pytest -q /app/tests/test_finance_receipt_batches.py /app/tests/test_fine_payments_credits.py"` ผ่านทั้งคู่ · สคริปต์หาชื่อซ้ำคืนรายการว่าง · `test_route_auth_audit.py` จำนวน route 167 → 186 (ค่าปรับเพิ่ม 19 route)
+- **ซ้ำอีกครั้ง (2026-11-24, P6):** `BaseMixin._student_display_name(conn, student_id)` (ใหม่) ถูก `FinesMixin._student_display_name(row)` ที่อยู่ก่อนใน MRO กลืน ⇒ `TypeError: takes 1 positional argument but 2 were given` ใน `waivers.py`/`refunds.py` ทั้งที่ **ชื่อและอาร์กิวเมนต์เขียนถูก** บทเรียนจากรอบแรกช่วยได้แค่ "ให้สงสัย MRO" — ตัวแก้คือ **ตั้งชื่อให้ยาวและเฉพาะเจาะจงกว่าเดิม** (`_resolve_student_name`) ไม่ใช่พยายามจำรายชื่อที่ห้ามใช้ ⇒ เขียน docstring เตือนชื่อที่ชนไว้ในตัวฟังก์ชันใหม่ด้วย
+- **Tests/Verification:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "python -m pytest -q /app/tests/test_finance_receipt_batches.py /app/tests/test_fine_payments_credits.py"` ผ่านทั้งคู่ · สคริปต์หาชื่อซ้ำคืนรายการว่าง · `test_route_auth_audit.py` จำนวน route 167 → 186 (ค่าปรับเพิ่ม 19 route) · รอบที่สอง: `test_fine_waivers.py` + `test_fine_refunds.py` + `test_fines_issue.py` = 81 passed
 - **Date Added:** 2026-11-24
 
 ### 🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)
@@ -4629,4 +4631,35 @@
 - **Rule:** (1) 🔴 เมื่อเพิ่มคอลัมน์ให้ query ที่ endpoint ใช้ ต้องเปิดไฟล์ `models/` ที่ตรงกับ `response_model` ทุกครั้ง — SQL ส่งมาแล้วแต่ schema ตัดทิ้งได้ (2) 🔴 เทสต์ของ endpoint ที่ UI พึ่งพา **ต้อง assert ค่าฟิลด์ที่ UI ใช้** ไม่ใช่แค่ 200/ยอดรวม (3) 🔴 ฟิลด์ใหม่ใน response ต้องมี default สำหรับแถวที่ไม่มีค่า เพื่อไม่ให้ client เก่าพัง
 - **Tests/Verification:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "... pytest -q /app/tests/test_finance_me_endpoints.py"` ผ่านทั้ง 10 เทสต์ · `npm run type-check` ผ่าน (types ฝั่ง Vue มี `collection_kind?`/`fine_id?`) · ตรวจด้วย `curl .../me/debts` เห็นสองฟิลด์
 - **Note (Excel):** งานเดียวกันเพิ่มชีต "รายงานอายุหนี้" ใน `export.py` ⇒ เทสต์ที่ assert รายชื่อแผ่นแบบเป๊ะ (`test_finance_http.py::test_web_export_finance_excel_200`, `test_finance_v2_read.py`) ล้มทันที ลำดับแผ่นคือสัญญาของไฟล์ที่ส่งนักบัญชี (ดูบทเรียน `test_finance_journal_export.py` เดิม) — แก้ที่เทสต์ให้ตรงลำดับจริง **ก่อน** merge เท่านั้น
+- **Date Added:** 2026-11-24
+
+### 📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`
+
+- **Context/Problem:** P6 เพิ่ม worker เตือนผู้ค้างชำระ (`finance_reminder_worker`, ตรวจทุก 5 นาที, ส่งเมื่อถึง 09:00 Asia/Bangkok) พร้อมสองช่องทาง: แจ้งในแอปต่อคน และสรุป Discord ต่อห้อง ขณะทดสอบเจอสามกับดักที่ไม่โผล่จนกว่าจะรันจริง:
+  1. ถ้ากันซ้ำด้วยตัวแปรใน process (`last_sent_date`) การรีสตาร์ท worker กลางวัน = ส่งซ้ำทั้งห้องทันที (และ `replicas: 2` ก็ส่งซ้ำ)
+  2. ถ้าเช็ก `now.hour == 9 and now.minute == 0` ลูป 5 นาที **ไม่เคยตรงเป้า** เมื่อรอบตื่นเลื่อนไป 09:01 (งานรอบก่อนช้า 40 วินาที)
+  3. ถ้าตื่น 09:01 แล้วส่งสำเร็จ ตัวแปร `last_sent_date` ถูกตั้ง ⇒ วันถัดไป 09:00 ส่งได้ แต่ถ้า **ตายก่อนตั้งค่า** รอบถัดไป 09:05 จะส่งซ้ำ — ความถูกต้องขึ้นกับลำดับสองบรรทัดที่คนแก้ทีหลังมองไม่เห็น
+- **Correct Pattern/Solution:**
+  ```python
+  # 1) จองสิทธิ์ส่งกับ DB — migration 0010 มี unique (room_id, dispatch_key, channel)
+  claimed = await conn.fetchval(
+      """INSERT INTO reminder_dispatch_log (room_id, dispatch_key, channel, payload)
+         VALUES ($1, $2, $3, $4::jsonb)
+         ON CONFLICT (room_id, dispatch_key, channel) DO NOTHING
+         RETURNING id""",
+      room_id, f"discord:digest:{as_of.isoformat()}", "discord", json.dumps(payload),
+  )
+  if claimed is None:
+      return  # ส่งไปแล้ววันนี้ — ไม่ว่าจะโดยรอบก่อน, replica อื่น, หรือโปรเซสที่ตายไปแล้ว
+
+  # 2) ถึงเวลาหรือยัง = >= (ไม่ใช่ ==) — ลูปตื่นช้าได้เสมอ
+  def is_due(now, hour, minute) -> bool:
+      return (now.hour, now.minute) >= (hour, minute)
+  ```
+  - `pending_publishes` เก็บ (server_id, payload) แล้วยิง `ActionService` **หลัง commit** — ไม่ให้ Redis ล่มแล้ว DB จำว่าส่งแล้ว
+  - worker จับ `UndefinedTableError` ด้วย **SQLSTATE** (`getattr(exc, "sqlstate", None) == "42P01"`) ไม่ใช่ `isinstance` — ทนทั้ง asyncpg จริงและตัวจำลองในเทสต์
+  - เวลาตั้งชื่อ config แบบ namespaced: `FINANCE_REMINDER_TZ` (ไม่ใช่ `TZ`) — container มักมี `TZ=UTC` อยู่แล้ว อ่านค่านั้นจะเลื่อนเส้นแบ่ง "วันนี้" ไป 7 ชั่วโมงเงียบ ๆ
+- **กับดักแยก (ฝั่งบอท):** Discord `embed.add_field(value=...)` มีเพดาน **1,024** ตัวอักษร แต่ `description` **4,096** ⇒ รายชื่อ 20 คน × (เลขที่ + ชื่อไทย+ชื่อเล่น + ยอด) เกิน 1,024 ได้ง่าย แล้ว Discord ตอบ `HTTPException` = **ข้อความหายทั้งใบ** (ไม่ใช่ตัดเนื้อหา) ⇒ ใส่รายการยาวใน description และมีเทสต์วัด `len(description) <= 4096` ด้วยข้อมูลจำลองชื่อ 100 ตัวอักษร 20 คน
+- **Rule:** (1) 🔴 "วันละครั้ง" คือคุณสมบัติของ **ข้อมูล** ไม่ใช่ของ process — ใช้ unique index + `ON CONFLICT DO NOTHING RETURNING` เป็นด่านแรก (2) 🔴 ตัวเช็กนาฬิกาในลูปเป็น `>=`; ตัวเช็ก "ทำวันนี้แล้ว" อยู่ที่ DB (3) 🔴 publish ภายนอก DB หลัง commit เสมอ (4) 🔴 อย่าจอง embed field ให้ข้อมูลที่ยาวไม่จำกัด — ใช้ description + เทสต์ความยาว (5) 🔴 worker ใหม่จับ `42P01` ผ่าน `sqlstate` และ log แล้วรอรอบถัดไป **ห้าม exit**
+- **Tests/Verification:** `pytest -q /app/tests/test_finance_reminders.py` = 11 passed (เลือกบิลเลยกำหนด/ใกล้ครบ, dedupe สองช่องทาง, นักเรียนไร้บัญชีอยู่ใน Discord อย่างเดียว, แบ่งส่วน 20+5, worker ก่อนเวลา/หลังเวลา/42P01) · bot: `python -m unittest tests.test_action_service_finance_events -v` = 11 passed (ช่อง minor/announcement, ไม่ `@everyone`, ป้ายไทย, เพดาน description, payload ขาดฟิลด์, mute)
 - **Date Added:** 2026-11-24

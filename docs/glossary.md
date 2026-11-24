@@ -111,6 +111,8 @@
 | **รายงานอายุหนี้** | ตารางผู้ค้างชำระแยกตามถังอายุ: ยังไม่ครบกำหนด · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · ไม่ระบุกำหนด | `/finance/aging` | aging · รายงานลูกหนี้คงค้าง |
 | **ผู้ค้างชำระค่าโครงการ** | บัญชีสินทรัพย์ `11001` สำหรับบิลโปรเจกต์เก็บเงิน | `account_code='11001'` | AR โครงการ |
 | **ผู้ค้างชำระค่าปรับ** | บัญชีสินทรัพย์ `11002` สำหรับบิลค่าปรับ | `account_code='11002'` | AR ค่าปรับ |
+| **ยอดค้างชำระของฉัน** | หน้าส่วนตัวที่นักเรียนเห็นเฉพาะบิลค้างของตัวเอง | `/finance/my-debts` | หนี้ของฉัน · my debts |
+| **แจ้งเตือนผู้ค้างชำระ** | ข้อความอัตโนมัติวันละครั้ง (09:00) รวม "เลยกำหนด" + "ครบกำหนดใน 3 วัน" — ประกาศในช่องห้อง + แจ้งในแอปเฉพาะคนที่ค้าง | `debt_reminder`, `reminder_dispatch_log` | แจ้งหนี้ · ทวงหนี้ · reminder |
 
 ### เอกสารการเงิน — `finance_receipts.doc_type`
 
@@ -188,6 +190,7 @@
 | ประเภทความผิด | `fine_type` (ตาราง `fine_types`) |
 | คำขอยกเว้น / คำขอคืนเงิน | `waiver` / `refund` (ตาราง `fine_waivers` / `fine_refunds`) |
 | รายงานอายุหนี้ | `aging` (`/finance/receivables/aging`, `AGING_BUCKETS`) |
+| แจ้งเตือนผู้ค้างชำระ | `debt_reminder` (`notifications.type`) · ตัวกันส่งซ้ำ = `reminder_dispatch_log` (ช่อง `inapp` / `discord`) · worker `finance_reminder_worker` |
 | ยืนยันตัวตน | `identity_claimed` · `accept_invite` |
 | คำเชิญยืนยันตัวตน | `invite` (`list_my_invites`) |
 | ข้อมูลเฉพาะห้อง | `student_room_profiles` · resolved view = `v_student_profiles` |
