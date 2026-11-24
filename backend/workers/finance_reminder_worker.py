@@ -5,6 +5,9 @@
 ═══════════════════════════════════════════════════════════════════════════════
 1. เขียน heartbeat ลง Redis (ทุกรอบ — รวมรอบที่ยังไม่ถึงเวลาส่ง)
 2. ถ้าวันนี้ยังไม่เคยส่ง **และ** เวลา (Asia/Bangkok) >= `FINANCE_REMINDER_HOUR:MINUTE`
+   ⇒ ⏰ เรียก `FinanceService.apply_late_fees(as_of=วันนี้)` ก่อน (ถ้า
+   `FINANCE_LATE_FEE_ENABLED`) — ออกค่าปรับล่าช้าให้บิลที่เลยกำหนดของทุกแคมเปญ
+   ที่ตั้งนโยบายไว้ · ปลอดภัยต่อการเรียกซ้ำ (unique `uq_fines_late_fee_source`)
    ⇒ เรียก `FinanceService.dispatch_daily_reminders(as_of=วันนี้)`
    - กันซ้ำจริงอยู่ที่ DB (`reminder_dispatch_log` unique ต่อวัน/ช่อง)
      ⇒ worker ตายแล้วรีสตาร์ท/รันซ้ำหลัง 09:00 ไม่ทำให้ใครได้ข้อความสองครั้ง
@@ -77,18 +80,21 @@ async def run_once(pool: asyncpg.Pool, *, now: Optional[datetime] = None) -> dic
     if not is_due(moment, settings.FINANCE_REMINDER_HOUR, settings.FINANCE_REMINDER_MINUTE):
         return {"status": "waiting", "as_of": as_of.isoformat()}
 
+    late_fee_stats: dict = {}
     try:
+        if settings.FINANCE_LATE_FEE_ENABLED:
+            late_fee_stats = await FinanceService.apply_late_fees(pool, as_of=as_of)
         stats = await FinanceService.dispatch_daily_reminders(pool, as_of=as_of)
     except Exception as e:  # noqa: BLE001 — แยกเฉพาะกรณี "รอสคีมา" ที่เหลือโยนต่อ
         if _is_missing_schema_error(e):
             logger.warning(
-                "⏳ ตาราง reminder_dispatch_log ยังไม่มี (migration 0010 ยังไม่ apply) "
+                "⏳ สคีมาการเงินยังไม่ครบ (migration ยังไม่ apply) "
                 "— จะลองรอบถัดไป"
             )
             return {"status": "schema_pending", "as_of": as_of.isoformat()}
         raise
 
-    return {"status": "sent", **stats}
+    return {"status": "sent", **stats, "late_fees": late_fee_stats}
 
 
 async def run_forever(pool: asyncpg.Pool, redis=None) -> None:  # pragma: no cover — ลูปไม่รู้จบ

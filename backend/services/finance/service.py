@@ -32,6 +32,12 @@ from .receivables import ReceivablesMixin
 # 📣 เตือนผู้ค้างชำระรายวัน (Phase 6) — ใช้ `_open_bill_predicate` (AccrualMixin) และ
 #    `_get_room_server_id` (BaseMixin) ผ่าน MRO ของ FinanceService · ไม่มีชื่อฟังก์ชันชน
 from .reminders import RemindersMixin
+# ⏰ ค่าปรับจ่ายล่าช้าอัตโนมัติ (Phase 6.5) — ใช้ `_open_bill_predicate` (Accrual),
+#    `_create_bills_with_accrual`, `_issue_fine_invoice` (Receipts), `_lock_room_money`
+#    และ `notify_user` · ไม่มีชื่อชนกับ mixin ใด (`apply_late_fees` เป็นชื่อใหม่)
+from .late_fees import LateFeesMixin
+# 🧾 เรียกเก็บเงินเองรายบุคคล (Phase 6.5) — ใช้ `_create_bills_with_accrual` ผ่าน MRO
+from .custom_charges import CustomChargesMixin
 
 
 class FinanceService(
@@ -45,6 +51,10 @@ class FinanceService(
     # 📣 วางติด ReceivablesMixin (ทั้งคู่อ่านอย่างเดียว/ไม่ชนชื่อ) — ถ้าอนาคตมีชื่อชน
     #    ให้ย้ายตัวที่ **ไม่ควรชนะ** ลงไปข้างล่าง (MRO: ตัวบนชนะ)
     RemindersMixin,
+    # ⏰🧾 P6.5 — สองตัวนี้พึ่ง `_create_bills_with_accrual` (AccrualMixin) และ
+    #    `_issue_fine_invoice` (ReceiptsMixin) ผ่าน MRO ⇒ วางไว้บนได้เหมือน mixin ค่าปรับ
+    LateFeesMixin,
+    CustomChargesMixin,
     ExportMixin,
     ReportingMixin,
     ReceiptsMixin,

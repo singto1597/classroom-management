@@ -870,7 +870,7 @@ class ReceiptsMixin:
     async def _issue_fine_invoice(
         cls, conn: asyncpg.Connection, *, room_id: int, payment_id: int,
         fine_id: int, fine_type_name: str, incident_date, due_date,
-        reason: str, amount: float, user_id: int, user_name: str,
+        reason: str, amount: float, user_id: Optional[int], user_name: str,
         note: Optional[str] = None, issued_at_db: Optional[datetime] = None,
     ):
         """ออก **ใบแจ้งหนี้รายบิลของค่าปรับ** (`INV-`) — 1 บิลค่าปรับ = 1 ใบ

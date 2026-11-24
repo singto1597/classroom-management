@@ -132,6 +132,24 @@ AR_LEDGER_CODES: tuple[str, ...] = (AR_PROJECT_CODE, AR_FINE_CODE)
 COLLECTION_KIND_PROJECT = "project"
 COLLECTION_KIND_FINE = "fine"
 
+# ⏰ นโยบายค่าปรับจ่ายล่าช้า (Phase 6.5) — เก็บที่ `fee_collections.late_fee_mode`
+#    `none` = ไม่ปรับ (ค่าเริ่มต้น) · `fixed` = จำนวนเงินคงที่ · `percent` = % ของยอดคงเหลือ
+LATE_FEE_MODE_NONE = "none"
+LATE_FEE_MODE_FIXED = "fixed"
+LATE_FEE_MODE_PERCENT = "percent"
+LATE_FEE_MODES: tuple[str, ...] = (
+    LATE_FEE_MODE_NONE, LATE_FEE_MODE_FIXED, LATE_FEE_MODE_PERCENT,
+)
+LATE_FEE_MODE_LABELS = {
+    LATE_FEE_MODE_NONE: "ไม่ปรับ",
+    LATE_FEE_MODE_FIXED: "ปรับเป็นจำนวนเงิน",
+    LATE_FEE_MODE_PERCENT: "ปรับเป็นเปอร์เซ็นต์",
+}
+# ชื่อที่แสดงบนค่าปรับที่ระบบออกให้ (ไม่มีประเภทความผิดจริง — `fine_type_id` เป็น NULL)
+LATE_FEE_FINE_TYPE_NAME = "ค่าปรับจ่ายล่าช้า"
+# จำนวนวันให้ชำระหลังระบบออกค่าปรับล่าช้า
+LATE_FEE_DUE_DAYS = 7
+
 # สถานะค่าปรับ — ต้องตรงกับ CHECK ใน migration 0010
 FINE_STATUS_ISSUED = "issued"
 FINE_STATUS_PARTIALLY_PAID = "partially_paid"

@@ -40,6 +40,39 @@ async def create_fee_collection(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/{target_id}/finance/custom-charges", response_model=CustomChargeResponse)
+async def create_custom_charges(
+    req: CustomChargeCreate,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user)
+):
+    """🧾 เรียกเก็บเงินเองรายบุคคล — หลายคน คนละยอด ภายใต้ชื่อเดียวกัน (P6.5)
+
+    ต้องมี `MANAGE_FINANCE` (ตรวจใน service) · `idempotency_key` บังคับ
+    ⇒ ยิงซ้ำด้วยคีย์เดิมได้ผลเดิม ไม่สร้างบิลซ้ำ
+    """
+    try:
+        if target.room_id is None:
+            raise RoomNotFoundError("ไม่พบห้องนี้")
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.create_custom_charges(
+            pool=pool,
+            room_id=target.room_id,
+            req=req,
+            user_id=user_ctx["user_id"],
+            client_source=client_source,
+            actor_identifier=actor,
+        )
+    except RoomNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.put("/{target_id}/finance/payments/{payment_id}/pay", response_model=SuccessResponse)
 async def confirm_payment(
     payment_id: int,

@@ -51,9 +51,16 @@ class CollectionsMixin:
                     await _lock_room_money(conn, target_room_id)
 
                     collection_id = await conn.fetchval(
-                        """INSERT INTO fee_collections (room_id, title, amount, due_date, collection_kind)
-                           VALUES ($1, $2, $3, $4, $5) RETURNING id""",
-                        target_room_id, req.title, req.amount, req.due_date, COLLECTION_KIND_PROJECT
+                        """INSERT INTO fee_collections
+                               (room_id, title, amount, due_date, collection_kind,
+                                late_fee_mode, late_fee_amount, late_fee_grace_days)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
+                        target_room_id, req.title, req.amount, req.due_date,
+                        COLLECTION_KIND_PROJECT,
+                        # ⏰ ค่าปรับล่าช้า (P6.5) — default 'none' ⇒ พฤติกรรมเดิมทุกประการ
+                        getattr(req, "late_fee_mode", "none") or "none",
+                        float(getattr(req, "late_fee_amount", 0.0) or 0.0),
+                        int(getattr(req, "late_fee_grace_days", 0) or 0),
                     )
                     
                     target_students = []
@@ -848,7 +855,8 @@ class CollectionsMixin:
                 await require_member(conn, target_room_id, user_id)
                 # 🚫 โปรเจกต์ซ่อนของค่าปรับ (`collection_kind='fine'`) ต้องไม่โผล่ในหน้าแคมเปญ
                 rows = await conn.fetch(
-                    """SELECT id, title, amount, due_date, status, collection_kind
+                    """SELECT id, title, amount, due_date, status, collection_kind,
+                              late_fee_mode, late_fee_amount, late_fee_grace_days
                        FROM fee_collections
                        WHERE room_id = $1 AND collection_kind = $2 AND deleted_at IS NULL
                        ORDER BY id DESC""",
@@ -914,6 +922,32 @@ class CollectionsMixin:
                         updates.append(f"due_date = ${idx}"); values.append(req.due_date); idx += 1; changed_labels.append("due_date")
                     if req.status is not None:
                         updates.append(f"status = ${idx}"); values.append(req.status); idx += 1; changed_labels.append("status")
+
+                    # ⏰ นโยบายค่าปรับล่าช้า (P6.5) — ส่งเฉพาะคีย์ที่จะแก้ (`None` = ไม่แตะ)
+                    #    ตรวจความถูกต้องจากค่าที่ **จะมีผลจริง** หลัง merge กับค่าเดิม
+                    #    (เช่น เปลี่ยนโหมดเป็น `percent` โดยไม่ส่งอัตรามา = ใช้ค่าเดิม)
+                    late_fee_sent = any(
+                        getattr(req, k, None) is not None
+                        for k in ("late_fee_mode", "late_fee_amount", "late_fee_grace_days")
+                    )
+                    if late_fee_sent:
+                        new_mode = req.late_fee_mode or current_data["late_fee_mode"]
+                        new_fee = (
+                            float(req.late_fee_amount)
+                            if req.late_fee_amount is not None
+                            else float(current_data["late_fee_amount"] or 0)
+                        )
+                        if new_mode != "none" and new_fee <= 0:
+                            raise ValueError("ต้องระบุจำนวน/เปอร์เซ็นต์ค่าปรับล่าช้าให้มากกว่า 0")
+                        if new_mode == "percent" and new_fee > 100:
+                            raise ValueError("เปอร์เซ็นต์ค่าปรับล่าช้าต้องไม่เกิน 100")
+                        for column in ("late_fee_mode", "late_fee_amount", "late_fee_grace_days"):
+                            val = getattr(req, column, None)
+                            if val is not None:
+                                updates.append(f"{column} = ${idx}")
+                                values.append(val)
+                                idx += 1
+                                changed_labels.append(column)
 
                     if not updates: return {"status": "success", "message": "ไม่มีข้อมูลให้เปลี่ยนแปลง"}
 

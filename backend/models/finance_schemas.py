@@ -109,13 +109,33 @@ class TransferCreate(BaseModel):
     description: str = Field(..., max_length=255)
     user_name: str
 
+# ⏰ นโยบายค่าปรับจ่ายล่าช้า (Phase 6.5) — กำหนดแยกรายโปรเจกต์เก็บเงิน
+#    `none`    = ไม่ปรับ (ค่าเริ่มต้น — พฤติกรรมเดิมทุกประการ)
+#    `fixed`   = ปรับเป็นจำนวนเงินคงที่ (`late_fee_amount` บาท)
+#    `percent` = ปรับเป็น % ของ **ยอดคงเหลือ** ตอนที่ระบบออกค่าปรับ (`late_fee_amount` = เปอร์เซ็นต์)
+#    ⚠️ ตรวจความหมายซ้ำที่ service (`late_fees.py`) — โมเดลเป็นด่านแรกของคีย์เท่านั้น
+LATE_FEE_MODE_PATTERN = "^(none|fixed|percent)$"
+
+
 class FeeCollectionCreate(BaseModel):
     title: str = Field(..., max_length=150)
     amount: float = Field(..., gt=0.0)
     due_date: date
     # ✨ อนุญาตให้ส่งรายชื่อเด็กที่ต้องการเรียกเก็บ (ถ้าเป็น None คือเก็บทุกคน)
-    student_ids: Optional[List[int]] = None 
+    student_ids: Optional[List[int]] = None
     user_name: Optional[str] = Field(None, max_length=100)
+    late_fee_mode: str = Field("none", pattern=LATE_FEE_MODE_PATTERN)
+    late_fee_amount: float = Field(0.0, ge=0.0)
+    late_fee_grace_days: int = Field(0, ge=0, le=365)
+
+    @model_validator(mode="after")
+    def _validate_late_fee(self):
+        """โหมด `fixed`/`percent` ต้องมีอัตรา > 0 · `percent` ไม่เกิน 100"""
+        if self.late_fee_mode != "none" and self.late_fee_amount <= 0:
+            raise ValueError("ต้องระบุจำนวน/เปอร์เซ็นต์ค่าปรับล่าช้าให้มากกว่า 0")
+        if self.late_fee_mode == "percent" and self.late_fee_amount > 100:
+            raise ValueError("เปอร์เซ็นต์ค่าปรับล่าช้าต้องไม่เกิน 100")
+        return self
 
 class PaymentConfirm(BaseModel):
     paid_to_account_id: int
@@ -260,6 +280,11 @@ class FeeCollectionResponse(BaseModel):
     amount: float
     due_date: Optional[date] = None
     status: str
+    # ⏰ นโยบายค่าปรับล่าช้า — ต้องประกาศที่นี่ ไม่งั้น `response_model` กรองทิ้งเงียบ ๆ
+    #    (หน้าจอจะแก้ไม่ได้เพราะไม่อ่านค่าปัจจุบัน — ดูบทเรียน response_model ใน skills.md)
+    late_fee_mode: str = "none"
+    late_fee_amount: float = 0.0
+    late_fee_grace_days: int = 0
 
 class FeeCollectionUpdate(BaseModel):
     title: Optional[str] = None
@@ -267,6 +292,48 @@ class FeeCollectionUpdate(BaseModel):
     due_date: Optional[date] = None
     status: Optional[str] = Field(None, pattern="^(active|closed)$")
     user_name: Optional[str] = Field(None, max_length=100)
+    # ⏰ ตั้ง/แก้/ปิดนโยบายค่าปรับล่าช้า (ส่งมาเฉพาะคีย์ที่จะแก้ — `exclude_unset`)
+    #    ⚠️ การเปลี่ยนโหมดต้องส่ง `late_fee_amount` มาด้วยเสมอถ้าโหมดใหม่ไม่ใช่ `none`
+    late_fee_mode: Optional[str] = Field(None, pattern=LATE_FEE_MODE_PATTERN)
+    late_fee_amount: Optional[float] = Field(None, ge=0.0)
+    late_fee_grace_days: Optional[int] = Field(None, ge=0, le=365)
+
+
+# 💸 เรียกเก็บเงินเองรายบุคคล (Phase 6.5) — ยอดต่างกันต่อคนได้ ต่างจากโปรเจกต์ปกติ
+class CustomChargeItem(BaseModel):
+    student_id: int
+    amount: float = Field(..., gt=0.0)
+    note: Optional[str] = Field(None, max_length=200)
+
+
+class CustomChargeCreate(BaseModel):
+    """1 คำขอ = หลายบิล (คนละยอด) ภายใต้ชื่อเรียกเก็บเดียวกัน
+
+    🔑 `idempotency_key` **บังคับ** — ใช้ `"{key}:{student_id}"` ต่อแถว
+       ⇒ double-submit/กดซ้ำไม่สร้างบิลซ้ำ (unique index `uq_fee_collections_idempotency`)
+    """
+    title: str = Field(..., max_length=150)
+    due_date: date
+    items: List[CustomChargeItem] = Field(..., min_length=1)
+    idempotency_key: str = Field(..., min_length=8, max_length=100)
+    user_name: Optional[str] = Field(None, max_length=100)
+
+
+class CustomChargeResultItem(BaseModel):
+    """ผลต่อรายการ — `reused=True` = คีย์ซ้ำ จึงคืนแถวเดิมโดยไม่สร้างบิลใหม่"""
+    collection_id: int
+    student_id: int
+    amount: float
+    reused: bool = False
+
+
+class CustomChargeResponse(BaseModel):
+    """⚠️ ต้องประกาศฟิลด์ให้ครบ — `response_model` เป็น allowlist (บทเรียน P4)"""
+    status: str = "success"
+    message: Optional[str] = None
+    collections: List[CustomChargeResultItem] = []
+    total_amount: float = 0.0
+    created: bool = True
 
 # --- Schemas สำหรับ Account Management ---
 class AccountUpdate(BaseModel):

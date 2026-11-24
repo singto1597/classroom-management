@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     #    อยู่แล้ว และการอ่านค่านั้นจะเลื่อนเส้นแบ่ง "วันนี้" ไป 7 ชั่วโมงเงียบ ๆ
     FINANCE_REMINDER_TZ: str = "Asia/Bangkok"
 
+    # ⏰ [P6.5] ค่าปรับจ่ายล่าช้าอัตโนมัติ — รันก่อนส่งเตือนรายวันใน worker ตัวเดียวกัน
+    #    นโยบายเป็นของแต่ละแคมเปญ (`fee_collections.late_fee_mode`) · ค่าเริ่มต้นเปิด
+    #    ⚠️ เปิดก็ไม่กระทบแคมเปญเดิม เพราะทุกแคมเปญที่สร้างก่อน P6.5 เป็น `none`
+    #    ⚠️ 1 บิลต้นทางออกค่าปรับได้ครั้งเดียวตลอดชีพ (unique `uq_fines_late_fee_source`)
+    FINANCE_LATE_FEE_ENABLED: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",
