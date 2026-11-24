@@ -12,6 +12,7 @@ from .receipt_batches import router as receipt_batches_router
 from .system import router as system_router
 from .credits import router as credits_router
 from .export import router as export_router
+from .fines import router as fines_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -35,5 +36,8 @@ router.include_router(credits_router)
 # ทำให้ชัดว่าเป็นกลุ่มที่ **ข้ามด่านสมาชิก** (ดูคอมเมนต์หัวไฟล์ `system.py`)
 # ⚠️ ห้ามย้าย route จากกลุ่มอื่นมาไว้ที่นี่เพื่อ "ให้บอทเรียกได้" — ขอบเขตคือ PDF อ่านเท่านั้น
 router.include_router(system_router)
+# ⚖️ ค่าปรับ — path ขึ้นต้น `/finance/fines` และ `/finance/fine-types` ซึ่งไม่ซ้ำกับกลุ่มใด
+#    (segment `fines` ≠ `fee-collections`) ⇒ ลำดับไม่มีผล แต่ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์
+router.include_router(fines_router)
 
 __all__ = ["router"]
