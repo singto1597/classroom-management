@@ -244,6 +244,9 @@ class StudentDebtItem(BaseModel):
     amount: float
     due_date: Optional[date] = None
     collection_status: str
+    # ⚖️ [P5] บิลค่าปรับ: frontend ต้องพาไป `/finance/fines/{fine_id}` ไม่ใช่หน้าโปรเจกต์ซ่อน
+    collection_kind: str = "project"
+    fine_id: Optional[int] = None
 
 class StudentDebtProfileResponse(BaseModel):
     student_id: int

@@ -18,6 +18,7 @@ from .constants import (
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
 )
+from .receivables import AGING_BUCKETS, aging_bucket_for
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
     _legacy_id_from_journal, _thai_day_start, _thai_day_end, _naive_utc_to_thai,
@@ -42,6 +43,9 @@ class ExportMixin:
                LEFT JOIN student_payments SP
                       ON SP.collection_id = FC.id AND SP.deleted_at IS NULL
                WHERE FC.room_id = $1 AND FC.deleted_at IS NULL
+                 -- ⚖️ โปรเจกต์ซ่อนของค่าปรับไม่ใช่แคมเปญเก็บเงิน — ต้องไม่โผล่ในทะเบียน
+                 --    (ยอดค่าปรับมีชีตของมันเองในทะเบียนลูกหนี้/รายงานอายุหนี้)
+                 AND COALESCE(FC.collection_kind, 'project') = 'project'
                GROUP BY FC.id, FC.title, FC.amount, FC.due_date, FC.status
                ORDER BY FC.due_date NULLS LAST, FC.id ASC""",
             room_id,
@@ -100,12 +104,25 @@ class ExportMixin:
                       U.first_name_en, U.last_name_en, U.nickname_en,
                       FC.id          AS collection_id,
                       FC.title, FC.amount, FC.due_date, FC.status,
+                      FC.collection_kind,
+                      F.id AS fine_id,
+                      INV.receipt_no AS invoice_no,
                       SP.id AS payment_id, SP.paid_amount,
                       (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
                FROM student_payments SP
                JOIN fee_collections FC ON SP.collection_id = FC.id
                JOIN students S         ON SP.student_id = S.id
                LEFT JOIN v_student_profiles U ON U.student_id = S.id
+               LEFT JOIN fines F
+                      ON F.student_payment_id = SP.id AND F.deleted_at IS NULL
+               -- 🧾 ใบแจ้งหนี้รายบิล (1 ใบ/ค่าปรับ) — ใบรวมยอดมี student_payment_id NULL
+               LEFT JOIN LATERAL (
+                   SELECT R.receipt_no
+                   FROM finance_receipts R
+                   WHERE R.doc_type = 'invoice' AND R.student_payment_id = SP.id
+                     AND R.deleted_at IS NULL AND R.status <> 'voided'
+                   ORDER BY R.id DESC LIMIT 1
+               ) INV ON TRUE
                WHERE SP.deleted_at IS NULL
                  AND SP.status = 'pending'
                  AND FC.deleted_at IS NULL
@@ -140,6 +157,10 @@ class ExportMixin:
                 "outstanding": outstanding,
                 "due_date": r["due_date"],
                 "collection_status": r["status"] or "active",
+                # ประเภทบิล — ให้ชีต AR แยก "โปรเจกต์ / ค่าปรับ" ได้ (Phase 5)
+                "collection_kind": r["collection_kind"] or "project",
+                "fine_id": r["fine_id"],
+                "invoice_no": r["invoice_no"],
             })
 
         return {
@@ -968,14 +989,17 @@ class ExportMixin:
         ws_ar.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[3]
         ar_headers = [
             ("เลขที่", 8), ("รหัสนักเรียน", 13), ("ชื่อ-นามสกุล", 30), ("รายการที่ค้างชำระ", 30),
+            ("ประเภท", 10), ("เลขที่ใบแจ้งหนี้", 18),
             ("กำหนดชำระ", 12), ("ยอดเรียกเก็บ (บาท)", 15), ("ชำระแล้ว (บาท)", 14),
             ("ยอดคงค้าง (บาท)", 15), ("สถานะโปรเจค", 12),
         ]
         ncols_ar = len(ar_headers)
+        ar_kind_labels = {"project": "โปรเจกต์", "fine": "ค่าปรับ"}
         hr = _table_title(
             ws_ar, f"ทะเบียนลูกหนี้ (Accounts Receivable) — {room_name}",
             f"หนี้ค้างชำระรายคน ณ วันที่ {live_label} (Real-time) · เฉพาะรายการที่ยังจ่ายไม่ครบ "
-            f"(รวมโปรเจคที่ปิดไปแล้ว) · สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
+            f"(รวมโปรเจคที่ปิดไปแล้ว · ผู้ค้างชำระแยกเป็นค่าโครงการ/ค่าปรับ) · "
+            f"สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
             ncols_ar,
         )
         _write_header(ws_ar, hr, ar_headers)
@@ -996,22 +1020,25 @@ class ExportMixin:
                     ws_ar.cell(row=r, column=3, value=b["name"])
                 due_str = cls._fmt_date(b["due_date"])
                 ws_ar.cell(row=r, column=4, value=b["title"])
-                ws_ar.cell(row=r, column=5, value=due_str)
-                money_cell(ws_ar, r, 6, b["fee_amount"])
-                money_cell(ws_ar, r, 7, b["paid_amount"])
-                money_cell(ws_ar, r, 8, b["outstanding"])
-                ws_ar.cell(row=r, column=9, value=COLLECTION_STATUS_LABELS.get(b["collection_status"], b["collection_status"]))
+                ws_ar.cell(row=r, column=5,
+                           value=ar_kind_labels.get(b["collection_kind"], b["collection_kind"]))
+                ws_ar.cell(row=r, column=6, value=b.get("invoice_no") or "—")
+                ws_ar.cell(row=r, column=7, value=due_str)
+                money_cell(ws_ar, r, 8, b["fee_amount"])
+                money_cell(ws_ar, r, 9, b["paid_amount"])
+                money_cell(ws_ar, r, 10, b["outstanding"])
+                ws_ar.cell(row=r, column=11, value=COLLECTION_STATUS_LABELS.get(b["collection_status"], b["collection_status"]))
                 if r % 2 == 0:
                     fill_row(ws_ar, r, tuple(range(1, ncols_ar + 1)), ZEBRA_FILL)
                 first = False
                 r += 1
             subtotal = round(sum(float(b["outstanding"] or 0.0) for b in block), 2)
             _merged_row(
-                ws_ar, r, 7,
+                ws_ar, r, 9,
                 f"รวมหนี้ของ {block[0]['name']} — ค้าง {len(block)} รายการ",
                 fill=SUBTOTAL_FILL, font=Font(bold=True, color="1E3A8A"),
             )
-            money_cell(ws_ar, r, 8, subtotal).font = Font(bold=True, color="1E3A8A")
+            money_cell(ws_ar, r, 10, subtotal).font = Font(bold=True, color="1E3A8A")
             r += 1
 
         if not ar_rows:
@@ -1020,18 +1047,139 @@ class ExportMixin:
             r += 1
         else:
             grand_total = float(ar.get("total_outstanding") or 0.0)
+            # ยอดแยก 2 บัญชีผู้ค้างชำระ — ตรงกับบัญชี 11001/11002 และรายงานอายุหนี้
+            project_total = round(sum(
+                float(b["outstanding"] or 0.0) for b in ar_rows
+                if b["collection_kind"] == "project"
+            ), 2)
+            fine_total = round(sum(
+                float(b["outstanding"] or 0.0) for b in ar_rows
+                if b["collection_kind"] != "project"
+            ), 2)
             _merged_row(
-                ws_ar, r, 7,
-                f"รวมลูกหนี้ทั้งสิ้น ({ar.get('debtor_count')} คน)",
+                ws_ar, r, 9,
+                f"ผู้ค้างชำระค่าโครงการ (11001) · {ar.get('debtor_count')} คนทั้งสิ้น",
+                fill=SUBTOTAL_FILL, font=Font(bold=True, color="1E3A8A"),
+            )
+            money_cell(ws_ar, r, 10, project_total).font = Font(bold=True, color="1E3A8A")
+            r += 1
+            _merged_row(
+                ws_ar, r, 9,
+                "ผู้ค้างชำระค่าปรับ (11002)",
+                fill=SUBTOTAL_FILL, font=Font(bold=True, color="1E3A8A"),
+            )
+            money_cell(ws_ar, r, 10, fine_total).font = Font(bold=True, color="1E3A8A")
+            r += 1
+            _merged_row(
+                ws_ar, r, 9,
+                "รวมลูกหนี้ทั้งสิ้น (ผู้ค้างชำระรวมทุกประเภท)",
                 fill=TOTAL_FILL, font=Font(bold=True, color="0F172A"),
             )
-            money_cell(ws_ar, r, 8, grand_total).font = Font(bold=True, color="0F172A")
+            money_cell(ws_ar, r, 10, grand_total).font = Font(bold=True, color="0F172A")
             r += 1
         ws_ar.freeze_panes = f"A{hr + 1}"
         ws_ar.auto_filter.ref = f"A{hr}:{get_column_letter(ncols_ar)}{r - 1}"
 
         # =====================================================================
-        # Sheet 6: สรุปรายเดือน (Monthly Summary)
+        # Sheet 6: รายงานอายุหนี้ (Aging) — Phase 5
+        # =====================================================================
+        # 🧮 คำนวณจาก `ar_rows` ชุดเดียวกับชีต AR และใช้ `aging_bucket_for()` ตัวเดียวกับ
+        #    `GET /finance/receivables/aging` ⇒ ตัวเลขในไฟล์กับในแอปต้องตรงกันเสมอ
+        ws_age = wb.create_sheet("รายงานอายุหนี้")
+        ws_age.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[3]
+        age_headers = [
+            ("รหัสนักเรียน", 13), ("ชื่อ-นามสกุล", 30), ("ประเภท", 10),
+            ("รายการที่ค้างชำระ", 30), ("กำหนดชำระ", 12), ("เลยกำหนด (วัน)", 12),
+            ("ถังอายุหนี้", 18), ("ยอดคงค้าง (บาท)", 15),
+        ]
+        ncols_age = len(age_headers)
+        aging_as_of = ar["as_of"]
+        detail_age: List[dict] = []
+        age_bucket_totals = {key: {"label": label, "count": 0, "amount": 0.0}
+                             for key, label in AGING_BUCKETS}
+        for b in ar_rows:
+            bucket, overdue_days = aging_bucket_for(b["due_date"], aging_as_of)
+            detail_age.append({**b, "bucket": bucket, "overdue_days": overdue_days})
+            age_bucket_totals[bucket]["count"] += 1
+            age_bucket_totals[bucket]["amount"] = round(
+                age_bucket_totals[bucket]["amount"] + float(b["outstanding"] or 0.0), 2
+            )
+        bucket_order = [key for key, _ in AGING_BUCKETS]
+        detail_age.sort(key=lambda x: (
+            bucket_order.index(x["bucket"]),
+            x["due_date"] or date.max,
+            x["student_no"] or 0,
+        ))
+
+        hr_age = _table_title(
+            ws_age, f"รายงานอายุหนี้ (Accounts Receivable Aging) — {room_name}",
+            f"ผู้ค้างชำระทุกบิลที่ยังเปิดอยู่ ณ วันที่ {aging_as_of.strftime('%d/%m/%Y')} "
+            f"· ยอดค้าง = ยอดเรียกเก็บ − ชำระแล้ว (ต่อบิล) · บิลที่ครบกำหนดวันนี้จัดเป็น "
+            f"'ยังไม่ครบกำหนด' · สร้างเมื่อ {generated_at.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย)",
+            ncols_age,
+        )
+        _write_header(ws_age, hr_age, age_headers)
+
+        ar_row = hr_age + 1
+        for idx, b in enumerate(detail_age):
+            ws_age.cell(row=ar_row, column=1, value=b["student_no"])
+            ws_age.cell(row=ar_row, column=2, value=b["name"])
+            ws_age.cell(row=ar_row, column=3,
+                        value=ar_kind_labels.get(b["collection_kind"], b["collection_kind"]))
+            ws_age.cell(row=ar_row, column=4, value=b["title"])
+            ws_age.cell(row=ar_row, column=5, value=cls._fmt_date(b["due_date"]))
+            ws_age.cell(row=ar_row, column=6, value=b["overdue_days"] if b["overdue_days"] else "—")
+            ws_age.cell(row=ar_row, column=7, value=age_bucket_totals[b["bucket"]]["label"])
+            money_cell(ws_age, ar_row, 8, b["outstanding"])
+            if idx % 2 == 1:
+                fill_row(ws_age, ar_row, tuple(range(1, ncols_age + 1)), ZEBRA_FILL)
+            ar_row += 1
+
+        if not detail_age:
+            _merged_row(ws_age, ar_row, ncols_age,
+                        "(ไม่มีผู้ค้างชำระ ณ วันที่รายงาน 🎉)", font=Font(color="64748B"))
+            ar_row += 1
+        else:
+            ar_row += 1
+            _merged_row(ws_age, ar_row, 8, "สรุปตามถังอายุหนี้", fill=SUBTOTAL_FILL,
+                        font=Font(bold=True, color="1E3A8A"))
+            ar_row += 1
+            for key, label in AGING_BUCKETS:
+                acc = age_bucket_totals[key]
+                ws_age.cell(row=ar_row, column=1, value=label)
+                ws_age.cell(row=ar_row, column=2, value=f"{acc['count']} รายการ")
+                money_cell(ws_age, ar_row, 8, acc["amount"])
+                ar_row += 1
+            project_aging = round(sum(
+                float(b["outstanding"] or 0.0) for b in detail_age
+                if b["collection_kind"] == "project"
+            ), 2)
+            fine_aging = round(sum(
+                float(b["outstanding"] or 0.0) for b in detail_age
+                if b["collection_kind"] != "project"
+            ), 2)
+            _merged_row(ws_age, ar_row, 7, "ผู้ค้างชำระค่าโครงการ (11001)",
+                        fill=SUBTOTAL_FILL, font=Font(bold=True, color="1E3A8A"))
+            money_cell(ws_age, ar_row, 8, project_aging).font = Font(bold=True, color="1E3A8A")
+            ar_row += 1
+            _merged_row(ws_age, ar_row, 7, "ผู้ค้างชำระค่าปรับ (11002)",
+                        fill=SUBTOTAL_FILL, font=Font(bold=True, color="1E3A8A"))
+            money_cell(ws_age, ar_row, 8, fine_aging).font = Font(bold=True, color="1E3A8A")
+            ar_row += 1
+            _merged_row(ws_age, ar_row, 7, "รวมผู้ค้างชำระทั้งสิ้น",
+                        fill=TOTAL_FILL, font=Font(bold=True, color="0F172A"))
+            money_cell(ws_age, ar_row, 8, round(project_aging + fine_aging, 2)).font = Font(
+                bold=True, color="0F172A"
+            )
+            ar_row += 1
+        ws_age.freeze_panes = f"A{hr_age + 1}"
+        # 🔎 ตัวกรองครอบเฉพาะแถวข้อมูล — ไม่ครอบบล็อกสรุปด้านล่าง
+        ws_age.auto_filter.ref = (
+            f"A{hr_age}:{get_column_letter(ncols_age)}{hr_age + len(detail_age)}"
+        )
+
+        # =====================================================================
+        # Sheet 7: สรุปรายเดือน (Monthly Summary)
         # =====================================================================
         ws_monthly = wb.create_sheet("สรุปรายเดือน (Monthly)")
         ws_monthly.sheet_properties.tabColor = MANAGEMENT_TAB_COLORS[0]

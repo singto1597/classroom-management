@@ -90,25 +90,25 @@ class CreditsMixin:
     ) -> List[dict]:
         """บิลที่ยังค้างของนักเรียนคนนี้ เรียง "ครบกำหนดก่อน"
 
-        🔴 predicate ต้อง **ตรงกับ `get_all_debtors` (`collections.py:730-737`) เป๊ะ**:
-           - กรองด้วย `S.room_id` (ห้องของ **นักเรียน**) ไม่ใช่ `FC.room_id`
-           - **ไม่** กรอง `FC.status` / `FC.deleted_at` — เหตุผลเดียวกับที่
-             `receipts.py:340-348` อธิบายไว้ (บิลที่ค้างอยู่ต้องโชว์ ไม่ว่าแคมเปญจะถูกปิดไปแล้ว)
-           - ใช้ `SP.status = 'pending'`
+        🔴 predicate ใช้ `OPEN_BILL_PREDICATE` ตัวกลาง (เดียวกับ `get_all_debtors`,
+           `get_student_debts`, AR ledger และใบแจ้งหนี้รวม):
+           - กรองด้วย `S.room_id` (ห้องของ **นักเรียน**) — เหมือนฝั่งลูกหนี้
+           - **ไม่** กรอง `FC.status` — ปิดแคมเปญไม่ใช่ล้างหนี้
+           - `FC.deleted_at IS NULL` (แคมเปญที่ถูกลบจริง ๆ เท่านั้นที่หาย)
 
-           ถ้าเผลอเพิ่มเงื่อนไขที่อีกฝั่งไม่มี ยอดที่หักจะ **ไม่ตรงกับยอดที่หน้าลูกหนี้โชว์**
-           แล้วผู้ใช้จะเห็น "หักแล้วยังค้างเท่าเดิม" โดยหาสาเหตุไม่ได้
-           (มีเทสต์ยิงเทียบสองหน้าตรง ๆ ปิดไว้)
+           ถ้ายอดที่นี่ไม่ตรงกับหน้าลูกหนี้ ผู้ใช้จะเห็น "หักแล้วยังค้างเท่าเดิม"
+           โดยหาสาเหตุไม่ได้ (มีเทสต์ยิงเทียบสองหน้าตรง ๆ ปิดไว้)
         """
         return await conn.fetch(
-            """SELECT SP.id AS payment_id, SP.paid_amount AS paid_amount,
-                      FC.id AS collection_id, FC.title, FC.amount AS total_amount,
-                      FC.due_date
-               FROM student_payments SP
-               JOIN fee_collections FC ON SP.collection_id = FC.id
-               JOIN students S ON S.id = SP.student_id
-               WHERE S.room_id = $2 AND SP.student_id = $1 AND SP.status = 'pending'
-               ORDER BY FC.due_date ASC NULLS LAST, FC.id ASC""",
+            f"""SELECT SP.id AS payment_id, SP.paid_amount AS paid_amount,
+                       FC.id AS collection_id, FC.title, FC.amount AS total_amount,
+                       FC.due_date, FC.collection_kind AS collection_kind
+                FROM student_payments SP
+                JOIN fee_collections FC ON SP.collection_id = FC.id
+                JOIN students S ON S.id = SP.student_id
+                WHERE S.room_id = $2 AND SP.student_id = $1
+                  AND {cls._open_bill_predicate()}
+                ORDER BY FC.due_date ASC NULLS LAST, FC.id ASC""",
             student_id, room_id,
         )
 
@@ -138,6 +138,8 @@ class CreditsMixin:
             allocations.append({
                 "payment_id": b["payment_id"],
                 "collection_id": b["collection_id"],
+                # 🎯 ให้ frontend ลิงก์บิลค่าปรับไปหน้าค่าปรับได้ (ไม่ใช่หน้าแคมเปญ)
+                "collection_kind": cls._normalize_collection_kind(b.get("collection_kind")),
                 "title": b["title"],
                 "due_date": b["due_date"],
                 "bill_total": total,
@@ -661,11 +663,10 @@ class CreditsMixin:
         actor_identifier: str, client_source: str,
     ) -> dict:
         """ลงมือหักตามข้อเสนอ — caller ถือ transaction + lock ทั้งห้องและบิลมาแล้ว"""
-        # 🏦 ขารายได้: ต้องเป็น revenue ledger ที่ผูกกับ **หมวดหมู่จริง**
-        #    (`legacy_category_id`) ไม่ใช่ ledger ลอย ๆ — เพราะ `budgets.py` นับรายได้
-        #    โดย join `AL.legacy_category_id = B.category_id` ⇒ ถ้าไม่ผูก งบจะไม่เห็นรายได้นี้
-        #    ใช้ตัวช่วยเดียวกับ `_confirm_single_payment` เป๊ะ (ดู `_resolve_default_income_ledger`)
-        revenue_ledger_id = await cls._resolve_default_income_ledger(conn, target_room_id)
+        # 🏦 ขา AR: เงินรับล่วงหน้าถูกใช้ "ตัดผู้ค้างชำระ" ไม่ใช่รับรู้รายได้ใหม่
+        #    (รายได้ถูกรับรู้ตอนออกบิลแล้ว) ⇒ Dr 2099 / Cr 11001 หรือ 11002 ตามชนิดบิล
+        #    ✅ ใช้ `_resolve_ar_ledger` ตัวเดียวกันกับ `_confirm_single_payment` เป๊ะ
+        ar_ledgers: dict[str, int] = {}
         advance_ledger_id = await cls._resolve_advance_ledger(conn, room_id=target_room_id)
 
         executed_items: List[dict] = []
@@ -693,7 +694,8 @@ class CreditsMixin:
                 # 🔒 อ่านบิลซ้ำใต้ล็อก (ได้ FOR UPDATE แล้วจาก `_lock_payments_in_order`)
                 #    ⇒ ยอดที่ใช้ตัดสินใจคือยอด ณ วินาทีนี้ ไม่ใช่ยอดที่อ่านมาก่อนหน้า
                 sp = await conn.fetchrow(
-                    """SELECT SP.paid_amount, FC.amount AS total_amount, FC.title, FC.id AS collection_id
+                    """SELECT SP.paid_amount, FC.amount AS total_amount, FC.title,
+                              FC.id AS collection_id, FC.collection_kind AS collection_kind
                        FROM student_payments SP
                        JOIN fee_collections FC ON SP.collection_id = FC.id
                        WHERE SP.id = $1""",
@@ -701,6 +703,8 @@ class CreditsMixin:
                 )
                 if not sp:
                     raise PaymentNotFoundError(f"ไม่พบรายการชำระเงิน #{payment_id}")
+                # ⚖️ บิลค่าปรับที่มีคำขอรออนุมัติห้ามเปลี่ยนยอด — ยกเลิกทั้งชุด
+                await cls._assert_no_pending_fine_requests(conn, [payment_id])
                 bill_total = round(float(sp["total_amount"]), 2)
                 bill_paid_before = round(float(sp["paid_amount"]), 2)
                 bill_remaining = round(bill_total - bill_paid_before, 2)
@@ -713,19 +717,30 @@ class CreditsMixin:
                 new_status = "paid" if bill_paid_after >= bill_total else "pending"
                 remaining_after = round(running - pay, 2)
 
-                # 📒 journal — Dr หนี้สิน 2099 / Cr รายได้  ⬅️ **รายได้เกิดที่นี่ที่เดียว**
+                # 📒 journal — Dr หนี้สิน 2099 / Cr ผู้ค้างชำระ (ตามชนิดบิล)
+                #    รายได้ **ไม่** เกิดที่นี่ — เกิดตอนออกบิล (issue) หรือตอน opening AR
+                kind = cls._normalize_collection_kind(sp["collection_kind"])
+                if kind not in ar_ledgers:
+                    ar_ledgers[kind] = await cls._resolve_ar_ledger(
+                        conn, room_id=target_room_id, collection_kind=kind
+                    )
                 journal_entry_id = await cls._insert_journal_entry(
                     conn, target_room_id,
                     reference_type=REFERENCE_TYPE_CREDIT_APPLY,
                     reference_id=str(payment_id),
                     description=f"หักเงินรับล่วงหน้าปิดบิล: {sp['title']}",
                     recorded_by=user_name,
-                    metadata={"student_credit_apply": True, "student_id": student_id},
+                    metadata={
+                        "student_credit_apply": True,
+                        "student_id": student_id,
+                        "collection_kind": kind,
+                        "accrual": "credit_apply",
+                    },
                     lines=[
                         {"ledger_id": advance_ledger_id, "debit": pay, "credit": 0,
                          "line_description": "หักเงินรับล่วงหน้าไปปิดบิล"},
-                        {"ledger_id": revenue_ledger_id, "debit": 0, "credit": pay,
-                         "line_description": f"รายได้: {sp['title']}"},
+                        {"ledger_id": ar_ledgers[kind], "debit": 0, "credit": pay,
+                         "line_description": f"ตัดผู้ค้างชำระ: {sp['title']}"},
                     ],
                 )
 
@@ -740,6 +755,8 @@ class CreditsMixin:
                        WHERE id = $4""",
                     bill_paid_after, new_status, user_name, payment_id,
                 )
+                # ⚖️ สถานะค่าปรับ (issued → partially_paid/paid) — บิลโปรเจกต์เป็น no-op
+                await cls._sync_fine_status(conn, [payment_id])
 
                 credit_entry_id = await conn.fetchval(
                     """INSERT INTO student_credits
@@ -901,6 +918,10 @@ class CreditsMixin:
 
         payment_id = entry["student_payment_id"]
         applied = round(float(entry["amount"]), 2)
+        # ⚖️ ค่าปรับที่ถูกยกเว้น/ยกเลิก/คืนเงินแล้ว **ห้ามย้อนเครดิต** — ยอดที่คำนวณไว้
+        #    ตอนอนุมัติคำขอจะเป็นโมฆะ (ให้จัดการผ่านหน้าค่าปรับแทน)
+        await cls._assert_fine_cashflow_reversible(conn, [payment_id])
+        await cls._assert_no_pending_fine_requests(conn, [payment_id])
         # 🔒 ล็อกบิลตามลำดับปกติก่อนแก้
         await _lock_payments_in_order(conn, [payment_id])
 
@@ -941,6 +962,8 @@ class CreditsMixin:
                 """UPDATE student_payments SET paid_amount = $1, status = $2 WHERE id = $3""",
                 new_paid, new_status, payment_id,
             )
+        # ⚖️ ยอดคืนแล้ว ⇒ สถานะค่าปรับต้องถอยกลับ (paid → partially_paid / issued)
+        await cls._sync_fine_status(conn, [payment_id])
 
         # 🚫 void journal — **ไม่ลบ** และ **ไม่เขียนรายการกลับทาง** เพราะ convention ของ
         #    repo นี้คือ void + deleted_at (ดู `revert_transaction:645-653`) ⇒ รายงานทุกตัว
@@ -1039,7 +1062,7 @@ class CreditsMixin:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch(
-                    """SELECT S.id AS student_id, S.student_no,
+                    f"""SELECT S.id AS student_id, S.student_no,
                               U.first_name, U.nickname, U.first_name_en, U.last_name_en,
                               U.nickname_en,
                               COALESCE(SC.balance_after, 0) AS credit_balance,
@@ -1053,10 +1076,10 @@ class CreditsMixin:
                            ORDER BY id DESC LIMIT 1
                        ) SC ON TRUE
                        LEFT JOIN LATERAL (
-                           SELECT SUM(FC.amount - SP.paid_amount) AS pending_amount
+                           SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0)) AS pending_amount
                            FROM student_payments SP
                            JOIN fee_collections FC ON SP.collection_id = FC.id
-                           WHERE SP.student_id = S.id AND SP.status = 'pending'
+                           WHERE SP.student_id = S.id AND {cls._open_bill_predicate()}
                        ) D ON TRUE
                        WHERE S.room_id = $1 AND S.status = 'active' AND S.deleted_at IS NULL
                        ORDER BY S.student_no ASC""",

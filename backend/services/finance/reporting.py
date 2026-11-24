@@ -128,10 +128,13 @@ class ReportingMixin:
             GROUP BY C.category_name ORDER BY total_amount DESC
         """, *params)
 
-        pending_collection = await conn.fetchval("""
-            SELECT SUM(FC.amount - SP.paid_amount) FROM student_payments SP
+        # 📌 ยอดค้างรวมใช้ predicate "บิลเปิด" มาตรฐาน — ไม่กรอง FC.status
+        #    (ปิดแคมเปญไม่ใช่ล้างหนี้) และกันแคมเปญที่ถูกลบ
+        pending_collection = await conn.fetchval(f"""
+            SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0))
+            FROM student_payments SP
             JOIN fee_collections FC ON SP.collection_id = FC.id
-            WHERE SP.status = 'pending' AND FC.room_id = $1 AND FC.status = 'active'
+            WHERE FC.room_id = $1 AND {cls._open_bill_predicate()}
         """, room_id) or 0.0
 
         result = {
@@ -222,10 +225,13 @@ class ReportingMixin:
             room_id, start_dt, end_dt,
         )
 
-        pending_collection = await conn.fetchval("""
-            SELECT SUM(FC.amount - SP.paid_amount) FROM student_payments SP
+        # 📌 ยอดค้างรวมใช้ predicate "บิลเปิด" มาตรฐาน — ไม่กรอง FC.status
+        #    (ปิดแคมเปญไม่ใช่ล้างหนี้) และกันแคมเปญที่ถูกลบ
+        pending_collection = await conn.fetchval(f"""
+            SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0))
+            FROM student_payments SP
             JOIN fee_collections FC ON SP.collection_id = FC.id
-            WHERE SP.status = 'pending' AND FC.room_id = $1 AND FC.status = 'active'
+            WHERE FC.room_id = $1 AND {cls._open_bill_predicate()}
         """, room_id) or 0.0
 
         result = {

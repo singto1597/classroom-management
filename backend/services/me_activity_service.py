@@ -29,6 +29,9 @@ import binascii
 from datetime import datetime
 from typing import Any, Optional
 
+# 📌 predicate "บิลเปิด" ตัวกลาง (ดู services/finance/accrual.py)
+from services.finance.accrual import OPEN_BILL_PREDICATE
+
 import asyncpg
 
 from core.rbac import require_member
@@ -108,7 +111,7 @@ LIMIT $6
 #   · คอลัมน์ที่ **ไม่กรอง** โดยเจตนา: `outstanding`/`unpaid_bills` เป็นสถานะ
 #     *ปัจจุบัน* (ไม่ใช่เหตุการณ์ในอดีต) และ `room_tasks_*` เป็นตัวเลขของห้อง
 #     — เขียนไว้ในนี้ให้ชัด ดีกว่าให้คนอ่าน SQL เดาเอง
-_STATS_SQL = """
+_STATS_SQL = f"""
 -- ⚠️ ชื่อ CTE **ห้ามใช้ `window`** — เป็นคำสงวนของ Postgres (WINDOW clause)
 --    ⇒ `WITH window AS (...)` ล้มด้วย `syntax error at or near "window"` ทั้งที่
 --    หน้าตาดูถูกต้อง (เจอมาแล้วตอนเขียนเทสต์ P5 — เทสต์จึงต้องยิง HTTP จริง)
@@ -147,12 +150,12 @@ SELECT
     (SELECT COALESCE(SUM(FC.amount - COALESCE(SP.paid_amount, 0)), 0)
        FROM student_payments SP
        JOIN fee_collections FC ON FC.id = SP.collection_id
-      WHERE SP.student_id = $1 AND SP.status = 'pending' AND FC.room_id = $2
+      WHERE SP.student_id = $1 AND FC.room_id = $2 AND {OPEN_BILL_PREDICATE}
     ) AS outstanding,
     (SELECT COUNT(*)
        FROM student_payments SP
        JOIN fee_collections FC ON FC.id = SP.collection_id
-      WHERE SP.student_id = $1 AND SP.status = 'pending' AND FC.room_id = $2
+      WHERE SP.student_id = $1 AND FC.room_id = $2 AND {OPEN_BILL_PREDICATE}
     ) AS unpaid_bills,
     (SELECT COUNT(*) FROM tasks
       WHERE room_id = $2 AND deleted_at IS NULL AND status = 'done') AS room_tasks_done,

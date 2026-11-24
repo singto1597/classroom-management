@@ -654,6 +654,15 @@ class TransactionsMixin:
                     )
                     if not t: raise TransactionNotFoundError("ไม่พบรายการธุรกรรมนี้")
 
+                    # 🚫 คืนเงินค่าปรับ (PV-) เป็นธุรกรรมที่ผูกกับ `fine_refunds` —
+                    #    การย้อนมันตรง ๆ จะทำให้ `fines.refunded_amount` ไม่ตรงกับเงินที่จ่ายจริง
+                    #    และไม่มีทางแก้ย้อนหลังได้ ⇒ บังคับให้ใช้หน้าค่าปรับเท่านั้น
+                    if t['transaction_type'] == 'refund':
+                        raise ValueError(
+                            "รายการคืนเงินค่าปรับห้ามยกเลิกจากหน้ารายการธุรกรรม — "
+                            "ให้ใช้คืนเงินผ่านหน้าค่าปรับแทน"
+                        )
+
                     # [FIX B] Freeze Legacy: รายการที่สร้างก่อนวันที่ขึ้นระบบบัญชีคู่ (CUTOFF_DATE)
                     # ไม่มี journal ให้ void ได้ → ห้ามยกเลิกเด็ดขาด (ให้บันทึกรายจ่ายปรับปรุงยอดแทน)
                     # กันการ "ย้อน legacy ฝั่งเดียว" จนยอด 2 ระบบเบี้ยวซ้ำอีก (guard ก่อนแตะ balance)
@@ -758,6 +767,10 @@ class TransactionsMixin:
                             
                             if t['student_payment_id']:
                                 sp_id = t['student_payment_id']
+                                # ⚖️ ค่าปรับที่ถูกยกเว้น/ยกเลิก/คืนเงินแล้ว หรือมีคำขอรออนุมัติ
+                                #    ห้ามย้อนการชำระ — ยอดที่คำนวณตอนอนุมัติจะเป็นโมฆะ
+                                await cls._assert_fine_cashflow_reversible(conn, [sp_id])
+                                await cls._assert_no_pending_fine_requests(conn, [sp_id])
                                 sp_info = await conn.fetchrow("SELECT paid_amount, FC.amount as total_amount FROM student_payments SP JOIN fee_collections FC ON SP.collection_id = FC.id WHERE SP.id = $1 FOR UPDATE", sp_id)
                                 new_paid = float(sp_info['paid_amount']) - float(t['amount'])
                                 new_status = 'paid' if new_paid >= float(sp_info['total_amount']) else 'pending'
@@ -772,6 +785,8 @@ class TransactionsMixin:
                                     )
                                 else:
                                     await conn.execute("UPDATE student_payments SET paid_amount = $1, status = $2 WHERE id = $3", new_paid, new_status, sp_id)
+                                # ⚖️ สถานะค่าปรับถอยกลับตามยอดจริง (no-op กับบิลโปรเจกต์)
+                                await cls._sync_fine_status(conn, [sp_id])
 
                         elif t['transaction_type'] == 'expense': 
                             await conn.execute("UPDATE finance_accounts SET balance = balance + $1 WHERE id = $2", t['amount'], t['account_id'])

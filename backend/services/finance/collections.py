@@ -21,6 +21,9 @@ from .constants import (
     ACCOUNTING_TAB_COLORS, RECONCILE_REFERENCE_TYPE, RECONCILE_EQUITY_CODE,
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
     BATCH_SOURCE_AUTO, DOC_TYPE_RECEIPT,
+    # 📒 accrual: บิลโปรเจกต์ที่สร้างจาก endpoint นี้เป็น kind `project` เสมอ
+    #    (บิลค่าปรับมีเส้นทางของตัวเองใน fines service — ใช้ `_create_bills_with_accrual` เดียวกัน)
+    COLLECTION_KIND_PROJECT, DOC_TYPE_INVOICE, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
@@ -48,8 +51,9 @@ class CollectionsMixin:
                     await _lock_room_money(conn, target_room_id)
 
                     collection_id = await conn.fetchval(
-                        "INSERT INTO fee_collections (room_id, title, amount, due_date) VALUES ($1, $2, $3, $4) RETURNING id",
-                        target_room_id, req.title, req.amount, req.due_date
+                        """INSERT INTO fee_collections (room_id, title, amount, due_date, collection_kind)
+                           VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+                        target_room_id, req.title, req.amount, req.due_date, COLLECTION_KIND_PROJECT
                     )
                     
                     target_students = []
@@ -71,8 +75,17 @@ class CollectionsMixin:
                     if target_students:
                         # 🛡️ กัน id ซ้ำใน target_students (ป้องกัน UniqueViolation ถ้า query คืนค่าซ้ำ)
                         target_students = list(dict.fromkeys(target_students))
-                        records = [(collection_id, sid, 'pending') for sid in target_students]
-                        await conn.executemany("INSERT INTO student_payments (collection_id, student_id, status) VALUES ($1, $2, $3)", records)
+                        # 📒 เกณฑ์คงค้าง: สร้างบิลทีละใบ + ลง Dr ผู้ค้างชำระ / Cr รายได้
+                        #    ต่อใบ (helper เป็น idempotent ต่อบิลและอยู่ใน transaction นี้)
+                        await cls._create_bills_with_accrual(
+                            conn,
+                            room_id=target_room_id,
+                            collection_id=collection_id,
+                            student_ids=target_students,
+                            amount=float(req.amount),
+                            collection_kind=COLLECTION_KIND_PROJECT,
+                            recorded_by=actor_identifier,
+                        )
                     
                     new_values = cls._extract_req_data(req)
                     new_values["resolved_target_students"] = target_students
@@ -109,6 +122,33 @@ class CollectionsMixin:
             raise e
 
     @classmethod
+    async def _void_aggregate_invoices_for_students(
+        cls, conn: asyncpg.Connection, *, room_id: int,
+        student_ids: List[int], reason: str, voided_by: Optional[int] = None,
+    ) -> int:
+        """void ใบแจ้งหนี้ **แบบรวมยอด** ที่ยัง active ของนักเรียนกลุ่มนี้
+
+        ใบรวมยอดเป็น snapshot ณ เวลาที่ออก ⇒ พอองค์ประกอบของหนี้เปลี่ยน
+        (เพิ่ม/ลบ/แก้ยอด) ใบเดิมจะค้างยอดเก่า ระบบจึงยกเลิกให้แล้วให้ผู้ใช้
+        ออกใบใหม่เอง (ไม่ auto-reissue — นโยบายใบรวม)
+        ⚠️ ใบรายบิล (`student_payment_id IS NOT NULL`) ไม่อยู่ในขอบเขตนี้
+        """
+        if not student_ids:
+            return 0
+        rows = await conn.fetch(
+            """UPDATE finance_receipts
+               SET status = $4, voided_at = CURRENT_TIMESTAMP,
+                   voided_by = $5, void_reason = $6, deleted_at = NOW()
+               WHERE room_id = $1 AND student_id = ANY($2::int[])
+                 AND doc_type = $3 AND student_payment_id IS NULL
+                 AND status = $7 AND deleted_at IS NULL
+               RETURNING id""",
+            room_id, list(student_ids), DOC_TYPE_INVOICE,
+            DOC_STATUS_VOIDED, voided_by, reason, DOC_STATUS_ACTIVE,
+        )
+        return len(rows)
+
+    @classmethod
     async def _confirm_single_payment(
         cls, conn: asyncpg.Connection, target_room_id: int,
         payment_id: int, paid_amount: float, paid_to_account_id: int,
@@ -125,6 +165,7 @@ class CollectionsMixin:
 
         payment_info = await conn.fetchrow(
             """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title,
+                      FC.collection_kind AS collection_kind,
                       U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en
                FROM student_payments SP
                JOIN fee_collections FC ON SP.collection_id = FC.id
@@ -137,6 +178,8 @@ class CollectionsMixin:
 
         current_paid = float(payment_info['current_paid'])
         total_amount = float(payment_info['total_amount'])
+
+        await cls._assert_no_pending_fine_requests(conn, [payment_id])
 
         if current_paid >= total_amount: raise ValueError("บิลนี้จ่ายครบไปเรียบร้อยแล้วครับ!")
 
@@ -170,13 +213,14 @@ class CollectionsMixin:
             new_status, new_total_paid, paid_to_account_id, slip_image_url, user_name, trans_id, payment_id
         )
 
-        # [DUAL-WRITE] เขียนฝั่ง Double-Entry: รับชำระเงินจากนักเรียน (Dr สินทรัพย์ / Cr รายได้เก็บเงินห้อง)
+        # [DUAL-WRITE] เขียนฝั่ง Double-Entry: รับชำระเงินจากนักเรียน
+        # 📒 เกณฑ์คงค้าง: รายได้ถูกรับรู้แล้วตอนออกบิล (`student_payment_issue`) ⇒ การรับเงิน
+        #    เป็น Dr สินทรัพย์ / **Cr ผู้ค้างชำระ** ไม่ใช่ Cr รายได้ (ถ้าลงรายได้ซ้ำงบจะพอง)
         asset_ledger_id = await cls._resolve_asset_ledger(conn, target_room_id, paid_to_account_id)
-        # Credit ขาเป็นรายได้ "เก็บเงินห้องปกติ" — ตัวช่วยกลางที่ **ใช้ร่วมกับการหักเครดิตปิดบิล**
-        # (หาโดยชื่อ → สร้างหมวด+ledger ถ้ายังไม่มี → raise ถ้ายังไม่ได้ ⇒ ห้ามข้าม dual-write)
-        # 🔴 ต้องเรียกตัวช่วยตัวนี้เท่านั้น ห้าม inline กลับมา — มิฉะนั้นสองเส้นทางเงิน
-        #    (เงินสด / เครดิต) จะค่อย ๆ drift ออกจากกันโดยไม่มีอะไรฟ้อง
-        revenue_ledger_id = await cls._resolve_default_income_ledger(conn, target_room_id)
+        collection_kind = cls._normalize_collection_kind(payment_info["collection_kind"])
+        ar_ledger_id = await cls._resolve_ar_ledger(
+            conn, room_id=target_room_id, collection_kind=collection_kind
+        )
         await cls._insert_journal_entry(
             conn, target_room_id,
             reference_type="student_payment",
@@ -184,12 +228,21 @@ class CollectionsMixin:
             description=dynamic_desc,
             slip_image_url=slip_image_url,
             recorded_by=user_name,
-            metadata={"student_payment_id": payment_id, "legacy_transaction_id": trans_id},
+            metadata={
+                "student_payment_id": payment_id,
+                "legacy_transaction_id": trans_id,
+                "collection_kind": collection_kind,
+                "accrual": "payment",
+            },
             lines=[
                 {"ledger_id": asset_ledger_id, "debit": paid_amount, "credit": 0, "line_description": f"รับเงินจากนักเรียน (student_payment #{payment_id})"},
-                {"ledger_id": revenue_ledger_id, "debit": 0, "credit": paid_amount, "line_description": f"รายได้: {payment_info['title']}"},
+                {"ledger_id": ar_ledger_id, "debit": 0, "credit": paid_amount, "line_description": f"ตัดผู้ค้างชำระ: {payment_info['title']}"},
             ],
         )
+
+        # ⚖️ สถานะค่าปรับเป็นเจ้าของเดียวของ `_sync_fine_status` — บิลโปรเจกต์จะไม่มีแถว fines
+        #    จึงเป็นการ query ว่าง (ต้นทุนน้อย) แต่บิลค่าปรับจะเปลี่ยน issued → partially_paid/paid
+        await cls._sync_fine_status(conn, [payment_id])
 
         return {
             "payment_id": payment_id,
@@ -527,7 +580,8 @@ class CollectionsMixin:
                     await _lock_room_money(conn, target_room_id)
 
                     payment = await conn.fetchrow("""
-                        SELECT SP.*, FC.title
+                        SELECT SP.*, FC.title, FC.amount AS collection_amount,
+                               FC.collection_kind AS collection_kind
                         FROM student_payments SP
                         JOIN fee_collections FC ON SP.collection_id = FC.id
                         WHERE SP.collection_id = $1 AND SP.student_id = $2 AND FC.room_id = $3
@@ -536,12 +590,45 @@ class CollectionsMixin:
 
                     if not payment:
                         raise PaymentNotFoundError("ไม่พบข้อมูลการเรียกเก็บเงินของนักเรียนคนนี้")
-                    
+
+                    kind = cls._normalize_collection_kind(payment['collection_kind'])
+                    if kind != COLLECTION_KIND_PROJECT:
+                        # บิลค่าปรับมีวงจรของตัวเอง (แก้/ยกเลิกผ่านหน้าค่าปรับ) — ห้ามลบตรง ๆ
+                        # ไม่งั้น fine/waiver/refund จะค้างชี้บิลที่หายไป
+                        raise ValueError("รายการนี้เป็นค่าปรับ — ใช้วิธียกเลิกผ่านหน้าค่าปรับแทน")
+
                     old_values = dict(payment)
                     if payment['paid_amount'] > 0:
                         raise ValueError("ไม่สามารถลบได้ เนื่องจากนักเรียนมีการจ่ายเงิน (หรือทยอยจ่าย) เข้ามาแล้ว ให้ใช้วิธียกเลิกธุรกรรมการเงินแทน")
 
+                    # 📒 กลับ accrual ก่อนลบบิล — source-aware (issue → รายได้, opening → equity 31002)
+                    #    ยอดที่กลับ = ยอดที่ยังไม่ได้จ่าย (ที่นี่ paid_amount = 0 ⇒ เต็มจำนวน)
+                    await cls._post_bill_reversal(
+                        conn,
+                        target_room_id,
+                        payment['id'],
+                        amount=float(payment['collection_amount'] or 0)
+                        - float(payment['paid_amount'] or 0),
+                        collection_kind=kind,
+                        description=f"ลบรายชื่อนักเรียนออกจากรายการ: {payment['title']}",
+                        recorded_by=actor_identifier,
+                        metadata={
+                            "collection_id": collection_id,
+                            "student_id": student_id,
+                        },
+                    )
+
                     await conn.execute("DELETE FROM student_payments WHERE id = $1", payment['id'])
+
+                    # 🧾 ใบแจ้งหนี้รวมยอดของนักเรียนคนนี้เป็น snapshot เก่า ⇒ void
+                    #    (ให้ผู้ใช้ออกใบใหม่เอง — ไม่ auto-reissue ตามนโยบายใบรวม)
+                    await cls._void_aggregate_invoices_for_students(
+                        conn,
+                        room_id=target_room_id,
+                        student_ids=[student_id],
+                        reason="ลบบิลออกจากรายการเรียกเก็บเงิน (ออกใบแจ้งหนี้ใหม่ได้)",
+                        voided_by=user_id,
+                    )
 
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -575,11 +662,21 @@ class CollectionsMixin:
                 student = await conn.fetchrow("SELECT S.id, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
                 if not student: raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
 
-                rows = await conn.fetch("""
-                    SELECT SP.id as payment_id, FC.id as collection_id, FC.title, (FC.amount - COALESCE(SP.paid_amount, 0)) AS amount, FC.due_date, FC.status AS collection_status
-                    FROM student_payments SP JOIN fee_collections FC ON SP.collection_id = FC.id
-                    WHERE SP.student_id = $1 AND SP.status = 'pending' AND FC.room_id = $2
-                    ORDER BY FC.status ASC, FC.due_date ASC
+                # 📌 ใช้ predicate "บิลเปิด" มาตรฐานเดียวทั้งระบบ (ดู accrual.py)
+                #    ไม่กรอง FC.status — ปิดแคมเปญไม่ใช่ล้างหนี้
+                rows = await conn.fetch(f"""
+                    SELECT SP.id as payment_id, FC.id as collection_id, FC.title,
+                           (FC.amount - COALESCE(SP.paid_amount, 0)) AS amount,
+                           FC.due_date, FC.status AS collection_status,
+                           FC.collection_kind AS collection_kind,
+                           F.id AS fine_id
+                    FROM student_payments SP
+                    JOIN fee_collections FC ON SP.collection_id = FC.id
+                    LEFT JOIN fines F
+                           ON F.student_payment_id = SP.id AND F.deleted_at IS NULL
+                    WHERE SP.student_id = $1 AND FC.room_id = $2
+                      AND {cls._open_bill_predicate()}
+                    ORDER BY FC.due_date ASC, FC.id ASC
                 """, student_id, target_room_id)
 
                 formatted_debts, total_pending = [], 0.0
@@ -685,13 +782,40 @@ class CollectionsMixin:
                     # 🛡️ ต้องเป็นสมาชิก active เท่านั้น (กัน pending/left student เข้ารายการเก็บเงิน)
                     if not await conn.fetchval("SELECT id FROM students WHERE id = $1 AND room_id = $2 AND status = 'active'", student_id, target_room_id):
                         raise RoomNotFoundError("ไม่พบเด็กคนนี้ในห้อง")
-                    if not await conn.fetchval("SELECT id FROM fee_collections WHERE id = $1 AND room_id = $2 AND status = 'active'", collection_id, target_room_id):
+                    collection = await conn.fetchrow(
+                        """SELECT id, amount, collection_kind FROM fee_collections
+                           WHERE id = $1 AND room_id = $2 AND status = 'active'""",
+                        collection_id, target_room_id,
+                    )
+                    if not collection:
                         raise ValueError("ไม่พบรายการเรียกเก็บเงินนี้ หรือแคมเปญถูกปิดไปแล้ว!")
+                    kind = cls._normalize_collection_kind(collection['collection_kind'])
+                    if kind != COLLECTION_KIND_PROJECT:
+                        # ค่าปรับออกบิลผ่านหน้าค่าปรับเท่านั้น (ต้องมี fine row + INV- ผูกกัน)
+                        raise ValueError("รายการนี้เป็นค่าปรับ — ออกบิลผ่านหน้าค่าปรับแทน")
 
                     try:
-                        await conn.execute("INSERT INTO student_payments (collection_id, student_id, status) VALUES ($1, $2, 'pending')", collection_id, student_id)
+                        # 📒 สร้างบิล + ลง accrual ใน transaction เดียวกัน
+                        await cls._create_bills_with_accrual(
+                            conn,
+                            room_id=target_room_id,
+                            collection_id=collection_id,
+                            student_ids=[student_id],
+                            amount=float(collection['amount']),
+                            collection_kind=kind,
+                            recorded_by=actor_identifier,
+                        )
                     except asyncpg.exceptions.UniqueViolationError:
                         raise ValueError("เพื่อนคนนี้มีชื่อในรายการนี้อยู่แล้ว")
+
+                    # 🧾 หนี้ของนักเรียนคนนี้เพิ่มขึ้น ⇒ ใบแจ้งหนี้รวมยอดเดิมเป็น snapshot เก่า
+                    await cls._void_aggregate_invoices_for_students(
+                        conn,
+                        room_id=target_room_id,
+                        student_ids=[student_id],
+                        reason="เพิ่มบิลเข้ารายการเรียกเก็บเงิน (ออกใบแจ้งหนี้ใหม่ได้)",
+                        voided_by=user_id,
+                    )
 
                     exec_time = int((time.time() - start_time) * 1000)
                     await service_logger.log(
@@ -722,7 +846,14 @@ class CollectionsMixin:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
-                rows = await conn.fetch("SELECT id, title, amount, due_date, status FROM fee_collections WHERE room_id = $1 ORDER BY id DESC", target_room_id)
+                # 🚫 โปรเจกต์ซ่อนของค่าปรับ (`collection_kind='fine'`) ต้องไม่โผล่ในหน้าแคมเปญ
+                rows = await conn.fetch(
+                    """SELECT id, title, amount, due_date, status, collection_kind
+                       FROM fee_collections
+                       WHERE room_id = $1 AND collection_kind = $2 AND deleted_at IS NULL
+                       ORDER BY id DESC""",
+                    target_room_id, COLLECTION_KIND_PROJECT,
+                )
                 result = [dict(row) for row in rows]
 
                 exec_time = int((time.time() - start_time) * 1000)
@@ -762,13 +893,20 @@ class CollectionsMixin:
                     await _lock_room_money(conn, target_room_id)
                     current_data = await conn.fetchrow("SELECT * FROM fee_collections WHERE id = $1 AND room_id = $2", collection_id, target_room_id)
                     if not current_data: raise RoomNotFoundError("ไม่พบแคมเปญนี้")
+
+                    kind = cls._normalize_collection_kind(current_data['collection_kind'])
+                    if kind != COLLECTION_KIND_PROJECT:
+                        # ค่าปรับแก้ยอดผ่านหน้าค่าปรับ (ต้องปรับ fines.amount + INV- ด้วย)
+                        raise ValueError("รายการนี้เป็นค่าปรับ — แก้ไขผ่านหน้าค่าปรับแทน")
+
                     old_values = dict(current_data)
 
                     updates, values, idx, changed_labels = [], [], 1, []
-                    
+
                     if req.title is not None:
                         updates.append(f"title = ${idx}"); values.append(req.title); idx += 1; changed_labels.append("title")
-                    if req.amount is not None and float(req.amount) != float(current_data['amount']):
+                    amount_changed = req.amount is not None and float(req.amount) != float(current_data['amount'])
+                    if amount_changed:
                         if await conn.fetchval("SELECT 1 FROM student_payments WHERE collection_id = $1 AND paid_amount > 0 LIMIT 1", collection_id):
                             raise ValueError("ไม่สามารถแก้จำนวนเงินได้ เนื่องจากมีเงินโอนเข้ามาแล้ว!")
                         updates.append(f"amount = ${idx}"); values.append(req.amount); idx += 1; changed_labels.append("amount")
@@ -782,6 +920,39 @@ class CollectionsMixin:
                     values.extend([collection_id, target_room_id])
                     res = await conn.execute(f"UPDATE fee_collections SET {', '.join(updates)} WHERE id = ${idx} AND room_id = ${idx + 1}", *values)
                     if res == "UPDATE 0": raise RoomNotFoundError("ไม่พบแคมเปญนี้")
+
+                    if amount_changed:
+                        # 📒 เกณฑ์คงค้าง: บิลที่ยัง pending ต้องปรับยอด AR ตามส่วนต่าง
+                        #    source-aware — บิลยุค issue → ปรับรายได้, บิลยุค opening → ปรับ equity 31002
+                        delta = round(float(req.amount) - float(current_data['amount']), 2)
+                        pending_ids = await conn.fetch(
+                            """SELECT id FROM student_payments
+                               WHERE collection_id = $1 AND status = 'pending' AND deleted_at IS NULL""",
+                            collection_id,
+                        )
+                        for row in pending_ids:
+                            await cls._post_bill_adjustment(
+                                conn, target_room_id, row['id'],
+                                delta=delta,
+                                collection_kind=kind,
+                                description=f"แก้ยอดแคมเปญ: {req.title or current_data['title']}",
+                                recorded_by=actor_identifier,
+                                metadata={"collection_id": collection_id},
+                            )
+
+                    if amount_changed or req.title is not None:
+                        # 🧾 ใบแจ้งหนี้รวมเป็น snapshot — ข้อมูลบนใบเปลี่ยน ⇒ void ใบเดิม
+                        affected = await conn.fetch(
+                            "SELECT DISTINCT student_id FROM student_payments WHERE collection_id = $1",
+                            collection_id,
+                        )
+                        await cls._void_aggregate_invoices_for_students(
+                            conn,
+                            room_id=target_room_id,
+                            student_ids=[r['student_id'] for r in affected],
+                            reason="แก้ไขรายการเรียกเก็บเงิน (ออกใบแจ้งหนี้ใหม่ได้)",
+                            voided_by=user_id,
+                        )
 
                     new_values = cls._extract_req_data(req)
                     exec_time = int((time.time() - start_time) * 1000)
@@ -818,9 +989,11 @@ class CollectionsMixin:
                 #    *ทุกแถว* ของเครดิต (topup/apply/reverse) ⇒ ยอดค้างถูกคูณตามจำนวนรายการ
                 #    และบิลที่ `SP.status='pending'` ของคนเดียวกันจะถูกนับซ้ำหลายรอบ
                 #    (และจะทำให้ `overdue_count` เพี้ยนไปด้วย ซึ่งเป็นฟิลด์เดิมที่มีเทสต์อยู่)
-                rows = await conn.fetch("""
+                # 📌 predicate "บิลเปิด" มาตรฐานเดียว (ไม่กรอง FC.status) — ยอดนี้ต้องตรงกับ
+                #    `get_student_debts`, `_load_open_bills`, AR ledger และใบแจ้งหนี้รวม
+                rows = await conn.fetch(f"""
                     SELECT S.id as student_id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en,
-                           COUNT(SP.id) as overdue_count, SUM(FC.amount - SP.paid_amount) as total_pending_amount,
+                           COUNT(SP.id) as overdue_count, SUM(FC.amount - COALESCE(SP.paid_amount, 0)) as total_pending_amount,
                            COALESCE(CR.balance_after, 0) as credit_balance
                     FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                     JOIN student_payments SP ON S.id = SP.student_id JOIN fee_collections FC ON SP.collection_id = FC.id
@@ -829,7 +1002,7 @@ class CollectionsMixin:
                         WHERE room_id = S.room_id AND student_id = S.id AND deleted_at IS NULL
                         ORDER BY id DESC LIMIT 1
                     ) CR ON TRUE
-                    WHERE S.room_id = $1 AND SP.status = 'pending'
+                    WHERE S.room_id = $1 AND {cls._open_bill_predicate()}
                     GROUP BY S.id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en, CR.balance_after ORDER BY S.student_no ASC
                 """, target_room_id)
                 debtors = []
