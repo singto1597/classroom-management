@@ -151,7 +151,7 @@ async def test_export_empty_room_returns_valid_workbook(db_pool):
     assert wb.sheetnames == [
         "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
         "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
-        "สรุปรายเดือน (Monthly)",
+        "รายงานอายุหนี้", "สรุปรายเดือน (Monthly)",
     ]
 
     ws_data = wb["ประวัติรายการ"]

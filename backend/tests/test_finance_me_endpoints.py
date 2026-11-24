@@ -134,6 +134,49 @@ async def test_my_debts_lists_pending_bills_and_total_matches_db(client, db_pool
     assert body["total_pending_amount"] == pytest.approx(await _db_pending_total(db_pool, member_headers.student_id))
 
 
+async def test_my_debts_exposes_fine_link_fields(client, db_pool, member_headers):
+    """[P5] บิลค่าปรับต้องพก `fine_id` + `collection_kind='fine'` ใน response มาด้วย
+
+    frontend (MyDebts/DebtorList) ใช้สองฟิลด์นี้ตัดสินว่าจะพาไป `/finance/fines/{id}`
+    เพราะโปรเจกต์ของค่าปรับเป็นแถวซ่อนที่ไม่มีหน้ารายละเอียดให้เปิด
+    ⚠️ ถ้า `StudentDebtItem` (response_model) ไม่ประกาศฟิลด์ Pydantic จะกรองทิ้งเงียบ ๆ
+    ⇒ เทสต์นี้กัน regression นั้น ไม่ใช่แค่เช็ก HTTP status
+    """
+    project_col = await _insert_collection(db_pool, member_headers.room_id, title="ค่าเทอม", amount=500.0)
+    await _insert_payment(db_pool, project_col, member_headers.student_id)
+
+    fine_col = await _insert_collection(db_pool, member_headers.room_id, title="ค่าปรับ · มาสาย", amount=20.0)
+    fine_payment = await _insert_payment(db_pool, fine_col, member_headers.student_id)
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE fee_collections SET collection_kind = 'fine' WHERE id = $1", fine_col)
+        fine_id = await conn.fetchval(
+            """
+            INSERT INTO fines (room_id, fine_type_name, student_id, hidden_collection_id,
+                               student_payment_id, incident_date, due_date, reason,
+                               original_amount, amount)
+            VALUES ($1, 'มาสาย', $2, $3, $4, DATE '2026-11-01', DATE '2026-11-08', 'มาสาย',
+                    20.0, 20.0)
+            RETURNING id
+            """,
+            member_headers.room_id, member_headers.student_id, fine_col, fine_payment,
+        )
+
+    res = client.get(
+        MY_DEBTS_PATH.format(room=member_headers.room_id),
+        params={"target_type": "room"},
+        headers=member_headers,
+    )
+
+    assert res.status_code == 200, res.text
+    by_payment = {d["payment_id"]: d for d in res.json()["debts"]}
+    assert by_payment[fine_payment]["collection_kind"] == "fine"
+    assert by_payment[fine_payment]["fine_id"] == fine_id
+    # บิลโปรเจกต์ปกติต้องไม่ติด fine_id (ไม่งั้น frontend จะลิงก์ผิดหน้า)
+    project_payment = next(d["payment_id"] for d in res.json()["debts"] if d["title"] == "ค่าเทอม")
+    assert by_payment[project_payment]["collection_kind"] == "project"
+    assert by_payment[project_payment]["fine_id"] is None
+
+
 async def test_my_debts_counts_partial_payment_as_remainder(client, db_pool, member_headers):
     """จ่ายบางส่วน (paid_amount > 0 แต่ยัง pending) → หนี้ต้องเป็น **ส่วนที่เหลือ** ไม่ใช่ยอดเต็ม."""
     col = await _insert_collection(db_pool, member_headers.room_id, title="ค่าชุดพละ", amount=1000.0)

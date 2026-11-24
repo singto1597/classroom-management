@@ -27,12 +27,14 @@ from datetime import date
 import openpyxl
 import pytest
 
+from models.finance_fines import FineIssueRequest, FineIssueStudent
 from models.finance_schemas import (
     FinanceExportRequest,
     TransactionCreate,
     TransferCreate,
     PaymentConfirm,
 )
+from services.finance.constants import COLLECTION_KIND_PROJECT
 from services.finance_service import FinanceService
 
 pytestmark = pytest.mark.asyncio
@@ -43,7 +45,7 @@ pytestmark = pytest.mark.asyncio
 MANAGEMENT_SHEETS = [
     "สรุปยอด", "ประวัติรายการ", "สรุปรายหมวดหมู่",
     "สรุปโปรเจคเก็บเงิน (Fee)", "ทะเบียนลูกหนี้ (AR)",
-    "สรุปรายเดือน (Monthly)",
+    "รายงานอายุหนี้", "สรุปรายเดือน (Monthly)",
 ]
 ACCOUNTING_SHEETS = [
     "Financial Dashboard", "งบแสดงฐานะการเงิน (BS)",
@@ -245,11 +247,34 @@ async def test_management_export_fee_and_ar_sheets_match_db(db_pool):
     assert "รหัสนักเรียน" in ar_all[2] and "ยอดคงค้าง (บาท)" in ar_all[2]
     ar_rows = ar_all[3:]
     subtotal_rows = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมหนี้ของ")]
-    assert sorted(float(r[7]) for r in subtotal_rows) == [70.0, 100.0]  # ยอดคงค้าง col8
+    assert sorted(float(r[9]) for r in subtotal_rows) == [70.0, 100.0]  # ยอดคงค้าง col10
     s2_rows = [r for r in ar_rows if isinstance(r[0], int) and r[0] == 2]
-    assert len(s2_rows) == 1 and float(s2_rows[0][7]) == 100.0
+    assert len(s2_rows) == 1 and float(s2_rows[0][9]) == 100.0
     grand = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมลูกหนี้ทั้งสิ้น")]
-    assert float(grand[0][7]) == 170.0
+    assert float(grand[0][9]) == 170.0
+
+    # คอลัมน์ Phase 5: ประเภทบิล + เลขที่ใบแจ้งหนี้ + ยอดแยก 2 บัญชีผู้ค้างชำระ
+    assert "ประเภท" in ar_all[2] and "เลขที่ใบแจ้งหนี้" in ar_all[2]
+    assert {r[4] for r in ar_rows if isinstance(r[0], int)} == {"โปรเจกต์"}
+    kind_totals = {
+        r[0]: float(r[9]) for r in ar_rows
+        if r[0] and str(r[0]).startswith("ผู้ค้างชำระ")
+    }
+    assert kind_totals == {
+        "ผู้ค้างชำระค่าโครงการ (11001) · 2 คนทั้งสิ้น": 170.0,
+        "ผู้ค้างชำระค่าปรับ (11002)": 0.0,
+    }
+
+    # ---- Sheet 6: รายงานอายุหนี้ — ตัวเลขต้องตรงกับ AR และถังถูกต้อง ----
+    age_all = _values(wb, "รายงานอายุหนี้")
+    assert "ถังอายุหนี้" in age_all[2] and "เลยกำหนด (วัน)" in age_all[2]
+    age_rows = age_all[3:]
+    age_data = [r for r in age_rows if isinstance(r[0], int)]
+    assert len(age_data) == 2
+    # กำหนดชำระ 30/11/2026 ยังไม่ถึง ⇒ ทุกแถวอยู่ถัง "ยังไม่ครบกำหนด"
+    assert {r[6] for r in age_data} == {"ยังไม่ครบกำหนด"}
+    age_grand = [r for r in age_rows if r[0] and str(r[0]).startswith("รวมผู้ค้างชำระทั้งสิ้น")]
+    assert float(age_grand[0][7]) == 170.0
 
     # ---- Sheet 1: สรุปยอด มีตัวเลขการเก็บเงิน/ลูกหนี้ ----
     summary = _values(wb, "สรุปยอด")
@@ -257,6 +282,64 @@ async def test_management_export_fee_and_ar_sheets_match_db(db_pool):
     assert float(by_label["อัตราการเก็บเงินสำเร็จ (%)"]) == pytest.approx(15.0)
     assert float(by_label["หนี้ค้างชำระรวม — AR (บาท)"]) == pytest.approx(170.0)
     assert by_label["จำนวนลูกหนี้ที่ยังค้าง (คน)"] == 2
+
+
+async def test_management_export_fine_is_not_a_campaign_and_carries_invoice_no(db_pool):
+    """⚖️ ค่าปรับ (โปรเจกต์ซ่อน) ต้องไม่โผล่ในชีตโปรเจกต์เก็บเงิน แต่ต้องมี
+    - แถวในทะเบียนลูกหนี้ที่ 'ประเภท = ค่าปรับ' + เลข INV-
+    - ยอดใน 'ผู้ค้างชำระค่าปรับ (11002)' และรายงานอายุหนี้
+    """
+    owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
+    room_id = await _insert_room(db_pool, owner, room_name="ห้องค่าปรับ")
+    s1 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="ปรับ", last_name="หนึ่ง"), 1)
+
+    async with db_pool.acquire() as conn:
+        await FinanceService.ensure_default_fine_types(conn, room_id)
+        type_id = await conn.fetchval(
+            "SELECT id FROM fine_types WHERE room_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id LIMIT 1",
+            room_id,
+        )
+
+    issued = await FinanceService.issue_fines(
+        pool=db_pool,
+        req=FineIssueRequest(
+            fine_type_id=type_id,
+            students=[FineIssueStudent(student_id=s1, amount=20.0)],
+            incident_date=date(2026, 11, 20),
+            due_date=date(2026, 12, 20),
+            reason="ทดสอบ export",
+            idempotency_key=uuid.uuid4().hex,
+            user_name="Tester",
+        ),
+        user_id=owner, client_source="test", actor_identifier="test", room_id=room_id,
+    )
+    invoice_no = issued["invoice_nos"][0]
+
+    excel_file = await FinanceService.export_transactions_excel(
+        pool=db_pool, req=FinanceExportRequest(), client_source="test", actor_identifier="test",
+        room_id=room_id, user_id=owner,
+    )
+    wb = openpyxl.load_workbook(excel_file)
+
+    # ชีตโปรเจกต์เก็บเงิน: ไม่มีโปรเจกต์เลย (มีแต่ค่าปรับที่ซ่อนไว้)
+    fee_rows = _values(wb, "สรุปโปรเจคเก็บเงิน (Fee)")[3:]
+    assert not [r for r in fee_rows if r[0] and str(r[0]).startswith('โปรเจค "')]
+
+    ar_rows = _values(wb, "ทะเบียนลูกหนี้ (AR)")[3:]
+    fine_row = next(r for r in ar_rows if isinstance(r[0], int))
+    assert fine_row[4] == "ค่าปรับ"
+    assert fine_row[5] == invoice_no
+    assert float(fine_row[9]) == 20.0
+    kind_totals = {
+        r[0]: float(r[9]) for r in ar_rows
+        if r[0] and str(r[0]).startswith("ผู้ค้างชำระ")
+    }
+    assert kind_totals["ผู้ค้างชำระค่าปรับ (11002)"] == 20.0
+
+    age_rows = _values(wb, "รายงานอายุหนี้")[3:]
+    age_data = [r for r in age_rows if isinstance(r[0], int)]
+    assert len(age_data) == 1 and age_data[0][2] == "ค่าปรับ"
+    assert float(age_data[0][7]) == 20.0
 
 
 async def test_management_export_fee_sheet_lists_only_unpaid(db_pool):
@@ -291,9 +374,9 @@ async def test_management_export_fee_sheet_lists_only_unpaid(db_pool):
     # ทะเบียนลูกหนี้ (AR) ยังเหลือหนี้ของคนที่ยังไม่จ่ายคนเดียว = 100
     ar_rows = _values(wb, "ทะเบียนลูกหนี้ (AR)")[3:]
     subtotal_rows = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมหนี้ของ")]
-    assert [float(r[7]) for r in subtotal_rows] == [100.0]
+    assert [float(r[9]) for r in subtotal_rows] == [100.0]
     grand = next(r for r in ar_rows if r[0] and str(r[0]).startswith("รวมลูกหนี้ทั้งสิ้น"))
-    assert float(grand[7]) == 100.0
+    assert float(grand[9]) == 100.0
 
 
 async def test_management_export_v2_post_cutoff_month_still_lists_project_and_debtor(db_pool):
@@ -334,9 +417,9 @@ async def test_management_export_v2_post_cutoff_month_still_lists_project_and_de
     # Sheet 5: ทะเบียนลูกหนี้มีหนี้ครบ 170
     ar_rows = _values(wb, "ทะเบียนลูกหนี้ (AR)")[3:]
     subtotal_rows = [r for r in ar_rows if r[0] and str(r[0]).startswith("รวมหนี้ของ")]
-    assert sorted(float(r[7]) for r in subtotal_rows) == [70.0, 100.0]
+    assert sorted(float(r[9]) for r in subtotal_rows) == [70.0, 100.0]
     grand = next(r for r in ar_rows if r[0] and str(r[0]).startswith("รวมลูกหนี้ทั้งสิ้น"))
-    assert float(grand[7]) == 170.0
+    assert float(grand[9]) == 170.0
 
 
 # =====================================================================
@@ -375,6 +458,14 @@ async def test_accounting_export_six_sheets_and_matches_db(db_pool):
     s1 = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="Three"), 3)
     c2 = await _insert_collection(db_pool, room_id, "ทัศนศึกษา", 300.0)
     p1 = await _insert_student_payment(db_pool, c2, s1, status="pending", paid_amount=0.0)
+    # 🔴 [ACCRUAL] เส้นทางจริงลง Dr AR / Cr รายได้ ตอนออกบิล — ถ้า INSERT บิลดิบเฉย ๆ
+    #    การรับเงินจะ Cr AR จนติดลบโดยไม่มีรายได้คู่กัน ⇒ ตัวเลขงบจะไม่ตรงกับ production
+    async with db_pool.acquire() as conn:
+        async with conn.transaction():
+            await FinanceService._post_bill_accrual(
+                conn, room_id, p1, amount=300.0,
+                collection_kind=COLLECTION_KIND_PROJECT, recorded_by="tester",
+            )
     await FinanceService.confirm_payment(
         pool=db_pool, payment_id=p1,
         req=PaymentConfirm(paid_to_account_id=acc_main, paid_amount=300.0, user_name="Owner"),
@@ -426,7 +517,8 @@ async def test_accounting_export_six_sheets_and_matches_db(db_pool):
     tb_rows = _values(wb, "งบทดลอง (Trial Balance)")[3:]
     tb_total = _find_row_containing(tb_rows, 1, "รวมทั้งสิ้น")
     assert tb_total[3] == tb_total[4]
-    assert tb_total[3] == pytest.approx(1900.0)
+    # 1,900 (การโอน/รายรับรายจ่ายสำเร็จรูป) + 300 (Dr AR ตอนออกบิล) + 300 (Dr เงินสด ตอนรับชำระ)
+    assert tb_total[3] == pytest.approx(2200.0)
     assert tb_total[5] is not None and "สมดุล" in str(tb_total[5])
 
     # ---- Sheet Income Statement: 1300 − 200 = 1100 ----

@@ -181,7 +181,14 @@ def test_route_count_is_not_silently_shrinking():
     # 172 → 167 (2026-11-02): ถอนฟีเจอร์ที่ผิด concept ของกิจกรรม — ลบ QR 2 route
     #   (`GET/POST …/checkin/qr`), ลิงก์แชร์ 2 route (`POST/DELETE …/share`) และ
     #   หน้าสาธารณะ `GET /api/shared/activity/{token}` (PUBLIC_ROUTES ว่างลงหนึ่งรายการ)
-    expected = 167
+    # 167 → 186 (2026-11-24): ระบบค่าปรับ — 19 route ใต้ `/api/classroom` (routers/finance/fines.py)
+    #   · fine-types 4 (GET/POST/PATCH/DELETE) · ออกค่าปรับ 1 · fines อ่าน/แก้/ยกเลิก 4
+    #   · คำขอยกเว้น 5 (POST ขอ · GET · approve/reject/cancel) · คำขอคืนเงิน 5 (ชุดเดียวกัน)
+    #   ทุกตัวมี `Depends(get_current_user)`; การเขียนตรวจ `MANAGE_FINANCE` ใน service
+    # 186 → 188 (2026-11-24): รายงาน Phase 5 — `finance/fines/summary` + `finance/receivables/aging`
+    #   ทั้งคู่มี `Depends(get_current_user)` และ `require_member` ใน service
+    #   ⚠️ `fines/summary` **ต้องประกาศก่อน** `fines/{fine_id}` (มีเทสต์กันไว้แล้ว)
+    expected = 188
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

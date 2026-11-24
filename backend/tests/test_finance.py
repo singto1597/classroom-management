@@ -781,9 +781,14 @@ async def test_confirm_payment_full_payment_updates_everything(db_pool):
     assert await _count_audit_logs(db_pool, "STUDENT_PAYMENT", "UPDATE") == 1
 
 
-async def test_confirm_payment_auto_provisions_default_income(db_pool):
-    """[FIX A] ห้องที่ยังไม่มี ledger รายได้/หมวดค่าเริ่มต้น → confirm_payment ต้องสร้างให้เอง
-    (ห้ามข้าม dual-write แบบเดิม) เพื่อให้ journal มีบิลครบฝั่ง"""
+async def test_confirm_payment_credits_ar_and_never_revenue(db_pool):
+    """[ACCRUAL] รับเงิน ⇒ Dr เงิน / Cr 11001 ผู้ค้างชำระ — **ไม่มีขารายได้**
+
+    เดิมเทสต์นี้ตรวจว่า confirm_payment สร้างหมวดรายได้ให้เอง เพราะระบบเคยลงรายได้
+    ตอนรับเงิน · หลังเปลี่ยนเป็นเกณฑ์คงค้าง รายได้ถูกรับรู้ตอน **ออกบิล**
+    การรับเงินจึงเป็นการตัดลูกหนี้เท่านั้น ⇒ ต้องไม่มี revenue line และต้องมี
+    ledger 11001 ให้เอง (find-or-create) แม้ห้องนี้จะไม่มี ledger ใด ๆ มาก่อน
+    """
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
     account_id = await _insert_finance_account(db_pool, room_id, "กองกลาง", 0.0)
@@ -791,10 +796,10 @@ async def test_confirm_payment_auto_provisions_default_income(db_pool):
     collection_id = await _insert_collection(db_pool, room_id, "ค่าเทอม", 1000.0)
     payment_id = await _insert_student_payment(db_pool, collection_id, student_id, "pending", 0.0)
 
-    # ห้องนี้ถูกสร้างผ่าน helper ที่ไม่ seed หมวดหมู่ → ต้องยังไม่มีหมวด/ledger รายได้
+    # ห้องนี้ถูกสร้างผ่าน helper ที่ไม่ seed หมวดหมู่/ledger ใด ๆ
     async with db_pool.acquire() as conn:
         assert await conn.fetchval(
-            "SELECT COUNT(*) FROM finance_categories WHERE room_id = $1 AND category_type = 'income'", room_id
+            "SELECT COUNT(*) FROM accounting_ledgers WHERE room_id = $1", room_id
         ) == 0
 
     await FinanceService.confirm_payment(
@@ -808,34 +813,32 @@ async def test_confirm_payment_auto_provisions_default_income(db_pool):
         assert await conn.fetchval(
             "SELECT COUNT(*) FROM journal_entries WHERE room_id = $1 AND reference_type = 'student_payment'", room_id
         ) == 1
-        # 2) มีหมวดค่าเริ่มต้น '📥 เก็บเงินห้องปกติ' ถูกสร้างให้
-        cat = await conn.fetchrow(
-            """SELECT id FROM finance_categories
-               WHERE room_id = $1 AND category_name = $2 AND category_type = 'income'""",
-            room_id, '📥 เก็บเงินห้องปกติ',
+        ar = await conn.fetchrow(
+            "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND account_code = '11001'",
+            room_id,
         )
-        assert cat is not None
-        # 3) มี revenue ledger ผูกกับหมวดนั้น
-        rev = await conn.fetchrow(
-            """SELECT id FROM accounting_ledgers
-               WHERE room_id = $1 AND account_type = 'revenue' AND legacy_category_id = $2""",
-            room_id, cat["id"],
-        )
-        assert rev is not None
-        # 4) journal lines = asset Dr / revenue Cr จำนวน 1000
+        assert ar is not None, "ต้องมีบัญชีผู้ค้างชำระค่าโครงการ (find-or-create)"
+        # 2) journal lines = Dr เงิน(สินทรัพย์) / Cr 11001 จำนวน 1000
         entry = await conn.fetchrow(
             "SELECT id FROM journal_entries WHERE room_id = $1 AND reference_type = 'student_payment'", room_id
         )
         lines = await conn.fetch(
-            """SELECT AL.account_type, L.debit, L.credit
+            """SELECT AL.account_type, AL.account_code, L.debit, L.credit
                FROM journal_lines L
                JOIN accounting_ledgers AL ON L.ledger_id = AL.id
                WHERE L.journal_entry_id = $1""", entry["id"]
         )
-        asset_line = next(ln for ln in lines if ln["account_type"] == "asset")
-        rev_line = next(ln for ln in lines if ln["account_type"] == "revenue")
-        assert float(asset_line["debit"]) == pytest.approx(1000.0)
-        assert float(rev_line["credit"]) == pytest.approx(1000.0)
+        assert len(lines) == 2
+        debit_line = next(ln for ln in lines if float(ln["debit"]) > 0)
+        credit_line = next(ln for ln in lines if float(ln["credit"]) > 0)
+        assert debit_line["account_type"] == "asset" and debit_line["account_code"] != "11001"
+        assert credit_line["account_code"] == "11001", "รับเงินต้องตัดผู้ค้างชำระ ไม่ใช่รายได้"
+        assert float(debit_line["debit"]) == pytest.approx(1000.0)
+        assert float(credit_line["credit"]) == pytest.approx(1000.0)
+        # 3) ไม่มีขารายได้เลย
+        assert not any(ln["account_type"] == "revenue" for ln in lines), (
+            "รายได้ถูกรับรู้ตอนออกบิลแล้ว — รับเงินต้องไม่ลงรายได้ซ้ำ"
+        )
     assert await _fetch_balance(db_pool, account_id) == pytest.approx(1000.0)
 
 
@@ -1681,7 +1684,12 @@ async def test_get_summary_pending_collection_amount(db_pool):
     assert float(summary["pending_collection_amount"]) == pytest.approx(700.0)
 
 
-async def test_get_summary_excludes_closed_collection_from_pending(db_pool):
+async def test_get_summary_keeps_closed_collection_pending(db_pool):
+    """ปิดโปรเจกต์ ≠ ล้างหนี้ — บิลที่ยัง pending ของโปรเจกต์ที่ปิดแล้ว **ยังนับเป็นยอดค้าง**
+
+    ตรงตาม predicate "บิลเปิด" มาตรฐานเดียวของทั้งระบบ (`OPEN_BILL_PREDICATE`) ที่
+    **ไม่กรอง `FC.status`** · ถ้าจะล้างหนี้จริงต้องใช้การยกเว้น/ลบรายชื่อ (ซึ่งกลับ journal)
+    """
     owner = await _insert_user(db_pool, first_name="Admin", last_name="Owner")
     room_id = await _insert_room(db_pool, owner)
     student_id = await _insert_student(db_pool, room_id, await _insert_user(db_pool, first_name="Kid", last_name="One"), 1)
@@ -1692,7 +1700,7 @@ async def test_get_summary_excludes_closed_collection_from_pending(db_pool):
         pool=db_pool, client_source="test", actor_identifier="test",
         room_id=room_id, user_id=owner,
     )
-    assert float(summary["pending_collection_amount"]) == pytest.approx(0.0)
+    assert float(summary["pending_collection_amount"]) == pytest.approx(1000.0)
 
 
 async def test_get_summary_empty_room(db_pool):
@@ -1728,10 +1736,11 @@ async def test_get_student_debts_returns_pending_sorted(db_pool):
     # service สร้างชื่อจาก first_name + nickname (ไม่รวม last_name)
     assert data["student_name"] == "Kid"
     assert float(data["total_pending_amount"]) == pytest.approx(1100.0)  # 600 + 500
-    # ORDER BY FC.status ASC → 'active' ก่อน 'closed'
-    assert data["debts"][0]["collection_status"] == "active"
-    assert float(data["debts"][0]["amount"]) == pytest.approx(600.0)
-    assert data["debts"][1]["collection_status"] == "closed"
+    # ORDER BY FC.due_date ASC, FC.id ASC → บิลที่ครบกำหนดก่อน (2026-10-01) มาก่อน
+    assert data["debts"][0]["collection_status"] == "closed"
+    assert float(data["debts"][0]["amount"]) == pytest.approx(500.0)
+    assert data["debts"][1]["collection_status"] == "active"
+    assert float(data["debts"][1]["amount"]) == pytest.approx(600.0)
 
 
 async def test_get_student_debts_excludes_fully_paid(db_pool):

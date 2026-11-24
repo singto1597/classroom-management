@@ -152,6 +152,23 @@ _MONEY_PATHS = [
     ("receipt_batches", "ReceiptBatchesMixin", "set_batch_receipts"),
     ("receipt_batches", "ReceiptBatchesMixin", "update_receipt_batch"),
     ("receipt_batches", "ReceiptBatchesMixin", "delete_receipt_batch"),
+    # ⚖️ [ค่าปรับ] ประเภทความผิดกำหนดอัตราที่จะออกเป็นบิล ⇒ ยึดล็อกเดียวกับเส้นทางเงิน
+    ("fine_types", "FineTypesMixin", "create_fine_type"),
+    ("fine_types", "FineTypesMixin", "update_fine_type"),
+    ("fine_types", "FineTypesMixin", "delete_fine_type"),
+    # ⚖️ [ค่าปรับ] ออกค่าปรับ = เปิดบิล + accrual journal (Dr 11002 / Cr 49001) ในชุดเดียว
+    ("fines", "FinesMixin", "issue_fines"),
+    ("fines", "FinesMixin", "update_fine"),
+    ("fines", "FinesMixin", "cancel_fine"),
+    # ⚖️ [ค่าปรับ] ยกเว้น/ลด — ลดบิล + journal 49002/59001 + void/ออก INV ใหม่
+    ("waivers", "WaiversMixin", "request_waiver"),
+    ("waivers", "WaiversMixin", "approve_waiver"),
+    #    reject/cancel ไม่แตะเงิน แต่ยังอัปเดตแถวคำขอที่อนุมัติแล้วจะมีผลต่อยอด ⇒ ตรวจ ordering ด้วย
+    ("waivers", "WaiversMixin", "_decide_waiver_without_money"),
+    # ⚖️ [ค่าปรับ] คืนเงิน — เงินสดออก + journal 49003 / Cr asset + PV-
+    ("refunds", "RefundsMixin", "request_refund"),
+    ("refunds", "RefundsMixin", "approve_refund"),
+    ("refunds", "RefundsMixin", "_decide_refund_without_money"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง
