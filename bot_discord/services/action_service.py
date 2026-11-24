@@ -41,6 +41,14 @@ EVENT_FIELD_LABELS = {
     "check_in_time": "เวลาลงทะเบียน/เช็คอิน",
 }
 
+# ⚖️ เหตุผลการยกเว้น/ลดค่าปรับ (ค่าดิบจาก backend → ป้ายไทยบน Discord)
+#    ⚠️ ค่าดิบคือ `discount` / `uncollectible` (ดู `FINE_WAIVER_CATEGORY_LABELS`
+#       ฝั่ง backend) — ถ้าเพิ่มหมวดใหม่ที่นั่น ต้องเพิ่มที่นี่ด้วย ไม่งั้นจะเห็นค่าดิบ
+FINE_WAIVER_CATEGORY_LABELS = {
+    "discount": "ยกเว้น/ลด",
+    "uncollectible": "ตามไม่ได้ (หนี้สูญ)",
+}
+
 # 🌟 ป้ายภาษาไทยของคีย์ metadata กิจกรรม (mirror จาก frontend ACTIVITY_META_KEY_LABELS)
 # ใช้เป็น fallback อ่าน custom_fields (ข้อมูลเพิ่มเติมแบบ "หัวข้อ+ค่า") ของเว็บใหม่
 ACTIVITY_META_KEY_LABELS = {
@@ -308,6 +316,120 @@ class BotActionService:
         )
         embed.set_footer(text=f"สร้างโดย: {data.get('user_name')}")
         await channel.send(content=self._build_content(data, "💳 แจ้งเก็บเงินนะทุกคน"), embed=embed)
+
+    # =================================================================
+    # ⚖️ ค่าปรับ (Phase 6) — ทั้งสามเหตุการณ์ไปช่อง "งานเล็กๆ" (minor)
+    #    🔇 ไม่ @everyone: ค่าปรับเป็นเรื่องของนักเรียนบางคน ไม่ใช่ประกาศทั้งห้อง
+    # =================================================================
+    async def notify_fines_issued(self, server_id: int, data: dict):
+        """FINANCE_FINE_ISSUED — ออกค่าปรับครั้งเดียวหลายคน (ไม่ลงรายชื่อ เผื่อมีข้อมูลส่วนตัว)"""
+        channel = await self._get_announcement_channel(server_id, channel="minor")
+        if not channel: return
+
+        count = int(data.get("student_count") or 0)
+        total = float(data.get("total_amount") or 0)
+        embed = discord.Embed(
+            title="⚖️ ออกค่าปรับ",
+            description=(
+                f"**{data.get('fine_type_name')}** — ออกให้ **{count} คน** "
+                f"รวม **{total:,.2f} บาท**"
+            ),
+            color=discord.Color.orange()
+        )
+        if data.get("due_date"):
+            embed.add_field(name="📅 กำหนดชำระ", value=data.get("due_date"), inline=True)
+        embed.set_footer(text=f"ออกโดย: {data.get('user_name')}")
+        await channel.send(content=self._build_content(data, "⚖️ ออกค่าปรับ"), embed=embed)
+
+    async def notify_fine_waived(self, server_id: int, data: dict):
+        """FINANCE_FINE_WAIVED — อนุมัติยกเว้น/ลดค่าปรับ"""
+        channel = await self._get_announcement_channel(server_id, channel="minor")
+        if not channel: return
+
+        amount = float(data.get("amount") or 0)
+        remaining = float(data.get("remaining_amount") or 0)
+        category = data.get("reason_category")
+        embed = discord.Embed(
+            title="⚖️ อนุมัติยกเว้นค่าปรับ",
+            description=(
+                f"**{data.get('student_name')}** — {data.get('fine_type_name')}\n"
+                f"ยกเว้น **{amount:,.2f} บาท** · คงเหลือ **{remaining:,.2f} บาท**"
+            ),
+            color=discord.Color.green()
+        )
+        if category:
+            embed.add_field(
+                name="📄 เหตุผล",
+                value=FINE_WAIVER_CATEGORY_LABELS.get(category, category),
+                inline=True,
+            )
+        embed.set_footer(text=f"อนุมัติโดย: {data.get('user_name')}")
+        await channel.send(content=self._build_content(data, "⚖️ ยกเว้นค่าปรับ"), embed=embed)
+
+    async def notify_fine_refunded(self, server_id: int, data: dict):
+        """FINANCE_FINE_REFUNDED — คืนเงินค่าปรับที่จ่ายแล้ว (เอกสาร PV-)"""
+        channel = await self._get_announcement_channel(server_id, channel="minor")
+        if not channel: return
+
+        amount = float(data.get("amount") or 0)
+        embed = discord.Embed(
+            title="⚖️ คืนเงินค่าปรับ",
+            description=(
+                f"คืนเงิน **{data.get('student_name')}** — {data.get('fine_type_name')} "
+                f"จำนวน **{amount:,.2f} บาท**"
+            ),
+            color=discord.Color.blurple()
+        )
+        if data.get("receipt_no"):
+            embed.add_field(name="🧾 ใบสำคัญจ่าย", value=data.get("receipt_no"), inline=True)
+        embed.set_footer(text=f"อนุมัติโดย: {data.get('user_name')}")
+        await channel.send(content=self._build_content(data, "⚖️ คืนเงินค่าปรับ"), embed=embed)
+
+    async def notify_debt_reminder(self, server_id: int, data: dict):
+        """FINANCE_DEBT_REMINDER — สรุปรายวันของผู้ค้างชำระ (ช่องประกาศ, ไม่ @everyone)
+
+        ⚠️ รายชื่อ+"ยอด" อยู่ใน **description** (เพดาน 4,096) ไม่ใช่ field (1,024)
+           — backend แบ่งชุดละ 20 คน แต่ชื่อไทย+ชื่อเล่น+ยอดอาจยาวเกิน field limit
+           แล้ว Discord จะปฏิเสธทั้งข้อความ (HTTPException) ⇒ "ไม่เห็นประกาศ" เงียบ ๆ
+        ⚠️ `total_students`/`total_amount` เป็นยอดของ **ทั้งห้อง** และซ้ำทุกส่วน
+           ⇒ ต้องแสดงทุกส่วน ไม่ใช่เฉพาะส่วนที่กำลังอ่าน
+        """
+        channel = await self._get_announcement_channel(server_id)
+        if not channel: return
+
+        students = data.get("students") or []
+        total_students = int(data.get("total_students") or len(students))
+        total_amount = float(data.get("total_amount") or 0)
+        part = int(data.get("part") or 1)
+        total_parts = int(data.get("total_parts") or 1)
+
+        title = "📣 เตือนผู้ค้างชำระ"
+        if total_parts > 1:
+            title += f" (ส่วนที่ {part}/{total_parts})"
+
+        lines = []
+        for student in students:
+            line = (
+                f"• {student.get('student_no')}. **{student.get('name')}** — "
+                f"{float(student.get('total') or 0):,.2f} บาท"
+            )
+            overdue = int(student.get("overdue_count") or 0)
+            if overdue:
+                line += f" (เลยกำหนด {overdue} รายการ)"
+            lines.append(line)
+
+        description = (
+            f"ณ วันที่ {data.get('as_of')} · ผู้ค้างชำระ **{total_students} คน** "
+            f"รวม **{total_amount:,.2f} บาท**\n\n"
+            + ("\n".join(lines) if lines else "—")
+        )
+        embed = discord.Embed(
+            title=title,
+            description=description[:4096],
+            color=discord.Color.dark_orange()
+        )
+        embed.set_footer(text="ดูรายละเอียดของตัวเองได้ที่หน้า \"หนี้ของฉัน\" ในเว็บ")
+        await channel.send(content=self._build_content(data, "📣 เตือนผู้ค้างชำระ"), embed=embed)
 
     async def notify_new_student(self, server_id: int, data: dict):
         channel = await self._get_announcement_channel(server_id, channel="minor")
