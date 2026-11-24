@@ -100,6 +100,13 @@ export interface StudentDebtItem {
   title: string;
   amount: number;
   due_date: string | null;
+  /**
+   * ⚖️ [P5] `'fine'` = บิลค่าปรับ (โปรเจกต์เก็บเงินซ่อน) — **ห้ามลิงก์ไปหน้าโปรเจกต์**
+   * ใช้ `fine_id` พาไป `/finance/fines/{id}` แทน
+   */
+  collection_kind?: string;
+  /** มีค่าเมื่อบิลนี้เป็นค่าปรับ */
+  fine_id?: number | null;
 }
 
 export interface StudentDebtProfile {
@@ -994,4 +1001,328 @@ export interface CreditUndoResponse {
   bill_paid_amount: number;
   bill_status: string;
   credit_balance_after: number;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ⚖️ [P5] ค่าปรับ — ประเภทความผิด · บิลค่าปรับ · คำขอยกเว้น · คำขอคืนเงิน
+// ════════════════════════════════════════════════════════════════════════════
+// 🔑 การอ่าน (list/detail/summary/aging) เปิดให้สมาชิกห้อง — backend กรองให้
+//    นักเรียนเห็นเฉพาะของตัวเองอยู่แล้ว ⇒ หน้าจอไม่ต้องซ่อนข้อมูลเอง
+// ✍️ การเขียน (ออก/แก้/ยกเลิก/ขอยกเว้น/ขอคืนเงิน/อนุมัติ) ต้อง `MANAGE_FINANCE`
+//    ⇒ gate ปุ่มด้วย `canManageFinance` **ไม่ใช่ `isAdmin`** (ดูบทเรียนใน services/finance.ts)
+
+/** ประเภทความผิดของห้อง — `default_amount` = อัตราเริ่มต้น, `default_due_days` = กี่วันให้ชำระ */
+export interface FineType {
+  id: number;
+  name: string;
+  default_amount: number;
+  default_due_days: number;
+  description: string | null;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface FineTypeCreate {
+  name: string;
+  default_amount?: number;
+  default_due_days?: number;
+  description?: string | null;
+  sort_order?: number;
+}
+
+/** PATCH — ส่งเฉพาะฟิลด์ที่จะแก้ (backend ใช้ `exclude_unset`) */
+export interface FineTypeUpdate {
+  name?: string;
+  default_amount?: number;
+  default_due_days?: number;
+  description?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+/** สถานะค่าปรับ — ค่าดิบจาก DB (แปลไทยด้วย `FINE_STATUS_LABELS`) */
+export type FineStatus = 'issued' | 'partially_paid' | 'paid' | 'waived' | 'cancelled' | 'refunded';
+
+/** 1 ค่าปรับ = 1 บิล (`student_payment_id`) = 1 ใบ INV- */
+export interface Fine {
+  id: number;
+  room_id: number;
+  batch_id: number | null;
+  fine_type_id: number | null;
+  /** snapshot ชื่อประเภท ณ ตอนออก — ประเภทถูกลบทีหลังก็ยังแสดงชื่อเดิมได้ */
+  fine_type_name: string;
+  student_id: number;
+  student_no: number | null;
+  student_name: string | null;
+  /** โปรเจกต์เก็บเงินซ่อนที่ค่าปรับสร้างขึ้น — หน้าจอไม่ควรลิงก์ไปหน้านี้ */
+  hidden_collection_id: number | null;
+  student_payment_id: number;
+  invoice_receipt_id: number | null;
+  invoice_no: string | null;
+  incident_date: string;
+  due_date: string;
+  reason: string;
+  original_amount: number;
+  /** ยอดปัจจุบัน (อาจถูกแก้/ยกเว้นจาก `original_amount`) */
+  amount: number;
+  waived_amount: number;
+  refunded_amount: number;
+  paid_amount: number;
+  /** ยอดคงเหลือ = `amount - paid_amount` (0 เมื่อยกเลิก/ชำระครบ) */
+  outstanding: number;
+  status: string;
+  evidence_url: string | null;
+  note: string | null;
+  created_by: number | null;
+  created_at: string | null;
+  collection_kind: string;
+}
+
+export interface FineBatch {
+  id: number;
+  fine_type_id: number | null;
+  fine_type_name: string;
+  incident_date: string;
+  due_date: string;
+  reason: string;
+  amount_per_student: number;
+  student_count: number;
+  total_amount: number;
+}
+
+/** ออกค่าปรับหลายคนในครั้งเดียว — `students[].amount` ไม่ใส่ = ใช้ `default_amount` */
+export interface FineIssueStudent {
+  student_id: number;
+  amount?: number;
+}
+
+export interface FineIssueRequest {
+  fine_type_id: number;
+  students: FineIssueStudent[];
+  incident_date: string;
+  due_date?: string | null;
+  reason: string;
+  evidence_url?: string | null;
+  note?: string | null;
+  /** 🔑 8–64 ตัวอักษร · สร้างด้วย `newIdempotencyKey()` และคงเดิมทั้งรอบการกด */
+  idempotency_key: string;
+  user_name?: string | null;
+}
+
+export interface FineIssueResponse {
+  batch: FineBatch;
+  fines: Fine[];
+  totals: Record<string, number>;
+  invoice_nos: string[];
+  /** `true` = idempotency key เดิม → คืนผลเดิม ไม่ได้ออกซ้ำ */
+  reused: boolean;
+}
+
+export interface FineListResponse {
+  fines: Fine[];
+  total: number;
+}
+
+export interface FineUpdateRequest {
+  amount?: number;
+  incident_date?: string;
+  due_date?: string;
+  reason?: string;
+  evidence_url?: string | null;
+  note?: string | null;
+  user_name?: string | null;
+}
+
+export interface FineCancelRequest {
+  reason?: string | null;
+  user_name?: string | null;
+}
+
+/** หมวดเหตผลยกเว้น — `discount` = ส่วนลด (contra-revenue), `uncollectible` = หนี้สูญ (ค่าใช้จ่าย) */
+export type WaiverReasonCategory = 'discount' | 'uncollectible';
+
+export interface FineWaiver {
+  id: number;
+  room_id: number;
+  fine_id: number;
+  amount: number;
+  reason_category: string;
+  reason: string;
+  status: string;
+  requested_by: number | null;
+  requested_at: string | null;
+  decided_by: number | null;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+export interface FineWaiverCreate {
+  amount: number;
+  reason_category: WaiverReasonCategory;
+  reason: string;
+  user_name?: string | null;
+}
+
+export interface FineWaiverDecision {
+  note?: string | null;
+  user_name?: string | null;
+}
+
+export interface FineWaiverListResponse {
+  waivers: FineWaiver[];
+  total: number;
+}
+
+/** ผลตอบกลับของ request/approve/reject/cancel คำขอยกเว้น — ใช้ `waiver` เสมอ (ยกเว้นตอนสร้าง) */
+export interface FineWaiverActionResponse {
+  status: string;
+  message: string | null;
+  waiver?: FineWaiver;
+  id?: number;
+}
+
+export interface FineRefund {
+  id: number;
+  room_id: number;
+  fine_id: number;
+  account_id: number;
+  amount: number;
+  reason: string;
+  status: string;
+  requested_by: number | null;
+  requested_at: string | null;
+  decided_by: number | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  transaction_id: number | null;
+  document_id: number | null;
+}
+
+export interface FineRefundCreate {
+  account_id: number;
+  amount: number;
+  reason: string;
+  user_name?: string | null;
+}
+
+export interface FineRefundDecision {
+  note?: string | null;
+  user_name?: string | null;
+}
+
+export interface FineRefundListResponse {
+  refunds: FineRefund[];
+  total: number;
+}
+
+/** ผลตอบกลับคำขอคืนเงิน — ตอนอนุมัติมี `receipt_no` (PV-) กลับมาด้วย */
+export interface FineRefundActionResponse {
+  status: string;
+  message: string | null;
+  refund?: FineRefund;
+  id?: number;
+  receipt_no?: string | null;
+}
+
+/** รายละเอียดค่าปรับ = ค่าปรับ + คำขอยกเว้น/คืนเงินทั้งหมดของใบนั้น */
+export interface FineDetail extends Fine {
+  waivers: FineWaiver[];
+  refunds: FineRefund[];
+}
+
+export interface FineListQuery {
+  status?: string;
+  student_id?: number;
+  fine_type_id?: number;
+  batch_id?: number;
+  from_date?: string;
+  to_date?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// ──────────────────────────── 📊 รายงานอายุหนี้ (aging)
+
+export type AgingBucketKey = 'no_due' | 'not_due' | '1_30' | '31_60' | '61_90' | 'over_90';
+
+export interface AgingBucket {
+  bucket: string;
+  label: string;
+  count: number;
+  amount: number;
+  project_amount: number;
+  fine_amount: number;
+}
+
+export interface AgingRow {
+  payment_id: number;
+  student_id: number;
+  student_no: number | null;
+  student_name: string;
+  collection_id: number;
+  collection_title: string;
+  collection_kind: string;
+  /** มีค่าเมื่อบิลนี้เป็นค่าปรับ — ใช้ลิงก์ไป `/finance/fines/{fine_id}` */
+  fine_id: number | null;
+  due_date: string | null;
+  outstanding: number;
+  overdue_days: number;
+  bucket: string;
+  bucket_label: string;
+}
+
+export interface AgingResponse {
+  as_of: string;
+  project_total: number;
+  fine_total: number;
+  grand_total: number;
+  buckets: AgingBucket[];
+  rows: AgingRow[];
+}
+
+// ──────────────────────────── ⚖️ สรุปรายการค่าปรับ (แดชบอร์ด)
+
+/** `totals` เป็น Dict ฝั่ง backend — ประกาศเป็น interface แบนเพื่อให้ type-check จับชื่อฟิลด์ได้ */
+export interface FineSummaryTotals {
+  count: number;
+  original_total: number;
+  outstanding_total: number;
+  paid_total: number;
+  waived_total: number;
+  refunded_total: number;
+  overdue_count: number;
+  overdue_amount: number;
+  due_soon_count: number;
+  due_soon_amount: number;
+}
+
+export interface FineSummaryStatusRow {
+  status: string;
+  count: number;
+  amount: number;
+  outstanding: number;
+}
+
+export interface FineSummaryTypeRow {
+  fine_type_name: string;
+  count: number;
+  amount: number;
+  outstanding: number;
+}
+
+export interface FineSummaryDebtorRow {
+  student_id: number;
+  student_no: number | null;
+  student_name: string;
+  count: number;
+  outstanding: number;
+}
+
+export interface FineSummary {
+  as_of: string;
+  totals: FineSummaryTotals;
+  by_status: FineSummaryStatusRow[];
+  by_type: FineSummaryTypeRow[];
+  top_debtors: FineSummaryDebtorRow[];
 }

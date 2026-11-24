@@ -186,6 +186,10 @@ export const routeTitles = {
   'finance-collections': 'โปรเจกต์เก็บเงิน',
   'finance-collection-detail': 'รายละเอียดโปรเจกต์',
   'finance-debtors': 'ผู้ค้างชำระ',
+  // ⚖️ [P5] ค่าปรับ + รายงานอายุหนี้ — ใช้คำใน docs/glossary.md ตรงตัว
+  'finance-fines': 'ค่าปรับ',
+  'finance-fine-detail': 'รายละเอียดค่าปรับ',
+  'finance-aging': 'รายงานอายุหนี้',
   'finance-my-debts': 'ยอดค้างชำระของฉัน',
   'finance-credits': 'เงินรับล่วงหน้า',
   'finance-statements': 'งบการเงิน',
