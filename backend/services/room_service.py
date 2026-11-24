@@ -11,6 +11,9 @@ from services.finance_service import (
     DEFAULT_INCOME_CATEGORIES,
     DEFAULT_EXPENSE_CATEGORIES,
     DEFAULT_FINANCE_ACCOUNTS,
+    # ⚖️ seed 5 ประเภทความผิดเริ่มต้น — import service ตรง ๆ (ไม่ใช่ façade) เพื่อไม่ให้
+    #    room_service พึ่ง FinanceService ทั้งก้อน (และกัน circular ตอน import)
+    FineTypesMixin,
 )
 from services.action_service import ActionService
 from services.student.profiles import merge_room_overrides_on_claim
@@ -96,6 +99,9 @@ class RoomManagementService:
                         "INSERT INTO finance_accounts (room_id, account_name, balance) VALUES ($1, $2, 0.0)",
                         [(room_id, name) for name in DEFAULT_FINANCE_ACCOUNTS],
                     )
+                    # ⚖️ Seed ประเภทความผิดค่าปรับ 5 รายการ (แก้ไข/ลบได้ทีหลัง)
+                    #    — ต้องอยู่ใน transaction เดียวกับสร้างห้อง (all-or-nothing)
+                    fine_types_seeded = await FineTypesMixin.ensure_default_fine_types(conn, room_id)
                     await service_logger.log(
                         conn=conn,
                         action="CREATE",
