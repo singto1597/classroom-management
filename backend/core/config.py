@@ -63,6 +63,23 @@ class Settings(BaseSettings):
     #    ⚠️ Redis ล่ม = **ปล่อยผ่าน** (fail-open) — ไม่ใช่ปิดการล็อกอินทั้งระบบ
     RATE_LIMIT_ENABLED: bool = True
 
+    # ⚖️ [P6] เตือนผู้ค้างชำระรายวัน — worker `finance_reminder_worker` (1 replica)
+    #    ทำงานวันละครั้งหลัง `FINANCE_REMINDER_HOUR:FINANCE_REMINDER_MINUTE` (Asia/Bangkok)
+    #    ⚠️ การกันส่งซ้ำเป็นหน้าที่ของ `reminder_dispatch_log` (unique ต่อวัน/ช่อง)
+    #    ⇒ เปิด worker ซ้ำ/รีสตาร์ทกลางวันไม่ทำให้ผู้ใช้ได้ข้อความซ้ำ
+    FINANCE_REMINDER_ENABLED: bool = True
+    FINANCE_REMINDER_HOUR: int = 9
+    FINANCE_REMINDER_MINUTE: int = 0
+    # ⚠️ ตั้งชื่อ namespaced โดยเจตนา — **ไม่ใช้ `TZ`** เพราะ container มักมี `TZ=UTC`
+    #    อยู่แล้ว และการอ่านค่านั้นจะเลื่อนเส้นแบ่ง "วันนี้" ไป 7 ชั่วโมงเงียบ ๆ
+    FINANCE_REMINDER_TZ: str = "Asia/Bangkok"
+
+    # ⏰ [P6.5] ค่าปรับจ่ายล่าช้าอัตโนมัติ — รันก่อนส่งเตือนรายวันใน worker ตัวเดียวกัน
+    #    นโยบายเป็นของแต่ละแคมเปญ (`fee_collections.late_fee_mode`) · ค่าเริ่มต้นเปิด
+    #    ⚠️ เปิดก็ไม่กระทบแคมเปญเดิม เพราะทุกแคมเปญที่สร้างก่อน P6.5 เป็น `none`
+    #    ⚠️ 1 บิลต้นทางออกค่าปรับได้ครั้งเดียวตลอดชีพ (unique `uq_fines_late_fee_source`)
+    FINANCE_LATE_FEE_ENABLED: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

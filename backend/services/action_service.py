@@ -180,6 +180,73 @@ class ActionService:
             "user_name": user_name
         }, mention=True, category="💳 แจ้งเก็บเงินนะทุกคน", channel="announcement")
 
+    # ═════════════════════════════════════════════════════════════════════════
+    # ⚖️ [Phase 6] ค่าปรับ + เตือนผู้ค้างชำระ
+    #    ⚠️ ทุกตัว **ไม่ @everyone** — เรื่องเงินของรายบุคคลไม่ใช่ประกาศด่วน
+    #    ⚠️ ต้องเรียก **หลัง transaction commit** เสมอ (ดู pattern ใน collections.py)
+    #       ไม่งั้น event อาจถูกส่งทั้งที่ DB rollback = คนเห็นค่าปรับที่ไม่มีอยู่จริง
+    # ═════════════════════════════════════════════════════════════════════════
+    @classmethod
+    async def notify_fines_issued(cls, server_id: int, *, fine_type_name: str,
+                                  student_count: int, total_amount: float,
+                                  due_date: date, user_name: str):
+        """ออกค่าปรับรอบใหม่ (1 รอบ = หลายคน ความผิดเดียวกัน) → ช่อง minor"""
+        await cls._publish("FINANCE_FINE_ISSUED", server_id, {
+            "fine_type_name": fine_type_name,
+            "student_count": student_count,
+            "total_amount": total_amount,
+            "due_date": due_date,
+            "user_name": user_name,
+        }, mention=False, category="⚖️ ออกค่าปรับ", channel="minor")
+
+    @classmethod
+    async def notify_fine_waived(cls, server_id: int, *, student_name: str,
+                                 fine_type_name: str, amount: float,
+                                 remaining_amount: float, reason_category: str,
+                                 user_name: str):
+        """อนุมัติยกเว้น/ลดค่าปรับ — `reason_category` = `discount` | `uncollectible`"""
+        await cls._publish("FINANCE_FINE_WAIVED", server_id, {
+            "student_name": student_name,
+            "fine_type_name": fine_type_name,
+            "amount": amount,
+            "remaining_amount": remaining_amount,
+            "reason_category": reason_category,
+            "user_name": user_name,
+        }, mention=False, category="⚖️ อนุมัติยกเว้นค่าปรับ", channel="minor")
+
+    @classmethod
+    async def notify_fine_refunded(cls, server_id: int, *, student_name: str,
+                                   fine_type_name: str, amount: float,
+                                   receipt_no: Optional[str], user_name: str):
+        """อนุมัติคืนเงินค่าปรับ (PV-) — ไม่เปิดหนี้ใหม่"""
+        await cls._publish("FINANCE_FINE_REFUNDED", server_id, {
+            "student_name": student_name,
+            "fine_type_name": fine_type_name,
+            "amount": amount,
+            "receipt_no": receipt_no,
+            "user_name": user_name,
+        }, mention=False, category="⚖️ คืนเงินค่าปรับ", channel="minor")
+
+    @classmethod
+    async def notify_debt_reminder(cls, server_id: int, *, as_of: str,
+                                   total_students: int, total_amount: float,
+                                   students: list, part: int = 1,
+                                   total_parts: int = 1):
+        """สรุปผู้ค้างชำระประจำวัน → ช่อง announcement **ไม่ @everyone**
+
+        `students` = รายชื่อ+ยอดรายคน (ยอมรับความเสี่ยงความเป็นส่วนตัวตามข้อตกลง #21)
+        ⚠️ ข้อความยาวต้องถูกแบ่งเป็นหลาย event โดยผู้เรียก (`part`/`total_parts`)
+           — embed ของ Discord มีเพดานความยาว จึงห้ามยัดทั้งห้องลง event เดียว
+        """
+        await cls._publish("FINANCE_DEBT_REMINDER", server_id, {
+            "as_of": as_of,
+            "total_students": total_students,
+            "total_amount": total_amount,
+            "students": students,
+            "part": part,
+            "total_parts": total_parts,
+        }, mention=False, category="📣 แจ้งเตือนผู้ค้างชำระ", channel="announcement")
+
     @classmethod
     async def notify_new_student(cls, server_id: int, student_no: int, first_name: str, last_name: str, user_name: str, first_name_en: str = "", last_name_en: str = ""):
         """เรียกใช้เมื่อเพิ่มนักเรียนใหม่ — แจ้งที่ห้องงานเล็กๆน้อยๆ (ไม่ @everyone)

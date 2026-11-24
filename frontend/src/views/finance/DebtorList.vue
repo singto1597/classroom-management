@@ -36,6 +36,15 @@ const paidToAccountId = ref<string>('')
 const slipImageUrl = ref('')
 
 /**
+ * ⚖️ บิลค่าปรับ (`collection_kind='fine'`) ใช้โปรเจกต์เก็บเงิน "ซ่อน" — ไม่มีหน้ารายละเอียด
+ * ให้เปิด จึงแนบลิงก์ไป `/finance/fines/{id}` เฉพาะบิลประเภทนี้ (บิลโครงการปกติไม่มีอะไรให้กด
+ * เพราะแถวนี้คือช่องเลือกเพื่อรับเงินอยู่แล้ว)
+ */
+const isFineBill = (debt: StudentDebtItem) =>
+  debt.collection_kind === 'fine' || !!debt.fine_id
+
+
+/**
  * 🧾 [F5] ออกใบเสร็จให้ทุกรายการที่เคลียร์ในรอบนี้ — **default ติ๊ก** ตามคำขอผู้ใช้
  *
  * 🔄 รีเซ็ตกลับเป็น "ติ๊ก" ทุกครั้งที่เปิดโมดัล (ใน `handleClearDebt`) โดยเจตนา:
@@ -779,7 +788,24 @@ onMounted(() => {
         </span>
 
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-bold text-ink-1">{{ debt.title }}</p>
+          <p class="flex items-center gap-1.5 text-sm font-bold text-ink-1">
+            <span
+              v-if="isFineBill(debt)"
+              class="shrink-0 rounded-full bg-warn-50 px-1.5 py-0.5 text-xs font-bold text-warn-800"
+            >
+              ค่าปรับ
+            </span>
+            <span class="truncate">{{ debt.title }}</span>
+            <RouterLink
+              v-if="debt.fine_id"
+              :to="`/finance/fines/${debt.fine_id}`"
+              class="shrink-0 text-ink-3 transition-colors hover:text-brand"
+              :aria-label="`เปิดรายละเอียดค่าปรับ ${debt.title}`"
+              @click.stop
+            >
+              <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+            </RouterLink>
+          </p>
           <p class="num mt-0.5 text-xs font-bold text-danger-600">
             ยอดค้าง: ฿{{ formatNumber(debt.amount) }}
           </p>

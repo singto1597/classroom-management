@@ -5,6 +5,7 @@
 """
 from services.finance import (
     FinanceService,
+    FineTypesMixin,
     CUTOFF_DATE,
     DEFAULT_INCOME_CATEGORIES,
     DEFAULT_EXPENSE_CATEGORIES,
@@ -13,6 +14,7 @@ from services.finance import (
 
 __all__ = [
     "FinanceService",
+    "FineTypesMixin",
     "CUTOFF_DATE",
     "DEFAULT_INCOME_CATEGORIES",
     "DEFAULT_EXPENSE_CATEGORIES",

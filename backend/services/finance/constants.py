@@ -20,6 +20,18 @@ CUTOFF_DATE = date(2026, 9, 1)
 REFERENCE_TYPE_CREDIT_TOPUP = "student_credit_topup"
 REFERENCE_TYPE_CREDIT_APPLY = "student_credit_apply"
 
+# [ACCRUAL] reference_type ของรายการที่เกี่ยวกับผู้ค้างชำระ/ค่าปรับ
+# 🔴 ใช้ค่าคงที่เสมอ — ค่าเหล่านี้ถูกใช้เป็น "เงื่อนไขกรอง" ทั้งใน `_bill_ar_source`,
+#    opening script, และรายงาน ⇒ พิมพ์ผิดแล้วยอดขาด/เบิ้ลแบบไม่มี error ให้เห็น
+REFERENCE_TYPE_BILL_ISSUE = "student_payment_issue"          # ออกบิล → Dr AR / Cr รายได้
+REFERENCE_TYPE_OPENING_RECEIVABLE = "opening_receivable"      # ยอดยกมา AR → Dr AR / Cr equity
+REFERENCE_TYPE_BILL_REVERSAL = "student_payment_reversal"     # ลบบิล/ยกเลิก → กลับ accrual
+REFERENCE_TYPE_COLLECTION_ADJUSTMENT = "fee_collection_adjustment"  # แก้ยอดบิล
+REFERENCE_TYPE_FINE_ADJUSTMENT = "fine_adjustment"            # แก้ยอดค่าปรับก่อนจ่าย
+REFERENCE_TYPE_FINE_CANCEL = "fine_cancel"                    # ยกเลิกค่าปรับก่อนจ่าย
+REFERENCE_TYPE_FINE_WAIVER = "fine_waiver"                    # ยกเว้น/ลด
+REFERENCE_TYPE_FINE_REFUND = "fine_refund"                    # คืนเงินหลังจ่าย
+
 # 📚 ฉลากไทยของ reference_type สำหรับคอลัมน์ Reference ใน export สมุดรายวัน
 # (reference_id ที่เก็บไว้ = id ของเอกสารต้นทาง เช่น legacy_transaction_id / transfer_group_id)
 REFERENCE_TYPE_LABELS = {
@@ -33,6 +45,15 @@ REFERENCE_TYPE_LABELS = {
     #    topup = รับเงินเข้ามาพัก (สินทรัพย์ ↔ หนี้สิน) / apply = ปล่อยรายได้ (หนี้สิน ↔ รายได้)
     REFERENCE_TYPE_CREDIT_TOPUP: "รับเงินล่วงหน้า",
     REFERENCE_TYPE_CREDIT_APPLY: "หักเงินรับล่วงหน้าปิดบิล",
+    # [ACCRUAL] ผู้ค้างชำระ / ค่าปรับ
+    REFERENCE_TYPE_BILL_ISSUE: "ออกบิล (ผู้ค้างชำระ)",
+    REFERENCE_TYPE_OPENING_RECEIVABLE: "ยอดยกมาผู้ค้างชำระ",
+    REFERENCE_TYPE_BILL_REVERSAL: "กลับรายการออกบิล",
+    REFERENCE_TYPE_COLLECTION_ADJUSTMENT: "ปรับยอดบิล",
+    REFERENCE_TYPE_FINE_ADJUSTMENT: "ปรับยอดค่าปรับ",
+    REFERENCE_TYPE_FINE_CANCEL: "ยกเลิกค่าปรับ",
+    REFERENCE_TYPE_FINE_WAIVER: "ยกเว้น/ลดค่าปรับ",
+    REFERENCE_TYPE_FINE_REFUND: "คืนเงินค่าปรับ",
 }
 
 # =====================================================================
@@ -65,6 +86,115 @@ CREDIT_ENTRY_REVERSE = "reverse"  # ยกเลิกการหัก → เ
 RECONCILE_REFERENCE_TYPE = "adjustment"
 RECONCILE_EQUITY_CODE = "3001"
 RECONCILE_EQUITY_NAME = "ปรับปรุงยอด (Reconciliation)"
+
+# =====================================================================
+# [ACCRUAL] ผู้ค้างชำระ (Accounts Receivable) + ค่าปรับ
+# =====================================================================
+# 🔴 รหัสบัญชี **5 หลักแบบมาตรฐาน** (อนุมัติ 24 พ.ย. 2026) — ระบบ provision เอง
+#    ต่อห้องแบบ find-or-create ไม่ผ่าน legacy mapping (`legacy_*_id` ต้องเป็น NULL)
+#
+# ⚠️ รหัสชุดนี้อาจชนกับรหัสที่ระบบสร้างอัตโนมัติ:
+#      สินทรัพย์ = '1' || LPAD(finance_accounts.id, 4, '0')  → id 1001 = 11001
+#      รายได้/ค่าใช้จ่าย = '4'/'5' || LPAD(finance_categories.id, 4, '0') → id 9001
+#    ⇒ migration 0010 มี preflight กันไว้แล้ว และ `_resolve_system_ledger` ตรวจซ้ำ
+#      ตอนรัน (ชื่อ/ประเภท/legacy mapping ไม่ตรง = raise ห้ามใช้บัญชีผิดเงียบ ๆ)
+#    ถ้า production ชนจริง ต้องเลือกชุดใหม่ (เช่น 11011/11012/31012/49011/49012/49013/59011)
+AR_PROJECT_CODE = "11001"
+AR_PROJECT_NAME = "ผู้ค้างชำระค่าโครงการ"
+AR_FINE_CODE = "11002"
+AR_FINE_NAME = "ผู้ค้างชำระค่าปรับ"
+OPENING_AR_EQUITY_CODE = "31002"
+OPENING_AR_EQUITY_NAME = "ยอดยกมาบัญชีเปิด – ผู้ค้างชำระ"
+FINE_REVENUE_CODE = "49001"
+FINE_REVENUE_NAME = "รายได้ค่าปรับ"
+FINE_DISCOUNT_CODE = "49002"
+FINE_DISCOUNT_NAME = "ส่วนลดค่าปรับ"
+FINE_REFUND_CODE = "49003"
+FINE_REFUND_NAME = "คืนค่าปรับ"
+FINE_BAD_DEBT_CODE = "59001"
+FINE_BAD_DEBT_NAME = "หนี้สูญค่าปรับ"
+
+# {code: (name, account_type)} — ลำดับคือลำดับการสร้าง (AR ก่อน เพื่อ error เร็ว)
+SYSTEM_LEDGER_SPECS: dict[str, tuple[str, str]] = {
+    AR_PROJECT_CODE: (AR_PROJECT_NAME, "asset"),
+    AR_FINE_CODE: (AR_FINE_NAME, "asset"),
+    OPENING_AR_EQUITY_CODE: (OPENING_AR_EQUITY_NAME, "equity"),
+    FINE_REVENUE_CODE: (FINE_REVENUE_NAME, "revenue"),
+    FINE_DISCOUNT_CODE: (FINE_DISCOUNT_NAME, "revenue"),
+    FINE_REFUND_CODE: (FINE_REFUND_NAME, "revenue"),
+    FINE_BAD_DEBT_CODE: (FINE_BAD_DEBT_NAME, "expense"),
+}
+
+# รหัสบัญชี AR ทั้งสอง — ใช้รวมยอด "ผู้ค้างชำระ" และเป็นตัวกรองใน opening script
+AR_LEDGER_CODES: tuple[str, ...] = (AR_PROJECT_CODE, AR_FINE_CODE)
+
+# ชนิดของ fee_collections (บังคับที่ service — ไม่ใส่ CHECK เพื่อให้ migration idempotent)
+COLLECTION_KIND_PROJECT = "project"
+COLLECTION_KIND_FINE = "fine"
+
+# ⏰ นโยบายค่าปรับจ่ายล่าช้า (Phase 6.5) — เก็บที่ `fee_collections.late_fee_mode`
+#    `none` = ไม่ปรับ (ค่าเริ่มต้น) · `fixed` = จำนวนเงินคงที่ · `percent` = % ของยอดคงเหลือ
+LATE_FEE_MODE_NONE = "none"
+LATE_FEE_MODE_FIXED = "fixed"
+LATE_FEE_MODE_PERCENT = "percent"
+LATE_FEE_MODES: tuple[str, ...] = (
+    LATE_FEE_MODE_NONE, LATE_FEE_MODE_FIXED, LATE_FEE_MODE_PERCENT,
+)
+LATE_FEE_MODE_LABELS = {
+    LATE_FEE_MODE_NONE: "ไม่ปรับ",
+    LATE_FEE_MODE_FIXED: "ปรับเป็นจำนวนเงิน",
+    LATE_FEE_MODE_PERCENT: "ปรับเป็นเปอร์เซ็นต์",
+}
+# ชื่อที่แสดงบนค่าปรับที่ระบบออกให้ (ไม่มีประเภทความผิดจริง — `fine_type_id` เป็น NULL)
+LATE_FEE_FINE_TYPE_NAME = "ค่าปรับจ่ายล่าช้า"
+# จำนวนวันให้ชำระหลังระบบออกค่าปรับล่าช้า
+LATE_FEE_DUE_DAYS = 7
+
+# สถานะค่าปรับ — ต้องตรงกับ CHECK ใน migration 0010
+FINE_STATUS_ISSUED = "issued"
+FINE_STATUS_PARTIALLY_PAID = "partially_paid"
+FINE_STATUS_PAID = "paid"
+FINE_STATUS_WAIVED = "waived"
+FINE_STATUS_CANCELLED = "cancelled"
+FINE_STATUS_REFUNDED = "refunded"
+FINE_STATUS_LABELS = {
+    FINE_STATUS_ISSUED: "ออกแล้ว",
+    FINE_STATUS_PARTIALLY_PAID: "ชำระบางส่วน",
+    FINE_STATUS_PAID: "ชำระแล้ว",
+    FINE_STATUS_WAIVED: "ยกเว้น/ลด",
+    FINE_STATUS_CANCELLED: "ยกเลิก",
+    FINE_STATUS_REFUNDED: "คืนเงินแล้ว",
+}
+
+# เหตุผลการยกเว้น — แยกบัญชีตามเหตุผล (ผู้ใช้เลือก)
+FINE_WAIVER_CATEGORY_DISCOUNT = "discount"          # ยกเว้น/ลด → contra-revenue 49002
+FINE_WAIVER_CATEGORY_UNCOLLECTIBLE = "uncollectible"  # ตามไม่ได้ → หนี้สูญ 59001
+FINE_WAIVER_CATEGORY_LABELS = {
+    FINE_WAIVER_CATEGORY_DISCOUNT: "ยกเว้น/ลด",
+    FINE_WAIVER_CATEGORY_UNCOLLECTIBLE: "ตามไม่ได้ (หนี้สูญ)",
+}
+
+# สถานะคำขอ (waiver/refund) — ต้องตรงกับ CHECK ใน migration 0010
+REQUEST_STATUS_PENDING = "pending"
+REQUEST_STATUS_APPROVED = "approved"
+REQUEST_STATUS_REJECTED = "rejected"
+REQUEST_STATUS_CANCELLED = "cancelled"
+
+# ประเภทความผิดเริ่มต้น 5 รายการ — migration 0010 seed ให้ห้องที่มีอยู่แล้ว
+# และ `room_service.create_room` ใช้กับห้องใหม่ (Phase 3)
+# ⚠️ จำนวน 0 = ต้องกรอกเอง (ใช้กับ "อื่น ๆ") — service ต้องปฏิเสธถ้าไม่ได้ override
+DEFAULT_FINE_TYPES: tuple[dict, ...] = (
+    {"name": "มาสาย / ไม่ทำเวร", "default_amount": 20.0, "default_due_days": 7,
+     "description": "มาสายหรือไม่ทำเวรตามที่ได้รับมอบหมาย", "sort_order": 10},
+    {"name": "ขาดเวรทำความสะอาด", "default_amount": 20.0, "default_due_days": 7,
+     "description": "ไม่มาทำความสะอาดตามเวรที่จัดไว้", "sort_order": 20},
+    {"name": "ไม่ส่งงาน", "default_amount": 20.0, "default_due_days": 7,
+     "description": "ไม่ส่งงานหรือการบ้านตามกำหนด", "sort_order": 30},
+    {"name": "ใช้โทรศัพท์ในเวลาเรียน", "default_amount": 20.0, "default_due_days": 7,
+     "description": "ใช้โทรศัพท์ระหว่างเรียนโดยไม่ได้รับอนุญาต", "sort_order": 40},
+    {"name": "อื่น ๆ (กรอกยอดเอง)", "default_amount": 0.0, "default_due_days": 7,
+     "description": "ใช้เมื่อไม่ตรงกับประเภทที่มี — ต้องกรอกจำนวนเงินเอง", "sort_order": 50},
+)
 
 # =====================================================================
 # [EXPORT-ERP] ค่าคงที่กลางสำหรับ Excel Export ระดับ Enterprise

@@ -102,6 +102,30 @@ services:
       restart_policy:
         condition: any
 
+  finance_reminder_worker:
+    # 📣 เตือนผู้ค้างชำระรายวัน (Phase 6) — image backend เดียวกัน, คนละ command
+    #
+    # ⚠️ **replicas ต้องเป็น 1**: การกันซ้ำอยู่ใน DB (`reminder_dispatch_log` unique
+    #    ต่อวัน/ช่อง) ⇒ หลาย replica ไม่ได้ความเร็วเพิ่ม แต่ทำให้ log สับสนโดยเปล่าประโยชน์
+    # ⚠️ worker นี้จะ **รอ schema** (`reminder_dispatch_log` จาก migration 0010) ถ้ายัง
+    #    ไม่ apply — ไม่ตาย และจะลองใหม่ทุก 5 นาที
+    image: classroom-${ENV_NAME}-backend:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}
+    command: ["python", "-m", "workers.finance_reminder_worker"]
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://${ENV_NAME}_infra_redis:6379/0
+      - GOTENBERG_URL=http://${ENV_NAME}_pdf_gotenberg:3000
+      # 🕘 เวลาส่ง/โซนเวลามาจาก .env (`FINANCE_REMINDER_HOUR/MINUTE/TZ`) — ไม่ override ที่นี่
+    networks:
+      - shared_network
+    deploy:
+      replicas: 1
+      update_config:
+        order: stop-first
+      restart_policy:
+        condition: any
+
   bot_discord:
     # 🚨 `:?` เช่นเดียวกับ backend (ดูข้อจำกัดของข้อความ error ที่หัวข้อ backend) — ห้าม fallback ไป `:latest`
     image: classroom-${ENV_NAME}-bot:${IMAGE_TAG:?"IMAGE_TAG is required. Run pull_all.sh first"}

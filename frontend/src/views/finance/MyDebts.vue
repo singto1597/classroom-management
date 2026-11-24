@@ -79,6 +79,16 @@ const dueBadge = (item: StudentDebtItem): { text: string; classes: string } | nu
   return { text: `ครบกำหนด${relative}`, classes: 'bg-warn-50 text-warn-800' }
 }
 
+/**
+ * 🔗 บิลค่าปรับพาไปหน้า `/finance/fines/{id}` — **ห้าม**พาไปหน้าโปรเจกต์เก็บเงิน
+ * เพราะโปรเจกต์ของค่าปรับเป็นแถวซ่อน (`collection_kind='fine'`) ที่แคมเปญไม่แสดง
+ * ถ้าลิงก์ไปจะเจอ 404/รายการที่ไม่ควรเห็น
+ */
+const billLink = (item: StudentDebtItem) =>
+  item.fine_id ? `/finance/fines/${item.fine_id}` : `/finance/collections/${item.collection_id}`
+
+const isFine = (item: StudentDebtItem) => item.collection_kind === 'fine' || !!item.fine_id
+
 const overdueCount = computed(
   () =>
     debts.value.filter((item) => {
@@ -138,11 +148,18 @@ const overdueCount = computed(
       <ul class="space-y-2">
         <li v-for="item in debts" :key="item.payment_id">
           <RouterLink
-            :to="`/finance/collections/${item.collection_id}`"
+            :to="billLink(item)"
             class="block rounded-card border border-line bg-surface p-4 transition-colors hover:bg-canvas"
           >
             <div class="flex flex-wrap items-start justify-between gap-2">
               <p class="min-w-0 flex-1 break-words text-sm font-bold text-ink">
+                <span
+                  v-if="isFine(item)"
+                  class="mr-1.5 inline-flex items-center gap-1 rounded-full bg-warn-50 px-2 py-0.5 align-middle text-xs font-bold text-warn-800"
+                >
+                  <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                  ค่าปรับ
+                </span>
                 {{ item.title }}
               </p>
               <p class="font-display num shrink-0 text-sm font-bold text-ink">
@@ -166,7 +183,7 @@ const overdueCount = computed(
       </ul>
 
       <p class="px-1 text-xs leading-relaxed text-ink-3">
-        การชำระเงินทำผ่านผู้ดูแลการเงินของห้อง — กดบิลเพื่อดูรายละเอียดโปรเจกต์เก็บเงิน
+        การชำระเงินทำผ่านผู้ดูแลการเงินของห้อง — กดบิลเพื่อดูรายละเอียด (บิลค่าปรับจะเปิดหน้าค่าปรับ)
       </p>
     </template>
   </div>

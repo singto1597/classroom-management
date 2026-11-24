@@ -324,6 +324,44 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // ⚖️ [P5] ค่าปรับ — อ่านเปิดให้สมาชิก (backend กรองเฉพาะของตัวเองให้)
+        // ปุ่มเขียน (ออก/แก้/ยกเลิก/ขอยกเว้น/ขอคืนเงิน/อนุมัติ) gate ด้วย `canManageFinance`
+        // ⚠️ static `fines` ต้องมาก่อน `fines/:id` — และ backend เองก็มีกับดัก
+        //    `fines/summary` ต้องประกาศก่อน `fines/{fine_id}` (แก้แล้วใน routers/finance/fines.py)
+        path: '/finance/fines',
+        name: 'finance-fines',
+        component: () => import('@/views/finance/FineList.vue'),
+        meta: {
+          title: routeTitles['finance-fines'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        path: '/finance/fines/:id',
+        name: 'finance-fine-detail',
+        component: () => import('@/views/finance/FineDetail.vue'),
+        meta: {
+          title: routeTitles['finance-fine-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📊 รายงานอายุหนี้ — อ่านเปิดให้สมาชิก (ตรงกับ require_member ฝั่ง backend)
+        path: '/finance/aging',
+        name: 'finance-aging',
+        component: () => import('@/views/finance/ReceivablesAging.vue'),
+        meta: {
+          title: routeTitles['finance-aging'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         // งบการเงิน — อ่านอย่างเดียว ไม่มี RBAC gate (ตรงกับ require_member ฝั่ง backend)
         path: '/finance/statements',
         name: 'finance-statements',

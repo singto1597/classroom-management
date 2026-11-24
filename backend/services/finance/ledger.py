@@ -19,6 +19,12 @@ from .constants import (
     RECONCILE_EQUITY_NAME, _CLAMP_START_NOTE, _CLAMP_EMPTY_NOTE,
     DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES, DEFAULT_FINANCE_ACCOUNTS,
     ADVANCE_LIABILITY_CODE, ADVANCE_LIABILITY_NAME, REFERENCE_TYPE_CREDIT_APPLY,
+    # [ACCRUAL] บัญชีผู้ค้างชำระ + ค่าปรับ (5 หลัก)
+    AR_PROJECT_CODE, AR_PROJECT_NAME, AR_FINE_CODE, AR_FINE_NAME,
+    OPENING_AR_EQUITY_CODE, OPENING_AR_EQUITY_NAME,
+    FINE_REVENUE_CODE, FINE_REVENUE_NAME, FINE_DISCOUNT_CODE, FINE_DISCOUNT_NAME,
+    FINE_REFUND_CODE, FINE_REFUND_NAME, FINE_BAD_DEBT_CODE, FINE_BAD_DEBT_NAME,
+    SYSTEM_LEDGER_SPECS,
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
@@ -352,6 +358,132 @@ class LedgerMixin:
             room_id, ADVANCE_LIABILITY_CODE, ADVANCE_LIABILITY_NAME,
             "เงินที่รับมาก่อนที่จะมีบิล — ยังไม่ใช่รายได้จนกว่าจะหักปิดบิล (สร้างอัตโนมัติโดย credits)",
         )
+
+    # =================================================================
+    # [ACCRUAL] บัญชีผู้ค้างชำระ + ค่าปรับ — find-or-create พร้อม collision guard
+    # =================================================================
+    @classmethod
+    async def _resolve_system_ledger(
+        cls,
+        conn: asyncpg.Connection,
+        room_id: int,
+        *,
+        code: str,
+        name: str,
+        account_type: str,
+    ) -> int:
+        """หา/สร้าง ledger ของระบบ (ไม่มี legacy mapping) **โดยตรวจว่าตรงกับที่คาดเสมอ**
+
+        🔴 ห้าม fallback ไปใช้แถวที่รหัสตรงแต่ชื่อ/ประเภทไม่ตรง:
+           รหัส 5 หลักชุดนี้อยู่ในช่วงเดียวกับรหัสที่ระบบสร้างอัตโนมัติ
+           (`1` + finance_accounts.id, `4`/`5` + finance_categories.id) ⇒ แถวที่เจอ
+           อาจเป็น "บัญชีของคนอื่น" ที่บังเอิญรหัสชน ถ้าใช้ต่อ เงินจะลงผิดบัญชี
+           แบบที่งบยัง Dr = Cr ครบ แต่ยอดโผล่ผิดที่และหาสาเหตุยากมาก
+
+        เงื่อนไขที่ถือว่า "ของเรา":
+          - `(room_id, account_code, account_type)` ตรง และมีแถวเดียว
+          - `account_name` ตรงกับค่าคงที่
+          - `legacy_account_id` และ `legacy_category_id` เป็น NULL (ไม่ผูกตารางเดิม)
+
+        ถ้าไม่ผ่าน → raise ValueError พร้อมรายละเอียด (ให้ผู้ดูแลเลือกชุดรหัสใหม่
+        หรือแก้ข้อมูลเอง — **ห้าม renumber อัตโนมัติ** ตามแผน)
+        """
+        rows = await conn.fetch(
+            """SELECT id, account_name, account_type, legacy_account_id, legacy_category_id
+               FROM accounting_ledgers
+               WHERE room_id = $1 AND account_code = $2
+               ORDER BY id""",
+            room_id, code,
+        )
+
+        if rows:
+            exact = [r for r in rows if r["account_type"] == account_type]
+            if len(exact) != 1:
+                raise ValueError(
+                    f"[ACCRUAL] รหัสบัญชี {code} ของห้อง {room_id} ไม่ใช่บัญชี {account_type} "
+                    f"เพียงแถวเดียว (พบ {len(rows)} แถว) — ห้ามใช้ต่อ "
+                    "ให้ตรวจ ledger และเลือกชุดรหัสใหม่ก่อน deploy"
+                )
+            row = exact[0]
+            if row["account_name"] != name:
+                raise ValueError(
+                    f"[ACCRUAL] รหัสบัญชี {code} ของห้อง {room_id} ถูกใช้ชื่อ "
+                    f"'{row['account_name']}' ไม่ใช่ '{name}' — อาจชนกับรหัสที่ระบบสร้างอัตโนมัติ "
+                    "ห้ามใช้ต่อ ให้เลือกชุดรหัสใหม่"
+                )
+            if row["legacy_account_id"] is not None or row["legacy_category_id"] is not None:
+                raise ValueError(
+                    f"[ACCRUAL] รหัสบัญชี {code} ของห้อง {room_id} ผูกกับ legacy mapping "
+                    f"(account={row['legacy_account_id']}, category={row['legacy_category_id']}) "
+                    "— ไม่ใช่บัญชีของระบบ ห้ามใช้ต่อ"
+                )
+            return int(row["id"])
+
+        return int(await conn.fetchval(
+            """INSERT INTO accounting_ledgers
+                   (room_id, account_code, account_name, account_type, description)
+               VALUES ($1, $2, $3, $4, $5)
+               RETURNING id""",
+            room_id, code, name, account_type,
+            "บัญชีผู้ค้างชำระ/ค่าปรับ (สร้างอัตโนมัติโดย accrual — ไม่ผูก legacy)",
+        ))
+
+    @classmethod
+    async def _resolve_ar_project_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        return await cls._resolve_system_ledger(
+            conn, room_id, code=AR_PROJECT_CODE, name=AR_PROJECT_NAME, account_type="asset",
+        )
+
+    @classmethod
+    async def _resolve_ar_fine_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        return await cls._resolve_system_ledger(
+            conn, room_id, code=AR_FINE_CODE, name=AR_FINE_NAME, account_type="asset",
+        )
+
+    @classmethod
+    async def _resolve_opening_ar_equity_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        return await cls._resolve_system_ledger(
+            conn, room_id, code=OPENING_AR_EQUITY_CODE, name=OPENING_AR_EQUITY_NAME,
+            account_type="equity",
+        )
+
+    @classmethod
+    async def _resolve_fine_revenue_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        return await cls._resolve_system_ledger(
+            conn, room_id, code=FINE_REVENUE_CODE, name=FINE_REVENUE_NAME, account_type="revenue",
+        )
+
+    @classmethod
+    async def _resolve_fine_discount_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        return await cls._resolve_system_ledger(
+            conn, room_id, code=FINE_DISCOUNT_CODE, name=FINE_DISCOUNT_NAME, account_type="revenue",
+        )
+
+    @classmethod
+    async def _resolve_fine_refund_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        return await cls._resolve_system_ledger(
+            conn, room_id, code=FINE_REFUND_CODE, name=FINE_REFUND_NAME, account_type="revenue",
+        )
+
+    @classmethod
+    async def _resolve_fine_bad_debt_ledger(cls, conn: asyncpg.Connection, room_id: int) -> int:
+        return await cls._resolve_system_ledger(
+            conn, room_id, code=FINE_BAD_DEBT_CODE, name=FINE_BAD_DEBT_NAME, account_type="expense",
+        )
+
+    @classmethod
+    async def ensure_finance_ledgers(cls, conn: asyncpg.Connection, room_id: int) -> Dict[str, int]:
+        """สร้าง/ตรวจบัญชีผู้ค้างชำระ + ค่าปรับทั้งชุดให้ห้อง คืน `{account_code: ledger_id}`
+
+        เรียกก่อนลงรายการ accrual/ค่าปรับครั้งแรก และใน opening script
+        (idempotent — เรียกซ้ำได้ทุกครั้ง ไม่สร้างซ้ำ)
+        """
+        result: Dict[str, int] = {}
+        for code, (name, account_type) in SYSTEM_LEDGER_SPECS.items():
+            result[code] = await cls._resolve_system_ledger(
+                conn, room_id, code=code, name=name, account_type=account_type,
+            )
+        return result
 
     @classmethod
     async def reconcile_balances(

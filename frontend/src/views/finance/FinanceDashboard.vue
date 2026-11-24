@@ -578,6 +578,40 @@ watch([selectedMonth, selectedYear], () => {
           </span>
           <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </RouterLink>
+
+        <!-- ⚖️ ค่าปรับ (P5) — อ่านเปิดให้สมาชิก ปุ่มเขียน gate ในหน้าด้วย canManageFinance -->
+        <RouterLink
+          to="/finance/fines"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
+            <i class="bi bi-shield-exclamation text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-ink-2">ค่าปรับ</span>
+            <span class="block truncate text-xs text-ink-3">
+              ออกหลายคน · คำขอยกเว้น/คืนเงิน · ประเภทความผิด
+            </span>
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
+        </RouterLink>
+
+        <!-- 📊 รายงานอายุหนี้ (P5) — ผู้ค้างชำระทุกบิล ณ วันที่เลือก -->
+        <RouterLink
+          to="/finance/aging"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
+            <i class="bi bi-bar-chart-steps text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-ink-2">รายงานอายุหนี้</span>
+            <span class="block truncate text-xs text-ink-3">
+              ผู้ค้างชำระ · ถังอายุหนี้ · แยกโครงการ/ค่าปรับ
+            </span>
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
+        </RouterLink>
       </div>
 
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">

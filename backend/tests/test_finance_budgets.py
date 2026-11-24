@@ -32,7 +32,11 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from services.finance.constants import DEFAULT_INCOME_CATEGORIES, THAI_TZ
+from services.finance.constants import (
+    COLLECTION_KIND_PROJECT,
+    DEFAULT_INCOME_CATEGORIES,
+    THAI_TZ,
+)
 from services.finance_service import FinanceService
 
 pytestmark = pytest.mark.asyncio
@@ -631,6 +635,15 @@ async def _provision_collection_income(client, db_pool, headers, *, amount: floa
     student_id = await _insert_student(db_pool, room_id, student_user)
     collection_id = await _insert_collection(db_pool, room_id, amount=amount)
     payment_id = await _insert_student_payment(db_pool, collection_id, student_id)
+    # 🔴 [ACCRUAL] บิลที่ INSERT ตรงไม่มี journal ออกบิล ⇒ รายได้จะไม่เกิดเลย
+    #    (งบอ่านขา revenue เฉพาะ `student_payment_issue`/`opening_receivable` เป็นต้นไป)
+    #    ⇒ ลง accrual ให้เหมือนเส้นทางจริง ไม่งั้นเทสต์ disjointness จะพิสูจน์อะไรไม่ได้
+    async with db_pool.acquire() as conn:
+        async with conn.transaction():
+            await FinanceService._post_bill_accrual(
+                conn, room_id, payment_id, amount=amount,
+                collection_kind=COLLECTION_KIND_PROJECT, recorded_by="tester",
+            )
 
     res = client.put(
         _url(PAY_PATH, room_id, payment_id=payment_id),
@@ -698,9 +711,13 @@ async def test_student_payment_voided_is_excluded(client, db_pool, admin_headers
     room_id = admin_headers.room_id
 
     async with db_pool.acquire() as conn:
+        # 🔴 [ACCRUAL] รายได้เกิดที่ journal **ออกบิล** (`student_payment_issue`) ไม่ใช่ตอนรับเงิน
+        #    ⇒ void แค่ `student_payment` ไม่ทำให้รายได้หาย ต้อง void ขา issue ด้วย
+        #    (ตรงกับเส้นทางจริง: ยกเลิกบิล void journal ออกบิล ไม่ใช่ขารับเงิน)
         await conn.execute(
             """UPDATE journal_entries SET status = 'voided', deleted_at = NOW()
-               WHERE room_id = $1 AND reference_type = 'student_payment'""",
+               WHERE room_id = $1
+                 AND reference_type IN ('student_payment', 'student_payment_issue')""",
             room_id,
         )
 

@@ -38,12 +38,14 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from services.finance.constants import (
-    ADVANCE_LIABILITY_CODE, CREDIT_ENTRY_APPLY, CREDIT_ENTRY_REVERSE, CREDIT_ENTRY_TOPUP,
-    DEFAULT_INCOME_CATEGORIES, DOC_TYPE_DEPOSIT, REFERENCE_TYPE_CREDIT_APPLY,
-    REFERENCE_TYPE_CREDIT_TOPUP,
+    ADVANCE_LIABILITY_CODE, AR_PROJECT_CODE, COLLECTION_KIND_PROJECT,
+    CREDIT_ENTRY_APPLY, CREDIT_ENTRY_REVERSE, CREDIT_ENTRY_TOPUP,
+    DEFAULT_INCOME_CATEGORIES, DOC_TYPE_DEPOSIT, REFERENCE_TYPE_BILL_ISSUE,
+    REFERENCE_TYPE_CREDIT_APPLY, REFERENCE_TYPE_CREDIT_TOPUP,
 )
 from services.finance.pdf import pdf_filename
 from services.finance.receipts import DOC_TYPE_RECEIPT, ReceiptsMixin
+from services.finance_service import FinanceService
 
 pytestmark = pytest.mark.asyncio
 
@@ -104,18 +106,30 @@ async def _make_debtor(pool, room_id: int, *, student_no: int = 90,
 async def _make_bill(pool, room_id: int, student_id: int, *,
                      title: str = "ค่าเทอม", amount: float = 1000.0,
                      paid_amount: float = 0.0, due_date: date = date(2026, 12, 31)) -> tuple:
-    """สร้าง fee_collections + student_payments (บิลตั้งต้น) → (collection_id, payment_id)"""
+    """สร้างบิลตั้งต้น **พร้อม accrual ตอนออกบิล** → (collection_id, payment_id)
+
+    ⚠️ ต้องลง journal `student_payment_issue` (Dr AR / Cr รายได้) เหมือนเส้นทางจริง
+    — ถ้า INSERT บิลดิบ ๆ รายได้จะไม่มีที่มา แล้วเทสต์ที่ตรวจ "รายได้เกิดตอนออกบิล
+    ครั้งเดียว" จะพิสูจน์อะไรไม่ได้เลย
+    """
     async with pool.acquire() as conn:
-        collection_id = await conn.fetchval(
-            """INSERT INTO fee_collections (room_id, title, amount, due_date, status)
-               VALUES ($1, $2, $3, $4, 'active') RETURNING id""",
-            room_id, title, amount, due_date,
-        )
-        payment_id = await conn.fetchval(
-            """INSERT INTO student_payments (collection_id, student_id, status, paid_amount)
-               VALUES ($1, $2, $3, $4) RETURNING id""",
-            collection_id, student_id, "paid" if paid_amount > 0 else "pending", paid_amount,
-        )
+        async with conn.transaction():
+            collection_id = await conn.fetchval(
+                """INSERT INTO fee_collections (room_id, title, amount, due_date, status)
+                   VALUES ($1, $2, $3, $4, 'active') RETURNING id""",
+                room_id, title, amount, due_date,
+            )
+            payment_id = await conn.fetchval(
+                """INSERT INTO student_payments (collection_id, student_id, status, paid_amount)
+                   VALUES ($1, $2, $3, $4) RETURNING id""",
+                collection_id, student_id, "paid" if paid_amount > 0 else "pending", paid_amount,
+            )
+            await FinanceService._post_bill_accrual(
+                conn, room_id, payment_id,
+                amount=amount,
+                collection_kind=COLLECTION_KIND_PROJECT,
+                recorded_by="tester",
+            )
     return collection_id, payment_id
 
 
@@ -239,6 +253,41 @@ async def _asset_net(pool, room_id: int) -> float:
                JOIN journal_entries JE ON L.journal_entry_id = JE.id
                JOIN accounting_ledgers AL ON L.ledger_id = AL.id
                WHERE JE.room_id = $1 AND AL.account_type = 'asset'
+                 AND JE.deleted_at IS NULL AND JE.status <> 'voided'""",
+            room_id,
+        )
+    return round(float(val), 2)
+
+
+async def _ar_project_net(pool, room_id: int) -> float:
+    """ยอดสุทธิของบัญชี 11001 ผู้ค้างชำระค่าโครงการ (debit-normal)"""
+    async with pool.acquire() as conn:
+        val = await conn.fetchval(
+            """SELECT COALESCE(SUM(L.debit - L.credit), 0)
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE JE.room_id = $1 AND AL.account_code = $2
+                 AND JE.deleted_at IS NULL AND JE.status <> 'voided'""",
+            room_id, AR_PROJECT_CODE,
+        )
+    return round(float(val), 2)
+
+
+async def _cash_net(pool, room_id: int) -> float:
+    """สินทรัพย์ "เงินจริง" — ตัดบัญชีผู้ค้างชำระ (11001/11002) ออก
+
+    🎯 ใช้เมื่อต้องการพิสูจน์ว่า "เงินในกระเป๋าไม่ขยับ" โดยไม่ปนกับ AR ที่เปลี่ยน
+       ตามการหักเครดิต/ยกเลิกการหัก (AR เป็นสินทรัพย์แต่ไม่ใช่เงิน)
+    """
+    async with pool.acquire() as conn:
+        val = await conn.fetchval(
+            """SELECT COALESCE(SUM(L.debit - L.credit), 0)
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE JE.room_id = $1 AND AL.account_type = 'asset'
+                 AND AL.account_code NOT IN ('11001', '11002')
                  AND JE.deleted_at IS NULL AND JE.status <> 'voided'""",
             room_id,
         )
@@ -432,27 +481,32 @@ async def test_apply_writes_no_transaction_and_does_not_double_count(
     tx_after = await _count(db_pool, "finance_transactions", "room_id = $1", room_id)
     assert tx_after == tx_before, "การหักเครดิตต้องไม่เขียน finance_transactions"
     inc_after = client.get(_url(SUMMARY_PATH, room_id), headers=admin_headers).json()["total_income"]
-    assert inc_before == 0.0
-    assert inc_after == 400.0, "รายได้ต้องโผล่พอดีหนึ่งครั้งจาก journal ฝั่งเดียว"
+    # 📌 เกณฑ์คงค้าง: 400 เกิดตอนออกบิลแล้ว — การหักต้องไม่ทำให้เป็น 800
+    assert inc_before == 400.0
+    assert inc_after == 400.0, "หักเครดิต = ตัด AR ไม่ใช่รับรู้รายได้ซ้ำ"
+    assert await _ar_project_net(db_pool, room_id) == 0.0, "บิลถูกปิด ⇒ ผู้ค้างชำระเหลือ 0"
 
-    # 📄 ทะเบียน "เงินเคลื่อนไหว" ต้องมีแถวเดียว (ของตอนเติม) ไม่ใช่สอง
+    # 📄 ทะเบียน "เงินเคลื่อนไหว" เห็น 2 แถวจาก journal: เติมเครดิต + ออกบิล (รายได้คงค้าง)
+    #    แต่ **ไม่มี** แถวจากการหักเครดิต (เงินไม่ได้เคลื่อนไหวตอนหัก)
     listing = client.get(_url(TRANSACTIONS_PATH, room_id), headers=admin_headers)
     assert listing.status_code == 200
-    assert len(listing.json()["items"]) == 1
+    items = listing.json()["items"]
+    assert len(items) == 2, items
+    assert all(i["transaction_type"] == "income" for i in items)
 
 
-async def test_budget_overview_counts_revenue_from_credit_application(
+async def test_budget_overview_counts_issue_revenue_once_through_credit_application(
     client, db_pool, admin_headers
 ):
-    """งบประมาณต้องเห็นรายได้ที่เกิดจากการหักเครดิต — และ **ไม่** เห็นตอนเติมเครดิต
+    """งบประมาณต้องเห็นรายได้ **ตอนออกบิล** และไม่พองซ้ำเมื่อหักเครดิต + ไม่นับตอนเติม
 
-    🔴 นี่คือเทสต์ที่จะ **ล้มถ้าลืมเติม `'student_credit_apply'`** เข้า
+    🔴 นี่คือเทสต์ที่จะ **ล้มถ้าลืมเติม `'student_payment_issue'`** เข้า
        `JE.reference_type IN (...)` ที่ `budgets.py` (ยอดจะหายเงียบ ไม่มี error)
+       — หลังเปลี่ยนเป็นเกณฑ์คงค้าง รายได้มาทาง issue ไม่ใช่ทาง `student_credit_apply`
 
-    ⚠️ ช่วงงบ **ต้องคำนวณจากวันนี้** — รายการบัญชีจากการหักเครดิตถูกบันทึกที่ NOW()
-       ของ DB ถ้า hardcode ช่วงตายตัว (เคยเป็น ก.ย. 2026) เทสต์จะผ่านแค่เดือนนั้น
-       แล้วตกเองเมื่อเวลาเดินพ้นช่วง — โดยข้อความ error ชี้ผิดที่ (ดูเหมือนลืมแก้
-       `reference_type` ทั้งที่โค้ดถูก) · ช่วง ±7 วันกันปัญหาเทสต์ข้ามเที่ยงคืน
+    ⚠️ ช่วงงบ **ต้องคำนวณจากวันนี้** — journal ถูกบันทึกที่ NOW() ของ DB
+       ถ้า hardcode ช่วงตายตัว เทสต์จะผ่านแค่เดือนนั้นแล้วตกเองเมื่อเวลาเดินพ้นช่วง
+       · ช่วง ±7 วันกันปัญหาเทสต์ข้ามเที่ยงคืน
     """
     room_id = admin_headers.room_id
     account_id = await _insert_account(db_pool, room_id)
@@ -482,16 +536,20 @@ async def test_budget_overview_counts_revenue_from_credit_application(
         row = next(r for r in rows if r["category_id"] == category_id)
         return round(row["used"], 2)
 
-    assert used() == 0.0
+    # 📌 เกณฑ์คงค้าง: รายได้ 600 เกิดทันทีที่ออกบิล (ก่อนเทสต์สร้างงบ)
+    assert used() == 600.0, (
+        "รายได้ที่รับรู้ตอนออกบิลต้องถูกนับเข้างบ — ถ้าได้ 0 แปลว่าลืม 'student_payment_issue' "
+        "ใน `reference_type IN (...)` ที่ services/finance/budgets.py"
+    )
 
     assert _top_up(client, admin_headers, student_id, account_id, 1000.0).status_code == 200
-    assert used() == 0.0, "เงินรับล่วงหน้ายังไม่ใช่รายได้ ⇒ ต้องไม่เข้างบตอนเติม"
+    assert used() == 600.0, "เงินรับล่วงหน้ายังไม่ใช่รายได้ ⇒ ต้องไม่เข้างบตอนเติม"
 
     assert _apply(client, admin_headers, [student_id]).status_code == 200
     assert used() == 600.0, (
-        "รายได้จากการหักเครดิตต้องถูกนับเข้างบ — ถ้าได้ 0 แปลว่าลืมแก้ "
-        "`reference_type IN (...)` ที่ services/finance/budgets.py"
+        "การหักเครดิตเป็นการตัด AR ไม่ใช่รายได้ใหม่ ⇒ งบต้องยังเป็น 600 ไม่ใช่ 1200"
     )
+    assert await _ar_project_net(db_pool, room_id) == 0.0, "เครดิตหักปิดบิลเต็ม ⇒ AR = 0"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -851,7 +909,8 @@ async def test_apply_is_all_or_nothing_when_one_student_is_missing(client, db_po
 
     assert await _count(db_pool, "student_credits", "entry_type = $1", CREDIT_ENTRY_APPLY) == 0
     assert (await _bill_row(db_pool, payment_id))["status"] == "pending"
-    assert await _revenue_net(db_pool, room_id) == 0.0
+    # ไม่มีเครดิตถูกหัก ⇒ AR ยังค้างเต็มก้อน (รายได้เกิดตอนออกบิลไปแล้ว ไม่ถูกแตะ)
+    assert await _ar_project_net(db_pool, room_id) == 500.0
     assert await _liability_net(db_pool, room_id) == 500.0, "เครดิตต้องไม่ถูกแตะ"
 
 
@@ -933,7 +992,7 @@ async def test_undo_application_returns_credit_and_reopens_the_bill(client, db_p
     assert _apply(client, admin_headers, [student_id]).json()["total_applied"] == 800.0
 
     apply_entry = (await _credit_entries(db_pool, room_id, student_id))[-1]
-    assets_before = await _asset_net(db_pool, room_id)
+    cash_before = await _cash_net(db_pool, room_id)
 
     res = _undo(client, admin_headers, apply_entry["id"], reason="หักผิดบิล")
     assert res.status_code == 200, res.text
@@ -953,14 +1012,15 @@ async def test_undo_application_returns_credit_and_reopens_the_bill(client, db_p
     assert bill["status"] == "pending"
     assert bill["paid_at"] is None and bill["recorded_by"] is None
 
-    # 📉 รายได้ถูก void ⇒ หายจากทั้งงบดุลและ summary
-    assert await _revenue_net(db_pool, room_id) == 0.0
+    # 📉 journal ของการหักถูก void ⇒ หนี้สินคืนกลับ, AR กลับมาค้าง, รายได้ (ตอนออกบิล) ไม่ถูกแตะ
+    assert await _revenue_net(db_pool, room_id) == 800.0, "รายได้เกิดตอนออกบิล — undo ไม่กลับรายได้"
     assert await _liability_net(db_pool, room_id) == 800.0
-    assert await _asset_net(db_pool, room_id) == assets_before, (
-        "การยกเลิกการหักต้องไม่แตะยอดกระเป๋า — เงินไม่ได้เข้าตอนหัก จึงไม่มีอะไรต้องคืน"
+    assert await _ar_project_net(db_pool, room_id) == 800.0, "บิลกลับเป็นค้าง ⇒ AR คืนเต็ม"
+    assert await _cash_net(db_pool, room_id) == cash_before, (
+        "การยกเลิกการหักต้องไม่แตะเงินในกระเป๋า — เงินไม่ได้เข้าตอนหัก จึงไม่มีอะไรต้องคืน"
     )
     summary = client.get(_url(SUMMARY_PATH, room_id), headers=admin_headers).json()
-    assert summary["total_income"] == 0.0
+    assert summary["total_income"] == 800.0
 
     # 🚫 ยกเลิกซ้ำไม่ได้ (แถวเดิมถูก soft delete ⇒ หาไม่เจอ)
     again = _undo(client, admin_headers, apply_entry["id"])
@@ -1121,11 +1181,15 @@ async def test_revert_of_top_up_keeps_audit_rows_and_removes_nothing_from_the_jo
 # ══════════════════════════════════════════════════════════════════════════════
 # 6. Mutation guards — พิสูจน์ว่าเทสต์ข้างบน "มีฟัน" จริง
 # ══════════════════════════════════════════════════════════════════════════════
-async def test_income_ledger_resolver_is_shared_with_cash_payment(client, db_pool, admin_headers):
-    """รายได้จากการหักเครดิตต้องลง **ledger ตัวเดียวกับ** ที่เงินสดใช้
+async def test_cash_payment_and_credit_apply_credit_the_same_ar_ledger(
+    client, db_pool, admin_headers
+):
+    """รับเงินสดกับการหักเครดิตต้องตัด **ledger ผู้ค้างชำระตัวเดียวกัน** (11001)
 
-    🎯 ถ้ามีสองชุดโค้ดที่ "ทำคล้ายกัน" วันหนึ่งจะแก้ข้างเดียว ⇒ รายได้จากสองทาง
-       ไปคนละ ledger แล้วงบประมาณ (ที่ join ด้วย legacy_category_id) จะเห็นข้างเดียว
+    🎯 ถ้ามีสองชุดโค้ดที่ "ทำคล้ายกัน" วันหนึ่งจะแก้ข้างเดียว ⇒ เงินที่จ่ายด้วยเงินสด
+       ไปตัด AR คนละบัญชีกับที่เครดิตใช้ ⇒ ยอดค้างต่อบัญชีเพี้ยนแบบหาสาเหตุยาก
+       และต้องไม่มี journal ของการรับเงิน/หักเครดิตที่มีขา revenue เล็ดลอดออกมา
+       (รายได้ถูกรับรู้ที่ `student_payment_issue` เท่านั้น)
     """
     room_id = admin_headers.room_id
     account_id = await _insert_account(db_pool, room_id)
@@ -1134,7 +1198,7 @@ async def test_income_ledger_resolver_is_shared_with_cash_payment(client, db_poo
     _, cash_payment = await _make_bill(db_pool, room_id, cash_student, amount=100.0)
     await _make_bill(db_pool, room_id, credit_student, amount=100.0)
 
-    # ทางที่ 1: เงินสด (confirm_payment → _resolve_default_income_ledger)
+    # ทางที่ 1: เงินสด
     paid = client.put(
         _url(API_PREFIX + "/{room}/finance/payments/{payment_id}/pay", room_id, payment_id=cash_payment),
         json={"paid_to_account_id": account_id, "paid_amount": 100.0, "user_name": "Tester"},
@@ -1147,23 +1211,50 @@ async def test_income_ledger_resolver_is_shared_with_cash_payment(client, db_poo
     assert _apply(client, admin_headers, [credit_student]).status_code == 200
 
     async with db_pool.acquire() as conn:
-        rows = await conn.fetch(
-            """SELECT JE.reference_type, AL.id AS ledger_id
+        ar_credits = await conn.fetch(
+            """SELECT JE.reference_type, AL.account_code
                FROM journal_lines L
                JOIN journal_entries JE ON L.journal_entry_id = JE.id
                JOIN accounting_ledgers AL ON L.ledger_id = AL.id
-               WHERE JE.room_id = $1 AND AL.account_type = 'revenue' AND L.credit > 0
+               WHERE JE.room_id = $1
+                 AND JE.reference_type IN ('student_payment', $2)
+                 AND AL.account_type = 'asset' AND L.credit > 0
                ORDER BY JE.reference_type""",
-            room_id,
+            room_id, REFERENCE_TYPE_CREDIT_APPLY,
         )
-    by_ref = {r["reference_type"]: r["ledger_id"] for r in rows}
+        # ไม่มีขารายได้ในการรับเงิน/หักเครดิต
+        revenue_leak = await conn.fetchval(
+            """SELECT COUNT(*)
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE JE.room_id = $1
+                 AND JE.reference_type IN ('student_payment', $2)
+                 AND AL.account_type = 'revenue'""",
+            room_id, REFERENCE_TYPE_CREDIT_APPLY,
+        )
+        issue_revenue = await conn.fetch(
+            """SELECT DISTINCT AL.id AS ledger_id
+               FROM journal_lines L
+               JOIN journal_entries JE ON L.journal_entry_id = JE.id
+               JOIN accounting_ledgers AL ON L.ledger_id = AL.id
+               WHERE JE.room_id = $1 AND JE.reference_type = $2
+                 AND AL.account_type = 'revenue' AND L.credit > 0""",
+            room_id, REFERENCE_TYPE_BILL_ISSUE,
+        )
+
+    by_ref = {r["reference_type"]: r["account_code"] for r in ar_credits}
     assert set(by_ref) == {"student_payment", REFERENCE_TYPE_CREDIT_APPLY}, by_ref
-    assert by_ref["student_payment"] == by_ref[REFERENCE_TYPE_CREDIT_APPLY], (
-        "รายได้จากเงินสดกับจากการหักเครดิตต้องลง ledger ตัวเดียวกัน"
+    assert by_ref["student_payment"] == by_ref[REFERENCE_TYPE_CREDIT_APPLY] == AR_PROJECT_CODE, (
+        "รับเงินสดกับหักเครดิตต้องตัดผู้ค้างชำระบัญชีเดียวกัน"
+    )
+    assert revenue_leak == 0, "รับเงิน/หักเครดิตต้องไม่มีขา revenue (รายได้อยู่ที่ตอนออกบิล)"
+    assert len(issue_revenue) == 1, (
+        "บิลทั้งสองใบต้องรับรู้รายได้ลง ledger รายได้ตัวเดียวกัน"
     )
     assert await _revenue_net(db_pool, room_id) == 200.0
 
-    # 🧾 และไม่มี journal ไหนที่ติด reference_type ของการ "เติม" แล้วมีขา revenue
+    # 🧾 ไม่มี journal ของการ "เติม" ที่มีขา revenue
     async with db_pool.acquire() as conn:
         leak = await conn.fetchval(
             """SELECT COUNT(*)

@@ -476,16 +476,22 @@ class BudgetsMixin:
                                 JOIN journal_entries JE ON L.journal_entry_id = JE.id
                                 JOIN accounting_ledgers AL ON AL.id = L.ledger_id
                                 WHERE JE.room_id = B.room_id
-                                  -- 🔴 [F4] ต้องมี 'student_credit_apply' ด้วย ไม่งั้น **ยอดหายเงียบ**:
-                                  --    รายได้ที่เกิดจากการหักเครดิตไปปิดบิลจะไม่ถูกนับเข้างบเลย
-                                  --    และไม่มีอะไรฟ้อง (ยอดต่ำกว่าจริงเฉย ๆ) — เป็นกับดักตระกูล
-                                  --    เดียวกับ `--api-timeout` ที่ต้องแก้สองที่พร้อมกัน
+                                  -- 🔴 [ACCRUAL] รายได้เกิดตอน **ออกบิล** (`student_payment_issue`)
+                                  --    ไม่ใช่ตอนรับเงิน ⇒ ถ้าไม่มี type นี้ในลิสต์ งบจะเห็นรายได้ 0
+                                  --    ทั้งที่ระบบรับรู้รายได้แล้ว (ยอดหายเงียบ ไม่มี error)
+                                  --    · `student_payment` / `student_credit_apply` เก็บไว้เพื่อ
+                                  --      journal ยุคก่อน deploy ที่เคย Cr revenue ตอนรับเงิน
+                                  --    · `fine_adjustment` / `fine_cancel` ไม่ผูกหมวด
+                                  --      (`legacy_category_id IS NULL`) ⇒ ถูกกรองออกด้วยเงื่อนไขล่างเอง
                                   --
                                   --    🚫 **ห้ามเพิ่ม 'student_credit_topup'** — นั่นคือการย้าย
                                   --    สินทรัพย์ ↔ หนี้สิน ยังไม่ใช่รายได้ (ไม่มีขา revenue เลย
                                   --    ⇒ `AL.account_type = 'revenue'` ข้างล่างกรองออกให้อยู่แล้ว
                                   --    แต่ใส่ไว้จะทำให้อ่านโค้ดแล้วเข้าใจผิดว่ามันนับเป็นรายได้)
-                                  AND JE.reference_type IN ('student_payment', 'student_credit_apply')
+                                  AND JE.reference_type IN (
+                                      'student_payment_issue',
+                                      'student_payment', 'student_credit_apply'
+                                  )
                                   AND JE.deleted_at IS NULL AND JE.status <> 'voided'
                                   AND AL.account_type = 'revenue'
                                   -- ผูกกับ "หมวด" ไม่ใช่ "ชื่อ ledger" ⇒ งบของหมวดอื่นไม่โดนเหมารวม

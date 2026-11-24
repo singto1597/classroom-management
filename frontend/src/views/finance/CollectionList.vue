@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
+import { computed, reactive, ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
-import type { Collection, BasicStudent } from '@/types/finance'
+import type { Collection, BasicStudent, LateFeeMode } from '@/types/finance'
 import { displayName } from '@/utils/name'
 import { formatThaiDate } from '@/utils/datetime'
+import { newIdempotencyKey } from '@/utils/money'
 
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
@@ -19,6 +20,8 @@ const currentUserName = authStore.currentUserName!
 
 const collections = ref<Collection[]>([])
 const isLoading = ref(true)
+/** 🔒 ปุ่มเขียนของการเงินใช้สิทธิ์ `MANAGE_FINANCE` (admin ผ่านอยู่แล้ว) */
+const canManageFinance = computed(() => authStore.canManageFinance)
 
 // สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
 const hasError = ref(false)
@@ -34,6 +37,11 @@ const formDueDate = ref('')
 const selectionMode = ref<'all' | 'custom'>('all')
 const studentsList = ref<BasicStudent[]>([])
 const selectedStudentIds = ref<number[]>([])
+
+// ⏰ นโยบายค่าปรับจ่ายล่าช้า (P6.5) — 'none' = ไม่ปรับ (ค่าเริ่มต้น ไม่กระทบของเดิม)
+const formLateFeeMode = ref<LateFeeMode>('none')
+const formLateFeeAmount = ref<number | ''>('')
+const formLateFeeGrace = ref<number | ''>(0)
 
 const fetchCollections = async () => {
   isLoading.value = true
@@ -57,6 +65,9 @@ const openCreateModal = async () => {
   formDueDate.value = ''
   selectionMode.value = 'all'
   selectedStudentIds.value = []
+  formLateFeeMode.value = 'none'
+  formLateFeeAmount.value = ''
+  formLateFeeGrace.value = 0
 
   // โหลดรายชื่อนักเรียนรอไว้เลย
   try {
@@ -99,6 +110,15 @@ const submitCreateCollection = async () => {
     return
   }
 
+  if (formLateFeeMode.value !== 'none' && Number(formLateFeeAmount.value) <= 0) {
+    void dialog.alert(
+      'ข้อมูลค่าปรับไม่ครบ',
+      'กรุณากรอกจำนวน/เปอร์เซ็นต์ค่าปรับล่าช้าให้มากกว่า 0 หรือเลือก «ไม่ปรับ»',
+      'warning',
+    )
+    return
+  }
+
   isSubmitting.value = true
   try {
     const payload = {
@@ -108,6 +128,9 @@ const submitCreateCollection = async () => {
       user_name: currentUserName,
       // ถ้า mode custom ให้ส่ง array id ไป, ถ้า all ให้ส่ง undefined (ระบบหลักจะดึงทุกคนเอง)
       student_ids: selectionMode.value === 'custom' ? selectedStudentIds.value : undefined,
+      late_fee_mode: formLateFeeMode.value,
+      late_fee_amount: Number(formLateFeeAmount.value) || 0,
+      late_fee_grace_days: Number(formLateFeeGrace.value) || 0,
     }
 
     await FinanceService.createCollection(currentServerId, payload)
@@ -138,6 +161,9 @@ const editForm = reactive({
   amount: '' as number | '',
   due_date: '',
   status: 'active' as Collection['status'],
+  late_fee_mode: 'none' as LateFeeMode,
+  late_fee_amount: '' as number | '',
+  late_fee_grace_days: '' as number | '',
 })
 
 const openEditSheet = (col: Collection) => {
@@ -146,6 +172,9 @@ const openEditSheet = (col: Collection) => {
   editForm.amount = col.amount
   editForm.due_date = col.due_date ?? ''
   editForm.status = col.status
+  editForm.late_fee_mode = col.late_fee_mode ?? 'none'
+  editForm.late_fee_amount = col.late_fee_amount ?? ''
+  editForm.late_fee_grace_days = col.late_fee_grace_days ?? ''
   isEditOpen.value = true
 }
 
@@ -170,6 +199,9 @@ const submitEditCollection = async () => {
       due_date: editForm.due_date,
       status: editForm.status,
       user_name: currentUserName,
+      late_fee_mode: editForm.late_fee_mode,
+      late_fee_amount: Number(editForm.late_fee_amount) || 0,
+      late_fee_grace_days: Number(editForm.late_fee_grace_days) || 0,
     })
     isEditOpen.value = false
     await dialog.fire({ icon: 'success', title: 'อัปเดตสำเร็จ!', timer: 1500 })
@@ -182,6 +214,98 @@ const submitEditCollection = async () => {
     )
   } finally {
     isUpdating.value = false
+  }
+}
+
+// --- 🧾 เรียกเก็บเงินเองรายบุคคล (P6.5) — หลายคน คนละยอด ภายใต้ชื่อเดียว ---
+interface CustomRow {
+  student: BasicStudent
+  checked: boolean
+  amount: number | ''
+  note: string
+}
+
+const isCustomChargeOpen = ref(false)
+const isCustomSubmitting = ref(false)
+const customTitle = ref('')
+const customDueDate = ref('')
+const customRows = ref<CustomRow[]>([])
+// 🔑 คงคีย์เดิมตลอดการเปิดหนึ่งครั้ง — กดส่งซ้ำ/เน็ตกระตุกจึงไม่สร้างบิลซ้ำ
+const customKey = ref(newIdempotencyKey())
+
+const selectedCustomRows = computed(() => customRows.value.filter((r) => r.checked))
+const customTotal = computed(() =>
+  selectedCustomRows.value.reduce((sum, r) => sum + (Number(r.amount) || 0), 0),
+)
+
+const openCustomCharge = async () => {
+  customTitle.value = ''
+  customDueDate.value = ''
+  customKey.value = newIdempotencyKey()
+  try {
+    const students = await FinanceService.getActiveStudents(currentServerId)
+    customRows.value = students.map((student) => ({
+      student,
+      checked: false,
+      amount: '',
+      note: '',
+    }))
+  } catch (err) {
+    console.error(err)
+    customRows.value = []
+  }
+  isCustomChargeOpen.value = true
+}
+
+const toggleAllCustomRows = (checked: boolean) => {
+  customRows.value.forEach((row) => (row.checked = checked))
+}
+
+const submitCustomCharges = async () => {
+  if (!customTitle.value.trim() || !customDueDate.value) {
+    void dialog.alert('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อรายการและวันครบกำหนด', 'warning')
+    return
+  }
+  const items = selectedCustomRows.value
+    .filter((r) => r.checked)
+    .map((r) => ({
+      student_id: r.student.id,
+      amount: Number(r.amount) || 0,
+      note: r.note.trim() || undefined,
+    }))
+  if (items.length === 0) {
+    void dialog.alert('ยังไม่ได้เลือกเพื่อน', 'กรุณาเลือกอย่างน้อย 1 คน', 'warning')
+    return
+  }
+  if (items.some((i) => i.amount <= 0)) {
+    void dialog.alert(
+      'ยอดไม่ครบ',
+      'นักเรียนที่เลือกทุกคนต้องมียอดเรียกเก็บมากกว่า 0 บาท',
+      'warning',
+    )
+    return
+  }
+
+  isCustomSubmitting.value = true
+  try {
+    const res = await FinanceService.createCustomCharges(currentServerId, {
+      title: customTitle.value.trim(),
+      due_date: customDueDate.value,
+      items,
+      idempotency_key: customKey.value,
+      user_name: currentUserName,
+    })
+    isCustomChargeOpen.value = false
+    await dialog.fire({ icon: 'success', title: res.message ?? 'เรียกเก็บสำเร็จ!', timer: 1800 })
+    fetchCollections()
+  } catch (error: unknown) {
+    void dialog.alert(
+      'เกิดข้อผิดพลาด',
+      error instanceof Error ? error.message : 'เรียกเก็บเงินไม่สำเร็จ',
+      'error',
+    )
+  } finally {
+    isCustomSubmitting.value = false
   }
 }
 
@@ -200,10 +324,26 @@ onMounted(() => {
       description="จัดการแคมเปญระดมทุนและการเก็บเงินเพื่อนในห้อง"
     >
       <template #actions>
-        <button v-if="authStore.isAdmin" type="button" class="btn-primary" @click="openCreateModal">
-          <i class="bi bi-plus-lg" aria-hidden="true"></i>
-          สร้างโปรเจกต์ใหม่
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            v-if="canManageFinance"
+            type="button"
+            class="btn-ghost-ui"
+            @click="openCustomCharge"
+          >
+            <i class="bi bi-receipt-cutoff" aria-hidden="true"></i>
+            เรียกเก็บเอง (รายคน)
+          </button>
+          <button
+            v-if="authStore.isAdmin"
+            type="button"
+            class="btn-primary"
+            @click="openCreateModal"
+          >
+            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+            สร้างโปรเจกต์ใหม่
+          </button>
+        </div>
       </template>
     </PageIntro>
 
@@ -270,6 +410,16 @@ onMounted(() => {
             ครบกำหนด {{ formatThaiDate(col.due_date) }}
           </p>
 
+          <p
+            v-if="col.late_fee_mode && col.late_fee_mode !== 'none'"
+            class="chip num mt-2 bg-warn-50 text-warn-700"
+          >
+            <i class="bi bi-alarm" aria-hidden="true"></i>
+            ปรับล่าช้า
+            {{ col.late_fee_mode === 'percent' ? `${col.late_fee_amount}%` : `฿${formatNumber(col.late_fee_amount ?? 0)}` }}
+            <template v-if="col.late_fee_grace_days">· ผ่อนผัน {{ col.late_fee_grace_days }} วัน</template>
+          </p>
+
           <p class="mt-3 flex items-baseline gap-1 sm:mt-4">
             <span
               class="num text-3xl font-bold tracking-tight"
@@ -332,6 +482,52 @@ onMounted(() => {
             <label class="field-label" for="colDueDate">ครบกำหนด</label>
             <input id="colDueDate" v-model="formDueDate" type="date" class="field" />
           </div>
+        </div>
+
+        <div class="h-px bg-line"></div>
+
+        <!-- ⏰ ค่าปรับจ่ายล่าช้า (P6.5) — ปิดไว้โดยค่าเริ่มต้น -->
+        <div>
+          <p class="field-label">ค่าปรับจ่ายล่าช้า</p>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            <div>
+              <select v-model="formLateFeeMode" class="field" aria-label="รูปแบบค่าปรับล่าช้า">
+                <option value="none">ไม่ปรับ</option>
+                <option value="fixed">ปรับเป็นจำนวนเงิน</option>
+                <option value="percent">ปรับเป็นเปอร์เซ็นต์</option>
+              </select>
+            </div>
+            <div v-if="formLateFeeMode !== 'none'">
+              <div class="relative">
+                <span
+                  class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5 font-bold text-ink-3"
+                  aria-hidden="true"
+                >
+                  {{ formLateFeeMode === 'percent' ? '%' : '฿' }}
+                </span>
+                <input
+                  v-model="formLateFeeAmount"
+                  type="number"
+                  class="field num ps-8 text-right"
+                  :placeholder="formLateFeeMode === 'percent' ? 'เช่น 5' : 'เช่น 20'"
+                  aria-label="จำนวนหรือเปอร์เซ็นต์ค่าปรับ"
+                />
+              </div>
+            </div>
+            <div v-if="formLateFeeMode !== 'none'">
+              <input
+                v-model="formLateFeeGrace"
+                type="number"
+                class="field num"
+                placeholder="ผ่อนผัน (วัน)"
+                aria-label="จำนวนวันผ่อนผัน"
+              />
+            </div>
+          </div>
+          <p v-if="formLateFeeMode !== 'none'" class="mt-2 text-caption text-ink-3">
+            ระบบจะออกค่าปรับให้บิลที่ค้างเมื่อเลยกำหนด + วันผ่อนผันแล้ว (คิดจากยอดคงเหลือ
+            ณ วันนั้น) — 1 บิลออกค่าปรับได้ครั้งเดียว
+          </p>
         </div>
 
         <div class="h-px bg-line"></div>
@@ -505,6 +701,39 @@ onMounted(() => {
             <option value="closed">🔴 ปิดแคมเปญ</option>
           </select>
         </div>
+        <div class="h-px bg-line"></div>
+        <div>
+          <label class="field-label" for="editLateFeeMode">ค่าปรับจ่ายล่าช้า</label>
+          <select id="editLateFeeMode" v-model="editForm.late_fee_mode" class="field">
+            <option value="none">ไม่ปรับ</option>
+            <option value="fixed">ปรับเป็นจำนวนเงิน (฿)</option>
+            <option value="percent">ปรับเป็นเปอร์เซ็นต์ (%)</option>
+          </select>
+        </div>
+        <div v-if="editForm.late_fee_mode !== 'none'" class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="field-label" for="editLateFeeAmount">
+              {{ editForm.late_fee_mode === 'percent' ? 'เปอร์เซ็นต์' : 'จำนวนเงิน (฿)' }}
+            </label>
+            <input
+              id="editLateFeeAmount"
+              v-model="editForm.late_fee_amount"
+              type="number"
+              class="field num text-right"
+              placeholder="0"
+            />
+          </div>
+          <div>
+            <label class="field-label" for="editLateFeeGrace">ผ่อนผัน (วัน)</label>
+            <input
+              id="editLateFeeGrace"
+              v-model="editForm.late_fee_grace_days"
+              type="number"
+              class="field num text-right"
+              placeholder="0"
+            />
+          </div>
+        </div>
       </div>
 
       <template #footer>
@@ -525,6 +754,123 @@ onMounted(() => {
           >
             <i v-if="isUpdating" class="bi bi-arrow-repeat animate-spin" aria-hidden="true"></i>
             {{ isUpdating ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า' }}
+          </button>
+        </div>
+      </template>
+    </AppSheet>
+
+    <!-- 🧾 เรียกเก็บเองรายบุคคล: เลือกคน + ใส่ยอดต่อคน -->
+    <AppSheet
+      :open="isCustomChargeOpen"
+      label="เรียกเก็บเงินเองรายบุคคล"
+      title="เรียกเก็บเงินเอง (รายคน)"
+      description="เลือกนักเรียนและกำหนดยอดของแต่ละคน — ระบบสร้างบิลแยกให้ทันที"
+      size="form"
+      :dismissible="!isCustomSubmitting"
+      @close="isCustomChargeOpen = false"
+    >
+      <div class="space-y-4">
+        <div>
+          <label class="field-label" for="ccTitle">ชื่อรายการ</label>
+          <input
+            id="ccTitle"
+            v-model="customTitle"
+            class="field"
+            placeholder="เช่น ค่าหนังสือที่เหลือ, ยอดค้างเก่า"
+          />
+        </div>
+        <div>
+          <label class="field-label" for="ccDueDate">ครบกำหนดชำระ</label>
+          <input id="ccDueDate" v-model="customDueDate" type="date" class="field" />
+        </div>
+
+        <div class="h-px bg-line"></div>
+
+        <div class="mb-2 flex items-center justify-between gap-2 px-1">
+          <span class="text-caption font-bold text-ink-3">
+            เลือกแล้ว {{ selectedCustomRows.length }} คน · รวม
+            <span class="num text-brand-700">฿{{ formatNumber(customTotal) }}</span>
+          </span>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="inline-flex min-h-11 items-center text-caption font-bold text-brand-700 hover:underline"
+              @click="toggleAllCustomRows(true)"
+            >
+              เลือกทั้งหมด
+            </button>
+            <span class="text-line">|</span>
+            <button
+              type="button"
+              class="inline-flex min-h-11 items-center text-caption font-bold text-ink-3 hover:underline"
+              @click="toggleAllCustomRows(false)"
+            >
+              ล้างทั้งหมด
+            </button>
+          </div>
+        </div>
+
+        <div class="divide-y divide-line rounded-control border border-line bg-surface">
+          <div
+            v-for="row in customRows"
+            :key="row.student.id"
+            class="flex items-center gap-3 p-3"
+            :class="row.checked ? 'bg-brand-50/40' : ''"
+          >
+            <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+              <span
+                class="flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors"
+                :class="
+                  row.checked ? 'border-brand-700 bg-brand-700' : 'border-line bg-surface'
+                "
+              >
+                <i
+                  v-if="row.checked"
+                  class="bi bi-check-lg text-xs font-bold text-white"
+                  aria-hidden="true"
+                ></i>
+              </span>
+              <input v-model="row.checked" type="checkbox" class="hidden" />
+              <span class="min-w-0 truncate text-sm font-bold text-ink-2">
+                <span class="num text-ink-3">#{{ row.student.student_no }}</span>
+                {{ displayName(row.student) }}
+              </span>
+            </label>
+            <input
+              v-model="row.amount"
+              type="number"
+              inputmode="decimal"
+              class="field num w-24 shrink-0 text-right"
+              placeholder="฿"
+              :disabled="!row.checked"
+              :aria-label="`ยอดของ ${displayName(row.student)}`"
+            />
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            class="btn-ghost-ui"
+            :disabled="isCustomSubmitting"
+            @click="isCustomChargeOpen = false"
+          >
+            ยกเลิก
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="isCustomSubmitting"
+            @click="submitCustomCharges"
+          >
+            <i
+              v-if="isCustomSubmitting"
+              class="bi bi-arrow-repeat animate-spin"
+              aria-hidden="true"
+            ></i>
+            {{ isCustomSubmitting ? 'กำลังเรียกเก็บ...' : `เรียกเก็บ ${selectedCustomRows.length} คน` }}
           </button>
         </div>
       </template>

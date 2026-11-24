@@ -185,6 +185,21 @@ class RedisListener(commands.Cog):
         elif event_type == "FINANCE_COLLECTION":
             await self.action_service.notify_finance_collection(server_id, data)
 
+        # ⚖️ ค่าปรับ (Phase 6) — ไม่มีไฟล์แนบ ⇒ await ตรงได้ ไม่ต้องใช้ `_spawn_pdf_task`
+        elif event_type == "FINANCE_FINE_ISSUED":
+            await self.action_service.notify_fines_issued(server_id, data)
+
+        elif event_type == "FINANCE_FINE_WAIVED":
+            await self.action_service.notify_fine_waived(server_id, data)
+
+        elif event_type == "FINANCE_FINE_REFUNDED":
+            await self.action_service.notify_fine_refunded(server_id, data)
+
+        elif event_type == "FINANCE_DEBT_REMINDER":
+            # 📣 สรุปบิลค้างรายวันของห้อง — ฝั่ง backend แบ่งส่วนละ 20 คน แล้ว publish
+            #    หลาย event (`part`/`total_parts`) ⇒ ที่นี่แค่ส่งทีละอันตามลำดับ
+            await self.action_service.notify_debt_reminder(server_id, data)
+
         elif event_type == "NEW_STUDENT":
             await self.action_service.notify_new_student(server_id, data)
 

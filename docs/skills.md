@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 269 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 273 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -273,6 +273,10 @@
 - [🚦 อยู่หลัง Cloudflare ไม่ได้แปลว่า origin ถูกปิด — ต้องยิง TCP จากภายนอกก่อนตั้ง `TRUSTED_PROXY_HOPS` และเปิด rate limit](#อยู่หลัง-cloudflare-ไม่ได้แปลว่า-origin-ถูกปิด-ต้องยิง-tcp-จากภายนอกก่อนตั้ง-trustedproxyhops-และเปิด-rate-limit)
 - [🚀 service ใหม่ที่อ่านตารางจาก migration ต้องรอสคีมา — และ `rollback.sh` จะพามันไปกับ image เก่าที่ไม่มีโมดูลนั้น](#service-ใหม่ที่อ่านตารางจาก-migration-ต้องรอสคีมา-และ-rollbacksh-จะพามันไปกับ-image-เก่าที่ไม่มีโมดูลนั้น)
 - [🎪 กิจกรรม = ทะเบียนบันทึกผู้เข้าร่วม ไม่ใช่ระบบรับลงทะเบียน — อย่ายืม capacity/waitlist/QR/ลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง](#กิจกรรม-ทะเบียนบันทึกผู้เข้าร่วม-ไม่ใช่ระบบรับลงทะเบียน-อย่ายืม-capacitywaitlistqrลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง)
+- [🧬 mixin ใหม่ที่ตั้งชื่อ helper ซ้ำกับ mixin เดิม = override เงียบ ๆ ผ่าน MRO (จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)](#mixin-ใหม่ที่ตั้งชื่อ-helper-ซ้ำกับ-mixin-เดิม-override-เงียบ-ๆ-ผ่าน-mro-จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)
+- [🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)](#ฟิลด์ที่-frontend-ต้องใช้-แต่-responsemodel-ไม่ประกาศ-pydantic-กรองทิ้งเงียบ-ๆ-http-200-เทสต์เขียว-ui-พัง)
+- [📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`](#ส่งวันละครั้ง-ต้องจองสิทธิ์ใน-db-ไม่ใช่ใน-memory-และตัวเช็กเวลาต้องเป็น-ไม่ใช่)
+- [⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ](#ค่าปรับ-อัตโนมัติ-ต้องผูกกับ-บิลต้นทาง-ด้วย-unique-index-และยอดบิลต้องมาจาก-fcamount-เสมอ)
 
 <!-- TOC:END -->
 
@@ -4603,3 +4607,93 @@
 - **Rule:** (1) 🔴 ก่อนยกฟีเจอร์จากรายงานระบบอื่น ให้ตอบก่อนว่า **ใครเป็นคนสร้างข้อมูลนั้นและใครได้ประโยชน์** — ถ้าเป็นคนละคนกับระบบเรา กลไกมักผิดทั้งชุด (2) 🔴 ระบบบันทึก (ledger) ไม่ต้องมีความจุ: "เต็ม" ไม่มีความหมายเมื่อครูเป็นคนใส่ชื่อ (3) 🔴 ถอนฟีเจอร์ = ลบโค้ด/สคีมา DTO/route/เทสต์/คำใน glossary ให้ครบ แต่ **ไม่ DROP คอลัมน์** (4) 🔴 route สาธารณะที่ไม่มีผู้ใช้จริงคือพื้นที่โจมตีฟรี — การลบมันดีกว่าการใส่ rate limit ให้
 - **Tests/Verification:** `grep -rn "capacity\|waitlist\|queue_position\|registration_deadline\|share_token\|shared/activity" backend frontend/src docs` ต้องเหลือเฉพาะไฟล์ migration กับประวัติใน `test_route_auth_audit.py` · `test_route_auth_audit.py` นับ 167 route · ชุดเทสต์ activities เดิมผ่าน (ไม่มีการอ้างคอลัมน์ที่หยุดใช้) · frontend `type-check` + `lint` + `test:unit` + `build` ผ่าน
 - **Date Added:** 2026-11-02
+
+### 🧬 mixin ใหม่ที่ตั้งชื่อ helper ซ้ำกับ mixin เดิม = override เงียบ ๆ ผ่าน MRO (จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)
+
+- **Context/Problem:** งานระบบค่าปรับเพิ่ม `FinesMixin` (Phase 3) ที่มี `@staticmethod _shape_batch(row)` สำหรับ "ชุดค่าปรับ" (fine_batches) เข้าไปใน `FinanceService` ซึ่งเดิมมี `ReceiptBatchesMixin._shape_batch(row)` สำหรับ "ชุดเอกสาร" (`finance_receipt_batches`) อยู่แล้ว ผลคือ `test_finance_receipt_batches.py` **ล้มทั้ง 11 เทสต์** ด้วย `KeyError: 'fine_type_id'` ที่ `services/finance/fines.py` ทั้งที่โค้ดชุดเอกสารไม่ถูกแก้แม้แต่บรรทัดเดียว
+- **Root Cause:** `FinanceService` ประกอบจาก mixin หลายสิบตัวแบบ MRO และทุกเมธอดเรียกผ่าน `cls.<helper>` ⇒ ตัวที่อยู่ในคลาสที่ **มาก่อนใน MRO** ชนะเสมอ `FinesMixin` ถูกวางก่อน `ReceiptBatchesMixin` ใน `class FinanceService(WaiversMixin, RefundsMixin, FinesMixin, ...)` ดังนั้น `cls._shape_batch(...)` ใน `receipt_batches.py` ไปเรียก `FinesMixin._shape_batch` ที่อ่านคอลัมน์ของ `fine_batches` — Python ไม่เตือน ไม่มี import error มีแค่ `KeyError` ตอนรัน
+- **Correct Pattern/Solution:**
+  - เปลี่ยนชื่อเป็น `_shape_fine_batch` (และเพิ่ม docstring เตือน) — ชื่อ helper ภายใน mixin ต้อง **ระบุโดเมน** ไม่ใช่คำกลาง ๆ
+  - ตรวจด้วยสคริปต์ก่อน commit: ไล่ `^    (async )?def (\w+)\(` ในทุกไฟล์ใต้ `services/finance/` แล้วรายงานชื่อที่ซ้ำกัน (ตอนนี้เหลือศูนย์) — ทำเป็นนิสัยเมื่อเพิ่ม mixin ใหม่
+  - เทสต์ที่จับได้คือชุดของ mixin **อีกตัว** ไม่ใช่ชุดของตัวที่แก้ ⇒ อย่าด่วนสรุปว่าความล้มเหลวอยู่ที่ไฟล์เดียวกับที่เพิ่งแก้ ให้ตาม traceback ไปที่ `cls.` ที่ MRO เลือกผิด
+- **Rule:** (1) 🔴 helper ใน mixin ต้องมีชื่อเฉพาะโดเมน (`_shape_fine_batch`, `_shape_receipt_batch`) — ห้ามใช้ชื่อกลางเหมือน mixin ตัวอื่น (2) 🔴 `cls.<helper>` ใน mixin คือ MRO dispatch ไม่ใช่ lexical ⇒ การทดสอบ mixin เดี่ยว ๆ ไม่พอ ต้องมีชุดทดสอบของ mixin อื่นที่ใช้ชื่อเดียวกันด้วย (3) 🔴 เมื่อเพิ่ม mixin ให้รันเช็กชื่อซ้ำก่อน merge
+- **ซ้ำอีกครั้ง (2026-11-24, P6):** `BaseMixin._student_display_name(conn, student_id)` (ใหม่) ถูก `FinesMixin._student_display_name(row)` ที่อยู่ก่อนใน MRO กลืน ⇒ `TypeError: takes 1 positional argument but 2 were given` ใน `waivers.py`/`refunds.py` ทั้งที่ **ชื่อและอาร์กิวเมนต์เขียนถูก** บทเรียนจากรอบแรกช่วยได้แค่ "ให้สงสัย MRO" — ตัวแก้คือ **ตั้งชื่อให้ยาวและเฉพาะเจาะจงกว่าเดิม** (`_resolve_student_name`) ไม่ใช่พยายามจำรายชื่อที่ห้ามใช้ ⇒ เขียน docstring เตือนชื่อที่ชนไว้ในตัวฟังก์ชันใหม่ด้วย
+- **Tests/Verification:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "python -m pytest -q /app/tests/test_finance_receipt_batches.py /app/tests/test_fine_payments_credits.py"` ผ่านทั้งคู่ · สคริปต์หาชื่อซ้ำคืนรายการว่าง · `test_route_auth_audit.py` จำนวน route 167 → 186 (ค่าปรับเพิ่ม 19 route) · รอบที่สอง: `test_fine_waivers.py` + `test_fine_refunds.py` + `test_fines_issue.py` = 81 passed
+- **Date Added:** 2026-11-24
+
+### 🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)
+
+- **Context/Problem:** Phase 5 ต้องให้หน้าหนี้/รายการหนี้พาไป `/finance/fines/{id}` แทนหน้าโปรเจกต์เก็บเงินที่ซ่อนอยู่ ⇒ `get_student_debts` ถูกแก้ให้ `SELECT FC.collection_kind, F.id AS fine_id` (LEFT JOIN `fines`) ซึ่งคืนค่าได้ถูกต้องเมื่อเรียก service ตรง ๆ แต่ endpoint ประกาศ `response_model=StudentDebtProfileResponse` และ `StudentDebtItem` (ใน `models/finance_schemas.py`) ไม่มีสองฟิลด์นี้ ⇒ FastAPI **ตัดออกให้อัตโนมัติ** ผลลัพธ์คือ API ตอบ 200 และหน้าจอยังพาไปหน้าโปรเจกต์ผิดโดยไม่มี error ใด ๆ
+- **Root Cause:** `response_model` คือ allowlist ไม่ใช่ passthrough — FastAPI serialize ตาม schema เท่านั้น การเพิ่มคอลัมน์ใน SQL/service ไม่ไหลถึง HTTP อัตโนมัติ และเทสต์เดิมของ endpoint เช็กแค่ status/ยอดรวม จึงไม่มีอะไรฟ้อง
+- **Correct Pattern/Solution (2026-11-24):**
+  - เพิ่มฟิลด์ใน Pydantic model พร้อม default ที่ปลอดภัยสำหรับแถวเก่า: `collection_kind: str = "project"`, `fine_id: Optional[int] = None`
+  - เพิ่มเทสต์ระดับ HTTP ที่ **ตรวจค่าฟิลด์** ไม่ใช่แค่ status — `test_my_debts_exposes_fine_link_fields` สร้างบิลโปรเจกต์ + บิลค่าปรับแล้วยืนยัน `collection_kind`/`fine_id` ของทั้งสองแถว (ค่าปรับมีค่า, โปรเจกต์เป็น `None`)
+  - ฝั่ง Vue ใช้ `fine_id` เป็นตัวชี้ขาด (`item.fine_id ? '/finance/fines/{id}' : '/finance/collections/{id}'`) และโชว์ชิป "ค่าปรับ" จาก `collection_kind`
+- **Rule:** (1) 🔴 เมื่อเพิ่มคอลัมน์ให้ query ที่ endpoint ใช้ ต้องเปิดไฟล์ `models/` ที่ตรงกับ `response_model` ทุกครั้ง — SQL ส่งมาแล้วแต่ schema ตัดทิ้งได้ (2) 🔴 เทสต์ของ endpoint ที่ UI พึ่งพา **ต้อง assert ค่าฟิลด์ที่ UI ใช้** ไม่ใช่แค่ 200/ยอดรวม (3) 🔴 ฟิลด์ใหม่ใน response ต้องมี default สำหรับแถวที่ไม่มีค่า เพื่อไม่ให้ client เก่าพัง
+- **Tests/Verification:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "... pytest -q /app/tests/test_finance_me_endpoints.py"` ผ่านทั้ง 10 เทสต์ · `npm run type-check` ผ่าน (types ฝั่ง Vue มี `collection_kind?`/`fine_id?`) · ตรวจด้วย `curl .../me/debts` เห็นสองฟิลด์
+- **Note (Excel):** งานเดียวกันเพิ่มชีต "รายงานอายุหนี้" ใน `export.py` ⇒ เทสต์ที่ assert รายชื่อแผ่นแบบเป๊ะ (`test_finance_http.py::test_web_export_finance_excel_200`, `test_finance_v2_read.py`) ล้มทันที ลำดับแผ่นคือสัญญาของไฟล์ที่ส่งนักบัญชี (ดูบทเรียน `test_finance_journal_export.py` เดิม) — แก้ที่เทสต์ให้ตรงลำดับจริง **ก่อน** merge เท่านั้น
+- **Date Added:** 2026-11-24
+
+### 📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`
+
+- **Context/Problem:** P6 เพิ่ม worker เตือนผู้ค้างชำระ (`finance_reminder_worker`, ตรวจทุก 5 นาที, ส่งเมื่อถึง 09:00 Asia/Bangkok) พร้อมสองช่องทาง: แจ้งในแอปต่อคน และสรุป Discord ต่อห้อง ขณะทดสอบเจอสามกับดักที่ไม่โผล่จนกว่าจะรันจริง:
+  1. ถ้ากันซ้ำด้วยตัวแปรใน process (`last_sent_date`) การรีสตาร์ท worker กลางวัน = ส่งซ้ำทั้งห้องทันที (และ `replicas: 2` ก็ส่งซ้ำ)
+  2. ถ้าเช็ก `now.hour == 9 and now.minute == 0` ลูป 5 นาที **ไม่เคยตรงเป้า** เมื่อรอบตื่นเลื่อนไป 09:01 (งานรอบก่อนช้า 40 วินาที)
+  3. ถ้าตื่น 09:01 แล้วส่งสำเร็จ ตัวแปร `last_sent_date` ถูกตั้ง ⇒ วันถัดไป 09:00 ส่งได้ แต่ถ้า **ตายก่อนตั้งค่า** รอบถัดไป 09:05 จะส่งซ้ำ — ความถูกต้องขึ้นกับลำดับสองบรรทัดที่คนแก้ทีหลังมองไม่เห็น
+- **Correct Pattern/Solution:**
+  ```python
+  # 1) จองสิทธิ์ส่งกับ DB — migration 0010 มี unique (room_id, dispatch_key, channel)
+  claimed = await conn.fetchval(
+      """INSERT INTO reminder_dispatch_log (room_id, dispatch_key, channel, payload)
+         VALUES ($1, $2, $3, $4::jsonb)
+         ON CONFLICT (room_id, dispatch_key, channel) DO NOTHING
+         RETURNING id""",
+      room_id, f"discord:digest:{as_of.isoformat()}", "discord", json.dumps(payload),
+  )
+  if claimed is None:
+      return  # ส่งไปแล้ววันนี้ — ไม่ว่าจะโดยรอบก่อน, replica อื่น, หรือโปรเซสที่ตายไปแล้ว
+
+  # 2) ถึงเวลาหรือยัง = >= (ไม่ใช่ ==) — ลูปตื่นช้าได้เสมอ
+  def is_due(now, hour, minute) -> bool:
+      return (now.hour, now.minute) >= (hour, minute)
+  ```
+  - `pending_publishes` เก็บ (server_id, payload) แล้วยิง `ActionService` **หลัง commit** — ไม่ให้ Redis ล่มแล้ว DB จำว่าส่งแล้ว
+  - worker จับ `UndefinedTableError` ด้วย **SQLSTATE** (`getattr(exc, "sqlstate", None) == "42P01"`) ไม่ใช่ `isinstance` — ทนทั้ง asyncpg จริงและตัวจำลองในเทสต์
+  - เวลาตั้งชื่อ config แบบ namespaced: `FINANCE_REMINDER_TZ` (ไม่ใช่ `TZ`) — container มักมี `TZ=UTC` อยู่แล้ว อ่านค่านั้นจะเลื่อนเส้นแบ่ง "วันนี้" ไป 7 ชั่วโมงเงียบ ๆ
+- **กับดักแยก (ฝั่งบอท):** Discord `embed.add_field(value=...)` มีเพดาน **1,024** ตัวอักษร แต่ `description` **4,096** ⇒ รายชื่อ 20 คน × (เลขที่ + ชื่อไทย+ชื่อเล่น + ยอด) เกิน 1,024 ได้ง่าย แล้ว Discord ตอบ `HTTPException` = **ข้อความหายทั้งใบ** (ไม่ใช่ตัดเนื้อหา) ⇒ ใส่รายการยาวใน description และมีเทสต์วัด `len(description) <= 4096` ด้วยข้อมูลจำลองชื่อ 100 ตัวอักษร 20 คน
+- **Rule:** (1) 🔴 "วันละครั้ง" คือคุณสมบัติของ **ข้อมูล** ไม่ใช่ของ process — ใช้ unique index + `ON CONFLICT DO NOTHING RETURNING` เป็นด่านแรก (2) 🔴 ตัวเช็กนาฬิกาในลูปเป็น `>=`; ตัวเช็ก "ทำวันนี้แล้ว" อยู่ที่ DB (3) 🔴 publish ภายนอก DB หลัง commit เสมอ (4) 🔴 อย่าจอง embed field ให้ข้อมูลที่ยาวไม่จำกัด — ใช้ description + เทสต์ความยาว (5) 🔴 worker ใหม่จับ `42P01` ผ่าน `sqlstate` และ log แล้วรอรอบถัดไป **ห้าม exit**
+- **Tests/Verification:** `pytest -q /app/tests/test_finance_reminders.py` = 11 passed (เลือกบิลเลยกำหนด/ใกล้ครบ, dedupe สองช่องทาง, นักเรียนไร้บัญชีอยู่ใน Discord อย่างเดียว, แบ่งส่วน 20+5, worker ก่อนเวลา/หลังเวลา/42P01) · bot: `python -m unittest tests.test_action_service_finance_events -v` = 11 passed (ช่อง minor/announcement, ไม่ `@everyone`, ป้ายไทย, เพดาน description, payload ขาดฟิลด์, mute)
+- **Date Added:** 2026-11-24
+
+### ⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ
+
+- **Context/Problem:** P6.5 ให้ระบบออกค่าปรับจ่ายล่าช้าเองทุกวันจาก worker ตัวเดียวกับที่ส่งเตือนผู้ค้างชำระ เจอสองเรื่องที่ออกแบบผิดแล้วเจ็บ:
+  1. ถ้ากันซ้ำด้วย `NOT EXISTS (SELECT 1 FROM fines WHERE source_payment_id = ...)` เฉย ๆ worker สองรอบที่เริ่มพร้อมกัน (หรือ replica สองตัว) ต่างมองไม่เห็นแถวของกันและกัน ⇒ ออกค่าปรับซ้ำสองใบให้บิลเดียว และถ้าใช้ `status <> 'cancelled'` ใน unique index ด้วย ครูที่ยกเลิกค่าปรับจะได้มันกลับมาใหม่ทุกเช้า (ลูปไม่มีวันจบ)
+  2. ถ้าสร้าง `fee_collections` แถวเดียวแล้วพยายามให้ "ยอดต่อคน" ต่างกัน บิลจะเก็บยอดของแถวนั้น — แต่ทุก query ผู้ค้างชำระทั้งระบบคำนวณ `FC.amount - SP.paid_amount` ⇒ ยอดค้างของนักเรียนจะไม่ตรงกับบิลจริงทันที
+- **Correct Pattern/Solution:**
+  ```python
+  # 1) ด่านกันซ้ำจริง = unique index ที่ผูกกับบิลต้นทาง *ถาวร*
+  #    migration 0011:
+  CREATE UNIQUE INDEX uq_fines_late_fee_source
+      ON fines (source_payment_id)
+      WHERE source_payment_id IS NOT NULL AND deleted_at IS NULL;
+  #    ⚠️ ไม่ใส่ status <> 'cancelled' โดยเจตนา — ยกเลิกแล้วห้ามระบบออกใหม่เอง
+
+  # 2) insert ใต้ savepoint ต่อบิล + จับ UniqueViolationError = "มีคนออกไปแล้ว"
+  try:
+      async with conn.transaction():          # savepoint
+          await cls._issue_one_late_fee(...)
+  except asyncpg.UniqueViolationError:
+      stats["skipped"] += 1                   # worker อีกตัวชนะ — ไม่ใช่ error
+
+  # 3) ยอดต่อคน = แคมเปญรายคน (FC.amount ตรงกับบิล) ไม่ใช่ FC แถวเดียว
+  INSERT INTO fee_collections (room_id, title, amount, due_date, collection_kind)
+  VALUES ($1, $2, $3, $4, 'project');        # 1 คน = 1 แถว
+  ```
+  - "เรียกเก็บเองรายคน" ใช้กลไกเดียวกัน: 1 รายการ = 1 แถว + `idempotency_key = "{key}:{student_id}"` + partial unique index
+  - ค่าปรับล่าช้า **ห้ามปรับซ้อนค่าปรับ**: query กรอง `FC.collection_kind = 'project'` และแถวใหม่ของค่าปรับเป็น `kind='fine'` (โหมด `late_fee_mode` ค้างที่ default `'none'`)
+  - ใบแจ้งหนี้ของค่าปรับที่ "ระบบ" ออก ต้องส่ง `user_id=None` ไม่ใช่ `0` — `finance_receipts.issued_by` เป็น FK ไป `users`
+  - ค่าปรับที่ระบบออกต้องมี `fines.created_by = NULL` + `auto_late_fee = TRUE` + audit actor `"ระบบ (ค่าปรับล่าช้าอัตโนมัติ)"` เพื่อแยกจากค่าปรับที่ครูออกในรายงาน
+- **Rule:** (1) 🔴 ตัวกันซ้ำของ "เกิดได้ครั้งเดียวตลอดชีพ" ต้องเป็น unique index บน **กุญแจทางธุรกิจ** (บิลต้นทาง) — `NOT EXISTS` เป็นแค่การลดงาน (2) 🔴 อย่าใส่ `status <> 'cancelled'` ใน index ที่กันการออกซ้ำ — จะกลายเป็นลูป (3) 🔴 ยอดบิล/ยอดค้างทั้งระบบอ่าน `FC.amount` ⇒ ยอดต่างกันต่อคน = แถวต่อคน (4) 🔴 งานที่ "ลองใหม่ได้ทุกวัน" ต้อง idempotent ที่ DB ต่อรอบ/ต่อ replica ไม่ใช่ที่ memory (5) 🔴 FK ที่ชี้ `users` ห้ามใช้ `0` แทน "ระบบ" — ใช้ `NULL`
+- **Tests/Verification:** `pytest -q /app/tests/test_finance_late_fees.py /app/tests/test_finance_custom_charges.py` = 15 passed (เลือกบิลตามผ่อนผัน, fixed/percent/เพดานยอดค้าง, accrual 11002/49001, INV-, auto_late_fee, เรียกซ้ำไม่ออกใหม่, เตือนเจ้าของบิล, worker เรียกก่อนเตือน, ยอดต่อคน/รวมซ้ำ, 403, all-or-nothing) ร่วมกับชุดการเงินเดิม 179 passed
+- **Date Added:** 2026-11-24

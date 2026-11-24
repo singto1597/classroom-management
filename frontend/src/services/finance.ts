@@ -13,6 +13,8 @@ import type {
   TransferCreate,
   Collection,
   FeeCollectionCreate,
+  CustomChargeCreate,
+  CustomChargeResponse,
   CollectionStatus,
   FeeCollectionUpdate,
   PaymentConfirm,
@@ -53,7 +55,27 @@ import type {
   CreditTopUpResponse,
   CreditApplyRequest,
   CreditUndoRequest,
-  CreditUndoResponse
+  CreditUndoResponse,
+  FineType, // ⚖️ [P5] ค่าปรับ
+  FineTypeCreate,
+  FineTypeUpdate,
+  FineListQuery,
+  FineListResponse,
+  FineDetail,
+  FineIssueRequest,
+  FineIssueResponse,
+  FineUpdateRequest,
+  FineCancelRequest,
+  FineWaiverCreate,
+  FineWaiverDecision,
+  FineWaiverListResponse,
+  FineWaiverActionResponse,
+  FineRefundCreate,
+  FineRefundDecision,
+  FineRefundListResponse,
+  FineRefundActionResponse,
+  AgingResponse,
+  FineSummary
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -161,6 +183,12 @@ export const FinanceService = {
 
   async createCollection(roomId: number, payload: FeeCollectionCreate): Promise<ApiSuccessResponse> {
     return await api.post(`/api/classroom/${roomId}/finance/collections?target_type=room`, payload) as unknown as ApiSuccessResponse;
+  },
+
+  // 🧾 [P6.5] เรียกเก็บเงินเองรายบุคคล — หลายคน คนละยอด ภายใต้ชื่อเดียวกัน
+  //    ⚠️ idempotency_key บังคับ: กดซ้ำคีย์เดิมได้ผลเดิม (ไม่สร้างบิลซ้ำ)
+  async createCustomCharges(roomId: number, payload: CustomChargeCreate): Promise<CustomChargeResponse> {
+    return await api.post(`/api/classroom/${roomId}/finance/custom-charges?target_type=room`, payload) as unknown as CustomChargeResponse;
   },
 
   async getCollectionStatus(roomId: number, collectionId: number): Promise<CollectionStatus> {
@@ -577,5 +605,216 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/credits/undo?target_type=room`,
       payload
     ) as unknown as CreditUndoResponse;
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // ⚖️ [P5] ค่าปรับ — ประเภทความผิด · ออก/แก้/ยกเลิก · คำขอยกเว้น · คำขอคืนเงิน
+  // ════════════════════════════════════════════════════════════════════════════
+  // 🔐 อ่าน: สมาชิกห้อง (backend กรองเฉพาะของตัวเองให้) · เขียน: ต้อง MANAGE_FINANCE
+  //    ⇒ หน้าจอ gate ปุ่มเขียนด้วย `canManageFinance` ไม่ใช่ `isAdmin`
+  // ⚠️ ลำดับ path: `fines/summary` **ต้องเรียกก่อน** `fines/{id}` ในฝั่ง backend แล้ว
+  //    (ประกาศ fixed path ก่อน dynamic) — ฝั่ง client ไม่มีปัญหาแต่จำไว้เวลาเพิ่ม route
+
+  // ── ประเภทความผิด ──
+  async getFineTypes(roomId: number, activeOnly = false): Promise<FineType[]> {
+    return await api.get(`/api/classroom/${roomId}/finance/fine-types`, {
+      params: { target_type: 'room', active_only: activeOnly }
+    }) as unknown as FineType[];
+  },
+
+  async createFineType(roomId: number, payload: FineTypeCreate): Promise<ApiSuccessResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fine-types?target_type=room`,
+      payload
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  // ⚠️ PATCH + `exclude_unset` ฝั่ง backend ⇒ ส่งเฉพาะฟิลด์ที่จะแก้
+  async updateFineType(
+    roomId: number,
+    fineTypeId: number,
+    payload: FineTypeUpdate
+  ): Promise<ApiSuccessResponse> {
+    return await api.patch(
+      `/api/classroom/${roomId}/finance/fine-types/${fineTypeId}?target_type=room`,
+      payload
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  async deleteFineType(roomId: number, fineTypeId: number): Promise<ApiSuccessResponse> {
+    return await api.delete(
+      `/api/classroom/${roomId}/finance/fine-types/${fineTypeId}?target_type=room`
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  // ── ออกค่าปรับ (หลายคนพร้อมกัน) ──
+  // 🔑 `idempotency_key` บังคับ — สร้างด้วย `newIdempotencyKey()` และคงเดิมตลอดการกดครั้งเดียว
+  async issueFines(roomId: number, payload: FineIssueRequest): Promise<FineIssueResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fines?target_type=room`,
+      payload
+    ) as unknown as FineIssueResponse;
+  },
+
+  // 🔎 รายการค่าปรับ — `query` ที่ไม่ใส่ = ไม่กรอง (backend default limit 200)
+  async listFines(roomId: number, query: FineListQuery = {}): Promise<FineListResponse> {
+    return await api.get(`/api/classroom/${roomId}/finance/fines`, {
+      params: { target_type: 'room', ...query }
+    }) as unknown as FineListResponse;
+  },
+
+  async getFine(roomId: number, fineId: number): Promise<FineDetail> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/fines/${fineId}`,
+      { params: { target_type: 'room' } }
+    ) as unknown as FineDetail;
+  },
+
+  // ✏️ แก้ไขก่อนจ่ายเท่านั้น (backend บล็อกถ้ามีการจ่ายแล้ว) — void/ออก INV ใหม่ให้เอง
+  async updateFine(
+    roomId: number,
+    fineId: number,
+    payload: FineUpdateRequest
+  ): Promise<ApiSuccessResponse> {
+    return await api.patch(
+      `/api/classroom/${roomId}/finance/fines/${fineId}?target_type=room`,
+      payload
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  // ❌ ยกเลิกก่อนจ่าย (กลับ journal + soft delete บิล) — จ่ายแล้วต้องใช้ยกเว้น/คืนเงิน
+  async cancelFine(
+    roomId: number,
+    fineId: number,
+    payload: FineCancelRequest = {}
+  ): Promise<ApiSuccessResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fines/${fineId}/cancel?target_type=room`,
+      payload
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  // 📊 สรุปแดชบอร์ดค่าปรับ — คำนวณฝั่ง backend ทั้งหมด
+  async getFineSummary(roomId: number, asOf?: string): Promise<FineSummary> {
+    return await api.get(`/api/classroom/${roomId}/finance/fines/summary`, {
+      params: { target_type: 'room', as_of: asOf }
+    }) as unknown as FineSummary;
+  },
+
+  // ── คำขอยกเว้น / ลด ──
+  async requestWaiver(
+    roomId: number,
+    fineId: number,
+    payload: FineWaiverCreate
+  ): Promise<FineWaiverActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fines/${fineId}/waivers?target_type=room`,
+      payload
+    ) as unknown as FineWaiverActionResponse;
+  },
+
+  async listWaivers(
+    roomId: number,
+    query: { status?: string; fine_id?: number; limit?: number; offset?: number } = {}
+  ): Promise<FineWaiverListResponse> {
+    return await api.get(`/api/classroom/${roomId}/finance/fine-waivers`, {
+      params: { target_type: 'room', ...query }
+    }) as unknown as FineWaiverListResponse;
+  },
+
+  // ⚠️ backend ปฏิเสธ 403 ถ้าผู้อนุมัติเป็นผู้สร้างค่าปรับหรือผู้ขอ (ห้ามอนุมัติตัวเอง)
+  async approveWaiver(
+    roomId: number,
+    waiverId: number,
+    payload: FineWaiverDecision = {}
+  ): Promise<FineWaiverActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fine-waivers/${waiverId}/approve?target_type=room`,
+      payload
+    ) as unknown as FineWaiverActionResponse;
+  },
+
+  async rejectWaiver(
+    roomId: number,
+    waiverId: number,
+    payload: FineWaiverDecision = {}
+  ): Promise<FineWaiverActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fine-waivers/${waiverId}/reject?target_type=room`,
+      payload
+    ) as unknown as FineWaiverActionResponse;
+  },
+
+  async cancelWaiver(
+    roomId: number,
+    waiverId: number,
+    payload: FineWaiverDecision = {}
+  ): Promise<FineWaiverActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fine-waivers/${waiverId}/cancel?target_type=room`,
+      payload
+    ) as unknown as FineWaiverActionResponse;
+  },
+
+  // ── คำขอคืนเงิน ──
+  async requestRefund(
+    roomId: number,
+    fineId: number,
+    payload: FineRefundCreate
+  ): Promise<FineRefundActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fines/${fineId}/refunds?target_type=room`,
+      payload
+    ) as unknown as FineRefundActionResponse;
+  },
+
+  async listRefunds(
+    roomId: number,
+    query: { status?: string; fine_id?: number; limit?: number; offset?: number } = {}
+  ): Promise<FineRefundListResponse> {
+    return await api.get(`/api/classroom/${roomId}/finance/fine-refunds`, {
+      params: { target_type: 'room', ...query }
+    }) as unknown as FineRefundListResponse;
+  },
+
+  // อนุมัติ = จ่ายเงินจริง (PV-) — backend ตรวจยอดกระเป๋าพอ + ห้ามอนุมัติตัวเอง
+  async approveRefund(
+    roomId: number,
+    refundId: number,
+    payload: FineRefundDecision = {}
+  ): Promise<FineRefundActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fine-refunds/${refundId}/approve?target_type=room`,
+      payload
+    ) as unknown as FineRefundActionResponse;
+  },
+
+  async rejectRefund(
+    roomId: number,
+    refundId: number,
+    payload: FineRefundDecision = {}
+  ): Promise<FineRefundActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fine-refunds/${refundId}/reject?target_type=room`,
+      payload
+    ) as unknown as FineRefundActionResponse;
+  },
+
+  async cancelRefund(
+    roomId: number,
+    refundId: number,
+    payload: FineRefundDecision = {}
+  ): Promise<FineRefundActionResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/fine-refunds/${refundId}/cancel?target_type=room`,
+      payload
+    ) as unknown as FineRefundActionResponse;
+  },
+
+  // ── 📊 รายงานอายุหนี้ ──
+  async getReceivablesAging(roomId: number, asOf?: string): Promise<AgingResponse> {
+    return await api.get(`/api/classroom/${roomId}/finance/receivables/aging`, {
+      params: { target_type: 'room', as_of: asOf }
+    }) as unknown as AgingResponse;
   }
 };

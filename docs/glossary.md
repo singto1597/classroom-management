@@ -104,6 +104,18 @@
 | **เงินรับล่วงหน้า** | เงินที่นักเรียนจ่ายเก็บไว้ก่อน (เครดิต) | `student_credits` | เครดิต · credit |
 | **งบประมาณ** | วงเงินที่ตั้งไว้ต่อหมวด | `finance_budgets` | budget |
 | **งบการเงิน** | รายงานสรุปฐานะ (รายรับ–รายจ่าย) | `/finance/statements` | ใบงบ · statement |
+| **ค่าปรับ** | บิลที่ออกจากการทำผิดกฎ/ไม่ทำเวร — 1 ครั้ง : 1 คน = 1 ใบ (มี INV- ของตัวเอง) | `fines`, `/finance/fines` | ปรับ · penalty · penalty bill |
+| **ประเภทความผิด** | แบบค่าปรับที่ตั้งไว้ล่วงหน้าพร้อมอัตราเริ่มต้น (แก้ต่อครั้งได้) | `fine_types` | หมวดค่าปรับ · fine type |
+| **คำขอยกเว้น** | คำขออนุมัติลด/ยกเว้นค่าปรับ มี 2 เหตุผล: ส่วนลด (`discount`) / หนี้สูญ (`uncollectible`) | `fine_waivers`, `/finance/fines?tab=approvals` | ขอยกเว้น (เดี่ยว ๆ) · ส่วนลด (เมื่อหมายถึงคำขอ) |
+| **คำขอคืนเงิน** | คำขอคืนเงินให้ผู้ปกครองหลังชำระค่าปรับแล้ว (PV-) — ไม่เปิดหนี้ใหม่ | `fine_refunds` | ขอคืน · refund |
+| **รายงานอายุหนี้** | ตารางผู้ค้างชำระแยกตามถังอายุ: ยังไม่ครบกำหนด · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · ไม่ระบุกำหนด | `/finance/aging` | aging · รายงานลูกหนี้คงค้าง |
+| **ผู้ค้างชำระค่าโครงการ** | บัญชีสินทรัพย์ `11001` สำหรับบิลโปรเจกต์เก็บเงิน | `account_code='11001'` | AR โครงการ |
+| **ผู้ค้างชำระค่าปรับ** | บัญชีสินทรัพย์ `11002` สำหรับบิลค่าปรับ | `account_code='11002'` | AR ค่าปรับ |
+| **ยอดค้างชำระของฉัน** | หน้าส่วนตัวที่นักเรียนเห็นเฉพาะบิลค้างของตัวเอง | `/finance/my-debts` | หนี้ของฉัน · my debts |
+| **แจ้งเตือนผู้ค้างชำระ** | ข้อความอัตโนมัติวันละครั้ง (09:00) รวม "เลยกำหนด" + "ครบกำหนดใน 3 วัน" — ประกาศในช่องห้อง + แจ้งในแอปเฉพาะคนที่ค้าง | `debt_reminder`, `reminder_dispatch_log` | แจ้งหนี้ · ทวงหนี้ · reminder |
+| **ค่าปรับจ่ายล่าช้า** | ค่าปรับที่ระบบออก **อัตโนมัติ** ให้บิลโปรเจกต์ที่เลยกำหนด + วันผ่อนผันแล้ว — นโยบายตั้งต่อแคมเปญ (ไม่ปรับ / จำนวนเงิน / เปอร์เซ็นต์ของยอดคงเหลือ) | `fee_collections.late_fee_mode`, `fines.auto_late_fee`, `late_fee_source` | late fee · ค่าเลยกำหนด |
+| **วันผ่อนผัน** | จำนวนวันหลังครบกำหนดที่ยังไม่ปรับ (ตั้งต่อแคมเปญ — `late_fee_grace_days`) | `late_fee_grace_days` | grace days |
+| **เรียกเก็บเอง (รายคน)** | สร้างบิลให้นักเรียนที่เลือก โดยแต่ละคน **มียอดของตัวเอง** ภายใต้ชื่อรายการเดียวกัน (ไม่ใช่แคมเปญยอดเดียวทั้งห้อง) | `POST /finance/custom-charges`, `fee_collections.idempotency_key` | custom charge · charge manually |
 
 ### เอกสารการเงิน — `finance_receipts.doc_type`
 
@@ -127,6 +139,24 @@
 |---|---|
 | `active` | **ใช้งาน** |
 | `voided` | **ยกเลิกแล้ว** |
+
+### สถานะค่าปรับ — `fines.status`
+
+> แหล่งเดียว: `backend/services/finance/constants.py` (`FINE_STATUS_LABELS`) ↔
+> `frontend/src/constants/financeFines.ts` (`FINE_STATUS_LABELS`, `FINE_STATUS_TONES`)
+
+| ค่าใน DB | คำไทย | เกิดเมื่อ |
+|---|---|---|
+| `issued` | **ออกแล้ว** | ออกบิล ยังไม่มีเงินเข้า |
+| `partially_paid` | **ชำระบางส่วน** | มีเงินเข้า/เครดิตบางส่วน |
+| `paid` | **ชำระแล้ว** | คงเหลือ 0 |
+| `waived` | **ยกเว้น / ลด** | อนุมัติคำขอยกเว้นจนคงเหลือ 0 |
+| `cancelled` | **ยกเลิก** | ยกเลิก *ก่อน* มีการจ่าย |
+| `refunded` | **คืนเงินแล้ว** | คืนเงินจนสุทธิเหลือ 0 |
+
+สถานะคำขอ (`fine_waivers.status` / `fine_refunds.status`): `pending` **รออนุมัติ** ·
+`approved` **อนุมัติแล้ว** · `rejected` **ไม่อนุมัติ** · `cancelled` **ยกเลิกคำขอ**
+เหตุผลคำขอยกเว้น (`reason_category`): `discount` **ส่วนลดค่าปรับ** · `uncollectible` **หนี้สูญ (ตามไม่ได้)**
 
 ## 4. วัน · เวลา · ตัวเลข
 
@@ -157,8 +187,15 @@
 | ช่วงงดรบกวน | `app_settings` ที่คีย์ `quiet_hours` (`QUIET_HOURS_KEY`) |
 | รายรับ/รายจ่าย | `income` / `expense` (ใน `finance_transactions.type`) |
 | ใบเสร็จ / ใบแจ้งหนี้ / ใบรับเงินล่วงหน้า | `receipt` / `invoice` / `deposit` |
-| ผู้ค้างชำระ | `debtor` |
+| ผู้ค้างชำระ | `debtor` · บิลเปิด = `open bill` (`_open_bill_predicate`) |
 | เงินรับล่วงหน้า | `credit` |
+| ค่าปรับ | `fine` (ตาราง `fines`) · โปรเจกต์ซ่อน = `collection_kind` = `'fine'` |
+| ประเภทความผิด | `fine_type` (ตาราง `fine_types`) |
+| คำขอยกเว้น / คำขอคืนเงิน | `waiver` / `refund` (ตาราง `fine_waivers` / `fine_refunds`) |
+| รายงานอายุหนี้ | `aging` (`/finance/receivables/aging`, `AGING_BUCKETS`) |
+| แจ้งเตือนผู้ค้างชำระ | `debt_reminder` (`notifications.type`) · ตัวกันส่งซ้ำ = `reminder_dispatch_log` (ช่อง `inapp` / `discord`) · worker `finance_reminder_worker` |
+| ค่าปรับจ่ายล่าช้า | `late_fee` · โหมด `none`/`fixed`/`percent` · 1 บิลต้นทาง = 1 ค่าปรับ (`fines.source_payment_id` + unique `uq_fines_late_fee_source`) · เรียกใช้ `FinanceService.apply_late_fees` (ก่อนเตือนรายวัน) |
+| เรียกเก็บเอง (รายคน) | `custom_charge` · 1 รายการ = 1 `fee_collections` (`kind='project'`) + `idempotency_key` = `"{key}:{student_id}"` · service `create_custom_charges` |
 | ยืนยันตัวตน | `identity_claimed` · `accept_invite` |
 | คำเชิญยืนยันตัวตน | `invite` (`list_my_invites`) |
 | ข้อมูลเฉพาะห้อง | `student_room_profiles` · resolved view = `v_student_profiles` |

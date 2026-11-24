@@ -358,3 +358,67 @@ describe('FinanceService — กับดักเดิมยังมีจร
     expect(body['note']).toBeNull();
   });
 });
+
+describe('FinanceService — ⚖️ ค่าปรับ/รายงานอายุหนี้ (P5) สัญญา URL', () => {
+  const ROOM = 42;
+
+  it('🔴 getFineSummary ยิง /fines/summary (static) ไม่ใช่ /fines/{id} — backend ประกาศ static ก่อน', async () => {
+    await FinanceService.getFineSummary(ROOM, '2026-11-24');
+    const uri = firstUri();
+    expect(uri).toContain(`/api/classroom/${ROOM}/finance/fines/summary`);
+    expect(uri).toContain('as_of=2026-11-24');
+    expect(uri).toContain('target_type=room');
+  });
+
+  it('getFine ยิง /fines/{id} พร้อม target_type=room', async () => {
+    await FinanceService.getFine(ROOM, 77);
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/fines/77?`);
+    expect(decodeURIComponent(firstUri())).toContain('target_type=room');
+  });
+
+  it('listFines ส่งตัวกรองลง query (status/type/limit) ไม่ยัดใน body', async () => {
+    await FinanceService.listFines(ROOM, { status: 'issued', student_id: 5, limit: 50 });
+    const uri = decodeURIComponent(firstUri());
+    expect(uri).toContain('status=issued');
+    expect(uri).toContain('student_id=5');
+    expect(uri).toContain('limit=50');
+    expect(uri).toContain('target_type=room');
+    expect(first().body).toBeUndefined();
+  });
+
+  it('🔴 issueFines ส่ง idempotency_key + students ไปใน body (กดซ้ำคืนผลเดิม)', async () => {
+    await FinanceService.issueFines(ROOM, {
+      fine_type_id: 3,
+      student_ids: [11, 12],
+      idempotency_key: 'idem-123',
+    } as never);
+    expect(first().method).toBe('POST');
+    expect(firstBody()).toMatchObject({
+      idempotency_key: 'idem-123',
+      student_ids: [11, 12],
+    });
+  });
+
+  it('cancelFine ใช้ POST /fines/{id}/cancel (ไม่ใช่ DELETE)', async () => {
+    await FinanceService.cancelFine(ROOM, 77, { reason: 'ออกผิด' } as never);
+    expect(first().method).toBe('POST');
+    expect(firstUri()).toContain('/finance/fines/77/cancel');
+  });
+
+  it('อนุมัติคำขอยกเว้น/คืนเงินใช้ /fine-waivers|fine-refunds/{id}/approve', async () => {
+    await FinanceService.approveWaiver(ROOM, 9, {});
+    expect(firstUri()).toContain('/finance/fine-waivers/9/approve');
+
+    captured.length = 0;
+    await FinanceService.approveRefund(ROOM, 4, {});
+    expect(firstUri()).toContain('/finance/fine-refunds/4/approve');
+  });
+
+  it('getReceivablesAging ยิง /finance/receivables/aging พร้อม as_of', async () => {
+    await FinanceService.getReceivablesAging(ROOM, '2026-11-24');
+    const uri = decodeURIComponent(firstUri());
+    expect(uri).toContain('/finance/receivables/aging');
+    expect(uri).toContain('as_of=2026-11-24');
+    expect(uri).toContain('target_type=room');
+  });
+});

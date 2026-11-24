@@ -81,7 +81,7 @@ jobs:
           # 🔢 จำนวนนี้ **ตั้งใจให้ต้องอัปเดตมือเมื่อเพิ่ม service ที่ใช้ image**
           #    (เหมือน `test_route_count_is_not_silently_shrinking`) เพื่อให้คนเพิ่ม
           #    service ใหม่ได้ทบทวนว่า image ของตัวเองมีกับดัก `:?` ครบ
-          EXPECTED_IMAGE_LINES = 4  # backend · frontend · bot_discord · push_worker (2026-11-01)
+          EXPECTED_IMAGE_LINES = 5  # backend · frontend · bot_discord · push_worker · finance_reminder_worker (2026-11-24)
 
           lines = pathlib.Path('docker-compose.app.yml').read_text(encoding='utf-8').splitlines()
           img_lines = [l for l in lines if re.match(r'\s*image:', l)]

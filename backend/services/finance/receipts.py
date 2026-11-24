@@ -47,7 +47,7 @@ from core.rbac import require_permission, require_member
 from .base import _lock_payments_in_order, _lock_room_money, service_logger
 from .baht_text import baht_text
 from .constants import (
-    BATCH_SOURCE_AUTO, BATCH_SOURCE_ROOM,
+    BATCH_SOURCE_AUTO, BATCH_SOURCE_ROOM, COLLECTION_KIND_PROJECT,
     BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_DEPOSIT,
     DOC_TYPE_INCOME, DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES,
     DOC_TYPE_PAYMENT_VOUCHER, DOC_TYPE_RECEIPT,
@@ -332,6 +332,7 @@ class ReceiptsMixin:
                    SP.deleted_at AS payment_deleted_at,
                    FC.id AS collection_id, FC.title AS collection_title,
                    FC.amount AS collection_amount, FC.status AS collection_status,
+                   FC.collection_kind AS collection_kind,
                    S.id AS student_id, S.student_no,
                    U.first_name, U.last_name, U.nickname, U.first_name_en,
                    R.room_name, R.room_code
@@ -424,15 +425,14 @@ class ReceiptsMixin:
     ) -> List:
         """บิลที่ยังค้างของนักเรียน 1 คน — **ทีละแถวต่อบิล** พร้อมยอดที่ต้องใช้คำนวณ
 
-        🔴 predicate ต้อง **เหมือน `CollectionsMixin.get_all_debtors` เป๊ะ**:
-              `S.room_id = $1 AND SP.status = 'pending'`
-              ไม่กรอง `FC.status`  ·  ไม่กรอง `SP.deleted_at`
+        🔴 predicate ต้อง **เหมือน `CollectionsMixin.get_all_debtors` เป๊ะ** — ใช้
+           `OPEN_BILL_PREDICATE` ตัวกลาง (ไม่กรอง `FC.status`) + กรองของโปรเจกต์เท่านั้น
            หน้าลูกหนี้โชว์ยอดด้วย predicate ชุดนี้ ⇒ ถ้าที่นี่กรองต่างออกไป ใบแจ้งหนี้
            จะมียอดไม่เท่ากับตัวเลขที่ครูเพิ่งเห็นบนจอ แล้วครูเถียงกับผู้ปกครองไม่ได้
            (มีเทสต์บังคับความเท่ากันนี้ตรง ๆ — ดู `test_finance_invoices.py`)
-           ⚠️ `SP.deleted_at` **ไม่มีใครตั้งค่าเลยทั้งโปรเจกต์** (`remove_student_from_collection`
-              ใช้ `DELETE FROM student_payments` จริง) ⇒ ใส่ `IS NULL` เพิ่มจะไม่เปลี่ยนผล
-              แต่จะทำให้ predicate หลุดจากหน้าจอ = เสี่ยงโดยไม่ได้อะไร
+
+        🚫 `collection_kind = 'project'` — ใบแจ้งหนี้ **รวมยอด** เป็นของโปรเจกต์เท่านั้น
+           ค่าปรับมีใบ INV- รายบิลของตัวเอง (ดู `_issue_fine_invoice`)
 
         🎯 ไม่มี `HAVING` ⇒ นักเรียนที่ไม่ค้างเลยได้ **0 แถว** (ไม่ใช่แถวที่ยอด 0)
            ⇒ ผู้เรียกแยก "ไม่มีอะไรให้แจ้งหนี้" ออกจาก "ยอด 0" ได้ตรง ๆ
@@ -442,7 +442,7 @@ class ReceiptsMixin:
            ⇒ ไม่ต้อง `FOR UPDATE` ที่นี่ และ **ห้ามใส่**: `FOR UPDATE` จะล็อกตามลำดับที่ planner
            เลือก ซึ่งเป็นสิ่งเดียวกับที่ `_lock_payments_in_order` ถูกเขียนขึ้นมาป้องกัน
         """
-        return await conn.fetch("""
+        return await conn.fetch(f"""
             SELECT SP.id AS payment_id, FC.id AS collection_id, FC.title,
                    FC.amount AS bill_amount, COALESCE(SP.paid_amount, 0) AS paid_amount,
                    (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding,
@@ -452,9 +452,11 @@ class ReceiptsMixin:
             LEFT JOIN v_student_profiles U ON U.student_id = S.id
             JOIN student_payments SP ON S.id = SP.student_id
             JOIN fee_collections FC ON SP.collection_id = FC.id
-            WHERE S.id = $1 AND S.room_id = $2 AND SP.status = 'pending'
-            ORDER BY FC.status ASC, FC.due_date ASC
-        """, student_id, room_id)
+            WHERE S.id = $1 AND S.room_id = $2
+              AND {cls._open_bill_predicate()}
+              AND FC.collection_kind = $3
+            ORDER BY FC.due_date ASC, FC.id ASC
+        """, student_id, room_id, COLLECTION_KIND_PROJECT)
 
     @classmethod
     async def _list_room_debtors(cls, conn: asyncpg.Connection, room_id: int) -> List:
@@ -465,7 +467,7 @@ class ReceiptsMixin:
            ส่วนรายละเอียดรายบรรทัดถูกอ่านอีกครั้งต่อคนใน `_issue_invoice_aggregate`
            ⇒ predicate ยังเป็นชุดเดียวกับ `get_all_debtors` ตามกฎด้านบน
         """
-        return await conn.fetch("""
+        return await conn.fetch(f"""
             SELECT S.id AS student_id, S.student_no,
                    U.first_name, U.nickname, U.first_name_en,
                    SUM(FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
@@ -473,10 +475,11 @@ class ReceiptsMixin:
             LEFT JOIN v_student_profiles U ON U.student_id = S.id
             JOIN student_payments SP ON S.id = SP.student_id
             JOIN fee_collections FC ON SP.collection_id = FC.id
-            WHERE S.room_id = $1 AND SP.status = 'pending'
+            WHERE S.room_id = $1 AND {cls._open_bill_predicate()}
+              AND FC.collection_kind = $2
             GROUP BY S.id, S.student_no, U.first_name, U.nickname, U.first_name_en
             ORDER BY S.student_no ASC
-        """, room_id)
+        """, room_id, COLLECTION_KIND_PROJECT)
 
     @staticmethod
     def _debtor_display_name(row) -> str:
@@ -862,6 +865,126 @@ class ReceiptsMixin:
             json.dumps(line_items, ensure_ascii=False),
         )
 
+    # ================================================================ ค่าปรับ
+    @classmethod
+    async def _issue_fine_invoice(
+        cls, conn: asyncpg.Connection, *, room_id: int, payment_id: int,
+        fine_id: int, fine_type_name: str, incident_date, due_date,
+        reason: str, amount: float, user_id: Optional[int], user_name: str,
+        note: Optional[str] = None, issued_at_db: Optional[datetime] = None,
+    ):
+        """ออก **ใบแจ้งหนี้รายบิลของค่าปรับ** (`INV-`) — 1 บิลค่าปรับ = 1 ใบ
+
+        🔴 เส้นทางแยกจาก `_issue_one` **โดยเจตนา** — คอมเมนต์ใน `_issue_one:652-659`
+           ห้ามเปิดสาขาใบแจ้งหนี้รายบิลกลับมาที่นั่น (ไม่มีเทสต์คุ้มเรื่อง idempotency
+           ของสองทางที่เขียนแถวเดียวกัน) · ที่นี่มี `uq_journal_bill_issue`-คู่แฝดคือ
+           `idx_finance_receipts_fine_invoice_active` เป็นด่าน DB + re-read เมื่อแพ้การแข่ง
+
+        คืน **แถวดิบ** จาก INSERT (caller เป็นคน `_shape_receipt`)
+
+        ⚠️ caller ถือ `_lock_room_money` แล้ว (fines service ยึดก่อนแตะบิล)
+        """
+        if issued_at_db is None:
+            issued_at_db = await conn.fetchval("SELECT CURRENT_TIMESTAMP")
+        document_amount = round(float(amount), 2)
+        if document_amount <= 0:
+            raise ValueError("ยอดค่าปรับน้อยกว่า 0.01 บาท จึงออกใบแจ้งหนี้ไม่ได้")
+
+        existing = await conn.fetchrow(
+            f"""SELECT {_RECEIPT_COLUMNS} FROM finance_receipts R
+                WHERE R.student_payment_id = $1 AND R.room_id = $2
+                  AND R.doc_type = $3 AND R.status = '{DOC_STATUS_ACTIVE}'
+                  AND R.deleted_at IS NULL
+                LIMIT 1""",
+            payment_id, room_id, DOC_TYPE_INVOICE,
+        )
+        if existing:
+            return existing
+
+        pay = await cls._load_payment(conn, payment_id, room_id)
+        if not pay:
+            raise PaymentNotFoundError("ไม่พบรายการชำระเงินนี้ในห้องของคุณ")
+
+        year_be = issued_at_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
+        seq = await conn.fetchval(
+            """INSERT INTO receipt_sequences (room_id, year_be, doc_type, last_seq)
+               VALUES ($1, $2, $3, 1)
+               ON CONFLICT (room_id, year_be, doc_type)
+               DO UPDATE SET last_seq = receipt_sequences.last_seq + 1,
+                             updated_at = CURRENT_TIMESTAMP
+               RETURNING last_seq""",
+            room_id, year_be, DOC_TYPE_INVOICE,
+        )
+        if seq > RECEIPT_SEQ_MAX:
+            raise ValueError(RECEIPT_SEQ_OVERFLOW_MSG)
+        receipt_no = RECEIPT_NO_TEMPLATE.format(
+            prefix=DOC_TYPE_PREFIXES[DOC_TYPE_INVOICE], year_be=year_be, seq=seq,
+        )
+
+        line_items = [{
+            "title": f"ค่าปรับ: {fine_type_name}",
+            "amount": document_amount,
+            "due_date": due_date.isoformat() if hasattr(due_date, "isoformat") else due_date,
+            "fine_type": fine_type_name,
+            "incident_date": incident_date.isoformat() if hasattr(incident_date, "isoformat") else incident_date,
+            "reason": reason,
+        }]
+
+        try:
+            # 🔁 SAVEPOINT — การแข่งกันของ unique index ต้องกู้ transaction กลับได้
+            async with conn.transaction():
+                return await conn.fetchrow(
+                    """INSERT INTO finance_receipts
+                           (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
+                            legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
+                            issued_to_name, issued_by, issued_by_name, note, event_at, issued_at, line_items)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
+                       RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
+                                 student_payment_id, legacy_transaction_id, student_id, collection_id,
+                                 amount, paid_total_after, issued_to_name, issued_by_name, note,
+                                 event_at, status, voided_at, voided_by, void_reason, issued_at, line_items""",
+                    room_id, receipt_no, DOC_TYPE_INVOICE, year_be, seq, payment_id,
+                    None, pay["student_id"], pay["collection_id"],
+                    document_amount, round(float(pay["paid_amount"] or 0), 2),
+                    cls._display_name(pay), user_id, user_name, note,
+                    issued_at_db, issued_at_db,
+                    json.dumps(line_items, ensure_ascii=False),
+                )
+        except asyncpg.UniqueViolationError:
+            # แพ้การแข่ง: คำขออื่นออกใบของบิลนี้ไปก่อน ⇒ คืนใบที่ชนะ
+            raced = await conn.fetchrow(
+                f"""SELECT {_RECEIPT_COLUMNS} FROM finance_receipts R
+                    WHERE R.student_payment_id = $1 AND R.room_id = $2
+                      AND R.doc_type = $3 AND R.status = '{DOC_STATUS_ACTIVE}'
+                      AND R.deleted_at IS NULL
+                    LIMIT 1""",
+                payment_id, room_id, DOC_TYPE_INVOICE,
+            )
+            if raced:
+                return raced
+            raise ValueError("เลขเอกสารซ้ำ กรุณาลองใหม่อีกครั้ง")
+
+    @classmethod
+    async def _void_invoice_for_payment(
+        cls, conn: asyncpg.Connection, *, room_id: int, payment_id: int,
+        user_id: Optional[int], reason: str,
+    ) -> int:
+        """void ใบแจ้งหนี้ที่ยัง active ของบิลนี้ (คืนจำนวนใบ)
+
+        🗓️ ใช้เมื่อยอด/ข้อมูลบนใบเปลี่ยน — ใบใหม่จะถูกออกโดย caller (ถ้ายังมียอดคงเหลือ)
+        """
+        rows = await conn.fetch(
+            """UPDATE finance_receipts
+               SET status = $4, voided_at = CURRENT_TIMESTAMP,
+                   voided_by = $5, void_reason = $6, deleted_at = NOW()
+               WHERE room_id = $1 AND student_payment_id = $2
+                 AND doc_type = $3 AND status = $7 AND deleted_at IS NULL
+               RETURNING id""",
+            room_id, payment_id, DOC_TYPE_INVOICE,
+            DOC_STATUS_VOIDED, user_id, reason, DOC_STATUS_ACTIVE,
+        )
+        return len(rows)
+
     @classmethod
     async def _issue_deposit(
         cls, conn: asyncpg.Connection, target_room_id: int, student_id: int,
@@ -1126,8 +1249,9 @@ class ReceiptsMixin:
         cls, conn: asyncpg.Connection, target_room_id: int, transaction_id: int,
         amount: float, payee_name: str, user_id: int, user_name: str,
         note: Optional[str], event_at_db: datetime, issued_at_db: datetime,
-        account_id: int, category_id: int, approver_name: Optional[str],
+        account_id: int, category_id: Optional[int], approver_name: Optional[str],
         attachment_count: int,
+        category_label_override: Optional[str] = None,
     ) -> dict:
         """[F6] ออก **ใบสำคัญจ่าย** (`doc_type='payment_voucher'`) ให้รายจ่ายที่บันทึกเอง
 
@@ -1172,6 +1296,7 @@ class ReceiptsMixin:
         snapshot = await cls._build_voucher_snapshot(
             conn, target_room_id, account_id, category_id, event_at_db,
             approver_name, attachment_count,
+            category_label_override=category_label_override,
         )
 
         year_be = event_at_db.astimezone(THAI_TZ).year + BUDDHIST_ERA_OFFSET
@@ -1231,8 +1356,10 @@ class ReceiptsMixin:
 
     @classmethod
     async def _build_voucher_snapshot(
-        cls, conn: asyncpg.Connection, room_id: int, account_id: int, category_id: int,
+        cls, conn: asyncpg.Connection, room_id: int, account_id: int,
+        category_id: Optional[int],
         event_at_db: datetime, approver_name: Optional[str], attachment_count: int,
+        *, category_label_override: Optional[str] = None,
     ) -> str:
         """ประกอบ `voucher_snapshot` (jsonb) ของใบสำคัญจ่าย — คืน **สตริง JSON**
 
@@ -1259,10 +1386,12 @@ class ReceiptsMixin:
                WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL""",
             account_id, room_id,
         )
-        category = await conn.fetchrow(
-            "SELECT category_name, category_type FROM finance_categories WHERE id = $1",
-            category_id,
-        )
+        category = None
+        if category_id is not None:
+            category = await conn.fetchrow(
+                "SELECT category_name, category_type FROM finance_categories WHERE id = $1",
+                category_id,
+            )
         txn_day_thai = event_at_db.astimezone(THAI_TZ).date()
         # 🔎 งบเป็น **implicit** — ไม่มี FK ที่ไหนผูก (`finance_budgets` รู้จักแค่
         #    room_id + category_id + ช่วงวันที่) ⇒ ต้อง match เองด้วยเงื่อนไขช่วง
@@ -1285,7 +1414,11 @@ class ReceiptsMixin:
             "bank_account_no": account["bank_account_no"] if account else None,
             "bank_account_name": account["bank_account_name"] if account else None,
             # 🏷️ หมวดหมู่งบประมาณ (F2)
-            "category_name": category["category_name"] if category else None,
+            #    ค่าปรับคืนเงินไม่มีหมวดหมู่ใน `finance_categories` ⇒ ใช้ label ที่ส่งมา
+            "category_name": (
+                category_label_override if category_label_override
+                else (category["category_name"] if category else None)
+            ),
             "category_type": category["category_type"] if category else None,
             "approver_name": approver_name,
             "attachment_count": int(attachment_count or 0),

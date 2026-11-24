@@ -29,6 +29,9 @@ from typing import Any
 
 import asyncpg
 
+# 📌 predicate "บิลเปิด" ตัวกลาง — ห้ามเขียนเงื่อนไขซ้ำเอง (ดู services/finance/accrual.py)
+from services.finance.accrual import OPEN_BILL_PREDICATE
+
 from core.rbac import require_member
 
 logger = logging.getLogger("API_HOME_SUMMARY")
@@ -197,15 +200,15 @@ async def _load_finance(
         return {"has_profile": False, "outstanding": 0.0, "unpaid_bills": 0}
 
     row = await conn.fetchrow(
-        """
+        f"""
         SELECT
             COALESCE(SUM(FC.amount - COALESCE(SP.paid_amount, 0)), 0) AS outstanding,
             COUNT(*) AS unpaid_bills
         FROM student_payments SP
         JOIN fee_collections FC ON FC.id = SP.collection_id
         WHERE SP.student_id = $1
-          AND SP.status = 'pending'
           AND FC.room_id = $2
+          AND {OPEN_BILL_PREDICATE}
         """,
         student_id,
         room_id,
