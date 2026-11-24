@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 269 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 271 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -273,6 +273,8 @@
 - [🚦 อยู่หลัง Cloudflare ไม่ได้แปลว่า origin ถูกปิด — ต้องยิง TCP จากภายนอกก่อนตั้ง `TRUSTED_PROXY_HOPS` และเปิด rate limit](#อยู่หลัง-cloudflare-ไม่ได้แปลว่า-origin-ถูกปิด-ต้องยิง-tcp-จากภายนอกก่อนตั้ง-trustedproxyhops-และเปิด-rate-limit)
 - [🚀 service ใหม่ที่อ่านตารางจาก migration ต้องรอสคีมา — และ `rollback.sh` จะพามันไปกับ image เก่าที่ไม่มีโมดูลนั้น](#service-ใหม่ที่อ่านตารางจาก-migration-ต้องรอสคีมา-และ-rollbacksh-จะพามันไปกับ-image-เก่าที่ไม่มีโมดูลนั้น)
 - [🎪 กิจกรรม = ทะเบียนบันทึกผู้เข้าร่วม ไม่ใช่ระบบรับลงทะเบียน — อย่ายืม capacity/waitlist/QR/ลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง](#กิจกรรม-ทะเบียนบันทึกผู้เข้าร่วม-ไม่ใช่ระบบรับลงทะเบียน-อย่ายืม-capacitywaitlistqrลิงก์แชร์มาจากระบบที่ให้ผู้เรียนกดสมัครเอง)
+- [🧬 mixin ใหม่ที่ตั้งชื่อ helper ซ้ำกับ mixin เดิม = override เงียบ ๆ ผ่าน MRO (จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)](#mixin-ใหม่ที่ตั้งชื่อ-helper-ซ้ำกับ-mixin-เดิม-override-เงียบ-ๆ-ผ่าน-mro-จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)
+- [🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)](#ฟิลด์ที่-frontend-ต้องใช้-แต่-responsemodel-ไม่ประกาศ-pydantic-กรองทิ้งเงียบ-ๆ-http-200-เทสต์เขียว-ui-พัง)
 
 <!-- TOC:END -->
 
@@ -4603,3 +4605,28 @@
 - **Rule:** (1) 🔴 ก่อนยกฟีเจอร์จากรายงานระบบอื่น ให้ตอบก่อนว่า **ใครเป็นคนสร้างข้อมูลนั้นและใครได้ประโยชน์** — ถ้าเป็นคนละคนกับระบบเรา กลไกมักผิดทั้งชุด (2) 🔴 ระบบบันทึก (ledger) ไม่ต้องมีความจุ: "เต็ม" ไม่มีความหมายเมื่อครูเป็นคนใส่ชื่อ (3) 🔴 ถอนฟีเจอร์ = ลบโค้ด/สคีมา DTO/route/เทสต์/คำใน glossary ให้ครบ แต่ **ไม่ DROP คอลัมน์** (4) 🔴 route สาธารณะที่ไม่มีผู้ใช้จริงคือพื้นที่โจมตีฟรี — การลบมันดีกว่าการใส่ rate limit ให้
 - **Tests/Verification:** `grep -rn "capacity\|waitlist\|queue_position\|registration_deadline\|share_token\|shared/activity" backend frontend/src docs` ต้องเหลือเฉพาะไฟล์ migration กับประวัติใน `test_route_auth_audit.py` · `test_route_auth_audit.py` นับ 167 route · ชุดเทสต์ activities เดิมผ่าน (ไม่มีการอ้างคอลัมน์ที่หยุดใช้) · frontend `type-check` + `lint` + `test:unit` + `build` ผ่าน
 - **Date Added:** 2026-11-02
+
+### 🧬 mixin ใหม่ที่ตั้งชื่อ helper ซ้ำกับ mixin เดิม = override เงียบ ๆ ผ่าน MRO (จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)
+
+- **Context/Problem:** งานระบบค่าปรับเพิ่ม `FinesMixin` (Phase 3) ที่มี `@staticmethod _shape_batch(row)` สำหรับ "ชุดค่าปรับ" (fine_batches) เข้าไปใน `FinanceService` ซึ่งเดิมมี `ReceiptBatchesMixin._shape_batch(row)` สำหรับ "ชุดเอกสาร" (`finance_receipt_batches`) อยู่แล้ว ผลคือ `test_finance_receipt_batches.py` **ล้มทั้ง 11 เทสต์** ด้วย `KeyError: 'fine_type_id'` ที่ `services/finance/fines.py` ทั้งที่โค้ดชุดเอกสารไม่ถูกแก้แม้แต่บรรทัดเดียว
+- **Root Cause:** `FinanceService` ประกอบจาก mixin หลายสิบตัวแบบ MRO และทุกเมธอดเรียกผ่าน `cls.<helper>` ⇒ ตัวที่อยู่ในคลาสที่ **มาก่อนใน MRO** ชนะเสมอ `FinesMixin` ถูกวางก่อน `ReceiptBatchesMixin` ใน `class FinanceService(WaiversMixin, RefundsMixin, FinesMixin, ...)` ดังนั้น `cls._shape_batch(...)` ใน `receipt_batches.py` ไปเรียก `FinesMixin._shape_batch` ที่อ่านคอลัมน์ของ `fine_batches` — Python ไม่เตือน ไม่มี import error มีแค่ `KeyError` ตอนรัน
+- **Correct Pattern/Solution:**
+  - เปลี่ยนชื่อเป็น `_shape_fine_batch` (และเพิ่ม docstring เตือน) — ชื่อ helper ภายใน mixin ต้อง **ระบุโดเมน** ไม่ใช่คำกลาง ๆ
+  - ตรวจด้วยสคริปต์ก่อน commit: ไล่ `^    (async )?def (\w+)\(` ในทุกไฟล์ใต้ `services/finance/` แล้วรายงานชื่อที่ซ้ำกัน (ตอนนี้เหลือศูนย์) — ทำเป็นนิสัยเมื่อเพิ่ม mixin ใหม่
+  - เทสต์ที่จับได้คือชุดของ mixin **อีกตัว** ไม่ใช่ชุดของตัวที่แก้ ⇒ อย่าด่วนสรุปว่าความล้มเหลวอยู่ที่ไฟล์เดียวกับที่เพิ่งแก้ ให้ตาม traceback ไปที่ `cls.` ที่ MRO เลือกผิด
+- **Rule:** (1) 🔴 helper ใน mixin ต้องมีชื่อเฉพาะโดเมน (`_shape_fine_batch`, `_shape_receipt_batch`) — ห้ามใช้ชื่อกลางเหมือน mixin ตัวอื่น (2) 🔴 `cls.<helper>` ใน mixin คือ MRO dispatch ไม่ใช่ lexical ⇒ การทดสอบ mixin เดี่ยว ๆ ไม่พอ ต้องมีชุดทดสอบของ mixin อื่นที่ใช้ชื่อเดียวกันด้วย (3) 🔴 เมื่อเพิ่ม mixin ให้รันเช็กชื่อซ้ำก่อน merge
+- **Tests/Verification:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "python -m pytest -q /app/tests/test_finance_receipt_batches.py /app/tests/test_fine_payments_credits.py"` ผ่านทั้งคู่ · สคริปต์หาชื่อซ้ำคืนรายการว่าง · `test_route_auth_audit.py` จำนวน route 167 → 186 (ค่าปรับเพิ่ม 19 route)
+- **Date Added:** 2026-11-24
+
+### 🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)
+
+- **Context/Problem:** Phase 5 ต้องให้หน้าหนี้/รายการหนี้พาไป `/finance/fines/{id}` แทนหน้าโปรเจกต์เก็บเงินที่ซ่อนอยู่ ⇒ `get_student_debts` ถูกแก้ให้ `SELECT FC.collection_kind, F.id AS fine_id` (LEFT JOIN `fines`) ซึ่งคืนค่าได้ถูกต้องเมื่อเรียก service ตรง ๆ แต่ endpoint ประกาศ `response_model=StudentDebtProfileResponse` และ `StudentDebtItem` (ใน `models/finance_schemas.py`) ไม่มีสองฟิลด์นี้ ⇒ FastAPI **ตัดออกให้อัตโนมัติ** ผลลัพธ์คือ API ตอบ 200 และหน้าจอยังพาไปหน้าโปรเจกต์ผิดโดยไม่มี error ใด ๆ
+- **Root Cause:** `response_model` คือ allowlist ไม่ใช่ passthrough — FastAPI serialize ตาม schema เท่านั้น การเพิ่มคอลัมน์ใน SQL/service ไม่ไหลถึง HTTP อัตโนมัติ และเทสต์เดิมของ endpoint เช็กแค่ status/ยอดรวม จึงไม่มีอะไรฟ้อง
+- **Correct Pattern/Solution (2026-11-24):**
+  - เพิ่มฟิลด์ใน Pydantic model พร้อม default ที่ปลอดภัยสำหรับแถวเก่า: `collection_kind: str = "project"`, `fine_id: Optional[int] = None`
+  - เพิ่มเทสต์ระดับ HTTP ที่ **ตรวจค่าฟิลด์** ไม่ใช่แค่ status — `test_my_debts_exposes_fine_link_fields` สร้างบิลโปรเจกต์ + บิลค่าปรับแล้วยืนยัน `collection_kind`/`fine_id` ของทั้งสองแถว (ค่าปรับมีค่า, โปรเจกต์เป็น `None`)
+  - ฝั่ง Vue ใช้ `fine_id` เป็นตัวชี้ขาด (`item.fine_id ? '/finance/fines/{id}' : '/finance/collections/{id}'`) และโชว์ชิป "ค่าปรับ" จาก `collection_kind`
+- **Rule:** (1) 🔴 เมื่อเพิ่มคอลัมน์ให้ query ที่ endpoint ใช้ ต้องเปิดไฟล์ `models/` ที่ตรงกับ `response_model` ทุกครั้ง — SQL ส่งมาแล้วแต่ schema ตัดทิ้งได้ (2) 🔴 เทสต์ของ endpoint ที่ UI พึ่งพา **ต้อง assert ค่าฟิลด์ที่ UI ใช้** ไม่ใช่แค่ 200/ยอดรวม (3) 🔴 ฟิลด์ใหม่ใน response ต้องมี default สำหรับแถวที่ไม่มีค่า เพื่อไม่ให้ client เก่าพัง
+- **Tests/Verification:** `docker compose -f docker-compose.test.yml run --rm test_runner sh -c "... pytest -q /app/tests/test_finance_me_endpoints.py"` ผ่านทั้ง 10 เทสต์ · `npm run type-check` ผ่าน (types ฝั่ง Vue มี `collection_kind?`/`fine_id?`) · ตรวจด้วย `curl .../me/debts` เห็นสองฟิลด์
+- **Note (Excel):** งานเดียวกันเพิ่มชีต "รายงานอายุหนี้" ใน `export.py` ⇒ เทสต์ที่ assert รายชื่อแผ่นแบบเป๊ะ (`test_finance_http.py::test_web_export_finance_excel_200`, `test_finance_v2_read.py`) ล้มทันที ลำดับแผ่นคือสัญญาของไฟล์ที่ส่งนักบัญชี (ดูบทเรียน `test_finance_journal_export.py` เดิม) — แก้ที่เทสต์ให้ตรงลำดับจริง **ก่อน** merge เท่านั้น
+- **Date Added:** 2026-11-24

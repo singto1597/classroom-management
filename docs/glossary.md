@@ -104,6 +104,13 @@
 | **เงินรับล่วงหน้า** | เงินที่นักเรียนจ่ายเก็บไว้ก่อน (เครดิต) | `student_credits` | เครดิต · credit |
 | **งบประมาณ** | วงเงินที่ตั้งไว้ต่อหมวด | `finance_budgets` | budget |
 | **งบการเงิน** | รายงานสรุปฐานะ (รายรับ–รายจ่าย) | `/finance/statements` | ใบงบ · statement |
+| **ค่าปรับ** | บิลที่ออกจากการทำผิดกฎ/ไม่ทำเวร — 1 ครั้ง : 1 คน = 1 ใบ (มี INV- ของตัวเอง) | `fines`, `/finance/fines` | ปรับ · penalty · penalty bill |
+| **ประเภทความผิด** | แบบค่าปรับที่ตั้งไว้ล่วงหน้าพร้อมอัตราเริ่มต้น (แก้ต่อครั้งได้) | `fine_types` | หมวดค่าปรับ · fine type |
+| **คำขอยกเว้น** | คำขออนุมัติลด/ยกเว้นค่าปรับ มี 2 เหตุผล: ส่วนลด (`discount`) / หนี้สูญ (`uncollectible`) | `fine_waivers`, `/finance/fines?tab=approvals` | ขอยกเว้น (เดี่ยว ๆ) · ส่วนลด (เมื่อหมายถึงคำขอ) |
+| **คำขอคืนเงิน** | คำขอคืนเงินให้ผู้ปกครองหลังชำระค่าปรับแล้ว (PV-) — ไม่เปิดหนี้ใหม่ | `fine_refunds` | ขอคืน · refund |
+| **รายงานอายุหนี้** | ตารางผู้ค้างชำระแยกตามถังอายุ: ยังไม่ครบกำหนด · 1–30 · 31–60 · 61–90 · เกิน 90 วัน · ไม่ระบุกำหนด | `/finance/aging` | aging · รายงานลูกหนี้คงค้าง |
+| **ผู้ค้างชำระค่าโครงการ** | บัญชีสินทรัพย์ `11001` สำหรับบิลโปรเจกต์เก็บเงิน | `account_code='11001'` | AR โครงการ |
+| **ผู้ค้างชำระค่าปรับ** | บัญชีสินทรัพย์ `11002` สำหรับบิลค่าปรับ | `account_code='11002'` | AR ค่าปรับ |
 
 ### เอกสารการเงิน — `finance_receipts.doc_type`
 
@@ -127,6 +134,24 @@
 |---|---|
 | `active` | **ใช้งาน** |
 | `voided` | **ยกเลิกแล้ว** |
+
+### สถานะค่าปรับ — `fines.status`
+
+> แหล่งเดียว: `backend/services/finance/constants.py` (`FINE_STATUS_LABELS`) ↔
+> `frontend/src/constants/financeFines.ts` (`FINE_STATUS_LABELS`, `FINE_STATUS_TONES`)
+
+| ค่าใน DB | คำไทย | เกิดเมื่อ |
+|---|---|---|
+| `issued` | **ออกแล้ว** | ออกบิล ยังไม่มีเงินเข้า |
+| `partially_paid` | **ชำระบางส่วน** | มีเงินเข้า/เครดิตบางส่วน |
+| `paid` | **ชำระแล้ว** | คงเหลือ 0 |
+| `waived` | **ยกเว้น / ลด** | อนุมัติคำขอยกเว้นจนคงเหลือ 0 |
+| `cancelled` | **ยกเลิก** | ยกเลิก *ก่อน* มีการจ่าย |
+| `refunded` | **คืนเงินแล้ว** | คืนเงินจนสุทธิเหลือ 0 |
+
+สถานะคำขอ (`fine_waivers.status` / `fine_refunds.status`): `pending` **รออนุมัติ** ·
+`approved` **อนุมัติแล้ว** · `rejected` **ไม่อนุมัติ** · `cancelled` **ยกเลิกคำขอ**
+เหตุผลคำขอยกเว้น (`reason_category`): `discount` **ส่วนลดค่าปรับ** · `uncollectible` **หนี้สูญ (ตามไม่ได้)**
 
 ## 4. วัน · เวลา · ตัวเลข
 
@@ -157,8 +182,12 @@
 | ช่วงงดรบกวน | `app_settings` ที่คีย์ `quiet_hours` (`QUIET_HOURS_KEY`) |
 | รายรับ/รายจ่าย | `income` / `expense` (ใน `finance_transactions.type`) |
 | ใบเสร็จ / ใบแจ้งหนี้ / ใบรับเงินล่วงหน้า | `receipt` / `invoice` / `deposit` |
-| ผู้ค้างชำระ | `debtor` |
+| ผู้ค้างชำระ | `debtor` · บิลเปิด = `open bill` (`_open_bill_predicate`) |
 | เงินรับล่วงหน้า | `credit` |
+| ค่าปรับ | `fine` (ตาราง `fines`) · โปรเจกต์ซ่อน = `collection_kind` = `'fine'` |
+| ประเภทความผิด | `fine_type` (ตาราง `fine_types`) |
+| คำขอยกเว้น / คำขอคืนเงิน | `waiver` / `refund` (ตาราง `fine_waivers` / `fine_refunds`) |
+| รายงานอายุหนี้ | `aging` (`/finance/receivables/aging`, `AGING_BUCKETS`) |
 | ยืนยันตัวตน | `identity_claimed` · `accept_invite` |
 | คำเชิญยืนยันตัวตน | `invite` (`list_my_invites`) |
 | ข้อมูลเฉพาะห้อง | `student_room_profiles` · resolved view = `v_student_profiles` |
