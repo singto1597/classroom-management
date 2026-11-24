@@ -188,7 +188,9 @@ def test_route_count_is_not_silently_shrinking():
     # 186 → 188 (2026-11-24): รายงาน Phase 5 — `finance/fines/summary` + `finance/receivables/aging`
     #   ทั้งคู่มี `Depends(get_current_user)` และ `require_member` ใน service
     #   ⚠️ `fines/summary` **ต้องประกาศก่อน** `fines/{fine_id}` (มีเทสต์กันไว้แล้ว)
-    expected = 188
+    # 188 → 189 (2026-11-24): P6.5 — `POST /finance/custom-charges` (เรียกเก็บเองรายคน)
+    #   มี `Depends(get_current_user)` และ `require_permission(MANAGE_FINANCE)` ใน service
+    expected = 189
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (
