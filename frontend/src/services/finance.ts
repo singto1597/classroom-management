@@ -13,6 +13,8 @@ import type {
   TransferCreate,
   Collection,
   FeeCollectionCreate,
+  CustomChargeCreate,
+  CustomChargeResponse,
   CollectionStatus,
   FeeCollectionUpdate,
   PaymentConfirm,
@@ -181,6 +183,12 @@ export const FinanceService = {
 
   async createCollection(roomId: number, payload: FeeCollectionCreate): Promise<ApiSuccessResponse> {
     return await api.post(`/api/classroom/${roomId}/finance/collections?target_type=room`, payload) as unknown as ApiSuccessResponse;
+  },
+
+  // 🧾 [P6.5] เรียกเก็บเงินเองรายบุคคล — หลายคน คนละยอด ภายใต้ชื่อเดียวกัน
+  //    ⚠️ idempotency_key บังคับ: กดซ้ำคีย์เดิมได้ผลเดิม (ไม่สร้างบิลซ้ำ)
+  async createCustomCharges(roomId: number, payload: CustomChargeCreate): Promise<CustomChargeResponse> {
+    return await api.post(`/api/classroom/${roomId}/finance/custom-charges?target_type=room`, payload) as unknown as CustomChargeResponse;
   },
 
   async getCollectionStatus(roomId: number, collectionId: number): Promise<CollectionStatus> {

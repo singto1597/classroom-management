@@ -39,12 +39,19 @@ export interface TransactionList {
   items: Transaction[];
 }
 
+export type LateFeeMode = 'none' | 'fixed' | 'percent';
+
 export interface Collection {
   id: number;
   title: string;
   amount: number;
   due_date: string | null;
   status: 'active' | 'closed';
+  /** ⏰ นโยบายค่าปรับจ่ายล่าช้า (P6.5) — ค่าเริ่มต้น 'none' = ไม่ปรับ */
+  late_fee_mode?: LateFeeMode;
+  /** จำนวนเงิน (fixed) หรือเปอร์เซ็นต์ (percent) */
+  late_fee_amount?: number;
+  late_fee_grace_days?: number;
 }
 
 export interface StudentPaymentSummary {
@@ -227,6 +234,41 @@ export interface FeeCollectionCreate {
   due_date: string;
   student_ids?: number[]; // ✨ ฟีเจอร์ใหม่จาก AI
   user_name?: string;
+  /** ⏰ ตั้งนโยบายค่าปรับล่าช้าได้ตั้งแต่สร้าง (P6.5) */
+  late_fee_mode?: LateFeeMode;
+  late_fee_amount?: number;
+  late_fee_grace_days?: number;
+}
+
+// 🧾 เรียกเก็บเงินเองรายบุคคล — หลายคน คนละยอด ภายใต้ชื่อเดียวกัน (P6.5)
+export interface CustomChargeItem {
+  student_id: number;
+  amount: number;
+  note?: string;
+}
+
+export interface CustomChargeCreate {
+  title: string;
+  due_date: string;
+  items: CustomChargeItem[];
+  /** 🔑 บังคับ — กดซ้ำคีย์เดิมได้ผลเดิม ไม่สร้างบิลซ้ำ */
+  idempotency_key: string;
+  user_name?: string;
+}
+
+export interface CustomChargeResultItem {
+  collection_id: number;
+  student_id: number;
+  amount: number;
+  reused: boolean;
+}
+
+export interface CustomChargeResponse {
+  status: string;
+  message?: string | null;
+  collections: CustomChargeResultItem[];
+  total_amount: number;
+  created: boolean;
 }
 
 export interface PaymentConfirm {
@@ -280,6 +322,9 @@ export interface FeeCollectionUpdate {
   due_date?: string;
   status?: 'active' | 'closed';
   user_name?: string;
+  late_fee_mode?: LateFeeMode;
+  late_fee_amount?: number;
+  late_fee_grace_days?: number;
 }
 
 // =============================================================================
