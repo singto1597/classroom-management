@@ -63,6 +63,17 @@ class Settings(BaseSettings):
     #    ⚠️ Redis ล่ม = **ปล่อยผ่าน** (fail-open) — ไม่ใช่ปิดการล็อกอินทั้งระบบ
     RATE_LIMIT_ENABLED: bool = True
 
+    # ⚖️ [P6] เตือนผู้ค้างชำระรายวัน — worker `finance_reminder_worker` (1 replica)
+    #    ทำงานวันละครั้งหลัง `FINANCE_REMINDER_HOUR:FINANCE_REMINDER_MINUTE` (Asia/Bangkok)
+    #    ⚠️ การกันส่งซ้ำเป็นหน้าที่ของ `reminder_dispatch_log` (unique ต่อวัน/ช่อง)
+    #    ⇒ เปิด worker ซ้ำ/รีสตาร์ทกลางวันไม่ทำให้ผู้ใช้ได้ข้อความซ้ำ
+    FINANCE_REMINDER_ENABLED: bool = True
+    FINANCE_REMINDER_HOUR: int = 9
+    FINANCE_REMINDER_MINUTE: int = 0
+    # ⚠️ ตั้งชื่อ namespaced โดยเจตนา — **ไม่ใช้ `TZ`** เพราะ container มักมี `TZ=UTC`
+    #    อยู่แล้ว และการอ่านค่านั้นจะเลื่อนเส้นแบ่ง "วันนี้" ไป 7 ชั่วโมงเงียบ ๆ
+    FINANCE_REMINDER_TZ: str = "Asia/Bangkok"
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

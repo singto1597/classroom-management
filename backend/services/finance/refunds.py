@@ -19,6 +19,7 @@ import asyncpg
 
 from core.exceptions import ForbiddenError, RoomNotFoundError
 from core.rbac import require_member, require_permission
+from services.action_service import ActionService
 from services.notification_service import notify_user
 
 from .base import _lock_room_money, service_logger
@@ -356,6 +357,19 @@ class RefundsMixin:
                         endpoint_or_command="FinanceService.approve_refund",
                         execution_time_ms=int((time.time() - start_time) * 1000),
                     )
+
+                    # 📢 ข้อมูลที่ต้องใช้ publish — อ่านใน transaction ก่อน commit
+                    room_server_id = await cls._get_room_server_id(conn, target_room_id)
+                    student_name = await cls._resolve_student_name(conn, fine["student_id"])
+            if room_server_id:
+                await ActionService.notify_fine_refunded(
+                    server_id=room_server_id,
+                    student_name=student_name,
+                    fine_type_name=fine["fine_type_name"],
+                    amount=amount,
+                    receipt_no=voucher["receipt"]["receipt_no"],
+                    user_name=actor_identifier,
+                )
             return {
                 "status": "success",
                 "message": (

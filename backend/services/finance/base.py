@@ -138,6 +138,29 @@ class BaseMixin:
         )
 
     @staticmethod
+    async def _resolve_student_name(conn: asyncpg.Connection, student_id: int) -> str:
+        """ชื่อที่ใช้บนข้อความ Discord — ไทย → อังกฤษ → "นักเรียน" แล้วต่อชื่อเล่นในวงเล็บ
+
+        ใช้ join `v_student_profiles` (ข้อมูลที่ resolve แล้ว) เหมือนทั้งโมดูลการเงิน
+        ⇒ ไม่ต้องรู้ว่าชื่อมาจากบัญชีกลางหรือ override ของห้อง
+
+        ⚠️ **ห้ามตั้งชื่อ `_student_display_name`** — `FinesMixin` มีฟังก์ชันชื่อนั้น
+           (รับ `row` 1 ตัว) และอยู่ใน MRO ก่อน `BaseMixin` ⇒ จะถูกเรียกทับแบบเงียบ ๆ
+        """
+        row = await conn.fetchrow(
+            """SELECT U.first_name, U.nickname, U.first_name_en
+               FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
+               WHERE S.id = $1""",
+            student_id,
+        )
+        if not row:
+            return "นักเรียน"
+        name = row["first_name"] or row["first_name_en"] or "นักเรียน"
+        if row["nickname"]:
+            name += f" ({row['nickname']})"
+        return name
+
+    @staticmethod
     def _period_start(
         month: Optional[int] = None, year: Optional[int] = None,
         start_date: Optional[date] = None, end_date: Optional[date] = None,

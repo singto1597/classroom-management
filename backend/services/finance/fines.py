@@ -26,6 +26,7 @@ import asyncpg
 
 from core.exceptions import RoomNotFoundError
 from core.rbac import has_any_permission, require_member, require_permission
+from services.action_service import ActionService
 from services.notification_service import notify_user
 
 from .base import _lock_room_money, service_logger
@@ -445,6 +446,18 @@ class FinesMixin:
                     batch_row = await conn.fetchrow(
                         "SELECT * FROM fine_batches WHERE id = $1", batch_id
                     )
+                    # 📢 ดึง server_id ใน transaction (commit แล้วจะอ่านไม่ได้ก็ต่อเมื่อห้องถูกลบ)
+                    room_server_id = await cls._get_room_server_id(conn, target_room_id)
+            # ⚠️ publish **หลัง** commit เท่านั้น — event ที่อ้างค่าปรับที่ rollback ไปแล้วคือข้อมูลปลอม
+            if room_server_id:
+                await ActionService.notify_fines_issued(
+                    server_id=room_server_id,
+                    fine_type_name=fine_type["name"],
+                    student_count=len(wanted),
+                    total_amount=round(total_issued, 2),
+                    due_date=due_date,
+                    user_name=actor_identifier,
+                )
             return {
                 "batch": cls._shape_fine_batch(batch_row),
                 "fines": fines,

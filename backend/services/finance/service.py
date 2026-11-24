@@ -29,6 +29,9 @@ from .refunds import RefundsMixin
 #    ของ AccrualMixin · วางตรงนี้ได้เพราะชื่อ (`get_receivables_aging`/`get_fine_summary`)
 #    ไม่ชนกับ mixin ใด — ถ้าอนาคตมีชื่อชน ให้ย้ายมixin นี้ **ก่อน** ตัวที่ชน
 from .receivables import ReceivablesMixin
+# 📣 เตือนผู้ค้างชำระรายวัน (Phase 6) — ใช้ `_open_bill_predicate` (AccrualMixin) และ
+#    `_get_room_server_id` (BaseMixin) ผ่าน MRO ของ FinanceService · ไม่มีชื่อฟังก์ชันชน
+from .reminders import RemindersMixin
 
 
 class FinanceService(
@@ -39,6 +42,9 @@ class FinanceService(
     FinesMixin,
     FineTypesMixin,
     ReceivablesMixin,
+    # 📣 วางติด ReceivablesMixin (ทั้งคู่อ่านอย่างเดียว/ไม่ชนชื่อ) — ถ้าอนาคตมีชื่อชน
+    #    ให้ย้ายตัวที่ **ไม่ควรชนะ** ลงไปข้างล่าง (MRO: ตัวบนชนะ)
+    RemindersMixin,
     ExportMixin,
     ReportingMixin,
     ReceiptsMixin,
