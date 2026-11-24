@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 272 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 273 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -276,6 +276,7 @@
 - [🧬 mixin ใหม่ที่ตั้งชื่อ helper ซ้ำกับ mixin เดิม = override เงียบ ๆ ผ่าน MRO (จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)](#mixin-ใหม่ที่ตั้งชื่อ-helper-ซ้ำกับ-mixin-เดิม-override-เงียบ-ๆ-ผ่าน-mro-จับได้หลังเทสต์อีกชุดล้มทั้งไฟล์)
 - [🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)](#ฟิลด์ที่-frontend-ต้องใช้-แต่-responsemodel-ไม่ประกาศ-pydantic-กรองทิ้งเงียบ-ๆ-http-200-เทสต์เขียว-ui-พัง)
 - [📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`](#ส่งวันละครั้ง-ต้องจองสิทธิ์ใน-db-ไม่ใช่ใน-memory-และตัวเช็กเวลาต้องเป็น-ไม่ใช่)
+- [⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ](#ค่าปรับ-อัตโนมัติ-ต้องผูกกับ-บิลต้นทาง-ด้วย-unique-index-และยอดบิลต้องมาจาก-fcamount-เสมอ)
 
 <!-- TOC:END -->
 
@@ -4662,4 +4663,37 @@
 - **กับดักแยก (ฝั่งบอท):** Discord `embed.add_field(value=...)` มีเพดาน **1,024** ตัวอักษร แต่ `description` **4,096** ⇒ รายชื่อ 20 คน × (เลขที่ + ชื่อไทย+ชื่อเล่น + ยอด) เกิน 1,024 ได้ง่าย แล้ว Discord ตอบ `HTTPException` = **ข้อความหายทั้งใบ** (ไม่ใช่ตัดเนื้อหา) ⇒ ใส่รายการยาวใน description และมีเทสต์วัด `len(description) <= 4096` ด้วยข้อมูลจำลองชื่อ 100 ตัวอักษร 20 คน
 - **Rule:** (1) 🔴 "วันละครั้ง" คือคุณสมบัติของ **ข้อมูล** ไม่ใช่ของ process — ใช้ unique index + `ON CONFLICT DO NOTHING RETURNING` เป็นด่านแรก (2) 🔴 ตัวเช็กนาฬิกาในลูปเป็น `>=`; ตัวเช็ก "ทำวันนี้แล้ว" อยู่ที่ DB (3) 🔴 publish ภายนอก DB หลัง commit เสมอ (4) 🔴 อย่าจอง embed field ให้ข้อมูลที่ยาวไม่จำกัด — ใช้ description + เทสต์ความยาว (5) 🔴 worker ใหม่จับ `42P01` ผ่าน `sqlstate` และ log แล้วรอรอบถัดไป **ห้าม exit**
 - **Tests/Verification:** `pytest -q /app/tests/test_finance_reminders.py` = 11 passed (เลือกบิลเลยกำหนด/ใกล้ครบ, dedupe สองช่องทาง, นักเรียนไร้บัญชีอยู่ใน Discord อย่างเดียว, แบ่งส่วน 20+5, worker ก่อนเวลา/หลังเวลา/42P01) · bot: `python -m unittest tests.test_action_service_finance_events -v` = 11 passed (ช่อง minor/announcement, ไม่ `@everyone`, ป้ายไทย, เพดาน description, payload ขาดฟิลด์, mute)
+- **Date Added:** 2026-11-24
+
+### ⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ
+
+- **Context/Problem:** P6.5 ให้ระบบออกค่าปรับจ่ายล่าช้าเองทุกวันจาก worker ตัวเดียวกับที่ส่งเตือนผู้ค้างชำระ เจอสองเรื่องที่ออกแบบผิดแล้วเจ็บ:
+  1. ถ้ากันซ้ำด้วย `NOT EXISTS (SELECT 1 FROM fines WHERE source_payment_id = ...)` เฉย ๆ worker สองรอบที่เริ่มพร้อมกัน (หรือ replica สองตัว) ต่างมองไม่เห็นแถวของกันและกัน ⇒ ออกค่าปรับซ้ำสองใบให้บิลเดียว และถ้าใช้ `status <> 'cancelled'` ใน unique index ด้วย ครูที่ยกเลิกค่าปรับจะได้มันกลับมาใหม่ทุกเช้า (ลูปไม่มีวันจบ)
+  2. ถ้าสร้าง `fee_collections` แถวเดียวแล้วพยายามให้ "ยอดต่อคน" ต่างกัน บิลจะเก็บยอดของแถวนั้น — แต่ทุก query ผู้ค้างชำระทั้งระบบคำนวณ `FC.amount - SP.paid_amount` ⇒ ยอดค้างของนักเรียนจะไม่ตรงกับบิลจริงทันที
+- **Correct Pattern/Solution:**
+  ```python
+  # 1) ด่านกันซ้ำจริง = unique index ที่ผูกกับบิลต้นทาง *ถาวร*
+  #    migration 0011:
+  CREATE UNIQUE INDEX uq_fines_late_fee_source
+      ON fines (source_payment_id)
+      WHERE source_payment_id IS NOT NULL AND deleted_at IS NULL;
+  #    ⚠️ ไม่ใส่ status <> 'cancelled' โดยเจตนา — ยกเลิกแล้วห้ามระบบออกใหม่เอง
+
+  # 2) insert ใต้ savepoint ต่อบิล + จับ UniqueViolationError = "มีคนออกไปแล้ว"
+  try:
+      async with conn.transaction():          # savepoint
+          await cls._issue_one_late_fee(...)
+  except asyncpg.UniqueViolationError:
+      stats["skipped"] += 1                   # worker อีกตัวชนะ — ไม่ใช่ error
+
+  # 3) ยอดต่อคน = แคมเปญรายคน (FC.amount ตรงกับบิล) ไม่ใช่ FC แถวเดียว
+  INSERT INTO fee_collections (room_id, title, amount, due_date, collection_kind)
+  VALUES ($1, $2, $3, $4, 'project');        # 1 คน = 1 แถว
+  ```
+  - "เรียกเก็บเองรายคน" ใช้กลไกเดียวกัน: 1 รายการ = 1 แถว + `idempotency_key = "{key}:{student_id}"` + partial unique index
+  - ค่าปรับล่าช้า **ห้ามปรับซ้อนค่าปรับ**: query กรอง `FC.collection_kind = 'project'` และแถวใหม่ของค่าปรับเป็น `kind='fine'` (โหมด `late_fee_mode` ค้างที่ default `'none'`)
+  - ใบแจ้งหนี้ของค่าปรับที่ "ระบบ" ออก ต้องส่ง `user_id=None` ไม่ใช่ `0` — `finance_receipts.issued_by` เป็น FK ไป `users`
+  - ค่าปรับที่ระบบออกต้องมี `fines.created_by = NULL` + `auto_late_fee = TRUE` + audit actor `"ระบบ (ค่าปรับล่าช้าอัตโนมัติ)"` เพื่อแยกจากค่าปรับที่ครูออกในรายงาน
+- **Rule:** (1) 🔴 ตัวกันซ้ำของ "เกิดได้ครั้งเดียวตลอดชีพ" ต้องเป็น unique index บน **กุญแจทางธุรกิจ** (บิลต้นทาง) — `NOT EXISTS` เป็นแค่การลดงาน (2) 🔴 อย่าใส่ `status <> 'cancelled'` ใน index ที่กันการออกซ้ำ — จะกลายเป็นลูป (3) 🔴 ยอดบิล/ยอดค้างทั้งระบบอ่าน `FC.amount` ⇒ ยอดต่างกันต่อคน = แถวต่อคน (4) 🔴 งานที่ "ลองใหม่ได้ทุกวัน" ต้อง idempotent ที่ DB ต่อรอบ/ต่อ replica ไม่ใช่ที่ memory (5) 🔴 FK ที่ชี้ `users` ห้ามใช้ `0` แทน "ระบบ" — ใช้ `NULL`
+- **Tests/Verification:** `pytest -q /app/tests/test_finance_late_fees.py /app/tests/test_finance_custom_charges.py` = 15 passed (เลือกบิลตามผ่อนผัน, fixed/percent/เพดานยอดค้าง, accrual 11002/49001, INV-, auto_late_fee, เรียกซ้ำไม่ออกใหม่, เตือนเจ้าของบิล, worker เรียกก่อนเตือน, ยอดต่อคน/รวมซ้ำ, 403, all-or-nothing) ร่วมกับชุดการเงินเดิม 179 passed
 - **Date Added:** 2026-11-24

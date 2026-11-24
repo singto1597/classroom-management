@@ -113,6 +113,9 @@
 | **ผู้ค้างชำระค่าปรับ** | บัญชีสินทรัพย์ `11002` สำหรับบิลค่าปรับ | `account_code='11002'` | AR ค่าปรับ |
 | **ยอดค้างชำระของฉัน** | หน้าส่วนตัวที่นักเรียนเห็นเฉพาะบิลค้างของตัวเอง | `/finance/my-debts` | หนี้ของฉัน · my debts |
 | **แจ้งเตือนผู้ค้างชำระ** | ข้อความอัตโนมัติวันละครั้ง (09:00) รวม "เลยกำหนด" + "ครบกำหนดใน 3 วัน" — ประกาศในช่องห้อง + แจ้งในแอปเฉพาะคนที่ค้าง | `debt_reminder`, `reminder_dispatch_log` | แจ้งหนี้ · ทวงหนี้ · reminder |
+| **ค่าปรับจ่ายล่าช้า** | ค่าปรับที่ระบบออก **อัตโนมัติ** ให้บิลโปรเจกต์ที่เลยกำหนด + วันผ่อนผันแล้ว — นโยบายตั้งต่อแคมเปญ (ไม่ปรับ / จำนวนเงิน / เปอร์เซ็นต์ของยอดคงเหลือ) | `fee_collections.late_fee_mode`, `fines.auto_late_fee`, `late_fee_source` | late fee · ค่าเลยกำหนด |
+| **วันผ่อนผัน** | จำนวนวันหลังครบกำหนดที่ยังไม่ปรับ (ตั้งต่อแคมเปญ — `late_fee_grace_days`) | `late_fee_grace_days` | grace days |
+| **เรียกเก็บเอง (รายคน)** | สร้างบิลให้นักเรียนที่เลือก โดยแต่ละคน **มียอดของตัวเอง** ภายใต้ชื่อรายการเดียวกัน (ไม่ใช่แคมเปญยอดเดียวทั้งห้อง) | `POST /finance/custom-charges`, `fee_collections.idempotency_key` | custom charge · charge manually |
 
 ### เอกสารการเงิน — `finance_receipts.doc_type`
 
@@ -191,6 +194,8 @@
 | คำขอยกเว้น / คำขอคืนเงิน | `waiver` / `refund` (ตาราง `fine_waivers` / `fine_refunds`) |
 | รายงานอายุหนี้ | `aging` (`/finance/receivables/aging`, `AGING_BUCKETS`) |
 | แจ้งเตือนผู้ค้างชำระ | `debt_reminder` (`notifications.type`) · ตัวกันส่งซ้ำ = `reminder_dispatch_log` (ช่อง `inapp` / `discord`) · worker `finance_reminder_worker` |
+| ค่าปรับจ่ายล่าช้า | `late_fee` · โหมด `none`/`fixed`/`percent` · 1 บิลต้นทาง = 1 ค่าปรับ (`fines.source_payment_id` + unique `uq_fines_late_fee_source`) · เรียกใช้ `FinanceService.apply_late_fees` (ก่อนเตือนรายวัน) |
+| เรียกเก็บเอง (รายคน) | `custom_charge` · 1 รายการ = 1 `fee_collections` (`kind='project'`) + `idempotency_key` = `"{key}:{student_id}"` · service `create_custom_charges` |
 | ยืนยันตัวตน | `identity_claimed` · `accept_invite` |
 | คำเชิญยืนยันตัวตน | `invite` (`list_my_invites`) |
 | ข้อมูลเฉพาะห้อง | `student_room_profiles` · resolved view = `v_student_profiles` |
