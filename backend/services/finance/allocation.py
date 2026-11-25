@@ -213,10 +213,11 @@ def build_allocation_plan(
     unselected: List[dict] = []
     if bill_selection == "manual":
         ids = [int(i) for i in (bill_ids or [])]
-        if not ids:
-            raise AllocationError(
-                "INVALID_AMOUNT", "โหมดเลือกบิลเองต้องระบุบิลอย่างน้อย 1 ใบ"
-            )
+        # 🧾 [FIN-V2 / P3.3] `manual` + `[]` = **เลือกไม่ปิดบิลสักใบ** (ถูกต้อง)
+        #    ใช้ตอนเติมเครดิตล้วนผ่าน payment event: เงินทั้งก้อนต้องกลายเป็น
+        #    `credit_added` ไม่ใช่ถูกจัดเข้าบิลที่ครูไม่ได้ติ๊ก
+        #    ⚠️ ถ้า `excess_action='none'` จะถูกปฏิเสธที่ข้อ 4 (`EXCESS_NOT_ALLOWED`)
+        #       ⇒ ไม่มีทางเงียบ ๆ กลืนเงินเป็นเครดิตโดยผู้ใช้ไม่ได้เลือกไว้
         if len(set(ids)) != len(ids):
             raise AllocationError("INVALID_AMOUNT", "มีบิลซ้ำในรายการที่เลือก")
         open_ids = {int(b["payment_id"]) for b in open_bills}

@@ -23,6 +23,7 @@ from models.finance_schemas import (
 from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import RoomNotFoundError, StudentNotFoundError, ForbiddenError
 from services.finance_service import FinanceService
+from services.finance.credits import CreditEventManagedError
 
 from routers._common import TargetResolution, get_target, get_audit_context
 
@@ -165,6 +166,10 @@ async def undo_credit_application(
 
     ⚠️ ยกเลิกได้เฉพาะ `entry_type='apply'` — การ **เติม** เงินล่วงหน้าต้องยกเลิกผ่าน
        `DELETE /finance/transactions/{id}` (ซึ่งจะยกเลิกใบ DEP ให้ด้วย)
+
+    🧾 แถวที่มาจาก payment event ตอบ **409** — ต้องยกเลิกที่ใบรับเงิน (void engine, P6.1)
+       `CreditEventManagedError` ต้องถูกจับ **ก่อน** `ValueError` ไม่งั้นจะกลายเป็น 400
+       และ frontend แยกไม่ได้ว่าต้องพาไปทำอะไรต่อ
     """
     try:
         client_source, actor = get_audit_context(request, user_ctx)
@@ -180,6 +185,8 @@ async def undo_credit_application(
         raise HTTPException(status_code=404, detail=str(e))
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except CreditEventManagedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

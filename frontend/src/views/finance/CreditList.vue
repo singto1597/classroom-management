@@ -40,8 +40,8 @@ import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 import { createLatestGuard } from '@/utils/latest'
 import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
-import { formatThaiDateTime } from '@/utils/datetime'
 
+import CreditPanel from '@/components/finance/CreditPanel.vue'
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
@@ -157,25 +157,48 @@ const handleTopUp = async () => {
 
   isToppingUp.value = true
   try {
-    const res = await FinanceService.topUpCredit(currentRoomId, {
-      student_id: student.student_id,
-      amount: topUpAmountNumber.value,
-      paid_to_account_id: Number(topUpAccountId.value),
-      note: topUpNote.value || null,
-      user_name: currentUserName,
+    // 🧾 [FIN-V2 / P3.3] เติมเครดิตเดินผ่าน **payment event** แล้ว (แหล่งจริงเดียว)
+    //    `manual` + `bill_ids: []` = **ไม่ปิดบิลสักใบ** ⇒ เงินทั้งก้อนกลายเป็น `credit_added`
+    //    `excess_action: 'credit'` = ส่วนเกิน/ทั้งหมดเป็นเครดิต (ได้รับอนุญาตตามกติกา event)
+    const res = await FinanceService.createPaymentEvent(currentRoomId, {
       idempotency_key: topUpKey.value,
+      student_id: student.student_id,
+      payer_name: student.student_name,
+      payer_person_id: null,
+      receiver_person_id: null,
+      receiver_name: currentUserName,
+      wallet_account_id: Number(topUpAccountId.value),
+      amount_received: topUpAmountNumber.value.toFixed(2),
+      use_credit: false,
+      excess_action: 'credit',
+      bill_selection: 'manual',
+      bill_ids: [],
+      channel_id: null,
+      note: topUpNote.value || null,
+      event_at: null,
     })
 
     // 💡 `reused` = true แปลว่ากดซ้ำด้วยคีย์เดิม ⇒ **ไม่ใช่ความผิดพลาด** แต่ต้องบอก
     //    ให้ตรงความจริง ไม่งั้นผู้ใช้จะนึกว่าเงินเข้าอีกรอบ (หรือนึกว่าไม่เข้าเลย)
-    const depNo = res.receipt?.receipt_no ?? '—'
-    await dialog.fire({
-      icon: 'success',
-      title: res.reused ? 'รายการนี้ถูกบันทึกไว้แล้ว' : 'เติมเงินล่วงหน้าเรียบร้อย',
-      text: res.reused
-        ? `ระบบตรวจพบว่าเป็นการกดซ้ำจากรายการเดิม จึงไม่บันทึกซ้ำ · เครดิตคงเหลือ ${formatMoney(res.balance_after)}`
-        : `รับเงิน ${formatMoney(res.amount)} จาก ${res.student_name} · เครดิตคงเหลือ ${formatMoney(res.balance_after)} · ออกใบรับเงินล่วงหน้าเลขที่ ${depNo} แล้ว — เงินก้อนนี้จะยังไม่นับเป็นรายได้ จนกว่าจะถูกหักปิดบิล`,
-    })
+    const depNo = res.deposit_no ?? '—'
+    if (res.receipt_no) {
+      // 🚨 เติมเครดิตล้วน **ไม่ควร** ออกใบเสร็จ — ถ้าเห็นใบเสร็จ ให้แจ้งผู้ดูแลทันที
+      await dialog.fire({
+        icon: 'warning',
+        title: 'เติมเครดิตสำเร็จ · แต่ระบบออกใบเสร็จด้วย',
+        text:
+          `ออกใบรับเงินล่วงหน้า ${depNo} แล้ว · พบใบเสร็จ ${res.receipt_no} ` +
+          `ซึ่งไม่ควรเกิดกับการเติมเครดิตล้วน — กรุณาแจ้งผู้ดูแลระบบ`,
+      })
+    } else {
+      await dialog.fire({
+        icon: 'success',
+        title: res.reused ? 'รายการนี้ถูกบันทึกไว้แล้ว' : 'เติมเงินล่วงหน้าเรียบร้อย',
+        text: res.reused
+          ? `ระบบตรวจพบว่าเป็นการกดซ้ำจากรายการเดิม จึงไม่บันทึกซ้ำ · เครดิตที่เพิ่ม ${formatMoney(Number(res.credit_added))}`
+          : `รับเงิน ${formatMoney(Number(res.amount_received))} จาก ${student.student_name} · เพิ่มเครดิต ${formatMoney(Number(res.credit_added))} · ออกใบรับเงินล่วงหน้าเลขที่ ${depNo} แล้ว — เงินก้อนนี้จะยังไม่นับเป็นรายได้ จนกว่าจะถูกหักปิดบิล`,
+      })
+    }
 
     isTopUpOpen.value = false
     await fetchCredits()
@@ -195,71 +218,52 @@ const handleTopUp = async () => {
 // ════════════════════════════════════════════════════════════════════════════
 // ✂️ หักเครดิตปิดบิล — "ระบบเสนอ → ครูยืนยัน"
 // ════════════════════════════════════════════════════════════════════════════
-const selectedIds = ref<number[]>([])
 const isApplyOpen = ref(false)
 const isPlanLoading = ref(false)
 const isApplying = ref(false)
 const applyPlan = ref<CreditApplyPlan | null>(null)
+const applyTarget = ref<StudentCreditBalance | null>(null)
 
-/** หักได้เฉพาะคนที่มีเครดิตเหลือ — คนที่เครดิต 0 จะได้ข้อเสนอว่างเปล่า (ไม่มีอะไรให้ทำ) */
-const selectableCredits = computed(() => credits.value.filter((c) => c.credit_balance > 0))
-
-const allSelected = computed(
-  () =>
-    selectableCredits.value.length > 0 &&
-    selectedIds.value.length === selectableCredits.value.length,
-)
-
-const toggleSelectAll = () => {
-  selectedIds.value = allSelected.value ? [] : selectableCredits.value.map((c) => c.student_id)
-}
-
-const toggleOne = (studentId: number) => {
-  const i = selectedIds.value.indexOf(studentId)
-  if (i === -1) selectedIds.value.push(studentId)
-  else selectedIds.value.splice(i, 1)
-}
-
-/** ยอดเครดิตของคนที่เลือก — ใช้ยืนยันก่อนขอข้อเสนอ */
-const selectedBalance = computed(() =>
-  roundMoney(
-    credits.value
-      .filter((c) => selectedIds.value.includes(c.student_id))
-      .reduce((s, c) => s + c.credit_balance, 0),
-  ),
-)
+/**
+ * 🔑 รหัสกันบันทึกซ้ำของ **การหักครั้งนี้**
+ * 🔴 สร้างครั้งเดียวตอนเปิดแผ่น (หลังพรีวิวสำเร็จ) แล้วใช้ค่าเดิมตลอดจนสำเร็จ/ปิด
+ */
+const applyKey = ref<string>('')
 
 const planGuard = createLatestGuard()
 
 /**
- * ขอ **ข้อเสนอ** การหักแล้วเปิดหน้าตรวจ — ยังไม่เขียนอะไร
- * 🔴 ต้องเรียกตัวนี้เสมอ ห้ามข้ามไป `applyCredit` ตรง ๆ (กติกา "ครูยืนยัน")
+ * ขอ **ข้อเสนอ** การหักของนักเรียน 1 คนแล้วเปิดหน้าตรวจ — ยังไม่เขียนอะไร
+ * 🔴 ต้องเรียกตัวนี้เสมอ ห้ามข้ามไป commit ตรง ๆ (กติกา "ครูยืนยัน")
+ * ℹ️ หลายคนพร้อมกันอยู่ใน P3.5 (`BulkCreditSheet`) — หน้านี้ทีละคน
  */
-const openApplyPreview = async () => {
+const openApplyPreview = async (student: StudentCreditBalance) => {
   if (!canManageFinance.value) {
     void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่หักเครดิตได้', 'error')
     return
   }
-  if (selectedIds.value.length === 0) {
-    void dialog.alert('อ๊ะ!', 'กรุณาติ๊กเลือกนักเรียนที่ต้องการหักเครดิต', 'warning')
+  if (student.credit_balance <= 0) {
+    void dialog.alert('ไม่มีเครดิตให้ใช้', `${student.student_name} ไม่มีเครดิตคงเหลือ`, 'info')
     return
   }
 
   const token = planGuard.begin()
   isPlanLoading.value = true
   try {
-    const plan = await FinanceService.getCreditPlan(currentRoomId, [...selectedIds.value])
+    const plan = await FinanceService.getCreditPlan(currentRoomId, [student.student_id])
     if (!planGuard.isCurrent(token)) return
     // 🛡️ ไม่มีบิลให้หักเลย = ไม่มีอะไรเกิดขึ้น ⇒ บอกให้รู้แทนที่จะเปิดหน้าว่าง ๆ
     if (plan.total_applied <= 0) {
       void dialog.alert(
         'ไม่มีบิลให้หัก',
-        'นักเรียนที่เลือกยังไม่มีบิลค้างชำระ (หรือไม่มีเครดิตเหลือ) — จึงไม่มีอะไรต้องทำ',
+        `${student.student_name} ยังไม่มีบิลค้างชำระ — จึงไม่มีอะไรต้องทำ`,
         'info',
       )
       return
     }
     applyPlan.value = plan
+    applyTarget.value = student
+    applyKey.value = newIdempotencyKey()
     isApplyOpen.value = true
   } catch (error: unknown) {
     if (!planGuard.isCurrent(token)) return
@@ -284,14 +288,22 @@ const handleApply = async () => {
     return
   }
   const plan = applyPlan.value
-  if (!plan) return
+  const student = applyTarget.value
+  if (!plan || !student) return
+  // 🧾 การหักเครดิตไม่แตะกระเป๋าเงิน — แต่ backend ยังต้องมี `wallet_account_id`
+  //    (ไม่มีผลกับยอด) ⇒ ใช้กระเป๋าแรกของห้อง
+  const walletAccountId = accounts.value[0]?.id
+  if (!walletAccountId) {
+    void dialog.alert('ยังไม่มีกระเป๋าเงิน', 'ต้องมีกระเป๋าเงินในห้องก่อนจึงจะหักเครดิตได้', 'warning')
+    return
+  }
 
   const confirmed = await dialog.confirm(
     'ยืนยันการหักเครดิต?',
-    `จะหักเครดิตของ ${plan.items.length} คน ไปปิดบิลรวม ${planAllocations.value.length} รายการ · ` +
+    `จะหักเครดิตของ ${student.student_name} ไปปิดบิลรวม ${planAllocations.value.length} รายการ · ` +
       `ยอดที่หักรวม ${formatMoney(plan.total_applied)} · ` +
-      `การหักเครดิตไม่มีเงินเคลื่อนไหว (เงินเข้ามาตั้งแต่ตอนเติม) และไม่มีการออกใบเสร็จใหม่ — ` +
-      `หลักฐานคือใบรับเงินล่วงหน้าที่ออกไว้แล้ว · รายการนี้ยกเลิกได้ภายหลังหากหักผิด`,
+      `การหักเครดิตไม่มีเงินเคลื่อนไหว (เงินเข้ามาตั้งแต่ตอนเติม) — ` +
+      `หลักฐานคือใบรับเงินล่วงหน้าที่ออกไว้แล้ว`,
     { confirmButtonText: 'ยืนยันหักเครดิต' },
   )
   if (!confirmed.isConfirmed) return
@@ -299,9 +311,24 @@ const handleApply = async () => {
   isApplying.value = true
   void dialog.loading('กำลังหักเครดิต...')
   try {
-    const res = await FinanceService.applyCredit(currentRoomId, {
-      student_ids: plan.items.map((i) => i.student_id),
-      user_name: currentUserName,
+    // 🧾 [FIN-V2 / P3.3] หักเครดิตเดินผ่าน payment event (`use_credit` + ไม่มีเงินสด)
+    //    ⇒ ได้แถว `student_credits` ที่มี `payment_event_id` + ไม่มี REC / transaction
+    const res = await FinanceService.createPaymentEvent(currentRoomId, {
+      idempotency_key: applyKey.value,
+      student_id: student.student_id,
+      payer_name: student.student_name,
+      payer_person_id: null,
+      receiver_person_id: null,
+      receiver_name: currentUserName,
+      wallet_account_id: walletAccountId,
+      amount_received: '0.00',
+      use_credit: true,
+      excess_action: 'none',
+      bill_selection: 'auto',
+      bill_ids: [],
+      channel_id: null,
+      note: 'ใช้เครดิตปิดบิล',
+      event_at: null,
     })
 
     isApplyOpen.value = false
@@ -309,10 +336,10 @@ const handleApply = async () => {
       icon: 'success',
       title: 'หักเครดิตเรียบร้อย',
       text:
-        `หักไป ${formatMoney(res.total_applied)} ปิดบิล ${res.bills_paid ?? 0} รายการ · ` +
-        `เครดิตคงเหลือรวม ${formatMoney(res.total_balance_after)}`,
+        `ใช้เครดิต ${formatMoney(Number(res.credit_used))} ปิดบิล ${res.allocations.length} รายการ · ` +
+        `ยอดที่ปิดรวม ${formatMoney(Number(res.total_applied))}`,
     })
-    selectedIds.value = []
+    applyKey.value = ''
     await fetchCredits()
   } catch (error: unknown) {
     // all-or-nothing: ล้มแล้ว **ไม่มีอะไรถูกหักเลย** — ต้องบอกให้ชัด ไม่งั้นผู้ใช้
@@ -327,6 +354,12 @@ const handleApply = async () => {
   } finally {
     isApplying.value = false
   }
+}
+
+/** ปิดแผ่นหักเครดิต — ล้างคีย์เพื่อไม่ให้คีย์เดิมค้างไปรายการถัดไป */
+const closeApply = () => {
+  isApplyOpen.value = false
+  applyKey.value = ''
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -379,6 +412,17 @@ const handleUndo = async (entry: StudentCreditEntry) => {
     void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ยกเลิกได้', 'error')
     return
   }
+  // 🧾 [FIN-V2 / P3.3] แถวที่เกิดจากใบรับเงิน **ห้ามยกเลิกตรง** (backend ตอบ 409)
+  //    ต้องไปยกเลิกที่ใบรับเงิน (void engine, P6.1) ⇒ บอกทางออกแทนการยิง API
+  if (entry.payment_event_id !== null && entry.payment_event_id !== undefined) {
+    void dialog.alert(
+      'ยกเลิกที่นี่ไม่ได้',
+      `รายการนี้เกิดจากใบรับเงิน #${entry.payment_event_id} — ต้องยกเลิกที่รายการรับเงินนั้น ` +
+        `(ระบบจะคืนบิล/เครดิต/บัญชีให้พร้อมกัน)`,
+      'info',
+    )
+    return
+  }
   const confirmed = await dialog.confirm(
     'ยกเลิกการหักนี้?',
     `คืนเครดิต ${formatMoney(entry.amount)} เข้ากระเป๋านักเรียน และเปิดบิลกลับเป็น "ค้างชำระ" · ` +
@@ -416,11 +460,20 @@ const handleUndo = async (entry: StudentCreditEntry) => {
   }
 }
 
-/** ฉลาก/สีของแต่ละประเภทรายการ — ไม่ให้ผู้ใช้ต้องตีความตัวอักษรอังกฤษเอง */
-const entryChipClass = (type: string): string => {
-  if (type === 'topup') return 'bg-ok-50 text-ok-700'
-  if (type === 'apply') return 'bg-warn-50 text-warn-700'
-  return 'bg-canvas text-ink-2'
+/** 📜 แผงเครดิต (CreditPanel) ขอเปิดฟอร์มจากในประวัติ ⇒ ปิดแผ่นแล้วเปิดฟอร์มนั้น */
+const onPanelTopUp = (student: StudentCreditBalance) => {
+  isHistoryOpen.value = false
+  openTopUp(student)
+}
+
+const onPanelApply = (student: StudentCreditBalance) => {
+  isHistoryOpen.value = false
+  void openApplyPreview(student)
+}
+
+/** ปุ่ม "ประวัติ" ในแผง = โหลดใหม่ (ไม่ปิดแผ่น) */
+const refreshHistory = async () => {
+  if (historyTarget.value) await openHistory(historyTarget.value)
 }
 
 onMounted(() => {
@@ -437,19 +490,8 @@ onMounted(() => {
         <!--
           🔒 ปุ่มเขียน gate ด้วย `canManageFinance` **ไม่ใช่ `isAdmin`** — บทเรียนเดียวกับ
           `DebtorList.vue`: เหรัญญิกที่มี MANAGE_FINANCE แต่ไม่ใช่แอดมินต้องใช้ได้
-          ⚠️ ห้าม `:disabled` ตอนยังไม่ติ๊กใคร — ปุ่มตายไม่บอกอะไร ⇒ ปล่อยให้กดได้
-             แล้ว handler ตอบเป็นข้อความไทย
+          ℹ️ P3.3: หักเครดิตทำ **ทีละคน** จากปุ่มในแถว — หลายคนพร้อมกันอยู่ใน P3.5
         -->
-        <button
-          v-if="canManageFinance"
-          type="button"
-          class="btn-ghost-ui"
-          :disabled="isPlanLoading"
-          @click="openApplyPreview"
-        >
-          <i class="bi bi-scissors" aria-hidden="true"></i>
-          หักเครดิตที่เลือก<span v-if="selectedIds.length">({{ selectedIds.length }})</span>
-        </button>
         <RouterLink to="/finance/debtors" class="btn-ghost-ui" title="ดูยอดค้างชำระ">
           <i class="bi bi-people" aria-hidden="true"></i>
           ยอดค้างชำระ
@@ -490,27 +532,10 @@ onMounted(() => {
     />
 
     <template v-else>
-      <!--
-        📊 แถบสรุปสิ่งที่ติ๊กไว้ — โผล่เฉพาะเมื่อมีของ
-        💡 มีไว้เพราะปุ่ม "หักเครดิต" อยู่ที่หัวหน้าจอ (ไกลจากรายการ) ⇒ ถ้าไม่สรุปไว้ตรงนี้
-           ผู้ใช้ที่เลื่อนลงมาติ๊กจะไม่เห็นว่าเลือกไปเท่าไรแล้ว
-      -->
-      <div
-        v-if="canManageFinance && selectedIds.length > 0"
-        class="page-card flex flex-wrap items-center justify-between gap-3 border-s-4 border-s-brand-700 p-3"
-      >
-        <p class="min-w-0 text-sm font-bold text-ink-2">
-          เลือกไว้ <span class="num">{{ selectedIds.length }}</span> คน ·
-          เครดิตที่เลือก <span class="num text-ok-600">{{ formatMoney(selectedBalance) }}</span>
-        </p>
-        <div class="flex shrink-0 gap-2">
-          <button type="button" class="btn-ghost-ui" @click="selectedIds = []">ล้างที่เลือก</button>
-          <button type="button" class="btn-primary" @click="openApplyPreview">
-            <i class="bi bi-scissors" aria-hidden="true"></i>
-            ดูข้อเสนอการหัก
-          </button>
-        </div>
-      </div>
+      <!-- ℹ️ P3.3: ตัด multi-select ออก — หักเครดิตทีละคน (หลายคนพร้อมกัน = P3.5) -->
+      <p class="text-caption text-ink-3">
+        ใช้เครดิตได้ทีละคนจากปุ่มในแต่ละแถว · ใช้เครดิตหลายคนพร้อมกันจะมาใน P3.5
+      </p>
 
       <!-- 📱 มือถือ: การ์ด -->
       <div class="space-y-2.5 lg:hidden">
@@ -522,32 +547,6 @@ onMounted(() => {
         >
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-2">
-              <label
-                v-if="canManageFinance && c.credit_balance > 0"
-                class="flex shrink-0 cursor-pointer items-center"
-              >
-                <input
-                  type="checkbox"
-                  class="peer sr-only"
-                  :checked="selectedIds.includes(c.student_id)"
-                  :aria-label="`เลือก ${c.student_name} เพื่อหักเครดิต`"
-                  @change="toggleOne(c.student_id)"
-                />
-                <span
-                  class="flex h-6 w-6 shrink-0 items-center justify-center rounded-control border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                  :class="
-                    selectedIds.includes(c.student_id)
-                      ? 'border-brand-700 bg-brand-700'
-                      : 'border-line bg-surface'
-                  "
-                >
-                  <i
-                    v-if="selectedIds.includes(c.student_id)"
-                    class="bi bi-check-lg text-sm font-bold text-white"
-                    aria-hidden="true"
-                  ></i>
-                </span>
-              </label>
               <span class="chip num shrink-0 bg-canvas text-ink-2">#{{ c.student_no }}</span>
               <h2 class="min-w-0 truncate text-base font-bold text-ink">
                 {{ c.student_name }}
@@ -577,10 +576,19 @@ onMounted(() => {
             </span>
           </div>
 
-          <div v-if="canManageFinance" class="mt-2.5 flex items-center gap-2">
+          <div v-if="canManageFinance" class="mt-2.5 flex flex-wrap items-center gap-2">
             <button type="button" class="btn-ghost-ui" @click="openTopUp(c)">
               <i class="bi bi-plus-circle" aria-hidden="true"></i>
               เติมเงินล่วงหน้า
+            </button>
+            <button
+              type="button"
+              class="btn-ghost-ui"
+              :disabled="c.credit_balance <= 0 || isPlanLoading"
+              @click="openApplyPreview(c)"
+            >
+              <i class="bi bi-scissors" aria-hidden="true"></i>
+              ใช้เครดิตปิดบิล
             </button>
             <RowActionMenu
               :label="`ตัวเลือกของ ${c.student_name}`"
@@ -603,29 +611,6 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
-                <th v-if="canManageFinance" class="w-10">
-                  <label class="flex cursor-pointer items-center" title="เลือกทั้งหมดที่มีเครดิต">
-                    <input
-                      type="checkbox"
-                      class="peer sr-only"
-                      :checked="allSelected"
-                      aria-label="เลือกนักเรียนทั้งหมดที่มีเครดิต"
-                      @change="toggleSelectAll"
-                    />
-                    <span
-                      class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                      :class="
-                        allSelected ? 'border-brand-700 bg-brand-700' : 'border-line bg-surface'
-                      "
-                    >
-                      <i
-                        v-if="allSelected"
-                        class="bi bi-check-lg text-xs font-bold text-white"
-                        aria-hidden="true"
-                      ></i>
-                    </span>
-                  </label>
-                </th>
                 <th class="w-24">เลขที่</th>
                 <th>ชื่อนักเรียน</th>
                 <th class="text-right">เครดิตคงเหลือ (฿)</th>
@@ -636,31 +621,6 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-for="c in credits" :key="c.student_id">
-                <td v-if="canManageFinance">
-                  <label v-if="c.credit_balance > 0" class="flex cursor-pointer items-center">
-                    <input
-                      type="checkbox"
-                      class="peer sr-only"
-                      :checked="selectedIds.includes(c.student_id)"
-                      :aria-label="`เลือก ${c.student_name} เพื่อหักเครดิต`"
-                      @change="toggleOne(c.student_id)"
-                    />
-                    <span
-                      class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
-                      :class="
-                        selectedIds.includes(c.student_id)
-                          ? 'border-brand-700 bg-brand-700'
-                          : 'border-line bg-surface'
-                      "
-                    >
-                      <i
-                        v-if="selectedIds.includes(c.student_id)"
-                        class="bi bi-check-lg text-xs font-bold text-white"
-                        aria-hidden="true"
-                      ></i>
-                    </span>
-                  </label>
-                </td>
                 <td class="num font-bold text-ink-3">#{{ c.student_no }}</td>
                 <td class="font-bold text-ink">{{ c.student_name }}</td>
                 <td
@@ -688,6 +648,16 @@ onMounted(() => {
                     >
                       <i class="bi bi-plus-circle" aria-hidden="true"></i>
                       เติม
+                    </button>
+                    <button
+                      v-if="canManageFinance"
+                      type="button"
+                      class="btn-ghost-ui"
+                      :disabled="c.credit_balance <= 0 || isPlanLoading"
+                      @click="openApplyPreview(c)"
+                    >
+                      <i class="bi bi-scissors" aria-hidden="true"></i>
+                      ใช้เครดิต
                     </button>
                     <button
                       v-else
@@ -795,7 +765,7 @@ onMounted(() => {
       description="ระบบจะหักบิลที่ครบกำหนดก่อน — ยังไม่มีอะไรถูกบันทึกจนกว่าจะยืนยัน"
       size="form"
       :dismissible="!isApplying"
-      @close="isApplyOpen = false"
+      @close="closeApply"
     >
       <div v-if="applyPlan" class="space-y-3">
         <div v-for="item in applyPlan.items" :key="item.student_id" class="rounded-control border border-line p-3">
@@ -856,7 +826,7 @@ onMounted(() => {
 
       <template #footer>
         <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button type="button" class="btn-ghost-ui" @click="isApplyOpen = false">ยกเลิก</button>
+          <button type="button" class="btn-ghost-ui" @click="closeApply">ยกเลิก</button>
           <button type="button" class="btn-primary" :disabled="isApplying" @click="handleApply">
             <i class="bi bi-check-lg" aria-hidden="true"></i>
             ยืนยันหักเครดิต
@@ -878,55 +848,17 @@ onMounted(() => {
       size="form"
       @close="isHistoryOpen = false"
     >
-      <SkeletonRows v-if="isHistoryLoading" :rows="3" height="h-16" />
-
-      <StateBlock
-        v-else-if="!historyEntries.length"
-        variant="empty"
-        icon="bi-journal"
-        title="ยังไม่มีรายการเครดิต"
-        hint="เมื่อมีการเติมเงินล่วงหน้าหรือหักปิดบิล รายการจะปรากฏที่นี่"
+      <CreditPanel
+        v-if="historyTarget"
+        :student="historyTarget"
+        :entries="historyEntries"
+        :can-manage="canManageFinance"
+        :loading="isHistoryLoading"
+        @topup="onPanelTopUp"
+        @apply="onPanelApply"
+        @history="refreshHistory"
+        @undo="handleUndo"
       />
-
-      <ul v-else class="space-y-2">
-        <li v-for="e in historyEntries" :key="e.id" class="rounded-control border border-line p-3">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="chip shrink-0" :class="entryChipClass(e.entry_type)">
-                  {{ e.entry_type_label ?? e.entry_type }}
-                </span>
-                <span class="text-caption text-ink-3">{{ formatThaiDateTime(e.created_at) }}</span>
-              </div>
-              <p class="mt-1 min-w-0 truncate text-caption text-ink-2">
-                <template v-if="e.collection_title">{{ e.collection_title }}</template>
-                <template v-else-if="e.receipt_no">ใบรับเงินล่วงหน้า {{ e.receipt_no }}</template>
-                <template v-else>{{ e.note ?? '—' }}</template>
-              </p>
-              <p v-if="e.recorded_by" class="mt-0.5 text-caption text-ink-3">
-                โดย {{ e.recorded_by }}
-              </p>
-            </div>
-            <div class="shrink-0 text-right">
-              <p class="num font-bold text-ink">
-                {{ formatMoney(e.amount) }}
-              </p>
-              <p class="text-caption text-ink-3">
-                คงเหลือ {{ formatMoney(e.balance_after) }}
-              </p>
-              <button
-                v-if="canManageFinance && e.entry_type === 'apply'"
-                type="button"
-                class="btn-ghost-ui mt-1.5"
-                @click="handleUndo(e)"
-              >
-                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
-                ยกเลิกการหักนี้
-              </button>
-            </div>
-          </div>
-        </li>
-      </ul>
 
       <template #footer>
         <div class="flex justify-end">

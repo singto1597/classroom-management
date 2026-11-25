@@ -228,9 +228,12 @@ async def test_manual_bill_not_open_raises():
         _plan(bills, cash="100.00", bill_selection="manual", bill_ids=[1, 1])
     assert dup.value.code == "INVALID_AMOUNT"
 
-    with pytest.raises(AllocationError) as empty:
-        _plan(bills, cash="100.00", bill_selection="manual", bill_ids=[])
-    assert empty.value.code == "INVALID_AMOUNT"
+    # 🧾 [FIN-V2 / P3.3] `manual` + `[]` = เลือกไม่ปิดบิลสักใบ (ไม่ใช่ error) —
+    #    เส้นทางเติมเครดิตล้วนใช้ท่านี้ ⇒ เงินทั้งก้อนเป็น `credit_added`
+    plan = _plan(bills, cash="100.00", bill_selection="manual", bill_ids=[])
+    assert plan["allocations"] == []
+    assert plan["total_applied_stang"] == 0
+    assert plan["credit_added_stang"] == to_satang("100.00")
 
 
 # ═══════════════════════════════════════════════ 9. เศษสตางค์ไม่หาย/ไม่เกิน

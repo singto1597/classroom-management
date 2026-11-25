@@ -61,6 +61,15 @@ from .helpers import _as_utc
 _MIN_AMOUNT = 0.01
 
 
+class CreditEventManagedError(ValueError):
+    """แถวเครดิตที่เกิดจาก payment event — ต้องยกเลิกผ่าน void engine ของ event
+
+    🔴 แยกจาก `ValueError` ธรรมดาเพราะ router ต้องตอบ **409** (ไม่ใช่ 400):
+       ผู้ใช้ไม่ได้กรอกข้อมูลผิด — รายการนี้จัดการได้ที่เดียวเท่านั้น (ยกเลิกใบรับเงิน)
+       ⇒ frontend ใช้รหัส 409 แยกได้ว่าต้องพาไปทำอะไรต่อ (P6.1 เป็นเจ้าของ void engine)
+    """
+
+
 class CreditsMixin:
     # =================================================================
     # ตัวช่วยอ่าน (ไม่เขียนอะไร) — ใช้ร่วมกันทั้ง plan และ apply
@@ -173,6 +182,12 @@ class CreditsMixin:
             CREDIT_ENTRY_APPLY: "หักปิดบิล",
             CREDIT_ENTRY_REVERSE: "ยกเลิกการหัก",
         }.get(d.get("entry_type"), d.get("entry_type"))
+        # 🧾 [FIN-V2 / P3.3] ที่มาของแถว — "event" = เกิดจากใบรับเงิน (payment event)
+        #    ⇒ ยกเลิกตรงไม่ได้ (ต้องยกเลิกที่ event) · "legacy" = แถวเดิม/ขา legacy
+        # 🔴 ต้องมีค่าทุกครั้ง (`None` ของ Pydantic = ฟิลด์หายใน response) — ดูกับดัก
+        #    “🧩 response_model บังคับฟิลด์ที่ตัวสร้าง dict ไม่ได้ใส่”
+        d["payment_event_id"] = d.get("payment_event_id")
+        d["source_label"] = "event" if d["payment_event_id"] is not None else "legacy"
         return d
 
     # =================================================================
@@ -285,8 +300,14 @@ class CreditsMixin:
     @classmethod
     async def _top_up_credit_locked(
         cls, conn: asyncpg.Connection, *, target_room_id: int, req, user_id: int,
+        payment_event_id: Optional[int] = None,
     ) -> dict:
-        """ตัวทำงานจริง — caller ถือ transaction และ `_lock_room_money` มาแล้ว"""
+        """ตัวทำงานจริง — caller ถือ transaction และ `_lock_room_money` มาแล้ว
+
+        🧾 [FIN-V2 / P3.3] `payment_event_id` เป็น optional: เส้นทาง legacy
+        (`top_up_credit`) ไม่ส่งค่า ⇒ `NULL` เหมือนเดิม; เส้นทาง event ที่มี
+        (P2.1 เขียนแถวเองใน `_create_excess_credit_locked`) ใช้ระบุที่มา
+        """
         student_id = int(req.student_id)
 
         # 💰 ด่านยอดเงิน **ต้องมาก่อนการเขียนทุกอย่าง** (โดยเฉพาะก่อนจองเลขเอกสาร)
@@ -398,11 +419,12 @@ class CreditsMixin:
             """INSERT INTO student_credits
                    (room_id, student_id, entry_type, amount, balance_after,
                     finance_transaction_id, journal_entry_id, note, recorded_by,
-                    idempotency_key)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    idempotency_key, payment_event_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                RETURNING id""",
             target_room_id, student_id, CREDIT_ENTRY_TOPUP, amount, balance_after,
             trans_id, journal_entry_id, req.note, req.user_name or "—", key,
+            payment_event_id,
         )
 
         # 🧾 5) ใบรับเงินล่วงหน้า (DEP) — หลักฐานการรับเงินชิ้นเดียวที่ผู้ใช้จะได้
@@ -426,6 +448,7 @@ class CreditsMixin:
             "balance_after": balance_after,
             "finance_transaction_id": trans_id,
             "journal_entry_id": str(journal_entry_id),
+            "payment_event_id": payment_event_id,
             "receipt": deposit["receipt"],
             "receipt_reused": deposit["reused"],
             "reused": False,
@@ -438,7 +461,7 @@ class CreditsMixin:
         """ประกอบผลลัพธ์ของ "การเติมเครดิตที่สำเร็จไปแล้ว" กลับมา (สำหรับเส้นทางกดซ้ำ)"""
         row = await conn.fetchrow(
             """SELECT SC.id, SC.student_id, SC.amount, SC.balance_after,
-                      SC.finance_transaction_id, SC.journal_entry_id,
+                      SC.finance_transaction_id, SC.journal_entry_id, SC.payment_event_id,
                       U.first_name, U.nickname, U.first_name_en
                FROM student_credits SC
                LEFT JOIN students S ON S.id = SC.student_id
@@ -473,6 +496,7 @@ class CreditsMixin:
             "balance_after": float(row["balance_after"]),
             "finance_transaction_id": row["finance_transaction_id"],
             "journal_entry_id": str(row["journal_entry_id"]) if row["journal_entry_id"] else None,
+            "payment_event_id": row["payment_event_id"],
             "receipt": receipt,
             "receipt_reused": True,
         }
@@ -661,8 +685,14 @@ class CreditsMixin:
     async def _apply_plan_locked(
         cls, conn: asyncpg.Connection, *, target_room_id: int, plan: dict, user_name: str,
         actor_identifier: str, client_source: str,
+        payment_event_id: Optional[int] = None,
     ) -> dict:
-        """ลงมือหักตามข้อเสนอ — caller ถือ transaction + lock ทั้งห้องและบิลมาแล้ว"""
+        """ลงมือหักตามข้อเสนอ — caller ถือ transaction + lock ทั้งห้องและบิลมาแล้ว
+
+        🧾 [FIN-V2 / P3.3] `payment_event_id` เป็น optional: เส้นทาง legacy
+        (`apply_credit`) ไม่ส่งค่า ⇒ `NULL` เหมือนเดิม; P2.1 ส่ง event id ที่สร้างแล้ว
+        เพื่อให้แถว apply ชี้กลับใบรับเงินได้ (ใช้บล็อก undo ตรงในภายหลัง)
+        """
         # 🏦 ขา AR: เงินรับล่วงหน้าถูกใช้ "ตัดผู้ค้างชำระ" ไม่ใช่รับรู้รายได้ใหม่
         #    (รายได้ถูกรับรู้ตอนออกบิลแล้ว) ⇒ Dr 2099 / Cr 11001 หรือ 11002 ตามชนิดบิล
         #    ✅ ใช้ `_resolve_ar_ledger` ตัวเดียวกันกับ `_confirm_single_payment` เป๊ะ
@@ -762,12 +792,12 @@ class CreditsMixin:
                     """INSERT INTO student_credits
                            (room_id, student_id, entry_type, amount, balance_after,
                             student_payment_id, collection_id, journal_entry_id,
-                            note, recorded_by)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            note, recorded_by, payment_event_id)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                        RETURNING id""",
                     target_room_id, student_id, CREDIT_ENTRY_APPLY, pay, remaining_after,
                     payment_id, sp["collection_id"], journal_entry_id,
-                    f"หักปิดบิล: {sp['title']}", user_name,
+                    f"หักปิดบิล: {sp['title']}", user_name, payment_event_id,
                 )
                 # 📋 audit ระดับรายการ (ท่าเดียวกับ `batch_confirm_payments` ที่ log ต่อใบ + ต่อชุด)
                 #    ใช้ `actor_identifier`/`client_source` ของ **คำขอจริง** ไม่ใช่ค่าประดิษฐ์ —
@@ -794,6 +824,9 @@ class CreditsMixin:
                 executed_allocs.append({
                     "payment_id": payment_id,
                     "collection_id": sp["collection_id"],
+                    # 🧾 id ของแถวเครดิตที่เพิ่งสร้าง — P2.1 ใช้ผูก
+                    #    `finance_payment_event_lines.credit_entry_id`
+                    "credit_entry_id": credit_entry_id,
                     "title": sp["title"],
                     "due_date": alloc.get("due_date"),
                     "bill_total": bill_total,
@@ -912,6 +945,14 @@ class CreditsMixin:
             raise ValueError(
                 "ยกเลิกได้เฉพาะรายการ 'หักปิดบิล' เท่านั้น — "
                 "การเติมเงินล่วงหน้าต้องใช้วิธียกเลิกรายการธุรกรรม (ซึ่งจะยกเลิกใบ DEP ให้ด้วย)"
+            )
+        # 🧾 [FIN-V2 / P3.3] แถวที่เกิดจาก payment event ยกเลิกตรงไม่ได้ —
+        #    ต้องยกเลิกที่ event ซึ่งจะคืนบิล/เครดิต/journal พร้อมกัน (P6.1)
+        # 🔴 ตรวจ **ก่อน** guard ของบิล/ค่าปรับ ⇒ ได้ 409 ที่ตรงความหมาย
+        if entry["payment_event_id"] is not None:
+            raise CreditEventManagedError(
+                "รายการนี้เกิดจากใบรับเงิน (payment event) — "
+                "ต้องยกเลิกที่รายการรับเงินนั้น ไม่ใช่ที่นี่"
             )
         if entry["student_payment_id"] is None:
             raise ValueError("รายการนี้ไม่ผูกกับบิล จึงยกเลิกไม่ได้")
@@ -1169,6 +1210,7 @@ class CreditsMixin:
                     """SELECT SC.id, SC.entry_type, SC.amount, SC.balance_after,
                               SC.student_payment_id, SC.collection_id, SC.note,
                               SC.recorded_by, SC.created_at, SC.finance_transaction_id,
+                              SC.payment_event_id,
                               FC.title AS collection_title,
                               R.receipt_no, R.event_at AS receipt_event_at
                        FROM student_credits SC

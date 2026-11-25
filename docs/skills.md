@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 286 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 287 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -290,6 +290,7 @@
 - [🧾 ใบแจ้งหนี้ v2 + ใบรับทราบยอดค้าง: ถ้อยคำบนกระดาษเป็นสัญญา และ `response_model` เติมฟิลด์ให้เอง](#ใบแจ้งหนี้-v2-ใบรับทราบยอดค้าง-ถ้อยคำบนกระดาษเป็นสัญญา-และ-responsemodel-เติมฟิลด์ให้เอง)
 - [📥 รับเงินหลายคน: แยก "core ของ event" ออกจาก RBAC โดยไม่ให้เส้นเดิมเปลี่ยนไบต์ + มอนคีย์ปิดแค่ทางเดียว](#รับเงินหลายคน-แยก-core-ของ-event-ออกจาก-rbac-โดยไม่ให้เส้นเดิมเปลี่ยนไบต์-มอนคีย์ปิดแค่ทางเดียว)
 - [👜 เงินสดรอส่งมอบ: กระเป๋าคือแถวปกติของ `finance_accounts` — idempotency ต้องพึ่ง journal metadata](#เงินสดรอส่งมอบ-กระเป๋าคือแถวปกติของ-financeaccounts-idempotency-ต้องพึ่ง-journal-metadata)
+- [💳 เครดิตต้องเกิดพร้อมใบรับเงิน: `payment_event_id` เขียนตอน INSERT และ `manual+\[\]` = ไม่ปิดบิล](#เครดิตต้องเกิดพร้อมใบรับเงิน-paymenteventid-เขียนตอน-insert-และ-manual-ไม่ปิดบิล)
 
 <!-- TOC:END -->
 
@@ -4940,4 +4941,22 @@
   - เพิ่ม 3 เมธอดเขียนใน `_MONEY_PATHS` — และ**รันตัวตรวจ completeness ซ้ำเสมอ** เพราะมันจับช่องว่างของแพ็กเกจก่อนหน้าได้ (P3.1 เจอ `issue_acknowledgements` ของ P2.6 ที่ล็อกถูกแต่มิได้ลงทะเบียน)
 - **Rule:** (1) 🔴 custody = กระเป๋าธรรมดา ไม่มี ledger/ตารางใหม่ (2) 🔴 handover ห้ามแตะ `finance_transactions` (3) 🔴 idempotency ของ handover อยู่ที่ journal metadata ใต้ room lock — ห้ามใช้ `created_at`/`amount` เป็นคีย์ (4) 🔴 void ต้องทั้ง void ใบเดิมและเขียนใบกลับรายการ (5) 🔴 เพิ่มเมธอดเขียนเงินแล้วต้องลง `_MONEY_PATHS` และรันตัวตรวจ completeness
 - **Tests/Verification:** `backend/tests/test_finance_custody.py` 13 ตัว (1 กระเป๋า/คน + ห้าม primary, receive role, RBAC member 403, balanced journal + ไม่มี finance_transactions, ทิศ custody→main, ยอดไม่พอไม่เหลือร่องรอย, idempotent replay, 409 payload ต่าง, void คืนยอด + void journal เดิม + ใบกลับรายการ, void guard ปลายทางใช้เงิน, movements เรียงใหม่→เก่า, room scope 404, ตัวตรวจ `_MONEY_PATHS`), `test_finance_money_lock.py` ผ่านทั้งไฟล์
+- **Date Added:** 2026-11-25
+
+### 💳 เครดิตต้องเกิดพร้อมใบรับเงิน: `payment_event_id` เขียนตอน INSERT และ `manual+[]` = ไม่ปิดบิล
+- **Context/Problem:** P3.3 ยุบ "เติม/หักเครดิต" ให้เดินผ่าน payment event แหล่งเดียว แต่เจอกับดัก 3 ข้อ:
+  (1) P2.1 เขียน `student_credits.payment_event_id` ด้วย `UPDATE` **หลัง** INSERT แถว apply
+  (2) allocation engine (P1.5) ปฏิเสธ `bill_selection='manual'` + `bill_ids=[]`
+  (3) แถวเครดิตที่มาจาก event ถูกกด "ยกเลิก" แล้วได้ 500/409 จากเส้นทางเดิม
+- **Root Cause:** (1) `student_credits` เป็น append-only ledger — แถวต้องรู้ที่มาของตัวเองตั้งแต่เกิด; การ `UPDATE` ภายหลังทำให้เกิดหน้าต่างที่แถวมีอยู่แต่ไม่มีเจ้าของ และขัดกติกา ledger ของ P1.1. (2) "manual + ว่าง" ไม่ใช่ข้อมูลผิด แต่คือ**เลือกไม่ปิดบิลสักใบ** — เคสเดียวกับ "เติมเครดิตล้วน" ที่เงินทั้งก้อนต้องกลายเป็น `credit_added`; การ reject ไปบังคับให้ caller ต้องเดาบิลแทนครู. (3) การหักที่เกิดจาก event ผูกกับ REC/DEP/journal หลายใบ การ undo เฉพาะแถวเดียวจะทำให้ยอดไม่ตรง.
+- **Correct Pattern/Solution:**
+  - `_apply_plan_locked(..., payment_event_id=...)` รับ id แล้วใส่ใน **INSERT เดียว** ของ `student_credits`; คืน `credit_entry_id` ของทุก allocation เพื่อให้ caller ตรวจได้ว่าครบ (`payments` ต้องมี credit_entry_id ทุกแถว)
+  - `_top_up_credit_locked(..., payment_event_id=None)` + `_create_excess_credit_locked` เขียน id ใน INSERT เหมือนกัน — legacy ยังส่ง `None`
+  - allocation: `manual` + `[]` ⇒ `selected=[]`, `unselected=open_bills`, `total_applied_stang=0`; ถ้า `excess_action='none'` ยังถูกปฏิเสธที่ `EXCESS_NOT_ALLOWED` ⇒ ไม่มีทางกลืนเงินเงียบ ๆ
+  - `_undo_credit_locked`: เจอ `payment_event_id IS NOT NULL` ⇒ raise `CreditEventManagedError` ⇒ router แปลง **409** (ก่อน `except ValueError` 400) — "ยกเลิกที่ใบรับเงิน"
+  - response ของเครดิตเติม `payment_event_id` + `source_label` (`event`/`legacy`) ให้ UI ตัดสินใจได้โดยไม่เดา
+  - FE: เติม = `createPaymentEvent` (`manual`, `[]`, `excess_action:'credit'`, `amount_received>0`); หัก = `createPaymentEvent` (`amount_received:'0.00'`, `use_credit:true`, `excess_action:'none'`, `auto`) ⇒ ไม่มี REC/transaction; idempotency key สร้างครั้งเดียวตอนเปิดแผ่น
+  - `deposit_no` คือหลักฐานของ topup; ถ้า event เติมเครดิตล้วนได้ `receipt_no` กลับมา = ความผิดปกติ ให้ UI เตือนให้แจ้งผู้ดูแล
+- **Rule:** (1) 🔴 `payment_event_id` ต้องอยู่ใน INSERT ของ `student_credits` — ห้าม UPDATE ภายหลัง (2) 🔴 `manual` + `[]` = ไม่ปิดบิล ไม่ใช่ error (3) 🔴 undo แถวที่มาจาก event = 409 และ UI ต้องไม่แสดงปุ่มยกเลิก (4) 🔴 เงินสด/เครดิตใช้ event เดียวกัน แต่เครดิตล้วนไม่มี REC/transaction
+- **Tests/Verification:** `backend/tests/test_finance_credits.py` +9 (legacy row = NULL, event topup = DEP ไม่มี REC, event apply ไม่มี transaction/REC, undo event = 409, undo legacy ยังได้, detail เปิด `payment_event_id`, topup `manual+[]`, apply ไม่มีบิล = 400, money-lock shape), `test_finance_allocation.py` ปรับ `manual+[]`, `test_finance_payment_events.py` ยังเขียว, `frontend/…/CreditPanel.spec.ts` 4 + `credit-consolidation.spec.ts` 3
 - **Date Added:** 2026-11-25

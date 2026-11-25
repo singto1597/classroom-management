@@ -917,6 +917,13 @@ export interface StudentCreditEntry {
   receipt_event_at: string | null;
   /** ชื่อบิล/แคมเปญที่รายการหักนี้ไปปิด */
   collection_title: string | null;
+  /**
+   * 🧾 [FIN-V2 / P3.3] ใบรับเงิน (payment event) ที่สร้างแถวนี้
+   * `null` = รายการเดิมของระบบ (ยกเลิกตรงได้เฉพาะ `entry_type='apply'`)
+   */
+  payment_event_id?: number | null;
+  /** ที่มา — backend เติมให้เสมอ (`event` = มาจากใบรับเงิน, `legacy` = แถวเดิม) */
+  source_label?: 'event' | 'legacy';
 }
 
 /** บิลที่ยังค้างของนักเรียน 1 คน (ยอดดิบ ยังไม่หักเครดิต) */

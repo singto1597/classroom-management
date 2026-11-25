@@ -309,7 +309,7 @@ async def _credit_entries(pool, room_id: int, student_id: int) -> list:
         rows = await conn.fetch(
             """SELECT id, entry_type, amount, balance_after, finance_transaction_id,
                       student_payment_id, collection_id, journal_entry_id,
-                      idempotency_key, deleted_at
+                      idempotency_key, payment_event_id, deleted_at
                FROM student_credits
                WHERE room_id = $1 AND student_id = $2 AND deleted_at IS NULL
                ORDER BY id""",
@@ -1519,3 +1519,351 @@ async def test_receipt_context_still_computes_remaining_from_the_bill():
     assert ctx["collection_amount"] == 1000.0
     assert ctx["remaining"] == 0.0, "คงเหลือ = ยอดเต็ม − ยอดสะสม"
     assert ctx["is_receipt"] is True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. [FIN-V2 / P3.3] รวมศูนย์เครดิตกับ payment event
+# ══════════════════════════════════════════════════════════════════════════════
+EVENTS_PATH = API_PREFIX + "/{room}/finance/payment-events"
+
+
+def _post_event(
+    client, headers, student_id: int, account_id: int, *,
+    key: str = None, cash: str = "0.00", use_credit: bool = False,
+    excess_action: str = "credit", bill_selection: str = "auto",
+    bill_ids: list = None, payer_name: str = "ผู้ปกครองทดสอบ",
+    receiver_name: str = "ครูทดสอบ", note: str = None, room_id: int = None,
+):
+    """ยิง `POST /finance/payment-events` — ทางเดียวที่ UI ใหม่ใช้เติม/ใช้เครดิต"""
+    body = {
+        "idempotency_key": key or _key(),
+        "student_id": student_id,
+        "wallet_account_id": account_id,
+        "payer_name": payer_name,
+        "receiver_name": receiver_name,
+        "amount_received": cash,
+        "use_credit": use_credit,
+        "excess_action": excess_action,
+        "bill_selection": bill_selection,
+    }
+    if bill_ids is not None:
+        body["bill_ids"] = bill_ids
+    if note is not None:
+        body["note"] = note
+    return client.post(
+        _url(EVENTS_PATH, room_id if room_id is not None else headers.room_id),
+        json=body, headers=headers,
+    )
+
+
+async def _event_receipts(pool, event_id: int) -> list:
+    """เอกสาร (`finance_receipts`) ของ event — ไม่กรอง doc_type เพื่อพิสูจน์ว่าไม่มี REC"""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT doc_type, receipt_no, layout_version
+               FROM finance_receipts
+               WHERE payment_event_id = $1 AND deleted_at IS NULL
+               ORDER BY id""",
+            event_id,
+        )
+        return [dict(r) for r in rows]
+
+
+async def _credit_row(pool, credit_entry_id: int) -> dict:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT id, entry_type, amount, balance_after, student_payment_id,
+                      payment_event_id, deleted_at
+               FROM student_credits WHERE id = $1""",
+            credit_entry_id,
+        )
+        return dict(row) if row else {}
+
+
+async def test_legacy_topup_leaves_payment_event_id_null(client, db_pool, admin_headers):
+    """[P3.3] เส้นทาง `/finance/credits` เดิมยังทำงาน — แถวที่เกิดต้องมี event id เป็น NULL
+
+    ตัว endpoint เดิมต้องคง signature/พฤติกรรม (client เก่า/บอทยังเรียกอยู่)
+    ⇒ ห้ามเผลอไปบังคับให้ทุกแถวมี event
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
+    student_id = await _make_debtor(db_pool, room_id)
+
+    res = _top_up(client, admin_headers, student_id, account_id, 250.0)
+    assert res.status_code == 200, res.text
+    body = res.json()
+
+    row = await _credit_row(db_pool, body["credit_entry_id"])
+    assert row["payment_event_id"] is None
+    assert row["amount"] == 250.0
+
+    detail = _student_credit(client, admin_headers, student_id)
+    assert detail.status_code == 200, detail.text
+    entry = detail.json()["entries"][0]
+    assert entry["payment_event_id"] is None
+    assert entry["source_label"] == "legacy"
+
+
+async def test_event_topup_sets_payment_event_id_and_issues_dep(
+    client, db_pool, admin_headers
+):
+    """[P3.3] เติมเครดิตผ่าน event (manual + bills []) ⇒ เครดิตได้ event id + DEP, **ไม่มี REC**
+
+    🔴 ใช้ `bill_selection='auto'` ไม่ได้ — ถ้ามีบิลค้าง เงินจะไปปิดบิลก่อน
+       แล้วเครดิตที่ได้จะน้อยกว่าที่ผู้ใช้กรอก (brief P3.3 บันทึกการตัดสินใจข้อ 1)
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
+    student_id = await _make_debtor(db_pool, room_id)
+
+    res = _post_event(
+        client, admin_headers, student_id, account_id,
+        cash="500.00", bill_selection="manual", bill_ids=[],
+        excess_action="credit", note="เติมเงินล่วงหน้า",
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    event_id = body["event_id"]
+
+    assert body["total_applied"] == "0.00"
+    assert body["credit_added"] == "500.00"
+    assert body["receipt_no"] is None, "event เติมเครดิตล้วนต้องไม่ออก REC"
+    assert body["deposit_no"] and body["deposit_no"].startswith("DEP-")
+
+    rows = await _credit_entries(db_pool, room_id, student_id)
+    topups = [r for r in rows if r["entry_type"] == CREDIT_ENTRY_TOPUP]
+    assert len(topups) == 1
+    assert topups[0]["amount"] == 500.0
+    assert topups[0]["balance_after"] == 500.0
+    assert topups[0]["payment_event_id"] == event_id, (
+        "แถว topup จาก event ต้องเขียน payment_event_id ใน INSERT เดียวกัน"
+    )
+
+    docs = await _event_receipts(db_pool, event_id)
+    assert [d["doc_type"] for d in docs] == [DOC_TYPE_DEPOSIT], (
+        f"event เติมเครดิตต้องมีเฉพาะ DEP — พบ {docs}"
+    )
+
+
+async def test_event_credit_apply_creates_no_transaction_and_no_receipt(
+    client, db_pool, admin_headers
+):
+    """[P3.3] ใช้เครดิตผ่าน event ⇒ ไม่มี `finance_transactions` และไม่มีเอกสารเลย
+
+    เครดิต **ไม่ใช่เงินสด** — ถ้าเผลอสร้าง transaction/ใบเสร็จ ยอดเงินเคลื่อนไหว
+    กับรายงานจะพองทั้งที่ไม่มีเงินเข้าออกจริง
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id, balance=0.0)
+    student_id = await _make_debtor(db_pool, room_id)
+    _collection_id, payment_id = await _make_bill(
+        db_pool, room_id, student_id, amount=1000.0
+    )
+
+    # เติมเครดิต 300 ผ่านเส้นทางเดิม (แถวนี้ payment_event_id = NULL)
+    top_up = _top_up(client, admin_headers, student_id, account_id, 300.0)
+    assert top_up.status_code == 200, top_up.text
+
+    res = _post_event(
+        client, admin_headers, student_id, account_id,
+        cash="0.00", use_credit=True, excess_action="none",
+        bill_selection="auto", payer_name="ใช้เครดิต",
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    event_id = body["event_id"]
+    assert body["credit_used"] == "300.00"
+    assert body["total_applied"] == "300.00"
+    assert body["credit_added"] == "0.00"
+    assert body["receipt_no"] is None, "ใช้เครดิตไม่มีเงินสด ⇒ ห้ามออก REC"
+
+    bill = await _bill_row(db_pool, payment_id)
+    assert float(bill["paid_amount"]) == 300.0
+    assert bill["status"] == "pending"  # ยังค้าง 700
+
+    assert await _count(
+        db_pool, "finance_transactions", "payment_event_id = $1", event_id
+    ) == 0, "ใช้เครดิตไม่ใช่เงินสด ⇒ ห้ามมี transaction ของ event"
+    assert await _event_receipts(db_pool, event_id) == []
+
+    rows = await _credit_entries(db_pool, room_id, student_id)
+    applies = [r for r in rows if r["entry_type"] == CREDIT_ENTRY_APPLY]
+    assert len(applies) == 1
+    assert applies[0]["payment_event_id"] == event_id, (
+        "แถว apply จาก event ต้องเขียน payment_event_id ใน INSERT เดียวกัน (ไม่ใช่ UPDATE)"
+    )
+
+
+async def test_undo_event_apply_returns_409(client, db_pool, admin_headers):
+    """[P3.3] ยกเลิกแถวที่มาจาก event ตรง ๆ ⇒ **409** ไม่ใช่ 400 และไม่เปลี่ยนอะไร
+
+    ผู้ใช้ไม่ได้กรอกผิด — รายการนี้ต้องยกเลิกที่ใบรับเงิน (void engine, P6.1)
+    ⇒ frontend ใช้ 409 แยกได้ว่าต้องพาไปทำอะไรต่อ
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
+    student_id = await _make_debtor(db_pool, room_id)
+    _collection_id, payment_id = await _make_bill(
+        db_pool, room_id, student_id, amount=500.0
+    )
+    assert _top_up(client, admin_headers, student_id, account_id, 200.0).status_code == 200
+
+    res = _post_event(
+        client, admin_headers, student_id, account_id,
+        cash="0.00", use_credit=True, excess_action="none", bill_selection="auto",
+        payer_name="ใช้เครดิต",
+    )
+    assert res.status_code == 200, res.text
+
+    rows = await _credit_entries(db_pool, room_id, student_id)
+    apply_row = next(r for r in rows if r["entry_type"] == CREDIT_ENTRY_APPLY)
+
+    undo = _undo(client, admin_headers, apply_row["id"])
+    assert undo.status_code == 409, f"ต้องเป็น 409 (ได้ {undo.status_code}: {undo.text})"
+    assert "ใบรับเงิน" in undo.json()["detail"]
+
+    # ไม่มีอะไรเปลี่ยน: บิลยังจ่าย 200, แถว apply ยังอยู่, ไม่มี reverse
+    bill = await _bill_row(db_pool, payment_id)
+    assert float(bill["paid_amount"]) == 200.0
+    still = await _credit_row(db_pool, apply_row["id"])
+    assert still["deleted_at"] is None
+    assert not [r for r in await _credit_entries(db_pool, room_id, student_id)
+                if r["entry_type"] == CREDIT_ENTRY_REVERSE]
+
+
+async def test_undo_legacy_apply_still_works_and_reverse_has_no_event(
+    client, db_pool, admin_headers
+):
+    """[P3.3] แถว apply แบบเดิม (ไม่มี event) ยังยกเลิกได้ — reverse row ต้องไม่มี event id"""
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
+    student_id = await _make_debtor(db_pool, room_id)
+    _collection_id, payment_id = await _make_bill(
+        db_pool, room_id, student_id, amount=400.0
+    )
+    assert _top_up(client, admin_headers, student_id, account_id, 400.0).status_code == 200
+
+    applied = _apply(client, admin_headers, [student_id])
+    assert applied.status_code == 200, applied.text
+
+    rows = await _credit_entries(db_pool, room_id, student_id)
+    apply_row = next(r for r in rows if r["entry_type"] == CREDIT_ENTRY_APPLY)
+    assert apply_row["payment_event_id"] is None
+
+    undo = _undo(client, admin_headers, apply_row["id"])
+    assert undo.status_code == 200, undo.text
+    reverse_id = undo.json()["reverse_entry_id"]
+    reverse = await _credit_row(db_pool, reverse_id)
+    assert reverse["entry_type"] == CREDIT_ENTRY_REVERSE
+    assert reverse["payment_event_id"] is None
+
+    bill = await _bill_row(db_pool, payment_id)
+    assert float(bill["paid_amount"]) == 0.0
+
+
+async def test_credit_detail_exposes_payment_event_id(client, db_pool, admin_headers):
+    """[P3.3] GET detail คืน `payment_event_id` + `source_label` ตรงกับ DB (ทุกแถวมีค่า)
+
+    🔴 `source_label` เป็นฟิลด์ที่ service คำนวณเสมอ — ถ้าเป็น None ทั้งที่แถวมาจาก event
+       แปลว่าตัวสร้าง dict ไม่ได้เติม (กับดัก response_model)
+    """
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
+    student_id = await _make_debtor(db_pool, room_id)
+
+    event = _post_event(
+        client, admin_headers, student_id, account_id,
+        cash="120.00", bill_selection="manual", bill_ids=[], excess_action="credit",
+    )
+    assert event.status_code == 200, event.text
+    event_id = event.json()["event_id"]
+    assert _top_up(client, admin_headers, student_id, account_id, 30.0).status_code == 200
+
+    detail = _student_credit(client, admin_headers, student_id)
+    assert detail.status_code == 200, detail.text
+    entries = detail.json()["entries"]
+    assert len(entries) == 2
+
+    db_rows = await _credit_entries(db_pool, room_id, student_id)
+    by_id = {r["id"]: r for r in db_rows}
+    for entry in entries:
+        assert entry["payment_event_id"] == by_id[entry["id"]]["payment_event_id"]
+        expected = "event" if entry["payment_event_id"] is not None else "legacy"
+        assert entry["source_label"] == expected
+
+    event_entry = next(e for e in entries if e["payment_event_id"] is not None)
+    assert event_entry["payment_event_id"] == event_id
+
+
+async def test_topup_uses_manual_empty_bills_to_avoid_paying_bills(
+    client, db_pool, admin_headers
+):
+    """[P3.3] เติมเครดิตตอนมีบิลค้าง ⇒ บิลต้องไม่ถูกปิด และเครดิตได้ครบ 500"""
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
+    student_id = await _make_debtor(db_pool, room_id)
+    _collection_id, payment_id = await _make_bill(
+        db_pool, room_id, student_id, amount=800.0
+    )
+
+    res = _post_event(
+        client, admin_headers, student_id, account_id,
+        cash="500.00", bill_selection="manual", bill_ids=[], excess_action="credit",
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["total_applied"] == "0.00"
+    assert body["credit_added"] == "500.00"
+
+    bill = await _bill_row(db_pool, payment_id)
+    assert float(bill["paid_amount"]) == 0.0
+    assert bill["status"] == "pending"
+
+
+async def test_event_credit_apply_without_open_bills_returns_400(
+    client, db_pool, admin_headers
+):
+    """[P3.3] ใช้เครดิตแต่ไม่มีบิล ⇒ 400 ที่อ่านรู้เรื่อง (ไม่ใช่ 500 จาก CHECK ของ DB)"""
+    room_id = admin_headers.room_id
+    account_id = await _insert_account(db_pool, room_id)
+    student_id = await _make_debtor(db_pool, room_id)
+    assert _top_up(client, admin_headers, student_id, account_id, 300.0).status_code == 200
+
+    res = _post_event(
+        client, admin_headers, student_id, account_id,
+        cash="0.00", use_credit=True, excess_action="none", bill_selection="auto",
+        payer_name="ใช้เครดิต",
+    )
+    assert res.status_code == 400, res.text
+
+    # ไม่มี event/แถวเครดิตใหม่เกิดขึ้น
+    assert await _count(db_pool, "finance_payment_events", "room_id = $1", room_id) == 0
+    rows = await _credit_entries(db_pool, room_id, student_id)
+    assert [r["entry_type"] for r in rows] == [CREDIT_ENTRY_TOPUP]
+
+
+async def test_money_lock_paths_unchanged():
+    """[P3.3] ล็อกเงิน: helper ใหม่ห้ามเปิด transaction เอง; เมธอดสาธารณะต้องยึด `_lock_room_money`
+
+    🎯 กันการเผลอเพิ่ม `async with conn.transaction()` ใน helper ที่รับ `conn` มาแล้ว
+       (จะกลายเป็น transaction ซ้อนที่ commit ก่อนลำดับที่ควร) และกันการลืมยึดล็อกห้อง
+       ในเส้นทาง public ที่แตะเงิน
+    """
+    import inspect
+
+    from services.finance.credits import CreditsMixin
+
+    for helper in (
+        "_top_up_credit_locked", "_apply_plan_locked", "_undo_credit_locked",
+    ):
+        src = inspect.getsource(getattr(CreditsMixin, helper))
+        assert "conn.transaction()" not in src, (
+            f"{helper} ต้องไม่เปิด transaction เอง — caller ถือ transaction/ล็อกมาแล้ว"
+        )
+
+    for public in ("top_up_credit", "apply_credit", "undo_credit_application"):
+        src = inspect.getsource(getattr(CreditsMixin, public))
+        assert "_lock_room_money" in src, (
+            f"{public} ต้องยึด `_lock_room_money` ก่อนแตะเงิน (สัญญา _MONEY_PATHS)"
+        )

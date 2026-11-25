@@ -924,6 +924,10 @@ class StudentCreditEntryResponse(BaseModel):
     receipt_no: Optional[str] = None
     receipt_event_at: Optional[datetime] = None
     collection_title: Optional[str] = None
+    # 🧾 [FIN-V2 / P3.3] ใบรับเงิน (payment event) ที่สร้างแถวนี้ — None = แถวเดิม
+    payment_event_id: Optional[int] = None
+    # ที่มาของแถว: "event" | "legacy" (service เติมค่าเสมอ — ไม่ใช่ Undefined)
+    source_label: Optional[str] = None
 
 
 class CreditTopUpResponse(BaseModel):

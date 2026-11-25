@@ -635,27 +635,19 @@ class PaymentEventsMixin:
                     ],
                 }],
             }
+            # 🧾 [P3.3] ส่ง `payment_event_id` ไปพร้อม `INSERT` — แถว apply ชี้กลับ
+            #    ใบรับเงินตั้งแต่แถวเกิด (ห้าม UPDATE ภายหลัง: append-only ledger)
             applied = await cls._apply_plan_locked(
                 conn, target_room_id=target_room_id, plan=synthetic_plan,
                 user_name=receiver_name,
                 actor_identifier=actor_identifier, client_source=client_source,
+                payment_event_id=event_id,
             )
             for item in applied["items"]:
                 for alloc in item["allocations"]:
                     pid = alloc["payment_id"]
-                    # 🔗 ผูกแถว student_credits (apply) ล่าสุดของบิลนี้เข้ากับ event
-                    credit_entry_id = await conn.fetchval(
-                        """UPDATE student_credits SET payment_event_id = $1
-                           WHERE id = (
-                               SELECT id FROM student_credits
-                               WHERE room_id = $2 AND student_id = $3
-                                 AND entry_type = 'apply'
-                                 AND student_payment_id = $4 AND deleted_at IS NULL
-                               ORDER BY id DESC LIMIT 1
-                           )
-                           RETURNING id""",
-                        event_id, target_room_id, req.student_id, pid,
-                    )
+                    # 🔗 ผูก event ↔ แถว `student_credits` (apply) ที่เพิ่งสร้าง
+                    credit_entry_id = alloc.get("credit_entry_id")
                     if credit_entry_id is None:
                         raise ValueError(
                             "บันทึกการหักเครดิตไม่สมบูรณ์ — ยกเลิกรายการนี้แล้วลองใหม่"
