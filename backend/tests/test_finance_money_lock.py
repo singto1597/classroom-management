@@ -204,6 +204,17 @@ _MONEY_PATHS = [
     ("expense_vouchers", "ExpenseVouchersMixin", "create_expense_voucher"),
     # 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด — ล็อกห้องก่อน INSERT ทุกแถว
     ("income_batches", "IncomeBatchesMixin", "create_income_batch"),
+    # 📊 [FIN-V2 / P5.4] รายงานปิดงบ — snapshot/นับเงินสด/void แตะแถวรายงานและ ledger
+    #    (ตัวตรวจ completeness จับได้ตอนรัน P6.1: P5.4 เปิดเมธอดเขียนแต่ไม่ได้มาเพิ่มที่นี่)
+    ("monthly_reports", "MonthlyReportsMixin", "create_monthly_report"),
+    ("monthly_reports", "MonthlyReportsMixin", "finalize_monthly_report"),
+    ("monthly_reports", "MonthlyReportsMixin", "void_monthly_report"),
+    # 🚫 [FIN-V2 / P6.1] void engine — ยกเลิก event/PV/INC/เอกสาร แตะเงินหลายตาราง
+    #    ⇒ ต้องยึดล็อกห้องก่อนกลับขาเงินทุกกรณี (เมธอดภายใน `_void_*_locked` รับล็อกต่อ)
+    ("voids", "VoidMixin", "void_payment_event"),
+    ("voids", "VoidMixin", "void_expense_voucher"),
+    ("voids", "VoidMixin", "void_income_batch"),
+    ("voids", "VoidMixin", "void_document"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง
