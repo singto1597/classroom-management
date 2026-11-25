@@ -1693,3 +1693,62 @@ export interface PaymentChannelCreate {
 export type PaymentChannelUpdate = Partial<Omit<PaymentChannelCreate, 'channel_type'>> & {
   channel_type?: PaymentChannelType
 }
+
+// ──────────────────────── 📥 รับเงินหลายคนในรอบเดียว (FIN-V2 / P2.7)
+// 1 คำขอ = 1 transaction = all-or-nothing · 1 นักเรียน = 1 event + REC/DEP ของตัวเอง
+// ⚠️ bulk ใช้ `bill_selection='auto'` เท่านั้น และ **ไม่เลือกช่องทาง** ในรอบนี้
+//    (`channel_id: null` — service ตั้ง snapshot เป็น `{}`)
+
+export interface BulkPaymentItemInput {
+  student_id: number
+  /** string 2 ตำแหน่ง — `roundMoney(amount).toFixed(2)` */
+  amount_received: string
+  use_credit: boolean
+  excess_action: ExcessAction
+  note?: string | null
+}
+
+export interface BulkPaymentEventCreate {
+  /** คีย์ของทั้งรอบ — backend สร้างคีย์ย่อยต่อคน (`{key[:48]}:{student_id}`) */
+  idempotency_key: string
+  /** เลขที่รับเงินเดียวติดทุก event (ไม่ unique ใน DB — service บังคับใต้ล็อกห้อง) */
+  reference_no: string
+  channel_id: number | null
+  wallet_account_id: number
+  receiver_person_id: number | null
+  receiver_name: string
+  note: string | null
+  /** ISO timestamp — `null` = DB NOW ครั้งเดียวทั้งรอบ (ปี พ.ศ. เดียวกัน) */
+  event_at: string | null
+  items: BulkPaymentItemInput[]
+}
+
+export interface BulkPaymentEventItemResult {
+  student_id: number
+  student_name: string
+  event: PaymentEventResult
+}
+
+/**
+ * ผลของ `POST /finance/payment-events/bulk`
+ *
+ * 🔁 `reused=true` = ทั้งรอบเคยบันทึกแล้ว (คีย์ + reference_no เดิม) — ไม่มี REC ใหม่
+ * 🔴 `event.receipt_no` เป็น `null` ได้เมื่อคนนั้นใช้เครดิตปิดบิลล้วน
+ */
+export interface BulkPaymentEventResult {
+  status: string
+  message: string
+  reference_no: string
+  events: BulkPaymentEventItemResult[]
+  /** string 2 ตำแหน่ง — ผลรวมเงินสดของทั้งรอบ */
+  total_amount_received: string
+  reused: boolean
+}
+
+/** detail object ของ error ระดับ item (backend `BulkPaymentFailure` มี student_id) */
+export interface BulkPaymentErrorDetail {
+  code: 'BULK_ITEM_FAILED'
+  message: string
+  student_id: number
+  item_code: string
+}

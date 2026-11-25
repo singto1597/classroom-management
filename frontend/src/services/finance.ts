@@ -99,7 +99,10 @@ import type {
   PaymentChannel,
   PaymentChannelListResponse,
   PaymentChannelCreate,
-  PaymentChannelUpdate
+  PaymentChannelUpdate,
+  // 📥 [FIN-V2 / P2.7] รับเงินหลายคนในรอบเดียว
+  BulkPaymentEventCreate,
+  BulkPaymentEventResult
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -958,6 +961,18 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/payment-events?target_type=room`,
       payload
     ) as unknown as PaymentEventResult;
+  },
+
+  // 📥 [FIN-V2 / P2.7] รับเงินหลายคนในรอบเดียว — 1 คำขอ = 1 transaction
+  //    = all-or-nothing · replay ด้วยคีย์+reference_no เดิม ⇒ `reused=true`
+  async createBulkPaymentEvent(
+    roomId: number,
+    payload: BulkPaymentEventCreate
+  ): Promise<BulkPaymentEventResult> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/payment-events/bulk?target_type=room`,
+      payload
+    ) as unknown as BulkPaymentEventResult;
   },
 
   // ──────────────────── 💳 ช่องทางชำระเงิน + PromptPay QR (FIN-V2 / P2.5)

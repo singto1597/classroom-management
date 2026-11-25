@@ -55,6 +55,7 @@ from .allocation import AllocationMixin
 #    `_thai_year_be` (Receipts) และ `_open_bill_predicate` (Accrual) ผ่าน MRO
 #    ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม (ชื่อขึ้นต้น `_issue_event_*` ทั้งหมด)
 from .payment_events import PaymentEventsMixin
+from .bulk_receive import BulkReceiveMixin
 from .receipts_v2 import ReceiptsV2Mixin
 # 🧾 [FIN-V2 / P2.6] INV v2 + ACK — override `_issue_invoice_aggregate` (ReceiptsMixin)
 #    และ `_body_template_for` (DocumentsMixin) ผ่าน MRO ⇒ ต้องอยู่ใน MRO **ก่อน** ทั้งคู่
@@ -108,6 +109,9 @@ class FinanceService(
     #    ⚠️ `PaymentEventsMixin` เรียก `_money_str` ของ AllocationMixin ผ่าน MRO
     #       และ `_issue_event_*` ของ ReceiptsV2Mixin — ทั้งคู่ค้นเจอด้านล่างได้เสมอ
     PaymentEventsMixin,
+    # 📥 [FIN-V2 / P2.7] รับเงินหลายคน — ใช้ `_commit_payment_event_locked` ของ
+    #    PaymentEventsMixin ผ่าน MRO (ไม่ประกาศ method ซ้ำ)
+    BulkReceiveMixin,
     ReceiptsV2Mixin,
     TransactionsMixin,
     CategoriesMixin,

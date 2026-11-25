@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 284 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 285 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -288,6 +288,7 @@
 - [📱 PromptPay QR: CRC16 ต้องคำนวณรวม `"6304"` และ "เลขที่เก็บใน DB" กับ "เลขที่ส่ง API" เป็นคนละรูปแบบ](#promptpay-qr-crc16-ต้องคำนวณรวม-6304-และ-เลขที่เก็บใน-db-กับ-เลขที่ส่ง-api-เป็นคนละรูปแบบ)
 - [💳 ฟอร์มแก้ไขข้อมูลที่ API คืนมาแบบ mask: "เว้นว่าง" ต้องละคีย์ ไม่ใช่ส่ง `null`](#ฟอร์มแก้ไขข้อมูลที่-api-คืนมาแบบ-mask-เว้นว่าง-ต้องละคีย์-ไม่ใช่ส่ง-null)
 - [🧾 ใบแจ้งหนี้ v2 + ใบรับทราบยอดค้าง: ถ้อยคำบนกระดาษเป็นสัญญา และ `response_model` เติมฟิลด์ให้เอง](#ใบแจ้งหนี้-v2-ใบรับทราบยอดค้าง-ถ้อยคำบนกระดาษเป็นสัญญา-และ-responsemodel-เติมฟิลด์ให้เอง)
+- [📥 รับเงินหลายคน: แยก "core ของ event" ออกจาก RBAC โดยไม่ให้เส้นเดิมเปลี่ยนไบต์ + มอนคีย์ปิดแค่ทางเดียว](#รับเงินหลายคน-แยก-core-ของ-event-ออกจาก-rbac-โดยไม่ให้เส้นเดิมเปลี่ยนไบต์-มอนคีย์ปิดแค่ทางเดียว)
 
 <!-- TOC:END -->
 
@@ -4895,4 +4896,27 @@
   - ถ้อยคำ INV ยึด A4: `<td class="k">เรียกเก็บจาก</td>` + ท้ายใบ "ต้นฉบับ — สำหรับผู้รับแจ้งเก็บไว้ตรวจสอบยอด"; **ห้าม** ใส่ "ผู้รับเงิน" (คนละคำกับ "ผู้รับแจ้ง") และไม่เพิ่มช่องเซ็นผู้รับ
 - **Rule:** (1) 🔴 เพิ่มฟิลด์ optional ให้โมเดลที่รับหลายรูปข้อมูล = ต้องแยก subtype ด้วย `extra="forbid"` แล้ว Union เรียงแคบ→กว้าง (2) 🔴 เปลี่ยน layout ของเอกสารชนิดใด ต้องทบทวนตัวกรองทะเบียนของชนิดนั้นทันที — "ซ่อน v2" ไม่ใช่กฎถาวร (3) 🔴 context v2 ต้องตั้งคีย์ legacy ครบ **ด้วยค่าจริง** ไม่ใช่ `None` เมื่อแถวยังมีค่านั้น (4) 🔴 ป้ายบนกระดาษลอกจากมาตรฐาน A4 คำต่อคำ; "ผู้รับแจ้ง" ≠ "ผู้รับเงิน"
 - **Tests/Verification:** `backend/tests/test_finance_invoice_channels_ack.py` (snapshot ≤3/primary first, mask, QR fixed/open, 400 ไม่เผาเลข, ACK total/entries/ไม่ขยับเงิน/idempotent/all-or-nothing), `test_finance_invoices.py` (line item 3 คีย์), `test_finance_receipts.py` (ทะเบียนเห็น INV, ถ้อยคำ INV), `test_finance_receipt_v2_template.py`
+- **Date Added:** 2026-11-25
+
+### 📥 รับเงินหลายคน: แยก "core ของ event" ออกจาก RBAC โดยไม่ให้เส้นเดิมเปลี่ยนไบต์ + มอนคีย์ปิดแค่ทางเดียว
+- **Context/Problem:** P2.7 ต้องให้ bulk เรียก "เนื้อใน" ของ `create_payment_event` (P2.1) ซ้ำหลายคน **ใน transaction เดียว** แต่ระหว่างทำมี 5 กับดักที่ทำให้เงินผิดหรือเทสต์หลอกตัวเอง:
+  (1) จะเรียก `create_payment_event` ตรง ๆ ต่อคนไม่ได้ — มันเปิด `conn.transaction()` เองและ publish Discord เอง ⇒ transaction ซ้อน + แจ้งเตือน N ครั้ง
+  (2) ถ้าคัดลอกเนื้อในมาไว้ใน `bulk_receive.py` สองสำเนาจะเพี้ยนจากกันเงียบ ๆ (เงินส่วนที่คัดลอกพลาด = ไม่มีอะไรฟ้อง)
+  (3) เทสต์ numbering-rollback แดงด้วย `AttributeError: type object 'PaymentEventsMixin' has no attribute '_display_name'` — ทั้งที่โค้ดถูก
+  (4) `reference_no` เป็น index ไม่ใช่ unique ⇒ ถ้าเช็ค replay ด้วย `SELECT` เฉย ๆ สองคำขอพร้อมกันจะผ่านทั้งคู่
+  (5) `api.ts` แปลง `detail` เป็น `String(...)` ⇒ error รายคนกลายเป็น `"[object Object]"` และเขียนทับ object เดิม ⇒ หน้าจอไฮไลต์แถวที่พังไม่ได้
+- **Root Cause:** เส้นเดี่ยว (`_create_locked`) ถือกติกา 3 อย่างที่ขาดไม่ได้ — **RBAC**, **`_lock_room_money`**, **idempotency** — แต่เนื้อในตั้งแต่ตรวจนักเรียนจนออก REC/DEP เป็นของกลางที่ bulk ใช้ซ้ำได้; การแยกต้องเลือกให้ "ของกลางไม่ทำ RBAC/ล็อก/แจ้งเตือน" และ caller ทุกเส้นต้องทำเอง · ส่วน `cls._display_name` resolve ผ่าน MRO ของคลาสที่ **ผูก** ไว้ ⇒ patch ที่ mixin ให้ `cls` เป็น mixin ไม่ใช่ `FinanceService`
+- **Correct Pattern/Solution:**
+  - `PaymentEventsMixin._commit_payment_event_locked(conn, *, target_room_id, req, …, reference_no=None)` = เนื้อในล้วน **caller ถือ `_lock_room_money` แล้ว**; คืน `(result, notify_payload)` และ **ไม่ publish** · `_create_locked` เหลือ RBAC → lock → idempotency → เรียก core → `_get_room_server_id` → คืน 3 ค่าเท่าเดิม (ไบต์ของ P2.1 ไม่เปลี่ยน)
+  - `BulkReceiveMixin.create_bulk_payment_events` = conn → `require_permission(MANAGE_FINANCE)` → `_lock_room_money` **ครั้งเดียว** → วน `_commit_payment_event_locked` ต่อคนใน `conn.transaction()` เดียว → `ActionService.notify_payments_confirmed` **ครั้งเดียวหลัง commit** → audit `PAYMENT_EVENT_BULK`; ล้มกลางทาง = เขียน failed audit บน conn ใหม่แล้ว raise (ทั้งรอบ rollback)
+  - คีย์ย่อยต่อคน `f"{bulk_key[:48]}:{student_id}"` (≤64) จากคีย์ของรอบเดียว — retry ยิงคีย์เดิม ⇒ replay ไม่ใช่เงินซ้ำ
+  - replay ตรวจคู่: `SELECT id, idempotency_key, reference_no, status … WHERE room_id=$1 AND (reference_no=$2 OR idempotency_key = ANY($3))` ใต้ล็อกห้อง; `reused=true` **เฉพาะเมื่อ** เจอคีย์ครบทุกคน + `reference_no` ตรงทุกแถว + ทุกแถว active; เจอบางส่วน/เลขไม่ตรง = 409 (`IDEMPOTENCY_KEY_CONFLICT` / `REFERENCE_NO_CONFLICT`) ไม่ใช่ replay
+  - `event_at` ทั้งรอบจาก `SELECT CURRENT_TIMESTAMP` **ครั้งเดียว** (ปี พ.ศ. บนใบเสร็จของทุกคนต้องตรงกัน) · `start_time` ส่ง `None` ต่อ item เพื่อให้ core ใช้เวลาเริ่มของตัวเอง
+  - แปลง error รายคน: `AllocationError.code in {BILL_NOT_OPEN, BILL_CHANGED}` → 409, อื่น ๆ → 400, ทั้งหมดห่อ `BulkPaymentFailure` ที่พก `student_id`; router แปลงเป็น `detail = {code:'BULK_ITEM_FAILED', message, student_id, item_code}` (object) ⇒ frontend ไฮไลต์แถวได้
+  - เทสต์ที่ต้อง patch method: ใช้ `FinanceService._commit_payment_event_locked` (คลาสที่มี MRO ครบ) **ไม่ใช่** `PaymentEventsMixin._…`
+  - `api.ts`: `detail` ที่เป็น object (ไม่ใช่ array) → `error.message = detail.message` แต่ `response.data.detail` **คง object เดิม** (array 422 ยังรวมเป็นข้อความเหมือนเดิม) — ฟังก์ชันที่ใช้ `String(obj)` ต้องมีข้อยกเว้นนี้ ไม่งั้น `"[object Object]"`
+  - UI ตาราง: `MoneyInput` บังคับ `label` ⇒ ในแถวตารางใช้ `<input inputmode="decimal" aria-label="ยอดที่ต้องเก็บของ …">` ธรรมดา; เพิ่ม `aria-label` ให้ checkbox/toggle ทุกตัวเพื่อให้เทสต์อ้างได้ (ไม่พึ่ง index ของ input)
+  - พรีวิวรายคน (`Promise.allSettled`) ต้องถูก **ล้างทั้งชุด** เมื่อยอด/ติ๊ก/ตัวเลือกเปลี่ยน — ไม่งั้นยืนยันด้วยยอดที่ยังไม่เคยตรวจ
+- **Rule:** (1) 🔴 ฟังก์ชัน core ที่แยกไว้ห้ามทำ RBAC/ล็อก/แจ้งเตือนเอง — เป็นหน้าที่ caller (2) 🔴 patch method ของ mixin ในเทสต์ต้องอ้างผ่าน `FinanceService` (3) 🔴 replay ต้องตรงทั้งชุดคีย์ + reference + active; เจอบางส่วน = 409 ห้ามเดาว่า replay (4) 🔴 `reference_no` ไม่ unique ใน DB — ตรวจใต้ล็อกห้องเสมอ (5) 🔴 อย่าให้ `String(object)` เล็ดลอดเป็นข้อความ error ของเงิน
+- **Tests/Verification:** `backend/tests/test_finance_bulk_receive.py` 17 ตัว (event/REC ต่อคน, reference/event_at เดียว, all-or-nothing, numbering rollback, duplicate student, replay ผ่าน API ซ้ำ, reference conflict, notify ครั้งเดียว/ไม่แจ้งตอน replay, เครดิตล้วนไม่มี REC, ผสมเงินสด+เครดิต, ยอด 0 ไม่มีเครดิต, RBAC, ช่องทาง null, กระเป๋าต่างห้อง, เพดาน 100, error พก `student_id`), `frontend/src/components/finance/__tests__/BulkReceiveSheet.spec.ts` 8 ตัว, `src/services/__tests__/apiErrors.spec.ts` (+1 object detail)
 - **Date Added:** 2026-11-25

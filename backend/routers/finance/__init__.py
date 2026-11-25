@@ -21,6 +21,8 @@ from .individual_accounts import router as individual_accounts_router
 from .allocation import router as allocation_router
 # 🧾 [FIN-V2 / P2.1] บันทึก/อ่านรายการรับเงิน (payment event)
 from .payment_events import router as payment_events_router
+# 📥 [FIN-V2 / P2.7] รับเงินหลายคนในรอบเดียว — ต้อง include **ก่อน** router P2.1
+from .payment_events_bulk import router as payment_events_bulk_router
 # 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน + PromptPay QR
 from .payment_channels import router as payment_channels_router
 # 🧾 [FIN-V2 / P2.6] ใบรับทราบยอดค้าง (ACK) — P5.4 จะต่อท้ายไฟล์ router นี้
@@ -60,6 +62,9 @@ router.include_router(individual_accounts_router)
 # 🧮 [FIN-V2 / P1.5] — path ขึ้นต้น `/finance/payment-events` (preview)
 #    ⚠️ ต้องอยู่ **ก่อน** router P2.1 ที่จะประกาศ `/{event_id}` — static ก่อน dynamic
 router.include_router(allocation_router)
+# 📥 [FIN-V2 / P2.7] — path `/finance/payment-events/bulk` (static)
+#    ⚠️ ประกาศ **ก่อน** payment_events_router ตามกติกา static ก่อน dynamic
+router.include_router(payment_events_bulk_router)
 # 🧾 [FIN-V2 / P2.1] — path ขึ้นต้น `/finance/payment-events`
 #    ⚠️ ประกาศ **หลัง** allocation_router โดยเจตนา: `/payment-events/preview` (static)
 #       ต้องชนะ `/{event_id}` (dynamic) — ถ้าสลับลำดับ preview จะตอบ 422

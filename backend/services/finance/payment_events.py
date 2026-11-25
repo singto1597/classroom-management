@@ -397,6 +397,37 @@ class PaymentEventsMixin:
             result = await cls._build_event_result(conn, existing, reused=True)
             return result, None, None
 
+        # 5) เนื้อในตั้งแต่ตรวจนักเรียนจนออกเอกสาร — แยกไว้ให้ bulk (P2.7) เรียก
+        #    ใน transaction เดียวกันได้โดยไม่เปิด transaction ซ้อน
+        result, notify_payload = await cls._commit_payment_event_locked(
+            conn, target_room_id=target_room_id, req=req, user_id=user_id,
+            client_source=client_source, actor_identifier=actor_identifier,
+            start_time=start_time, reference_no=None,
+        )
+
+        # 6) server_id สำหรับแจ้ง Discord — caller เป็นคน publish หลัง commit
+        room_server_id = await cls._get_room_server_id(conn, target_room_id)
+        return result, notify_payload, room_server_id
+
+    @classmethod
+    async def _commit_payment_event_locked(
+        cls, conn: asyncpg.Connection, *, target_room_id: int, req, user_id: int,
+        client_source: str, actor_identifier: str,
+        start_time: Optional[float] = None,
+        reference_no: Optional[str] = None,
+    ):
+        """สร้าง event + REC/DEP ครบชุด — **caller ถือ `_lock_room_money` แล้ว**
+
+        ⚠️ ไม่ notify และไม่เปิด transaction เอง:
+           - P2.1 (`_create_locked`) เรียกหลังตรวจ idempotency แล้ว publish ต่อ
+           - P2.7 (bulk) เรียกในลูปภายใต้ transaction เดียว ⇒ all-or-nothing
+             (ห้ามเรียก `create_payment_event` จาก bulk เพราะมันเปิด transaction เอง)
+        คืน `(result, notify_payload)` — notify payload ของ event นี้เท่านั้น
+        """
+        if start_time is None:
+            start_time = time.time()
+        key = cls._normalize_event_key(req)
+
         # 5) ตรวจทุกอย่างให้ครบ **ก่อน** จองเลข/เขียนเงิน
         student = await conn.fetchrow(
             """SELECT S.id, S.student_no,
@@ -537,9 +568,9 @@ class PaymentEventsMixin:
                     receiver_person_id, receiver_name, wallet_account_id,
                     channel_id, channel_snapshot, amount_received, credit_used,
                     credit_added, total_applied, excess_action, note,
-                    idempotency_key, event_at)
+                    idempotency_key, event_at, reference_no)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,
-                       COALESCE($17::timestamptz, CURRENT_TIMESTAMP))
+                       COALESCE($17::timestamptz, CURRENT_TIMESTAMP), $18)
                RETURNING id, event_at""",
             target_room_id, req.student_id, payer_person_id, payer_name,
             receiver_person_id, receiver_name, req.wallet_account_id,
@@ -550,6 +581,7 @@ class PaymentEventsMixin:
             from_satang(plan["credit_added_stang"]),
             from_satang(plan["total_applied_stang"]),
             excess_db, req.note, key, event_at_in,
+            reference_no,  # P2.7 bulk: เลขที่รับเงินร่วมของทั้งรอบ (NULL = รับเดี่ยว)
         )
         event_id = event_row["id"]
         event_at = event_row["event_at"]
@@ -842,10 +874,7 @@ class PaymentEventsMixin:
             execution_time_ms=exec_time,
         )
 
-        # 18) server_id สำหรับแจ้ง Discord (publish หลัง commit เท่านั้น)
-        room_server_id = await cls._get_room_server_id(conn, target_room_id)
-
-        # 19) ผลลัพธ์อ่านกลับจาก DB — รูปร่างเดียวกับ replay เป๊ะ
+        # 18) ผลลัพธ์อ่านกลับจาก DB — รูปร่างเดียวกับ replay เป๊ะ
         refreshed = await conn.fetchrow(
             "SELECT * FROM finance_payment_events WHERE id = $1", event_id
         )
@@ -858,7 +887,7 @@ class PaymentEventsMixin:
             amount_received=from_satang(plan["amount_received_stang"]),
             receipt_no=receipt_no,
         )
-        return result, notify_payload, room_server_id
+        return result, notify_payload
 
     @classmethod
     def _build_receipt_line_items(

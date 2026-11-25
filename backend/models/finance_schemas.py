@@ -1600,3 +1600,61 @@ class AckIssueResponse(BaseModel):
     entries: List[AckEntryResponse]
     invoice_receipt_nos: List[str] = Field(default_factory=list)
     reused: bool = False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P2.7] รับเงินหลายคนในรอบเดียว (bulk receive)
+# ══════════════════════════════════════════════════════════════════════════════
+class BulkPaymentItemInput(BaseModel):
+    """หนึ่งนักเรียนในรอบ bulk — ยอดเงินสด + ใช้เครดิต + ส่วนเกิน (ต่อคน)
+
+    ⚠️ bulk ใช้ `bill_selection='auto'` เท่านั้น (ไม่เลือกบิลทีละใบ) ตาม api-v2 §4
+    """
+    student_id: int = Field(..., gt=0)
+    amount_received: Decimal = Field(
+        Decimal("0"), ge=0,
+        description="ยอดเงินสดของนักเรียนคนนี้ — 0 ได้ถ้าใช้เครดิตล้วน",
+    )
+    use_credit: bool = False
+    excess_action: Literal["credit", "none"] = "none"
+    note: Optional[str] = Field(None, max_length=255)
+
+
+class BulkPaymentEventCreate(BaseModel):
+    """คำขอ 'รับเงินหลายคน' — 1 คำขอ = 1 transaction = all-or-nothing
+
+    🔑 `idempotency_key` ใช้สร้างคีย์ย่อยต่อคน (`{key[:48]}:{student_id}`)
+    🔗 `reference_no` เดียวติดทุก event ในรอบ (ไม่ unique ใน DB — service บังคับใต้ล็อกห้อง)
+    """
+    idempotency_key: str = Field(..., min_length=8, max_length=64)
+    reference_no: str = Field(..., min_length=1, max_length=64)
+    channel_id: Optional[int] = Field(None, gt=0)
+    wallet_account_id: int = Field(..., gt=0, description="กระเป๋าที่รับเงินเข้า (ทุกคน)")
+    receiver_person_id: Optional[int] = Field(None, gt=0)
+    receiver_name: str = Field(..., min_length=1, max_length=100)
+    note: Optional[str] = Field(None, max_length=255)
+    event_at: Optional[datetime] = Field(
+        None, description="เวลารับเงิน (tz-aware) — ค่าเริ่มต้น = DB NOW ครั้งเดียวทั้งรอบ"
+    )
+    # 🔴 max_length=100 → เกินได้ 422 ที่ Pydantic ก่อนแตะ DB (กับดักเดียวกับ ACK)
+    items: List[BulkPaymentItemInput] = Field(..., min_length=1, max_length=100)
+
+
+class BulkPaymentEventItemResult(BaseModel):
+    """ผลของนักเรียนหนึ่งคน — event/REC/DEP ของตัวเอง (ไม่ยุบข้ามคน)"""
+    student_id: int
+    student_name: str
+    event: PaymentEventResponse
+
+
+class BulkPaymentEventResponse(BaseModel):
+    """ผลของ POST /payment-events/bulk — `reused=true` = คืนผลเดิมจาก idempotency
+
+    🔴 ต้องประกาศ `events` ที่นี่เสมอ — ไม่งั้น `response_model` ตัดทิ้งเงียบ ๆ
+    """
+    status: str = "success"
+    message: str
+    reference_no: str
+    events: List[BulkPaymentEventItemResult]
+    total_amount_received: str  # "1250.50"
+    reused: bool = False
