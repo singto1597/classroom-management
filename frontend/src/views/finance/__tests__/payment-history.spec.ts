@@ -27,12 +27,12 @@ vi.mock('@/stores/auth', () => ({
 
 vi.mock('@/composables/useDialog', () => ({
   useDialog: () => ({
-    alert: vi.fn(),
-    confirm: vi.fn(),
-    fire: vi.fn(),
-    loading: vi.fn(),
-    close: vi.fn(),
-    notify: vi.fn(),
+    alert: vi.fn<(title: string, text?: string, icon?: string) => Promise<unknown>>(),
+    confirm: vi.fn<() => Promise<{ isConfirmed: boolean }>>(),
+    fire: vi.fn<(opts: unknown) => Promise<unknown>>(),
+    loading: vi.fn<() => Promise<unknown>>(),
+    close: vi.fn<() => void>(),
+    notify: vi.fn<(text: string) => unknown>(),
   }),
 }))
 

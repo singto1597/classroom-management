@@ -21,7 +21,7 @@ import type {
  */
 const { newKeySpy, generatedKeys } = vi.hoisted(() => {
   const generatedKeys: string[] = []
-  const newKeySpy = vi.fn(() => {
+  const newKeySpy = vi.fn<() => string>(() => {
     const key = `key-${generatedKeys.length + 1}`
     generatedKeys.push(key)
     return key

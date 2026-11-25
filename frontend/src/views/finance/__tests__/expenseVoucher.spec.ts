@@ -44,10 +44,10 @@ vi.mock('@/composables/useDialog', () => ({
   useDialog: () => ({
     alert: alertMock,
     notify: notifyMock,
-    confirm: vi.fn(),
-    fire: vi.fn(),
-    input: vi.fn(),
-    loading: vi.fn(),
+    confirm: vi.fn<() => Promise<{ isConfirmed: boolean }>>(),
+    fire: vi.fn<(opts: unknown) => Promise<unknown>>(),
+    input: vi.fn<(opts: unknown) => Promise<unknown>>(),
+    loading: vi.fn<() => Promise<unknown>>(),
   }),
 }))
 
@@ -246,8 +246,8 @@ describe('ExpenseVoucherCreate', () => {
 
     const wallets = wrapper.findAll('[data-test="line-wallet"]')
     expect(wallets).toHaveLength(2)
-    expect((wallets[0]?.element as HTMLSelectElement).value).toBe('2')
-    expect((wallets[1]?.element as HTMLSelectElement).value).toBe('3')
+    const walletValues = wallets.map((wallet) => (wallet.element as HTMLSelectElement).value)
+    expect(walletValues).toEqual(['2', '3'])
   })
 
   it('shows_409_message_without_closing_form', async () => {

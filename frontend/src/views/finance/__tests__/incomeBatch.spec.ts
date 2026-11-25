@@ -45,10 +45,10 @@ vi.mock('@/composables/useDialog', () => ({
   useDialog: () => ({
     alert: alertMock,
     notify: notifyMock,
-    confirm: vi.fn(),
-    fire: vi.fn(),
-    input: vi.fn(),
-    loading: vi.fn(),
+    confirm: vi.fn<() => Promise<{ isConfirmed: boolean }>>(),
+    fire: vi.fn<(opts: unknown) => Promise<unknown>>(),
+    input: vi.fn<(opts: unknown) => Promise<unknown>>(),
+    loading: vi.fn<() => Promise<unknown>>(),
   }),
 }))
 

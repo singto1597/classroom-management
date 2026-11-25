@@ -53,9 +53,9 @@ vi.mock('@/composables/useDialog', () => ({
     alert: alertMock,
     confirm: confirmMock,
     fire: fireMock,
-    loading: vi.fn(),
-    close: vi.fn(),
-    notify: vi.fn(),
+    loading: vi.fn<() => Promise<unknown>>(),
+    close: vi.fn<() => void>(),
+    notify: vi.fn<(text: string) => unknown>(),
   }),
 }))
 

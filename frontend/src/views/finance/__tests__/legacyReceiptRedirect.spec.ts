@@ -14,7 +14,7 @@ import { FinanceService } from '@/services/finance'
  *   3. error อื่น → StateBlock error + ปุ่มลองใหม่ยิงซ้ำได้
  */
 const { replaceMock, routeMock } = vi.hoisted(() => ({
-  replaceMock: vi.fn(),
+  replaceMock: vi.fn<() => Promise<void>>(),
   // route เก่าใช้ `:receiptNo` — component ต้องอ่านคีย์นี้ได้ด้วย (route ใหม่ใช้ `:docNo`)
   routeMock: { params: { receiptNo: 'REC-2569-0042' } as Record<string, unknown> },
 }))
@@ -34,7 +34,10 @@ vi.mock('@/stores/auth', () => ({
 }))
 
 vi.mock('@/services/finance', () => ({
-  FinanceService: { resolveDocumentByNo: vi.fn() },
+  FinanceService: {
+    resolveDocumentByNo:
+      vi.fn<(roomId: number, docNo: string) => Promise<{ doc_type: string; doc_id: number }>>(),
+  },
 }))
 
 // apiStatus จริงใช้ `isAxiosError` — ในเทสต์ใช้ error ปลอมที่มีฟิลด์ status ตรง ๆ
