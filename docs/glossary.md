@@ -95,6 +95,9 @@
 | คำที่ใช้ | ความหมาย | ในโค้ด | ห้ามใช้ |
 |---|---|---|---|
 | **การเงิน** | โมดูลทั้งหมด (เมนู, ชื่อหน้า) | `/finance/*` | การบัญชี · ไฟแนนซ์ |
+| **ผู้เกี่ยวข้องทางการเงิน** | ทะเบียนคนที่รับเงิน/จ่ายเงิน/อนุมัติของห้อง (ครู · นักเรียน · บุคคลภายนอก) — เลือกจากทะเบียนนี้เสมอ ไม่พิมพ์ชื่ออิสระในเอกสาร | `finance_people`, `/finance/people` | ผู้รับเงิน (เมื่อหมายถึงทะเบียนทั้งกลุ่ม) · payee · contact |
+| **บทบาทผู้เกี่ยวข้อง** | สิ่งที่คนในทะเบียนทำได้: **ผู้รับเงิน** (`receive`) · **ผู้จ่าย** (`pay`) · **ผู้อนุมัติ** (`approve`) — หนึ่งคนมีได้หลายบทบาท | `finance_people.roles` | role (ในข้อความไทย) |
+| **ค่าเริ่มต้นการรับเงิน** | ผู้รับเงิน/กระเป๋าเงิน/ข้อความท้ายใบเสร็จ ที่ฟอร์มรับเงินเติมให้ก่อน (เปลี่ยนรายครั้งได้) | `finance_settings`, `/finance/settings` | default · ตั้งค่าทั่วไป |
 | **รายรับ** / **รายจ่าย** | เงินเข้า / เงินออกของห้อง | `finance_transactions` (`type`) | รายได้ · รายจ่าย (เขียน "รายจ่าย" ให้ถูก) |
 | **บัญชี** | บัญชีเงินสด/ธนาคารที่ผูกกับห้อง | `finance_accounts` | account (ในข้อความไทย) |
 | **หมวดหมู่** | ประเภทของรายรับ/รายจ่าย | `finance_categories` | หมวด · category |
@@ -102,6 +105,20 @@
 | **บิล / งวด** | หนึ่งรายการที่นักเรียนต้องจ่ายในโปรเจกต์ | `student_payments` | invoice (สำหรับงวด) · ใบวางบิล |
 | **ผู้ค้างชำระ** | นักเรียนที่ยังไม่จ่ายครบ | `/finance/debtors` | ลูกหนี้ · debtor |
 | **เงินรับล่วงหน้า** | เงินที่นักเรียนจ่ายเก็บไว้ก่อน (เครดิต) | `student_credits` | เครดิต · credit |
+| **บัญชีรายบุคคล** | หน้าเดียวที่รวมยอดค้าง · เกินกำหนด · เครดิตของนักเรียนแต่ละคน (แทนการเปิดสองหน้าคู่กัน `ผู้ค้างชำระ` + `เงินรับล่วงหน้า`) — อ่านอย่างเดียว สมาชิกห้องเข้าถึงได้ | `/finance/individual-accounts`, `IndividualAccountsMixin` | บัญชีนักเรียน · ลูกหนี้รายคน · account |
+| **รายการเดินบัญชี** | ลำดับบิล/รับเงิน/เครดิตของนักเรียนคนหนึ่งตามช่วงวันที่ (เก่า→ใหม่) พร้อมยอดเครดิตคงเหลือหลังรายการ | `/finance/individual-accounts/:id/statement`, `get_student_statement` | statement (เมื่อหมายถึงหน้าของนักเรียน) · ใบแจ้งรายการ |
+| **รายการรับเงิน** | เหตุการณ์รับเงินของนักเรียน 1 คน 1 ครั้ง — ปิดได้หลายบิล · ใช้เครดิต · เก็บส่วนเกินเป็นเครดิต และออก **ใบเสร็จ 1 ใบที่มีหลายรายการย่อย** (ไม่ใช่ 1 ใบต่อบิลแบบเดิม) | `finance_payment_events`, `finance_payment_event_lines`, `/finance/payment-events` | event (ในข้อความไทย) · ใบเสร็จแยกต่อบิล |
+| **ผู้ชำระเงิน** | คนที่นำเงินมาชำระในรายการรับเงิน — เติมชื่อนักเรียนเป็นค่าเริ่มต้น แก้เป็นชื่อผู้ปกครองได้ | `finance_payment_events.payer_name` | payee · ผู้จ่าย (เมื่อหมายถึงคนที่ห้องจ่ายเงินให้) |
+| **รับเงินหลายคน** | การบันทึกรับเงินของนักเรียนหลายคนใน **รอบเดียว** (จากหน้าผู้ค้างชำระ) — 1 รอบคือ 1 ธุรกรรม: ถ้าคนใดผิด **ไม่มีใครถูกบันทึกเลย** · 1 คน = 1 รายการรับเงิน + ใบเสร็จของตัวเอง · แจ้งเตือน Discord ครั้งเดียว | `/finance/payment-events/bulk`, `BulkReceiveMixin`, `BulkReceiveSheet.vue` | bulk receive · รับเงินทั้งห้อง (เมื่อหมายถึงการเลือกทุกคน) |
+| **เลขที่รับเงิน** | เลข/รหัสรอบของ "รับเงินหลายคน" (หรือชุดที่ครูพิมพ์เอง) ที่ติดไปกับทุกรายการในรอบนั้น — ใช้ตรวจว่าเคยบันทึกรอบนี้แล้วหรือยัง | `finance_payment_events.reference_no`, `BulkPaymentEventCreate.reference_no` | reference no · หมายเลขรอบรับเงิน |
+| **ยอดเกินรับ** | เงินที่รับเกินยอดบิลที่เลือกปิด — ต้องเลือก "เก็บเป็นเครดิต" ไม่งั้นระบบปฏิเสธรายการ (ไม่ตัดเงินทิ้งและไม่ทอน) | `excess_action`, `finance_payment_event_lines.credit_topup` | เงินทอน · ทอน · ส่วนต่าง |
+| **ช่องทางชำระเงิน** | วิธี/บัญชีที่ห้องรับเงิน (เงินสด · โอนเข้าธนาคาร · พร้อมเพย์) — เปิดใช้งานได้ไม่เกิน 3 ช่องทาง และมี **ช่องทางหลัก** 1 ตัวเสมอเมื่อยังมีช่องทางที่ใช้ได้ | `finance_payment_channels`, `/finance/payment-channels` | ช่องทางรับเงิน · payment method · ช่องทางจ่าย |
+| **พร้อมเพย์** | บริการโอนเงินที่ผูกกับเบอร์มือถือ/เลขบัตรประชาชน/e-wallet ของห้อง — ใช้สร้างคิวอาร์รับเงิน ระบบเก็บเลขแบบ mask และไม่ส่งเลขเต็มกลับหน้าจอ | `promptpay_id_masked`, `qr_mode` | PromptPay (ในข้อความไทย) · พร้อมเพย์ QR (เมื่อหมายถึงคิวอาร์) |
+| **คิวอาร์ (QR)** | รูปที่สแกนแล้วเปิดการโอนเข้าบัญชีของช่องทางนั้น — ระบบสร้างเองจากเลขพร้อมเพย์: **ไม่ฝังยอด** (ผู้จ่ายพิมพ์เอง) หรือ **ฝังยอด** (ตรงกับบิล) | `qr.svg`, `services/finance/qr.py`, `is_primary` | QR code (ใช้ "คิวอาร์" หรือ "QR" ได้) · บาร์โค้ด |
+| **ช่องทางหลัก** | ช่องทางชำระเงินที่ขึ้นเป็นตัวหลักบนใบแจ้งหนี้และหน้าจอ — มีได้ **1 ตัวต่อห้อง** เมื่อยังมีช่องทางที่ใช้ได้ และคิวอาร์บนใบ INV มาจากช่องทางนี้เท่านั้น | `finance_payment_channels.is_primary`, `primary_channel` | ช่องทางเริ่มต้น · default channel |
+| **ใบรับทราบยอดค้าง** | เอกสารให้ผู้ปกครอง/นักเรียนลงชื่อรับทราบ **ยอดค้าง** ของทั้งห้องหรือเฉพาะคนที่เลือก (ACK-) — **ไม่ใช่หลักฐานการชำระเงิน** ไม่มีการรับเงิน ไม่มีคิวอาร์ และไม่ขยับบัญชี/เครดิต | `acknowledgement`, `finance_ack_entries`, `/finance/acknowledgements` | ใบรับเงิน · ใบเสร็จ · acknowledgment receipt |
+| **เงินสดรอส่งมอบ** | เงินที่ผู้รับเงิน (ครู/เหรัญญิก) เก็บไว้ก่อนจะนำส่งเข้าห้อง — ระบบถือเป็น **กระเป๋าปกติที่ระบุเจ้าของ** (`is_custody`) ไม่ใช่รายรับ/รายจ่าย และไม่ใช่งบใหม่ · 1 คนมีได้ 1 กระเป๋าต่อห้อง | `finance_accounts.is_custody`, `finance_accounts.owner_person_id`, `/finance/custody` | เงินสดในมือ · custody · กระเป๋าผู้รับเงิน |
+| **ส่งมอบเงิน** | การเคลื่อนเงินเข้า/ออกจากกระเป๋าเงินสดรอส่งมอบ (เช่น กระเป๋าหลัก → ครู, ครู → ห้อง) — บันทึกเป็นรายการส่งมอบ ไม่ใช่รายรับ/รายจ่าย · ยกเลิกได้เมื่อเงินปลายทางยังไม่ได้ใช้ | `finance_custody_handovers`, `CustodyMixin.create_handover` | handover · โอนเข้าครู · นำส่งเงิน |
 | **งบประมาณ** | วงเงินที่ตั้งไว้ต่อหมวด | `finance_budgets` | budget |
 | **งบการเงิน** | รายงานสรุปฐานะ (รายรับ–รายจ่าย) | `/finance/statements` | ใบงบ · statement |
 | **ค่าปรับ** | บิลที่ออกจากการทำผิดกฎ/ไม่ทำเวร — 1 ครั้ง : 1 คน = 1 ใบ (มี INV- ของตัวเอง) | `fines`, `/finance/fines` | ปรับ · penalty · penalty bill |
@@ -116,6 +133,9 @@
 | **ค่าปรับจ่ายล่าช้า** | ค่าปรับที่ระบบออก **อัตโนมัติ** ให้บิลโปรเจกต์ที่เลยกำหนด + วันผ่อนผันแล้ว — นโยบายตั้งต่อแคมเปญ (ไม่ปรับ / จำนวนเงิน / เปอร์เซ็นต์ของยอดคงเหลือ) | `fee_collections.late_fee_mode`, `fines.auto_late_fee`, `late_fee_source` | late fee · ค่าเลยกำหนด |
 | **วันผ่อนผัน** | จำนวนวันหลังครบกำหนดที่ยังไม่ปรับ (ตั้งต่อแคมเปญ — `late_fee_grace_days`) | `late_fee_grace_days` | grace days |
 | **เรียกเก็บเอง (รายคน)** | สร้างบิลให้นักเรียนที่เลือก โดยแต่ละคน **มียอดของตัวเอง** ภายใต้ชื่อรายการเดียวกัน (ไม่ใช่แคมเปญยอดเดียวทั้งห้อง) | `POST /finance/custom-charges`, `fee_collections.idempotency_key` | custom charge · charge manually |
+| **ตัดจำหน่าย** | ประกาศว่าเงินส่วนหนึ่งของบิล **เรียกเก็บไม่ได้แล้ว** (หนี้สูญ/ส่วนเกินที่ยกให้) — ลง Dr `59002` หนี้สูญ (โครงการ) / Cr `11001` · บิลยังอยู่ ไม่ลบ ไม่ลดยอดบิลต้นฉบับ · ยอดค้างทุกรายงานหักอัตโนมัติ | `finance_bill_adjustments` (`write_off`), `student_payments.written_off_amount`, `POST /finance/payments/{id}/write-off` | write-off · หนี้สูญ · ตัดหนี้ |
+| **ส่วนลดบิล** | ลดยอดที่ต้องเก็บของ **บิลโปรเจกต์** (ไม่ใช่ค่าปรับ) ลงบัญชี Dr `49002` / Cr `11001` · ยอดบิลเดิมไม่เปลี่ยน — ผลต่างไปอยู่ที่ `written_off_amount` | `finance_bill_adjustments` (`discount`), `POST /finance/payments/{id}/discount` | discount · ลดหนี้ · ส่วนลดค่าเทอม |
+| **เงินของห้อง vs เงินผ่านมือ** | มิติรายงานต่อ **โครงการ**: *เงินของห้อง* (`room_fund`) = รายได้ของห้องจริง · *เงินผ่านมือ* (`pass_through`) = เก็บแทน/ส่งต่อเจ้าของสิทธิ์ — ระบบยังบันทึกเป็นเงินเข้าห้องเหมือนกัน มุมมองแยกกันแค่ตอนรายงาน | `fee_collections.fund_type`, `PATCH /finance/fee-collections/{id}/fund-type` | fund type · เงินแทน · ส่งผ่าน |
 
 ### เอกสารการเงิน — `finance_receipts.doc_type`
 
@@ -126,12 +146,22 @@
 | `deposit` | **ใบรับเงินล่วงหน้า** | `DEP-2569-0003` | รับเงินเก็บไว้ก่อน |
 | `payment_voucher` | **ใบสำคัญจ่าย** | `PV-2569-0007` | ห้องจ่ายเงินออก |
 | `income` | **ใบรับเงิน** | `INC-2569-0011` | รับเงินเข้าที่ไม่ได้มาจากบิลของนักเรียน |
+| `acknowledgement` | **ใบรับทราบยอดค้าง** | `ACK-2569-0001` | 1 รอบ/ห้อง — แจ้งยอดค้างให้ผู้ปกครองลงชื่อรับทราบ (**ไม่ใช่**หลักฐานการรับเงิน · ไม่แตะเงิน) |
+| `certificate` | **ใบรับรองแทนใบเสร็จ** | `CERT-2569-0001` | พ่วงใบสำคัญจ่ายเมื่อมีบรรทัดที่ไม่มีบิล — ใช้ถ้อยคำของตัวเอง ไม่ใช่ใบเสร็จ |
+| `monthly_report` | **รายงานปิดงบ** | `RPT-2569-11` (`-v2`…) | ปิดงบรายเดือน — snapshot รายรับ/รายจ่าย + นับเงินสด + `variance` (ตาราง `finance_monthly_reports`) |
 
+> **ทะเบียนเอกสาร** = หน้า `/finance/documents` รวมทุกชนิดในตารางเดียว (อ่านอย่างเดียว)
+> — ทางเข้าเดิม `/finance/receipts` ยังใช้ได้แต่ **redirect** มาที่นี่
+> (deep link `/finance/receipts/REC-…` แปลงเลขเป็นหน้า detail ให้อัตโนมัติ)
+>
 > แหล่งอ้างอิง: `backend/services/finance/constants.py` → `DOC_TYPE_LABELS`, `DOC_TYPE_PREFIXES`
 > (ทั้งสองตารางต้องแก้คู่กัน และ `RECEIPT_LIKE_DOC_TYPES` เป็นตัวตัดสินถ้อยคำบนกระดาษ)
 >
 > ในเมนู/หัวข้อหน้าใช้คำสั้น **"ใบเสร็จ"** ได้ แต่ทะเบียนเดียวมีทุกชนิดปนกัน ⇒
-> ห้ามเรียกหน้า `/finance/receipts` ว่า "หน้าใบเสร็จ" เฉย ๆ (หัวหน้าใช้ "ใบเสร็จ / ใบแจ้งหนี้")
+> ห้ามเรียกทะเบียนเอกสารว่า "หน้าใบเสร็จ" เฉย ๆ
+>
+> 🧾 **ใบเสร็จ v2 (`layout_version=2`)** = 1 ใบต่อ 1 รายการรับเงิน (หลาย `line_items`)
+> ผูก `payment_event_id` — ใบเสร็จ legacy (`layout_version=1`) ยังอ่าน/พิมพ์ได้เหมือนเดิม
 
 ### ป้ายสถานะเอกสาร
 
@@ -187,8 +217,12 @@
 | ช่วงงดรบกวน | `app_settings` ที่คีย์ `quiet_hours` (`QUIET_HOURS_KEY`) |
 | รายรับ/รายจ่าย | `income` / `expense` (ใน `finance_transactions.type`) |
 | ใบเสร็จ / ใบแจ้งหนี้ / ใบรับเงินล่วงหน้า | `receipt` / `invoice` / `deposit` |
+| ใบรับทราบยอดค้าง | `acknowledgement` (`finance_receipts` + `finance_ack_entries`) · `AcknowledgmentMixin` |
+| รายงานปิดงบ | `monthly_report` (`finance_monthly_reports`) · `MonthlyReportsMixin` · `variance` = เงินนับได้ − ตามบัญชี |
 | ผู้ค้างชำระ | `debtor` · บิลเปิด = `open bill` (`_open_bill_predicate`) |
 | เงินรับล่วงหน้า | `credit` |
+| บัญชีรายบุคคล | `individual_account` · `_load_individual_accounts` · `IndividualAccountsMixin` · route `finance-individual-accounts` |
+| รายการเดินบัญชี | `statement` (`get_student_statement`) · ชนิดบรรทัด `bill` / `payment` / `payment_event` / `credit_topup` / `credit_apply` / `credit_reverse` |
 | ค่าปรับ | `fine` (ตาราง `fines`) · โปรเจกต์ซ่อน = `collection_kind` = `'fine'` |
 | ประเภทความผิด | `fine_type` (ตาราง `fine_types`) |
 | คำขอยกเว้น / คำขอคืนเงิน | `waiver` / `refund` (ตาราง `fine_waivers` / `fine_refunds`) |
@@ -196,6 +230,8 @@
 | แจ้งเตือนผู้ค้างชำระ | `debt_reminder` (`notifications.type`) · ตัวกันส่งซ้ำ = `reminder_dispatch_log` (ช่อง `inapp` / `discord`) · worker `finance_reminder_worker` |
 | ค่าปรับจ่ายล่าช้า | `late_fee` · โหมด `none`/`fixed`/`percent` · 1 บิลต้นทาง = 1 ค่าปรับ (`fines.source_payment_id` + unique `uq_fines_late_fee_source`) · เรียกใช้ `FinanceService.apply_late_fees` (ก่อนเตือนรายวัน) |
 | เรียกเก็บเอง (รายคน) | `custom_charge` · 1 รายการ = 1 `fee_collections` (`kind='project'`) + `idempotency_key` = `"{key}:{student_id}"` · service `create_custom_charges` |
+| ตัดจำหน่าย / ส่วนลดบิล | `bill_adjustment` · ชนิด `write_off` / `discount` (ตาราง `finance_bill_adjustments`) · `BillAdjustmentsMixin` · ยอดตัดสะสมอยู่ที่ `student_payments.written_off_amount` · สูตรค้างทุกจุด = `FC.amount - paid_amount - written_off_amount` · ตัดครบ ⇒ `status='waived'` |
+| เงินของห้อง / เงินผ่านมือ | `fund_type` = `room_fund` / `pass_through` (`fee_collections.fund_type`) · มิติรายงานเท่านั้น ไม่แตะ journal |
 | ยืนยันตัวตน | `identity_claimed` · `accept_invite` |
 | คำเชิญยืนยันตัวตน | `invite` (`list_my_invites`) |
 | ข้อมูลเฉพาะห้อง | `student_room_profiles` · resolved view = `v_student_profiles` |

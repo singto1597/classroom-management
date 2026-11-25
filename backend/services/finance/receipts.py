@@ -48,13 +48,18 @@ from .base import _lock_payments_in_order, _lock_room_money, service_logger
 from .baht_text import baht_text
 from .constants import (
     BATCH_SOURCE_AUTO, BATCH_SOURCE_ROOM, COLLECTION_KIND_PROJECT,
-    BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_DEPOSIT,
+    BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
+    DOC_TYPE_ACKNOWLEDGEMENT, DOC_TYPE_DEPOSIT,
     DOC_TYPE_INCOME, DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES,
     DOC_TYPE_PAYMENT_VOUCHER, DOC_TYPE_RECEIPT,
     PDF_BATCH_TIMEOUT, RECEIPTS_PER_PDF_MAX, RECEIPT_LIKE_DOC_TYPES,
     RECEIPT_NO_TEMPLATE, RECEIPT_SEQ_BUDGET_MSG, RECEIPT_SEQ_MAX,
     RECEIPT_SEQ_OVERFLOW_MSG, THAI_MONTHS_SHORT, THAI_TZ,
 )
+# 🗂️ [P5.3] ทางแยกเทมเพลต = registry ไม่ใช่ ternary ในไฟล์นี้
+#    ⚠️ `document_adapters` import แค่ `constants` ที่ระดับโมดูล (service import แบบ lazy)
+#       ⇒ ไม่มี circular import กับ `service.py` ที่ import ไฟล์นี้อยู่
+from .document_adapters import resolve_adapter
 from .helpers import _as_utc
 
 # คอลัมน์ที่ SELECT จาก finance_receipts ซ้ำ ๆ — รวมไว้ที่เดียวกันลืมเพิ่มที่ใดที่หนึ่ง
@@ -63,7 +68,8 @@ _RECEIPT_COLUMNS = """
     R.student_payment_id, R.legacy_transaction_id, R.student_id, R.collection_id,
     R.amount, R.paid_total_after, R.issued_to_name, R.issued_by_name, R.note,
     R.event_at, R.status, R.voided_at, R.voided_by, R.void_reason, R.issued_at,
-    R.batch_id
+    R.batch_id,
+    R.layout_version, R.document_meta, R.payment_event_id, R.receiver_person_id
 """
 
 # 🗓️ "วันที่ของเอกสาร" — ใช้ `event_at` ถ้ามี ไม่งั้นถอยไปใช้ `issued_at`
@@ -108,6 +114,9 @@ _MAX_MERGED_MEMBERS = 12
 #       ใบสำคัญจ่ายใช้ `_voucher_body.html`
 #    ⚠️ ชื่อไฟล์ต้องตรงกับไฟล์จริงใน `backend/templates/finance/` — พิมพ์ผิดจะได้
 #       `TemplateNotFound` **ตอนกดพิมพ์** ไม่ใช่ตอน import (เทสต์ที่เรนเดอร์ทุกชนิดจึงจำเป็น)
+#    🗂️ [P5.3] **แหล่งความจริงย้ายไป `document_adapters`** (`(1, doc_type)` keyed registry)
+#       ⇒ สองค่าด้านล่างเหลือไว้เป็นชื่อเรียกของ legacy ให้เทสต์/mutation อ้างถึงได้
+#       ห้ามใช้ตัดสินใจว่าใบไหนใช้ partial ไหน — ถาม `resolve_adapter` เท่านั้น
 _RECEIPT_BODY_TEMPLATE = "_receipt_body.html"
 _VOUCHER_BODY_TEMPLATE = "_voucher_body.html"
 
@@ -218,6 +227,16 @@ class ReceiptsMixin:
         d["event_at"] = _as_utc(d.get("event_at"))
         d["voided_at"] = _as_utc(d.get("voided_at"))
         d["line_items"] = cls._parse_line_items(d.get("line_items"))
+        # 🧾 [P2.2] layout/snapshot ของเอกสาร v2 — `document_meta` มาจาก jsonb
+        #    ⇒ asyncpg คืนเป็น **str** ต้อง parse (ลืมแล้ว template จะได้สตริง)
+        d["layout_version"] = int(d.get("layout_version") or 1)
+        meta = d.get("document_meta")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except (ValueError, TypeError):
+                meta = {}
+        d["document_meta"] = meta if isinstance(meta, dict) else {}
         return d
 
     @staticmethod
@@ -445,7 +464,8 @@ class ReceiptsMixin:
         return await conn.fetch(f"""
             SELECT SP.id AS payment_id, FC.id AS collection_id, FC.title,
                    FC.amount AS bill_amount, COALESCE(SP.paid_amount, 0) AS paid_amount,
-                   (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding,
+                   (FC.amount - COALESCE(SP.paid_amount, 0)
+                             - COALESCE(SP.written_off_amount, 0)) AS outstanding,
                    FC.due_date,
                    S.student_no, U.first_name, U.nickname, U.first_name_en
             FROM students S
@@ -470,7 +490,8 @@ class ReceiptsMixin:
         return await conn.fetch(f"""
             SELECT S.id AS student_id, S.student_no,
                    U.first_name, U.nickname, U.first_name_en,
-                   SUM(FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
+                   SUM(FC.amount - COALESCE(SP.paid_amount, 0)
+                             - COALESCE(SP.written_off_amount, 0)) AS outstanding
             FROM students S
             LEFT JOIN v_student_profiles U ON U.student_id = S.id
             JOIN student_payments SP ON S.id = SP.student_id
@@ -1645,6 +1666,7 @@ class ReceiptsMixin:
         cls, pool: asyncpg.Pool, student_ids: List[int], user_id: int, client_source: str,
         actor_identifier: str, note: Optional[str] = None, user_name: str = "—",
         server_id: Optional[int] = None, room_id: Optional[int] = None,
+        channel_ids: Optional[List[int]] = None,
     ) -> dict:
         """ออกใบแจ้งหนี้ **ยอดค้างรวม** ให้นักเรียนที่เลือก — 1 คน = 1 ใบ (all-or-nothing)
 
@@ -1687,6 +1709,8 @@ class ReceiptsMixin:
                     for sid in unique_ids:
                         row = await cls._issue_invoice_aggregate(
                             conn, target_room_id, sid, user_id, user_name, note, issued_at_db,
+                            # 💳 [P2.6] ช่องทางที่ผู้ใช้เลือก (None = 3 ช่องทางแรกของห้อง)
+                            channel_ids=channel_ids,
                         )
                         issued.append(cls._shape_receipt(row))
 
@@ -1736,6 +1760,7 @@ class ReceiptsMixin:
         cls, pool: asyncpg.Pool, user_id: int, client_source: str, actor_identifier: str,
         note: Optional[str] = None, user_name: str = "—",
         server_id: Optional[int] = None, room_id: Optional[int] = None,
+        channel_ids: Optional[List[int]] = None,
     ) -> dict:
         """ออกใบแจ้งหนี้ให้ **ทุกคนที่มียอดค้าง** ในห้อง — 1 คน = 1 ใบ (all-or-nothing)
 
@@ -1781,6 +1806,8 @@ class ReceiptsMixin:
                     for sid in issuable:
                         row = await cls._issue_invoice_aggregate(
                             conn, target_room_id, sid, user_id, user_name, note, issued_at_db,
+                            # 💳 [P2.6] ช่องทางที่ผู้ใช้เลือก (None = 3 ช่องทางแรกของห้อง)
+                            channel_ids=channel_ids,
                         )
                         issued.append(cls._shape_receipt(row))
 
@@ -1864,6 +1891,15 @@ class ReceiptsMixin:
                     where = "WHERE R.room_id = $1"
                 else:
                     where = f"WHERE R.room_id = $1 AND R.deleted_at IS NULL AND R.status = '{DOC_STATUS_ACTIVE}'"
+                # 🧾 [P2.2] ทะเบียนเดิมเห็นเฉพาะเอกสาร legacy — ใบ v2 ยังเปิด/พิมพ์ได้ผ่าน
+                #    `get_receipt` แต่หน้านี้ใช้เลย์เอาต์เดิมซึ่งอ่าน snapshot v2 ไม่ครบ
+                #    (P5.2 จะมี registry ใหม่ที่รวมทั้งสอง layout) · กรองทั้ง include_voided
+                # 🧾 [P2.6] **ข้อยกเว้นเดียว: INV** — ใบแจ้งหนี้เปลี่ยนเป็น layout 2 ที่นี่ แต่
+                #    หน้าทะเบียนเดิมยังเป็นทางเดียวที่ผู้ใช้เห็นใบที่เพิ่งออก ⇒ ถ้ากรองทิ้ง
+                #    ผู้ใช้ออก INV สำเร็จแล้วหาไม่เจอ (และ `doc_type=invoice` filter ว่างเปล่า)
+                #    ⚠️ REC/DEP v2 ยังถูกซ่อนตามเดิม (P2.2 test ยึดพฤติกรรมนั้น) — P5.2 registry
+                #       ใหม่จะรวมทั้งสอง layout แล้วลบบรรทัดนี้
+                where += " AND (R.layout_version = 1 OR R.doc_type = 'invoice')"
                 params: List = [target_room_id]
                 idx = 2
                 if doc_type:
@@ -2137,6 +2173,25 @@ class ReceiptsMixin:
            ถ้าเส้นทาง PDF ใบเดียวประกอบ context เอง "พิมพ์ใบเดี่ยว" กับ "พิมพ์รวมแล้วตัดหน้า"
            จะได้กระดาษคนละแบบโดยไม่มีใครรู้จนกว่าจะมีคนเอามาวางเทียบกัน
         """
+        # 🧾 [P2.2] เอกสาร v2 อ่าน snapshot ของตัวเอง — partial แยกไฟล์ (REC/DEP)
+        #    ⚠️ legacy (layout 1) ต้องเดินต่อด้วยโค้ดเดิม **ไบต์ต่อไบต์**
+        layout_version = int(d.get("layout_version") or 1)
+        if layout_version >= 2:
+            # 🧾 [P2.6] INV/ACK มี partial + snapshot รูปของตัวเอง (ช่องทาง/QR/รายชื่อ ACK)
+            #    ⇒ dispatch เฉพาะสองชนิดนี้ก่อน แล้วที่เหลือใช้ของ P2.2
+            if d.get("doc_type") in (DOC_TYPE_INVOICE, DOC_TYPE_ACKNOWLEDGEMENT):
+                context = cls._document_context_invoice_v2(d)
+            else:
+                context = cls._document_context_v2(d)
+            # 🗂️ [P5.3] `body_template` ของ layout 2 = คำตอบจาก registry ตัวเดียว
+            #    🔴 ไม่ปล่อยให้ `_body_template_for` เป็นแหล่งความจริงคู่ขนาน: เฟส 4/5 ลงทะเบียน
+            #       ชนิดของตัวเองที่ `document_adapters` ⇒ ถ้าตรงนี้ไม่ถาม registry ด้วย
+            #       "adapter บอกไฟล์หนึ่ง แต่พิมพ์อีกไฟล์" จะเกิดขึ้นโดยไม่มีอะไรฟ้อง
+            #    🔑 `layout_version` ก็เขียนกลับจาก adapter (`int(...)` กันค่าที่ส่งมาเป็น str)
+            adapter = resolve_adapter(layout_version, d.get("doc_type"))
+            context["body_template"] = adapter.body_template
+            context["layout_version"] = adapter.layout_version
+            return context
         amount = float(d["amount"])
         paid_total = float(d["paid_total_after"])
         line_items, line_items_hidden = cls._line_items_for_print(d.get("line_items"))
@@ -2225,11 +2280,12 @@ class ReceiptsMixin:
             #    ⚠️ เป็น `{% include %}` ไม่ใช่ shell ที่สอง: ผู้ใช้ติ๊กใบเสร็จปนกับใบสำคัญ
             #       ในคำขอเดียวได้ และทั้งไฟล์ถูกเรนเดอร์ครั้งเดียวผ่าน Gotenberg ⇒ `<style>`
             #       (ฟอนต์ base64 ~61,000 ตัวอักษร) ต้องอยู่นอกลูปเสมอ
-            "body_template": (
-                _VOUCHER_BODY_TEMPLATE
-                if d["doc_type"] == DOC_TYPE_PAYMENT_VOUCHER
-                else _RECEIPT_BODY_TEMPLATE
-            ),
+            #    🗂️ [P5.3] legacy = adapter `(1, doc_type)` ตัวเดียวกันที่ v2 ใช้ถาม
+            #       ⇒ ผลลัพธ์ไบต์เดิม (`payment_voucher` → `_voucher_body.html`,
+            #       ที่เหลือ → `_receipt_body.html`) แต่มีที่เดียวให้แก้ในอนาคต
+            #       🔴 ชนิด layout 1 ที่ยังไม่ลงทะเบียน → `ValueError` ข้อความไทย
+            #          (router แปลง 400) ไม่ใช่พิมพ์ด้วยเทมเพลตผิดเงียบ ๆ
+            "body_template": resolve_adapter(1, d["doc_type"]).body_template,
             # 🧑💼 ผู้เบิก/ผู้รับเงิน — ใช้ `issued_to_name` ตรง ๆ **ไม่เก็บซ้ำใน snapshot**
             #    เพราะ `finance_receipts.issued_to_name` *คือ* "คนที่เอกสารออกให้" อยู่แล้ว
             "voucher_payee_name": d.get("issued_to_name"),
@@ -2379,6 +2435,15 @@ class ReceiptsMixin:
         order, buckets = [], {}
         for d in docs:
             key = cls._merge_key(d)
+            # 🧾 [P5.3] เอกสาร `layout_version >= 2` **ห้ามยุบ** — คนละเทมเพลตกับ legacy
+            #    🔴 ถ้าปล่อยให้ยุบ: REC v1 กับ REC v2 ของนักเรียนคนเดียวกันจะกลายเป็น
+            #       หน้าเดียวที่ใช้ `_merged_context` (โครงของ legacy) ⇒ บรรทัดของ v2
+            #       ถูกอ่านด้วยคีย์แบบ legacy และเทมเพลต v2 ไม่เคยถูกใช้เลย
+            #    🎯 v2 ออกเป็น **1 ใบต่อ 1 เหตุการณ์รับเงิน** อยู่แล้ว (P2.1) ⇒ ไม่มี
+            #       เหตุผลทางธุรกิจให้ยุบ · legacy ทั้งหมดเป็น layout 1 ⇒ พฤติกรรมเดิม
+            #       ของไฟล์รวม (F6) ไม่เปลี่ยนไบต์
+            if key is not None and int(d.get("layout_version") or 1) >= 2:
+                key = None
             if key is None:
                 order.append(("doc", d))
                 continue

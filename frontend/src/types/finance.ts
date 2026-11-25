@@ -62,9 +62,18 @@ export interface StudentPaymentSummary {
 
 export interface StudentPaymentDetail {
   payment_id: number;
-  status: 'pending' | 'paid';
+  /**
+   * 🚫 [FIN-V2 / P6.3] `waived` = บิลที่ถูกตัดจำหน่ายจนหมด (ตัดครบ)
+   * — ออกจากยอดค้างแล้วแต่ยังเห็นในรายการ; ใช้ `isSettled(outstandingOf(...))`
+   * ตัดสิน "ไม่มีอะไรค้าง" ห้ามใช้ `status === 'paid'`
+   */
+  status: 'pending' | 'paid' | 'waived';
   paid_amount: number;
   total_amount: number;
+  /** ✂️ [FIN-V2 / P6.2→P6.3] ยอดที่ถูกตัดจำหน่าย/ให้ส่วนลดสะสม (0 = ไม่เคยตัด) */
+  written_off_amount: number;
+  /** ชนิดบิล (`project` / `fine`) — หน้าจอซ่อนปุ่มตัดหนี้บนบิลค่าปรับ (`fine` → 409) */
+  collection_kind: string | null;
   paid_at: string | null;
   slip_image_url: string | null;
   student_id: number; // ✨ ฟีเจอร์ใหม่จาก AI
@@ -917,6 +926,13 @@ export interface StudentCreditEntry {
   receipt_event_at: string | null;
   /** ชื่อบิล/แคมเปญที่รายการหักนี้ไปปิด */
   collection_title: string | null;
+  /**
+   * 🧾 [FIN-V2 / P3.3] ใบรับเงิน (payment event) ที่สร้างแถวนี้
+   * `null` = รายการเดิมของระบบ (ยกเลิกตรงได้เฉพาะ `entry_type='apply'`)
+   */
+  payment_event_id?: number | null;
+  /** ที่มา — backend เติมให้เสมอ (`event` = มาจากใบรับเงิน, `legacy` = แถวเดิม) */
+  source_label?: 'event' | 'legacy';
 }
 
 /** บิลที่ยังค้างของนักเรียน 1 คน (ยอดดิบ ยังไม่หักเครดิต) */
@@ -1370,4 +1386,1267 @@ export interface FineSummary {
   by_status: FineSummaryStatusRow[];
   by_type: FineSummaryTypeRow[];
   top_debtors: FineSummaryDebtorRow[];
+}
+
+// ──────────────────────────── 👥 ผู้เกี่ยวข้องทางการเงิน (FIN-V2 / P1.2)
+// 🎭 ต้องตรงกับ CHECK ของ DB: chk_finance_people_roles / chk_finance_people_student_link
+export type PersonType = 'student' | 'teacher' | 'external';
+export type PersonRole = 'receive' | 'pay' | 'approve';
+
+/** แถวจาก `GET /finance/people` — ชื่อเป็น snapshot ที่ครูแก้ได้ในทะเบียน */
+export interface FinancePerson {
+  person_id: number;
+  person_type: PersonType;
+  student_id: number | null;
+  display_name: string;
+  phone: string | null;
+  roles: PersonRole[];
+  is_active: boolean;
+  note: string | null;
+}
+
+export interface PersonListResponse {
+  people: FinancePerson[];
+}
+
+export interface PersonCreate {
+  person_type: PersonType;
+  student_id?: number | null;
+  display_name: string;
+  phone?: string | null;
+  roles?: PersonRole[];
+  is_active?: boolean;
+  note?: string | null;
+}
+
+export type PersonUpdate = Partial<Omit<PersonCreate, 'person_type'>> & {
+  person_type?: PersonType;
+};
+
+/** ผลของปุ่ม "ซิงก์รายชื่อนักเรียน" — `skipped` เผื่ออนาคต (ตอนนี้ 0) */
+export interface PeopleSyncResult {
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
+/** ค่าเริ่มต้นของหน้าจอรับเงิน — GET คืนค่า default เสมอแม้ยังไม่เคยตั้งค่า */
+export interface FinanceSettings {
+  default_receiver_person_id: number | null;
+  default_wallet_account_id: number | null;
+  require_receiver: boolean;
+  receipt_note: string | null;
+}
+
+export type FinanceSettingsUpdate = Partial<FinanceSettings>;
+
+// ──────────────────────────── 👤 บัญชีรายบุคคล (FIN-V2 / P1.3 API → P1.4 UI)
+// ⚠️ เงินทุกฟิลด์เป็น **string ทศนิยม 2 ตำแหน่ง** ตามสัญญา api-v2
+//    ⇒ ต้อง `formatMoney(Number(x))` ก่อนแสดงผลเสมอ (ดู Gotchas ของ brief P1.4)
+
+/** ตัวกรองสถานะของหน้า list — ตรงกับ `VALID_ACCOUNT_STATUS` ฝั่ง backend */
+export type IndividualAccountStatus = 'all' | 'outstanding' | 'credit' | 'settled';
+
+/** ประเภทเงินของบิล — `fee_collections.fund_type` (มิติรายงาน ไม่ใช่บัญชีแยก) */
+export type FundType = 'room_fund' | 'pass_through';
+
+/** บิลที่ยังเปิด (ยังค้าง) ของนักเรียน 1 ใบ — `open_bills` ใน `IndividualAccountItem` */
+export interface OpenBillItem {
+  student_payment_id: number;
+  collection_id: number | null;
+  title: string;
+  amount: string;
+  paid_amount: string;
+  written_off_amount: string;
+  outstanding: string;
+  /** ISO date `YYYY-MM-DD` (ไม่ใช่ timestamp) — ใช้ `formatThaiDate` */
+  due_date: string | null;
+  status: string;
+  collection_kind: string | null;
+  fund_type: FundType | null;
+}
+
+/** เหตุการณ์รับเงินล่าสุด — ว่างได้จนถึง P2.1 (ตาราง event ยังไม่มีข้อมูลจริง) */
+export interface RecentPaymentEventItem {
+  event_id: number;
+  /** ISO timestamp — ใช้ `formatThaiDateTime` */
+  event_at: string;
+  amount_received: string;
+  credit_used: string;
+  receiver_name: string | null;
+}
+
+/** บัญชีของนักเรียน 1 คน — รวมยอดค้าง/เครดิต/บิลเปิด/เหตุการณ์ล่าสุด */
+export interface IndividualAccountItem {
+  student_id: number;
+  student_no: number;
+  name: string;
+  outstanding_total: string;
+  overdue_total: string;
+  upcoming_total: string;
+  credit_balance: string;
+  ready_to_apply: string;
+  open_bills: OpenBillItem[];
+  recent_events: RecentPaymentEventItem[];
+}
+
+/** รายการทั้งห้อง — `as_of` = "วันนี้" ตามเวลาไทยที่ backend ใช้ตัดสิน overdue */
+export interface IndividualAccountListResponse {
+  as_of: string;
+  items: IndividualAccountItem[];
+}
+
+/** รายละเอียดคนเดียว — รูปร่างเดียวกับ item ใน list เพื่อใช้ component เดียว */
+export type IndividualAccountDetailResponse = IndividualAccountItem;
+
+export interface IndividualAccountQuery {
+  status?: IndividualAccountStatus;
+  q?: string;
+  fund_type?: string;
+}
+
+/** ประเภทบรรทัดใน statement — `payment_event` ยังว่างจนถึง P2.1 */
+export type StatementEntryKind =
+  | 'bill'
+  | 'payment'
+  | 'payment_event'
+  | 'credit_topup'
+  | 'credit_apply'
+  | 'credit_reverse';
+
+/** บรรทัดเดินบัญชี — `amount` มีเครื่องหมายแล้ว (บิล + · รับเงิน −) */
+export interface StudentStatementEntry {
+  entry_id: string;
+  kind: string;
+  /** ISO timestamp — ใช้ `formatThaiDateTime` */
+  occurred_at: string;
+  description: string;
+  amount: string;
+  /** ยอดเครดิตคงเหลือหลังรายการ — มีเฉพาะบรรทัดเครดิต */
+  balance_after: string | null;
+  reference_id: number | null;
+}
+
+/** โครงเอกสารใน statement — P5.1 (registry) จะเติมข้อมูลจริง รอบนี้ `[]` เสมอ */
+export interface StatementDocumentItem {
+  doc_type: string;
+  doc_no: string | null;
+  issued_at: string | null;
+  amount: string | null;
+}
+
+/** statement ตามช่วงวันที่ — เรียง `occurred_at` จากเก่าไปใหม่ */
+export interface StudentStatementResponse {
+  student_id: number;
+  student_no: number;
+  name: string;
+  date_from: string | null;
+  date_to: string | null;
+  entries: StudentStatementEntry[];
+  documents: StatementDocumentItem[];
+}
+
+export interface StudentStatementQuery {
+  from?: string;
+  to?: string;
+}
+
+// ──────────────────────── 💸 รับเงิน 1 ครั้ง = 1 event (FIN-V2 / P2.1 API → P2.3 UI)
+// ⚠️ เงินทุกฟิลด์เป็น **string ทศนิยม 2 ตำแหน่ง** ตามสัญญา api-v2 §4
+//    ⇒ `formatMoney(Number(x))` ก่อนแสดงผล · request ส่ง string เสมอ (ไม่ส่ง number)
+
+/** แหล่งเงินของบรรทัดจัดสรร — 1 บรรทัด = 1 แหล่ง (ห้ามรวมเงินสด+เครดิตในบรรทัดเดียว) */
+export type AllocationSource = 'cash' | 'credit'
+
+/** เงินเกินหลังปิดบิล: เก็บเป็นเครดิต หรือปฏิเสธ (`none` = backend ตอบ 400) */
+export type ExcessAction = 'credit' | 'none'
+
+/** เลือกบิลที่จะปิด: `auto` = ทุกบิลเปิด · `manual` = เฉพาะ `bill_ids` */
+export type BillSelection = 'auto' | 'manual'
+
+/**
+ * บรรทัดจัดสรร 1 บรรทัด — ใช้ทั้งผล preview และผล commit
+ *
+ * 🔴 `amount`/`bill_before`/`bill_after` เป็น string ⇒ ต้อง `Number(...)` ก่อนคำนวณ
+ *    preview มีฟิลด์บริบทของบิล (`title`, `due_date`, …) มาด้วย ส่วน commit มีชุดเดียวกับ
+ *    snapshot ที่เขียนลง `line_items` ⇒ ทำเป็น optional ให้ type เดียวใช้ได้ทั้งคู่
+ */
+export interface AllocationLine {
+  student_payment_id: number;
+  /** บิลบรรทัดนี้ปิด — ข้อมูลบริบทมีใน preview, ไม่มีใน commit */
+  collection_id?: number | null;
+  title?: string;
+  collection_kind?: string | null;
+  fund_type?: FundType | null;
+  /** ISO date `YYYY-MM-DD` — ใช้ `formatThaiDate` */
+  due_date?: string | null;
+  source: AllocationSource;
+  amount: string;
+  bill_before: string;
+  bill_after: string;
+}
+
+/** คำขอพรีวิว — ยังไม่เขียนอะไรลง DB (commit แยกที่ `PaymentEventCreate`) */
+export interface AllocationPreviewRequest {
+  student_id: number;
+  amount_received: string;
+  use_credit: boolean;
+  excess_action: ExcessAction;
+  bill_selection: BillSelection;
+  bill_ids: number[];
+  channel_id: number | null;
+}
+
+/** ผลพรีวิว — สมการ `amount_received + credit_used = total_applied + credit_added` ผ่านเสมอ */
+export interface AllocationPreviewResponse {
+  allocations: AllocationLine[];
+  total_applied: string;
+  credit_used: string;
+  credit_added: string;
+  remaining_unapplied: string;
+  warnings: string[];
+}
+
+/** คำขอบันทึกรับเงิน — ต้องมี `idempotency_key` (สร้างครั้งเดียวต่อการกด 1 ครั้ง) */
+export interface PaymentEventCreate extends AllocationPreviewRequest {
+  idempotency_key: string;
+  /** กระเป๋าที่รับเงินเข้า — backend บังคับ > 0 */
+  wallet_account_id: number;
+  payer_name: string | null;
+  payer_person_id: number | null;
+  receiver_person_id: number | null;
+  receiver_name: string | null;
+  note: string | null;
+  /** ISO timestamp — `null` = ให้ DB ใช้เวลาปัจจุบัน */
+  event_at: string | null;
+}
+
+/** เอกสารที่ event นี้สร้าง (REC/DEP, `layout_version=2`) */
+export interface PaymentEventDocument {
+  id: number;
+  doc_type: 'receipt' | 'deposit';
+  receipt_no: string;
+  amount: string;
+  layout_version: number;
+  event_at: string | null;
+  issued_at: string | null;
+  status: string;
+}
+
+/**
+ * ผลของ `POST /finance/payment-events`
+ *
+ * 🔁 `reused=true` = backend คืน event เดิมจาก `idempotency_key` (กดซ้ำ/เน็ตหลุด)
+ * ⚠️ `receipt_no` เป็น `null` ได้เมื่อ "ใช้เครดิตปิดบิลล้วน" (ไม่มีเงินสด ⇒ ไม่มีใบเสร็จใหม่)
+ */
+export interface PaymentEventResult {
+  event_id: number;
+  receipt_no: string | null;
+  deposit_no: string | null;
+  amount_received: string;
+  credit_used: string;
+  credit_added: string;
+  total_applied: string;
+  allocations: AllocationLine[];
+  documents: PaymentEventDocument[];
+  reused: boolean;
+  warnings: string[];
+}
+
+// ──────────────────────── 💳 ช่องทางชำระเงิน + PromptPay QR (FIN-V2 / P2.4–P2.5)
+// 🔴 ชื่อฟิลด์ตรงกับ `PaymentChannelResponse` ของ backend เป๊ะ ๆ — `*_masked`
+//    มีไว้แสดงเท่านั้น **ห้ามส่งกลับ** ตอนบันทึก (backend จะเก็บสตริงดอกจันลง DB)
+//    ค่าเต็ม (`account_number`/`promptpay_id`) เป็น write-only และมีแต่ใน create payload
+
+export type PaymentChannelType = 'cash' | 'bank_transfer' | 'promptpay' | 'custom_qr'
+
+export type QrMode = 'open' | 'fixed'
+
+export interface PaymentChannel {
+  id: number
+  channel_type: PaymentChannelType
+  label: string
+  wallet_account_id: number | null
+  wallet_account_name: string | null
+  account_name: string | null
+  bank_name: string | null
+  account_number_masked: string | null
+  promptpay_id_masked: string | null
+  qr_mode: QrMode | null
+  is_primary: boolean
+  is_active: boolean
+  sort_order: number
+  has_qr: boolean
+}
+
+export interface PaymentChannelListResponse {
+  channels: PaymentChannel[]
+}
+
+export interface PaymentChannelCreate {
+  channel_type: PaymentChannelType
+  label: string
+  wallet_account_id: number | null
+  account_name: string | null
+  bank_name: string | null
+  /** เลขบัญชีเต็ม — write-only (API ไม่คืน) */
+  account_number: string | null
+  /** เบอร์/เลขบัตร/e-wallet เต็ม — write-only (API ไม่คืน) */
+  promptpay_id: string | null
+  qr_mode: QrMode | null
+  is_primary: boolean
+  is_active: boolean
+  sort_order?: number | null
+}
+
+/**
+ * PATCH ช่องทาง — ส่งเฉพาะคีย์ที่เปลี่ยน
+ *
+ * ⚠️ การ **ไม่ส่ง** คีย์ ≠ การส่ง `null`: backend ใช้ `exclude_unset` จึงตีความ
+ *    "ไม่ส่ง" ว่าคงค่าเดิม และ `null` ว่า "ล้างค่า" ⇒ ช่องความลับที่เว้นว่างต้อง
+ *    **ละคีย์ออก** ไม่ใช่ส่งค่าว่าง
+ */
+export type PaymentChannelUpdate = Partial<Omit<PaymentChannelCreate, 'channel_type'>> & {
+  channel_type?: PaymentChannelType
+}
+
+// ──────────────────────── 📥 รับเงินหลายคนในรอบเดียว (FIN-V2 / P2.7)
+// 1 คำขอ = 1 transaction = all-or-nothing · 1 นักเรียน = 1 event + REC/DEP ของตัวเอง
+// ⚠️ bulk ใช้ `bill_selection='auto'` เท่านั้น และ **ไม่เลือกช่องทาง** ในรอบนี้
+//    (`channel_id: null` — service ตั้ง snapshot เป็น `{}`)
+
+export interface BulkPaymentItemInput {
+  student_id: number
+  /** string 2 ตำแหน่ง — `roundMoney(amount).toFixed(2)` */
+  amount_received: string
+  use_credit: boolean
+  excess_action: ExcessAction
+  note?: string | null
+}
+
+export interface BulkPaymentEventCreate {
+  /** คีย์ของทั้งรอบ — backend สร้างคีย์ย่อยต่อคน (`{key[:48]}:{student_id}`) */
+  idempotency_key: string
+  /** เลขที่รับเงินเดียวติดทุก event (ไม่ unique ใน DB — service บังคับใต้ล็อกห้อง) */
+  reference_no: string
+  channel_id: number | null
+  wallet_account_id: number
+  receiver_person_id: number | null
+  receiver_name: string
+  note: string | null
+  /** ISO timestamp — `null` = DB NOW ครั้งเดียวทั้งรอบ (ปี พ.ศ. เดียวกัน) */
+  event_at: string | null
+  items: BulkPaymentItemInput[]
+}
+
+export interface BulkPaymentEventItemResult {
+  student_id: number
+  student_name: string
+  event: PaymentEventResult
+}
+
+/**
+ * ผลของ `POST /finance/payment-events/bulk`
+ *
+ * 🔁 `reused=true` = ทั้งรอบเคยบันทึกแล้ว (คีย์ + reference_no เดิม) — ไม่มี REC ใหม่
+ * 🔴 `event.receipt_no` เป็น `null` ได้เมื่อคนนั้นใช้เครดิตปิดบิลล้วน
+ */
+export interface BulkPaymentEventResult {
+  status: string
+  message: string
+  reference_no: string
+  events: BulkPaymentEventItemResult[]
+  /** string 2 ตำแหน่ง — ผลรวมเงินสดของทั้งรอบ */
+  total_amount_received: string
+  reused: boolean
+}
+
+/** detail object ของ error ระดับ item (backend `BulkPaymentFailure` มี student_id) */
+export interface BulkPaymentErrorDetail {
+  code: 'BULK_ITEM_FAILED'
+  message: string
+  student_id: number
+  item_code: string
+}
+
+// ──────────────────────── 👜 เงินสดรอส่งมอบ (FIN-V2 / P3.1 API → P3.2 UI)
+// 🔴 ชื่อฟิลด์ตรงกับ response ของ `services/finance/custody.py` เป๊ะ ๆ:
+//    `GET /finance/custody` → `{ total_held, items }`
+//    `GET /finance/custody/{person_id}/movements` → `{ person_id, account_id, items }`
+//    เงินทุกฟิลด์เป็น **number** (P3.1 ตัดเป็น 2 ตำแหน่งมาแล้ว) ⇒ ใช้ `formatMoney`
+//    เท่านั้น ห้าม `toFixed()` เองในหน้าจอ
+
+export type CustodyAccountKind = 'cash' | 'transfer'
+
+/** หนึ่งแถวของกระเป๋า custody — คนหนึ่งมีได้กระเป๋าเดียวต่อห้อง */
+export interface CustodyItem {
+  person_id: number
+  display_name: string
+  account_id: number
+  account_name: string
+  account_kind: CustodyAccountKind
+  balance: number
+  /** ISO timestamp ของ handover ที่ยัง active ล่าสุด — `null` = ยังไม่เคยส่งมอบ */
+  last_handover_at: string | null
+}
+
+export interface CustodyListResponse {
+  /** ผลรวมยอดถือของทุกคนในห้อง (number, 2 ตำแหน่ง) */
+  total_held: number
+  items: CustodyItem[]
+}
+
+export interface CustodyAccountCreate {
+  owner_person_id: number
+  /** ค่าเริ่มต้น `cash` — ตรงกับ Literal ของ backend */
+  account_kind?: CustodyAccountKind
+}
+
+/** ผลของ `POST /finance/custody/accounts` */
+export interface CustodyAccount {
+  person_id: number
+  account_id: number
+  account_name: string
+  account_kind: CustodyAccountKind
+  balance: number
+  is_custody: boolean
+}
+
+export interface CustodyHandoverCreate {
+  /** 🔑 สร้างตอน **เปิดฟอร์ม** และใช้ค่าเดิมตลอดการ retry — ดู `newIdempotencyKey` */
+  idempotency_key: string
+  from_account_id: number
+  to_account_id: number
+  /** number 2 ตำแหน่ง (ใช้ `roundMoney`) */
+  amount: number
+  handed_over_by_person_id?: number | null
+  received_by_person_id?: number | null
+  note?: string | null
+}
+
+export interface CustodyHandover {
+  id: number
+  from_account_id: number
+  to_account_id: number
+  amount: number
+  status: 'active' | 'voided'
+  /** id ของ journal entry (string ตามสัญญา — ใช้ตรวจสอบ ไม่ใช่แสดงให้ผู้ใช้ทั่วไป) */
+  journal_entry_id: string | null
+  created_at: string | null
+}
+
+export type CustodyMovementKind = 'handover_in' | 'handover_out' | 'income' | 'expense'
+
+/**
+ * หนึ่งบรรทัดของการเคลื่อนไหว — `amount` มีเครื่องหมายตามทิศทางแล้ว
+ * ⚠️ P3.1 คืนเฉพาะ handover ที่ **ยัง active** ⇒ รายการที่ยกเลิกแล้วจะหายจากลิสต์
+ *    (ไม่ใช่บั๊ก — ฝั่งอ่านยึดยอดจริง ไม่ยึดประวัติที่ถูกกลับรายการ)
+ */
+export interface CustodyMovement {
+  kind: CustodyMovementKind
+  /** id ของ handover หรือ finance_transactions ตาม `kind` (string จาก backend) */
+  source_id: string
+  amount: number
+  description: string | null
+  /** เลขที่ใบเสร็จ ถ้ารายการนั้นมีใบเสร็จ — ยังไม่ผูกลิงก์ในรอบ P3.2 */
+  reference_no: string | null
+  occurred_at: string
+}
+
+export interface CustodyMovementListResponse {
+  person_id: number
+  account_id: number
+  items: CustodyMovement[]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน — event + custody handover (อ่านเท่านั้น)
+// ═══════════════════════════════════════════════════════════════════════════
+/** หนึ่งบรรทัดของ event — บิล / ใช้เครดิตปิดบิล / เติมเครดิต */
+export interface PaymentHistoryLine {
+  line_kind: 'bill' | 'credit_apply' | 'credit_topup'
+  amount: number
+  bill_before: number | null
+  bill_after: number | null
+  collection_title: string | null
+}
+
+/** เอกสารที่ผูกกับ event (REC/DEP) — backend กรอง `deleted_at IS NULL` มาแล้ว */
+export interface PaymentHistoryDocument {
+  doc_type: string
+  receipt_no: string
+  status: string | null
+}
+
+export interface PaymentHistoryEvent {
+  student_id: number
+  student_name: string | null
+  payer_name: string
+  receiver_name: string
+  amount_received: number
+  credit_used: number
+  credit_added: number
+  total_applied: number
+  reference_no: string | null
+  lines: PaymentHistoryLine[]
+  documents: PaymentHistoryDocument[]
+}
+
+export interface PaymentHistoryHandover {
+  from_account_name: string | null
+  to_account_name: string | null
+  amount: number
+  handed_over_by_name: string | null
+  received_by_name: string | null
+  note: string | null
+  void_reason: string | null
+}
+
+/** หนึ่งแถวในไทม์ไลน์ — `event` หรือ `handover` อย่างใดอย่างหนึ่งเท่านั้น */
+export interface PaymentHistoryItem {
+  kind: 'event' | 'handover'
+  id: number
+  occurred_at: string
+  status: string
+  event: PaymentHistoryEvent | null
+  handover: PaymentHistoryHandover | null
+}
+
+export interface PaymentHistoryResponse {
+  items: PaymentHistoryItem[]
+  next_cursor: string | null
+}
+
+/** พารามิเตอร์ของ `GET /finance/payment-history` — วันที่เป็น YYYY-MM-DD (วันไทย) */
+export interface PaymentHistoryQuery {
+  from?: string
+  to?: string
+  kind?: 'all' | 'event' | 'handover'
+  student_id?: number
+  person_id?: number
+  receiver_id?: number
+  q?: string
+  cursor?: string
+  limit?: number
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว (credit round)
+// 1 รอบ = 1 transaction = all-or-nothing · 1 นักเรียน = 1 event credit-only
+// (ไม่มี REC/DEP และไม่แตะยอดกระเป๋า — เครดิตไม่ใช่เงินสด)
+// ═══════════════════════════════════════════════════════════════════════════
+export interface CreditRoundCreate {
+  /** คีย์ของทั้งรอบ — backend ต่อท้ายด้วย `:student_id` ต่อคน */
+  idempotency_key: string;
+  student_ids: number[];
+  reference_no?: string | null;
+  receiver_person_id?: number | null;
+  note?: string | null;
+  /** กระเป๋า **อ้างอิง** ของ event (NOT NULL ใน DB) — ไม่แตะยอด · ไม่ส่ง = กระเป๋าเงินสดหลัก */
+  wallet_account_id?: number | null;
+  /** ชื่อผู้บันทึก/ผู้รับ (เมื่อไม่ได้เลือกจากทะเบียน) */
+  user_name?: string | null;
+}
+
+export interface CreditRoundEvent {
+  student_id: number;
+  student_name: string;
+  event_id: number;
+  total_applied: number;
+  credit_used: number;
+  balance_after: number;
+  credit_entry_ids: number[];
+}
+
+export interface CreditRoundSkipped {
+  student_id: number;
+  student_name: string;
+  reason: string;
+}
+
+export interface CreditRoundResponse {
+  reused: boolean;
+  reference_no: string | null;
+  events: CreditRoundEvent[];
+  skipped: CreditRoundSkipped[];
+  total_applied: number;
+  total_balance_after: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💸 [FIN-V2 / P4.3] ใบสำคัญจ่ายหลายบรรทัด — 1 ใบ = N transactions + 1 PV
+//    (+ CERT เมื่อมีบรรทัด `receipt_status='none'` — P4.2 คำนวณฝั่ง server)
+// ═══════════════════════════════════════════════════════════════════════════
+/** สถานะหลักฐานการรับเงินของบรรทัด — ตรงกับ Literal ฝั่ง backend */
+export type ReceiptStatus = 'attached' | 'paper' | 'none';
+/** แหล่งเงิน — `pass_through` = เงินผ่านบัญชี (ใช้กระเป๋า `is_custody` ได้) */
+export type FundingSource = 'room_fund' | 'pass_through';
+
+/** 1 บรรทัดที่ **ส่งไปสร้าง** — ยังไม่มี line_no (backend ออกให้ตามลำดับ) */
+export interface ExpenseVoucherLinePayload {
+  description: string;
+  amount: number;
+  category_id: number;
+  budget_id?: number | null;
+  wallet_account_id: number;
+  receipt_status: ReceiptStatus;
+  paper_bill_count: number;
+  attachment_placeholder?: string | null;
+  funding_source: FundingSource;
+}
+
+export interface ExpenseVoucherCreate {
+  idempotency_key: string;
+  default_wallet_account_id: number;
+  payee_person_id?: number | null;
+  payee_name: string;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) — ไม่ใช่ ISO datetime */
+  voucher_date: string;
+  note?: string | null;
+  total_amount?: number;
+  approved_by_person_id?: number | null;
+  approved_by_name?: string | null;
+  lines: ExpenseVoucherLinePayload[];
+}
+
+/** ผลของ `POST /finance/expense-vouchers` — `cert_*` มีค่าเฉพาะเมื่อมีบรรทัด none */
+export interface ExpenseVoucher {
+  id: number;
+  total_amount: number;
+  line_count: number;
+  pv_receipt_id: number;
+  pv_receipt_no: string;
+  cert_receipt_id?: number | null;
+  cert_receipt_no?: string | null;
+  /** ยอด **เฉพาะบรรทัดที่ไม่มีใบเสร็จ** — ไม่เท่ากับ `total_amount` เสมอ */
+  cert_amount?: number | null;
+  cert_line_nos: number[];
+  created_at: string;
+}
+
+export interface ExpenseVoucherCreateResponse extends ExpenseVoucher {
+  /** `true` = คีย์เดิม + payload เดิม ⇒ ได้ใบเดิม (ไม่สร้างซ้ำ) */
+  reused: boolean;
+}
+
+/**
+ * แถวในรายการใบสำคัญจ่าย
+ *
+ * ⚠️ `GET /finance/expense-vouchers` (P4.1) **ไม่คืนฟิลด์ CERT** — query JOIN แค่ PV
+ *    ⇒ หน้ารายการแสดง badge CERT ไม่ได้; เลข/ยอด CERT อ่านจากหน้ารายละเอียดเท่านั้น
+ *    (ห้ามเดาว่ามี `cert_receipt_no` ในแถวนี้)
+ */
+export interface ExpenseVoucherListItem {
+  id: number;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) */
+  voucher_date: string;
+  payee_name: string;
+  total_amount: number;
+  line_count: number;
+  status: string;
+  pv_receipt_id?: number | null;
+  pv_receipt_no?: string | null;
+  created_at: string;
+}
+
+export interface ExpenseVoucherListResponse {
+  items: ExpenseVoucherListItem[];
+  /** 🔴 ผลบวก `total_amount` ของทุกใบในผลลัพธ์ — **ไม่ใช่จำนวนใบ** */
+  total: number;
+}
+
+/** 1 บรรทัดที่ **อ่านกลับ** — มีเลขบรรทัด + ชื่อหมวด/งบ/กระเป๋าที่ JOIN มาแล้ว */
+export interface ExpenseVoucherLineItem {
+  line_no: number;
+  description: string;
+  amount: number;
+  category_id: number | null;
+  category_name: string | null;
+  budget_id: number | null;
+  budget_label: string | null;
+  wallet_account_id: number;
+  wallet_name: string | null;
+  finance_transaction_id: number | null;
+  receipt_status: string;
+  paper_bill_count: number;
+  attachment_placeholder: string | null;
+  funding_source: string;
+}
+
+export interface ExpenseVoucherSignatureItem {
+  role: string;
+  person_id: number | null;
+  signer_name: string;
+}
+
+export interface ExpenseVoucherDetail {
+  id: number;
+  voucher_date: string;
+  payee_person_id: number | null;
+  payee_name: string;
+  default_wallet_account_id: number;
+  note: string | null;
+  total_amount: number;
+  status: string;
+  pv_receipt_id: number | null;
+  pv_receipt_no: string | null;
+  cert_receipt_id: number | null;
+  cert_receipt_no: string | null;
+  cert_amount: number | null;
+  cert_line_nos: number[];
+  created_at: string;
+  lines: ExpenseVoucherLineItem[];
+  signatures: ExpenseVoucherSignatureItem[];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💰 [FIN-V2 / P4.5] ใบรับเงินหลายบรรทัด (income batch) — INC 1 ใบ/ชุด
+//    ⚠️ **กระเป๋าเดียวต่อใบ** (schema ของ P4.4 ไม่มี wallet ต่อบรรทัด)
+//    ⚠️ ผู้จ่ายเป็นข้อความอิสระ — ไม่มี `student_id`/person ผูกกับช่องนี้
+// ═══════════════════════════════════════════════════════════════════════════
+/** 1 บรรทัดที่ส่งไปสร้าง — ไม่มีกระเป๋า/สถานะใบเสร็จ/งบ (schema ไม่มีคอลัมน์) */
+export interface IncomeBatchLinePayload {
+  description: string;
+  amount: number;
+  category_id: number;
+}
+
+export interface IncomeBatchCreate {
+  idempotency_key: string;
+  /** ข้อความอิสระ — พิมพ์ลงเอกสารตรง ๆ ห้ามเดา/จับคู่นักเรียนจากชื่อ */
+  payer_name: string;
+  /** เลือกจากทะเบียน — ถ้าส่ง คนนี้ชนะ `receiver_name` เสมอ (server ใช้ชื่อทะเบียน) */
+  receiver_person_id?: number | null;
+  /** ใช้เมื่อไม่เลือก person — required เมื่อ `receiver_person_id` เป็น null */
+  receiver_name?: string | null;
+  /** กระเป๋าเดียวทั้งใบ */
+  wallet_account_id: number;
+  /** ต้องผูกกระเป๋าเดียวกับ `wallet_account_id` (ถ้าช่องทางผูกกระเป๋าไว้) */
+  channel_id?: number | null;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) — ไม่ส่ง = server ใช้ CURRENT_DATE */
+  income_date?: string | null;
+  note?: string | null;
+  /** server คำนวณใหม่จากบรรทัด — ส่งได้แต่ห้ามใช้เป็นแหล่งความจริง */
+  total_amount?: number;
+  lines: IncomeBatchLinePayload[];
+}
+
+/** ผลของ `POST /finance/income-batches` — `reused=true` = คีย์เดิม payload เดิม */
+export interface IncomeBatchCreateResponse {
+  id: number;
+  total_amount: number;
+  line_count: number;
+  inc_receipt_id: number;
+  inc_receipt_no: string;
+  created_at: string;
+  reused: boolean;
+}
+
+export interface IncomeBatchListItem {
+  id: number;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) */
+  income_date: string;
+  payer_name: string;
+  receiver_name: string;
+  total_amount: number;
+  line_count: number;
+  status: string;
+  inc_receipt_id: number | null;
+  inc_receipt_no: string | null;
+  created_at: string;
+}
+
+/** `total` = **ผลบวกยอดเงินของทุกใบ** ไม่ใช่จำนวนใบ */
+export interface IncomeBatchListResponse {
+  items: IncomeBatchListItem[];
+  total: number;
+}
+
+/**
+ * snapshot ของช่องทางที่ถูกคัดไว้บนเอกสาร — ค่า mask ไว้แล้ว
+ * 🔴 label/เลขบัญชีคือ **ภาพ ณ วันที่บันทึก** ไม่ใช่ค่าปัจจุบันของช่องทาง
+ */
+export interface IncomeBatchChannelSnapshot {
+  channel_type?: PaymentChannelType;
+  label?: string | null;
+  account_name?: string | null;
+  bank_name?: string | null;
+  account_number_masked?: string | null;
+  promptpay_id_masked?: string | null;
+}
+
+export interface IncomeBatchLineItem {
+  line_no: number;
+  description: string;
+  amount: number;
+  category_id: number | null;
+  category_name: string | null;
+  finance_transaction_id: number | null;
+}
+
+export interface IncomeBatchSignatureItem {
+  role: string;
+  person_id: number | null;
+  signer_name: string;
+}
+
+export interface IncomeBatchDetail {
+  id: number;
+  income_date: string;
+  payer_name: string;
+  receiver_person_id: number | null;
+  receiver_name: string;
+  wallet_account_id: number;
+  channel_id: number | null;
+  /** `{}` เมื่อไม่ได้เลือกช่องทาง */
+  channel: IncomeBatchChannelSnapshot;
+  note: string | null;
+  total_amount: number;
+  status: string;
+  inc_receipt_id: number | null;
+  inc_receipt_no: string | null;
+  created_at: string;
+  lines: IncomeBatchLineItem[];
+  signatures: IncomeBatchSignatureItem[];
+}
+
+// ==========================================
+// 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — สัญญาของ API P5.1
+// ==========================================
+//
+// 🔴 `doc_type` 8 ชนิดคือสัญญาเดียวกับ `REGISTRY_DOC_TYPES` ฝั่ง backend
+//    (`services/finance/constants.py`) — เพิ่มชนิดใหม่ต้องแก้ทั้งสองฝั่ง
+//    และ `DOC_TYPE_LABELS` ใน `utils/documentFilters.ts` ด้วย (มีเทสต์คุม)
+//
+// ⚠️ ทุกเอกสาร **ไม่ใช่** `Receipt` — RPT มาจาก `finance_monthly_reports`
+//    ⇒ ฟิลด์ที่เอกสารชนิดนั้นไม่มีจะเป็น `null` เสมอ (อย่าตีความว่าเป็น 0/ว่าง)
+
+/** ชนิดเอกสารในทะเบียนรวม — ลำดับตรงกับตัวกรองบนหน้าจอ */
+export type DocumentType =
+  | 'receipt'
+  | 'invoice'
+  | 'acknowledgement'
+  | 'deposit'
+  | 'payment_voucher'
+  | 'certificate'
+  | 'income'
+  | 'monthly_report';
+
+/**
+ * ตัวกรองของทะเบียน — ใช้เป็น v-model ของ `DocumentFilters.vue`
+ *
+ * - `doc_types` ว่าง/ไม่ส่ง = ทุกชนิด
+ * - `status: 'all'` ⇒ ส่ง `include_voided=true` ไม่ส่ง `status` (แปลงที่ `buildDocumentQuery`)
+ * - วันที่เป็น `YYYY-MM-DD` (ISO) — backend ตีความเป็น **วันไทย** เอง (half-open)
+ */
+export interface DocumentListQuery {
+  doc_types?: DocumentType[];
+  from?: string;
+  to?: string;
+  student_id?: number | null;
+  receiver_id?: number | null;
+  channel_id?: number | null;
+  status?: 'active' | 'voided' | 'all';
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** แถวในทะเบียน — เงินเป็นสตริง 2 ตำแหน่ง (backend) ⇒ `Number()` ก่อนบวกลบ */
+export interface DocumentListItem {
+  doc_type: DocumentType;
+  doc_id: number;
+  doc_no: string | null;
+  /** tz-aware ISO ของ `COALESCE(event_at, issued_at)` — ใช้ `formatThaiDateTime` ไม่ใช่ `formatThaiDate` */
+  doc_at: string | null;
+  amount: string | null;
+  status: string;
+  layout_version: number;
+  student_id: number | null;
+  student_no: number | null;
+  student_name: string | null;
+  receiver_person_id: number | null;
+  receiver_name: string | null;
+  channel_id: number | null;
+  line_item_count: number | null;
+}
+
+export interface DocumentListResponse {
+  items: DocumentListItem[];
+  /** จำนวน **แถว** ทั้งหมดที่ตรงตัวกรอง (ไม่ใช่หน้าปัจจุบัน) */
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface DocumentSignatureItem {
+  role: string;
+  person_id: number | null;
+  signer_name: string;
+  signed_at: string | null;
+}
+
+/** ลิงก์ระหว่างเอกสาร — `direction` บอกว่าเอกสารที่เปิดอยู่คือต้นทาง (`out`) หรือปลายทาง (`in`) */
+export interface DocumentLink {
+  link_type: string;
+  direction: 'out' | 'in';
+  doc_type: DocumentType;
+  doc_id: number;
+  doc_no: string | null;
+}
+
+/**
+ * บรรทัดบนเอกสาร — **โครงต่างกันตามชนิด** (REC v2 = `amount_applied`, INV = `amount`,
+ * PV = `description`) ⇒ ทุกคีย์เป็น optional และอ่านแบบมี guard เสมอ
+ * (`noUncheckedIndexedAccess` เปิดอยู่ — อย่าเข้าถึงคีย์ที่ไม่ได้ประกาศ)
+ */
+export interface DocumentLineItem {
+  line_no?: number;
+  title?: string | null;
+  description?: string | null;
+  amount?: number | null;
+  amount_applied?: number | null;
+  bill_amount?: number | null;
+  bill_remaining?: number | null;
+  cash_amount?: number | null;
+  credit_amount?: number | null;
+  due_date?: string | null;
+  category_name?: string | null;
+  wallet_name?: string | null;
+  budget_label?: string | null;
+  source?: string | null;
+  receipt_status?: string | null;
+  paper_bill_count?: number | null;
+  [key: string]: unknown;
+}
+
+/**
+ * รายละเอียดเอกสารทุกชนิดในรูปเดียว — ฟิลด์ที่ไม่เกี่ยวกับชนิดนั้นเป็น `null`
+ * (RPT ใช้เฉพาะบล็อก `year_be`…`snapshot`)
+ */
+export interface DocumentDetail {
+  doc_type: DocumentType;
+  doc_id: number;
+  doc_no: string | null;
+  doc_type_label: string | null;
+  doc_at: string | null;
+  issued_at: string | null;
+  /** เงินเป็นสตริง 2 ตำแหน่ง — `Number(amount ?? 0)` ก่อน `formatMoney` */
+  amount: string | null;
+  amounts_in_words: string | null;
+  status: string;
+  layout_version: number;
+  student_id: number | null;
+  student_no: number | null;
+  student_name: string | null;
+  receiver_person_id: number | null;
+  receiver_name: string | null;
+  channel_id: number | null;
+  payment_event_id: number | null;
+  line_item_count: number | null;
+  issued_to_name: string | null;
+  issued_by_name: string | null;
+  note: string | null;
+  void_reason: string | null;
+  voided_at: string | null;
+  /** snapshot ของเอกสาร v2 — คีย์มีได้ไม่ครบทุกชนิด (อ่านแบบ `typeof === 'string'` ก่อนใช้) */
+  document_meta: Record<string, unknown>;
+  line_items: DocumentLineItem[] | null;
+  /** ใบเสร็จยุบรวม (layout 1) — ข้อมูลบิลต้นทาง */
+  collection_title: string | null;
+  collection_due_date: string | null;
+  collection_amount: number | null;
+  remaining: number | null;
+  signatures: DocumentSignatureItem[];
+  links: DocumentLink[];
+  // 🧾 เฉพาะ RPT
+  year_be: number | null;
+  month: number | null;
+  version: number | null;
+  total_income: number | null;
+  total_expense: number | null;
+  opening_cash: number | null;
+  closing_cash: number | null;
+  counted_cash: number | null;
+  variance: number | null;
+  finalized_at: string | null;
+  snapshot: Record<string, unknown> | null;
+}
+
+/** รายการเดียวในคำขอพิมพ์ชุด — ใช้ composite key `doc_type:doc_id` เสมอ (id ชนกันข้ามตาราง) */
+export interface DocumentRefItem {
+  doc_type: DocumentType;
+  doc_id: number;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🧾 [FIN-V2 / P5.5 UI] ใบรับทราบยอดค้าง (ACK) + รายงานปิดงบเดือน (RPT)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ เงินของสองกลุ่มนี้เป็น **number** ที่ backend ปัดทศนิยม 2 ตำแหน่งแล้ว
+//    (ต่างจาก `DocumentDetail.amount` ที่เป็น string) — `formatMoney` รับได้ทั้งคู่
+//    แต่การบวกต้อง `roundMoney(...)`
+//
+// 🔴 `counted_cash` = `null` จนกว่าจะปิดงบ — แสดงด้วย `!== null` เสมอ
+//    (`0` คือค่าที่นับถูกต้องและปิดงบได้)
+
+export type AckScope = 'room' | 'selected';
+
+/** แถวรายการ ACK — ไม่มีรายชื่อนักเรียน (ดึงเฉพาะตอนเปิดใบ) */
+export interface AckListItem {
+  receipt_no: string;
+  doc_type: string;
+  doc_type_label: string | null;
+  /** ยอดค้างรวม ณ วันออก (snapshot ใน `finance_ack_entries`) */
+  amount: number;
+  paid_total_after: number;
+  entry_count: number;
+  scope: AckScope | null;
+  note: string | null;
+  /** วันที่ของเอกสาร = เวลาของเหตุการณ์ (timestamptz) — ใช้ `formatThaiDateTime` */
+  event_at: string | null;
+  issued_at: string | null;
+  status: string;
+  voided_at: string | null;
+  void_reason: string | null;
+}
+
+export interface AckListResponse {
+  status: string;
+  items: AckListItem[];
+  /** จำนวนใบในผลลัพธ์ (ไม่ใช่ยอดเงิน) */
+  total: number;
+}
+
+/** หนึ่งบรรทัดใน ACK = หนึ่งนักเรียนที่มียอดค้าง ณ วันออก */
+export interface AckEntry {
+  student_id: number;
+  student_no: number | null;
+  student_name: string | null;
+  outstanding_amount: number;
+  invoice_receipt_id: number | null;
+  invoice_receipt_no: string | null;
+}
+
+/** เอกสาร ACK หนึ่งใบ — เฉพาะฟิลด์ที่จอใช้ (ไม่ mirror `ReceiptResponse` ทั้งก้อน) */
+export interface AckReceipt {
+  id: number;
+  receipt_no: string;
+  doc_type: string;
+  doc_type_label: string | null;
+  is_receipt: boolean;
+  amount: number;
+  paid_total_after: number;
+  note: string | null;
+  status: string;
+  event_at: string | null;
+  issued_at: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  /** snapshot ของเอกสาร (scope / entries / include_invoice …) */
+  document_meta: Record<string, unknown>;
+}
+
+export interface AckDetailResponse {
+  status: string;
+  message?: string | null;
+  receipt: AckReceipt;
+  entries: AckEntry[];
+  entry_count: number;
+}
+
+export interface AckIssueRequest {
+  scope: AckScope;
+  /** ส่งเฉพาะ `scope='selected'` (1–100 คน) — `scope='room'` ต้องไม่ส่ง */
+  student_ids?: number[];
+  include_invoice: boolean;
+  note?: string;
+  /** 🔁 สร้างครั้งเดียวต่อการเปิด modal — retry ต้องใช้ค่าเดิม */
+  idempotency_key: string;
+}
+
+export interface AckIssueResponse {
+  status: string;
+  message?: string | null;
+  receipt: AckReceipt;
+  entries: AckEntry[];
+  invoice_receipt_nos: string[];
+  /** true = คีย์เดิม + payload เดิม ⇒ คืนใบที่มีอยู่ (ไม่ได้ออกใหม่) */
+  reused: boolean;
+}
+
+export type MonthlyReportStatus = 'draft' | 'final' | 'voided';
+
+export interface MonthlyReportCreate {
+  /** ปี พ.ศ. เช่น 2569 */
+  year_be: number;
+  month: number;
+  note?: string;
+}
+
+/** บรรทัดหมวดใน snapshot (รายรับ/รายจ่าย) */
+export interface MonthlyReportCategoryLine {
+  account_code: string;
+  account_name: string;
+  amount: number;
+}
+
+/**
+ * snapshot งวดที่ backend สร้างตอนออกฉบับร่าง (P5.4)
+ * ⚠️ อ่านแบบ guard เท่านั้น — คีย์อาจขาดในใบเก่า
+ */
+export interface MonthlyReportSnapshot {
+  period?: { year_be?: number; month?: number };
+  income_by_category?: MonthlyReportCategoryLine[];
+  expense_by_category?: MonthlyReportCategoryLine[];
+  cash?: { opening?: number; closing?: number };
+  finalize_note?: string;
+  note?: string;
+  [key: string]: unknown;
+}
+
+export interface MonthlyReportResponse {
+  id: number;
+  report_no: string;
+  year_be: number;
+  month: number;
+  version: number;
+  status: MonthlyReportStatus;
+  total_income: number;
+  total_expense: number;
+  opening_cash: number;
+  closing_cash: number;
+  /** null จนกว่าจะปิดงบ — ห้ามใช้ truthiness (`0` คือค่าที่ถูกต้อง) */
+  counted_cash: number | null;
+  variance: number | null;
+  finalized_at: string | null;
+  finalized_by: number | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  created_at: string | null;
+  snapshot: MonthlyReportSnapshot;
+}
+
+export interface MonthlyReportListResponse {
+  status: string;
+  items: MonthlyReportResponse[];
+  total: number;
+}
+
+export interface MonthlyReportDetailResponse {
+  status: string;
+  message?: string | null;
+  report: MonthlyReportResponse;
+  signatures: DocumentSignatureItem[];
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🚫✂️ [FIN-V2 / P6.1 → P6.3] ยกเลิกเอกสาร/เหตุการณ์เงิน + ตัดหนี้/ให้ส่วนลดบิล
+// ══════════════════════════════════════════════════════════════════════════════
+// ที่มา: backend/models/finance_schemas.py (VoidRequest/VoidResponse/BillAdjustment*)
+// ⚠️ ตัวเลขเงินของ `BillAdjustmentItem` เป็น **string 2 ตำแหน่ง** (แบบเอกสาร v2)
+//    ส่วน `VoidReversed` เป็น number (service คำนวณเป็น float มาแล้ว)
+
+export interface VoidRequest {
+  reason: string;
+}
+
+export interface VoidAccountDelta {
+  account_id: number;
+  /** ติดลบ = เงินออกจากกระเป๋า, บวก = เงินกลับเข้ากระเป๋า */
+  delta: number;
+}
+
+export interface VoidReversed {
+  amount: number;
+  paid_amount_delta: number;
+  /** การเปลี่ยนแปลงสุทธิของเครดิตนักเรียน (ลบ = ถอนเครดิตส่วนเกินคืนเข้าระบบ) */
+  credit_restored: number;
+  accounts: VoidAccountDelta[];
+}
+
+/** รูปเดียวกันทั้ง 4 endpoint void (documents / payment-events / expense-vouchers / income-batches) */
+export interface VoidResponse {
+  status: string;
+  message: string | null;
+  doc_type: string;
+  doc_id: number;
+  receipt_no: string | null;
+  voided_at: string | null;
+  reversed: VoidReversed;
+}
+
+export type BillAdjustmentType = 'write_off' | 'discount';
+
+export interface BillAdjustmentRequest {
+  /** 🔴 backend รับเป็น number (`amount: float`) — ปัด 2 ตำแหน่งก่อนส่ง */
+  amount: number;
+  reason: string;
+  /** 🔑 คีย์ต่อการเปิด modal 1 ครั้ง — คำขอซ้ำด้วยคีย์เดิมคืนผลเดิม ไม่ตัดซ้ำ */
+  idempotency_key: string;
+}
+
+export interface BillAdjustmentItem {
+  id: number;
+  adjustment_type: string;
+  amount: string;
+  status: string;
+  written_off_total: string;
+  remaining: string;
+  bill_status: string;
+  journal_entry_id: string | null;
+  created_at: string | null;
+  reason: string | null;
+}
+
+export interface BillAdjustmentResponse {
+  status: string;
+  message: string | null;
+  /** true = คีย์เดิม + payload เดิม ⇒ คืนรายการที่มีอยู่ (ไม่ได้ตัดใหม่) */
+  reused: boolean;
+  adjustment: BillAdjustmentItem;
+  /** ใบแจ้งหนี้ที่ถูกยกเลิกเพราะบิลถูกตัดครบ (backend ตัดสิน) */
+  voided_invoices: number;
+}
+
+export interface BillAdjustmentListItem {
+  id: number;
+  student_payment_id: number;
+  adjustment_type: string;
+  amount: string;
+  reason: string | null;
+  status: string;
+  voided_at: string | null;
+  void_reason: string | null;
+  journal_entry_id: string | null;
+  created_by: number | null;
+  created_at: string | null;
+}
+
+export interface BillAdjustmentListResponse {
+  items: BillAdjustmentListItem[];
+  total: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📊 [FIN-V2 / P6.4] เงินของห้อง "ตอนนี้" (money ownership) — snapshot ปัจจุบัน
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⚠️ ตัวเลขเป็น number (ไม่ใช่ string) ตรงกับ `MoneyOwnershipResponse` — ส่งเข้า
+//    `formatMoney` ได้ตรง ๆ · คนละความหมายกับ `FinanceSummary` ที่คิดตามงวดเดือน
+
+export interface MoneyOwnershipReceiver {
+  receiver_id: number;
+  name: string;
+  held: number;
+}
+
+export interface MoneyOwnership {
+  room_wallets: number;
+  custody_held: number;
+  total_cash: number;
+  credit_liability: number;
+  receivable_total: number;
+  net_room_money: number;
+  by_receiver: MoneyOwnershipReceiver[];
+  quick_actions: string[];
 }

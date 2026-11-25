@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { FinanceService } from '@/services/finance';
-import type { FinanceSummary, Account, BudgetOverview } from '@/types/finance';
+import type { FinanceSummary, Account, BudgetOverview, MoneyOwnership } from '@/types/finance';
 import { Doughnut } from 'vue-chartjs';
 import { Chart as ChartJS, Title, Tooltip, Legend, ArcElement, CategoryScale } from 'chart.js';
 import type { ChartOptions } from 'chart.js';
@@ -9,6 +9,9 @@ import type { ChartOptions } from 'chart.js';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+// 📊 [FIN-V2 / P6.4] เงินของห้อง "ตอนนี้" + ทางลัดที่ backend กำหนด
+import MoneyOwnershipCards from '@/components/finance/MoneyOwnershipCards.vue';
+import QuickActions from '@/components/finance/QuickActions.vue';
 
 import { useAuthStore } from '@/stores/auth';
 import { monthToRange, todayThaiYearMonth } from '@/utils/period';
@@ -26,6 +29,9 @@ const currentUserName = authStore.currentUserName || 'ผู้ดูแลร�
 
 const summary = ref<FinanceSummary | null>(null);
 const accounts = ref<Account[]>([]);
+// 📊 [FIN-V2 / P6.4] snapshot เงินของห้อง ณ ตอนนี้ — ยิงพร้อม summary/accounts
+//    ใน `Promise.all` ชุดเดียว เพื่อให้ตัวเลขทั้งหน้าจอมาจากช่วงเวลาเดียวกัน
+const ownership = ref<MoneyOwnership | null>(null);
 const isLoading = ref(true);
 
 // สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
@@ -72,13 +78,20 @@ const fetchDashboardData = async () => {
   isLoading.value = true;
   hasError.value = false;
   try {
-    const [summaryRes, accountsRes] = await Promise.all([
+    // ⚠️ ใช้ `summaryGuard` ตัวเดิม (ไม่เพิ่ม guard ที่สาม) — ตัวเลขทั้งสามบล็อก
+    //    อยู่บนจอเดียวกัน ต้องเป็น snapshot ชุดเดียว และ guard ใหม่จะฆ่าคำขอของ
+    //    summary แล้วทำให้ `isLoading` ค้าง (กับดักที่คอมเมนต์ด้านบนเตือนไว้)
+    //    ถ้าตัวใดตัวหนึ่งล้ม ทั้งหน้าจะขึ้น StateBlock error — ยอมรับได้เพราะ
+    //    "เงินของห้อง" คือคำตอบหลักของหน้า ถ้าขาดตัวใดไปตัวเลขจะขัดกัน
+    const [summaryRes, accountsRes, ownershipRes] = await Promise.all([
       FinanceService.getSummary(currentServerId, selectedMonth.value, selectedYear.value),
-      FinanceService.getAccounts(currentServerId)
+      FinanceService.getAccounts(currentServerId),
+      FinanceService.getMoneyOwnership(currentServerId)
     ]);
     if (!summaryGuard.isCurrent(token)) return;
     summary.value = summaryRes;
     accounts.value = accountsRes;
+    ownership.value = ownershipRes;
   } catch (error) {
     // error ของคำขอเก่าไม่ควรขึ้นจอ ถ้าคำขอใหม่กว่าไปถึงแล้ว
     if (!summaryGuard.isCurrent(token)) return;
@@ -397,10 +410,19 @@ watch([selectedMonth, selectedYear], () => {
     <StateBlock v-else-if="hasError || !summary" variant="error" @retry="fetchDashboardData" />
 
     <template v-else>
+      <!--
+        📊 P6.4 — "ห้องมีเงินของตัวเองเท่าไหร่" ต้องอยู่บนสุด: เป็นคำถามที่ผู้ใช้
+        เปิดหน้านี้มาถามบ่อยที่สุด และ KPI ด้านล่าง (`net_worth`) เป็นคนละความหมาย
+        (รวมลูกหนี้) ⇒ ถ้าอยู่ต่ำกว่านี้ผู้ใช้จะอ่านตัวเลขผิดตัว
+      -->
+      <MoneyOwnershipCards :ownership="ownership" :is-loading="isLoading" />
+
       <!-- KPI การเงิน: ยอดคงเหลือ / ค้างชำระ / รายรับ / รายจ่าย -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="page-card col-span-2 border-s-4 border-s-brand-700 p-3.5 sm:p-5 lg:col-span-1">
-          <p class="text-caption font-bold text-ink-3">เงินคงเหลือรวม</p>
+          <!-- ⚠️ `net_worth` รวมลูกหนี้/สินทรัพย์อื่น — ไม่ใช่เงินสดในมือ
+               (เงินสดจริงอยู่ในการ์ด "เงินของห้อง" ด้านบน) ⇒ ห้ามใช้คำว่า "คงเหลือรวม" -->
+          <p class="text-caption font-bold text-ink-3">มูลค่าสุทธิ (รวมลูกหนี้)</p>
           <p class="num mt-2 break-words text-2xl font-bold text-ink sm:text-3xl">
             <span class="me-1 text-lg text-ink-3">฿</span>{{ formatNumber(summary.net_worth) }}
           </p>
@@ -436,6 +458,9 @@ watch([selectedMonth, selectedYear], () => {
           </p>
         </div>
       </div>
+
+      <!-- 🚀 P6.4 — ทางลัดหลักที่ backend กำหนด (รับเงิน/จ่าย/รายได้/ส่งมอบ/ปิดงบ) -->
+      <QuickActions :actions="ownership?.quick_actions ?? []" />
 
       <!-- ทางลัด -->
       <div class="page-card p-4 sm:p-5">
@@ -540,9 +565,26 @@ watch([selectedMonth, selectedYear], () => {
           <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </RouterLink>
 
+        <!-- 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล — ทางเข้าใหม่เดียวของยอดค้าง+เครดิต -->
+        <RouterLink
+          to="/finance/individual-accounts"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
+            <i class="bi bi-person-vcard text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-ink-2">บัญชีรายบุคคล</span>
+            <span class="block truncate text-xs text-ink-3">
+              ยอดค้าง เครดิต และรายการเดินบัญชีของนักเรียนแต่ละคน
+            </span>
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
+        </RouterLink>
+
         <!-- ใบเสร็จ / ใบแจ้งหนี้ — ลิงก์เต็มความกว้างแบบเดียวกัน (F3) -->
         <RouterLink
-          to="/finance/receipts"
+          to="/finance/documents"
           class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
         >
           <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">

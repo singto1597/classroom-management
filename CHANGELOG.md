@@ -133,6 +133,73 @@ commit แรก `35bcbba` 19 มี.ค. 2026: bot Discord 4 ไฟล์ 568 �
 
 ---
 
+## [9.14.0] — 2026-11-25 — การเงิน v2: 1 ครั้งรับเงิน = 1 รายการ = 1 ใบเสร็จหลายบรรทัด
+
+**บริบท ณ ตอนนั้น** — ระบบการเงินโตมาแบบ "1 บิล = 1 ใบเสร็จ" และมีหน้าจอแยกกัน
+5–6 หน้า (ผู้ค้างชำระ · เงินรับล่วงหน้า · ใบเสร็จ · ใบแจ้งหนี้ · เงินสดในมือ)
+ผู้ใช้ต้องรู้เองว่าต้องไปหน้าไหนก่อน เงินที่มีอยู่ในมือกระจายอยู่หลายที่และไม่มีหน้าเดียว
+ตอบคำถาม "ห้องมีเงินของตัวเองเท่าไหร่" ตอนนั้นเอกสารมี 5 ชนิด แต่ของจริงต้องมี 9
+(เพิ่ม ACK/CERT/RPT) และการเบิกจ่าย/รายรับอื่นยังทำได้ทีละรายการเท่านั้น
+
+**สิ่งที่ทำ** (33 package / 6 เฟส — รายละเอียดใน `~/reports/syncroom-finance-v2/`)
+
+- **รอบรับเงินใหม่ (P1–P2)** — `finance_payment_events` + `..._lines` เก็บ "1 ครั้งที่รับเงิน"
+  หลายบรรทัด (ปิดบิล/ใช้เครดิต/เติมเครดิต) พร้อม snapshot ยอดบิลก่อน–หลัง;
+  REC 1 ใบต่อ event (`layout_version=2`) · allocation engine 4 เคสพร้อม preview ·
+  modal รับเงินใหม่ + รับหลายคนทั้งห้อง (all-or-nothing, แจ้งเตือนครั้งเดียว) ·
+  ช่องทางชำระเงิน + PromptPay QR (EMVCo/CRC16, `segno`) · INV v2 + ใบรับทราบยอดค้าง (ACK)
+- **เงินสดรอส่งมอบ (P3)** — custody wallet = `finance_accounts` ธรรมดา (`is_custody`
+  + `owner_person_id`) ⇒ ส่งมอบ = โอนสินทรัพย์→สินทรัพย์ ใช้ lock/journal/ยอดเดิมได้ทั้งหมด ·
+  ประวัติการรับเงินจัดกลุ่มตาม event + handover ในไทม์ไลน์เดียว
+- **เบิกจ่าย/รายรับอื่น (P4)** — PV หลายบรรทัด (กระเป๋าต่อบรรทัด, หมวด/งบต่อบรรทัด,
+  3 ลายเซ็น) + CERT อัตโนมัติเมื่อมีบรรทัดไม่มีบิล · INC หลายบรรทัดผู้จ่ายอิสระ ·
+  journal ต่อบรรทัดเพื่อให้งบประมาณ/รายงานเดิมทำงานต่อ
+- **ระบบเอกสาร (P5)** — ทะเบียนเอกสารรวม 8 ชนิด (`/finance/documents`) + หน้ารายละเอียด +
+  พิมพ์ชุดผสม layout 1/2 (≤100 ใบ, `<style>` เดียว) · adapter registry สองยุค ·
+  ACK/RPT backend+UI (นับเงินสด, `variance`, version ต่อเดือน)
+- **ปิดรอบ (P6)** — void engine atomic (event/PV/INC พร้อม CERT ที่พ่วง), write-off/ส่วนลดบิล +
+  `written_off_amount` ในสูตรยอดค้างทุกจุด, `fund_type` room_fund/pass_through,
+  dashboard "เงินของห้องตอนนี้" (`net_room_money = total_cash − credit_liability`,
+  ไม่ clamp ค่าลบ) + ทางลัดจาก backend,
+  และ **P6.5** ปิดทางเข้าเก่า: `/finance/receipts` → redirect ไปทะเบียน,
+  deep link `/finance/receipts/:receiptNo` แปลงเลขเป็น detail ผ่าน `by-no` ของ backend,
+  ลบ `ReceiptList.vue`/`ReceiptDetail.vue` (endpoint legacy ยังอยู่ตาม api-v2 §15)
+
+**ตัดสินใจเพราะ**
+1. **ไม่ migrate ข้อมูลเดิม** — legacy (`layout_version=1`) อ่าน/พิมพ์ได้เหมือนเดิมทุกไบต์;
+   migration 0012–0013 เป็นแค่การเพิ่มตาราง/คอลัมน์ ⇒ ความเสี่ยงตอน deploy ต่ำสุด
+2. **เครดิต/หนี้สินไม่ใช่เงินสด** — dashboard แยก "เงินสดในกระเป๋า/ผู้ถือ" ออกจาก
+   "เครดิตค้าง" และ "ยังค้างรับ" และยอมให้ `net_room_money` ติดลบ (ข้อมูลผิดต้องเห็น ไม่ใช่กลบ)
+3. **สูตรยอดค้าง 3 พจน์ที่เดียว** — `amount − paid − written_off` ใช้ทุก call site
+   (aging/debtors/dashboard/summary) และมี parity test ล็อกว่าเท่ากัน
+4. **idempotency ที่ DB** — `payment_event_id`/`idempotency_key` unique ⇒ retry จากหลาย
+   replica ยังได้ใบเดิม; PV 1 ใบต่อ voucher (anchor transaction บรรทัดแรก ตาม index เดิม)
+5. **redirect ไม่ใช่การลบ route** — ลิงก์ที่แชร์ไปแล้ว (Discord/บุ๊กมาร์ก) อยู่นอกระบบเรา;
+   route เก่าไม่มี `name` เพื่อไม่ให้โค้ดใหม่ลิงก์มา และจะพิจารณาถอดหลังอย่างน้อย 1 release
+6. **version เป็น MINOR (9.14.0)** — เพิ่มความสามารถและโมเดลข้อมูลใหม่ แต่รากของระบบ
+   (bot→API, PHP→TS, root repo, room_id, V1, subtree, double-entry, identity, consent)
+   ไม่เปลี่ยนตาม `docs/versioning.md` §1
+
+**เทคโนโลยีที่เปลี่ยน/ลอง** — event/line model แทน "1 บิล = 1 ใบเสร็จ"; distinct-on
+`balance_after` สำหรับยอดเครดิต (ไม่ SUM ledger); read-only snapshot ด้วย
+`transaction(isolation="repeatable_read", readonly=True)`; adapter registry สำหรับเอกสาร
+สองยุค; EMVCo PromptPay QR ที่สร้างเองฝั่ง Python
+
+**พังแล้วแก้อย่างไร**
+- เทสต์ `student_no` ซ้ำข้าม fixture (ทุก fixture สร้างห้อง+นักเรียน student_no=1) →
+  helper ใช้ `itertools.count(1000)` แทนการ hardcode 1
+- audit log INSERT ใน read-only transaction จะล้ม → เขียน log นอก transaction (pattern เดียวกับ
+  `home_summary_service.py`)
+- `fee_collections` ไม่มี `created_at` → endpoint เตือนชื่อซ้ำใช้ `id DESC` (ไม่คืนฟิลด์ที่ไม่มีจริง)
+
+**บทเรียน** — กับดักที่เห็นเฉพาะตอนประกอบทั้งชุด (สูตรข้ามจุด, adapter contract,
+resolver ฝั่ง backend, void atomicity, idempotency ที่ DB) สรุปไว้ใน `docs/skills.md`
+หัวข้อ "FIN-V2 ประกอบครบ" · **PR coverage ของ `version-manifest` หยุดที่ #98** —
+รอบ v2 ใช้ `refs` แบบพรรณนาโดยเจตนา (ไม่ backfill #99–N ใน PR เดียว) และต้องขยาย
+`PR_MAX` อย่างตั้งใจรอบหน้า
+
+---
+
 ## [9.13.0] — 2026-10-31 — ใส่เลขเวอร์ชันให้ระบบ แล้วย้อนเขียนประวัติ 56 รอบ
 
 **บริบท ณ ตอนนั้น** — ระบบรันจริงมา 7 เดือน แต่ตอบไม่ได้ว่า production รันโค้ดชุดไหน:

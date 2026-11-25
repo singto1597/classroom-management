@@ -169,6 +169,60 @@ _MONEY_PATHS = [
     ("refunds", "RefundsMixin", "request_refund"),
     ("refunds", "RefundsMixin", "approve_refund"),
     ("refunds", "RefundsMixin", "_decide_refund_without_money"),
+    # 👥 [FIN-V2 / P1.2] ทะเบียนผู้เกี่ยวข้อง + ค่าเริ่มต้นหน้าจอรับเงิน
+    #    — ชื่อผู้รับเงินบนเอกสาร/กระเป๋าเริ่มต้นมาจากที่นี่ ⇒ ต้องเรียงกับเส้นทางเงินอื่น
+    #    (เพิ่มตามที่ตัวตรวจ completeness จับได้: P1.2 เปิดเมธอดเขียนโดยยังไม่ยึดล็อกห้อง)
+    ("people", "PeopleMixin", "create_person"),
+    ("people", "PeopleMixin", "update_person"),
+    ("people", "PeopleMixin", "delete_person"),
+    ("people", "PeopleMixin", "sync_students"),
+    ("people", "PeopleMixin", "update_settings"),
+    # 🧾 [FIN-V2 / P2.1] 1 ครั้งรับเงิน = event + REC/DEP + หลายธุรกรรม
+    #    ⚠️ RBAC + ล็อกอยู่ใน `_create_locked` (เมธอดนอกมีแค่ transaction) ⇒
+    #       `_create_locked` อยู่ใน `_LOCKING_HELPERS` และมีเทสต์บังคับว่ามันล็อกจริง
+    ("payment_events", "PaymentEventsMixin", "create_payment_event"),
+    # 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน — ตัวช่องทางไม่ใช่การเคลื่อนเงิน แต่
+    #    "active ≤ 3 + primary 1 ตัว" เป็น invariant ข้ามแถวที่ต้องนับใต้ล็อกห้อง
+    #    (เพิ่มตามที่ตัวตรวจ completeness จับได้ — P2.4 เปิดเมธอดเขียน 3 ตัว)
+    ("payment_channels", "PaymentChannelsMixin", "create_payment_channel"),
+    ("payment_channels", "PaymentChannelsMixin", "update_payment_channel"),
+    ("payment_channels", "PaymentChannelsMixin", "delete_payment_channel"),
+    # 👜 [FIN-V2 / P3.1] เงินสดรอส่งมอบ — handover ย้าย balance สองฝั่ง + เขียน journal
+    #    ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น (custody account เป็นแถวกระเป๋าปกติ)
+    ("custody", "CustodyMixin", "create_custody_account"),
+    ("custody", "CustodyMixin", "create_handover"),
+    ("custody", "CustodyMixin", "void_handover"),
+    # 🧾 [FIN-V2 / P2.6] ช่องว่างที่ P3.1 ตรวจเจอตอนรันตัวตรวจ completeness ซ้ำ:
+    #    `issue_acknowledgements` เขียนเอกสาร (ACK + INV ทั้งชุด) และยึดล็อกห้องถูกต้องแล้ว
+    #    แต่ไม่เคยถูกเพิ่มในสัญญา ⇒ เพิ่มแบบ additive เพื่อให้ตัวตรวจครอบจริง
+    ("invoice_documents", "InvoiceDocumentsMixin", "issue_acknowledgements"),
+    # 💳 [FIN-V2 / P3.5] รอบหักเครดิต — เขียน event/lines + `student_credits` หลายคน
+    #    ใน transaction เดียว ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น
+    ("credit_rounds", "CreditRoundsMixin", "create_credit_round"),
+    # 💸 [FIN-V2 / P4.1] ใบสำคัญจ่ายหลายบรรทัด — เขียน voucher/lines/txn/journal/PV
+    #    และลดยอดกระเป๋าหลายใบ ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น
+    ("expense_vouchers", "ExpenseVouchersMixin", "create_expense_voucher"),
+    # 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด — ล็อกห้องก่อน INSERT ทุกแถว
+    ("income_batches", "IncomeBatchesMixin", "create_income_batch"),
+    # 📊 [FIN-V2 / P5.4] รายงานปิดงบ — snapshot/นับเงินสด/void แตะแถวรายงานและ ledger
+    #    (ตัวตรวจ completeness จับได้ตอนรัน P6.1: P5.4 เปิดเมธอดเขียนแต่ไม่ได้มาเพิ่มที่นี่)
+    ("monthly_reports", "MonthlyReportsMixin", "create_monthly_report"),
+    ("monthly_reports", "MonthlyReportsMixin", "finalize_monthly_report"),
+    ("monthly_reports", "MonthlyReportsMixin", "void_monthly_report"),
+    # 🚫 [FIN-V2 / P6.1] void engine — ยกเลิก event/PV/INC/เอกสาร แตะเงินหลายตาราง
+    #    ⇒ ต้องยึดล็อกห้องก่อนกลับขาเงินทุกกรณี (เมธอดภายใน `_void_*_locked` รับล็อกต่อ)
+    ("voids", "VoidMixin", "void_payment_event"),
+    ("voids", "VoidMixin", "void_expense_voucher"),
+    ("voids", "VoidMixin", "void_income_batch"),
+    ("voids", "VoidMixin", "void_document"),
+    # ✂️ [FIN-V2 / P6.2] ปรับบิล (write_off/discount) — เขียน `written_off_amount` +
+    #    journal + void INV รวม ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น
+    #    (`write_off_bill`/`discount_bill` เป็น wrapper บาง ๆ ที่ RBAC/lock/ร่างกาย
+    #    ทั้งหมดอยู่ใน `_adjust_bill` ตัวเดียว ⇒ ตรวจที่ตัวนั้น)
+    ("bill_adjustments", "BillAdjustmentsMixin", "_adjust_bill"),
+    # ✂️ [FIN-V2 / P6.2] fund_type — ไม่แตะเงิน แต่รายงานที่ SUM ตามมิติอ่านค่าเดียวกัน
+    #    ⇒ กันการเห็นค่ากลางทางด้วยล็อกเดียวกับ reporting (เหตุผลเดียวกับ P2.4 channels)
+    ("bill_adjustments", "BillAdjustmentsMixin", "set_collection_fund_type"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง
@@ -212,6 +266,9 @@ _MONEY_WRITE_MARKERS = [
 _LOCKING_HELPERS = [
     "_issue_one", "_issue_invoice_aggregate",
     "_issue_payment_voucher", "_issue_income_doc",
+    # 🧾 [FIN-V2 / P2.1] เนื้อใน transaction ของ `create_payment_event`
+    #    — ยึดล็อกห้องเป็นคำสั่งแรกหลัง RBAC (เทสต์ตัวล่างบังคับข้อนี้ให้)
+    "_create_locked",
 ]
 
 

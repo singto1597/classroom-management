@@ -38,6 +38,86 @@ from .reminders import RemindersMixin
 from .late_fees import LateFeesMixin
 # 🧾 เรียกเก็บเงินเองรายบุคคล (Phase 6.5) — ใช้ `_create_bills_with_accrual` ผ่าน MRO
 from .custom_charges import CustomChargesMixin
+# 👥 [FIN-V2 / P1.2] ผู้เกี่ยวข้องทางการเงิน + finance_settings — ไม่พึ่ง helper ของ
+#    mixin ใด (ใช้ `resolve_room_id` จาก BaseMixin ผ่าน MRO) แต่วางก่อน Accrual/Ledger
+#    ตามกติกา "mixin ใหม่วางก่อนตัวที่มันอาจพึ่ง" · P2.1+ อ่าน `default_receiver` จากที่นี่
+from .people import PeopleMixin
+# 👤 [FIN-V2 / P1.3] บัญชีรายบุคคล — ใช้ `_open_bill_predicate` (AccrualMixin) และ
+#    `resolve_room_id` (BaseMixin) ผ่าน MRO ⇒ ต้องวาง **ก่อน** AccrualMixin
+#    (กติกา: mixin ใหม่วางก่อนตัวที่มันพึ่ง) · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
+from .individual_accounts import IndividualAccountsMixin
+# 🧮 [FIN-V2 / P1.5] เครื่องจัดสรรเงินรับ (preview) — พึ่ง `_open_bill_predicate`
+#    (AccrualMixin) และ `_load_credit_balance` (CreditsMixin) ⇒ ต้องวาง **ก่อน**
+#    ทั้งสองตัวตามกติกา MRO · engine เองอยู่ใน `allocation.py` แบบ pure function
+from .allocation import AllocationMixin
+# 🧾 [FIN-V2 / P2.1] event + เอกสาร v2 — พึ่ง `_confirm_single_payment` (Collections),
+#    `_apply_plan_locked`/`_load_credit_balance` (Credits), `_display_name`/
+#    `_thai_year_be` (Receipts) และ `_open_bill_predicate` (Accrual) ผ่าน MRO
+#    ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม (ชื่อขึ้นต้น `_issue_event_*` ทั้งหมด)
+from .payment_events import PaymentEventsMixin
+from .bulk_receive import BulkReceiveMixin
+from .receipts_v2 import ReceiptsV2Mixin
+# 🧾 [FIN-V2 / P2.6] INV v2 + ACK — override `_issue_invoice_aggregate` (ReceiptsMixin)
+#    และ `_body_template_for` (DocumentsMixin) ผ่าน MRO ⇒ ต้องอยู่ใน MRO **ก่อน** ทั้งคู่
+#    (ชื่ออื่นเป็นชื่อใหม่: `issue_acknowledgements`/`_invoice_channel_snapshot`/…)
+from .invoice_documents import InvoiceDocumentsMixin
+# 🧾 [FIN-V2 / P2.2] context/template ของเอกสาร v2 — `_document_context` (ReceiptsMixin)
+#    dispatch มาที่ `_document_context_v2` ผ่าน MRO ⇒ mixin นี้ต้องอยู่ใน MRO ก่อนเรียก
+#    (ชื่อไม่ชนกับ mixin ใด — `_body_template_for`/`_v2_line_items`/`_document_context_v2`)
+from .documents import DocumentsMixin
+# 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน + PromptPay QR — ใช้ `_lock_room_money`/
+#    `resolve_room_id`/`service_logger` ผ่าน MRO และ `qr.py` แบบ pure function
+#    (ไม่มีชื่อฟังก์ชันชนกับ mixin ใด ⇒ วางก่อน AccountsMixin ตาม brief)
+from .payment_channels import PaymentChannelsMixin
+# 👜 [FIN-V2 / P3.1] เงินสดรอส่งมอบ — พึ่ง `_resolve_asset_ledger`/
+#    `_insert_journal_entry` (LedgerMixin) และ `resolve_room_id` (BaseMixin) ผ่าน MRO
+#    ⇒ ต้องวาง **ก่อน** สองตัวนั้น · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
+from .custody import CustodyMixin
+# 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว — พึ่ง `_build_plan_for_students`/
+#    `_apply_plan_locked` (CreditsMixin), `_lock_room_money`/`_lock_payments_in_order`
+#    (BaseMixin) และ `assert_plan_equation` (allocation.py) ผ่าน MRO
+#    ⇒ ต้องวาง **ก่อน** CreditsMixin/BaseMixin ตามกติกา "mixin ใหม่วางก่อนตัวที่พึ่ง"
+#    (ชื่อใหม่ทั้งหมด: `create_credit_round` — ไม่ชนกับ mixin ใด)
+from .credit_rounds import CreditRoundsMixin
+# 💸 [FIN-V2 / P4.1] ใบสำคัญจ่ายหลายบรรทัด — พึ่ง `_resolve_asset_ledger`/
+#    `_insert_journal_entry` (LedgerMixin) และ `resolve_room_id` (BaseMixin) ผ่าน MRO
+#    ⇒ ต้องวาง **ก่อน** สองตัวนั้น · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
+#    (ชื่อใหม่ทั้งหมด: `create_expense_voucher`/`list_expense_vouchers`/…)
+from .expense_vouchers import ExpenseVouchersMixin
+# 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด — พึ่ง `_resolve_asset_ledger`/
+#    `_insert_journal_entry` (LedgerMixin), `resolve_room_id`/`_get_room_server_id`
+#    (BaseMixin) และ `_resolve_actor_name` (ExpenseVouchersMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** LedgerMixin/BaseMixin · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
+from .income_batches import IncomeBatchesMixin
+# 🗂️ [FIN-V2 / P5.1] ทะเบียนเอกสารรวม — อ่านอย่างเดียว; เรียก `_shape_receipt_detail`/
+#    `_document_context(s)` (ReceiptsMixin) และ `render_receipt_pdf` ผ่าน MRO
+#    ⇒ ต้องอยู่ **หลัง** ReceiptsMixin และก่อน Accrual/Ledger ตามกติกาทั่วไป
+#    (ชื่อใหม่ทั้งหมด: `list_documents`/`get_document_detail`/…)
+from .document_registry import DocumentRegistryMixin
+# 🧾 [FIN-V2 / P5.4] ACK — อ่าน/ยกเลิก (ออกใบเป็นของ P2.6) · พึ่ง `_shape_receipt*`/
+#    `_RECEIPT_COLUMNS` (ReceiptsMixin) และ `_load_ack_entries` (InvoiceDocumentsMixin)
+#    ผ่าน MRO ⇒ วางก่อน AccrualMixin ตาม brief (ชื่อใหม่ทั้งหมด)
+from .acknowledgements import AcknowledgmentMixin
+# 📊 [FIN-V2 / P5.4] RPT — พึ่ง `_lock_room_money` (BaseMixin) และ `_resolve_student_name`
+#    (BaseMixin) ผ่าน MRO · ไม่แตะเงิน/journal (อ่านอย่างเดียวต่อบัญชี)
+from .monthly_reports import MonthlyReportsMixin
+# 🚫 [FIN-V2 / P6.1] void engine — ยกเลิก event/PV/INC/เอกสารแบบ atomic จุดเดียว
+#    พึ่ง `_lock_room_money`/`_lock_payments_in_order` (BaseMixin), `_sync_fine_status`/
+#    `_assert_*_fine_*` (FinesMixin), `_load_credit_balance` (CreditsMixin) และ
+#    `_resolve_actor_name` (ExpenseVouchersMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief (ชื่อใหม่ทั้งหมด)
+from .voids import VoidMixin
+# ✂️ [FIN-V2 / P6.2] ตัดจำหน่าย/ให้ส่วนลดบิล + fund_type + เตือนชื่อซ้ำ
+#    พึ่ง `_resolve_system_ledger`/`_resolve_fine_discount_ledger`/
+#    `_resolve_ar_project_ledger`/`_insert_journal_entry` (LedgerMixin),
+#    `_void_aggregate_invoices_for_students` (CollectionsMixin) และ
+#    `_lock_room_money`/`resolve_room_id` (BaseMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief (ชื่อใหม่ทั้งหมด)
+from .bill_adjustments import BillAdjustmentsMixin
+# 📊 [FIN-V2 / P6.4] แดชบอร์ดเงินของห้อง (snapshot ปัจจุบัน) — อ่านอย่างเดียว
+#    ใช้ `resolve_room_id` (BaseMixin) และ `_open_bill_predicate` (AccrualMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/BaseMixin ตามกติกาทั่วไป (ชื่อใหม่ทั้งหมด)
+from .dashboard import DashboardMixin
 
 
 class FinanceService(
@@ -57,19 +137,83 @@ class FinanceService(
     CustomChargesMixin,
     ExportMixin,
     ReportingMixin,
+    # 🧾 [FIN-V2 / P2.6] — MRO ต้องเป็น InvoiceDocumentsMixin → DocumentsMixin → ReceiptsMixin
+    #    ⇒ INV ที่ออกผ่าน `issue_invoices*` กลายเป็น v2 (override `_issue_invoice_aggregate`)
+    #    และ `_body_template_for` ของ INV/ACK ชนะ version ของ DocumentsMixin
+    InvoiceDocumentsMixin,
+    # 🧾 [FIN-V2 / P2.2] — วาง**ก่อน** `ReceiptsMixin` ตาม brief (mixin ที่อยู่บนชนะ)
+    #    `ReceiptsMixin._document_context` เรียก `cls._document_context_v2` ผ่าน MRO
+    DocumentsMixin,
     ReceiptsMixin,
     # 📚 วาง **หลัง** `ReceiptsMixin` โดยเจตนา: `ReceiptBatchesMixin` ไม่ได้ override
     #    ฟังก์ชันใดของ ReceiptsMixin (ชื่อไม่ชนกันเลย) ⇒ ลำดับไม่มีผลกับพฤติกรรม
     #    แต่การวางติดกันทำให้อ่านออกว่า "ชุดเอกสารเป็นเรื่องของทะเบียนเอกสาร"
     #    ⚠️ ห้ามย้าย `ReceiptsMixin` ไปหลัง mixin ที่พึ่ง `_shape_receipt*`/`_RECEIPT_COLUMNS`
     ReceiptBatchesMixin,
+    # 🗂️ [FIN-V2 / P5.1] — ทะเบียนเอกสารรวม (อ่านอย่างเดียว) วางติด ReceiptBatchesMixin
+    #    ตาม brief · พึ่ง `_shape_receipt_detail`/`_document_context(s)` ของ ReceiptsMixin
+    #    และ `_document_context_v2` ของ DocumentsMixin ผ่าน MRO ⇒ อยู่ใต้ทั้งคู่แล้ว
+    DocumentRegistryMixin,
     CreditsMixin,
     BudgetsMixin,
     CollectionsMixin,
+    # 🧾 [FIN-V2 / P2.1] — วาง **หลัง** Receipts/Credits/Collections ตามที่ brief กำหนด
+    #    (ไม่มีชื่อฟังก์ชันชนกัน: `_issue_event_*`/`create_payment_event` เป็นชื่อใหม่)
+    #    ⚠️ `PaymentEventsMixin` เรียก `_money_str` ของ AllocationMixin ผ่าน MRO
+    #       และ `_issue_event_*` ของ ReceiptsV2Mixin — ทั้งคู่ค้นเจอด้านล่างได้เสมอ
+    PaymentEventsMixin,
+    # 📥 [FIN-V2 / P2.7] รับเงินหลายคน — ใช้ `_commit_payment_event_locked` ของ
+    #    PaymentEventsMixin ผ่าน MRO (ไม่ประกาศ method ซ้ำ)
+    BulkReceiveMixin,
+    ReceiptsV2Mixin,
     TransactionsMixin,
     CategoriesMixin,
+    # 💳 [FIN-V2 / P2.4] — ช่องทางชำระเงิน + QR (อ่านผ่าน `require_member`,
+    #    เขียนผ่าน `MANAGE_FINANCE` ใต้ล็อกห้อง) · วางก่อน AccountsMixin ตาม brief
+    PaymentChannelsMixin,
     AccountsMixin,
     BackfillMixin,
+    # 👥 [FIN-V2 / P1.2] — อ่าน/เขียนทะเบียนผู้เกี่ยวข้อง + ตั้งค่าห้อง (ไม่มีชื่อชน)
+    PeopleMixin,
+    # 👤 [FIN-V2 / P1.3] — บัญชีรายบุคคล + statement (อ่านอย่างเดียว)
+    #    พึ่ง `_open_bill_predicate()` ของ AccrualMixin ⇒ อยู่ก่อนมันตามกติกา MRO
+    IndividualAccountsMixin,
+    # 👜 [FIN-V2 / P3.1] — เงินสดรอส่งมอบ (กระเป๋า custody + ส่งมอบ)
+    #    พึ่ง `_resolve_asset_ledger`/`_insert_journal_entry` (LedgerMixin) และ
+    #    `resolve_room_id` (BaseMixin) ⇒ ต้องอยู่ **ก่อน** LedgerMixin/BaseMixin
+    #    (ชื่อใหม่ทั้งหมด: `create_custody_account`/`create_handover`/…)
+    CustodyMixin,
+    # 💳 [FIN-V2 / P3.5] — รอบหักเครดิตหลายคน (1 คน = 1 credit-only event)
+    #    พึ่ง `_build_plan_for_students`/`_apply_plan_locked` (CreditsMixin) และ
+    #    `_lock_*` (BaseMixin) ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO
+    #    (ชื่อใหม่ทั้งหมด ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม)
+    CreditRoundsMixin,
+    # 💸 [FIN-V2 / P4.1] — ใบสำคัญจ่ายหลายบรรทัด (1 ใบ = N txn + N journal + 1 PV)
+    #    พึ่ง `_resolve_asset_ledger`/`_insert_journal_entry` (LedgerMixin) และ
+    #    `resolve_room_id` (BaseMixin) ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO
+    ExpenseVouchersMixin,
+    # 💰 [FIN-V2 / P4.4] — ใบรับเงินหลายบรรทัด (1 ใบ = N txn + N journal + 1 INC)
+    #    พึ่ง helper เดียวกับ P4.1 ⇒ อยู่ติดกันก่อน LedgerMixin/BaseMixin
+    IncomeBatchesMixin,
+    # 🧮 [FIN-V2 / P1.5] — preview การจัดสรร (อ่านอย่างเดียว)
+    #    พึ่ง `_open_bill_predicate()` (Accrual) และ `_load_credit_balance` (Credits)
+    #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO (mixin ที่อยู่บนชนะ)
+    AllocationMixin,
+    # 🧾 [FIN-V2 / P5.4] — ACK วงจรชีวิต (รายการ/รายละเอียด/ยกเลิก) + RPT
+    #    ต้องอยู่ **ก่อน** AccrualMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
+    AcknowledgmentMixin,
+    MonthlyReportsMixin,
+    # 🚫 [FIN-V2 / P6.1] — void engine (event/PV/INC + INV/CERT dispatch)
+    #    ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
+    #    (`void_*` เป็นชื่อใหม่; `_void_receipt_ids_locked`/`_void_*_locked` ขึ้นต้น `_`)
+    VoidMixin,
+    # ✂️ [FIN-V2 / P6.2] — ตัดจำหน่าย/ส่วนลดบิล (write_off/discount) + fund_type
+    #    ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
+    BillAdjustmentsMixin,
+    # 📊 [FIN-V2 / P6.4] — แดชบอร์ดเงินของห้อง (อ่านอย่างเดียว)
+    #    พึ่ง `resolve_room_id` (BaseMixin) และ `_open_bill_predicate` (AccrualMixin)
+    #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO · ชื่อใหม่: `get_money_ownership`
+    DashboardMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,

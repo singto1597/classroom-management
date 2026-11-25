@@ -190,7 +190,15 @@ def test_route_count_is_not_silently_shrinking():
     #   ⚠️ `fines/summary` **ต้องประกาศก่อน** `fines/{fine_id}` (มีเทสต์กันไว้แล้ว)
     # 188 → 189 (2026-11-24): P6.5 — `POST /finance/custom-charges` (เรียกเก็บเองรายคน)
     #   มี `Depends(get_current_user)` และ `require_permission(MANAGE_FINANCE)` ใน service
-    expected = 189
+    # 189 → 250 (2026-11-25): การเงิน v2 (P1.1–P6.5) — 61 route ใต้ `/api/classroom`
+    #   · people 7 · บัญชีรายบุคคล 3 · payment events 4 + bulk 1 + allocation preview 1
+    #   · payment channels 6 (รวม `qr.svg`) · custody 5 · expense vouchers 5
+    #   · income batches 5 · documents 5 (registry/by-no/detail/pdf/print-bundle)
+    #   · acknowledgements 4 · monthly reports 6 · bill adjustments 5
+    #   · voids 1 · credit rounds 1 · dashboard 1 · payment history 1
+    #   ทุกตัวมี `Depends(get_current_user)` (path ที่บอทเรียกใช้ get_current_user_or_bot)
+    #   และการเขียนตรวจสิทธิ์ (MANAGE_FINANCE) ใน service ⇒ ไม่มีรายการใหม่ใน PUBLIC_ROUTES
+    expected = 250
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (

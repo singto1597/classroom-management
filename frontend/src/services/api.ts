@@ -46,6 +46,9 @@ let isRedirectingToLogin = false;
  * `error instanceof Error ? error.message` ยังทำงานเหมือนเดิม — เช่น Lobby.vue)
  * และเขียน `detail` ที่แปลง 422 เป็นข้อความแล้วกลับลง `response.data`
  * (ผู้บริโภคที่ใช้ `error.response?.data?.detail` ก็ได้ข้อความเดียวกัน)
+ * ⚠️ ข้อยกเว้น: `detail` ที่ backend ส่งมาเป็น **object** (เช่น error รายคนของ
+ * bulk receive) ⇒ `message` ยังเป็นข้อความไทย แต่ `response.data.detail` **คง object
+ * เดิมไว้** เพื่อให้ผู้เรียกอ่านฟิลด์เพิ่ม (เช่น `student_id`) ได้
  *
  * เทสต์ที่ล็อกสัญญานี้: `src/services/__tests__/apiErrors.spec.ts`
  */
@@ -100,13 +103,29 @@ export const normalizeApiError = async (
     }).join('\n');
   }
 
+  // 🧩 [FIN-V2 / P2.7] detail ที่เป็น **object** (ไม่ใช่ array) — เช่น
+  //    `{code:'BULK_ITEM_FAILED', message, student_id, item_code}` ของรับเงินหลายคน
+  //    `String(obj)` ได้ "[object Object]" ⇒ glue ให้ใช้ `message` เป็นข้อความไทย
+  //    แต่ **คง object เดิมไว้ใน `response.data.detail`** เพื่อให้ผู้เรียกที่ต้องใช้
+  //    `student_id` (ไฮไลต์แถวที่พัง) อ่านได้ — ห้ามเขียนทับด้วย string
+  const structuredDetail =
+    rawDetail !== null &&
+    typeof rawDetail === 'object' &&
+    !Array.isArray(rawDetail) &&
+    !(rawDetail instanceof Blob)
+      ? (rawDetail as { message?: unknown })
+      : undefined;
+  if (structuredDetail && typeof structuredDetail.message === 'string') {
+    detail = structuredDetail.message;
+  }
+
   error.message = detail;
   // คงฟิลด์อื่นที่ backend ส่งมาด้วย (เช่น code) ไว้ ไม่ให้ข้อมูลหายไปโดยไม่จำเป็น
   const original = error.response.data;
   error.response.data =
     original && typeof original === 'object' && !(original instanceof Blob)
-      ? { ...original, detail }
-      : { detail };
+      ? { ...original, detail: structuredDetail ?? detail }
+      : { detail: structuredDetail ?? detail };
 
   return Promise.reject(error);
 };

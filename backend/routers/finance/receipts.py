@@ -78,6 +78,8 @@ async def issue_invoices(
         return await FinanceService.issue_invoices(
             pool=pool, student_ids=req.student_ids, note=req.note,
             user_name=req.user_name or "—",
+            # 💳 [FIN-V2 / P2.6] ไม่ส่ง = service เลือก 3 ช่องทางแรกของห้องตามลำดับ
+            channel_ids=req.channel_ids,
             user_id=user_ctx["user_id"], client_source=client_source, actor_identifier=actor,
             server_id=target.server_id, room_id=target.room_id,
         )
@@ -110,6 +112,7 @@ async def issue_room_invoices(
         client_source, actor = get_audit_context(request, user_ctx)
         return await FinanceService.issue_invoices_for_room(
             pool=pool, note=req.note, user_name=req.user_name or "—",
+            channel_ids=req.channel_ids,
             user_id=user_ctx["user_id"], client_source=client_source, actor_identifier=actor,
             server_id=target.server_id, room_id=target.room_id,
         )

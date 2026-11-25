@@ -10,6 +10,8 @@ import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import AppSheet from '@/components/ui/AppSheet.vue'
+// 📥 [FIN-V2 / P2.7] รับเงินหลายคน 1 รอบ (all-or-nothing) — ทางใหม่ ไม่ใช่ `confirmBatchPayment`
+import BulkReceiveSheet from '@/components/finance/BulkReceiveSheet.vue'
 import { useDialog } from '@/composables/useDialog'
 
 const authStore = useAuthStore()
@@ -180,6 +182,20 @@ const canManageFinance = computed(() => authStore.canManageFinance)
 
 /** 🧾 นักเรียนที่ติ๊กไว้ที่แถวรายชื่อ — คนละชุดกับ `selectedPaymentIds` ของโมดัลรับเงิน */
 const selectedStudentIds = ref<number[]>([])
+
+/**
+ * 📥 [FIN-V2 / P2.7] สถานะเปิดชีต "รับเงินหลายคน"
+ * 🔒 ปุ่มเปิด gate ด้วย `canManageFinance` — ชีตเองก็เช็คซ้ำ (defense in depth)
+ * ⚠️ ชีตนี้ **ไม่ใช่** `confirmBatchPayment` เดิม (modal ล่างสุด, gate `isAdmin`) — ของเดิม
+ *    เป็น "รับหลายบิลของคนเดียว" ผ่านเส้น legacy ⇒ ห้ามลบ/แก้ของเดิมในรอบนี้
+ */
+const isBulkOpen = ref(false)
+
+/** หลังบันทึกสำเร็จ: รีเฟรชยอดค้างและล้างที่ติ๊ก (id ที่จ่ายครบจะหายจากรายการเอง) */
+const handleBulkSaved = () => {
+  selectedStudentIds.value = []
+  void fetchDebtors()
+}
 
 /** ยอดที่ใบแจ้งหนี้จะเรียกเก็บ = ยอดค้างรวมของนักเรียนที่เลือก (ตรงกับที่หน้าจอโชว์) */
 const selectedInvoiceAmount = computed(() =>
@@ -463,6 +479,21 @@ onMounted(() => {
           ⚠️ ห้าม `:disabled` ตอนยังไม่เลือกอะไร: ปุ่มตายไม่บอกอะไรเลยว่าต้องทำอย่างไร
              ⇒ ปล่อยให้กดได้แล้ว handler ตอบเป็นข้อความไทย ("กรุณาติ๊กเลือกนักเรียน...")
         -->
+        <!--
+          📥 [FIN-V2 / P2.7] รับเงินหลายคน — เปิดชีตพร้อมส่ง "คนที่ติ๊ก" ไปเป็นค่าเริ่มต้น
+          (ว่าง = ชีตจะติ๊กทุกคนที่มียอดค้างให้เอง) · 1 รอบ = 1 transaction ทั้งหมดหรือไม่บันทึกเลย
+        -->
+        <button
+          v-if="canManageFinance"
+          type="button"
+          class="btn-ghost-ui"
+          @click="isBulkOpen = true"
+        >
+          <i class="bi bi-people-fill" aria-hidden="true"></i>
+          รับเงินหลายคน<span v-if="selectedStudentIds.length"
+            >({{ selectedStudentIds.length }})</span
+          >
+        </button>
         <button
           v-if="canManageFinance"
           type="button"
@@ -731,6 +762,14 @@ onMounted(() => {
         </div>
       </div>
     </template>
+
+    <!-- 📥 [FIN-V2 / P2.7] รับเงินหลายคน 1 รอบ — เส้นใหม่ (event ต่อคน + REC ต่อคน) -->
+    <BulkReceiveSheet
+      :open="isBulkOpen"
+      :student-ids="selectedStudentIds"
+      @close="isBulkOpen = false"
+      @saved="handleBulkSaved"
+    />
 
     <AppSheet
       v-if="isAdmin"

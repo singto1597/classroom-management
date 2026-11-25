@@ -43,6 +43,8 @@ interface Captured {
    *    `obj.title === null` จะผ่านทั้งที่ `undefined` ก็ถูกตัดทิ้งเหมือนกัน
    */
   body: unknown;
+  /** `responseType` ที่ axios ใช้จริง — ใช้พิสูจน์ว่า QR ขอเป็น Blob */
+  responseType: string | undefined;
 }
 
 const captured: Captured[] = [];
@@ -56,6 +58,7 @@ beforeEach(() => {
       uri: api.getUri(config),
       method: (config.method ?? 'get').toUpperCase(),
       body: config.data,
+      responseType: config.responseType,
     });
     return {
       data: { status: 'ok', items: [], total_applied: 0, total_balance_after: 0 },
@@ -316,6 +319,7 @@ describe('FinanceService — 🧾 เคลียร์หนี้แล้ว�
         uri: api.getUri(config),
         method: (config.method ?? 'get').toUpperCase(),
         body: config.data,
+        responseType: config.responseType,
       });
       return {
         data: {
@@ -420,5 +424,209 @@ describe('FinanceService — ⚖️ ค่าปรับ/รายงานอ�
     expect(uri).toContain('/finance/receivables/aging');
     expect(uri).toContain('as_of=2026-11-24');
     expect(uri).toContain('target_type=room');
+  });
+});
+
+describe('FinanceService — 👥 ผู้เกี่ยวข้องทางการเงิน/ตั้งค่าห้อง (FIN-V2 / P1.2)', () => {
+  const ROOM = 42;
+
+  it('getPeople ส่งตัวกรอง (type/active/q) ลง query + target_type=room', async () => {
+    await FinanceService.getPeople(ROOM, { type: 'teacher', active: true, q: 'สมชาย' });
+    const uri = decodeURIComponent(firstUri());
+    expect(uri).toContain(`/api/classroom/${ROOM}/finance/people?`);
+    expect(uri).toContain('type=teacher');
+    expect(uri).toContain('active=true');
+    expect(uri).toContain('q=สมชาย');
+    expect(uri).toContain('target_type=room');
+    expect(first().body).toBeUndefined();
+  });
+
+  it('getPeople ไม่ส่งคีย์ที่ไม่ได้ใช้ (q=undefined ต้องถูกตัดทิ้ง ไม่กลายเป็น q=undefined)', async () => {
+    await FinanceService.getPeople(ROOM, { active: true });
+    const uri = decodeURIComponent(firstUri());
+    expect(uri).not.toContain('q=');
+    // ⚠️ ใช้ regex ขึ้นต้นด้วย ?/& — `target_type=` มีคำว่า `type=` อยู่ข้างใน
+    expect(uri).not.toMatch(/[?&]type=/);
+  });
+
+  it('🔴 sync-students เป็น POST ที่ /finance/people/sync-students (ไม่ใช่ /people/{id})', async () => {
+    await FinanceService.syncStudents(ROOM);
+    expect(first().method).toBe('POST');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/people/sync-students?`);
+  });
+
+  it('แก้ไข/ปิดใช้งานผู้เกี่ยวข้องใช้ PATCH/DELETE ที่ /finance/people/{id}', async () => {
+    await FinanceService.updatePerson(ROOM, 7, { roles: ['pay'] });
+    expect(first().method).toBe('PATCH');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/people/7?`);
+    expect(firstBody()).toMatchObject({ roles: ['pay'] });
+
+    captured.length = 0;
+    await FinanceService.deletePerson(ROOM, 7);
+    expect(first().method).toBe('DELETE');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/people/7?`);
+  });
+
+  it('settings อ่านด้วย GET และเขียนด้วย PATCH ที่ /finance/settings', async () => {
+    await FinanceService.getFinanceSettings(ROOM);
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/settings?`);
+    expect(first().body).toBeUndefined();
+
+    captured.length = 0;
+    await FinanceService.updateFinanceSettings(ROOM, {
+      require_receiver: false,
+      receipt_note: null,
+    });
+    expect(first().method).toBe('PATCH');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/settings?`);
+    // `null` ต้องอยู่ (แปลว่า "ล้างค่า") — ต่างจาก `undefined` ที่ axios ตัดทิ้ง
+    expect(firstBody()).toMatchObject({ require_receiver: false, receipt_note: null });
+  });
+
+  it('getPeople คืนรายการที่แกะจาก { people } แล้ว — หน้าจอใช้ .length ได้ตรง ๆ', async () => {
+    const original = api.defaults.adapter;
+    api.defaults.adapter = async (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => ({
+      data: { people: [{ person_id: 3, display_name: 'ครูสมหญิง' }] },
+      status: 200,
+      statusText: 'OK',
+      headers: new AxiosHeaders(),
+      config,
+    });
+
+    try {
+      const people = await FinanceService.getPeople(ROOM);
+      expect(people.map((p) => p.person_id)).toEqual([3]);
+    } finally {
+      api.defaults.adapter = original;
+    }
+  });
+});
+
+describe('FinanceService — รับเงิน 1 ครั้ง = 1 event (FIN-V2 / P2.3)', () => {
+  const ROOM = 42;
+
+  /**
+   * 🔴 เส้นทางนี้ **ต้องไม่** ยิง `/finance/payments/batch` (legacy = ใบเสร็จแยกต่อบิล)
+   *    ตัวชี้ขาดคือ URL ของ preview/commit ซึ่งเป็น endpoint เดียวที่สร้าง
+   *    `payment_event` + REC ใบเดียว + DEP ได้ — ถ้าวันหนึ่งมีคน "ย่อ" ไปใช้ endpoint เก่า
+   *    จำนวนใบเสร็จต่อการรับเงิน 1 ครั้งจะเปลี่ยน ⇒ เทสต์นี้ต้องล้ม
+   */
+  const PREVIEW_PAYLOAD = {
+    student_id: 11,
+    amount_received: '100.00',
+    use_credit: false,
+    excess_action: 'none' as const,
+    bill_selection: 'auto' as const,
+    bill_ids: [] as number[],
+    channel_id: null,
+  }
+
+  it('preview ยิง POST /finance/payment-events/preview พร้อม target_type=room', async () => {
+    await FinanceService.previewPaymentEvent(ROOM, PREVIEW_PAYLOAD)
+
+    expect(first().method).toBe('POST')
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/payment-events/preview?`)
+    expect(firstUri()).toContain('target_type=room')
+    expect(firstBody()).toMatchObject({
+      student_id: 11,
+      amount_received: '100.00',
+      use_credit: false,
+      excess_action: 'none',
+      bill_selection: 'auto',
+      bill_ids: [],
+      channel_id: null,
+    })
+  })
+
+  it('commit ยิง POST /finance/payment-events (ไม่ใช่ /payments/batch) + ส่ง idempotency_key', async () => {
+    await FinanceService.createPaymentEvent(ROOM, {
+      ...PREVIEW_PAYLOAD,
+      idempotency_key: 'a'.repeat(32),
+      wallet_account_id: 5,
+      payer_name: 'อาร์ม',
+      payer_person_id: null,
+      receiver_person_id: 1,
+      receiver_name: 'ครูเอ',
+      note: null,
+      event_at: null,
+    })
+
+    expect(first().method).toBe('POST')
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/payment-events?`)
+    expect(firstUri()).not.toContain('/payments/batch')
+    expect(firstBody()).toMatchObject({
+      idempotency_key: 'a'.repeat(32),
+      wallet_account_id: 5,
+      receiver_person_id: 1,
+      // 🔑 ต้องอยู่เป็น `null` ใน JSON ไม่ใช่หายไป — backend แยก "ไม่ระบุ" กับ "ไม่ได้ส่ง"
+      note: null,
+      event_at: null,
+    })
+  })
+});
+
+describe('FinanceService — ช่องทางชำระเงิน + PromptPay QR (FIN-V2 / P2.5)', () => {
+  const ROOM = 42;
+
+  /** คำขอล่าสุด — เทสต์ชุดนี้ยิงหลายครั้งใน `it` เดียว จึงอ่านตัวท้าย ไม่ใช่ตัวแรก */
+  const last = (): Captured => {
+    const req = captured[captured.length - 1];
+    if (!req) throw new Error('ไม่มีการเรียก API เลย — adapter ไม่ถูกเรียก (เทสต์จะเขียวหลอก)');
+    return req;
+  };
+
+  /** body ของคำขอล่าสุด (parse จากสตริง JSON ที่ axios ส่งจริง) */
+  const lastBody = (): Record<string, unknown> => {
+    const raw = last().body;
+    if (typeof raw !== 'string') throw new Error('คาดว่า body เป็นสตริง JSON');
+    return JSON.parse(raw) as Record<string, unknown>;
+  };
+
+  /**
+   * 🔴 ล็อก URL ของทั้งชุด — endpoint เหล่านี้เป็นของใหม่ (P2.4) และการพิมพ์เส้นทาง
+   *    ผิดจะได้ 404 ที่หน้าจอเท่านั้น (type-check ไม่จับสตริง) ⇒ ทดสอบที่ URL จริง
+   */
+  it('list/create/update/delete ใช้ /finance/payment-channels พร้อม target_type=room', async () => {
+    await FinanceService.getPaymentChannels(ROOM, true);
+    expect(last().method).toBe('GET');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels?`);
+    expect(last().uri).toContain('target_type=room');
+    expect(last().uri).toContain('include_inactive=true');
+
+    await FinanceService.createPaymentChannel(ROOM, {
+      channel_type: 'cash',
+      label: 'เงินสด',
+      wallet_account_id: null,
+      account_name: null,
+      bank_name: null,
+      account_number: null,
+      promptpay_id: null,
+      qr_mode: null,
+      is_primary: true,
+      is_active: true,
+    });
+    expect(last().method).toBe('POST');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels?`);
+    expect(lastBody()).toMatchObject({ channel_type: 'cash', label: 'เงินสด' });
+
+    await FinanceService.updatePaymentChannel(ROOM, 9, { is_active: false });
+    expect(last().method).toBe('PATCH');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels/9?`);
+    expect(lastBody()).toEqual({ is_active: false });
+
+    await FinanceService.deletePaymentChannel(ROOM, 9);
+    expect(last().method).toBe('DELETE');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels/9?`);
+  });
+
+  it('QR ขอเป็น blob และส่ง amount เฉพาะเมื่อระบุ (ทศนิยม 2 ตำแหน่ง)', async () => {
+    await FinanceService.getPaymentChannelQr(ROOM, 9);
+    expect(last().method).toBe('GET');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels/9/qr.svg?`);
+    expect(last().responseType).toBe('blob');
+    expect(last().uri).not.toContain('amount=');
+
+    await FinanceService.getPaymentChannelQr(ROOM, 9, 250.5);
+    expect(last().uri).toContain('amount=250.50');
   });
 });

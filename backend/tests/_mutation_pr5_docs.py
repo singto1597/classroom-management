@@ -279,11 +279,9 @@ MUTATIONS = [
     (
         "M12 `body_template` ของใบสำคัญตกไปที่เนื้อในของใบเสร็จ",
         "services/finance/receipts.py",
-        '            "body_template": (\n'
-        "                _VOUCHER_BODY_TEMPLATE\n"
-        '                if d["doc_type"] == DOC_TYPE_PAYMENT_VOUCHER\n'
-        "                else _RECEIPT_BODY_TEMPLATE\n"
-        "            ),",
+        # 🗂️ P5.3 — ทางแยกย้ายไป `document_adapters.resolve_adapter` ⇒ mutant ต้อง
+        # ตามไปยิงที่บรรทัดใหม่ (ทับให้เป็นเทมเพลตใบเสร็จ ไม่สนใจชนิด)
+        '            "body_template": resolve_adapter(1, d["doc_type"]).body_template,',
         '            "body_template": _RECEIPT_BODY_TEMPLATE,  # MUTANT',
         [f"{DOCS}::test_voucher_renders_with_voucher_wording"],
     ),

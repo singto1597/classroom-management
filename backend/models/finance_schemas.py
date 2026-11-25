@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, model_validator
-from typing import Optional, List
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Literal, Optional, List, Union
 from datetime import date, datetime
 from dataclasses import dataclass
 from fastapi import Query
@@ -200,7 +200,7 @@ class StudentPaymentSummary(BaseModel):
 class StudentPaymentDetail(BaseModel):
     payment_id: int
     status: str
-    paid_amount: float 
+    paid_amount: float
     total_amount: float
     paid_at: Optional[datetime]
     slip_image_url: Optional[str]
@@ -212,6 +212,11 @@ class StudentPaymentDetail(BaseModel):
     first_name_en: Optional[str] = None
     last_name_en: Optional[str] = None
     nickname_en: Optional[str] = None
+    # ✂️ [FIN-V2 / P6.2→P6.3] ยอดที่ถูกตัดจำหน่าย/ให้ส่วนลดสะสมของบิลนี้ (0 = ไม่เคยตัด)
+    #    ค่าเริ่มต้น 0 ทำให้ endpoint/ผู้เรียกเดิมไม่พังถ้าโค้ดใหม่ยังไม่ส่งมา
+    written_off_amount: float = 0.0
+    # ชนิดบิล (`project` / `fine`) — หน้าจอใช้ซ่อนปุ่มตัดหนี้บนบิลค่าปรับ
+    collection_kind: Optional[str] = None
 
 class CollectionStatusResponse(BaseModel):
     collection_id: int
@@ -583,6 +588,11 @@ class ReceiptInvoiceIssueRequest(BaseModel):
     #    (เท่ากับเพดานของ `ReceiptBatchIssueRequest` โดยเจตนา — "หนึ่ง HTTP request"
     #     ของระบบนี้มีขนาดเท่ากันไม่ว่าจะเป็นเส้นทางไหน)
     student_ids: List[int] = Field(..., min_length=1, max_length=100)
+    # 💳 [FIN-V2 / P2.6] ช่องทางที่จะพิมพ์บนใบ (≤3, ไม่ส่ง = 3 ช่องทางแรกของห้อง)
+    #    ⚠️ **ไม่** ใส่ `max_length=3` โดยเจตนา — Pydantic จะตอบ 422 ที่ frontend แปลได้แค่
+    #       "ข้อมูลไม่ถูกต้อง" ส่วน service ตอบ 400 พร้อมข้อความไทยที่บอกทางออก
+    #       ("เลือกได้ไม่เกิน 3 ช่องทาง") — หลักเดียวกับคอมเมนต์ของ `ReceiptCombinedPdfRequest`
+    channel_ids: Optional[List[int]] = None
     note: Optional[str] = Field(None, max_length=255)
     user_name: Optional[str] = Field(None, max_length=100)
 
@@ -593,6 +603,9 @@ class ReceiptRoomInvoiceRequest(BaseModel):
     ⇒ ไม่รับ `student_ids` เลยโดยเจตนา: ถ้ารับ ผู้เรียกจะกลายเป็นคนตัดสินว่าใครควรได้ใบ
       ซึ่งเป็นสิ่งที่ผู้ใช้เลือกไม่ถูก (เขาไม่รู้ว่าใครค้างเท่าไร ณ วินาทีที่กด)
     """
+    # 💳 [FIN-V2 / P2.6] เหตุผลที่ไม่ใส่ `max_length=3` — ดูคอมเมนต์ของ
+    #    `ReceiptInvoiceIssueRequest.channel_ids` (service ตอบ 400 ภาษาไทย)
+    channel_ids: Optional[List[int]] = None
     note: Optional[str] = Field(None, max_length=255)
     user_name: Optional[str] = Field(None, max_length=100)
 
@@ -609,6 +622,22 @@ class ReceiptCombinedPdfRequest(BaseModel):
     receipt_nos: List[str] = Field(..., min_length=1)
 
 
+class ReceiptInvoiceLineItem(BaseModel):
+    """บรรทัดของ **ใบแจ้งหนี้** — รูปเดิม 3 คีย์ (`title`/`amount`/`due_date`) เท่านั้น
+
+    🔴 `extra="forbid"` เป็นหัวใจของ `Union` ด้านล่าง ไม่ใช่ความเข้มงวดเพิ่งคิดขึ้น:
+       `ReceiptLineItem` (v2) ประกาศฟิลด์เพิ่ม 9 ตัวเป็น optional ⇒ ถ้าใช้โมเดลเดียว
+       Pydantic จะ **เติมค่า None ให้ครบทุกตัว** ตอน serialize ⇒ สัญญาเดิมของหน้ารายละเอียด
+       ใบแจ้งหนี้ (`test_finance_invoices.py` ยึด `{title, amount, due_date}` เป๊ะ)
+       พังทันทีโดยที่ข้อมูลใน DB ถูกต้อง — ไม่ใช่บั๊กข้อมูล แต่เป็นบั๊กสัญญา response
+       👉 forbid ทำให้ dict ที่มีคีย์เกินตกไปเข้าตัวที่สอง = ใบ v2 ยังได้ฟิลด์ครบเหมือนเดิม
+    """
+    model_config = ConfigDict(extra="forbid")
+    title: Optional[str] = None
+    amount: Optional[float] = None
+    due_date: Optional[str] = None
+
+
 class ReceiptLineItem(BaseModel):
     """หนึ่งบรรทัดในตารางแจกแจงของใบแจ้งหนี้รวมยอด (**snapshot** ณ วันออกเอกสาร)
 
@@ -617,10 +646,23 @@ class ReceiptLineItem(BaseModel):
        จะไม่เท่ากับยอดพาดหัว (ที่เก็บไว้ตอนออก) = เอกสารขัดแย้งตัวเอง
     """
     title: Optional[str] = None
-    amount: float
+    amount: Optional[float] = None
     # 📅 ISO `YYYY-MM-DD` (JSON ไม่มีชนิด DATE) — frontend จัดรูปเป็นไทยเองที่เดียวกับ
     #    วันที่อื่น ๆ ในระบบ ⇒ จอกับกระดาษได้สตริงเดียวกันจาก `THAI_MONTHS_SHORT`
     due_date: Optional[str] = None
+    # 🧾 [FIN-V2 / P2.2] รูปของบรรทัดใน **เอกสารระดับ event** (layout_version=2)
+    #    🔴 `amount` เปลี่ยนเป็น optional เพราะ v2 ไม่มีคีย์นี้ (มียอดแยกแหล่ง) —
+    #       ถ้าปล่อยเป็น required ใบ v2 ที่เปิดผ่านหน้า detail จะ ValidationError = 500
+    #       ทั้งที่เอกสารและ snapshot ถูกต้อง
+    collection_id: Optional[int] = None
+    student_payment_id: Optional[int] = None
+    bill_amount: Optional[float] = None
+    amount_applied: Optional[float] = None
+    cash_amount: Optional[float] = None
+    credit_amount: Optional[float] = None
+    bill_remaining: Optional[float] = None
+    # 💰 cash | credit | mixed — ป้าย "แหล่งเงิน" ของบรรทัด
+    source: Optional[str] = None
 
 
 class ReceiptResponse(BaseModel):
@@ -651,7 +693,9 @@ class ReceiptResponse(BaseModel):
     # 📋 ตารางแจกแจงของใบแจ้งหนี้รวมยอด — `None` = เอกสารใบเดียวต่อหนึ่งบิล (ใบเสร็จทุกใบ)
     #    ⚠️ ใน **ทะเบียนเอกสาร** (`GET /finance/receipts`) ค่านี้เป็น None เสมอโดยเจตนา
     #       (คิวรีนั้นไม่ดึง jsonb มาด้วย — โหลดได้ถึง 500 แถว) ⇒ ไม่ใช่บั๊ก
-    line_items: Optional[List[ReceiptLineItem]] = None
+    # 🔀 Union เรียง "แคบก่อนกว้าง": ใบแจ้งหนี้ (3 คีย์) จับคู่ตัวแรกด้วย `extra="forbid"`
+    #    ส่วนเอกสาร v2 (มี `cash_amount`/`source` ฯลฯ) ตกไปตัวที่สองโดยไม่เสียฟิลด์ใด
+    line_items: Optional[List[Union[ReceiptInvoiceLineItem, ReceiptLineItem]]] = None
     # 🗓️ "วันที่ของเอกสาร" = เวลาของ **เหตุการณ์** (รับเงิน / ออกใบแจ้งหนี้) ไม่ใช่วันที่กดพิมพ์
     #    ⇒ frontend ต้องแสดงค่านี้ ไม่ใช่ issued_at ไม่งั้นจอกับกระดาษลงคนละวัน
     #    (ของเดิมที่มีอยู่ก่อนเพิ่มคอลัมน์นี้จะไม่มีค่า → frontend ถอยไปใช้ issued_at)
@@ -737,6 +781,10 @@ class ReceiptDetailResponse(ReceiptListItem, VoucherFields):
     collection_due_date: Optional[date] = None
     room_name: Optional[str] = None
     room_code: Optional[str] = None
+    # 🧾 [FIN-V2 / P2.2] เลย์เอาต์ของเอกสาร — 1 = legacy (รอบบิล), 2 = ระดับ event
+    #    🔴 ต้องประกาศที่นี่ ไม่งั้น `response_model` ตัดทิ้ง **เงียบ ๆ** ⇒ หน้าจอ/P2.3
+    #       แยกไม่ออกว่าใบที่เปิดมาควรใช้เทมเพลต/ปุ่มไหน
+    layout_version: int = 1
 
 
 class BatchPaymentConfirmResponse(SuccessResponse):
@@ -881,6 +929,10 @@ class StudentCreditEntryResponse(BaseModel):
     receipt_no: Optional[str] = None
     receipt_event_at: Optional[datetime] = None
     collection_title: Optional[str] = None
+    # 🧾 [FIN-V2 / P3.3] ใบรับเงิน (payment event) ที่สร้างแถวนี้ — None = แถวเดิม
+    payment_event_id: Optional[int] = None
+    # ที่มาของแถว: "event" | "legacy" (service เติมค่าเสมอ — ไม่ใช่ Undefined)
+    source_label: Optional[str] = None
 
 
 class CreditTopUpResponse(BaseModel):
@@ -1068,3 +1120,1334 @@ class ReceiptBatchDissolveResponse(BaseModel):
     """คำตอบหลังยุบชุด — คืนจำนวนใบที่ถูกปลดออกจากชุด (เอกสารไม่ถูกแตะ)"""
     batch_id: int
     detached_count: int
+
+# =============================================================================
+# 👥 [FIN-V2 / P1.2] ผู้เกี่ยวข้องทางการเงิน + ตั้งค่าการเงินของห้อง
+# =============================================================================
+# ⚠️ import ตรงนี้ (ไม่ใช่บนหัวไฟล์) โดยเจตนา: ไฟล์นี้เป็น hot file ของหลาย
+#    package — ต่อท้ายอย่างเดียวทำให้ diff ไม่ชนกับงานที่ merge ก่อน/หลัง
+from typing import Literal  # noqa: E402
+
+
+class PersonCreate(BaseModel):
+    """เพิ่มผู้เกี่ยวข้องทางการเงิน 1 คน
+
+    🔑 ไม่บังคับ `student_id` ที่ชั้น Pydantic โดยเจตนา: กฎ "student ต้องมีรหัส /
+       ครู-บุคคลภายนอกห้ามมี" ตรวจที่ service เพื่อคืน **400 ภาษาไทย** ที่ผู้ใช้
+       อ่านรู้เรื่อง (ไม่ใช่ 422 ของ Pydantic ที่บอกแค่ว่าฟิลด์ผิด)
+    """
+    person_type: Literal["student", "teacher", "external"]
+    student_id: Optional[int] = None
+    display_name: str = Field(..., min_length=1, max_length=200)
+    phone: Optional[str] = Field(None, max_length=50)
+    roles: List[Literal["receive", "pay", "approve"]] = Field(default_factory=lambda: ["receive"])
+    is_active: bool = True
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class PersonUpdate(BaseModel):
+    """PATCH — ส่งมาแค่ฟิลด์ที่จะแก้ (service ใช้ `model_dump(exclude_unset=True)`)
+
+    ⚠️ `null` ที่ `student_id`/`phone`/`note` = ล้างค่า (ต่างจาก "ไม่ส่งมา")
+    """
+    person_type: Optional[Literal["student", "teacher", "external"]] = None
+    student_id: Optional[int] = None
+    display_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    phone: Optional[str] = Field(None, max_length=50)
+    roles: Optional[List[Literal["receive", "pay", "approve"]]] = None
+    is_active: Optional[bool] = None
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class PersonResponse(BaseModel):
+    """แถวผู้เกี่ยวข้องที่ส่งออก — ไม่คืน `linked_user_id` (ข้อมูลภายใน)"""
+    person_id: int
+    person_type: str
+    student_id: Optional[int] = None
+    display_name: str
+    phone: Optional[str] = None
+    roles: List[str]
+    is_active: bool
+    note: Optional[str] = None
+
+
+class PersonListResponse(BaseModel):
+    people: List[PersonResponse]
+
+
+class PeopleSyncResponse(BaseModel):
+    """ผลซิงก์รายชื่อนักเรียน → ทะเบียนผู้เกี่ยวข้อง"""
+    created: int
+    updated: int
+    skipped: int
+
+
+class FinanceSettingsResponse(BaseModel):
+    """ค่าเริ่มต้นของหน้าจอรับเงิน — คืนค่า default เสมอแม้ยังไม่มีแถวใน DB"""
+    default_receiver_person_id: Optional[int] = None
+    default_wallet_account_id: Optional[int] = None
+    require_receiver: bool = True
+    receipt_note: Optional[str] = None
+
+
+class FinanceSettingsUpdate(BaseModel):
+    """PATCH ตั้งค่าการเงิน — ทุกฟิลด์ optional; `null` = ล้างค่า"""
+    default_receiver_person_id: Optional[int] = None
+    default_wallet_account_id: Optional[int] = None
+    require_receiver: Optional[bool] = None
+    receipt_note: Optional[str] = Field(None, max_length=500)
+
+# =============================================================================
+# 👤 [FIN-V2 / P1.3] บัญชีรายบุคคล + statement
+# =============================================================================
+# ⚠️ ต่อท้ายเท่านั้น (hot file) · `Literal` ถูก import ไปแล้วที่บล็อก P1.2
+# 💰 เงินทุกฟิลด์เป็น **string ทศนิยม 2 ตำแหน่ง** ตาม api-v2 — ห้ามใช้ float ใน response
+
+class OpenBillItem(BaseModel):
+    """บิลที่ยังเปิดของนักเรียน 1 ใบ (ฟิลด์ตาม api-v2 §2)
+
+    🔑 ไม่มี `SELECT *` ฝั่ง service — ฟิลด์ที่หลุดตรงนี้ คือสัญญากับ FE
+    """
+    student_payment_id: int
+    collection_id: Optional[int] = None
+    title: str
+    amount: str
+    paid_amount: str
+    written_off_amount: str
+    outstanding: str
+    due_date: Optional[date] = None
+    status: str
+    collection_kind: Optional[str] = None
+    fund_type: Optional[str] = None
+
+
+class RecentPaymentEventItem(BaseModel):
+    """เหตุการณ์รับเงินล่าสุด (ตารางว่างจนถึง P2.1 — `recent_events` จะเป็น `[]`)"""
+    event_id: int
+    event_at: datetime
+    amount_received: str
+    credit_used: str
+    receiver_name: Optional[str] = None
+
+
+class IndividualAccountItem(BaseModel):
+    """บัญชีของนักเรียน 1 คน — รวมยอดค้าง/เครดิต/บิลเปิด/เหตุการณ์ล่าสุด"""
+    student_id: int
+    student_no: int
+    name: str
+    outstanding_total: str
+    overdue_total: str
+    upcoming_total: str
+    credit_balance: str
+    ready_to_apply: str
+    open_bills: List[OpenBillItem] = Field(default_factory=list)
+    recent_events: List[RecentPaymentEventItem] = Field(default_factory=list)
+
+
+class IndividualAccountListResponse(BaseModel):
+    """รายการบัญชีทั้งห้อง — `as_of` = "วันนี้" ตามเวลาไทยที่ใช้ตัดสิน overdue"""
+    as_of: date
+    items: List[IndividualAccountItem]
+
+
+class IndividualAccountDetailResponse(IndividualAccountItem):
+    """รายละเอียดคนเดียว — รูปร่างเดียวกับ item ใน list เพื่อให้ FE ใช้ component เดียว"""
+    pass
+
+
+class StudentStatementEntry(BaseModel):
+    """บรรทัดใน statement (เดินบัญชี)
+
+    `amount` มีเครื่องหมายตามผลต่อ "ยอดที่นักเรียนค้าง" —
+    บิล + · รับเงิน − · เติมเครดิต + · ใช้เครดิต − · คืนเครดิต +
+    `balance_after` = ยอดเครดิตคงเหลือหลังรายการ (มีเฉพาะบรรทัดเครดิต)
+    """
+    entry_id: str
+    kind: str
+    occurred_at: datetime
+    description: str
+    amount: str
+    balance_after: Optional[str] = None
+    reference_id: Optional[int] = None
+
+
+class StatementDocumentItem(BaseModel):
+    """📄 โครงเอกสารใน statement — P5.1 (registry) จะเติมข้อมูลจริง
+
+    รอบนี้ service คืน `documents: []` เสมอ แต่ FE ต่อสัญญาไว้ก่อนได้
+    """
+    doc_type: str
+    doc_no: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    amount: Optional[str] = None
+
+
+class StudentStatementResponse(BaseModel):
+    """statement ตามช่วงวันที่ (default = ทั้งหมด) เรียง `occurred_at ASC`"""
+    student_id: int
+    student_no: int
+    name: str
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    entries: List[StudentStatementEntry] = Field(default_factory=list)
+    documents: List[StatementDocumentItem] = Field(default_factory=list)
+
+# =============================================================================
+# 🧮 [FIN-V2 / P1.5] พรีวิวการจัดสรรเงินรับ (allocation engine)
+# =============================================================================
+# ⚠️ ต่อท้ายเท่านั้น (hot file) · import ไว้ที่บล็อกนี้เพื่อคงการเพิ่มแบบต่อท้าย
+# 💰 เงินใน response เป็น **string 2 ตำแหน่ง** · request รับ `Decimal` (ไม่ใช่ float)
+#    เพื่อไม่ให้ 0.1+0.2 เพี้ยนก่อนถึง engine (engine แปลงเป็นสตางค์อีกชั้น)
+
+from decimal import Decimal  # noqa: E402
+from typing import Literal  # noqa: E402
+
+
+class AllocationPreviewRequest(BaseModel):
+    """คำขอพรีวิวจัดสรรเงิน — ยังไม่เขียนอะไรลง DB (commit อยู่ที่ P2.1)
+
+    🔑 `amount_received` เป็น `Decimal` — Pydantic v2 รับทั้ง JSON number และ string
+       ("1200.00") แล้วเก็บเป็นทศนิยมแม่นยำ ⇒ ห้ามเปลี่ยนเป็น `float`
+    """
+    student_id: int = Field(..., gt=0)
+    amount_received: Decimal = Field(
+        Decimal("0"), ge=0, description="ยอดเงินสดที่รับ (บาท) — 0 ได้ถ้าใช้เครดิตล้วน"
+    )
+    use_credit: bool = Field(False, description="ใช้เครดิตที่มีอยู่ปิดบิลหรือไม่")
+    excess_action: Literal["credit", "none"] = Field(
+        "credit", description="เงินเกิน: เก็บเป็นเครดิต หรือปฏิเสธ (none)"
+    )
+    bill_selection: Literal["auto", "manual"] = Field(
+        "auto", description="auto = ทุกบิลเปิดตามลำดับ · manual = เฉพาะ bill_ids"
+    )
+    bill_ids: Optional[List[int]] = Field(
+        None, description="ใช้เมื่อ bill_selection='manual' — ต้องเป็นบิลที่ยังเปิด"
+    )
+    channel_id: Optional[int] = Field(
+        None, gt=0, description="ช่องทางชำระเงิน (ตรวจว่ามีจริง/เปิดใช้งาน — ยังไม่ใช้คำนวณ)"
+    )
+
+
+class AllocationLine(BaseModel):
+    """บรรทัดจัดสรร 1 บรรทัด — **1 แหล่งเงิน/บรรทัด** (cash หรือ credit เท่านั้น)
+
+    🔴 ห้ามรวม cash+credit เป็นบรรทัดเดียว: P2.1 ต้องรู้ว่า `credit_apply` ถูกใช้เท่าไร
+    """
+    student_payment_id: int
+    collection_id: Optional[int] = None
+    title: str
+    collection_kind: Optional[str] = None
+    fund_type: Optional[str] = None
+    due_date: Optional[date] = None
+    source: Literal["cash", "credit"]
+    amount: str
+    # ยอดคงเหลือของบิลก่อน/หลังบรรทัดนี้ (snapshot ที่ P2.1 จะเขียน)
+    bill_before: str
+    bill_after: str
+
+
+class AllocationPreviewResponse(BaseModel):
+    """ผลพรีวิว — สมการ `amount_received + credit_used == total_applied + credit_added`
+    ต้องผ่านเสมอ (engine ตรวจด้วย `assert_plan_equation`)"""
+    allocations: List[AllocationLine] = Field(default_factory=list)
+    total_applied: str
+    credit_used: str
+    credit_added: str
+    remaining_unapplied: str
+    warnings: List[str] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 🧾 [FIN-V2 / P2.1] รายการรับเงิน (payment event)
+#    ⚠️ ต่อท้ายเท่านั้น (hot file) — `Decimal`/`Literal` ถูก import ไว้แล้วที่บล็อก P1.5
+# ═══════════════════════════════════════════════════════════════════════════
+class PaymentEventCreate(BaseModel):
+    """คำขอ "รับเงิน 1 ครั้ง" — ปิดได้หลายบิล + ใช้เครดิต + เก็บส่วนเกินเป็นเครดิต
+
+    🔑 `idempotency_key` บังคับ (8–64): กดซ้ำ/เน็ตหลุดต้องได้ event เดิม ไม่ใช่ charge ซ้ำ
+    💰 `amount_received` เป็น `Decimal` — ห้ามเปลี่ยนเป็น `float` (เศษสตางค์จะเพี้ยน)
+    """
+    idempotency_key: str = Field(
+        ..., min_length=8, max_length=64,
+        description="คีย์กันส่งซ้ำจาก client (สร้างครั้งเดียวต่อการกดยืนยัน)",
+    )
+    student_id: int = Field(..., gt=0)
+    wallet_account_id: int = Field(..., gt=0, description="กระเป๋าที่รับเงินเข้า")
+    payer_name: Optional[str] = Field(None, max_length=200)
+    payer_person_id: Optional[int] = Field(None, gt=0)
+    receiver_person_id: Optional[int] = Field(None, gt=0)
+    receiver_name: Optional[str] = Field(None, max_length=200)
+    channel_id: Optional[int] = Field(None, gt=0)
+    amount_received: Decimal = Field(
+        Decimal("0"), ge=0,
+        description="ยอดเงินสดที่รับ (บาท) — 0 ได้ถ้าใช้เครดิตล้วน",
+    )
+    use_credit: bool = Field(False, description="ใช้เครดิตที่มีอยู่ปิดบิลหรือไม่")
+    excess_action: Literal["credit", "none"] = Field(
+        "credit", description="เงินเกิน: เก็บเป็นเครดิต หรือปฏิเสธ"
+    )
+    bill_selection: Literal["auto", "manual"] = Field(
+        "auto", description="auto = ทุกบิลเปิด · manual = เฉพาะ bill_ids"
+    )
+    bill_ids: Optional[List[int]] = Field(
+        None, description="ใช้เมื่อ bill_selection='manual' — ต้องเป็นบิลที่ยังเปิด"
+    )
+    note: Optional[str] = Field(None, max_length=1000)
+    event_at: Optional[datetime] = Field(
+        None, description="เวลารับเงิน (tz-aware) — ค่าเริ่มต้น = เวลาปัจจุบันของ DB"
+    )
+    slip_image_url: Optional[str] = Field(None, max_length=500)
+
+
+class PaymentEventAllocation(BaseModel):
+    """บรรทัดที่ลงบิล 1 บรรทัด — `source` บอกว่าเงินมาจากเงินสดหรือเครดิต"""
+    student_payment_id: int
+    collection_id: Optional[int] = None
+    title: str
+    source: Literal["cash", "credit"]
+    amount: str
+    bill_before: str
+    bill_after: str
+
+
+class PaymentEventDocument(BaseModel):
+    """เอกสารที่ event นี้สร้าง (REC/DEP) — `layout_version=2`"""
+    id: int
+    doc_type: str
+    receipt_no: str
+    amount: str
+    layout_version: int
+    event_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
+    status: str
+
+
+class PaymentEventResponse(BaseModel):
+    """ผลของ POST /payment-events — `reused=true` = คืน event เดิมจาก idempotency
+
+    🔒 ไม่มี `channel_snapshot` ดิบ (เลขบัญชีเต็ม) — ใช้ `PaymentEventDetailResponse.channel`
+       ที่เก็บเฉพาะค่าที่ปิดบังแล้ว
+    """
+    event_id: int
+    receipt_no: Optional[str] = None
+    deposit_no: Optional[str] = None
+    amount_received: str
+    credit_used: str
+    credit_added: str
+    total_applied: str
+    allocations: List[PaymentEventAllocation] = Field(default_factory=list)
+    documents: List[PaymentEventDocument] = Field(default_factory=list)
+    reused: bool = False
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PaymentEventLine(BaseModel):
+    """บรรทัดดิบของ event (`bill` / `credit_apply` / `credit_topup`)"""
+    id: int
+    line_kind: str
+    student_payment_id: Optional[int] = None
+    finance_transaction_id: Optional[int] = None
+    credit_entry_id: Optional[int] = None
+    amount: str
+    bill_amount_before: Optional[str] = None
+    bill_amount_after: Optional[str] = None
+    meta: dict = Field(default_factory=dict)
+
+
+class PaymentEventDetailResponse(PaymentEventResponse):
+    """GET /payment-events/{id} — เพิ่มข้อมูลหัว event + บรรทัดดิบ"""
+    student_id: int
+    payer_name: str
+    receiver_name: str
+    channel: dict = Field(default_factory=dict)
+    note: Optional[str] = None
+    status: str
+    event_at: datetime
+    created_at: datetime
+    lines: List[PaymentEventLine] = Field(default_factory=list)
+
+
+class PaymentEventListItem(BaseModel):
+    event_id: int
+    student_id: int
+    payer_name: str
+    receiver_name: str
+    amount_received: str
+    credit_used: str
+    credit_added: str
+    total_applied: str
+    event_at: datetime
+    receipt_no: Optional[str] = None
+    deposit_no: Optional[str] = None
+    status: str
+
+
+class PaymentEventListResponse(BaseModel):
+    items: List[PaymentEventListItem] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน + PromptPay QR
+# ═══════════════════════════════════════════════════════════════════════════
+from decimal import Decimal  # noqa: E402
+from typing import Literal  # noqa: E402
+
+
+class PaymentChannelCreate(BaseModel):
+    """เพิ่มช่องทางชำระเงิน
+
+    🔑 `account_number` / `promptpay_id` เป็น **write-only** — service เก็บเฉพาะ
+       ค่าที่ mask/canonical แล้ว และไม่คืนค่าทั้งสองนี้ออกจาก API
+    """
+    channel_type: Literal["cash", "bank_transfer", "promptpay", "custom_qr"]
+    label: str = Field(..., min_length=1, max_length=100)
+    wallet_account_id: Optional[int] = Field(None, gt=0)
+    account_name: Optional[str] = Field(None, max_length=200)
+    bank_name: Optional[str] = Field(None, max_length=200)
+    account_number: Optional[str] = Field(
+        None, max_length=50, description="เลขบัญชีเต็ม (write-only — API ไม่คืน)",
+    )
+    promptpay_id: Optional[str] = Field(
+        None, max_length=30,
+        description="เบอร์/เลขบัตร/e-wallet (write-only — API ไม่คืนเลขเต็ม)",
+    )
+    qr_mode: Optional[Literal["open", "fixed"]] = None
+    is_primary: bool = False
+    is_active: bool = True
+    sort_order: Optional[int] = Field(None, ge=0)
+
+
+class PaymentChannelUpdate(BaseModel):
+    """PATCH ช่องทาง — ส่งมาเฉพาะฟิลด์ที่จะแก้ (`exclude_unset`)"""
+    channel_type: Optional[Literal["cash", "bank_transfer", "promptpay", "custom_qr"]] = None
+    label: Optional[str] = Field(None, min_length=1, max_length=100)
+    wallet_account_id: Optional[int] = Field(None, gt=0)
+    account_name: Optional[str] = Field(None, max_length=200)
+    bank_name: Optional[str] = Field(None, max_length=200)
+    account_number: Optional[str] = Field(None, max_length=50)
+    promptpay_id: Optional[str] = Field(None, max_length=30)
+    qr_mode: Optional[Literal["open", "fixed"]] = None
+    is_primary: Optional[bool] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = Field(None, ge=0)
+
+
+class PaymentChannelResponse(BaseModel):
+    """ช่องทางที่ส่งออก — ไม่มีเลขบัญชี/PromptPay เต็มทั้งสิ้น"""
+    id: int
+    channel_type: str
+    label: str
+    wallet_account_id: Optional[int] = None
+    wallet_account_name: Optional[str] = None
+    account_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number_masked: Optional[str] = None
+    promptpay_id_masked: Optional[str] = None
+    qr_mode: Optional[str] = None
+    is_primary: bool
+    is_active: bool
+    sort_order: int
+    has_qr: bool = False
+
+
+class PaymentChannelListResponse(BaseModel):
+    channels: List[PaymentChannelResponse] = Field(default_factory=list)
+
+
+class QrPreviewRequest(BaseModel):
+    """พรีวิว QR ของช่องทางที่บันทึกแล้ว (ยังไม่รองรับ preview ก่อนบันทึก)"""
+    channel_id: int = Field(..., gt=0)
+    amount: Optional[Decimal] = Field(
+        None, description="ไม่ส่ง = QR open · ส่ง = ต้องเป็น QR fixed ของช่องทางนั้น",
+    )
+
+
+class QrPreviewResponse(BaseModel):
+    """⚠️ คืนเฉพาะ SVG — payload มีเลข PromptPay เต็ม จึงห้ามออกจาก server"""
+    svg: str
+
+
+# ─────────────────────────────────────────── 🧾 [FIN-V2 / P2.6] ACK (ใบรับทราบยอดค้าง)
+class AckIssueRequest(BaseModel):
+    """ออกใบรับทราบยอดค้าง **1 ใบต่อรอบ** — ทั้งห้อง หรือเฉพาะคนที่เลือก
+
+    ⚠️ เอกสารนี้ **ไม่มีการรับเงิน**: ไม่เขียน `finance_transactions`/journal/เครดิต
+       และ `paid_total_after` ของใบ = 0 ⇒ ไม่ออกใบเสร็จ ไม่มี QR/ช่องทางชำระ
+    """
+    # ✅ Literal ไม่ใช่ str — ค่าที่พิมพ์ผิด (`"all"`) จะถูกปฏิเสธเป็น 422 ที่นี่
+    #    แทนที่จะไหลเข้า service แล้วไปตีความผิดเงียบ ๆ
+    scope: Literal["room", "selected"]
+    # 📌 `scope='selected'` ต้องส่ง ≥1 คน; `scope='room'` ต้อง **ไม่** ส่ง (router ตรวจก่อนแตะ DB)
+    student_ids: Optional[List[int]] = Field(None, max_length=100)
+    # 🔗 ออก INV v2 ให้แต่ละคนที่มียอดค้างก่อน แล้วผูกเลข INV ลง ACK (link_type='invoice_for_ack')
+    include_invoice: bool = True
+    # 💳 [FIN-V2 / P2.6] เหตุผลที่ไม่ใส่ `max_length=3` — ดูคอมเมนต์ของ
+    #    `ReceiptInvoiceIssueRequest.channel_ids` (service ตอบ 400 ภาษาไทย)
+    channel_ids: Optional[List[int]] = None
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+    # 🔁 บังคับส่ง — กดซ้ำด้วยคีย์เดิมต้องได้ใบเดิม (`reused=true`) ไม่ใช่ใบใหม่ที่กินเลข
+    idempotency_key: str = Field(..., min_length=1, max_length=64)
+
+
+class AckEntryResponse(BaseModel):
+    """หนึ่งบรรทัดใน ACK = หนึ่งนักเรียนที่มียอดค้างในรอบนั้น (snapshot ณ วันออก)"""
+    student_id: int
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    outstanding_amount: float
+    invoice_receipt_id: Optional[int] = None
+    invoice_receipt_no: Optional[str] = None
+
+
+class AckIssueResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    # 🔴 ประกาศ `entries`/`invoice_receipt_nos` ที่นี่เสมอ — ไม่งั้น `response_model`
+    #    จะตัดทิ้งเงียบ ๆ (กับดักเดิมของ FastAPI ใน `docs/skills.md`)
+    receipt: ReceiptResponse
+    entries: List[AckEntryResponse]
+    invoice_receipt_nos: List[str] = Field(default_factory=list)
+    reused: bool = False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P2.7] รับเงินหลายคนในรอบเดียว (bulk receive)
+# ══════════════════════════════════════════════════════════════════════════════
+class BulkPaymentItemInput(BaseModel):
+    """หนึ่งนักเรียนในรอบ bulk — ยอดเงินสด + ใช้เครดิต + ส่วนเกิน (ต่อคน)
+
+    ⚠️ bulk ใช้ `bill_selection='auto'` เท่านั้น (ไม่เลือกบิลทีละใบ) ตาม api-v2 §4
+    """
+    student_id: int = Field(..., gt=0)
+    amount_received: Decimal = Field(
+        Decimal("0"), ge=0,
+        description="ยอดเงินสดของนักเรียนคนนี้ — 0 ได้ถ้าใช้เครดิตล้วน",
+    )
+    use_credit: bool = False
+    excess_action: Literal["credit", "none"] = "none"
+    note: Optional[str] = Field(None, max_length=255)
+
+
+class BulkPaymentEventCreate(BaseModel):
+    """คำขอ 'รับเงินหลายคน' — 1 คำขอ = 1 transaction = all-or-nothing
+
+    🔑 `idempotency_key` ใช้สร้างคีย์ย่อยต่อคน (`{key[:48]}:{student_id}`)
+    🔗 `reference_no` เดียวติดทุก event ในรอบ (ไม่ unique ใน DB — service บังคับใต้ล็อกห้อง)
+    """
+    idempotency_key: str = Field(..., min_length=8, max_length=64)
+    reference_no: str = Field(..., min_length=1, max_length=64)
+    channel_id: Optional[int] = Field(None, gt=0)
+    wallet_account_id: int = Field(..., gt=0, description="กระเป๋าที่รับเงินเข้า (ทุกคน)")
+    receiver_person_id: Optional[int] = Field(None, gt=0)
+    receiver_name: str = Field(..., min_length=1, max_length=100)
+    note: Optional[str] = Field(None, max_length=255)
+    event_at: Optional[datetime] = Field(
+        None, description="เวลารับเงิน (tz-aware) — ค่าเริ่มต้น = DB NOW ครั้งเดียวทั้งรอบ"
+    )
+    # 🔴 max_length=100 → เกินได้ 422 ที่ Pydantic ก่อนแตะ DB (กับดักเดียวกับ ACK)
+    items: List[BulkPaymentItemInput] = Field(..., min_length=1, max_length=100)
+
+
+class BulkPaymentEventItemResult(BaseModel):
+    """ผลของนักเรียนหนึ่งคน — event/REC/DEP ของตัวเอง (ไม่ยุบข้ามคน)"""
+    student_id: int
+    student_name: str
+    event: PaymentEventResponse
+
+
+class BulkPaymentEventResponse(BaseModel):
+    """ผลของ POST /payment-events/bulk — `reused=true` = คืนผลเดิมจาก idempotency
+
+    🔴 ต้องประกาศ `events` ที่นี่เสมอ — ไม่งั้น `response_model` ตัดทิ้งเงียบ ๆ
+    """
+    status: str = "success"
+    message: str
+    reference_no: str
+    events: List[BulkPaymentEventItemResult]
+    total_amount_received: str  # "1250.50"
+    reused: bool = False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P3.1] เงินสดรอส่งมอบ (custody)
+# ══════════════════════════════════════════════════════════════════════════════
+class CustodyAccountCreate(BaseModel):
+    """สร้างกระเป๋า custody ให้ผู้เกี่ยวข้อง 1 คน (ได้ 1 ใบต่อคนต่อห้อง)"""
+    owner_person_id: int = Field(..., gt=0)
+    account_kind: Literal["cash", "transfer"] = "cash"
+
+
+class CustodyAccountResponse(BaseModel):
+    """กระเป๋า custody ที่สร้าง/ฟื้น — `balance` เป็นตัวเลข 2 ตำแหน่ง"""
+    person_id: int
+    account_id: int
+    account_name: str
+    account_kind: str
+    balance: float
+    is_custody: bool = True
+
+
+class CustodyListItem(BaseModel):
+    person_id: int
+    display_name: str
+    account_id: int
+    account_name: str
+    account_kind: str
+    balance: float
+    last_handover_at: Optional[datetime] = None
+
+
+class CustodyListResponse(BaseModel):
+    """`GET /finance/custody` — ทุกคนที่มีกระเป๋า (รวมยอด 0) + ยอดถือรวม"""
+    total_held: float
+    items: List[CustodyListItem] = Field(default_factory=list)
+
+
+class CustodyHandoverCreate(BaseModel):
+    """คำขอส่งมอบเงิน — idempotent ด้วย `idempotency_key` (8–128 ตัวอักษร)"""
+    idempotency_key: str = Field(..., min_length=8, max_length=128)
+    from_account_id: int = Field(..., gt=0)
+    to_account_id: int = Field(..., gt=0)
+    amount: float = Field(..., gt=0)
+    handed_over_by_person_id: Optional[int] = Field(None, gt=0)
+    received_by_person_id: Optional[int] = Field(None, gt=0)
+    note: Optional[str] = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def _distinct_accounts(self):
+        # กันที่ขอบเขต HTTP ก่อน — service ตรวจซ้ำอีกชั้นเพราะถูกเรียกตรงได้
+        if self.from_account_id == self.to_account_id:
+            raise ValueError("ส่งมอบเข้ากระเป๋าเดิมไม่ได้")
+        return self
+
+
+class CustodyHandoverResponse(BaseModel):
+    id: int
+    from_account_id: int
+    to_account_id: int
+    amount: float
+    status: str
+    journal_entry_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class CustodyHandoverVoid(BaseModel):
+    """เหตุผลยกเลิกการส่งมอบ — บังคับ เพราะต้องเก็บใน audit + void_reason"""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class CustodyMovementItem(BaseModel):
+    """หนึ่งบรรทัดของการเคลื่อนไหว — expense/out เป็นลบ, income/in เป็นบวก"""
+    kind: Literal["handover_in", "handover_out", "income", "expense"]
+    source_id: str
+    amount: float
+    description: Optional[str] = None
+    reference_no: Optional[str] = None
+    occurred_at: datetime
+
+
+class CustodyMovementListResponse(BaseModel):
+    person_id: int
+    account_id: int
+    items: List[CustodyMovementItem] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน (payment event + ส่งมอบเงินสด)
+# ═══════════════════════════════════════════════════════════════════════════
+class PaymentHistoryLine(BaseModel):
+    """หนึ่งบรรทัดของ event — บิล / ใช้เครดิตปิดบิล / เติมเครดิต"""
+    line_kind: Literal["bill", "credit_apply", "credit_topup"]
+    amount: float
+    bill_before: Optional[float] = None
+    bill_after: Optional[float] = None
+    collection_title: Optional[str] = None
+
+
+class PaymentHistoryDocument(BaseModel):
+    """เอกสารที่ผูกกับ event (REC/DEP) — `deleted_at` ไม่ null ไม่ถูกส่งมา"""
+    doc_type: str
+    receipt_no: str
+    status: Optional[str] = None
+
+
+class PaymentHistoryEvent(BaseModel):
+    student_id: int
+    student_name: Optional[str] = None
+    payer_name: str
+    receiver_name: str
+    amount_received: float
+    credit_used: float
+    credit_added: float
+    total_applied: float
+    reference_no: Optional[str] = None
+    lines: List[PaymentHistoryLine] = Field(default_factory=list)
+    documents: List[PaymentHistoryDocument] = Field(default_factory=list)
+
+
+class PaymentHistoryHandover(BaseModel):
+    from_account_name: Optional[str] = None
+    to_account_name: Optional[str] = None
+    amount: float
+    handed_over_by_name: Optional[str] = None
+    received_by_name: Optional[str] = None
+    note: Optional[str] = None
+    void_reason: Optional[str] = None
+
+
+class PaymentHistoryItem(BaseModel):
+    """หนึ่งแถวในไทม์ไลน์ — `event` หรือ `handover` อย่างใดอย่างหนึ่งเท่านั้น"""
+    kind: Literal["event", "handover"]
+    id: int
+    occurred_at: datetime
+    status: str
+    event: Optional[PaymentHistoryEvent] = None
+    handover: Optional[PaymentHistoryHandover] = None
+
+
+class PaymentHistoryResponse(BaseModel):
+    """`GET /finance/payment-history` — cursor ทำงานโดยไม่ซ้ำ/ไม่ข้าม"""
+    items: List[PaymentHistoryItem] = Field(default_factory=list)
+    next_cursor: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว (credit-only, ไม่มี REC/DEP)
+# ═══════════════════════════════════════════════════════════════════════════
+class CreditRoundCreate(BaseModel):
+    """คำขอหักเครดิตของนักเรียนหลายคนในรอบเดียว
+
+    - `idempotency_key` ใช้ร่วมทั้งรอบ (ต่อคนกลายเป็น `f"{key}:{student_id}"`)
+    - `wallet_account_id` เป็นเพียง **กระเป๋าอ้างอิง** ของ event (NOT NULL ใน DB)
+      — รอบนี้ไม่แตะยอดกระเป๋าเลย ถ้าไม่ส่ง ระบบเลือกกระเป๋าเงินสดหลักให้
+    - `user_name` ใช้เป็นชื่อผู้บันทึก (`student_credits.recorded_by`) และ
+      ชื่อผู้รับของ event เมื่อไม่ได้เลือก `receiver_person_id`
+    """
+    # ⚠️ ไม่ใส่ `min_length`/`max_length` ของ Pydantic ที่นี่โดยเจตนา — 1..100 คน/คีย์ 8–64
+    #    ตัวอักษรถูกตรวจใน service (ValueError → 400 พร้อมข้อความไทย) ถ้าปล่อยให้ Pydantic
+    #    ตอบ 422 จะแยกไม่ออกว่า "ผู้ใช้กรอกผิด" กับ "ต้องโหลดรายชื่อใหม่" (409)
+    idempotency_key: str
+    student_ids: List[int]
+    reference_no: Optional[str] = Field(default=None, max_length=128)
+    receiver_person_id: Optional[int] = None
+    note: Optional[str] = None
+    wallet_account_id: Optional[int] = None
+    user_name: Optional[str] = None
+
+
+class CreditRoundEvent(BaseModel):
+    """ผลต่อนักเรียน 1 คน — 1 event credit-only (ไม่มีการเคลื่อนไหวของเงิน)"""
+    student_id: int
+    student_name: str
+    event_id: int
+    total_applied: float
+    credit_used: float
+    balance_after: float
+    credit_entry_ids: List[int] = Field(default_factory=list)
+
+
+class CreditRoundSkipped(BaseModel):
+    """นักเรียนที่ถูกเลือกแต่ไม่มี event (ไม่มีบิลค้าง/เครดิตไม่พอ)"""
+    student_id: int
+    student_name: str
+    reason: str
+
+
+class CreditRoundResponse(BaseModel):
+    reused: bool
+    reference_no: Optional[str] = None
+    events: List[CreditRoundEvent] = Field(default_factory=list)
+    skipped: List[CreditRoundSkipped] = Field(default_factory=list)
+    total_applied: float
+    total_balance_after: float
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 💸 [FIN-V2 / P4.1] ใบสำคัญจ่ายหลายบรรทัด (1 ใบ = N transactions + N journals
+#     + 1 PV เสมอ) — CERT สำหรับบรรทัดไม่มีบิลออกที่ P4.2
+# ═══════════════════════════════════════════════════════════════════════════
+class ExpenseVoucherLineCreate(BaseModel):
+    """1 บรรทัดของใบสำคัญจ่าย — มีกระเป๋า/หมวด/งบของตัวเอง
+
+    - `amount` เป็น `Decimal` (รับได้ทั้ง number และ string) — เงินห้ามใช้ float
+    - `wallet_account_id` = กระเป๋าที่จ่ายจริงของบรรทัดนี้ (override กระเป๋า default)
+    - `funding_source='pass_through'` เป็นเงื่อนไขเดียวที่ใช้กระเป๋า `is_custody` ได้
+    """
+    description: str
+    amount: Decimal
+    category_id: int
+    budget_id: Optional[int] = None
+    wallet_account_id: int
+    receipt_status: Literal["attached", "paper", "none"] = "none"
+    paper_bill_count: int = 0
+    attachment_placeholder: Optional[str] = None
+    funding_source: Literal["room_fund", "pass_through"] = "room_fund"
+
+
+class ExpenseVoucherCreate(BaseModel):
+    """คำขอสร้างใบสำคัญจ่าย — ทั้งใบ atomic (ตรวจครบ → เขียนครบ หรือไม่เขียนเลย)
+
+    ⚠️ ไม่ใส่ constraint ของ Pydantic บน `idempotency_key`/`lines` โดยเจตนา —
+    จำนวนบรรทัด 1..50, ความยาวคีย์ 8..128 และยอด/หมวด/งบ/เงินพอ ถูกตรวจใน service
+    ⇒ ผู้ใช้เห็น 400 พร้อมข้อความไทย ไม่ใช่ 422 ที่แยกไม่ออกจาก 409 บนหน้าจอ
+    """
+    idempotency_key: str
+    default_wallet_account_id: int
+    payee_person_id: Optional[int] = None
+    payee_name: str
+    # 🖊️ ชื่อผู้จัดทำ (ลายเซ็นช่อง `prepared`) — ไม่ส่งมาก็ได้ ระบบจะอ่านจากโปรไฟล์ผู้ใช้
+    user_name: Optional[str] = None
+    voucher_date: Optional[date] = None
+    note: Optional[str] = None
+    total_amount: Optional[Decimal] = None
+    approved_by_person_id: Optional[int] = None
+    approved_by_name: Optional[str] = None
+    lines: List[ExpenseVoucherLineCreate] = Field(default_factory=list)
+
+
+class ExpenseVoucherLineItem(BaseModel):
+    line_no: int
+    description: str
+    amount: float
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    budget_id: Optional[int] = None
+    budget_label: Optional[str] = None
+    wallet_account_id: int
+    wallet_name: Optional[str] = None
+    finance_transaction_id: Optional[int] = None
+    receipt_status: str
+    paper_bill_count: int
+    attachment_placeholder: Optional[str] = None
+    funding_source: str
+
+
+class ExpenseVoucherSignatureItem(BaseModel):
+    role: str
+    person_id: Optional[int] = None
+    signer_name: str
+
+
+class ExpenseVoucherResponse(BaseModel):
+    """ผลของ `POST /finance/expense-vouchers` — `reused=true` = คีย์เดิม payload เดิม
+
+    🧾 [P4.2] `cert_*` มีค่าเฉพาะเมื่อมีบรรทัด `receipt_status='none'`;
+    `cert_amount` = ผลรวม **เฉพาะบรรทัด none** (ไม่เท่ากับ `total_amount` เสมอ)
+    """
+    id: int
+    total_amount: float
+    line_count: int
+    pv_receipt_id: int
+    pv_receipt_no: str
+    cert_receipt_id: Optional[int] = None
+    cert_receipt_no: Optional[str] = None
+    cert_amount: Optional[float] = None
+    cert_line_nos: List[int] = Field(default_factory=list)
+    created_at: datetime
+    reused: bool = False
+
+
+class ExpenseVoucherListItem(BaseModel):
+    id: int
+    voucher_date: date
+    payee_name: str
+    total_amount: float
+    line_count: int
+    status: str
+    pv_receipt_id: Optional[int] = None
+    pv_receipt_no: Optional[str] = None
+    created_at: datetime
+
+
+class ExpenseVoucherListResponse(BaseModel):
+    items: List[ExpenseVoucherListItem] = Field(default_factory=list)
+    total: float
+
+
+class ExpenseVoucherDetailResponse(BaseModel):
+    id: int
+    voucher_date: date
+    payee_person_id: Optional[int] = None
+    payee_name: str
+    default_wallet_account_id: int
+    note: Optional[str] = None
+    total_amount: float
+    status: str
+    pv_receipt_id: Optional[int] = None
+    pv_receipt_no: Optional[str] = None
+    cert_receipt_id: Optional[int] = None
+    cert_receipt_no: Optional[str] = None
+    cert_amount: Optional[float] = None
+    cert_line_nos: List[int] = Field(default_factory=list)
+    created_at: datetime
+    lines: List[ExpenseVoucherLineItem] = Field(default_factory=list)
+    signatures: List[ExpenseVoucherSignatureItem] = Field(default_factory=list)
+
+
+from typing import Any, Dict  # noqa: E402
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด (income batch)
+#    กระเป๋าเดียวต่อใบ · ผู้จ่ายเป็นข้อความอิสระ · INC 1 ใบ + 2 ลายเซ็น
+# ─────────────────────────────────────────────────────────────────────────
+class IncomeLineCreate(BaseModel):
+    """1 บรรทัดของใบรับเงิน — ไม่มีกระเป๋า/สถานะใบเสร็จ (schema ไม่มีคอลัมน์)"""
+    description: str
+    amount: Decimal
+    category_id: int
+
+
+class IncomeBatchCreate(BaseModel):
+    """คำขอสร้างใบรับเงิน — ทั้งใบ atomic
+
+    ⚠️ ไม่ใส่ constraint Pydantic บน `idempotency_key`/`lines` โดยเจตนา —
+    จำนวนบรรทัด 1..50, ความยาวคีย์ 8..128, ยอดรวม และความถูกต้องของหมวด/กระเป๋า/
+    person/channel ถูกตรวจใน service ⇒ ผู้ใช้เห็น 400 พร้อมข้อความไทย ไม่ใช่ 422
+    """
+    idempotency_key: str
+    payer_name: str
+    receiver_person_id: Optional[int] = None
+    # 🖊️ ใช้เมื่อไม่ส่ง person — ถ้าส่ง person ระบบใช้ชื่อจากทะเบียนเสมอ
+    receiver_name: Optional[str] = None
+    wallet_account_id: int
+    channel_id: Optional[int] = None
+    income_date: Optional[date] = None
+    note: Optional[str] = None
+    total_amount: Optional[Decimal] = None
+    # 🖊️ ชื่อผู้ออกเอกสาร (ลายเซ็นช่อง `prepared`) — ไม่ส่งมาก็อ่านจากโปรไฟล์
+    user_name: Optional[str] = None
+    lines: List[IncomeLineCreate] = Field(default_factory=list)
+
+
+class IncomeBatchResponse(BaseModel):
+    """ผลของ `POST /finance/income-batches` — `reused=true` = คีย์เดิม payload เดิม"""
+    id: int
+    total_amount: float
+    line_count: int
+    inc_receipt_id: int
+    inc_receipt_no: str
+    created_at: datetime
+    reused: bool = False
+
+
+class IncomeBatchListItem(BaseModel):
+    id: int
+    income_date: date
+    payer_name: str
+    receiver_name: str
+    total_amount: float
+    line_count: int
+    status: str
+    inc_receipt_id: Optional[int] = None
+    inc_receipt_no: Optional[str] = None
+    created_at: datetime
+
+
+class IncomeBatchListResponse(BaseModel):
+    items: List[IncomeBatchListItem] = Field(default_factory=list)
+    total: float
+
+
+class IncomeBatchLineItem(BaseModel):
+    line_no: int
+    description: str
+    amount: float
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    finance_transaction_id: Optional[int] = None
+
+
+class IncomeBatchSignatureItem(BaseModel):
+    role: str
+    person_id: Optional[int] = None
+    signer_name: str
+
+
+class IncomeBatchDetailResponse(BaseModel):
+    id: int
+    income_date: date
+    payer_name: str
+    receiver_person_id: Optional[int] = None
+    receiver_name: str
+    wallet_account_id: int
+    channel_id: Optional[int] = None
+    # 🎭 snapshot ที่ shape แล้ว (channel_type/label/bank_name/…_masked)
+    channel: Dict[str, Any] = Field(default_factory=dict)
+    note: Optional[str] = None
+    total_amount: float
+    status: str
+    inc_receipt_id: Optional[int] = None
+    inc_receipt_no: Optional[str] = None
+    created_at: datetime
+    lines: List[IncomeBatchLineItem] = Field(default_factory=list)
+    signatures: List[IncomeBatchSignatureItem] = Field(default_factory=list)
+
+
+# =====================================================================
+# 🗂️ [FIN-V2 / P5.1] ทะเบียนเอกสารรวม
+# =====================================================================
+# ⚠️ ห้ามเพิ่ม `__all__` ที่ไฟล์นี้ — router หลายตัว `import *` จากที่นี่และพึ่ง
+#    พฤติกรรม "ทุกคลาสที่ประกาศ = ส่งออก" (ดูคอมเมนต์กลางไฟล์)
+class DocumentListItem(BaseModel):
+    """แถวของทะเบียน — เงินเป็นสตริง 2 ตำแหน่ง (ตรงกับ `formatMoney` ของ frontend)"""
+    doc_type: str
+    doc_id: int
+    doc_no: Optional[str] = None
+    doc_at: Optional[datetime] = None
+    amount: Optional[str] = None
+    status: str
+    layout_version: int = 1
+    student_id: Optional[int] = None
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    receiver_person_id: Optional[int] = None
+    receiver_name: Optional[str] = None
+    channel_id: Optional[int] = None
+    line_item_count: Optional[int] = None
+
+
+class DocumentListResponse(BaseModel):
+    items: List[DocumentListItem] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+class DocumentSignatureItem(BaseModel):
+    role: str
+    person_id: Optional[int] = None
+    signer_name: str
+    signed_at: Optional[datetime] = None
+
+
+class DocumentLinkItem(BaseModel):
+    """ลิงก์ระหว่างเอกสาร — `direction` บอกว่าวันนี้เราคือ "ต้นทาง" หรือ "ปลายทาง" """
+    link_type: str
+    direction: Literal["out", "in"]
+    doc_type: str
+    doc_id: int
+    doc_no: Optional[str] = None
+
+
+class DocumentDetailResponse(BaseModel):
+    """รายละเอียดเอกสารทุกชนิดในรูปเดียว — ฟิลด์ที่ไม่เกี่ยวกับชนิดนั้นเป็น `None`
+
+    REC/INV/ACK/DEP/PV/CERT/INC มาจาก `finance_receipts`; monthly_report มาจาก
+    `finance_monthly_reports` (ฟิลด์ `year_be`…`variance` มีค่าเฉพาะ RPT)
+    """
+    doc_type: str
+    doc_id: int
+    doc_no: Optional[str] = None
+    doc_type_label: Optional[str] = None
+    doc_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
+    # 💰 เงินเป็นสตริง 2 ตำแหน่ง + คำอ่านไทย (แหล่งเดียวกับที่พิมพ์บนกระดาษ)
+    amount: Optional[str] = None
+    amounts_in_words: Optional[str] = None
+    status: str
+    layout_version: int = 1
+    student_id: Optional[int] = None
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    receiver_person_id: Optional[int] = None
+    receiver_name: Optional[str] = None
+    channel_id: Optional[int] = None
+    payment_event_id: Optional[int] = None
+    line_item_count: Optional[int] = None
+    issued_to_name: Optional[str] = None
+    issued_by_name: Optional[str] = None
+    note: Optional[str] = None
+    void_reason: Optional[str] = None
+    voided_at: Optional[datetime] = None
+    # 📋 snapshot ของเอกสาร (v2) — ใช้แสดงรายละเอียดโดยไม่ JOIN สด
+    document_meta: Dict[str, Any] = Field(default_factory=dict)
+    line_items: Optional[List[Dict[str, Any]]] = None
+    # 📚 ใบเสร็จยุบรวม (layout 1) — ชื่อ/ยอดของบิลต้นทาง
+    collection_title: Optional[str] = None
+    collection_due_date: Optional[date] = None
+    collection_amount: Optional[float] = None
+    remaining: Optional[float] = None
+    signatures: List[DocumentSignatureItem] = Field(default_factory=list)
+    links: List[DocumentLinkItem] = Field(default_factory=list)
+    # 🧾 เฉพาะ RPT (`finance_monthly_reports`)
+    year_be: Optional[int] = None
+    month: Optional[int] = None
+    version: Optional[int] = None
+    total_income: Optional[float] = None
+    total_expense: Optional[float] = None
+    opening_cash: Optional[float] = None
+    closing_cash: Optional[float] = None
+    counted_cash: Optional[float] = None
+    variance: Optional[float] = None
+    finalized_at: Optional[datetime] = None
+    snapshot: Optional[Dict[str, Any]] = None
+
+
+class DocumentRefItem(BaseModel):
+    doc_type: str
+    doc_id: int
+
+
+class DocumentPrintBundleRequest(BaseModel):
+    """พิมพ์ชุด — dedupe/เพดาน 100/การมีอยู่จริง ตรวจที่ service (400/404 ภาษาไทย)"""
+    items: List[DocumentRefItem] = Field(default_factory=list)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P5.4] ACK — รายการ/รายละเอียด/ยกเลิก (การออกใบเป็นของ P2.6)
+# ══════════════════════════════════════════════════════════════════════════════
+class AckListItem(BaseModel):
+    """แถวรายการ ACK — ไม่มีรายชื่อนักเรียน (ดึงเฉพาะตอนเปิดใบ)"""
+    receipt_no: str
+    doc_type: str
+    doc_type_label: Optional[str] = None
+    amount: float
+    paid_total_after: float = 0.0
+    entry_count: int = 0
+    scope: Optional[str] = None
+    note: Optional[str] = None
+    # 🗓️ "วันที่ของเอกสาร" = event_at (ตัวเดียวกับที่พิมพ์) — issued_at ไว้เป็น fallback
+    event_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
+    status: str = "active"
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+
+
+class AckListResponse(BaseModel):
+    status: str = "success"
+    items: List[AckListItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class AckDetailResponse(BaseModel):
+    """ACK 1 ใบ + รายชื่อผู้ค้าง (snapshot ณ วันออก — ไม่ JOIN บิลสด)"""
+    status: str = "success"
+    message: Optional[str] = None
+    receipt: ReceiptResponse
+    entries: List[AckEntryResponse] = Field(default_factory=list)
+    entry_count: int = 0
+
+
+class AckVoidRequest(BaseModel):
+    """เหตุผลยกเลิก ACK — บังคับ เพราะต้องเก็บใน `void_reason` + audit"""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P5.4] RPT — รายงานปิดงบเดือน (`finance_monthly_reports`)
+# ══════════════════════════════════════════════════════════════════════════════
+class MonthlyReportCreate(BaseModel):
+    """สร้างฉบับร่าง — ต้องไม่ซ้ำงวดที่มี active อยู่ (service ตอบ 409)"""
+    year_be: int = Field(..., ge=2400, le=2700, description="ปี พ.ศ. เช่น 2569")
+    month: int = Field(..., ge=1, le=12)
+    # 📝 ไม่มีคอลัมน์ `note` ในตาราง — service เก็บลง `snapshot.note`
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class MonthlyReportFinalize(BaseModel):
+    """ปิดงบ — เงินสดนับจริงต้องตรงกับ `closing_cash` (service ตรวจ, 400 ถ้าต่าง)"""
+    counted_cash: Decimal = Field(..., ge=0, description="เงินสดที่นับได้จริง (บาท)")
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class MonthlyReportVoid(BaseModel):
+    """ยกเลิกรายงาน — ได้เฉพาะฉบับล่าสุดของเดือน และต้องมีเหตุผล"""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class MonthlyReportResponse(BaseModel):
+    id: int
+    report_no: str
+    year_be: int
+    month: int
+    version: int
+    status: str
+    total_income: float
+    total_expense: float
+    opening_cash: float
+    closing_cash: float
+    counted_cash: Optional[float] = None
+    variance: Optional[float] = None
+    finalized_at: Optional[datetime] = None
+    finalized_by: Optional[int] = None
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # 📋 snapshot ณ ตอนสร้าง — หมวดรายรับ/รายจ่าย + cash flow + cash_gap
+    snapshot: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MonthlyReportListResponse(BaseModel):
+    status: str = "success"
+    items: List[MonthlyReportResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class MonthlyReportDetailResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    report: MonthlyReportResponse
+    signatures: List[DocumentSignatureItem] = Field(default_factory=list)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P6.1] void engine — คำขอ/คำตอบกลางของการยกเลิกเอกสาร/เหตุการณ์เงิน
+# ══════════════════════════════════════════════════════════════════════════════
+class VoidRequest(BaseModel):
+    """เหตุผลยกเลิกเอกสาร
+
+    🔴 **ไม่ใช้ `min_length=1` โดยเจตนา** — ถ้าปล่อยให้ Pydantic ปฏิเสธ จะได้ **422**
+       แต่กติกาของ API นี้คือ 400 สำหรับ request ที่ผู้ใช้กรอกผิด ⇒ service เป็นผู้ trim
+       แล้ว raise `ValueError` (ว่าง/ช่องว่างล้วน ⇒ 400 พร้อมข้อความไทย)
+    """
+    reason: str = Field(default="", max_length=500)
+
+
+class VoidAccountDelta(BaseModel):
+    """ผลกระทบต่อกระเป๋าเงิน 1 ใบ — `delta` ติดลบ = เงินออก, บวก = เงินกลับ"""
+    account_id: int
+    delta: float
+
+
+class VoidReversed(BaseModel):
+    """ยอดที่ย้อนกลับ — ใช้แสดงผลสรุปหลังยกเลิก"""
+    amount: float = 0.0
+    paid_amount_delta: float = 0.0
+    # 📊 การเปลี่ยนแปลงสุทธิของเครดิตนักเรียน (ลบ = ถอนเครดิตส่วนเกินคืนเข้าระบบ)
+    credit_restored: float = 0.0
+    accounts: List[VoidAccountDelta] = Field(default_factory=list)
+
+
+class VoidResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    doc_type: str
+    doc_id: int
+    receipt_no: Optional[str] = None
+    voided_at: Optional[datetime] = None
+    reversed: VoidReversed = Field(default_factory=VoidReversed)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P6.2] ตัดจำหน่าย/ให้ส่วนลดบิลโครงการ + fund_type + เตือนชื่อซ้ำ
+# ══════════════════════════════════════════════════════════════════════════════
+class BillAdjustmentRequest(BaseModel):
+    """คำขอตัดจำหน่าย (`write_off`) / ให้ส่วนลด (`discount`) ของบิลโครงการ
+
+    🔴 `reason` **ไม่ใช้ `min_length=1` โดยเจตนา** — กติกาของ API นี้คือ 400
+       (service เป็นผู้ trim แล้ว raise `ValueError`) ไม่ใช่ 422 ของ Pydantic
+    """
+    # 🔴 ไม่ใส่ `ge=0` โดยเจตนา — ยอดติดลบ/ศูนย์ต้องได้ **400** จาก service
+    #    (กติกาของ API นี้: request ที่ผู้ใช้กรอกผิด = 400 ไม่ใช่ 422 ของ Pydantic)
+    amount: float = Field(0, description="ยอดที่ตัด (บาท) — 0 < amount ≤ ยอดคงเหลือ")
+    reason: str = Field(default="", max_length=500)
+    idempotency_key: str = Field(
+        default="", max_length=100,
+        description="คีย์กันส่งซ้ำ — คำขอซ้ำด้วยคีย์เดิมคืนผลเดิม (200) ไม่ตัดซ้ำ",
+    )
+
+
+class BillAdjustmentItem(BaseModel):
+    """รายการปรับบิล 1 รายการ — ตัวเลขเงินเป็น string 2 ตำแหน่ง (แบบ v2)"""
+    id: int
+    adjustment_type: str
+    amount: str
+    status: str
+    written_off_total: str
+    remaining: str
+    bill_status: str
+    journal_entry_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    reason: Optional[str] = None
+
+
+class BillAdjustmentResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    reused: bool = False
+    adjustment: BillAdjustmentItem
+    voided_invoices: int = 0
+
+
+class BillAdjustmentListItem(BaseModel):
+    """แถวประวัติการปรับบิลของบิลหนึ่ง"""
+    id: int
+    student_payment_id: int
+    adjustment_type: str
+    amount: str
+    reason: Optional[str] = None
+    status: str
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+    journal_entry_id: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+class BillAdjustmentListResponse(BaseModel):
+    items: List[BillAdjustmentListItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class FundTypeUpdateRequest(BaseModel):
+    """ตั้งมิติรายงานของโครงการ — ไม่แตะเงิน/ยอด/journal
+
+    🔴 ใช้ `Literal` ให้ Pydantic ปฏิเสธค่าที่ไม่รู้จักเป็น 422
+       (เป็นค่าคงที่ของระบบ ไม่ใช่ข้อความที่ผู้ใช้พิมพ์อิสระ)
+    """
+    fund_type: Literal["room_fund", "pass_through"]
+
+
+class FundTypeResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    id: int
+    title: str
+    fund_type: str
+
+
+class DuplicateTitleItem(BaseModel):
+    id: int
+    title: str
+    status: Optional[str] = None
+    # ⚠️ คงไว้เป็น Optional แต่ **ไม่มีวันถูกส่งค่า** — `fee_collections` ไม่มีคอลัมน์
+    #    `created_at` (ดู `core/init_db.py`) ⇒ service เรียงด้วย id แทน
+    created_at: Optional[datetime] = None
+
+
+class DuplicateTitleResponse(BaseModel):
+    """ผลตรวจชื่อโครงการซ้ำ — เตือนอย่างเดียว ไม่บล็อกการสร้าง"""
+    duplicates: List[DuplicateTitleItem] = Field(default_factory=list)
+    warning: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 📊 [FIN-V2 / P6.4] เงินของห้อง "ตอนนี้" (money ownership) — snapshot ปัจจุบัน
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⚠️ ตัวเลขเป็น `float` (number) ตรงกับ `FinanceSummaryResponse` และ `utils/money.ts`
+#    ของฝั่ง FE ที่รับ number — ถ้าอนาคตเปลี่ยนเป็น string ต้องแก้ FE ทุกจุด (TS จะฟ้อง)
+class MoneyOwnershipReceiver(BaseModel):
+    """ผู้รับเงินที่ยังถือเงินของห้องอยู่ (จาก custodial account ที่มีเจ้าของ)"""
+    receiver_id: int
+    name: str
+    held: float
+
+
+class MoneyOwnershipResponse(BaseModel):
+    """สมการเงินของห้อง: `total_cash = room_wallets + custody_held`,
+    `net_room_money = total_cash − credit_liability` (backend คำนวณ, FE ห้ามรวมเอง)
+
+    🔴 `net_room_money` ติดลบได้ — แปลว่าเครดิตที่ติดค้างมากกว่าเงินสด (ข้อมูลผิด)
+       ต้องแสดงบนจอ ไม่ใช่ clamp
+    """
+    room_wallets: float
+    custody_held: float
+    total_cash: float
+    credit_liability: float
+    receivable_total: float
+    net_room_money: float
+    by_receiver: List[MoneyOwnershipReceiver] = Field(default_factory=list)
+    quick_actions: List[str] = Field(default_factory=list)

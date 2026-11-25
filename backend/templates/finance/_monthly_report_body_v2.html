@@ -1,0 +1,178 @@
+  {% if d.is_voided %}
+  {# 🚫 รายงานที่ยกเลิกแล้วต้องอ่านออกก่อนตัวเลขใด ๆ — คลาสเดียวกับ partial ใบเสร็จ #}
+  <div class="void-banner">
+    รายงานปิดงบนี้ถูกยกเลิกแล้ว — VOID
+    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="head">
+    <div>
+      <h1>{{ d.doc_type_label }}</h1>
+      <div class="room">
+        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
+      </div>
+    </div>
+    <div class="doc-title">
+      <div class="label">เลขที่ {{ d.report_no }}</div>
+      <div class="no">รอบเดือน {{ d.month_text }} {{ d.year_be }}</div>
+    </div>
+  </div>
+
+  <hr>
+
+  {# ══════════════════════════════════════════════════════════════════════════
+     📊 รายงานปิดงบเดือน (P5.4) — เอกสาร **ภายใน** ของห้อง ไม่ใช่ใบที่แจกผู้ปกครอง
+     🔴 ทุกตัวเลขมาจาก snapshot ของ `finance_monthly_reports.snapshot` ณ ตอนสร้าง
+        + `counted_cash`/`variance` ที่บันทึกตอนปิดงบ — ไม่คำนวณใหม่บนกระดาษ
+     ⚠️ ห้ามใส่ `<style>`/`padding` ในไฟล์นี้: shell `receipt.html` จัดหน้าให้แล้ว
+     ⚠️ ห้าม `id` คงที่ — ชุดพิมพ์อาจมีหลายใบในไฟล์เดียว
+     ══════════════════════════════════════════════════════════════════════════ #}
+
+  <table class="meta">
+    <tr>
+      <td class="k">รอบบัญชี</td>
+      <td>{{ d.period_start or "-" }} ถึง {{ d.period_end or "-" }} ({{ d.month_text }} {{ d.year_be }})</td>
+    </tr>
+    <tr>
+      <td class="k">ฉบับที่ / สถานะ</td>
+      <td>v{{ d.version }} · {{ d.status_text }}</td>
+    </tr>
+    {% if d.finalized_at %}
+    <tr>
+      <td class="k">ปิดงบเมื่อ</td>
+      <td>{{ d.finalized_at }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  {# ─── รายรับ ──────────────────────────────────────────────────────────── #}
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width: 90px;">รหัสบัญชี</th>
+        <th>หมวดรายรับ</th>
+        <th class="num" style="width: 120px;">จำนวนเงิน (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in d.income_by_category %}
+      <tr>
+        <td class="due">{{ it.account_code or '—' }}</td>
+        <td>{{ it.account_name }}</td>
+        <td class="num">{{ "{:,.2f}".format(it.amount) }}</td>
+      </tr>
+      {% endfor %}
+      {% if not d.income_by_category %}
+      <tr>
+        <td colspan="3" class="more">ไม่มีรายได้บันทึกไว้ในงวดนี้</td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td colspan="2" style="text-align: right; font-weight: 700;">รวมรายรับ</td>
+        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.total_income) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {# ─── รายจ่าย ─────────────────────────────────────────────────────────── #}
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width: 90px;">รหัสบัญชี</th>
+        <th>หมวดรายจ่าย</th>
+        <th class="num" style="width: 120px;">จำนวนเงิน (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in d.expense_by_category %}
+      <tr>
+        <td class="due">{{ it.account_code or '—' }}</td>
+        <td>{{ it.account_name }}</td>
+        <td class="num">{{ "{:,.2f}".format(it.amount) }}</td>
+      </tr>
+      {% endfor %}
+      {% if not d.expense_by_category %}
+      <tr>
+        <td colspan="3" class="more">ไม่มีรายจ่ายบันทึกไว้ในงวดนี้</td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td colspan="2" style="text-align: right; font-weight: 700;">รวมรายจ่าย</td>
+        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.total_expense) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {# ─── เงินสด: ยกมา + รับ − จ่าย = ปิด ─────────────────────────────────── #}
+  <table class="items">
+    <thead>
+      <tr>
+        <th>กระแสเงินสด</th>
+        <th class="num" style="width: 140px;">จำนวนเงิน (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>เงินสดยกมา</td>
+        <td class="num">{{ "{:,.2f}".format(d.cash.opening) }}</td>
+      </tr>
+      <tr>
+        <td>บวกรายรับในงวด</td>
+        <td class="num">{{ "{:,.2f}".format(d.cash.income) }}</td>
+      </tr>
+      <tr>
+        <td>หักรายจ่ายในงวด</td>
+        <td class="num">({{ "{:,.2f}".format(d.cash.expense) }})</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 700;">เงินสดคงเหลือตามบัญชี (ปิดงบ)</td>
+        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.cash.closing) }}</td>
+      </tr>
+      {% if d.counted_cash is not none %}
+      <tr>
+        <td>เงินสดนับได้จริง</td>
+        <td class="num">{{ "{:,.2f}".format(d.counted_cash) }}</td>
+      </tr>
+      <tr>
+        <td>ผลต่าง (นับได้ − ตามบัญชี)</td>
+        <td class="num">{{ "{:,.2f}".format(d.variance) }}</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  {% if d.counted_cash is none and not d.is_voided %}
+  {# ⚠️ ฉบับร่างต้องบอกให้ชัดว่ายังไม่ปิดงบ — ตัวเลข "ปิดงบ" คือยอดตามบัญชี ไม่ใช่ยอดนับจริง #}
+  <div class="note">
+    ฉบับร่าง — ยังไม่ได้นับเงินสดและปิดงบ ยอด "ปิดงบ" ข้างต้นเป็นยอดตามบัญชีเท่านั้น
+  </div>
+  {% endif %}
+
+  {% if d.note %}
+  <div class="note">หมายเหตุ: {{ d.note }}</div>
+  {% endif %}
+
+  {# ✍️ 3 ช่องตามสเปก: ผู้จัดทำ · ผู้อนุมัติ · ผู้ตรวจสอบ (schema มี role 'receiver' = ผู้ตรวจสอบ)
+     🔴 `sign sign-3` ลดความกว้างช่องเป็น 30% (คลาสมีอยู่แล้วใน shell) #}
+  <div class="sign sign-3">
+    <div class="slot">
+      <div class="line"></div>
+      <div class="who">{{ d.prepared_by or '' }}</div>
+      <div class="role">ผู้จัดทำ</div>
+    </div>
+    <div class="slot">
+      <div class="line"></div>
+      <div class="who">{{ d.approved_by or '' }}</div>
+      <div class="role">ผู้อนุมัติ</div>
+    </div>
+    <div class="slot">
+      <div class="line"></div>
+      <div class="who">{{ d.checked_by or '' }}</div>
+      <div class="role">ผู้ตรวจสอบ</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    รายงานฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.report_no }}
+  </div>

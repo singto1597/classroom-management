@@ -324,6 +324,44 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล — รวมผู้ค้างชำระ + เงินรับล่วงหน้าเป็นรายชื่อเดียว
+        // อ่านเปิดให้สมาชิก (backend `require_member`) ⇒ ห้ามใส่ permission ที่นี่
+        // ⚠️ static ต้องมาก่อน `:studentId` — แม้ regex `\d+` กันได้ ก็อ่านง่ายกว่า
+        path: '/finance/individual-accounts',
+        name: 'finance-individual-accounts',
+        component: () => import('@/views/finance/IndividualAccounts.vue'),
+        meta: {
+          title: routeTitles['finance-individual-accounts'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน path อื่นถูกกลืนและกัน `Number('abc') = NaN`
+        path: '/finance/individual-accounts/:studentId(\\d+)',
+        name: 'finance-individual-account-detail',
+        component: () => import('@/views/finance/IndividualAccountDetail.vue'),
+        meta: {
+          title: routeTitles['finance-individual-account-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📒 รายการเดินบัญชี — route ยาวกว่าต้องประกาศหลัง detail (แม้ regex กันได้)
+        path: '/finance/individual-accounts/:studentId(\\d+)/statement',
+        name: 'finance-student-statement',
+        component: () => import('@/views/finance/StudentStatement.vue'),
+        meta: {
+          title: routeTitles['finance-student-statement'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         // ⚖️ [P5] ค่าปรับ — อ่านเปิดให้สมาชิก (backend กรองเฉพาะของตัวเองให้)
         // ปุ่มเขียน (ออก/แก้/ยกเลิก/ขอยกเว้น/ขอคืนเงิน/อนุมัติ) gate ด้วย `canManageFinance`
         // ⚠️ static `fines` ต้องมาก่อน `fines/:id` — และ backend เองก็มีกับดัก
@@ -387,28 +425,224 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
-        // ทะเบียนเอกสาร — อ่านเปิดให้สมาชิก ปุ่มออกเอกสารอยู่ในหน้าที่ยื่นบริบทให้
-        // (CollectionDetail สำหรับใบเสร็จ · DebtorList สำหรับใบแจ้งหนี้) ไม่ใช่ที่นี่
+        // 🔁 [FIN-V2 / P6.5] ทางเข้าเก่า: รายการใบเสร็จ/ใบแจ้งหนี้ → ทะเบียนเอกสาร (P5.2)
+        //    ⚠️ ไม่มี `name` โดยเจตนา — ไม่ต้องมี routeTitles/navTab และไม่ให้โค้ดใหม่
+        //    ลิงก์มาที่ทางเข้า legacy (redirect ยังอยู่เพื่อบุ๊กมาร์ก/Discord ที่แชร์ไปแล้ว)
         path: '/finance/receipts',
-        name: 'finance-receipts',
-        component: () => import('@/views/finance/ReceiptList.vue'),
+        redirect: { name: 'finance-documents' },
+      },
+      {
+        // 🔁 [FIN-V2 / P6.5] ลิงก์/บุ๊กมาร์กเก่าที่ชี้ใบใดใบหนึ่ง → แปลงเลขเป็น detail ของทะเบียน
+        //    ⚠️ ต้องประกาศ **หลัง** `finance/receipts` (static-before-dynamic)
+        //    `receiptNo` เป็น string รูป REC-2569-0042 — backend เป็นผู้แปลงเป็น (doc_type, doc_id)
+        path: '/finance/receipts/:receiptNo',
+        name: 'finance-receipt-detail',
+        component: () => import('@/views/finance/LegacyReceiptRedirect.vue'),
         meta: {
-          title: routeTitles['finance-receipts'],
+          title: routeTitles['finance-receipt-detail'],
           navTab: 'finance',
           headerBack: true,
           width: 'wide',
         },
       },
       {
-        // ⚠️ ต้องประกาศ **หลัง** `finance/receipts` — ไม่งั้น vue-router จะพยายาม
-        //    match `receipts` เป็นค่า `:receiptNo` (route แรกที่ตรงกว่าชนะ แต่ลำดับ
-        //    ของ static-before-dynamic คือสิ่งที่อ่านแล้วไม่ต้องเดา)
-        // `receiptNo` เป็น string รูป REC-2569-0042 — backend validate pattern ให้อีกชั้น
-        path: '/finance/receipts/:receiptNo',
-        name: 'finance-receipt-detail',
-        component: () => import('@/views/finance/ReceiptDetail.vue'),
+        // 🔗 [FIN-V2 / P6.5] แปลงเลขเอกสารเป็นหน้า detail — ทางเข้าปกติของโค้ดใหม่
+        //    ⚠️ ต้องอยู่ **ก่อน** `/finance/documents/:docType/:docId` ไม่งั้น `by-no`
+        //    จะถูกจับเป็นค่า `:docType`
+        path: '/finance/documents/by-no/:docNo',
+        name: 'finance-document-by-no',
+        component: () => import('@/views/finance/LegacyReceiptRedirect.vue'),
         meta: {
-          title: routeTitles['finance-receipt-detail'],
+          title: routeTitles['finance-document-by-no'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — เอกสาร 8 ชนิดในตารางเดียว (อ่านอย่างเดียว)
+        path: '/finance/documents',
+        name: 'finance-documents',
+        component: () => import('@/views/finance/DocumentRegistry.vue'),
+        meta: {
+          title: routeTitles['finance-documents'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📄 [FIN-V2 / P5.2] รายละเอียดเอกสาร — รับคู่ (`doc_type`, `doc_id`) ไม่ใช่เลขเอกสาร
+        // เพราะเลข RPT ยังไม่มีก่อน finalized และเลขเอกสารชนกันได้ข้ามชนิด
+        path: '/finance/documents/:docType/:docId',
+        name: 'finance-document-detail',
+        component: () => import('@/views/finance/DocumentDetail.vue'),
+        meta: {
+          title: routeTitles['finance-document-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 👜 [FIN-V2 / P3.2] เงินสดรอส่งมอบ — อ่านเปิดให้สมาชิก (backend `require_member`)
+        // ปุ่มเขียน (ตั้งกระเป๋า/ส่งมอบ/ยกเลิก) gate ด้วย `canManageFinance` ในตัวหน้า
+        // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา — เข้าจากการ์ดใน `/finance/settings` / การเงิน
+        //    ไม่เพิ่มเมนูหลักซ้ำกับหน้า `/finance`
+        path: '/finance/custody',
+        name: 'finance-custody',
+        component: () => import('@/views/finance/CustodyList.vue'),
+        meta: {
+          title: routeTitles['finance-custody'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน — อ่านเปิดให้สมาชิก (`require_member`)
+        // รวม payment event + การส่งมอบเงินสดในไทม์ไลน์เดียว · ไม่มีปุ่มเขียน
+        path: '/finance/payment-history',
+        name: 'finance-payment-history',
+        component: () => import('@/views/finance/PaymentHistory.vue'),
+        meta: {
+          title: routeTitles['finance-payment-history'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 💸 [FIN-V2 / P4.3] ใบสำคัญจ่ายหลายบรรทัด — อ่านเปิดให้สมาชิก (`require_member`)
+        // ปุ่มสร้าง/ฟอร์ม gate ด้วย `canManageFinance` ในตัวหน้า; backend บังคับ MANAGE_FINANCE ซ้ำ
+        // ⚠️ `new` ต้องมาก่อน `:id` — ไม่งั้น vue-router จับ `new` เป็น id
+        path: '/finance/expense-vouchers',
+        name: 'finance-expense-vouchers',
+        component: () => import('@/views/finance/ExpenseVoucherList.vue'),
+        meta: {
+          title: routeTitles['finance-expense-vouchers'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        path: '/finance/expense-vouchers/new',
+        name: 'finance-expense-voucher-create',
+        component: () => import('@/views/finance/ExpenseVoucherCreate.vue'),
+        meta: {
+          title: routeTitles['finance-expense-voucher-create'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'form',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน path อื่นถูกกลืนและกัน `Number('abc') = NaN`
+        path: '/finance/expense-vouchers/:id(\\d+)',
+        name: 'finance-expense-voucher-detail',
+        component: () => import('@/views/finance/ExpenseVoucherDetail.vue'),
+        meta: {
+          title: routeTitles['finance-expense-voucher-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 💰 [FIN-V2 / P4.5] ใบรับเงินหลายบรรทัด — อ่านเปิดให้สมาชิก (`require_member`)
+        // ปุ่มสร้าง/ฟอร์ม gate ด้วย `canManageFinance`; backend บังคับ MANAGE_FINANCE ซ้ำ
+        path: '/finance/income-batches',
+        name: 'finance-income-batches',
+        component: () => import('@/views/finance/IncomeBatchList.vue'),
+        meta: {
+          title: routeTitles['finance-income-batches'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // ⚠️ `new` ต้องมาก่อน `:id` — ไม่งั้น vue-router จับ `new` เป็น id
+        path: '/finance/income-batches/new',
+        name: 'finance-income-batch-create',
+        component: () => import('@/views/finance/IncomeBatchCreate.vue'),
+        meta: {
+          title: routeTitles['finance-income-batch-create'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'form',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน path อื่นถูกกลืนและกัน `Number('abc') = NaN`
+        path: '/finance/income-batches/:id(\\d+)',
+        name: 'finance-income-batch-detail',
+        component: () => import('@/views/finance/IncomeBatchDetail.vue'),
+        meta: {
+          title: routeTitles['finance-income-batch-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 🧾 [FIN-V2 / P5.5] ใบรับทราบยอดค้าง (ACK) — อ่านเปิดให้สมาชิก (`require_member`)
+        // ปุ่มออกใบ/ยกเลิก gate ด้วย `canManageFinance`; backend บังคับ MANAGE_FINANCE ซ้ำ
+        // ⚠️ ACK ไม่แตะเงิน — void แล้วไม่กระทบยอดบัญชีใด ๆ
+        path: '/finance/acknowledgements',
+        name: 'finance-acknowledgements',
+        component: () => import('@/views/finance/AckList.vue'),
+        meta: {
+          title: routeTitles['finance-acknowledgements'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 🔑 ใช้เลขเอกสารเป็น param (backend หา detail ด้วย `receipt_no` ไม่ใช่ id)
+        path: '/finance/acknowledgements/:receiptNo',
+        name: 'finance-acknowledgement-detail',
+        component: () => import('@/views/finance/AckDetail.vue'),
+        meta: {
+          title: routeTitles['finance-acknowledgement-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📊 [FIN-V2 / P5.5] รายงานปิดงบเดือน (RPT) — อ่านเปิดให้สมาชิก (`require_member`)
+        path: '/finance/monthly-reports',
+        name: 'finance-monthly-reports',
+        component: () => import('@/views/finance/MonthlyReportList.vue'),
+        meta: {
+          title: routeTitles['finance-monthly-reports'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // ⚠️ `new` ต้องมาก่อน `:id` — ไม่งั้น vue-router จับ `new` เป็น id → 422
+        path: '/finance/monthly-reports/new',
+        name: 'finance-monthly-report-new',
+        component: () => import('@/views/finance/MonthlyReportWizard.vue'),
+        meta: {
+          title: routeTitles['finance-monthly-report-new'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'form',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน `new` (และ path อื่น) ถูกกลืน + กัน `Number('abc') = NaN`
+        path: '/finance/monthly-reports/:id(\\d+)',
+        name: 'finance-monthly-report',
+        component: () => import('@/views/finance/MonthlyReportWizard.vue'),
+        meta: {
+          title: routeTitles['finance-monthly-report'],
           navTab: 'finance',
           headerBack: true,
           width: 'wide',

@@ -145,4 +145,22 @@ describe('normalizeApiError — ต้องไม่ทำลายชนิด
       code: 'INVALID_ROOM',
     });
   });
+
+  // 🧩 [FIN-V2 / P2.7] error รายคนของ bulk receive ส่ง `detail` เป็น **object**
+  //    `String(obj)` = "[object Object]" ⇒ ต้องใช้ `message` เป็นข้อความ แต่ **คง object**
+  //    ไว้ใน `response.data.detail` เพื่อให้ชีตอ่าน `student_id` (ไฮไลต์แถวที่พัง) ได้
+  it('detail ที่เป็น object → message = detail.message และ response.data.detail ยังเป็น object', async () => {
+    const detail = {
+      code: 'BULK_ITEM_FAILED',
+      message: 'บิลถูกปิดไปแล้ว',
+      student_id: 12,
+      item_code: 'BILL_NOT_OPEN',
+    };
+    const rejected = await rejectionOf(axiosErrorWith(409, { detail }));
+
+    expect((rejected as Error).message).toBe('บิลถูกปิดไปแล้ว');
+    expect(
+      (rejected as AxiosError<{ detail?: typeof detail }>).response?.data?.detail,
+    ).toEqual(detail);
+  });
 });

@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 274 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 292 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -278,6 +278,24 @@
 - [📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`](#ส่งวันละครั้ง-ต้องจองสิทธิ์ใน-db-ไม่ใช่ใน-memory-และตัวเช็กเวลาต้องเป็น-ไม่ใช่)
 - [⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ](#ค่าปรับ-อัตโนมัติ-ต้องผูกกับ-บิลต้นทาง-ด้วย-unique-index-และยอดบิลต้องมาจาก-fcamount-เสมอ)
 - [🚀 `pull_all.sh` ไม่มี `set -e` ⇒ build ล้มแต่ deploy ต่อ — "สำเร็จ" หลอก ๆ ที่ของเก่ายังรัน](#pullallsh-ไม่มี-set--e-build-ล้มแต่-deploy-ต่อ-สำเร็จ-หลอก-ๆ-ที่ของเก่ายังรัน)
+- [🧮 unique index บน "บรรทัดของเหตุการณ์" ต้องคีย์ด้วย `line_kind` ใน predicate — 1 บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว](#unique-index-บน-บรรทัดของเหตุการณ์-ต้องคีย์ด้วย-linekind-ใน-predicate-1-บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว)
+- [🔁 `ON CONFLICT` บน partial unique ต้องประกาศ predicate ตรงเป๊ะ — และ `DO UPDATE` ต้องไม่แตะชื่อที่ครูแก้เอง](#on-conflict-บน-partial-unique-ต้องประกาศ-predicate-ตรงเป๊ะ-และ-do-update-ต้องไม่แตะชื่อที่ครูแก้เอง)
+- [🧮 จัดสรรเงิน: คิดเป็น "สตางค์จำนวนเต็ม" และเศษจากปัดต้องไปเป็นเครดิต — ห้ามยัดเข้าบิล](#จัดสรรเงิน-คิดเป็น-สตางค์จำนวนเต็ม-และเศษจากปัดต้องไปเป็นเครดิต-ห้ามยัดเข้าบิล)
+- [🧾 เอกสารระดับ event: `INSERT … RETURNING` ใช้ alias ไม่ได้ และ idempotency ต้องคีย์ที่ `payment_event_id` ไม่ใช่ `student_payment_id`](#เอกสารระดับ-event-insert-returning-ใช้-alias-ไม่ได้-และ-idempotency-ต้องคีย์ที่-paymenteventid-ไม่ใช่-studentpaymentid)
+- [🔒 เมธอดเขียนใหม่ต้องลงทะเบียนใน `_MONEY_PATHS` และยึด `_lock_room_money` — ถ้า RBAC อยู่ใน helper ต้องเพิ่ม helper ใน `_LOCKING_HELPERS`](#เมธอดเขียนใหม่ต้องลงทะเบียนใน-moneypaths-และยึด-lockroommoney-ถ้า-rbac-อยู่ใน-helper-ต้องเพิ่ม-helper-ใน-lockinghelpers)
+- [🧾 เทมเพลต v2: dispatch ที่ `_document_context` จุดเดียว + เลย์เอาต์ snapshot ที่ไม่ JOIN บิลสด — และทะเบียนเดิมต้องกรอง `layout_version`](#เทมเพลต-v2-dispatch-ที่-documentcontext-จุดเดียว-เลย์เอาต์-snapshot-ที่ไม่-join-บิลสด-และทะเบียนเดิมต้องกรอง-layoutversion)
+- [💸 หน้าจอรับเงิน v2: `idempotency_key` เกิดตอนกดครั้งแรก และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด](#หน้าจอรับเงิน-v2-idempotencykey-เกิดตอนกดครั้งแรก-และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด)
+- [📱 PromptPay QR: CRC16 ต้องคำนวณรวม `"6304"` และ "เลขที่เก็บใน DB" กับ "เลขที่ส่ง API" เป็นคนละรูปแบบ](#promptpay-qr-crc16-ต้องคำนวณรวม-6304-และ-เลขที่เก็บใน-db-กับ-เลขที่ส่ง-api-เป็นคนละรูปแบบ)
+- [💳 ฟอร์มแก้ไขข้อมูลที่ API คืนมาแบบ mask: "เว้นว่าง" ต้องละคีย์ ไม่ใช่ส่ง `null`](#ฟอร์มแก้ไขข้อมูลที่-api-คืนมาแบบ-mask-เว้นว่าง-ต้องละคีย์-ไม่ใช่ส่ง-null)
+- [🧾 ใบแจ้งหนี้ v2 + ใบรับทราบยอดค้าง: ถ้อยคำบนกระดาษเป็นสัญญา และ `response_model` เติมฟิลด์ให้เอง](#ใบแจ้งหนี้-v2-ใบรับทราบยอดค้าง-ถ้อยคำบนกระดาษเป็นสัญญา-และ-responsemodel-เติมฟิลด์ให้เอง)
+- [📥 รับเงินหลายคน: แยก "core ของ event" ออกจาก RBAC โดยไม่ให้เส้นเดิมเปลี่ยนไบต์ + มอนคีย์ปิดแค่ทางเดียว](#รับเงินหลายคน-แยก-core-ของ-event-ออกจาก-rbac-โดยไม่ให้เส้นเดิมเปลี่ยนไบต์-มอนคีย์ปิดแค่ทางเดียว)
+- [👜 เงินสดรอส่งมอบ: กระเป๋าคือแถวปกติของ `finance_accounts` — idempotency ต้องพึ่ง journal metadata](#เงินสดรอส่งมอบ-กระเป๋าคือแถวปกติของ-financeaccounts-idempotency-ต้องพึ่ง-journal-metadata)
+- [💳 เครดิตต้องเกิดพร้อมใบรับเงิน: `payment_event_id` เขียนตอน INSERT และ `manual+\[\]` = ไม่ปิดบิล](#เครดิตต้องเกิดพร้อมใบรับเงิน-paymenteventid-เขียนตอน-insert-และ-manual-ไม่ปิดบิล)
+- [📜 ไทม์ไลน์การเงิน: UNION ต้องมีทั้งสองกิ่งเสมอ + cursor 3 คีย์ `(occurred_at, kind, id)`](#ไทม์ไลน์การเงิน-union-ต้องมีทั้งสองกิ่งเสมอ-cursor-3-คีย์-occurredat-kind-id)
+- [💸 ใบสำคัญจ่ายหลายบรรทัด: journal ต้องแยกต่อบรรทัด + PV ต้องมี `idempotency_key` ของตัวเอง](#ใบสำคัญจ่ายหลายบรรทัด-journal-ต้องแยกต่อบรรทัด-pv-ต้องมี-idempotencykey-ของตัวเอง)
+- [🧾 เทสต์เอกสาร: shell มีถ้อยคำใน CSS comment — ห้าม assert "ไม่มีคำนั้น" ด้วยข้อความดิบ](#เทสต์เอกสาร-shell-มีถ้อยคำใน-css-comment-ห้าม-assert-ไม่มีคำนั้น-ด้วยข้อความดิบ)
+- [✂️ ตารางการเงินที่สร้างก่อน migration ไม่มี `created_at` — อย่าเดาคอลัมน์จากตารางรุ่นใหม่](#ตารางการเงินที่สร้างก่อน-migration-ไม่มี-createdat-อย่าเดาคอลัมน์จากตารางรุ่นใหม่)
+- [🧩 FIN-V2 ประกอบครบ: สิ่งที่เห็นได้เฉพาะเมื่อทุก package อยู่ด้วยกัน](#fin-v2-ประกอบครบ-สิ่งที่เห็นได้เฉพาะเมื่อทุก-package-อยู่ด้วยกัน)
 
 <!-- TOC:END -->
 
@@ -4733,4 +4751,297 @@
 - **Rule:** (1) 🔴 สคริปต์ deploy ต้อง `set -euo pipefail` — ไม่มีข้อยกเว้น (2) 🔴 ก่อน `stack deploy` ต้อง `docker image inspect` ให้ครบทุก image (3) 🔴 หลัง deploy ต้องรอ **ทั้ง** `UpdateStatus.State ∈ {completed, none}` **และ** task นิ่ง `x/x` (ต้องเห็นพร้อม 2 ครั้งติดกัน) — `x/x` เดี่ยว ๆ ไม่ใช่หลักฐานว่าเวอร์ชันใหม่ขึ้นแล้ว (4) 🔴 build ในเครื่องนี้ใช `--network=host` ถ้า container DNS ยังพัง — ห้ามสรุปว่า build ผ่านจาก exit code ของสคริปต์ที่ไม่มี `set -e`
 - **Tests/Verification:** 2026-11-25 — rerun `./pull_all.sh` บน staging หลังแก้ (build ด้วย host network, image ครบ, รอ `x/x`) · staging + production ขึ้น `git_sha=6616a4e` · production log: `✅ apply migration 0010_fines_accrual` → `0011_late_fees_custom_charges`
   - รอบถัดมาเจอว่า loop เก่าตัดสินเร็วเกิน: สคริปต์จบแล้ว `staging_app_backend` ยัง `UpdateStatus=updating` + `4/3` ⇒ อ่าน state จาก swarm เพิ่ม ซ้อมบน staging ที่ `ea2f714`: ตอนสคริปต์ exit ทุก service `completed` และ `/api/version` = `ea2f714` ทันที
+- **Date Added:** 2026-11-25
+
+### 🧮 unique index บน "บรรทัดของเหตุการณ์" ต้องคีย์ด้วย `line_kind` ใน predicate — 1 บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว
+- **Context/Problem:** ออกแบบ `finance_payment_event_lines` (บรรทัดของเหตุการณ์รับเงิน 1 ครั้ง) แล้วอยากกัน "บิล 1 ใบถูกปิดซ้ำสองบรรทัดใน event เดียว" จึงเขียน `UNIQUE (event_id, student_payment_id) WHERE student_payment_id IS NOT NULL` — สมเหตุสมผลเมื่อคิดว่า 1 บิลถูกปิดครั้งเดียว แต่ **พังทันที** กับเคสที่ผู้ปกครองจ่าย "เงินสด 60 + ใช้เครดิต 40" ไปปิดบิลใบเดียวกัน: บรรทัด `bill` (ผูก `finance_transaction_id`) และ `credit_apply` (ผูก `credit_entry_id`) อ้าง `student_payment_id` **ตัวเดียวกัน** ⇒ unique โยน `UniqueViolationError` ทั้งที่ข้อมูลถูกต้อง
+- **Root Cause:** บรรทัดไม่ได้ unique ด้วยคู่ (event, บิล) แต่ด้วย **(event, บิล, ชนิดบรรทัด)** — `line_kind` เป็นส่วนหนึ่งของเอกลักษณ์ของแถว ไม่ใช่แค่คอลัมน์ประกอบ และ **Postgres ไม่รู้เรื่องนี้** ถ้าไม่ใส่ลง predicate ⇒ ตัว index กลายเป็นข้อห้ามที่เข้มกว่ากฎธุรกิจ
+- **Correct Pattern/Solution:**
+  ```sql
+  CREATE UNIQUE INDEX idx_finance_payment_event_lines_bill
+      ON finance_payment_event_lines(event_id, student_payment_id)
+      WHERE line_kind = 'bill' AND student_payment_id IS NOT NULL;
+  ```
+  - `credit_apply` / `credit_topup` อยู่นอก predicate ⇒ ชนิดเดียวกันยังกันซ้ำกันเองได้ถ้าต้องการในอนาคต แต่ข้ามชนิดกันได้
+  - ใช้ partial index คู่กับ CHECK ที่บังคับรูปทรงของแต่ละ `line_kind` (`bill` ต้องมี `finance_transaction_id`, `credit_apply` ต้องมี `credit_entry_id`) — CHECK กัน "แถวพิการ", unique กัน "แถวซ้ำ"
+- **Rule:** (1) 🔴 ก่อนตั้ง unique บนตารางที่มีคอลัมน์ "ชนิด/สถานะ" (`line_kind`, `doc_type`, `entry_type`, `role`) ให้ถามว่า **แถวชนิดต่างกันอ้าง parent เดียวกันได้ legitimately ไหม** — ถ้าได้ ชนิดนั้นต้องอยู่ใน predicate (2) 🔴 เทสต์ต้องมีเคส "ชนิดต่างกันผ่าน" **และ** "ชนิดเดียวกันซ้ำถูกกัน" — เทสต์เฉพาะเคสซ้ำจะไม่จับ index ที่เข้มเกิน (3) 🔴 partial index กับ NULL: predicate ต้องมี `NOT NULL` guard เสมอ ไม่งั้น `NULL` ทุกแถว "ไม่ซ้ำกัน" ตามนิยาม Postgres และด่านหลุดเงียบ ๆ (บทเรียนซ้ำกับ `COALESCE(...,0)` ข้างต้น)
+- **Tests/Verification:** `backend/tests/test_finance_schema_v2.py` — `test_event_line_unique_allows_cash_and_credit_for_same_bill` (insert bill 60 + credit_apply 40 ของบิลเดียวกัน ► ผ่าน, แล้ว insert `bill` ที่สอง ► `UniqueViolationError`) และ `test_migration_0013_creates_indexes` ตรวจ `indexdef` ว่ามี `line_kind` อยู่ใน predicate (กันคนแก้ index กลับในอนาคต)
+- **Date Added:** 2026-11-25
+
+### 🔁 `ON CONFLICT` บน partial unique ต้องประกาศ predicate ตรงเป๊ะ — และ `DO UPDATE` ต้องไม่แตะชื่อที่ครูแก้เอง
+- **Context/Problem:** งานซิงก์นักเรียนเข้า `finance_people` (ปุ่ม "ซิงก์รายชื่อ") เขียน upsert ครั้งเดียวทั้งห้องด้วย `INSERT ... SELECT ... FROM students` แล้ว `ON CONFLICT (room_id, student_id) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = NOW()` — เจอ `asyncpg.exceptions.InvalidColumnReferenceError: there is no unique or exclusion constraint matching the ON CONFLICT specification` และถ้าแก้ให้ผ่านแบบนั้นจริง ชื่อที่ครูแก้ด้วยมือ (`'ชื่อที่ครูตั้งเอง'`) จะถูกทับทุกครั้งที่กดซิงก์
+- **Root Cause:** (1) index ที่รองรับ upsert เป็น **partial** (`idx_finance_people_student WHERE student_id IS NOT NULL AND deleted_at IS NULL`) — Postgres แมตช์ `ON CONFLICT (คอลัมน์)` กับ index ที่มี predicate ไม่ได้ ถ้าไม่ระบุ `WHERE` เดียวกันในคำสั่ง (คอลัมน์ตรงกันไม่พอ semantics "แถวไหนถูกกันซ้ำ" ต้องตรงด้วย) (2) `DO UPDATE` ทุกคอลัมน์ = ประกาศว่า "ระบบเป็นเจ้าของค่า" ซึ่งผิดสำหรับ `display_name` ที่ผู้ใช้แก้ได้ (3) นับ created/updated จาก `RETURNING (xmax = 0)` — ถ้าใช้ `conn.status` หรือ COUNT ในลูปจะนับผิด/timeout
+- **Correct Pattern/Solution:**
+  ```sql
+  INSERT INTO finance_people (room_id, person_type, student_id, display_name, roles)
+  SELECT $1, 'student', S.id, <ชื่อที่ประกอบจาก first_name/nickname>, ARRAY['receive']
+  FROM students S LEFT JOIN v_student_profiles P ON P.student_id = S.id
+  WHERE S.room_id = $1 AND S.status = 'active' AND S.deleted_at IS NULL
+  ON CONFLICT (room_id, student_id) WHERE student_id IS NOT NULL AND deleted_at IS NULL
+  DO UPDATE SET updated_at = NOW()        -- 🔑 แตะแค่ timestamp ไม่ทับชื่อ
+  RETURNING (xmax = 0) AS inserted;
+  ```
+  - `created = count(inserted=True)`, `updated = ที่เหลือ` ⇒ idempotent รอบสองได้ `created=0`
+  - ชื่อ default ประกอบด้วย `COALESCE(first_name, first_name_en, 'นักเรียน #' || student_no)` — **ห้ามอ้าง `v_student_profiles.display_name`** เพราะ view ไม่มีคอลัมน์นี้ (มีแค่ first/last/nickname ไทย-อังกฤษ)
+- **Rule:** (1) 🔴 ทุกครั้งที่ upsert กับ index ที่มี `WHERE` ให้คัดลอก predicate มาใส่ `ON CONFLICT (...)` แบบคำต่อคำ — ใช้ predicate ให้ห่างกันแม้ช่องว่าง (2) 🔴 `DO UPDATE` ต้องระบุคอลัมน์ที่ **ระบบเป็นเจ้าของเท่านั้น** — ถ้าคอลัมน์นั้นผู้ใช้แก้ได้ ให้คงค่าเดิมและอัปเดตแค่ `updated_at` (3) 🔴 เทสต์ idempotency ต้องมี 3 รอบ: รอบแรก created>0, รอบสอง created=0/updated=จำนวนเดิม, แก้ค่าที่ผู้ใช้เป็นเจ้าของแล้วรอบสาม **ค่ายังอยู่**
+- **Tests/Verification:** `backend/tests/test_finance_people.py` — `test_sync_students_is_idempotent` (รอบ 1 `created == active_count`, รอบ 2 `created == 0` + `updated == active_count` + จำนวนแถวเท่าเดิม, แก้ `display_name` เป็น `'ชื่อที่ครูตั้งเอง'` แล้วซิงก์รอบ 3 ► ชื่อไม่เปลี่ยน) และ `test_sync_only_active_students` (`status='left'` ไม่ถูกสร้าง)
+- **Date Added:** 2026-11-25
+
+### 🧮 จัดสรรเงิน: คิดเป็น "สตางค์จำนวนเต็ม" และเศษจากปัดต้องไปเป็นเครดิต — ห้ามยัดเข้าบิล
+- **Context/Problem:** งาน P1.5 (`services/finance/allocation.py`) ต้องแบ่งเงินสด + เครดิตลงบิลเปิดหลายใบ และ P2.1 ต้องเขียนผลชุดเดียวกับที่จอพรีวิวโชว์ — ถ้าคำนวณด้วย `float` และ/หรือมีสองโค้ดคำนวณ จะเจอ "จอโชว์หัก 500 แต่ระบบหัก 700" โดยไม่มีอะไรฟ้อง และบิล 333.33 × 3 กับเงิน 1000.00 มีเศษ 1 สตางค์ที่ต้องมีคำตอบชัดเจน
+- **Root Cause:** (1) `Decimal` จาก asyncpg ต้องผ่าน `to_satang()` (quantize `ROUND_HALF_UP` แล้ว × 100) ก่อนเข้าเครื่องคำนวณทุกครั้ง — `Decimal(float)` ตรง ๆ ได้เศษ binary (2) `cash_left` จากส่วนที่บิลจ่ายครบแล้ว **ไม่ใช่**เงินที่เอาไปเพิ่มบรรทัดถัดไปได้ เพราะ `outstanding_stang` เป็นเพดาน ⇒ ถ้าไม่แปลงเป็น `credit_added` จะได้ `bill_after` ติดลบหรือสมการ `amount_received + credit_used = total_applied + credit_added` ไม่ผ่าน CHECK ของ `finance_payment_events`
+- **Correct Pattern/Solution:**
+  - engine เดียว = pure function ที่รับ `outstanding_stang` (ผู้เรียกรับผิดชอบหัก `paid_amount` + `written_off_amount`) และคืน plan ที่มี `_stang` ทุกยอด + `assert_plan_equation()` ปิดท้าย
+  - วนบิลตาม `due_date ASC NULLS LAST, collection_id ASC` · **เงินสดก่อนเครดิตในบิลเดียวกัน** · 1 บรรทัด = 1 แหล่งเงิน
+  - เศษที่เหลือ: `excess_action='credit'` → `credit_added` · `'none'` → `AllocationError("EXCESS_NOT_ALLOWED")` ตั้งแต่ preview
+  - ตัวอย่างจริง: 333.33 × 3 ด้วยเงิน 1000.00 ⇒ applied 999.99 + credit_added 0.01 (ไม่หาย ไม่เกิน)
+- **Rule:** (1) 🔴 เงินทุกจุดใน engine เป็น `int` สตางค์ — แปลงกลับเป็น string 2 ตำแหน่งเฉพาะตอนตอบ (2) 🔴 preview กับ commit ต้องเรียกฟังก์ชันเดียวกัน และ commit ต้องโหลดซ้ำใต้ `_lock_room_money` (preview เป็น snapshot ไม่ใช่สัญญา) (3) 🔴 warning ของนโยบายที่ผู้ใช้คาดไม่ถึง (เช่น `CREDIT_UNUSED_BECAUSE_CASH_COVERED`) ต้องมีเสมอ — ห้ามเงียบ
+- **Tests/Verification:** `backend/tests/test_finance_allocation.py` — `test_rounding_never_loses_a_satang` (333.33 ×3: applied 999.99 + credit_added 0.01 = 1000.00), `test_preview_endpoint_matches_pure_function` (ยิง API จริงแล้วเทียบบรรทัดต่อบรรทัดกับ `build_allocation_plan`) และ `test_preview_does_not_write`
+- **Date Added:** 2026-11-25
+
+### 🧾 เอกสารระดับ event: `INSERT … RETURNING` ใช้ alias ไม่ได้ และ idempotency ต้องคีย์ที่ `payment_event_id` ไม่ใช่ `student_payment_id`
+- **Context/Problem:** P2.1 ออกใบเสร็จ **1 ใบต่อ 1 รายการรับเงิน** (`finance_receipts.payment_event_id` ไม่ NULL, `student_payment_id` เป็น NULL, `layout_version=2`) จึงเขียน `_issue_event_receipt` เลียนแบบ `_issue_one` โดยประกาศรายการคอลัมน์ครั้งเดียว (`_EVENT_DOC_COLUMNS = "R.id, R.room_id, …"`) แล้วใช้ทั้งใน `SELECT … FROM finance_receipts R` และ `INSERT … RETURNING {_EVENT_DOC_COLUMNS}` — เทสต์ตัวแรกพังทันทีด้วย `asyncpg.exceptions.UndefinedTableError: missing FROM-clause entry for table "r"` แม้ SQL จะดูถูกทุกบรรทัด
+- **Root Cause:** `RETURNING` ของ `INSERT` ไม่มี FROM clause ให้ alias `R` อ้างถึง — alias ใช้ได้เฉพาะคำสั่งที่มี `FROM finance_receipts R` จริง ⇒ ชุดคอลัมน์ "เดียวกัน" ใช้ข้ามบริบทไม่ได้ การแชร์ string เดียวจึงพังเฉพาะจุด RETURNING (SELECT ผ่าน) ทำให้ error ดูเหมือน schema ผิดทั้งที่ DDL ถูก
+- **Correct Pattern/Solution:**
+  ```python
+  _EVENT_DOC_COLUMNS = """R.id, R.room_id, R.receipt_no, ..."""
+  _EVENT_DOC_RETURNING = _EVENT_DOC_COLUMNS.replace("R.", "")  # RETURNING ไม่มี alias
+  ```
+  - idempotency 3 ชั้นของเอกสาร event: (1) `_find_event_document(event_id, doc_type)` ก่อนจองเลข (2) `idx_finance_receipts_event_active (payment_event_id, doc_type) WHERE payment_event_id IS NOT NULL AND deleted_at IS NULL` (3) savepoint รอบ INSERT + `except UniqueViolationError` **นอก** savepoint แล้วอ่านใบที่ชนะ
+  - เลขเอกสารจองด้วย upsert `receipt_sequences … ON CONFLICT DO UPDATE … RETURNING last_seq` และ `raise` เมื่อเกิน `RECEIPT_SEQ_MAX` **ใน transaction** ⇒ เลขที่จองไปถูก rollback ไม่ถูกเผา
+  - ปี พ.ศ. ใช้ `_thai_year_be(event_at)` ของ **เหตุการณ์รับเงิน** ไม่ใช่ `CURRENT_TIMESTAMP` ตอนออกเอกสาร
+- **Rule:** (1) 🔴 คอลัมน์ที่แชร์ระหว่าง `SELECT … FROM t A` กับ `INSERT … RETURNING` ต้องมีสำเนาที่ไม่มี alias — เขียนคอมเมนต์กำกับไว้ (2) 🔴 อย่าเลียนแบบ `_issue_one` ตรง ๆ สำหรับเอกสารระดับ event: `student_payment_id` เป็น NULL ⇒ index เดิม (`idx_finance_receipts_tx_active`) และ unique ของ legacy **ไม่กันซ้ำให้** ต้องมี unique ของ event เอง (3) 🔴 เอกสารที่อ้าง FK ของ event ต้องอ่านกลับด้วย `payment_event_id` ไม่ใช่ `legacy_transaction_id` (DEP ของ event ผูกธุรกรรม top-up แค่แถวเดียว แต่ replay ต้องคืนใบเดิมของ event)
+- **Tests/Verification:** `backend/tests/test_finance_payment_events.py` — `test_event_commits_single_bill_and_issues_one_receipt` (REC 1 ใบ `layout_version=2`, `student_payment_id IS NULL`), `test_event_uses_credit_and_cash_on_same_bill` (บรรทัด `bill` + `credit_apply` บนบิลเดียวผ่าน partial index), `test_idempotent_replay_returns_same_documents` (ยิงซ้ำ ► REC/DEP ยัง 1 ใบ, `reused=true`, notify ครั้งเดียว), `test_receipt_number_year_from_event_at` (2024-12-31T17:00Z ► `REC-2568-…`)
+- **Date Added:** 2026-11-25
+
+### 🔒 เมธอดเขียนใหม่ต้องลงทะเบียนใน `_MONEY_PATHS` และยึด `_lock_room_money` — ถ้า RBAC อยู่ใน helper ต้องเพิ่ม helper ใน `_LOCKING_HELPERS`
+- **Context/Problem:** P1.2 เพิ่ม `PeopleMixin` 5 เมธอดที่เขียนข้อมูล (`create_person`/`update_person`/`delete_person`/`sync_students`/`update_settings`) แต่ไม่ได้ยึดล็อกห้อง — จับได้ตอนรัน regression ของ P2.1 (`test_money_path_list_covers_every_manage_finance_entry_point` ฟ้องทั้ง 5 ตัว) ขณะเดียวกัน P2.1 `create_payment_event` ยึดล็อกถูกต้องแต่ตัวตรวจกลับ **มองไม่เห็น** เพราะ RBAC + ล็อกอยู่ใน helper `_create_locked` ไม่ได้อยู่ในเมธอดนอก
+- **Root Cause:** ตัวตรวจเป็นเชิงโครงสร้าง (อ่านซอร์ส) สองชั้น: (1) ไล่เมธอดที่มี literal `require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")` **และ** `async with conn.transaction():` ในเมธอดเดียวกัน แล้วเทียบกับ `_MONEY_PATHS` (2) สำหรับ path ที่ลงทะเบียนแล้ว บังคับว่า `await _lock_room_money(` (หรือชื่อใน `_LOCKING_HELPERS`) ต้องมาก่อน marker การเขียนเงิน ⇒ เมธอดที่แยก RBAC ไป helper จะหลุดชั้น (1) และ path ที่ไม่ลงทะเบียนจะไม่มีใครตรวจ ordering ให้เลย
+- **Correct Pattern/Solution:**
+  - ทุกเมธอดที่เขียนข้อมูลการเงิน (รวมทะเบียนคน/ค่าเริ่มต้นที่หน้าจอรับเงินอ่าน) ต้องมี `await _lock_room_money(conn, target_room_id)` เป็นคำสั่งแรกใน transaction หลัง RBAC
+  - ลงทะเบียน `(module, Class, method)` ใน `_MONEY_PATHS` ทันทีใน PR เดียวกัน
+  - ถ้าเมธอดนอก delegator ไป helper ที่ถือ RBAC + ล็อก (`create_payment_event` → `_create_locked`) ให้เพิ่มชื่อ helper ใน `_LOCKING_HELPERS` — เทสต์ `test_locking_helpers_take_the_lock_first` จะบังคับว่า helper นั้นล็อกก่อนเขียนเงินจริง
+  - ⚠️ ห้ามใส่ `_confirm_single_payment` ใน `_LOCKING_HELPERS` — มัน *รับ* ล็อกต่อจากผู้เรียก ไม่ใช่ผู้ยึด
+- **Rule:** (1) 🔴 PR ที่เพิ่มเมธอดเขียนการเงินต้องอัปเดต `_MONEY_PATHS`/`_LOCKING_HELPERS` ในไฟล์เทสต์เดียวกัน — ตัวตรวจชั้น (1) ไม่จับ path ที่ RBAC อยู่ใน helper (2) 🔴 helper ที่แชร์ชื่อแบบ substring (`f"{helper}("`) ห้ามตั้งชื่อขึ้นต้นด้วยชื่อในรายการเดิม (3) 🔴 อย่าปล่อย regression แดงข้ามแพ็กเกจ — failure แบบนี้คือช่อง deadlock จริง ไม่ใช่ noise
+- **Tests/Verification:** `backend/tests/test_finance_money_lock.py` — ทั้งชุด 91 passed หลังเติมล็อกใน `people.py` + ลงทะเบียน `people.*`/`payment_events.create_payment_event` + `_create_locked` เป็น locking helper
+- **Date Added:** 2026-11-25
+
+### 🧾 เทมเพลต v2: dispatch ที่ `_document_context` จุดเดียว + เลย์เอาต์ snapshot ที่ไม่ JOIN บิลสด — และทะเบียนเดิมต้องกรอง `layout_version`
+- **Context/Problem:** P2.2 เพิ่มเทมเพลตใบเสร็จ v2 (`_receipt_body_v2.html`) สำหรับใบ `layout_version=2` ที่มี `line_items` หลายบรรทัด (`bill_amount`/`amount_applied`/`bill_remaining`/`source`) แต่ต้องไม่แตะใบ legacy แม้ไบต์เดียว ขณะที่ `_document_context` เดิมสร้าง context รอบ "บิล" (`collection_id`, `student_payment_id`, `remaining`) ซึ่งไม่มีคีย์ของ v2 เลย และทะเบียน `GET /finance/receipts` ยังไม่รู้จักเลย์เอาต์ใหม่
+- **Root Cause:** (1) context ของ legacy คำนวณ `collection_amount`/`remaining` จากบิล/แคมเปญ — ใบ v2 ไม่มีบิลเดียว ⇒ ถ้าใช้ร่วมกันจะได้ช่องว่าง/ตัวเลขผิด และถ้า JOIN `fee_collections` สด การแก้ชื่อบิลภายหลังจะเปลี่ยนกระดาษที่แจกไปแล้ว (2) `Undefined is not none` เป็น True ⇒ context v2 ที่ขาดคีย์ที่เทมเพลต `format()` จะ 500 (3) ถ้ากรอง `layout_version=1` ที่ `get_receipt` ด้วย ใบ v2 จะเปิด/พิมพ์ไม่ได้เลย
+- **Correct Pattern/Solution:**
+  - dispatch **ที่ `_document_context` จุดเดียว**: `if int(d.get("layout_version") or 1) >= 2: return cls._document_context_v2(d)` — เส้นทางพิมพ์ใบเดียว (`render_receipt_pdf`) และพิมพ์รวม (`_document_contexts`) ใช้ทั้งคู่ ⇒ ไม่มีทาง "พิมพ์เดี่ยวกับพิมพ์รวมได้กระดาษคนละแบบ"
+  - context v2 ตั้งคีย์ legacy **ครบทุกตัว** (เป็น `None`/`[]`) บวกคีย์ v2 (`credit_used`, `credit_added`, `amount_received`, `balance_before/after`, `channel_text`, `body_template`) ⇒ partial ใหม่ใช้ `is not none` กับทุกช่องได้โดยไม่ต้อง default
+  - `body_template` = ทางแยกของ partial (ไม่ใช่ `is_receipt`) — v2 REC/DEP → `_receipt_body_v2.html`, ชนิด v2 อื่นที่ยังไม่มีเทมเพลตถอยไป partial เดิม + `logger.warning` ครั้งเดียวต่อ doc_type (พิมพ์ได้ ดีกว่า 500)
+  - ยอดบนใบ: แถว "รวมทั้งสิ้น" พิมพ์ `d.amount` (ค่าที่บันทึก) **ไม่ใช่ผลบวกของบรรทัดที่แสดง** — ตัดเกิน 20 บรรทัดแล้วยอดยังถูก; คำอ่านคิดใหม่จาก `baht_text(amount)` ไม่เชื่อ `amounts_in_words` ใน snapshot
+  - ทะเบียนเดิม: `get_receipts` เพิ่ม `AND R.layout_version = 1` **ที่เดียว** — `get_receipt` **ห้ามกรอง** ไม่งั้นใบ v2 เปิด/พิมพ์ไม่ได้
+  - `ReceiptLineItem.amount` ต้องเป็น `Optional[float]` (snapshot v2 มี `amount_applied` ไม่มี `amount`) และ `ReceiptDetailResponse` ต้องประกาศ `layout_version` — `response_model` ตัดฟิลด์ที่ไม่ได้ประกาศทิ้งเงียบ ๆ
+- **Rule:** (1) 🔴 เอกสาร v2 พิมพ์จาก snapshot (`line_items` + `document_meta`) เท่านั้น — ห้าม JOIN บิล/แคมเปญสด (2) 🔴 dispatch อยู่ที่ `_document_context` จุดเดียว ห้ามสร้างสาขาที่สามใน partial legacy (3) 🔴 ทะเบียน = กรอง layout 1 / detail = ไม่กรอง (4) 🔴 เพิ่มฟิลด์ใน response ต้องประกาศใน Pydantic model ด้วย ไม่งั้นถูกตัดทิ้ง
+- **Tests/Verification:** `backend/tests/test_finance_receipt_v2_template.py` — `test_v2_context_uses_snapshot_not_live_bill` (แก้ `fee_collections.title` แล้วพิมพ์ซ้ำ ► ชื่อเดิม), `test_v2_dispatch_selects_v2_body`, `test_legacy_receipt_context_unchanged`, `test_legacy_receipt_html_byte_stable`, `test_registry_hides_v2_documents` (ทะเบียนเห็นเฉพาะ layout 1 แต่ `get_receipt` คืนใบ v2), `test_v2_deposit_html_prints_balance`, `test_v2_body_handles_missing_optional_keys`, `test_font_faces_count_still_two`
+- **Date Added:** 2026-11-25
+
+### 💸 หน้าจอรับเงิน v2: `idempotency_key` เกิดตอนกดครั้งแรก และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด
+- **Context/Problem:** P2.3 สร้าง `ReceiveMoneyModal` ที่ยิง `POST /finance/payment-events/preview` ระหว่างพิมพ์ (debounce 350ms) แล้ว commit ด้วย `POST /finance/payment-events` — ระหว่างทางมีกับดัก 4 ข้อที่ทำให้ "เงินถูกบันทึกผิด" ไม่ใช่แค่หน้าจอเพี้ยน: (1) สร้าง `idempotency_key` ตอนเปิดแผ่น ⇒ ผู้ใช้แก้ยอดแล้วกดยืนยัน คีย์ยังตรงกับรอบที่ไม่ได้ส่ง ⇒ เน็ตหลุดแล้วกดซ้ำได้รายการเดิมทั้งที่ยอดเปลี่ยน (หรือแย่กว่า: สร้างใหม่ทุก retry ⇒ เงินก้อนเดียวเขียนสองรอบ) (2) พรีวิวที่ยิงไม่ทันกันแล้วตอบกลับสลับลำดับ ⇒ ตารางจัดสรรที่เห็นเป็นของค่ายอดเก่า แต่ปุ่มยืนยันส่งยอดใหม่ (3) ใช้ `type="number"` ⇒ ล้อเมาส์/ลูกศรเปลี่ยนยอดเงินได้โดยไม่ตั้งใจ (4) ระหว่าง commit มีคนอื่นปิดบิล ⇒ commit ตอบ 409 ซึ่งถ้าเงียบแล้วกดซ้ำด้วยยอดเก่าจะได้ error ซ้ำไม่จบ
+- **Root Cause:** ทุกข้อคือ "สถานะที่ผู้ใช้เห็น" กับ "ข้อมูลที่ backend จะเขียน" ถูกแยกจากกันโดยไม่มีตัวกลางยืนยัน: คีย์ idempotency เป็นสัญญาระดับ **การกด 1 ครั้ง** (ไม่ใช่ระดับฟอร์ม ไม่ใช่ระดับ modal), preview เป็น **snapshot** ที่หมดอายุได้ทันทีที่ข้อมูลบิลเปลี่ยน, และ `<input type=number>` ให้เบราว์เซอร์แก้ค่าด้วยการเลื่อนโดยไม่ผ่าน `input` event ตามที่คาด
+- **Correct Pattern/Solution:**
+  - `MoneyInput.vue`: `type="text"` + `inputmode="decimal"` + sanitize เอง (เลข + จุดเดียว + ทศนิยม ≤2 **ตัดทิ้งไม่ปัด**) — ค่าว่าง/`.` เดี่ยว = `null` ไม่ใช่ 0; blur จัดรูปด้วย `formatAmount`, focus ถอด comma เพื่อให้เคอร์เซอร์ทำงาน
+  - debounce 350ms + `createLatestGuard` ของ preview: เปลี่ยนยอด/ติ๊กเครดิต/เลือกบิล ⇒ **ล้าง `preview` ทันที** (ปุ่มยืนยันปิด) แล้วค่อยยิงใหม่ ⇒ ไม่มีทางกดยืนยันด้วยผลพรีวิวที่ล้าสมัย
+  - `attemptKey.value ??= newIdempotencyKey()` **เฉพาะใน `submit()`** — คงค่าเดิมเมื่อล้มเหลว/409, ตั้ง `null` เฉพาะสำเร็จหรือปิดแผ่น/เปลี่ยนนักเรียน
+  - 409 จาก preview **หรือ** commit ⇒ `getIndividualAccount` ใหม่ + พรีวิวใหม่ + บอกผู้ใช้ว่าบิลเปลี่ยน — ห้าม resubmit เงียบ ๆ ด้วยยอดเก่า; `403/404` แยกข้อความ ไม่ยัดเป็น error กลาง
+  - ยอดรวมท้ายตาราง (`BillAllocationTable`) ใช้ `total_applied/credit_used/credit_added` จาก **ผลพรีวิว** ไม่ใช่ผลบวกบรรทัดที่แสดง (engine อาจจัดสรรบิลที่หน้าจอยังไม่รู้จัก)
+  - เครดิตล้วน (`receipt_no = null`) ⇒ ไม่มีปุ่มดาวน์โหลด REC และ hint บอกเหตุผล; เงินทุกช่องใน payload เป็น string 2 ตำแหน่ง (`roundMoney(x).toFixed(2)`) ไม่ใช่ number
+- **Rule:** (1) 🔴 คีย์ idempotency = ต่อ "การกดยืนยัน 1 ครั้ง" — สร้างใน `submit()` เท่านั้น และห้ามสร้างใหม่ใน retry (2) 🔴 เปลี่ยน input ใด ๆ ของพรีวิวต้องล้าง `preview` ก่อนยิงใหม่ — ปุ่มยืนยันต้องผูกกับผลพรีวิวล่าสุดเสมอ (3) 🔴 409 = โหลดใหม่ ห้ามส่งซ้ำด้วยยอดเดิม (4) 🔴 เงินทุกช่องกรอกผ่าน `MoneyInput` ไม่ใช่ `<input type="number">` (5) 🔴 ยอดรวมบนจอต้องมาจาก backend ไม่ใช่บวกเอง
+- **Tests/Verification:** `frontend/src/components/finance/__tests__/ReceiveMoneyModal.spec.ts` (debounce 350ms ยิงครั้งเดียวด้วยยอดล่าสุด, retry ใช้ key เดิม + payload ครบ, 409 ⇒ โหลดบัญชี/พรีวิวใหม่, เครดิตล้วนไม่มีปุ่ม REC), `MoneyInput.spec.ts` (ตัดทศนิยมที่ 3, ค่าว่าง = null, blur จัดรูป, ค่าภายนอกสะท้อนเข้าช่อง), `BillAllocationTable.spec.ts` (totals จาก backend, แยกเงินสด/เครดิต, โหมด manual), `src/services/__tests__/finance.spec.ts` (URL preview/commit + ไม่ใช่ `/payments/batch`)
+- **Date Added:** 2026-11-25
+
+### 📱 PromptPay QR: CRC16 ต้องคำนวณรวม `"6304"` และ "เลขที่เก็บใน DB" กับ "เลขที่ส่ง API" เป็นคนละรูปแบบ
+- **Context/Problem:** P2.4 สร้าง PromptPay QR จาก server (`services/finance/qr.py` + `segno`) โดยเก็บเลขพร้อมเพย์ใน `finance_payment_channels.promptpay_id_masked` เพราะ schema 0012 ไม่มีคอลัมน์ full ID — ระหว่างทำมี 4 กับดักที่ทำให้ "QR สแกนไม่ผ่าน" หรือ "เลขเต็มหลุด API" โดยไม่มี error ให้เห็น:
+  (1) คำนวณ CRC ก่อนต่อ tag `63` ⇒ ได้เลข 4 หลักที่ไม่ตรงกับที่ธนาคารตรวจ (payload ดูสมบูรณ์ทุกไบต์)
+  (2) เบอร์ `0812345678` ใส่ tag `01` ตรง ๆ ⇒ ต้องแปลงเป็น `0066` + 9 หลัก (13 หลัก) ก่อน
+  (3) `segno.make_qr()` **ไม่รับ kwarg `micro`** (มีเฉพาะ `segno.make`) ⇒ TypeError ตอนเรียก ไม่ใช่ตอน import
+  (4) mask หลังเก็บ: คอลัมน์ชื่อ `promptpay_id_masked` แต่เก็บ **canonical เต็ม** ⇒ ถ้า `SELECT` แล้วส่ง dict ตรง ๆ เลขจะหลุดทุก endpoint
+- **Root Cause:** EMVCo กำหนดให้ CRC คำนวณจากข้อมูล **รวม tag และความยาวของฟิลด์ CRC เอง**; ช่องทางมือถือของ PromptPay ใช้รหัสประเทศ `0066` ไม่ใช่ `0`; และชื่อคอลัมน์ใน migration สื่อความหมายไม่ตรงกับเนื้อหา (ข้อจำกัดที่บันทึกไว้ใน brief P2.4 — ถ้าต้องการ mask at-rest จริงต้องเพิ่มคอลัมน์ใน migration 0014 ไม่ใช่แก้ 0012)
+- **Correct Pattern/Solution:**
+  - `with_crc_tag = "".join(parts) + "6304"` → `crc16_ccitt(with_crc_tag.encode("ascii"))` → ต่อท้าย `f"{crc:04X}"` (ตัวพิมพ์ใหญ่ ไม่มี `0x`)
+  - `normalize_promptpay_id`: ตัดช่องว่าง/`-`, 10 หลักขึ้นต้น `0` หรือ 11 หลักขึ้นต้น `66` → `"0066" + 9 หลัก`; 13/15 หลักเก็บตามเดิม; อื่น ๆ → `QrError("INVALID_PROMPTPAY_ID")`
+  - shaping ทุกครั้ง: `mask_promptpay_id(canonical)` (0066 → `081-XXX-5678`, 13 → `*********0123`, 15 → `***********2345`) และ `mask_account_number` (เก็บ 4 ท้าย) — เขียนลง `new_values`/`old_values` ของ audit ด้วยค่าที่ mask แล้วเท่านั้น
+  - `qr_mode` เป็นตัวตัดสิน: `open` + amount → `QR_MODE_MISMATCH`, `fixed` + ไม่มี amount → `QR_MODE_MISMATCH`, ยอดต้อง quantize 2 ตำแหน่งไม่เปลี่ยนค่า (>0, ≤99,999,999.99)
+  - `render_qr_svg` = `segno.make_qr(payload, error="m")` + `save(kind="svg", xmldecl=False, border=2, scale=4)`; route ตอบ `image/svg+xml` + `Cache-Control: no-store`
+  - preview QR คืนเฉพาะ `{"svg": …}` — **ห้ามคืน payload** แม้ api-v2 §5 จะระบุ (payload มีเลขเต็ม)
+  - active ≤ 3 + primary 1 ตัว: นับ/เคลียร์ใต้ `_lock_room_money` ใน transaction เดียวกัน และ `UPDATE … is_primary=FALSE` **ก่อน** insert/update ตัวใหม่ (partial unique ชนทันทีถ้าสลับลำดับ) — ลงทะเบียน 3 เมธอดใน `_MONEY_PATHS` ด้วย
+- **Rule:** (1) 🔴 CRC ของ EMVCo คำนวณรวม `"6304"` เสมอ — ใช้ golden vector ล็อกไว้ในเทสต์ (2) 🔴 เบอร์มือถือต้อง canonical 13 หลัก `0066…` ก่อนใส่ tag `01` (3) 🔴 ห้ามคืน `promptpay_id_masked`/`account_number_masked` จาก DB ตรง ๆ — ต้องผ่าน mask ทุกครั้ง (4) 🔴 `segno.make_qr` ไม่มี `micro`; ถ้าต้องบังคับ bust ใช้ `segno.make(..., micro=False)` (5) 🔴 ห้าม log payload/เลขเต็ม แม้ใน audit
+- **Tests/Verification:** `backend/tests/test_finance_qr.py` (CRC `b"123456789"` = 0x29B1, golden open/fixed 100.00/1250.50, เบอร์ 5 รูปแบบ → canonical เดียว, mask ไม่มีเลขเต็ม, amount/mode guards, SVG ไม่มี `<script>`), `backend/tests/test_finance_payment_channels.py` (mask ใน DB/response/audit, custom_qr 400, active ≤ 3, primary 1 ตัว + promote, QR 400 เมื่อปิดใช้งาน/ไม่ใช่พร้อมเพย์/open+amount/fixed ไม่มี amount, `no-store`, QR ไม่เขียน DB, RBAC, soft delete, concurrency 2 คำขอ)
+- **Date Added:** 2026-11-25
+
+### 💳 ฟอร์มแก้ไขข้อมูลที่ API คืนมาแบบ mask: "เว้นว่าง" ต้องละคีย์ ไม่ใช่ส่ง `null`
+- **Context/Problem:** P2.5 ทำแท็บ “ช่องทางชำระเงิน” ในหน้า `/finance/settings` ให้แก้เลขบัญชี/เลขพร้อมเพย์ได้ แต่ backend (P2.4) คืนแค่ `account_number_masked`/`promptpay_id_masked` เพราะเก็บเลขเต็มไว้ใช้สร้าง QR — ระหว่างทำมี 4 กับดักที่ทำให้ “แก้ชื่อช่องทาง” แล้วบัญชีพัง:
+  (1) prefill ค่า mask ลงช่องกรอก ⇒ กดบันทึกแล้ว backend เก็บ `081-XXX-5678` เป็นเลขจริง
+  (2) ส่ง `{ promptpay_id: null }` เพราะคิดว่า “ไม่ได้แก้” ⇒ backend `exclude_unset` ตีความเป็น “ล้างค่า”
+  (3) ใช้ `isAdmin` gate ปุ่ม ⇒ เหรัญญิกที่มี `MANAGE_FINANCE` แต่ไม่ใช่แอดมินมองเห็นแต่กดไม่ได้
+  (4) แสดง SVG ด้วย `v-html` หรือค้าง object URL ⇒ XSS ในอนาคต / Blob ค้างหน่วยความจำ
+- **Root Cause:** response ของ endpoint ที่อ่าน (GET) เป็น **สแนปช็อตที่ mask แล้ว** ไม่ใช่ค่าที่แก้ได้ — ฟอร์ม edit ต้องถือว่า “ช่องลับไม่รู้ค่าเดิม” และใช้สัญญา `exclude_unset` ของ PATCH เป็นกลไกคงค่าเดิม; ส่วนสิทธิ์เขียนเป็นของ service ไม่ใช่บทบาทแอดมินของหน้า
+- **Correct Pattern/Solution:**
+  - ช่อง `account_number`/`promptpay_id` ตอนแก้ = `''` เสมอ + `placeholder` เป็นค่า mask + hint “เว้นว่าง = คงเลขเดิม”
+  - payload update สร้าง object ด้วยมือ: ใส่ `account_number`/`promptpay_id` **เฉพาะเมื่อผู้ใช้กรอก** (`if (form.x.trim()) payload.x = form.x.trim()`); ห้ามส่ง `*_masked` กลับทุกกรณี
+  - สร้างใหม่ (POST) ต่างจากแก้: ส่งฟิลด์ทุกตัวตามชนิด ฟิลด์ที่ไม่ใช้ = `null` และใส่เลขเต็มที่ผู้ใช้พิมพ์
+  - `is_primary` ต้องมาคู่ `is_active` — ปุ่ม “ตั้งเป็นหลัก” disable เมื่อ inactive และ `@change` บน checkbox เปิดใช้งานยกเลิก primary ให้เอง
+  - ปุ่มเขียนทุกปุ่ม gate ด้วย `authStore.canManageFinance`; QR/รายการเปิดให้สมาชิกอ่าน (`require_member`)
+  - QR: `responseType: 'blob'` → `URL.createObjectURL` → `<img :src>` (**ห้าม `v-html`**); revoke ใน `closeQr()` ที่เรียกจาก `@close`, `onBeforeUnmount` และก่อนสร้างใหม่; fixed ต้องกรอกยอด (text + `inputmode=decimal` + ตรวจ ≤2 ตำแหน่ง) ก่อนเรียก API, open ไม่ส่ง `amount`
+  - `active ≤ 3`: ปุ่มเพิ่ม disable เมื่อครบ, การเปิดช่องทางที่ 4 ฟ้องก่อนยิง API — แต่ยัง show 400 จาก backend (มีคนแก้พร้อมกัน) และ reload หลัง error ทุกครั้ง
+  - แท็บใช้ `AppTabs v-model` + `settingsTab` เป็น `ref` local; เนื้อหาเดิมทั้งหมดอยู่ใน `<template v-if="settingsTab === 'general'">` — ต้องไม่ย้าย/รีเซ็ต state ของกระเป๋า/หมวดหมู่
+- **Rule:** (1) 🔴 ห้าม prefill ค่า `*_masked` ลงช่องกรอกหรือส่งกลับ backend (2) 🔴 ฟิลด์ลับที่เว้นว่าง = **ละคีย์ออก** ไม่ใช่ `null` (3) 🔴 QR ต้องแสดงผ่าน `<img>` + object URL และ revoke ทุกเส้นทาง (4) 🔴 ปุ่มเขียนการเงินใช้ `canManageFinance` ไม่ใช่ `isAdmin` (5) 🔴 ปุ่มทำลายข้อมูล (ลบ) ต้องอยู่ใน `RowActionMenu` ไม่ติดกับ “แก้ไข”
+- **Tests/Verification:** `frontend/src/components/finance/__tests__/PaymentChannelsSettings.spec.ts` (mask-only render, ซ่อนปุ่มเขียน, disable ที่ 3, เปิดที่ 4 ไม่ยิง API, payload สร้าง PromptPay ครบ, แก้แล้วไม่มี key `promptpay_id`/`account_number`, เปลี่ยนชนิดไม่ได้, ลบต้องยืนยัน + reload, ตั้งหลัก, QR open ไม่ส่ง amount, fixed ต้องมียอด, revoke ตอนปิด, badge, error+retry), `frontend/src/services/__tests__/finance.spec.ts` (URL ทั้ง 5 + `responseType=blob` + `amount=250.50`) — `npm run test:unit` 504 ผ่าน
+- **Date Added:** 2026-11-25
+
+### 🧾 ใบแจ้งหนี้ v2 + ใบรับทราบยอดค้าง: ถ้อยคำบนกระดาษเป็นสัญญา และ `response_model` เติมฟิลด์ให้เอง
+- **Context/Problem:** P2.6 เปลี่ยน INV เป็น `layout_version=2` (snapshot ช่องทาง ≤3 + QR + ACK ใหม่) แล้วเทสต์เดิม 3 ตัวแดงทั้งที่ข้อมูลถูก: (1) `test_line_items_survive_the_jsonb_round_trip` — Pydantic เติมฟิลด์ optional ของ `ReceiptLineItem` (9 ตัว: `cash_amount`, `bill_remaining`, …) ให้ทุกบรรทัด ⇒ `set(items[0])` ของใบแจ้งหนี้ไม่ใช่ `{title, amount, due_date}` อีก (2) `test_get_receipt_detail_and_list_filters` — ทะเบียนกรอง `layout_version = 1` ⇒ INV v2 ที่เพิ่งออกหายจากรายการทั้งที่ผู้ใช้กดออกสำเร็จ (3) `test_invoice_pdf_uses_billing_wording_not_receipt_wording` — เทมเพลต v2 เขียน "เรียน" และไม่มี "เรียกเก็บจาก"/"ผู้รับแจ้ง" ทั้งที่มาตรฐาน A4 (ฟอร์ม INV) ใช้สองคำนี้คำต่อคำ
+- **Root Cause:** (1) `response_model` เป็น **ตัวกรอง + ตัวเติมค่า default** ไม่ใช่แค่ตัดฟิลด์ — การเพิ่มฟิลด์ optional ให้โมเดลเดียวที่รับสองรูปข้อมูล (legacy 3 คีย์ / v2 หลายคีย์) ทำให้รูปแคบเปลี่ยนรูปเงียบ ๆ; (2) P2.2 ตั้งสมมติฐาน "ทะเบียนเดิมใช้เลย์เอาต์เดิม ⇒ ซ่อน v2 ทั้งหมด" แต่ P2.6 ทำให้ INV เป็น v2 ⇒ สมมติฐานกลายเป็น "ผู้ใช้ออกใบแล้วหาไม่เจอ"; (3) ป้ายบนกระดาษไม่ใช่แค่สไตล์ — เทสต์เดิมยึดถ้อยคำของ **แบบฟอร์ม A4** ("เรียกเก็บจาก" = ผู้ถูกเรียกเก็บ, "ผู้รับแจ้ง" = ผู้ได้รับ **การแจ้ง** ไม่ใช่ผู้รับเงิน) ⇒ เทมเพลตที่คิดถ้อยคำเองทำให้สัญญากับเอกสารมาตรฐานแตกระหว่างเฟส
+- **Correct Pattern/Solution:**
+  - `line_items: Optional[List[Union[ReceiptInvoiceLineItem, ReceiptLineItem]]]` — ตัวแรก `model_config = ConfigDict(extra="forbid")` มี 3 คีย์เดิม วาง **ซ้าย** (แคบก่อนกว้าง): dict ใบแจ้งหนี้จับตัวแรกและ serialize 3 คีย์; dict v2 มีคีย์เกิน ⇒ fail ⇒ ตกไปตัวที่สองและได้ฟิลด์ครบเหมือนเดิม ห้ามแก้เทสต์เดิมเพื่อตามโมเดล
+  - ทะเบียนเดิม: `AND (R.layout_version = 1 OR R.doc_type = 'invoice')` — INV ต้องเห็นเพราะเป็นทางเดียวที่ผู้ใช้ตามหาใบที่เพิ่งออก; REC/DEP v2 ยังซ่อน (P2.2 test ยึด) จน P5.1/P5.2 registry ใหม่มาแทน
+  - `_document_context_invoice_v2` ต้อง re-hydrate คีย์ legacy ที่ `_document_context_v2` ตั้งเป็น `None` เสมอ — เคสจริง: `collection_title` ("ยอดค้างชำระรวม N โครงการ") ถูกสร้างใน `_shape_receipt_detail` แต่ context v2 ล้างทิ้ง ⇒ ใบหายหัวข้อ
+  - ถ้อยคำ INV ยึด A4: `<td class="k">เรียกเก็บจาก</td>` + ท้ายใบ "ต้นฉบับ — สำหรับผู้รับแจ้งเก็บไว้ตรวจสอบยอด"; **ห้าม** ใส่ "ผู้รับเงิน" (คนละคำกับ "ผู้รับแจ้ง") และไม่เพิ่มช่องเซ็นผู้รับ
+- **Rule:** (1) 🔴 เพิ่มฟิลด์ optional ให้โมเดลที่รับหลายรูปข้อมูล = ต้องแยก subtype ด้วย `extra="forbid"` แล้ว Union เรียงแคบ→กว้าง (2) 🔴 เปลี่ยน layout ของเอกสารชนิดใด ต้องทบทวนตัวกรองทะเบียนของชนิดนั้นทันที — "ซ่อน v2" ไม่ใช่กฎถาวร (3) 🔴 context v2 ต้องตั้งคีย์ legacy ครบ **ด้วยค่าจริง** ไม่ใช่ `None` เมื่อแถวยังมีค่านั้น (4) 🔴 ป้ายบนกระดาษลอกจากมาตรฐาน A4 คำต่อคำ; "ผู้รับแจ้ง" ≠ "ผู้รับเงิน"
+- **Tests/Verification:** `backend/tests/test_finance_invoice_channels_ack.py` (snapshot ≤3/primary first, mask, QR fixed/open, 400 ไม่เผาเลข, ACK total/entries/ไม่ขยับเงิน/idempotent/all-or-nothing), `test_finance_invoices.py` (line item 3 คีย์), `test_finance_receipts.py` (ทะเบียนเห็น INV, ถ้อยคำ INV), `test_finance_receipt_v2_template.py`
+- **Date Added:** 2026-11-25
+
+### 📥 รับเงินหลายคน: แยก "core ของ event" ออกจาก RBAC โดยไม่ให้เส้นเดิมเปลี่ยนไบต์ + มอนคีย์ปิดแค่ทางเดียว
+- **Context/Problem:** P2.7 ต้องให้ bulk เรียก "เนื้อใน" ของ `create_payment_event` (P2.1) ซ้ำหลายคน **ใน transaction เดียว** แต่ระหว่างทำมี 5 กับดักที่ทำให้เงินผิดหรือเทสต์หลอกตัวเอง:
+  (1) จะเรียก `create_payment_event` ตรง ๆ ต่อคนไม่ได้ — มันเปิด `conn.transaction()` เองและ publish Discord เอง ⇒ transaction ซ้อน + แจ้งเตือน N ครั้ง
+  (2) ถ้าคัดลอกเนื้อในมาไว้ใน `bulk_receive.py` สองสำเนาจะเพี้ยนจากกันเงียบ ๆ (เงินส่วนที่คัดลอกพลาด = ไม่มีอะไรฟ้อง)
+  (3) เทสต์ numbering-rollback แดงด้วย `AttributeError: type object 'PaymentEventsMixin' has no attribute '_display_name'` — ทั้งที่โค้ดถูก
+  (4) `reference_no` เป็น index ไม่ใช่ unique ⇒ ถ้าเช็ค replay ด้วย `SELECT` เฉย ๆ สองคำขอพร้อมกันจะผ่านทั้งคู่
+  (5) `api.ts` แปลง `detail` เป็น `String(...)` ⇒ error รายคนกลายเป็น `"[object Object]"` และเขียนทับ object เดิม ⇒ หน้าจอไฮไลต์แถวที่พังไม่ได้
+- **Root Cause:** เส้นเดี่ยว (`_create_locked`) ถือกติกา 3 อย่างที่ขาดไม่ได้ — **RBAC**, **`_lock_room_money`**, **idempotency** — แต่เนื้อในตั้งแต่ตรวจนักเรียนจนออก REC/DEP เป็นของกลางที่ bulk ใช้ซ้ำได้; การแยกต้องเลือกให้ "ของกลางไม่ทำ RBAC/ล็อก/แจ้งเตือน" และ caller ทุกเส้นต้องทำเอง · ส่วน `cls._display_name` resolve ผ่าน MRO ของคลาสที่ **ผูก** ไว้ ⇒ patch ที่ mixin ให้ `cls` เป็น mixin ไม่ใช่ `FinanceService`
+- **Correct Pattern/Solution:**
+  - `PaymentEventsMixin._commit_payment_event_locked(conn, *, target_room_id, req, …, reference_no=None)` = เนื้อในล้วน **caller ถือ `_lock_room_money` แล้ว**; คืน `(result, notify_payload)` และ **ไม่ publish** · `_create_locked` เหลือ RBAC → lock → idempotency → เรียก core → `_get_room_server_id` → คืน 3 ค่าเท่าเดิม (ไบต์ของ P2.1 ไม่เปลี่ยน)
+  - `BulkReceiveMixin.create_bulk_payment_events` = conn → `require_permission(MANAGE_FINANCE)` → `_lock_room_money` **ครั้งเดียว** → วน `_commit_payment_event_locked` ต่อคนใน `conn.transaction()` เดียว → `ActionService.notify_payments_confirmed` **ครั้งเดียวหลัง commit** → audit `PAYMENT_EVENT_BULK`; ล้มกลางทาง = เขียน failed audit บน conn ใหม่แล้ว raise (ทั้งรอบ rollback)
+  - คีย์ย่อยต่อคน `f"{bulk_key[:48]}:{student_id}"` (≤64) จากคีย์ของรอบเดียว — retry ยิงคีย์เดิม ⇒ replay ไม่ใช่เงินซ้ำ
+  - replay ตรวจคู่: `SELECT id, idempotency_key, reference_no, status … WHERE room_id=$1 AND (reference_no=$2 OR idempotency_key = ANY($3))` ใต้ล็อกห้อง; `reused=true` **เฉพาะเมื่อ** เจอคีย์ครบทุกคน + `reference_no` ตรงทุกแถว + ทุกแถว active; เจอบางส่วน/เลขไม่ตรง = 409 (`IDEMPOTENCY_KEY_CONFLICT` / `REFERENCE_NO_CONFLICT`) ไม่ใช่ replay
+  - `event_at` ทั้งรอบจาก `SELECT CURRENT_TIMESTAMP` **ครั้งเดียว** (ปี พ.ศ. บนใบเสร็จของทุกคนต้องตรงกัน) · `start_time` ส่ง `None` ต่อ item เพื่อให้ core ใช้เวลาเริ่มของตัวเอง
+  - แปลง error รายคน: `AllocationError.code in {BILL_NOT_OPEN, BILL_CHANGED}` → 409, อื่น ๆ → 400, ทั้งหมดห่อ `BulkPaymentFailure` ที่พก `student_id`; router แปลงเป็น `detail = {code:'BULK_ITEM_FAILED', message, student_id, item_code}` (object) ⇒ frontend ไฮไลต์แถวได้
+  - เทสต์ที่ต้อง patch method: ใช้ `FinanceService._commit_payment_event_locked` (คลาสที่มี MRO ครบ) **ไม่ใช่** `PaymentEventsMixin._…`
+  - `api.ts`: `detail` ที่เป็น object (ไม่ใช่ array) → `error.message = detail.message` แต่ `response.data.detail` **คง object เดิม** (array 422 ยังรวมเป็นข้อความเหมือนเดิม) — ฟังก์ชันที่ใช้ `String(obj)` ต้องมีข้อยกเว้นนี้ ไม่งั้น `"[object Object]"`
+  - UI ตาราง: `MoneyInput` บังคับ `label` ⇒ ในแถวตารางใช้ `<input inputmode="decimal" aria-label="ยอดที่ต้องเก็บของ …">` ธรรมดา; เพิ่ม `aria-label` ให้ checkbox/toggle ทุกตัวเพื่อให้เทสต์อ้างได้ (ไม่พึ่ง index ของ input)
+  - พรีวิวรายคน (`Promise.allSettled`) ต้องถูก **ล้างทั้งชุด** เมื่อยอด/ติ๊ก/ตัวเลือกเปลี่ยน — ไม่งั้นยืนยันด้วยยอดที่ยังไม่เคยตรวจ
+- **Rule:** (1) 🔴 ฟังก์ชัน core ที่แยกไว้ห้ามทำ RBAC/ล็อก/แจ้งเตือนเอง — เป็นหน้าที่ caller (2) 🔴 patch method ของ mixin ในเทสต์ต้องอ้างผ่าน `FinanceService` (3) 🔴 replay ต้องตรงทั้งชุดคีย์ + reference + active; เจอบางส่วน = 409 ห้ามเดาว่า replay (4) 🔴 `reference_no` ไม่ unique ใน DB — ตรวจใต้ล็อกห้องเสมอ (5) 🔴 อย่าให้ `String(object)` เล็ดลอดเป็นข้อความ error ของเงิน
+- **Tests/Verification:** `backend/tests/test_finance_bulk_receive.py` 17 ตัว (event/REC ต่อคน, reference/event_at เดียว, all-or-nothing, numbering rollback, duplicate student, replay ผ่าน API ซ้ำ, reference conflict, notify ครั้งเดียว/ไม่แจ้งตอน replay, เครดิตล้วนไม่มี REC, ผสมเงินสด+เครดิต, ยอด 0 ไม่มีเครดิต, RBAC, ช่องทาง null, กระเป๋าต่างห้อง, เพดาน 100, error พก `student_id`), `frontend/src/components/finance/__tests__/BulkReceiveSheet.spec.ts` 8 ตัว, `src/services/__tests__/apiErrors.spec.ts` (+1 object detail)
+- **Date Added:** 2026-11-25
+
+### 👜 เงินสดรอส่งมอบ: กระเป๋าคือแถวปกติของ `finance_accounts` — idempotency ต้องพึ่ง journal metadata
+- **Context/Problem:** P3.1 ทำ "เงินสดรอส่งมอบ" (custody) ซึ่งมี 5 กับดักที่ทำให้ยอด/journal เพี้ยนได้:
+  (1) ถ้าคิดว่า custody เป็น "บัญชีแยกประเภทใหม่" จะต้องเพิ่ม ledger 11003 แล้ว reconciliation/`_scan_account_diffs` ทั้งชุดไม่รู้จักมัน
+  (2) ถ้าเขียน `finance_transactions` ตอนส่งมอบ dashboard/งบประมาณจะนับเป็นรายรับ+รายจ่ายซ้ำ
+  (3) partial unique `idx_finance_accounts_custody_owner` **ไม่ครอบ** แถวที่ `deleted_at` ไม่ null ⇒ INSERT ใหม่จะกลายเป็นกระเป๋าสองใบต่อคนในสายตาประวัติ
+  (4) `finance_custody_handovers` (migration 0012) **ไม่มี** `idempotency_key` ⇒ ถ้า retry ด้วยคีย์เดิมจะได้แถวใหม่ + ยอดขยับซ้ำ
+  (5) void ที่ void journal เดิมอย่างเดียว (ไม่เขียนใบกลับรายการ) ทำให้ยอดบัญชีไม่ตรงกับ journal
+- **Root Cause:** custody ไม่ใช่แนวคิดบัญชีใหม่ — เป็น**แถวกระเป๋าปกติ**ที่ระบุเจ้าของชัดเจน (`is_custody` + `owner_person_id`) การส่งมอบจึงเป็นการโอนสินทรัพย์→สินทรัพย์ที่ใช้ machinery เดิมทั้งชุด; ส่วน idempotency ที่สคีมาไม่ได้รองรับต้องเก็บที่ **metadata ของ journal** ซึ่งถูกสร้างใน transaction เดียวกันและมี room lock serialize ให้อยู่แล้ว
+- **Correct Pattern/Solution:**
+  - กระเป๋า custody = `INSERT finance_accounts (…, is_custody=TRUE, is_primary=FALSE)`; **ห้ามตั้ง `is_primary`** (partial unique `(room_id, account_kind)` จะชนกระเป๋าหลัก)
+  - `_ensure_custody_account_locked` = หาแถว active → ถ้าไม่มี หาแถว soft-deleted ยอด 0 แล้ว **ฟื้น** (`deleted_at=NULL`) → ถ้ายอดไม่ 0 คืน 409 → ค่อย INSERT ใหม่
+  - handover: RBAC → `_lock_room_money` → idempotency (`journal_entries.metadata->>'idempotency_key'` + `status='active'`) → ล็อกกระเป๋าครั้งละชุด `WHERE id = ANY(...) ORDER BY id FOR UPDATE` → guard ยอดต้นทาง **ก่อน UPDATE** → `UPDATE balance ±` (ให้ DB คำนวณ DECIMAL) → `INSERT finance_custody_handovers` → `_insert_journal_entry(reference_type='custody_handover', lines=[Dr to, Cr from])` → ผูก `journal_entry_id`
+  - **ห้าม** `INSERT INTO finance_transactions` และห้ามออก REC/PV/INC/DEP ของ handover
+  - void: คืนยอดสองฝั่ง → guard **ยอดปลายทาง** (`to.balance < amount` ⇒ 409) → `UPDATE journal_entries SET status='voided', deleted_at=NOW()` → เขียน journal กลับรายการ `custody_handover_void` (Dr from / Cr to) → ตั้ง handover `voided`
+  - `get_custody_movements` UNION handover (out = ลบ, in = บวก) + `finance_transactions` ของกระเป๋า (expense = ลบ) แล้วเรียง `occurred_at DESC, id DESC` จำกัด 500
+  - เพิ่ม 3 เมธอดเขียนใน `_MONEY_PATHS` — และ**รันตัวตรวจ completeness ซ้ำเสมอ** เพราะมันจับช่องว่างของแพ็กเกจก่อนหน้าได้ (P3.1 เจอ `issue_acknowledgements` ของ P2.6 ที่ล็อกถูกแต่มิได้ลงทะเบียน)
+- **Rule:** (1) 🔴 custody = กระเป๋าธรรมดา ไม่มี ledger/ตารางใหม่ (2) 🔴 handover ห้ามแตะ `finance_transactions` (3) 🔴 idempotency ของ handover อยู่ที่ journal metadata ใต้ room lock — ห้ามใช้ `created_at`/`amount` เป็นคีย์ (4) 🔴 void ต้องทั้ง void ใบเดิมและเขียนใบกลับรายการ (5) 🔴 เพิ่มเมธอดเขียนเงินแล้วต้องลง `_MONEY_PATHS` และรันตัวตรวจ completeness
+- **Tests/Verification:** `backend/tests/test_finance_custody.py` 13 ตัว (1 กระเป๋า/คน + ห้าม primary, receive role, RBAC member 403, balanced journal + ไม่มี finance_transactions, ทิศ custody→main, ยอดไม่พอไม่เหลือร่องรอย, idempotent replay, 409 payload ต่าง, void คืนยอด + void journal เดิม + ใบกลับรายการ, void guard ปลายทางใช้เงิน, movements เรียงใหม่→เก่า, room scope 404, ตัวตรวจ `_MONEY_PATHS`), `test_finance_money_lock.py` ผ่านทั้งไฟล์
+- **Date Added:** 2026-11-25
+
+### 💳 เครดิตต้องเกิดพร้อมใบรับเงิน: `payment_event_id` เขียนตอน INSERT และ `manual+[]` = ไม่ปิดบิล
+- **Context/Problem:** P3.3 ยุบ "เติม/หักเครดิต" ให้เดินผ่าน payment event แหล่งเดียว แต่เจอกับดัก 3 ข้อ:
+  (1) P2.1 เขียน `student_credits.payment_event_id` ด้วย `UPDATE` **หลัง** INSERT แถว apply
+  (2) allocation engine (P1.5) ปฏิเสธ `bill_selection='manual'` + `bill_ids=[]`
+  (3) แถวเครดิตที่มาจาก event ถูกกด "ยกเลิก" แล้วได้ 500/409 จากเส้นทางเดิม
+- **Root Cause:** (1) `student_credits` เป็น append-only ledger — แถวต้องรู้ที่มาของตัวเองตั้งแต่เกิด; การ `UPDATE` ภายหลังทำให้เกิดหน้าต่างที่แถวมีอยู่แต่ไม่มีเจ้าของ และขัดกติกา ledger ของ P1.1. (2) "manual + ว่าง" ไม่ใช่ข้อมูลผิด แต่คือ**เลือกไม่ปิดบิลสักใบ** — เคสเดียวกับ "เติมเครดิตล้วน" ที่เงินทั้งก้อนต้องกลายเป็น `credit_added`; การ reject ไปบังคับให้ caller ต้องเดาบิลแทนครู. (3) การหักที่เกิดจาก event ผูกกับ REC/DEP/journal หลายใบ การ undo เฉพาะแถวเดียวจะทำให้ยอดไม่ตรง.
+- **Correct Pattern/Solution:**
+  - `_apply_plan_locked(..., payment_event_id=...)` รับ id แล้วใส่ใน **INSERT เดียว** ของ `student_credits`; คืน `credit_entry_id` ของทุก allocation เพื่อให้ caller ตรวจได้ว่าครบ (`payments` ต้องมี credit_entry_id ทุกแถว)
+  - `_top_up_credit_locked(..., payment_event_id=None)` + `_create_excess_credit_locked` เขียน id ใน INSERT เหมือนกัน — legacy ยังส่ง `None`
+  - allocation: `manual` + `[]` ⇒ `selected=[]`, `unselected=open_bills`, `total_applied_stang=0`; ถ้า `excess_action='none'` ยังถูกปฏิเสธที่ `EXCESS_NOT_ALLOWED` ⇒ ไม่มีทางกลืนเงินเงียบ ๆ
+  - `_undo_credit_locked`: เจอ `payment_event_id IS NOT NULL` ⇒ raise `CreditEventManagedError` ⇒ router แปลง **409** (ก่อน `except ValueError` 400) — "ยกเลิกที่ใบรับเงิน"
+  - response ของเครดิตเติม `payment_event_id` + `source_label` (`event`/`legacy`) ให้ UI ตัดสินใจได้โดยไม่เดา
+  - FE: เติม = `createPaymentEvent` (`manual`, `[]`, `excess_action:'credit'`, `amount_received>0`); หัก = `createPaymentEvent` (`amount_received:'0.00'`, `use_credit:true`, `excess_action:'none'`, `auto`) ⇒ ไม่มี REC/transaction; idempotency key สร้างครั้งเดียวตอนเปิดแผ่น
+  - `deposit_no` คือหลักฐานของ topup; ถ้า event เติมเครดิตล้วนได้ `receipt_no` กลับมา = ความผิดปกติ ให้ UI เตือนให้แจ้งผู้ดูแล
+- **Rule:** (1) 🔴 `payment_event_id` ต้องอยู่ใน INSERT ของ `student_credits` — ห้าม UPDATE ภายหลัง (2) 🔴 `manual` + `[]` = ไม่ปิดบิล ไม่ใช่ error (3) 🔴 undo แถวที่มาจาก event = 409 และ UI ต้องไม่แสดงปุ่มยกเลิก (4) 🔴 เงินสด/เครดิตใช้ event เดียวกัน แต่เครดิตล้วนไม่มี REC/transaction
+- **Tests/Verification:** `backend/tests/test_finance_credits.py` +9 (legacy row = NULL, event topup = DEP ไม่มี REC, event apply ไม่มี transaction/REC, undo event = 409, undo legacy ยังได้, detail เปิด `payment_event_id`, topup `manual+[]`, apply ไม่มีบิล = 400, money-lock shape), `test_finance_allocation.py` ปรับ `manual+[]`, `test_finance_payment_events.py` ยังเขียว, `frontend/…/CreditPanel.spec.ts` 4 + `credit-consolidation.spec.ts` 3
+- **Date Added:** 2026-11-25
+
+### 📜 ไทม์ไลน์การเงิน: UNION ต้องมีทั้งสองกิ่งเสมอ + cursor 3 คีย์ `(occurred_at, kind, id)`
+- **Context/Problem:** P3.4 ทำหน้าประวัติการรับเงินที่รวม payment event + custody handover ไว้ไทม์ไลน์เดียว และเจอกับดัก 3 ข้อ:
+  (1) ประกอบ SQL ตาม `kind` (ตัดกิ่ง UNION ที่ไม่ใช้ทิ้ง) แล้ว asyncpg ตอบ `IndeterminateDatatypeError: could not determine data type of parameter $5`
+  (2) `occurred_at` ซ้ำได้ (event หลายรายการใน transaction เดียวกัน / seed batch) ⇒ `LIMIT/OFFSET` และ cursor คีย์เดียวจะข้ามหรือซ้ำแถว
+  (3) รายการที่ถูกยกเลิก (`status='voided'`) ถ้าซ่อนจากประวัติจะอธิบายยอดที่หายไปไม่ได้
+- **Root Cause:** (1) asyncpg เตรียม statement จาก SQL ที่ได้รับจริง — parameter ที่ **ไม่ถูกอ้างอิงสักที่** ใน statement จะถูกเดาชนิดไม่ได้ แม้ฝั่ง Python ส่งค่ามาพร้อม `::text` cast ก็ตาม (cast ต้องอยู่ใน SQL ที่รัน). (2) `occurred_at` ไม่ unique ⇒ ต้องมี tie-breaker ที่ **รวมแล้ว unique ตลอดกาล** = `(occurred_at, kind, id)` เพราะ id เป็น PK ของตารางตนและ kind แยกตาราง. (3) ประวัติการเงินเป็นหลักฐาน ไม่ใช่ยอดคงเหลือ.
+- **Correct Pattern/Solution:**
+  - **ใส่ทั้งสองกิ่ง UNION เสมอ** แล้วกรองชนิดด้วย parameter: กิ่ง event มี `AND $11::text <> 'handover'`, กิ่ง handover มี `AND $11::text <> 'event'` ⇒ ทุก `$n` ถูกอ้างอิงอย่างน้อยหนึ่งที่ และ `kind` ไม่ต้อง interpolate SQL
+  - cursor = `base64url(f"{iso}|{kind}|{id}")` (ตัด `=` ท้าย); decode ผิดรูป/ไม่มี tz ⇒ `ValueError` → router 400; where = `(occurred_at, kind, id) < ($ts, $kind, $id)` เรียง `DESC` ตรงคอลัมน์
+  - `COALESCE(event_at, created_at) AS occurred_at` ใช้ **ทั้ง select / filter วันที่ / cursor** — พลาดที่ใดที่หนึ่ง event เก่า (`event_at IS NULL`) จะหายจากทุกหน้า
+  - วันไทย: `$n::date::timestamp AT TIME ZONE 'Asia/Bangkok'` (และ `($n::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok'` เป็นขอบบนแบบ exclusive) — เทียบ `date` กับ `timestamptz` ตรง ๆ = เที่ยงคืน UTC (07:00 ไทย)
+  - ห้าม JOIN บรรทัด/เอกสารใน query หลัก (แถวทวีคูณทำให้ pagination เพี้ยน) ⇒ ได้หน้าแล้วค่อยโหลด batch ด้วย `= ANY($1::bigint[])` (สูงสุด 5 query/หน้า)
+  - read-only service เป็น **module-level function** เมื่อ brief ห้ามแตะ `service.py` — เรียก `require_member` เอง ไม่ต้อง mixin/MRO และไม่ลง `_MONEY_PATHS`
+  - FE: กลุ่มวันใช้ `Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' })` บน timestamp (ห้าม `formatThaiDate` กับ timestamp) + "โหลดเพิ่ม" ส่ง `next_cursor` เดิมกลับ + `createLatestGuard` กันคำขอเก่า
+- **Rule:** (1) 🔴 SQL ที่มีกิ่งเลือกตาม filter — อย่าตัดกิ่งทิ้งถ้ามันถือ parameter (2) 🔴 cursor ของไทม์ไลน์ = 3 คีย์ `(occurred_at, kind, id)` (3) 🔴 `COALESCE(event_at, created_at)` ต้องเหมือนกันทุกจุด (4) 🔴 voided ต้องแสดงพร้อมสถานะ ไม่ซ่อน (5) 🔴 read-only page ไม่มี `_lock_room_money`/audit
+- **Tests/Verification:** `backend/tests/test_finance_payment_history.py` 12 ตัว (merge/เรียง, lines+docs batch, handover names, kind/student/person/receiver filter, cursor ไม่ซ้ำ/ไม่ข้ามทั้งเวลาเท่ากัน, ขอบวันไทย UTC 23:30, voided ยังแสดง, member 403, cursor ผิดรูป 400, ไม่แตะ money path), `frontend/src/views/finance/__tests__/payment-history.spec.ts` 6 ตัว
+- **Date Added:** 2026-11-25
+
+### 💸 ใบสำคัญจ่ายหลายบรรทัด: journal ต้องแยกต่อบรรทัด + PV ต้องมี `idempotency_key` ของตัวเอง
+- **Context/Problem:** P4.1 ทำ "1 ใบเบิก = N บรรทัด" (คนละกระเป๋า/หมวด/งบ) แล้วเจอกับดักที่บังคับรูปโค้ด:
+  (1) จะรวม journal เป็นก้อนเดียวเพื่อลดจำนวนแถว — แต่งบประมาณ/รายงานอ่านยอดใช้ต่อหมวดจาก `finance_transactions` (และกระทบยอดจาก journal) ⇒ ยอดหมวดเพี้ยนและย้อนทีละบรรทัดไม่ได้
+  (2) PV ตาม index เดิมกันซ้ำด้วย `legacy_transaction_id` เท่านั้น ⇒ ใบหลายบรรทัดมี transaction หลายตัว การ retry อาจสร้าง PV ใบที่สอง
+  (3) ตรวจครบทุกบรรทัด "ระหว่าง" เขียน ⇒ ผู้ใช้เห็น error หลังมีแถวค้าง (หรือแย่กว่า: เงินถูกหักไปแล้วครึ่งใบ)
+- **Root Cause:** (1) งบประมาณเป็นมิติ **ต่อหมวด** ไม่ใช่ต่อใบ — `SUM(txn.amount) WHERE category_id` (และ `journal_lines → accounting_ledgers.legacy_category_id`) เป็นแหล่งเดียวของ "ใช้ไป" ⇒ aggregation ระดับใบทำลายมิติ. (2) unique index ของ PV (`idx_finance_receipts_voucher_active`) คีย์ `COALESCE(legacy_transaction_id,0)` และ `idx_finance_receipts_idem` คีย์ `(room_id, doc_type, idempotency_key)` แบบ partial ⇒ ต้องมีคีย์ที่ **หนึ่งใบเอกสารต่อหนึ่ง voucher** ไม่ใช่ต่อหนึ่ง transaction. (3) การตรวจหลังเริ่มเขียนทำให้ partial write เป็นไปได้ถ้าลืม rollback หรือทำ "ตรวจทีละบรรทัดแล้วข้าม".
+- **Correct Pattern/Solution:**
+  - **ตรวจทุกอย่างก่อนเขียนแถวแรก**: 1..50 บรรทัด, `amount = round(float(x),2) > 0`, หมวดเป็น `category_type='expense'` ของห้อง, งบผูกหมวดเดียวกับบรรทัด, กระเป๋าเป็นของห้อง, `is_custody` ใช้ได้เฉพาะ `funding_source='pass_through'`, แล้วรวมต่อกระเป๋า (`sums[wallet]`) เทียบ balance **ก่อน** insert → ผิด = `ValueError` → 400 ไม่เหลือร่องรอย
+  - **ล็อกกระเป๋าทุกใบตาม id เรียงขึ้น** (`WHERE id = ANY(...) ORDER BY id FOR UPDATE`) หลัง `_lock_room_money` — สองคำขอที่ใช้กระเป๋าคู่เดียวกันคนละลำดับบรรทัดจะ deadlock ถ้าล็อกตามลำดับที่ผู้ใช้ส่ง
+  - **journal ต่อบรรทัด**: `reference_type='expense_voucher'`, `reference_id=str(txn_id)`, metadata `{legacy_transaction_id, expense_voucher_id, line_no}`, Dr หมวด / Cr สินทรัพย์ — ตรงกับ `finance_expense_lines.finance_transaction_id`
+  - **PV 1 ใบเสมอ**: `idempotency_key=f"pv:{voucher_id}"`, `layout_version=2`, `legacy_transaction_id` = txn **บรรทัดแรก**, `voucher_snapshot` (JSON **สตริง** — asyncpg ไม่มี codec) + `document_meta={voucher_id, request_hash, line_count, signatures, approver_fallback}`
+  - **idempotency ของใบ**: คีย์ใน `finance_expense_vouchers` (`UNIQUE(room_id, idempotency_key)`); replay อ่านใบเดิม → เทียบ `document_meta.request_hash = sha256(model_dump(mode="json"))` → ตรง = คืนเดิม (`reused=true`) / ต่าง = `ExpenseVoucherIdempotencyConflict(ValueError)` → router จับ **ก่อน** `ValueError` → **409**
+  - **SAVEPOINT ตอน insert PV** (รูป `_issue_one`/`_issue_income_doc` ไม่ใช่ `_issue_deposit`): `async with conn.transaction():` แล้วจับ `UniqueViolationError` → อ่านใบที่ชนะด้วย `idempotency_key` → คืน; ห้ามอ่าน `conn` ต่อใน transaction ที่ abort (`25P02`)
+  - **3 ลายเซ็น** `prepared`=ผู้ใช้ปัจจุบัน (payload `user_name` ถ้าไม่มีอ่านโปรไฟล์เอง), `approved`=payload หรือ fallback ผู้ใช้ปัจจุบัน **พร้อมธง `document_meta.approver_fallback=true`**, `receiver`=payee; `signed_at=NULL`, `sort_order` 0/1/2; `doc_type='payment_voucher'`, `doc_id`=PV id
+  - `event_at`/ปี พ.ศ. มาจาก `_as_utc(finance_transactions.created_at)` (naive UTC) แล้ว `astimezone(THAI_TZ)` — ไม่ใช่ `CURRENT_TIMESTAMP` ของแอป
+  - mixin ใหม่ใช้ `_resolve_asset_ledger`/`_insert_journal_entry` (LedgerMixin) + `resolve_room_id` (BaseMixin) ⇒ วางใน MRO **ก่อน** ทั้งคู่; เพิ่มเมธอดใน `_MONEY_PATHS` แล้วรันตัวตรวจ completeness
+- **Rule:** (1) 🔴 journal **ต่อบรรทัด** ห้ามรวมก้อนเดียว (2) 🔴 PV = 1 ใบต่อ voucher และมี `idempotency_key='pv:{id}'` (3) 🔴 ตรวจครบก่อนเขียนแถวแรก + ล็อกกระเป๋าตาม id ขึ้น (4) 🔴 409 ต้องแยกจาก 400 (จับ conflict ก่อน `ValueError`) (5) 🔴 ห้ามเรียก `_issue_payment_voucher` เดิมสำหรับใบหลายบรรทัด (snapshot shape เดิม)
+- **Tests/Verification:** `backend/tests/test_finance_expense_voucher.py` 17 ตัว (2 txn + 2 journal Dr=Cr=350, ยอดกระเป๋าแยกใบ, PV 1 ใบ + anchor txn แรก + layout/idem, 3 signatures, replay ใบเดิม, payload ต่าง 409, ยอดรวมไม่ตรง 400, เงินไม่พอไม่มีร่องรอย, หมวดรายรับ 400, custody+room_fund 400, rollback ที่บรรทัด 2, member 403, ขอบเขตห้อง 403/404, เพดาน 50, `_MONEY_PATHS`, list/detail shape, งบ used=350 ไม่ใช่ 700), `test_finance_money_lock.py` ครบทั้งไฟล์, `test_finance_budgets.py` เขียว
+- **Date Added:** 2026-11-25
+
+### 🧾 เทสต์เอกสาร: shell มีถ้อยคำใน CSS comment — ห้าม assert "ไม่มีคำนั้น" ด้วยข้อความดิบ
+- **Context/Problem:** P5.3 (document adapters) เขียน assertion ว่าใบ `DEP v2` ต้องไม่มีตารางของใบเสร็จ (`"ยอดเต็ม"`, `"รับครั้งนี้"`) และชุดพิมพ์ผสมต้องมี `<style>` ครั้งเดียว — เทสต์แดงทั้งที่เทมเพลตถูก เพราะ `receipt.html` เป็น shell ที่ถูกเรนเดอร์**ทุกใบ**: CSS comment มีวลี `"ยอดเต็มของรายการ"` และคอมเมนต์ใน `<style>` มีตัวอักษร `<style>` อยู่เอง ⇒ `html.count("<style>")` ได้ 2 และ `"ยอดเต็ม" not in html` เป็น False เสมอ
+- **Root Cause:** Jinja ตัด `{# #}` ของ partial ออก แต่ **HTML/CSS comment ของ shell ไม่ถูกตัด** — shell ถูกเรนเดอร์ครั้งเดียวต่อไฟล์ PDF และ comment เหล่านั้นติดไปกับ output ทุกใบ (รวมถึงคอมเมนต์อธิบายที่เขียนขึ้นเพื่อนักพัฒนารุ่นถัดไป)
+- **Correct Pattern/Solution:**
+  - assert "ไม่มีตารางบิล" ด้วย **โครงสร้าง** เช่น `'<table class="items"' not in html` (partial ใบเสร็จใช้คลาสนี้เสมอ; CSS เขียน `.items` ไม่มี `class="` นำ)
+  - assert "shell ถูกเรนเดอร์ครั้งเดียว" ด้วยค่าที่มีเฉพาะในโค้ดจริง เช่น `html.count("@page { size: A4;") == 1` หรือ `html.count("data:font/ttf;base64,") == 2` — ไม่ใช่ `<style>`
+  - ถ้าต้อง assert ถ้อยคำบนกระดาษจริง ให้เลือกวลีที่ **ไม่มีทางอยู่ในคอมเมนต์** (เช่น `"ยังไม่ถูกหักปิดบิลใด"` ของ partial DEP) หรือ assert บน context dict ก่อนเรนเดอร์
+  - baseline byte-stability ของ legacy: hash HTML ที่ **มาสก์ฟอนต์ base64** (`re.sub(r"url\('data:font/[^']+'\)", "url('<FONT>')", html)`) เพื่อไม่ให้ baseline พองด้วย data URI ~45KB × 2
+- **Rule:** (1) 🔴 ห้าม assert การไม่มีอยู่ของคำไทย/แท็ก ด้วยการค้นใน HTML ที่ shell ครอบ — shell มีคอมเมนต์ทุกใบ (2) 🔴 นับ "ครั้งเดียวต่อไฟล์" ด้วย marker ของ shell จริง (`@page`, จำนวน `data:font/`) (3) 🔴 regression ของ legacy เก็บเป็น SHA-256 ของ HTML ที่มาสก์ฟอนต์แล้ว ไม่ใช่สำเนา HTML ทั้งก้อน
+- **Tests/Verification:** `backend/tests/test_finance_document_adapters.py` (7 + 2 guard), `backend/tests/test_finance_legacy_pdf_regression.py` (5: digest receipt/voucher, ชุดผสม 2 legacy + 1 DEP v2, layout/event NULL, v2 ไม่ถูกยุบ)
+- **Date Added:** 2026-11-25
+
+### ✂️ ตารางการเงินที่สร้างก่อน migration ไม่มี `created_at` — อย่าเดาคอลัมน์จากตารางรุ่นใหม่
+- **Context/Problem:** P6.2 เขียน endpoint "เตือนชื่อโครงการซ้ำ" แล้ว `SELECT id, title, status, created_at FROM fee_collections ... ORDER BY created_at DESC` ตามสัญชาตญาณว่า "ตารางการเงินทุกตารางมี `created_at`" — เทสต์ผ่านหมดยกเว้นสองตัวสุดท้ายที่ยิง endpoint จริง (`UndefinedColumnError: column "created_at" does not exist`) เพราะ `fee_collections` ถูกสร้างใน `init_db.py` รุ่นแรกและมีแค่ `id, room_id, title, amount, due_date, status, deleted_at` (migration 0012 เพิ่ม `fund_type`/`collection_kind`/`late_fee_*` แต่ไม่ได้เพิ่ม timestamp)
+- **Root Cause:** สคีมามีสองรุ่นปนกัน — ตารางที่เกิดใน `init_db.py` (DML จริง) กับคอลัมน์ที่ migration เติมทีหลัง ⇒ การ "อ่านโค้ดข้าง ๆ ที่ query ตารางการเงินตารางอื่น" ไม่พอ ต้องเปิด DDL ของ **ตารางนั้น** (`grep -n "CREATE TABLE IF NOT EXISTS <table>" -A 30 core/init_db.py` และ `grep -rn "<table>" core/migrations/`)
+- **Correct Pattern/Solution:**
+  - ก่อน SELECT คอลัมน์ใดในฟังก์ชันใหม่ ให้เปิด DDL ของตารางนั้นจริง ไม่ใช่เดาจากตารางพี่น้อง
+  - ถ้าต้องการ "ลำดับการสร้าง" และไม่มี `created_at` → ใช้ `id DESC` (SERIAL = ลำดับ insert จริง) และ **อย่าส่งคีย์ที่ไม่มีคอลัมน์** กลับใน response
+  - ฟิลด์ response ที่ "อาจมีในอนาคต" ให้ `Optional[...] = None` + คอมเมนต์ว่าปัจจุบันไม่มีวันถูกส่งค่า — กัน Pydantic 422 และกันคนอ่านเข้าใจผิด
+  - เทสต์ที่ผ่าน init_db แต่ไม่เคยยิง endpoint จะไม่จับ error นี้ — ต้องมีเทสต์ยิง HTTP จริงของฟังก์ชันใหม่อย่างน้อยหนึ่งตัวต่อ endpoint (P6.2 มี 2 ตัวจับได้)
+- **Rule:** (1) 🔴 อย่าเดาว่าตารางการเงินมี `created_at`/audit column ครบ — ตรวจ DDL ของตารางนั้น (2) 🔴 ไม่มี timestamp → เรียงด้วย `id` และไม่คืนฟิลด์ที่ไม่มีจริง (3) 🔴 ฟังก์ชันใหม่ทุกตัวต้องมีเทสต์ยิง HTTP/บริการจริง ไม่ใช่แค่ import ผ่าน
+- **Tests/Verification:** `backend/tests/test_finance_bill_adjustments.py` (18 ตัว — เพิ่ม 2 ตัวตรวจชื่อซ้ำเป็นตัวจับบั๊กนี้), `backend/tests/test_finance_outstanding_formula.py` (11 ตัว: debtors xfail(strict) per Gotcha 1, aging, summary, receipts breakdown, export, late-fee base, reminders, me/stats, home/summary, credits, revert), `test_finance_money_lock.py` เขียว
+- **Date Added:** 2026-11-25
+
+### 🧩 FIN-V2 ประกอบครบ: สิ่งที่เห็นได้เฉพาะเมื่อทุก package อยู่ด้วยกัน
+- **Context/Problem:** เขียน 33 package แยก session ทำให้แต่ละ brief ล็อกพฤติกรรมของตัวเองได้ แต่มีกับดัก 5 อย่างที่ **ไม่ปรากฏ** ใน package ใด package เดียว — เห็นตอนประกอบ/ปิดรอบ (P6.5) เท่านั้น:
+  (1) ยอดค้างที่มี "สูตร 3 พจน์" (`amount − paid − written_off`) อยู่หลายจุด ถ้าใครแก้จุดเดียวโดยไม่อัปเดต `test_finance_outstanding_formula.py` ตัวเลขจะไม่ตรงกันแบบเงียบ ๆ;
+  (2) เอกสารสองยุค (layout 1/2) ใช้ shell HTML เดียวกัน ⇒ ถ้า adapter คืน context ไม่ครบ Jinja `is not none` จะกลายเป็น True และพิมพ์ผิดใบ;
+  (3) redirect หน้าจอเก่าต้องพึ่ง **backend resolver** (`by-no`) ไม่ใช่ map ฝั่ง FE เพราะ CERT 4 ตัวอักษร/RPT ไม่มีเลขก่อน finalized;
+  (4) void ที่พ่วงหลายเอกสารต้อง atomic ทั้งก้อน — ถ้า void REC สำเร็จแต่ DEP ค้าง ผู้ใช้เห็นใบเดียวถูกยกเลิก;
+  (5) idempotency ของ v2 อยู่ที่ **DB unique** (`payment_event_id`, `idempotency_key`) ไม่ใช่ที่ service ⇒ retry ซ้อนจากหลาย replica ยังได้ใบเดิม
+- **Root Cause:** แต่ละ package ทดสอบ "ของตัวเอง" ด้วย fixture ของตัวเอง; ความสอดคล้องข้าม package (สูตรที่ใช้ร่วมกัน, adapter contract, resolver, atomic rollback) ไม่มีเทสต์ไหนถือเป็นเจ้าของ ⇒ เจอตอนรันชุดรวม/QA เท่านั้น
+- **Correct Pattern/Solution:**
+  - **สูตร 3 พจน์** ทุก call site ต้องอ่านจาก `_open_bill_predicate()` + `COALESCE(...,0)` เดียวกัน — aging `grand_total` = dashboard `receivable_total` = หน้ารายชื่อ (มี parity test ล็อก)
+  - **adapter เอกสาร** คืน context ครบทุกคีย์ที่ template อ่าน และ `layout_version=1` ต้องไม่เปลี่ยนไบต์ (hash ที่มาสก์ฟอนต์)
+  - **`by-no` resolver** เป็น backend ตัวเดียวของ "เลข → (doc_type, doc_id)"; FE route `/finance/documents/by-no/:docNo` ต้องมาก่อน `/:docType/:docId` (static-before-dynamic)
+  - **redirect legacy** ใช้ `router.replace` + `createLatestGuard` และ 404 แสดงทางออก (ไม่ใช่ error กลาง) — route `/finance/receipts` ไม่มี `name` เพื่อไม่ให้โค้ดใหม่ลิงก์มา
+  - **void** ยกเลิกทุกเอกสาร/แถวใน transaction เดียว + audit นอก/ในตามกติกา read-only ที่ใช้ร่วมกัน
+- **Rule:** (1) 🔴 เปลี่ยนสูตรค้างต้องอัปเดต parity test ทั้งชุด (2) 🔴 เอกสารใหม่ห้ามแก้ shell/partial legacy (3) 🔴 ทางเข้า legacy = redirect ของ, ไม่ใช่ map ฝั่ง FE (4) 🔴 void หลายเอกสารต้อง all-or-nothing (5) 🔴 grep `/finance/receipts` เหลือเฉพาะ redirect + คอมเมนต์
+- **Tests/Verification:** `backend/tests/test_finance_outstanding_formula.py`, `test_finance_dashboard_ownership.py` (parity aging), `test_finance_legacy_pdf_regression.py` (byte stability), `frontend/src/router/__tests__/routes.spec.ts` (redirect + static-before-dynamic), `frontend/src/views/finance/__tests__/legacyReceiptRedirect.spec.ts`
 - **Date Added:** 2026-11-25

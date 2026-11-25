@@ -89,7 +89,7 @@ class LateFeesMixin:
                    FC.late_fee_amount,
                    FC.late_fee_grace_days,
                    COALESCE(SP.paid_amount, 0) AS paid_amount,
-                   (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
+                   (FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)) AS outstanding
             FROM student_payments SP
             JOIN fee_collections FC ON FC.id = SP.collection_id
             JOIN students S ON S.id = SP.student_id AND S.deleted_at IS NULL
@@ -98,7 +98,7 @@ class LateFeesMixin:
               AND FC.late_fee_mode <> 'none'
               AND FC.due_date IS NOT NULL
               AND FC.due_date + (FC.late_fee_grace_days || ' days')::interval < $1::date
-              AND (FC.amount - COALESCE(SP.paid_amount, 0)) > $2
+              AND (FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)) > $2
               AND NOT EXISTS (
                     SELECT 1 FROM fines F
                      WHERE F.source_payment_id = SP.id AND F.deleted_at IS NULL

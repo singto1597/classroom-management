@@ -771,17 +771,30 @@ class TransactionsMixin:
                                 #    ห้ามย้อนการชำระ — ยอดที่คำนวณตอนอนุมัติจะเป็นโมฆะ
                                 await cls._assert_fine_cashflow_reversible(conn, [sp_id])
                                 await cls._assert_no_pending_fine_requests(conn, [sp_id])
-                                sp_info = await conn.fetchrow("SELECT paid_amount, FC.amount as total_amount FROM student_payments SP JOIN fee_collections FC ON SP.collection_id = FC.id WHERE SP.id = $1 FOR UPDATE", sp_id)
+                                # ✂️ [P6.2] ต้องอ่าน `written_off_amount` ด้วย — บิลที่ถูกตัดจำหน่ายไปแล้ว
+                                #    ส่วนหนึ่งไม่ควรกลับเป็น `pending` ทั้งก้อนหลังยกเลิกการชำระ
+                                sp_info = await conn.fetchrow("SELECT paid_amount, written_off_amount, FC.amount as total_amount FROM student_payments SP JOIN fee_collections FC ON SP.collection_id = FC.id WHERE SP.id = $1 FOR UPDATE", sp_id)
                                 new_paid = float(sp_info['paid_amount']) - float(t['amount'])
-                                new_status = 'paid' if new_paid >= float(sp_info['total_amount']) else 'pending'
+                                written = float(sp_info['written_off_amount'] or 0)
+                                total = float(sp_info['total_amount'])
+                                # ยอดค้างหลังหักทั้งเงินที่จ่ายและยอดที่ตัดจำหน่าย (เศษ ≤ 0.005 = ปิดบิล)
+                                remaining = round(total - new_paid - written, 2)
+                                new_status = (
+                                    'paid' if new_paid >= total
+                                    else ('waived' if remaining <= 0.005 else 'pending')
+                                )
                                 # 💡 ถ้ายกเลิกจน paid_amount กลับเป็น 0 ให้ล้าง field การชำระทั้งหมด
                                 # (กันสถานะ "จ่ายครบ" ค้างทั้งที่ยอดโดนหักคืนแล้ว)
                                 if new_paid <= 0:
+                                    zero_status = (
+                                        'waived' if round(total - written, 2) <= 0.005
+                                        else 'pending'
+                                    )
                                     await conn.execute(
                                         """UPDATE student_payments
-                                           SET paid_amount = 0, status = 'pending', paid_to_account_id = NULL,
+                                           SET paid_amount = 0, status = $2, paid_to_account_id = NULL,
                                                slip_image_url = NULL, recorded_by = NULL, paid_at = NULL, transaction_id = NULL
-                                           WHERE id = $1""", sp_id
+                                           WHERE id = $1""", sp_id, zero_status
                                     )
                                 else:
                                     await conn.execute("UPDATE student_payments SET paid_amount = $1, status = $2 WHERE id = $3", new_paid, new_status, sp_id)

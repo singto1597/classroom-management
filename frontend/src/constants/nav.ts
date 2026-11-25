@@ -51,6 +51,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check' },
   { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
+  // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — วางติด "การเงิน" เพราะเป็นทางเข้าหลักของเอกสาร
+  { name: 'ทะเบียนเอกสาร', path: '/finance/documents', icon: 'bi-folder2-open' },
+  // 🧾 [FIN-V2 / P5.5] เอกสารปิดรอบ — ACK แจ้งยอดค้าง, RPT สรุปปิดงบเดือน
+  { name: 'ใบรับทราบยอดค้าง', path: '/finance/acknowledgements', icon: 'bi-receipt' },
+  {
+    name: 'รายงานปิดงบ',
+    path: '/finance/monthly-reports',
+    icon: 'bi-file-earmark-bar-graph',
+  },
   { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
   // 📢 P2.6 — "ประกาศ" คือรายการที่อ่านได้ทุกคน (เดิมเมนูชี้ไปหน้าเขียนอย่างเดียว)
   // ปุ่ม "ส่งประกาศ" อยู่ในหน้ารายการ ไม่ต้องมีเมนูที่สอง
@@ -106,6 +115,21 @@ export const MORE_NAV_GROUPS: readonly NavGroup[] = [
       { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
       { name: 'ของฉัน', path: '/me/activity', icon: 'bi-bookmark-star' },
       { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
+    ],
+  },
+  {
+    // 🗂️ [FIN-V2 / P5.2] — "ทะเบียนเอกสาร" ไม่อยู่ในแท็บการเงินล่าง ⇒ ต้องมีกลุ่มของตัวเอง
+    // (ตัว "การเงิน" เองอยู่ในแท็บล่างแล้ว จึงไม่ซ้ำที่นี่)
+    title: 'การเงิน',
+    items: [
+      { name: 'ทะเบียนเอกสาร', path: '/finance/documents', icon: 'bi-folder2-open' },
+      // 🧾 [FIN-V2 / P5.5] เอกสารปิดรอบ
+      { name: 'ใบรับทราบยอดค้าง', path: '/finance/acknowledgements', icon: 'bi-receipt' },
+      {
+        name: 'รายงานปิดงบ',
+        path: '/finance/monthly-reports',
+        icon: 'bi-file-earmark-bar-graph',
+      },
     ],
   },
   {
@@ -192,10 +216,46 @@ export const routeTitles = {
   'finance-aging': 'รายงานอายุหนี้',
   'finance-my-debts': 'ยอดค้างชำระของฉัน',
   'finance-credits': 'เงินรับล่วงหน้า',
+  // 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล + รายการเดินบัญชี — คำตรง docs/glossary.md
+  // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการ์ด dashboard) — ถ้าเพิ่มเมนู
+  //    ต้องเพิ่มใน `MORE_NAV_GROUPS` ด้วย ไม่งั้นเทสต์ `constants/nav` แดง
+  'finance-individual-accounts': 'บัญชีรายบุคคล',
+  'finance-individual-account-detail': 'บัญชีรายบุคคล',
+  'finance-student-statement': 'รายการเดินบัญชี',
   'finance-statements': 'งบการเงิน',
   'finance-budgets': 'งบประมาณ',
-  'finance-receipts': 'ใบเสร็จ / ใบแจ้งหนี้',
+  // 🔁 [FIN-V2 / P6.5] `finance-receipts` ไม่มีแล้ว — route เดิม redirect ไปทะเบียน
+  //    ⚠️ `finance-receipt-detail` คงไว้: deep link เก่ายังสร้าง path นี้ได้
   'finance-receipt-detail': 'รายละเอียดเอกสาร',
+  // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — คำตรง docs/glossary.md ("เอกสาร")
+  'finance-documents': 'ทะเบียนเอกสาร',
+  'finance-document-detail': 'รายละเอียดเอกสาร',
+  // 🔗 [FIN-V2 / P6.5] แปลงเลขเอกสารเป็นหน้า detail — ทางเข้าของโค้ดใหม่
+  'finance-document-by-no': 'รายละเอียดเอกสาร',
+  // 👜 [FIN-V2 / P3.2] เงินสดรอส่งมอบ — คำตรง docs/glossary.md (P3.1 เติมคำแล้ว)
+  // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการ์ดตั้งค่า/การเงิน)
+  'finance-custody': 'เงินสดรอส่งมอบ',
+  // 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน — อ่านอย่างเดียว (event + ส่งมอบเงินสด)
+  'finance-payment-history': 'ประวัติการรับเงิน',
+  // 💸 [FIN-V2 / P4.3] ใบสำคัญจ่ายหลายบรรทัด — คำตรง docs/glossary.md
+  // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการเงิน/หน้ารายการ) — ถ้าเพิ่มเมนู
+  //    ต้องเพิ่มใน `MORE_NAV_GROUPS` ด้วย ไม่งั้นเทสต์ `constants/nav` แดง
+  'finance-expense-vouchers': 'ใบสำคัญจ่าย',
+  'finance-expense-voucher-create': 'สร้างใบสำคัญจ่าย',
+  'finance-expense-voucher-detail': 'รายละเอียดใบสำคัญจ่าย',
+  // 💰 [FIN-V2 / P4.5] ใบรับเงินหลายบรรทัด — คำตรง docs/glossary.md
+  // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการเงิน/หน้ารายการ)
+  'finance-income-batches': 'ใบรับเงิน',
+  'finance-income-batch-create': 'สร้างใบรับเงิน',
+  'finance-income-batch-detail': 'รายละเอียดใบรับเงิน',
+  // 🧾 [FIN-V2 / P5.5] เอกสารปิดรอบ — ACK/RPT
+  // ⚠️ `finance-acknowledgements`/`finance-monthly-reports` อยู่ใน `NAV_ITEMS`;
+  //    หน้าลูก (detail/new) เข้าจากหน้ารายการเท่านั้น
+  'finance-acknowledgements': 'ใบรับทราบยอดค้าง',
+  'finance-acknowledgement-detail': 'รายละเอียดใบรับทราบ',
+  'finance-monthly-reports': 'รายงานปิดงบ',
+  'finance-monthly-report-new': 'สร้างรายงานปิดงบ',
+  'finance-monthly-report': 'รายละเอียดรายงานปิดงบ',
 
   // ── กิจกรรม ─────────────────────────────────────────────────────────────
   activities: 'กิจกรรมและผู้เข้าร่วม',

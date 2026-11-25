@@ -202,7 +202,10 @@ async def _load_finance(
     row = await conn.fetchrow(
         f"""
         SELECT
-            COALESCE(SUM(FC.amount - COALESCE(SP.paid_amount, 0)), 0) AS outstanding,
+            -- 📐 [P6.2] ยอดค้าง = ยอดบิล - จ่ายแล้ว - ตัดจำหน่ายแล้ว (ห้ามลบ written_off ออก)
+            COALESCE(SUM(
+                FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)
+            ), 0) AS outstanding,
             COUNT(*) AS unpaid_bills
         FROM student_payments SP
         JOIN fee_collections FC ON FC.id = SP.collection_id
