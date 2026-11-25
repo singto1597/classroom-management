@@ -1920,3 +1920,46 @@ export interface PaymentHistoryQuery {
   cursor?: string
   limit?: number
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว (credit round)
+// 1 รอบ = 1 transaction = all-or-nothing · 1 นักเรียน = 1 event credit-only
+// (ไม่มี REC/DEP และไม่แตะยอดกระเป๋า — เครดิตไม่ใช่เงินสด)
+// ═══════════════════════════════════════════════════════════════════════════
+export interface CreditRoundCreate {
+  /** คีย์ของทั้งรอบ — backend ต่อท้ายด้วย `:student_id` ต่อคน */
+  idempotency_key: string;
+  student_ids: number[];
+  reference_no?: string | null;
+  receiver_person_id?: number | null;
+  note?: string | null;
+  /** กระเป๋า **อ้างอิง** ของ event (NOT NULL ใน DB) — ไม่แตะยอด · ไม่ส่ง = กระเป๋าเงินสดหลัก */
+  wallet_account_id?: number | null;
+  /** ชื่อผู้บันทึก/ผู้รับ (เมื่อไม่ได้เลือกจากทะเบียน) */
+  user_name?: string | null;
+}
+
+export interface CreditRoundEvent {
+  student_id: number;
+  student_name: string;
+  event_id: number;
+  total_applied: number;
+  credit_used: number;
+  balance_after: number;
+  credit_entry_ids: number[];
+}
+
+export interface CreditRoundSkipped {
+  student_id: number;
+  student_name: string;
+  reason: string;
+}
+
+export interface CreditRoundResponse {
+  reused: boolean;
+  reference_no: string | null;
+  events: CreditRoundEvent[];
+  skipped: CreditRoundSkipped[];
+  total_applied: number;
+  total_balance_after: number;
+}

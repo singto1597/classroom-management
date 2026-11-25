@@ -35,6 +35,8 @@ import type {
   CreditApplyPlan,
   StudentCreditEntry,
   CreditAllocationItem,
+  CreditRoundResponse,
+  FinancePerson,
 } from '@/types/finance'
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
@@ -42,6 +44,7 @@ import { createLatestGuard } from '@/utils/latest'
 import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
 
 import CreditPanel from '@/components/finance/CreditPanel.vue'
+import BulkCreditSheet from '@/components/finance/BulkCreditSheet.vue'
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
@@ -476,6 +479,95 @@ const refreshHistory = async () => {
   if (historyTarget.value) await openHistory(historyTarget.value)
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว
+// ════════════════════════════════════════════════════════════════════════════
+// 🔴 ยังใช้กติกา "ระบบเสนอ → ครูยืนยัน" เหมือนเดิม: ติ๊กแล้วกด "หักเครดิตที่เลือก"
+//    ⇒ เปิดแผ่นตรวจข้อเสนอ (`BulkCreditSheet`) ซึ่งยิง API จริงเมื่อกดยืนยันในแผ่นเท่านั้น
+const selectedIds = ref<number[]>([])
+const isRoundOpen = ref(false)
+const isRoundPlanLoading = ref(false)
+const roundPlan = ref<CreditApplyPlan | null>(null)
+const roundPeople = ref<FinancePerson[]>([])
+
+const roundGuard = createLatestGuard()
+
+const selectedCount = computed(() => selectedIds.value.length)
+
+/** ติ๊ก/ถอดติ๊ก — เก็บตามลำดับที่เลือก (backend รักษาลำดับนี้ในผลลัพธ์) */
+const toggleSelect = (studentId: number) => {
+  selectedIds.value = selectedIds.value.includes(studentId)
+    ? selectedIds.value.filter((id) => id !== studentId)
+    : [...selectedIds.value, studentId]
+}
+
+/** เปิดหน้าตรวจข้อเสนอของนักเรียนที่ติ๊ก — ยังไม่เขียนอะไร */
+const openRoundPreview = async () => {
+  if (!canManageFinance.value) {
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่หักเครดิตได้', 'error')
+    return
+  }
+  if (!selectedIds.value.length) {
+    void dialog.alert('ยังไม่ได้เลือกนักเรียน', 'ติ๊กนักเรียนอย่างน้อย 1 คนก่อน', 'info')
+    return
+  }
+
+  const token = roundGuard.begin()
+  isRoundPlanLoading.value = true
+  try {
+    const [plan, people] = await Promise.all([
+      FinanceService.getCreditPlan(currentRoomId, [...selectedIds.value]),
+      FinanceService.getPeople(currentRoomId, { active: true }),
+    ])
+    if (!roundGuard.isCurrent(token)) return
+    // 🛡️ ไม่มีใครมีบิลให้หักเลย ⇒ ไม่เปิดแผ่นว่าง ๆ
+    if (plan.total_applied <= 0) {
+      void dialog.alert(
+        'ไม่มีบิลให้หัก',
+        'นักเรียนที่เลือกยังไม่มีบิลค้างชำระ — จึงไม่มีอะไรต้องทำ',
+        'info',
+      )
+      return
+    }
+    roundPlan.value = plan
+    roundPeople.value = people
+    isRoundOpen.value = true
+  } catch (error: unknown) {
+    if (!roundGuard.isCurrent(token)) return
+    void dialog.alert(
+      'ดูข้อเสนอการหักไม่สำเร็จ',
+      error instanceof Error ? error.message : 'กรุณาลองใหม่อีกครั้ง',
+      'error',
+    )
+  } finally {
+    if (roundGuard.isCurrent(token)) isRoundPlanLoading.value = false
+  }
+}
+
+/** แผ่นรายงานผลสำเร็จ — ปิดแผ่น ล้างที่ติ๊ก แล้วโหลดยอดเครดิตใหม่ */
+const onRoundApplied = (res: CreditRoundResponse) => {
+  isRoundOpen.value = false
+  roundPlan.value = null
+  selectedIds.value = []
+  const skipped = res.skipped.length
+  void dialog.fire({
+    icon: 'success',
+    title: res.reused ? 'รอบนี้ถูกบันทึกไว้แล้ว' : 'หักเครดิตหลายคนเรียบร้อย',
+    text:
+      `หักเครดิต ${res.events.length} คน รวม ${formatMoney(res.total_applied)} · ` +
+      `คงเหลือรวม ${formatMoney(res.total_balance_after)}` +
+      (skipped ? ` · ข้าม ${skipped} คน (ไม่มีบิลค้างหรือเครดิตไม่พอ)` : ''),
+  })
+  roundPeople.value = []
+  void fetchCredits()
+}
+
+const closeRound = () => {
+  isRoundOpen.value = false
+  // คงที่ติ๊กไว้โดยเจตนา: ถ้าปิดเพราะ 409 ผู้ใช้ต้องติ๊กใหม่/โหลดใหม่ แต่ถ้าปิดเพราะ
+  // เปลี่ยนใจ การเลือกเดิมยังมีประโยชน์ให้ลองใหม่ ⇒ ล้างเฉพาะตอนสำเร็จ
+}
+
 onMounted(() => {
   fetchCredits()
 })
@@ -532,10 +624,28 @@ onMounted(() => {
     />
 
     <template v-else>
-      <!-- ℹ️ P3.3: ตัด multi-select ออก — หักเครดิตทีละคน (หลายคนพร้อมกัน = P3.5) -->
-      <p class="text-caption text-ink-3">
-        ใช้เครดิตได้ทีละคนจากปุ่มในแต่ละแถว · ใช้เครดิตหลายคนพร้อมกันจะมาใน P3.5
-      </p>
+      <!-- 💳 [FIN-V2 / P3.5] แถบเลือกหลายคน — ยังยึด "ระบบเสนอ → ครูยืนยัน"
+           (กด "หักเครดิตที่เลือก" = เปิดแผ่นตรวจข้อเสนอ ยังไม่เขียนอะไร) -->
+      <div
+        v-if="canManageFinance"
+        class="flex flex-wrap items-center justify-between gap-2 rounded-control border border-line px-3 py-2"
+      >
+        <p class="text-caption text-ink-2">
+          ติ๊กนักเรียนเพื่อหักเครดิตหลายคนพร้อมกันในรอบเดียว
+          <span v-if="selectedCount" class="font-bold text-ink">
+            · เลือกแล้ว {{ selectedCount }} คน
+          </span>
+        </p>
+        <button
+          type="button"
+          class="btn-primary"
+          :disabled="!selectedCount || isRoundPlanLoading"
+          @click="openRoundPreview"
+        >
+          <i class="bi bi-scissors" aria-hidden="true"></i>
+          {{ isRoundPlanLoading ? 'กำลังดูข้อเสนอ…' : 'หักเครดิตที่เลือก' }}
+        </button>
+      </div>
 
       <!-- 📱 มือถือ: การ์ด -->
       <div class="space-y-2.5 lg:hidden">
@@ -547,6 +657,14 @@ onMounted(() => {
         >
           <div class="flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-2">
+              <input
+                v-if="canManageFinance"
+                type="checkbox"
+                class="h-5 w-5 shrink-0 accent-brand-700"
+                :checked="selectedIds.includes(c.student_id)"
+                :aria-label="`เลือก ${c.student_name}`"
+                @change="toggleSelect(c.student_id)"
+              />
               <span class="chip num shrink-0 bg-canvas text-ink-2">#{{ c.student_no }}</span>
               <h2 class="min-w-0 truncate text-base font-bold text-ink">
                 {{ c.student_name }}
@@ -611,6 +729,7 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
+                <th class="w-10"><span class="sr-only">เลือก</span></th>
                 <th class="w-24">เลขที่</th>
                 <th>ชื่อนักเรียน</th>
                 <th class="text-right">เครดิตคงเหลือ (฿)</th>
@@ -621,6 +740,16 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-for="c in credits" :key="c.student_id">
+                <td>
+                  <input
+                    v-if="canManageFinance"
+                    type="checkbox"
+                    class="h-5 w-5 accent-brand-700"
+                    :checked="selectedIds.includes(c.student_id)"
+                    :aria-label="`เลือก ${c.student_name}`"
+                    @change="toggleSelect(c.student_id)"
+                  />
+                </td>
                 <td class="num font-bold text-ink-3">#{{ c.student_no }}</td>
                 <td class="font-bold text-ink">{{ c.student_name }}</td>
                 <td
@@ -866,5 +995,14 @@ onMounted(() => {
         </div>
       </template>
     </AppSheet>
+
+    <!-- ══════════ 💳 แผ่น: หักเครดิตหลายคน (FIN-V2 / P3.5) ══════════ -->
+    <BulkCreditSheet
+      :open="isRoundOpen"
+      :plan="roundPlan"
+      :receiver-options="roundPeople"
+      @close="closeRound"
+      @applied="onRoundApplied"
+    />
   </div>
 </template>

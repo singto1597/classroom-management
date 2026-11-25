@@ -196,6 +196,9 @@ _MONEY_PATHS = [
     #    `issue_acknowledgements` เขียนเอกสาร (ACK + INV ทั้งชุด) และยึดล็อกห้องถูกต้องแล้ว
     #    แต่ไม่เคยถูกเพิ่มในสัญญา ⇒ เพิ่มแบบ additive เพื่อให้ตัวตรวจครอบจริง
     ("invoice_documents", "InvoiceDocumentsMixin", "issue_acknowledgements"),
+    # 💳 [FIN-V2 / P3.5] รอบหักเครดิต — เขียน event/lines + `student_credits` หลายคน
+    #    ใน transaction เดียว ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น
+    ("credit_rounds", "CreditRoundsMixin", "create_credit_round"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง

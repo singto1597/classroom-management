@@ -73,6 +73,12 @@ from .payment_channels import PaymentChannelsMixin
 #    `_insert_journal_entry` (LedgerMixin) และ `resolve_room_id` (BaseMixin) ผ่าน MRO
 #    ⇒ ต้องวาง **ก่อน** สองตัวนั้น · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
 from .custody import CustodyMixin
+# 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว — พึ่ง `_build_plan_for_students`/
+#    `_apply_plan_locked` (CreditsMixin), `_lock_room_money`/`_lock_payments_in_order`
+#    (BaseMixin) และ `assert_plan_equation` (allocation.py) ผ่าน MRO
+#    ⇒ ต้องวาง **ก่อน** CreditsMixin/BaseMixin ตามกติกา "mixin ใหม่วางก่อนตัวที่พึ่ง"
+#    (ชื่อใหม่ทั้งหมด: `create_credit_round` — ไม่ชนกับ mixin ใด)
+from .credit_rounds import CreditRoundsMixin
 
 
 class FinanceService(
@@ -134,6 +140,11 @@ class FinanceService(
     #    `resolve_room_id` (BaseMixin) ⇒ ต้องอยู่ **ก่อน** LedgerMixin/BaseMixin
     #    (ชื่อใหม่ทั้งหมด: `create_custody_account`/`create_handover`/…)
     CustodyMixin,
+    # 💳 [FIN-V2 / P3.5] — รอบหักเครดิตหลายคน (1 คน = 1 credit-only event)
+    #    พึ่ง `_build_plan_for_students`/`_apply_plan_locked` (CreditsMixin) และ
+    #    `_lock_*` (BaseMixin) ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO
+    #    (ชื่อใหม่ทั้งหมด ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม)
+    CreditRoundsMixin,
     # 🧮 [FIN-V2 / P1.5] — preview การจัดสรร (อ่านอย่างเดียว)
     #    พึ่ง `_open_bill_predicate()` (Accrual) และ `_load_credit_balance` (Credits)
     #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO (mixin ที่อยู่บนชนะ)

@@ -1805,3 +1805,54 @@ class PaymentHistoryResponse(BaseModel):
     """`GET /finance/payment-history` — cursor ทำงานโดยไม่ซ้ำ/ไม่ข้าม"""
     items: List[PaymentHistoryItem] = Field(default_factory=list)
     next_cursor: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว (credit-only, ไม่มี REC/DEP)
+# ═══════════════════════════════════════════════════════════════════════════
+class CreditRoundCreate(BaseModel):
+    """คำขอหักเครดิตของนักเรียนหลายคนในรอบเดียว
+
+    - `idempotency_key` ใช้ร่วมทั้งรอบ (ต่อคนกลายเป็น `f"{key}:{student_id}"`)
+    - `wallet_account_id` เป็นเพียง **กระเป๋าอ้างอิง** ของ event (NOT NULL ใน DB)
+      — รอบนี้ไม่แตะยอดกระเป๋าเลย ถ้าไม่ส่ง ระบบเลือกกระเป๋าเงินสดหลักให้
+    - `user_name` ใช้เป็นชื่อผู้บันทึก (`student_credits.recorded_by`) และ
+      ชื่อผู้รับของ event เมื่อไม่ได้เลือก `receiver_person_id`
+    """
+    # ⚠️ ไม่ใส่ `min_length`/`max_length` ของ Pydantic ที่นี่โดยเจตนา — 1..100 คน/คีย์ 8–64
+    #    ตัวอักษรถูกตรวจใน service (ValueError → 400 พร้อมข้อความไทย) ถ้าปล่อยให้ Pydantic
+    #    ตอบ 422 จะแยกไม่ออกว่า "ผู้ใช้กรอกผิด" กับ "ต้องโหลดรายชื่อใหม่" (409)
+    idempotency_key: str
+    student_ids: List[int]
+    reference_no: Optional[str] = Field(default=None, max_length=128)
+    receiver_person_id: Optional[int] = None
+    note: Optional[str] = None
+    wallet_account_id: Optional[int] = None
+    user_name: Optional[str] = None
+
+
+class CreditRoundEvent(BaseModel):
+    """ผลต่อนักเรียน 1 คน — 1 event credit-only (ไม่มีการเคลื่อนไหวของเงิน)"""
+    student_id: int
+    student_name: str
+    event_id: int
+    total_applied: float
+    credit_used: float
+    balance_after: float
+    credit_entry_ids: List[int] = Field(default_factory=list)
+
+
+class CreditRoundSkipped(BaseModel):
+    """นักเรียนที่ถูกเลือกแต่ไม่มี event (ไม่มีบิลค้าง/เครดิตไม่พอ)"""
+    student_id: int
+    student_name: str
+    reason: str
+
+
+class CreditRoundResponse(BaseModel):
+    reused: bool
+    reference_no: Optional[str] = None
+    events: List[CreditRoundEvent] = Field(default_factory=list)
+    skipped: List[CreditRoundSkipped] = Field(default_factory=list)
+    total_applied: float
+    total_balance_after: float

@@ -112,7 +112,10 @@ import type {
   CustodyMovementListResponse,
   // 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน (อ่านอย่างเดียว)
   PaymentHistoryResponse,
-  PaymentHistoryQuery
+  PaymentHistoryQuery,
+  // 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว
+  CreditRoundCreate,
+  CreditRoundResponse
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1119,5 +1122,19 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/payment-history`,
       { params: query }
     ) as unknown as PaymentHistoryResponse;
+  },
+
+  // ═══ 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว ═══════════════════════
+  // 1 รอบ = 1 transaction = all-or-nothing · ไม่มีเงินเคลื่อนไหว (เครดิตไม่ใช่เงินสด)
+  // 🔁 ยิงซ้ำด้วยคีย์เดิม + ชุดเดิม ⇒ `reused=true` (ผลเท่าเดิม)
+  // 🔴 คีย์เดิม + ชุดนักเรียนต่าง ⇒ 409 — ต้องโหลดรายชื่อใหม่ ห้าม retry ด้วยคีย์เดิม
+  async createCreditRound(
+    roomId: number,
+    payload: CreditRoundCreate
+  ): Promise<CreditRoundResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/credits/rounds?target_type=room`,
+      payload
+    ) as unknown as CreditRoundResponse;
   }
 };
