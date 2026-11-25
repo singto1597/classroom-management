@@ -4718,9 +4718,19 @@
 
   # deploy แล้วต้องรอ replicas นิ่งเป็น x/x (4/3 ระหว่าง rollover ยังไม่นับ)
   docker stack services ${ENV_NAME}_app --format '{{.Name}} {{.Replicas}}'
+
+  # ⚠️ แต่ x/x อย่างเดียวหลอกได้ (บทเรียนรอบถัดมา): start-first ทำให้ระหว่าง rollover
+  #    task เก่ายังรันครบ ⇒ เห็น 3/3 + `paused` ก็ได้ · ต้องอ่าน UpdateStatus ของ swarm
+  docker service inspect <svc> --format \
+      '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}none{{end}}'   # completed = จบจริง
   ```
+  - 🔴 **กับดัก `FailureAction: pause`** (`docker-compose.app.yml` ตั้งค่ากับ backend/frontend):
+    ถ้า task ใหม่ขึ้นไม่ได้ swarm **หยุด** การอัปเดต (`UpdateStatus=paused`) แต่ task เก่ายังรัน
+    ครบ ⇒ `Replicas=3/3` + ทุกคำขอ `200` = **ภาพหลอกแบบเดียวกับ build ล้มแล้ว deploy ต่อ**
+    สคริปต์ต้อง fail-fast เมื่อเจอ `paused` / `rollback_*` ไม่ใช่รอจนหมดเวลา
   - `/api/version` ที่ยิงผ่าน Cloudflare จะได้ **ค่า cache เก่า** — ตรวจระหว่าง deploy ให้ยิงตรง `curl -H "Host: <api domain>" http://127.0.0.1/api/version` แล้วค่อยยืนยันผ่านโดเมนจริงพร้อม cache-buster `?t=$(date +%s)`
   - หลัง deploy ดู log backend ว่ามี `✅ apply migration ...` และ `Application startup complete.` ก่อนประกาศว่าเสร็จ
-- **Rule:** (1) 🔴 สคริปต์ deploy ต้อง `set -euo pipefail` — ไม่มีข้อยกเว้น (2) 🔴 ก่อน `stack deploy` ต้อง `docker image inspect` ให้ครบทุก image (3) 🔴 หลัง deploy ต้องรอ task นิ่งเป็น `x/x` ไม่ใช่ดู spec (4) 🔴 build ในเครื่องนี้ใช `--network=host` ถ้า container DNS ยังพัง — ห้ามสรุปว่า build ผ่านจาก exit code ของสคริปต์ที่ไม่มี `set -e`
+- **Rule:** (1) 🔴 สคริปต์ deploy ต้อง `set -euo pipefail` — ไม่มีข้อยกเว้น (2) 🔴 ก่อน `stack deploy` ต้อง `docker image inspect` ให้ครบทุก image (3) 🔴 หลัง deploy ต้องรอ **ทั้ง** `UpdateStatus.State ∈ {completed, none}` **และ** task นิ่ง `x/x` (ต้องเห็นพร้อม 2 ครั้งติดกัน) — `x/x` เดี่ยว ๆ ไม่ใช่หลักฐานว่าเวอร์ชันใหม่ขึ้นแล้ว (4) 🔴 build ในเครื่องนี้ใช `--network=host` ถ้า container DNS ยังพัง — ห้ามสรุปว่า build ผ่านจาก exit code ของสคริปต์ที่ไม่มี `set -e`
 - **Tests/Verification:** 2026-11-25 — rerun `./pull_all.sh` บน staging หลังแก้ (build ด้วย host network, image ครบ, รอ `x/x`) · staging + production ขึ้น `git_sha=6616a4e` · production log: `✅ apply migration 0010_fines_accrual` → `0011_late_fees_custom_charges`
+  - รอบถัดมาเจอว่า loop เก่าตัดสินเร็วเกิน: สคริปต์จบแล้ว `staging_app_backend` ยัง `UpdateStatus=updating` + `4/3` ⇒ อ่าน state จาก swarm เพิ่ม ซ้อมบน staging ที่ `ea2f714`: ตอนสคริปต์ exit ทุก service `completed` และ `/api/version` = `ea2f714` ทันที
 - **Date Added:** 2026-11-25
