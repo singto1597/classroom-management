@@ -1856,3 +1856,115 @@ class CreditRoundResponse(BaseModel):
     skipped: List[CreditRoundSkipped] = Field(default_factory=list)
     total_applied: float
     total_balance_after: float
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 💸 [FIN-V2 / P4.1] ใบสำคัญจ่ายหลายบรรทัด (1 ใบ = N transactions + N journals
+#     + 1 PV เสมอ) — CERT สำหรับบรรทัดไม่มีบิลออกที่ P4.2
+# ═══════════════════════════════════════════════════════════════════════════
+class ExpenseVoucherLineCreate(BaseModel):
+    """1 บรรทัดของใบสำคัญจ่าย — มีกระเป๋า/หมวด/งบของตัวเอง
+
+    - `amount` เป็น `Decimal` (รับได้ทั้ง number และ string) — เงินห้ามใช้ float
+    - `wallet_account_id` = กระเป๋าที่จ่ายจริงของบรรทัดนี้ (override กระเป๋า default)
+    - `funding_source='pass_through'` เป็นเงื่อนไขเดียวที่ใช้กระเป๋า `is_custody` ได้
+    """
+    description: str
+    amount: Decimal
+    category_id: int
+    budget_id: Optional[int] = None
+    wallet_account_id: int
+    receipt_status: Literal["attached", "paper", "none"] = "none"
+    paper_bill_count: int = 0
+    attachment_placeholder: Optional[str] = None
+    funding_source: Literal["room_fund", "pass_through"] = "room_fund"
+
+
+class ExpenseVoucherCreate(BaseModel):
+    """คำขอสร้างใบสำคัญจ่าย — ทั้งใบ atomic (ตรวจครบ → เขียนครบ หรือไม่เขียนเลย)
+
+    ⚠️ ไม่ใส่ constraint ของ Pydantic บน `idempotency_key`/`lines` โดยเจตนา —
+    จำนวนบรรทัด 1..50, ความยาวคีย์ 8..128 และยอด/หมวด/งบ/เงินพอ ถูกตรวจใน service
+    ⇒ ผู้ใช้เห็น 400 พร้อมข้อความไทย ไม่ใช่ 422 ที่แยกไม่ออกจาก 409 บนหน้าจอ
+    """
+    idempotency_key: str
+    default_wallet_account_id: int
+    payee_person_id: Optional[int] = None
+    payee_name: str
+    # 🖊️ ชื่อผู้จัดทำ (ลายเซ็นช่อง `prepared`) — ไม่ส่งมาก็ได้ ระบบจะอ่านจากโปรไฟล์ผู้ใช้
+    user_name: Optional[str] = None
+    voucher_date: Optional[date] = None
+    note: Optional[str] = None
+    total_amount: Optional[Decimal] = None
+    approved_by_person_id: Optional[int] = None
+    approved_by_name: Optional[str] = None
+    lines: List[ExpenseVoucherLineCreate] = Field(default_factory=list)
+
+
+class ExpenseVoucherLineItem(BaseModel):
+    line_no: int
+    description: str
+    amount: float
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    budget_id: Optional[int] = None
+    budget_label: Optional[str] = None
+    wallet_account_id: int
+    wallet_name: Optional[str] = None
+    finance_transaction_id: Optional[int] = None
+    receipt_status: str
+    paper_bill_count: int
+    attachment_placeholder: Optional[str] = None
+    funding_source: str
+
+
+class ExpenseVoucherSignatureItem(BaseModel):
+    role: str
+    person_id: Optional[int] = None
+    signer_name: str
+
+
+class ExpenseVoucherResponse(BaseModel):
+    """ผลของ `POST /finance/expense-vouchers` — `reused=true` = คีย์เดิม payload เดิม"""
+    id: int
+    total_amount: float
+    line_count: int
+    pv_receipt_id: int
+    pv_receipt_no: str
+    created_at: datetime
+    reused: bool = False
+
+
+class ExpenseVoucherListItem(BaseModel):
+    id: int
+    voucher_date: date
+    payee_name: str
+    total_amount: float
+    line_count: int
+    status: str
+    pv_receipt_id: Optional[int] = None
+    pv_receipt_no: Optional[str] = None
+    created_at: datetime
+
+
+class ExpenseVoucherListResponse(BaseModel):
+    items: List[ExpenseVoucherListItem] = Field(default_factory=list)
+    total: float
+
+
+class ExpenseVoucherDetailResponse(BaseModel):
+    id: int
+    voucher_date: date
+    payee_person_id: Optional[int] = None
+    payee_name: str
+    default_wallet_account_id: int
+    note: Optional[str] = None
+    total_amount: float
+    status: str
+    pv_receipt_id: Optional[int] = None
+    pv_receipt_no: Optional[str] = None
+    cert_receipt_id: Optional[int] = None
+    cert_receipt_no: Optional[str] = None
+    created_at: datetime
+    lines: List[ExpenseVoucherLineItem] = Field(default_factory=list)
+    signatures: List[ExpenseVoucherSignatureItem] = Field(default_factory=list)

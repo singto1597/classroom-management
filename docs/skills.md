@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 288 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 289 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -292,6 +292,7 @@
 - [👜 เงินสดรอส่งมอบ: กระเป๋าคือแถวปกติของ `finance_accounts` — idempotency ต้องพึ่ง journal metadata](#เงินสดรอส่งมอบ-กระเป๋าคือแถวปกติของ-financeaccounts-idempotency-ต้องพึ่ง-journal-metadata)
 - [💳 เครดิตต้องเกิดพร้อมใบรับเงิน: `payment_event_id` เขียนตอน INSERT และ `manual+\[\]` = ไม่ปิดบิล](#เครดิตต้องเกิดพร้อมใบรับเงิน-paymenteventid-เขียนตอน-insert-และ-manual-ไม่ปิดบิล)
 - [📜 ไทม์ไลน์การเงิน: UNION ต้องมีทั้งสองกิ่งเสมอ + cursor 3 คีย์ `(occurred_at, kind, id)`](#ไทม์ไลน์การเงิน-union-ต้องมีทั้งสองกิ่งเสมอ-cursor-3-คีย์-occurredat-kind-id)
+- [💸 ใบสำคัญจ่ายหลายบรรทัด: journal ต้องแยกต่อบรรทัด + PV ต้องมี `idempotency_key` ของตัวเอง](#ใบสำคัญจ่ายหลายบรรทัด-journal-ต้องแยกต่อบรรทัด-pv-ต้องมี-idempotencykey-ของตัวเอง)
 
 <!-- TOC:END -->
 
@@ -4978,4 +4979,24 @@
   - FE: กลุ่มวันใช้ `Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' })` บน timestamp (ห้าม `formatThaiDate` กับ timestamp) + "โหลดเพิ่ม" ส่ง `next_cursor` เดิมกลับ + `createLatestGuard` กันคำขอเก่า
 - **Rule:** (1) 🔴 SQL ที่มีกิ่งเลือกตาม filter — อย่าตัดกิ่งทิ้งถ้ามันถือ parameter (2) 🔴 cursor ของไทม์ไลน์ = 3 คีย์ `(occurred_at, kind, id)` (3) 🔴 `COALESCE(event_at, created_at)` ต้องเหมือนกันทุกจุด (4) 🔴 voided ต้องแสดงพร้อมสถานะ ไม่ซ่อน (5) 🔴 read-only page ไม่มี `_lock_room_money`/audit
 - **Tests/Verification:** `backend/tests/test_finance_payment_history.py` 12 ตัว (merge/เรียง, lines+docs batch, handover names, kind/student/person/receiver filter, cursor ไม่ซ้ำ/ไม่ข้ามทั้งเวลาเท่ากัน, ขอบวันไทย UTC 23:30, voided ยังแสดง, member 403, cursor ผิดรูป 400, ไม่แตะ money path), `frontend/src/views/finance/__tests__/payment-history.spec.ts` 6 ตัว
+- **Date Added:** 2026-11-25
+
+### 💸 ใบสำคัญจ่ายหลายบรรทัด: journal ต้องแยกต่อบรรทัด + PV ต้องมี `idempotency_key` ของตัวเอง
+- **Context/Problem:** P4.1 ทำ "1 ใบเบิก = N บรรทัด" (คนละกระเป๋า/หมวด/งบ) แล้วเจอกับดักที่บังคับรูปโค้ด:
+  (1) จะรวม journal เป็นก้อนเดียวเพื่อลดจำนวนแถว — แต่งบประมาณ/รายงานอ่านยอดใช้ต่อหมวดจาก `finance_transactions` (และกระทบยอดจาก journal) ⇒ ยอดหมวดเพี้ยนและย้อนทีละบรรทัดไม่ได้
+  (2) PV ตาม index เดิมกันซ้ำด้วย `legacy_transaction_id` เท่านั้น ⇒ ใบหลายบรรทัดมี transaction หลายตัว การ retry อาจสร้าง PV ใบที่สอง
+  (3) ตรวจครบทุกบรรทัด "ระหว่าง" เขียน ⇒ ผู้ใช้เห็น error หลังมีแถวค้าง (หรือแย่กว่า: เงินถูกหักไปแล้วครึ่งใบ)
+- **Root Cause:** (1) งบประมาณเป็นมิติ **ต่อหมวด** ไม่ใช่ต่อใบ — `SUM(txn.amount) WHERE category_id` (และ `journal_lines → accounting_ledgers.legacy_category_id`) เป็นแหล่งเดียวของ "ใช้ไป" ⇒ aggregation ระดับใบทำลายมิติ. (2) unique index ของ PV (`idx_finance_receipts_voucher_active`) คีย์ `COALESCE(legacy_transaction_id,0)` และ `idx_finance_receipts_idem` คีย์ `(room_id, doc_type, idempotency_key)` แบบ partial ⇒ ต้องมีคีย์ที่ **หนึ่งใบเอกสารต่อหนึ่ง voucher** ไม่ใช่ต่อหนึ่ง transaction. (3) การตรวจหลังเริ่มเขียนทำให้ partial write เป็นไปได้ถ้าลืม rollback หรือทำ "ตรวจทีละบรรทัดแล้วข้าม".
+- **Correct Pattern/Solution:**
+  - **ตรวจทุกอย่างก่อนเขียนแถวแรก**: 1..50 บรรทัด, `amount = round(float(x),2) > 0`, หมวดเป็น `category_type='expense'` ของห้อง, งบผูกหมวดเดียวกับบรรทัด, กระเป๋าเป็นของห้อง, `is_custody` ใช้ได้เฉพาะ `funding_source='pass_through'`, แล้วรวมต่อกระเป๋า (`sums[wallet]`) เทียบ balance **ก่อน** insert → ผิด = `ValueError` → 400 ไม่เหลือร่องรอย
+  - **ล็อกกระเป๋าทุกใบตาม id เรียงขึ้น** (`WHERE id = ANY(...) ORDER BY id FOR UPDATE`) หลัง `_lock_room_money` — สองคำขอที่ใช้กระเป๋าคู่เดียวกันคนละลำดับบรรทัดจะ deadlock ถ้าล็อกตามลำดับที่ผู้ใช้ส่ง
+  - **journal ต่อบรรทัด**: `reference_type='expense_voucher'`, `reference_id=str(txn_id)`, metadata `{legacy_transaction_id, expense_voucher_id, line_no}`, Dr หมวด / Cr สินทรัพย์ — ตรงกับ `finance_expense_lines.finance_transaction_id`
+  - **PV 1 ใบเสมอ**: `idempotency_key=f"pv:{voucher_id}"`, `layout_version=2`, `legacy_transaction_id` = txn **บรรทัดแรก**, `voucher_snapshot` (JSON **สตริง** — asyncpg ไม่มี codec) + `document_meta={voucher_id, request_hash, line_count, signatures, approver_fallback}`
+  - **idempotency ของใบ**: คีย์ใน `finance_expense_vouchers` (`UNIQUE(room_id, idempotency_key)`); replay อ่านใบเดิม → เทียบ `document_meta.request_hash = sha256(model_dump(mode="json"))` → ตรง = คืนเดิม (`reused=true`) / ต่าง = `ExpenseVoucherIdempotencyConflict(ValueError)` → router จับ **ก่อน** `ValueError` → **409**
+  - **SAVEPOINT ตอน insert PV** (รูป `_issue_one`/`_issue_income_doc` ไม่ใช่ `_issue_deposit`): `async with conn.transaction():` แล้วจับ `UniqueViolationError` → อ่านใบที่ชนะด้วย `idempotency_key` → คืน; ห้ามอ่าน `conn` ต่อใน transaction ที่ abort (`25P02`)
+  - **3 ลายเซ็น** `prepared`=ผู้ใช้ปัจจุบัน (payload `user_name` ถ้าไม่มีอ่านโปรไฟล์เอง), `approved`=payload หรือ fallback ผู้ใช้ปัจจุบัน **พร้อมธง `document_meta.approver_fallback=true`**, `receiver`=payee; `signed_at=NULL`, `sort_order` 0/1/2; `doc_type='payment_voucher'`, `doc_id`=PV id
+  - `event_at`/ปี พ.ศ. มาจาก `_as_utc(finance_transactions.created_at)` (naive UTC) แล้ว `astimezone(THAI_TZ)` — ไม่ใช่ `CURRENT_TIMESTAMP` ของแอป
+  - mixin ใหม่ใช้ `_resolve_asset_ledger`/`_insert_journal_entry` (LedgerMixin) + `resolve_room_id` (BaseMixin) ⇒ วางใน MRO **ก่อน** ทั้งคู่; เพิ่มเมธอดใน `_MONEY_PATHS` แล้วรันตัวตรวจ completeness
+- **Rule:** (1) 🔴 journal **ต่อบรรทัด** ห้ามรวมก้อนเดียว (2) 🔴 PV = 1 ใบต่อ voucher และมี `idempotency_key='pv:{id}'` (3) 🔴 ตรวจครบก่อนเขียนแถวแรก + ล็อกกระเป๋าตาม id ขึ้น (4) 🔴 409 ต้องแยกจาก 400 (จับ conflict ก่อน `ValueError`) (5) 🔴 ห้ามเรียก `_issue_payment_voucher` เดิมสำหรับใบหลายบรรทัด (snapshot shape เดิม)
+- **Tests/Verification:** `backend/tests/test_finance_expense_voucher.py` 17 ตัว (2 txn + 2 journal Dr=Cr=350, ยอดกระเป๋าแยกใบ, PV 1 ใบ + anchor txn แรก + layout/idem, 3 signatures, replay ใบเดิม, payload ต่าง 409, ยอดรวมไม่ตรง 400, เงินไม่พอไม่มีร่องรอย, หมวดรายรับ 400, custody+room_fund 400, rollback ที่บรรทัด 2, member 403, ขอบเขตห้อง 403/404, เพดาน 50, `_MONEY_PATHS`, list/detail shape, งบ used=350 ไม่ใช่ 700), `test_finance_money_lock.py` ครบทั้งไฟล์, `test_finance_budgets.py` เขียว
 - **Date Added:** 2026-11-25

@@ -79,6 +79,11 @@ from .custody import CustodyMixin
 #    ⇒ ต้องวาง **ก่อน** CreditsMixin/BaseMixin ตามกติกา "mixin ใหม่วางก่อนตัวที่พึ่ง"
 #    (ชื่อใหม่ทั้งหมด: `create_credit_round` — ไม่ชนกับ mixin ใด)
 from .credit_rounds import CreditRoundsMixin
+# 💸 [FIN-V2 / P4.1] ใบสำคัญจ่ายหลายบรรทัด — พึ่ง `_resolve_asset_ledger`/
+#    `_insert_journal_entry` (LedgerMixin) และ `resolve_room_id` (BaseMixin) ผ่าน MRO
+#    ⇒ ต้องวาง **ก่อน** สองตัวนั้น · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
+#    (ชื่อใหม่ทั้งหมด: `create_expense_voucher`/`list_expense_vouchers`/…)
+from .expense_vouchers import ExpenseVouchersMixin
 
 
 class FinanceService(
@@ -145,6 +150,10 @@ class FinanceService(
     #    `_lock_*` (BaseMixin) ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO
     #    (ชื่อใหม่ทั้งหมด ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม)
     CreditRoundsMixin,
+    # 💸 [FIN-V2 / P4.1] — ใบสำคัญจ่ายหลายบรรทัด (1 ใบ = N txn + N journal + 1 PV)
+    #    พึ่ง `_resolve_asset_ledger`/`_insert_journal_entry` (LedgerMixin) และ
+    #    `resolve_room_id` (BaseMixin) ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO
+    ExpenseVouchersMixin,
     # 🧮 [FIN-V2 / P1.5] — preview การจัดสรร (อ่านอย่างเดียว)
     #    พึ่ง `_open_bill_predicate()` (Accrual) และ `_load_credit_balance` (Credits)
     #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO (mixin ที่อยู่บนชนะ)
