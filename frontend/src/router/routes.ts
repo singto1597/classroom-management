@@ -481,6 +481,43 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 💸 [FIN-V2 / P4.3] ใบสำคัญจ่ายหลายบรรทัด — อ่านเปิดให้สมาชิก (`require_member`)
+        // ปุ่มสร้าง/ฟอร์ม gate ด้วย `canManageFinance` ในตัวหน้า; backend บังคับ MANAGE_FINANCE ซ้ำ
+        // ⚠️ `new` ต้องมาก่อน `:id` — ไม่งั้น vue-router จับ `new` เป็น id
+        path: '/finance/expense-vouchers',
+        name: 'finance-expense-vouchers',
+        component: () => import('@/views/finance/ExpenseVoucherList.vue'),
+        meta: {
+          title: routeTitles['finance-expense-vouchers'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        path: '/finance/expense-vouchers/new',
+        name: 'finance-expense-voucher-create',
+        component: () => import('@/views/finance/ExpenseVoucherCreate.vue'),
+        meta: {
+          title: routeTitles['finance-expense-voucher-create'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'form',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน path อื่นถูกกลืนและกัน `Number('abc') = NaN`
+        path: '/finance/expense-vouchers/:id(\\d+)',
+        name: 'finance-expense-voucher-detail',
+        component: () => import('@/views/finance/ExpenseVoucherDetail.vue'),
+        meta: {
+          title: routeTitles['finance-expense-voucher-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         path: '/discord-connect',
         name: 'DiscordConnect',
         component: () => import('@/components/discord/DiscordConnectGuide.vue'),

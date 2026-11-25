@@ -207,6 +207,12 @@ export const routeTitles = {
   'finance-custody': 'เงินสดรอส่งมอบ',
   // 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน — อ่านอย่างเดียว (event + ส่งมอบเงินสด)
   'finance-payment-history': 'ประวัติการรับเงิน',
+  // 💸 [FIN-V2 / P4.3] ใบสำคัญจ่ายหลายบรรทัด — คำตรง docs/glossary.md
+  // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการเงิน/หน้ารายการ) — ถ้าเพิ่มเมนู
+  //    ต้องเพิ่มใน `MORE_NAV_GROUPS` ด้วย ไม่งั้นเทสต์ `constants/nav` แดง
+  'finance-expense-vouchers': 'ใบสำคัญจ่าย',
+  'finance-expense-voucher-create': 'สร้างใบสำคัญจ่าย',
+  'finance-expense-voucher-detail': 'รายละเอียดใบสำคัญจ่าย',
 
   // ── กิจกรรม ─────────────────────────────────────────────────────────────
   activities: 'กิจกรรมและผู้เข้าร่วม',

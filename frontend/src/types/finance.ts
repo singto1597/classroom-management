@@ -1963,3 +1963,129 @@ export interface CreditRoundResponse {
   total_applied: number;
   total_balance_after: number;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💸 [FIN-V2 / P4.3] ใบสำคัญจ่ายหลายบรรทัด — 1 ใบ = N transactions + 1 PV
+//    (+ CERT เมื่อมีบรรทัด `receipt_status='none'` — P4.2 คำนวณฝั่ง server)
+// ═══════════════════════════════════════════════════════════════════════════
+/** สถานะหลักฐานการรับเงินของบรรทัด — ตรงกับ Literal ฝั่ง backend */
+export type ReceiptStatus = 'attached' | 'paper' | 'none';
+/** แหล่งเงิน — `pass_through` = เงินผ่านบัญชี (ใช้กระเป๋า `is_custody` ได้) */
+export type FundingSource = 'room_fund' | 'pass_through';
+
+/** 1 บรรทัดที่ **ส่งไปสร้าง** — ยังไม่มี line_no (backend ออกให้ตามลำดับ) */
+export interface ExpenseVoucherLinePayload {
+  description: string;
+  amount: number;
+  category_id: number;
+  budget_id?: number | null;
+  wallet_account_id: number;
+  receipt_status: ReceiptStatus;
+  paper_bill_count: number;
+  attachment_placeholder?: string | null;
+  funding_source: FundingSource;
+}
+
+export interface ExpenseVoucherCreate {
+  idempotency_key: string;
+  default_wallet_account_id: number;
+  payee_person_id?: number | null;
+  payee_name: string;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) — ไม่ใช่ ISO datetime */
+  voucher_date: string;
+  note?: string | null;
+  total_amount?: number;
+  approved_by_person_id?: number | null;
+  approved_by_name?: string | null;
+  lines: ExpenseVoucherLinePayload[];
+}
+
+/** ผลของ `POST /finance/expense-vouchers` — `cert_*` มีค่าเฉพาะเมื่อมีบรรทัด none */
+export interface ExpenseVoucher {
+  id: number;
+  total_amount: number;
+  line_count: number;
+  pv_receipt_id: number;
+  pv_receipt_no: string;
+  cert_receipt_id?: number | null;
+  cert_receipt_no?: string | null;
+  /** ยอด **เฉพาะบรรทัดที่ไม่มีใบเสร็จ** — ไม่เท่ากับ `total_amount` เสมอ */
+  cert_amount?: number | null;
+  cert_line_nos: number[];
+  created_at: string;
+}
+
+export interface ExpenseVoucherCreateResponse extends ExpenseVoucher {
+  /** `true` = คีย์เดิม + payload เดิม ⇒ ได้ใบเดิม (ไม่สร้างซ้ำ) */
+  reused: boolean;
+}
+
+/**
+ * แถวในรายการใบสำคัญจ่าย
+ *
+ * ⚠️ `GET /finance/expense-vouchers` (P4.1) **ไม่คืนฟิลด์ CERT** — query JOIN แค่ PV
+ *    ⇒ หน้ารายการแสดง badge CERT ไม่ได้; เลข/ยอด CERT อ่านจากหน้ารายละเอียดเท่านั้น
+ *    (ห้ามเดาว่ามี `cert_receipt_no` ในแถวนี้)
+ */
+export interface ExpenseVoucherListItem {
+  id: number;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) */
+  voucher_date: string;
+  payee_name: string;
+  total_amount: number;
+  line_count: number;
+  status: string;
+  pv_receipt_id?: number | null;
+  pv_receipt_no?: string | null;
+  created_at: string;
+}
+
+export interface ExpenseVoucherListResponse {
+  items: ExpenseVoucherListItem[];
+  /** 🔴 ผลบวก `total_amount` ของทุกใบในผลลัพธ์ — **ไม่ใช่จำนวนใบ** */
+  total: number;
+}
+
+/** 1 บรรทัดที่ **อ่านกลับ** — มีเลขบรรทัด + ชื่อหมวด/งบ/กระเป๋าที่ JOIN มาแล้ว */
+export interface ExpenseVoucherLineItem {
+  line_no: number;
+  description: string;
+  amount: number;
+  category_id: number | null;
+  category_name: string | null;
+  budget_id: number | null;
+  budget_label: string | null;
+  wallet_account_id: number;
+  wallet_name: string | null;
+  finance_transaction_id: number | null;
+  receipt_status: string;
+  paper_bill_count: number;
+  attachment_placeholder: string | null;
+  funding_source: string;
+}
+
+export interface ExpenseVoucherSignatureItem {
+  role: string;
+  person_id: number | null;
+  signer_name: string;
+}
+
+export interface ExpenseVoucherDetail {
+  id: number;
+  voucher_date: string;
+  payee_person_id: number | null;
+  payee_name: string;
+  default_wallet_account_id: number;
+  note: string | null;
+  total_amount: number;
+  status: string;
+  pv_receipt_id: number | null;
+  pv_receipt_no: string | null;
+  cert_receipt_id: number | null;
+  cert_receipt_no: string | null;
+  cert_amount: number | null;
+  cert_line_nos: number[];
+  created_at: string;
+  lines: ExpenseVoucherLineItem[];
+  signatures: ExpenseVoucherSignatureItem[];
+}

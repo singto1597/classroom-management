@@ -1302,5 +1302,32 @@ void (async () => {
         </div>
       </template>
     </AppSheet>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         💸 [FIN-V2 / P4.3] ใบสำคัญจ่าย — การ์ดทางเข้า (ไม่ใช่เมนูหลัก)
+         ═══════════════════════════════════════════════════════════════
+         🔓 อ่านเปิดให้สมาชิก (backend `require_member`) · ปุ่มสร้างอยู่ในหน้ารายการ
+         และซ่อนตาม `canManageFinance` — การ์ดนี้ไม่เรียก API เพิ่ม -->
+    <div
+      v-if="settingsTab === 'general' && !isLoading && !hasError"
+      class="page-card overflow-hidden"
+    >
+      <div class="border-b border-line bg-canvas px-4 py-3 sm:px-5">
+        <h2 class="section-title flex items-center gap-2">
+          <i class="bi bi-cash-coin text-brand-700" aria-hidden="true"></i>
+          <span class="truncate">ใบสำคัญจ่าย</span>
+        </h2>
+        <p class="mt-0.5 text-sm text-ink-3">
+          เบิกจ่ายหลายรายการในใบเดียว — ออก PV ทุกใบ และ CERT เมื่อมีรายการที่ไม่มีใบเสร็จ
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
+        <p class="text-sm text-ink-3">ดูใบที่ออกแล้ว หรือสร้างใบใหม่เมื่อมีการเบิกจ่าย</p>
+        <RouterLink to="/finance/expense-vouchers" class="btn-ghost-ui">
+          <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>
+          เปิดหน้าใบสำคัญจ่าย
+        </RouterLink>
+      </div>
+    </div>
   </div>
 </template>

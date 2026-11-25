@@ -115,7 +115,12 @@ import type {
   PaymentHistoryQuery,
   // 💳 [FIN-V2 / P3.5] หักเครดิตหลายคนเป็นรอบเดียว
   CreditRoundCreate,
-  CreditRoundResponse
+  CreditRoundResponse,
+  // 💸 [FIN-V2 / P4.1 API → P4.3 UI] ใบสำคัญจ่ายหลายบรรทัด
+  ExpenseVoucherCreate,
+  ExpenseVoucherCreateResponse,
+  ExpenseVoucherDetail,
+  ExpenseVoucherListResponse
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1136,5 +1141,49 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/credits/rounds?target_type=room`,
       payload
     ) as unknown as CreditRoundResponse;
+  },
+
+  // ═══ 💸 [FIN-V2 / P4.3] ใบสำคัญจ่ายหลายบรรทัด ═══════════════════════════
+  // อ่านเปิดให้ member · เขียนต้องมี MANAGE_FINANCE (backend ตอบ 403 เอง)
+  // 🔁 retry คีย์เดิม + payload เดิม ⇒ 200 `reused=true` (ใบเดิม)
+  // 🔴 คีย์เดิม + payload ต่าง ⇒ 409 — หน้าจอต้องมีปุ่ม "เริ่มใบใหม่" (คีย์ใหม่)
+  async getExpenseVouchers(
+    roomId: number,
+    params: { from?: string; to?: string; status?: 'active' | 'voided' } = {}
+  ): Promise<ExpenseVoucherListResponse> {
+    // ⚠️ ตัด key ที่เป็น `undefined`/`''` ออก ไม่งั้น axios ส่ง `from=undefined` → 422
+    const query: Record<string, string> = { target_type: 'room' };
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === '') continue;
+      query[key] = value;
+    }
+    return await api.get(
+      `/api/classroom/${roomId}/finance/expense-vouchers`,
+      { params: query }
+    ) as unknown as ExpenseVoucherListResponse;
+  },
+
+  async getExpenseVoucher(roomId: number, id: number): Promise<ExpenseVoucherDetail> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/expense-vouchers/${id}?target_type=room`
+    ) as unknown as ExpenseVoucherDetail;
+  },
+
+  async createExpenseVoucher(
+    roomId: number,
+    payload: ExpenseVoucherCreate
+  ): Promise<ExpenseVoucherCreateResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/expense-vouchers?target_type=room`,
+      payload
+    ) as unknown as ExpenseVoucherCreateResponse;
+  },
+
+  // 🖨️ PDF มาจาก P4.6 ตัวเดียว (`GET .../{id}/pdf`) — ห้ามสร้าง print view ในหน้า
+  async downloadExpenseVoucherPdf(roomId: number, id: number): Promise<Blob> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/expense-vouchers/${id}/pdf`,
+      { params: { target_type: 'room' }, responseType: 'blob' }
+    ) as unknown as Blob;
   }
 };
