@@ -107,6 +107,13 @@ from .monthly_reports import MonthlyReportsMixin
 #    `_resolve_actor_name` (ExpenseVouchersMixin) ผ่าน MRO
 #    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief (ชื่อใหม่ทั้งหมด)
 from .voids import VoidMixin
+# ✂️ [FIN-V2 / P6.2] ตัดจำหน่าย/ให้ส่วนลดบิล + fund_type + เตือนชื่อซ้ำ
+#    พึ่ง `_resolve_system_ledger`/`_resolve_fine_discount_ledger`/
+#    `_resolve_ar_project_ledger`/`_insert_journal_entry` (LedgerMixin),
+#    `_void_aggregate_invoices_for_students` (CollectionsMixin) และ
+#    `_lock_room_money`/`resolve_room_id` (BaseMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief (ชื่อใหม่ทั้งหมด)
+from .bill_adjustments import BillAdjustmentsMixin
 
 
 class FinanceService(
@@ -196,6 +203,9 @@ class FinanceService(
     #    ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
     #    (`void_*` เป็นชื่อใหม่; `_void_receipt_ids_locked`/`_void_*_locked` ขึ้นต้น `_`)
     VoidMixin,
+    # ✂️ [FIN-V2 / P6.2] — ตัดจำหน่าย/ส่วนลดบิล (write_off/discount) + fund_type
+    #    ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
+    BillAdjustmentsMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,

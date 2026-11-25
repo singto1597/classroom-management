@@ -108,7 +108,8 @@ class ExportMixin:
                       F.id AS fine_id,
                       INV.receipt_no AS invoice_no,
                       SP.id AS payment_id, SP.paid_amount,
-                      (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
+                      (FC.amount - COALESCE(SP.paid_amount, 0)
+                         - COALESCE(SP.written_off_amount, 0)) AS outstanding
                FROM student_payments SP
                JOIN fee_collections FC ON SP.collection_id = FC.id
                JOIN students S         ON SP.student_id = S.id

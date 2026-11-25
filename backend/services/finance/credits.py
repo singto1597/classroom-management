@@ -1117,7 +1117,8 @@ class CreditsMixin:
                            ORDER BY id DESC LIMIT 1
                        ) SC ON TRUE
                        LEFT JOIN LATERAL (
-                           SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0)) AS pending_amount
+                           SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0)
+                                      - COALESCE(SP.written_off_amount, 0)) AS pending_amount
                            FROM student_payments SP
                            JOIN fee_collections FC ON SP.collection_id = FC.id
                            WHERE SP.student_id = S.id AND {cls._open_bill_predicate()}

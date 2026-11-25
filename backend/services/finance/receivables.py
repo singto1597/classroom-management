@@ -86,7 +86,7 @@ class ReceivablesMixin:
                        FC.id AS collection_id, FC.title AS collection_title,
                        FC.collection_kind AS collection_kind, FC.due_date,
                        F.id AS fine_id,
-                       (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
+                       (FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)) AS outstanding
                 FROM student_payments SP
                 JOIN fee_collections FC ON FC.id = SP.collection_id
                 JOIN students S ON S.id = SP.student_id
@@ -95,7 +95,7 @@ class ReceivablesMixin:
                        ON F.student_payment_id = SP.id AND F.deleted_at IS NULL
                 WHERE FC.room_id = $1
                   AND {cls._open_bill_predicate()}
-                  AND (FC.amount - COALESCE(SP.paid_amount, 0)) > {_EPS}
+                  AND (FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)) > {_EPS}
                 ORDER BY FC.due_date ASC NULLS LAST, SP.id ASC
                 """,
                 target_room_id,

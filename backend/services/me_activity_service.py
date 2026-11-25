@@ -147,7 +147,9 @@ SELECT
         AND A.deleted_at IS NULL
         AND (W.date_from IS NULL OR A.activity_date BETWEEN W.date_from AND W.date_to)
     ) AS activities_joined,
-    (SELECT COALESCE(SUM(FC.amount - COALESCE(SP.paid_amount, 0)), 0)
+    (SELECT COALESCE(SUM(
+                FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)
+            ), 0)
        FROM student_payments SP
        JOIN fee_collections FC ON FC.id = SP.collection_id
       WHERE SP.student_id = $1 AND FC.room_id = $2 AND {OPEN_BILL_PREDICATE}

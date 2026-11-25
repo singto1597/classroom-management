@@ -215,6 +215,14 @@ _MONEY_PATHS = [
     ("voids", "VoidMixin", "void_expense_voucher"),
     ("voids", "VoidMixin", "void_income_batch"),
     ("voids", "VoidMixin", "void_document"),
+    # ✂️ [FIN-V2 / P6.2] ปรับบิล (write_off/discount) — เขียน `written_off_amount` +
+    #    journal + void INV รวม ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น
+    #    (`write_off_bill`/`discount_bill` เป็น wrapper บาง ๆ ที่ RBAC/lock/ร่างกาย
+    #    ทั้งหมดอยู่ใน `_adjust_bill` ตัวเดียว ⇒ ตรวจที่ตัวนั้น)
+    ("bill_adjustments", "BillAdjustmentsMixin", "_adjust_bill"),
+    # ✂️ [FIN-V2 / P6.2] fund_type — ไม่แตะเงิน แต่รายงานที่ SUM ตามมิติอ่านค่าเดียวกัน
+    #    ⇒ กันการเห็นค่ากลางทางด้วยล็อกเดียวกับ reporting (เหตุผลเดียวกับ P2.4 channels)
+    ("bill_adjustments", "BillAdjustmentsMixin", "set_collection_fund_type"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง

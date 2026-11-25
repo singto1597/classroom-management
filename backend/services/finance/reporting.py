@@ -131,7 +131,7 @@ class ReportingMixin:
         # 📌 ยอดค้างรวมใช้ predicate "บิลเปิด" มาตรฐาน — ไม่กรอง FC.status
         #    (ปิดแคมเปญไม่ใช่ล้างหนี้) และกันแคมเปญที่ถูกลบ
         pending_collection = await conn.fetchval(f"""
-            SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0))
+            SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0))
             FROM student_payments SP
             JOIN fee_collections FC ON SP.collection_id = FC.id
             WHERE FC.room_id = $1 AND {cls._open_bill_predicate()}
@@ -228,7 +228,7 @@ class ReportingMixin:
         # 📌 ยอดค้างรวมใช้ predicate "บิลเปิด" มาตรฐาน — ไม่กรอง FC.status
         #    (ปิดแคมเปญไม่ใช่ล้างหนี้) และกันแคมเปญที่ถูกลบ
         pending_collection = await conn.fetchval(f"""
-            SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0))
+            SELECT SUM(FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0))
             FROM student_payments SP
             JOIN fee_collections FC ON SP.collection_id = FC.id
             WHERE FC.room_id = $1 AND {cls._open_bill_predicate()}

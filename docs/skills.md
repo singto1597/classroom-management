@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 290 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 291 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -294,6 +294,7 @@
 - [📜 ไทม์ไลน์การเงิน: UNION ต้องมีทั้งสองกิ่งเสมอ + cursor 3 คีย์ `(occurred_at, kind, id)`](#ไทม์ไลน์การเงิน-union-ต้องมีทั้งสองกิ่งเสมอ-cursor-3-คีย์-occurredat-kind-id)
 - [💸 ใบสำคัญจ่ายหลายบรรทัด: journal ต้องแยกต่อบรรทัด + PV ต้องมี `idempotency_key` ของตัวเอง](#ใบสำคัญจ่ายหลายบรรทัด-journal-ต้องแยกต่อบรรทัด-pv-ต้องมี-idempotencykey-ของตัวเอง)
 - [🧾 เทสต์เอกสาร: shell มีถ้อยคำใน CSS comment — ห้าม assert "ไม่มีคำนั้น" ด้วยข้อความดิบ](#เทสต์เอกสาร-shell-มีถ้อยคำใน-css-comment-ห้าม-assert-ไม่มีคำนั้น-ด้วยข้อความดิบ)
+- [✂️ ตารางการเงินที่สร้างก่อน migration ไม่มี `created_at` — อย่าเดาคอลัมน์จากตารางรุ่นใหม่](#ตารางการเงินที่สร้างก่อน-migration-ไม่มี-createdat-อย่าเดาคอลัมน์จากตารางรุ่นใหม่)
 
 <!-- TOC:END -->
 
@@ -5012,4 +5013,16 @@
   - baseline byte-stability ของ legacy: hash HTML ที่ **มาสก์ฟอนต์ base64** (`re.sub(r"url\('data:font/[^']+'\)", "url('<FONT>')", html)`) เพื่อไม่ให้ baseline พองด้วย data URI ~45KB × 2
 - **Rule:** (1) 🔴 ห้าม assert การไม่มีอยู่ของคำไทย/แท็ก ด้วยการค้นใน HTML ที่ shell ครอบ — shell มีคอมเมนต์ทุกใบ (2) 🔴 นับ "ครั้งเดียวต่อไฟล์" ด้วย marker ของ shell จริง (`@page`, จำนวน `data:font/`) (3) 🔴 regression ของ legacy เก็บเป็น SHA-256 ของ HTML ที่มาสก์ฟอนต์แล้ว ไม่ใช่สำเนา HTML ทั้งก้อน
 - **Tests/Verification:** `backend/tests/test_finance_document_adapters.py` (7 + 2 guard), `backend/tests/test_finance_legacy_pdf_regression.py` (5: digest receipt/voucher, ชุดผสม 2 legacy + 1 DEP v2, layout/event NULL, v2 ไม่ถูกยุบ)
+- **Date Added:** 2026-11-25
+
+### ✂️ ตารางการเงินที่สร้างก่อน migration ไม่มี `created_at` — อย่าเดาคอลัมน์จากตารางรุ่นใหม่
+- **Context/Problem:** P6.2 เขียน endpoint "เตือนชื่อโครงการซ้ำ" แล้ว `SELECT id, title, status, created_at FROM fee_collections ... ORDER BY created_at DESC` ตามสัญชาตญาณว่า "ตารางการเงินทุกตารางมี `created_at`" — เทสต์ผ่านหมดยกเว้นสองตัวสุดท้ายที่ยิง endpoint จริง (`UndefinedColumnError: column "created_at" does not exist`) เพราะ `fee_collections` ถูกสร้างใน `init_db.py` รุ่นแรกและมีแค่ `id, room_id, title, amount, due_date, status, deleted_at` (migration 0012 เพิ่ม `fund_type`/`collection_kind`/`late_fee_*` แต่ไม่ได้เพิ่ม timestamp)
+- **Root Cause:** สคีมามีสองรุ่นปนกัน — ตารางที่เกิดใน `init_db.py` (DML จริง) กับคอลัมน์ที่ migration เติมทีหลัง ⇒ การ "อ่านโค้ดข้าง ๆ ที่ query ตารางการเงินตารางอื่น" ไม่พอ ต้องเปิด DDL ของ **ตารางนั้น** (`grep -n "CREATE TABLE IF NOT EXISTS <table>" -A 30 core/init_db.py` และ `grep -rn "<table>" core/migrations/`)
+- **Correct Pattern/Solution:**
+  - ก่อน SELECT คอลัมน์ใดในฟังก์ชันใหม่ ให้เปิด DDL ของตารางนั้นจริง ไม่ใช่เดาจากตารางพี่น้อง
+  - ถ้าต้องการ "ลำดับการสร้าง" และไม่มี `created_at` → ใช้ `id DESC` (SERIAL = ลำดับ insert จริง) และ **อย่าส่งคีย์ที่ไม่มีคอลัมน์** กลับใน response
+  - ฟิลด์ response ที่ "อาจมีในอนาคต" ให้ `Optional[...] = None` + คอมเมนต์ว่าปัจจุบันไม่มีวันถูกส่งค่า — กัน Pydantic 422 และกันคนอ่านเข้าใจผิด
+  - เทสต์ที่ผ่าน init_db แต่ไม่เคยยิง endpoint จะไม่จับ error นี้ — ต้องมีเทสต์ยิง HTTP จริงของฟังก์ชันใหม่อย่างน้อยหนึ่งตัวต่อ endpoint (P6.2 มี 2 ตัวจับได้)
+- **Rule:** (1) 🔴 อย่าเดาว่าตารางการเงินมี `created_at`/audit column ครบ — ตรวจ DDL ของตารางนั้น (2) 🔴 ไม่มี timestamp → เรียงด้วย `id` และไม่คืนฟิลด์ที่ไม่มีจริง (3) 🔴 ฟังก์ชันใหม่ทุกตัวต้องมีเทสต์ยิง HTTP/บริการจริง ไม่ใช่แค่ import ผ่าน
+- **Tests/Verification:** `backend/tests/test_finance_bill_adjustments.py` (18 ตัว — เพิ่ม 2 ตัวตรวจชื่อซ้ำเป็นตัวจับบั๊กนี้), `backend/tests/test_finance_outstanding_formula.py` (11 ตัว: debtors xfail(strict) per Gotcha 1, aging, summary, receipts breakdown, export, late-fee base, reminders, me/stats, home/summary, credits, revert), `test_finance_money_lock.py` เขียว
 - **Date Added:** 2026-11-25

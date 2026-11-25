@@ -44,6 +44,10 @@ from .monthly_reports import router as monthly_reports_router
 # 🚫 [FIN-V2 / P6.1] void endpoint กลาง — `/finance/documents/{doc_type}/{doc_id}/void`
 #    (เฉพาะ INV/CERT — ชนิดที่แตะเงินต้องยกเลิกผ่าน router ของ resource นั้น)
 from .voids import router as voids_router
+# ✂️ [FIN-V2 / P6.2] ตัดจำหน่าย/ส่วนลดบิล + fund_type + เตือนชื่อซ้ำ
+#    path ไม่ทับกลุ่มใด (`/finance/payments/{id}/write-off|discount|adjustments`,
+#    `/finance/fee-collections/...`) ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์
+from .bill_adjustments import router as bill_adjustments_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -120,5 +124,12 @@ router.include_router(monthly_reports_router)
 #       และเป็น POST ขณะที่ registry ใช้ GET ⇒ ไม่มีทางชนกัน แต่การวางท้ายทำให้
 #       diff ของงานนี้ต่อเติมท้ายไฟล์
 router.include_router(voids_router)
+
+# ✂️ [FIN-V2 / P6.2] ปรับบิล + fund_type + duplicate-check
+#    ⚠️ ไม่มี path ทับกับกลุ่มอื่น: `POST .../payments/{payment_id}/{write-off|discount}`
+#       ต่างจาก `PUT .../payments/{payment_id}/pay` (method + suffix ต่างกัน) และ group
+#       `fee-collections` เป็น segment ใหม่ ⇒ ลำดับ include ไม่มีผลกับพฤติกรรม
+#    ⚠️ **ภายในไฟล์** ประกาศ `duplicate-check` (static) ก่อน `{collection_id}` เสมอ
+router.include_router(bill_adjustments_router)
 
 __all__ = ["router"]

@@ -133,6 +133,9 @@
 | **ค่าปรับจ่ายล่าช้า** | ค่าปรับที่ระบบออก **อัตโนมัติ** ให้บิลโปรเจกต์ที่เลยกำหนด + วันผ่อนผันแล้ว — นโยบายตั้งต่อแคมเปญ (ไม่ปรับ / จำนวนเงิน / เปอร์เซ็นต์ของยอดคงเหลือ) | `fee_collections.late_fee_mode`, `fines.auto_late_fee`, `late_fee_source` | late fee · ค่าเลยกำหนด |
 | **วันผ่อนผัน** | จำนวนวันหลังครบกำหนดที่ยังไม่ปรับ (ตั้งต่อแคมเปญ — `late_fee_grace_days`) | `late_fee_grace_days` | grace days |
 | **เรียกเก็บเอง (รายคน)** | สร้างบิลให้นักเรียนที่เลือก โดยแต่ละคน **มียอดของตัวเอง** ภายใต้ชื่อรายการเดียวกัน (ไม่ใช่แคมเปญยอดเดียวทั้งห้อง) | `POST /finance/custom-charges`, `fee_collections.idempotency_key` | custom charge · charge manually |
+| **ตัดจำหน่าย** | ประกาศว่าเงินส่วนหนึ่งของบิล **เรียกเก็บไม่ได้แล้ว** (หนี้สูญ/ส่วนเกินที่ยกให้) — ลง Dr `59002` หนี้สูญ (โครงการ) / Cr `11001` · บิลยังอยู่ ไม่ลบ ไม่ลดยอดบิลต้นฉบับ · ยอดค้างทุกรายงานหักอัตโนมัติ | `finance_bill_adjustments` (`write_off`), `student_payments.written_off_amount`, `POST /finance/payments/{id}/write-off` | write-off · หนี้สูญ · ตัดหนี้ |
+| **ส่วนลดบิล** | ลดยอดที่ต้องเก็บของ **บิลโปรเจกต์** (ไม่ใช่ค่าปรับ) ลงบัญชี Dr `49002` / Cr `11001` · ยอดบิลเดิมไม่เปลี่ยน — ผลต่างไปอยู่ที่ `written_off_amount` | `finance_bill_adjustments` (`discount`), `POST /finance/payments/{id}/discount` | discount · ลดหนี้ · ส่วนลดค่าเทอม |
+| **เงินของห้อง vs เงินผ่านมือ** | มิติรายงานต่อ **โครงการ**: *เงินของห้อง* (`room_fund`) = รายได้ของห้องจริง · *เงินผ่านมือ* (`pass_through`) = เก็บแทน/ส่งต่อเจ้าของสิทธิ์ — ระบบยังบันทึกเป็นเงินเข้าห้องเหมือนกัน มุมมองแยกกันแค่ตอนรายงาน | `fee_collections.fund_type`, `PATCH /finance/fee-collections/{id}/fund-type` | fund type · เงินแทน · ส่งผ่าน |
 
 ### เอกสารการเงิน — `finance_receipts.doc_type`
 
@@ -222,6 +225,8 @@
 | แจ้งเตือนผู้ค้างชำระ | `debt_reminder` (`notifications.type`) · ตัวกันส่งซ้ำ = `reminder_dispatch_log` (ช่อง `inapp` / `discord`) · worker `finance_reminder_worker` |
 | ค่าปรับจ่ายล่าช้า | `late_fee` · โหมด `none`/`fixed`/`percent` · 1 บิลต้นทาง = 1 ค่าปรับ (`fines.source_payment_id` + unique `uq_fines_late_fee_source`) · เรียกใช้ `FinanceService.apply_late_fees` (ก่อนเตือนรายวัน) |
 | เรียกเก็บเอง (รายคน) | `custom_charge` · 1 รายการ = 1 `fee_collections` (`kind='project'`) + `idempotency_key` = `"{key}:{student_id}"` · service `create_custom_charges` |
+| ตัดจำหน่าย / ส่วนลดบิล | `bill_adjustment` · ชนิด `write_off` / `discount` (ตาราง `finance_bill_adjustments`) · `BillAdjustmentsMixin` · ยอดตัดสะสมอยู่ที่ `student_payments.written_off_amount` · สูตรค้างทุกจุด = `FC.amount - paid_amount - written_off_amount` · ตัดครบ ⇒ `status='waived'` |
+| เงินของห้อง / เงินผ่านมือ | `fund_type` = `room_fund` / `pass_through` (`fee_collections.fund_type`) · มิติรายงานเท่านั้น ไม่แตะ journal |
 | ยืนยันตัวตน | `identity_claimed` · `accept_invite` |
 | คำเชิญยืนยันตัวตน | `invite` (`list_my_invites`) |
 | ข้อมูลเฉพาะห้อง | `student_room_profiles` · resolved view = `v_student_profiles` |

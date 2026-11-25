@@ -2324,3 +2324,96 @@ class VoidResponse(BaseModel):
     receipt_no: Optional[str] = None
     voided_at: Optional[datetime] = None
     reversed: VoidReversed = Field(default_factory=VoidReversed)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P6.2] ตัดจำหน่าย/ให้ส่วนลดบิลโครงการ + fund_type + เตือนชื่อซ้ำ
+# ══════════════════════════════════════════════════════════════════════════════
+class BillAdjustmentRequest(BaseModel):
+    """คำขอตัดจำหน่าย (`write_off`) / ให้ส่วนลด (`discount`) ของบิลโครงการ
+
+    🔴 `reason` **ไม่ใช้ `min_length=1` โดยเจตนา** — กติกาของ API นี้คือ 400
+       (service เป็นผู้ trim แล้ว raise `ValueError`) ไม่ใช่ 422 ของ Pydantic
+    """
+    # 🔴 ไม่ใส่ `ge=0` โดยเจตนา — ยอดติดลบ/ศูนย์ต้องได้ **400** จาก service
+    #    (กติกาของ API นี้: request ที่ผู้ใช้กรอกผิด = 400 ไม่ใช่ 422 ของ Pydantic)
+    amount: float = Field(0, description="ยอดที่ตัด (บาท) — 0 < amount ≤ ยอดคงเหลือ")
+    reason: str = Field(default="", max_length=500)
+    idempotency_key: str = Field(
+        default="", max_length=100,
+        description="คีย์กันส่งซ้ำ — คำขอซ้ำด้วยคีย์เดิมคืนผลเดิม (200) ไม่ตัดซ้ำ",
+    )
+
+
+class BillAdjustmentItem(BaseModel):
+    """รายการปรับบิล 1 รายการ — ตัวเลขเงินเป็น string 2 ตำแหน่ง (แบบ v2)"""
+    id: int
+    adjustment_type: str
+    amount: str
+    status: str
+    written_off_total: str
+    remaining: str
+    bill_status: str
+    journal_entry_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    reason: Optional[str] = None
+
+
+class BillAdjustmentResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    reused: bool = False
+    adjustment: BillAdjustmentItem
+    voided_invoices: int = 0
+
+
+class BillAdjustmentListItem(BaseModel):
+    """แถวประวัติการปรับบิลของบิลหนึ่ง"""
+    id: int
+    student_payment_id: int
+    adjustment_type: str
+    amount: str
+    reason: Optional[str] = None
+    status: str
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+    journal_entry_id: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+class BillAdjustmentListResponse(BaseModel):
+    items: List[BillAdjustmentListItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class FundTypeUpdateRequest(BaseModel):
+    """ตั้งมิติรายงานของโครงการ — ไม่แตะเงิน/ยอด/journal
+
+    🔴 ใช้ `Literal` ให้ Pydantic ปฏิเสธค่าที่ไม่รู้จักเป็น 422
+       (เป็นค่าคงที่ของระบบ ไม่ใช่ข้อความที่ผู้ใช้พิมพ์อิสระ)
+    """
+    fund_type: Literal["room_fund", "pass_through"]
+
+
+class FundTypeResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    id: int
+    title: str
+    fund_type: str
+
+
+class DuplicateTitleItem(BaseModel):
+    id: int
+    title: str
+    status: Optional[str] = None
+    # ⚠️ คงไว้เป็น Optional แต่ **ไม่มีวันถูกส่งค่า** — `fee_collections` ไม่มีคอลัมน์
+    #    `created_at` (ดู `core/init_db.py`) ⇒ service เรียงด้วย id แทน
+    created_at: Optional[datetime] = None
+
+
+class DuplicateTitleResponse(BaseModel):
+    """ผลตรวจชื่อโครงการซ้ำ — เตือนอย่างเดียว ไม่บล็อกการสร้าง"""
+    duplicates: List[DuplicateTitleItem] = Field(default_factory=list)
+    warning: Optional[str] = None

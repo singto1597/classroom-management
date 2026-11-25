@@ -464,7 +464,8 @@ class ReceiptsMixin:
         return await conn.fetch(f"""
             SELECT SP.id AS payment_id, FC.id AS collection_id, FC.title,
                    FC.amount AS bill_amount, COALESCE(SP.paid_amount, 0) AS paid_amount,
-                   (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding,
+                   (FC.amount - COALESCE(SP.paid_amount, 0)
+                             - COALESCE(SP.written_off_amount, 0)) AS outstanding,
                    FC.due_date,
                    S.student_no, U.first_name, U.nickname, U.first_name_en
             FROM students S
@@ -489,7 +490,8 @@ class ReceiptsMixin:
         return await conn.fetch(f"""
             SELECT S.id AS student_id, S.student_no,
                    U.first_name, U.nickname, U.first_name_en,
-                   SUM(FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding
+                   SUM(FC.amount - COALESCE(SP.paid_amount, 0)
+                             - COALESCE(SP.written_off_amount, 0)) AS outstanding
             FROM students S
             LEFT JOIN v_student_profiles U ON U.student_id = S.id
             JOIN student_payments SP ON S.id = SP.student_id

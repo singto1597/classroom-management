@@ -86,7 +86,7 @@ class RemindersMixin:
                    U.first_name_en,
                    FC.title,
                    FC.due_date,
-                   (FC.amount - COALESCE(SP.paid_amount, 0)) AS outstanding,
+                   (FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)) AS outstanding,
                    FC.collection_kind,
                    F.id AS fine_id
             FROM student_payments SP
@@ -98,7 +98,7 @@ class RemindersMixin:
             WHERE {cls._open_bill_predicate()}
               AND FC.due_date IS NOT NULL
               AND FC.due_date <= $1
-              AND (FC.amount - COALESCE(SP.paid_amount, 0)) > $2
+              AND (FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)) > $2
               {room_clause}
             ORDER BY FC.room_id, S.student_no, FC.due_date, FC.id
             """,
