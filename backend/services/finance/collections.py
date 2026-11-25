@@ -527,8 +527,13 @@ class CollectionsMixin:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
                 sql = """
-                    SELECT 
+                    SELECT
                         SP.id as payment_id, SP.student_id, SP.status, SP.paid_amount, SP.paid_at, SP.slip_image_url,
+                        -- ✂️ [FIN-V2 / P6.2→P6.3] ยอดที่ถูกตัดจำหน่าย/ให้ส่วนลด + ชนิดบิล
+                        --    🔴 **อ่านเท่านั้น** — ไม่ได้แก้สูตรยอดค้างของไฟล์นี้ (ดู Gotcha 1 ของ P6.2)
+                        --    จำเป็นเพราะหน้าจอ CollectionDetail ต้องแสดง "ตัดหนี้ไปแล้ว" และ
+                        --    ซ่อนปุ่มตัดหนี้บนบิลค่าปรับ ⇒ ถ้าไม่มีสองฟิลด์นี้ หน้าจอต้องเดา
+                        SP.written_off_amount, FC.collection_kind as collection_kind,
                         S.student_no, U.first_name, U.last_name, U.nickname,
                         U.first_name_en, U.last_name_en, U.nickname_en, FC.amount as total_amount
                     FROM student_payments SP

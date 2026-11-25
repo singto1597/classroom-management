@@ -62,9 +62,18 @@ export interface StudentPaymentSummary {
 
 export interface StudentPaymentDetail {
   payment_id: number;
-  status: 'pending' | 'paid';
+  /**
+   * 🚫 [FIN-V2 / P6.3] `waived` = บิลที่ถูกตัดจำหน่ายจนหมด (ตัดครบ)
+   * — ออกจากยอดค้างแล้วแต่ยังเห็นในรายการ; ใช้ `isSettled(outstandingOf(...))`
+   * ตัดสิน "ไม่มีอะไรค้าง" ห้ามใช้ `status === 'paid'`
+   */
+  status: 'pending' | 'paid' | 'waived';
   paid_amount: number;
   total_amount: number;
+  /** ✂️ [FIN-V2 / P6.2→P6.3] ยอดที่ถูกตัดจำหน่าย/ให้ส่วนลดสะสม (0 = ไม่เคยตัด) */
+  written_off_amount: number;
+  /** ชนิดบิล (`project` / `fine`) — หน้าจอซ่อนปุ่มตัดหนี้บนบิลค่าปรับ (`fine` → 409) */
+  collection_kind: string | null;
   paid_at: string | null;
   slip_image_url: string | null;
   student_id: number; // ✨ ฟีเจอร์ใหม่จาก AI
@@ -2529,4 +2538,92 @@ export interface MonthlyReportDetailResponse {
   message?: string | null;
   report: MonthlyReportResponse;
   signatures: DocumentSignatureItem[];
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🚫✂️ [FIN-V2 / P6.1 → P6.3] ยกเลิกเอกสาร/เหตุการณ์เงิน + ตัดหนี้/ให้ส่วนลดบิล
+// ══════════════════════════════════════════════════════════════════════════════
+// ที่มา: backend/models/finance_schemas.py (VoidRequest/VoidResponse/BillAdjustment*)
+// ⚠️ ตัวเลขเงินของ `BillAdjustmentItem` เป็น **string 2 ตำแหน่ง** (แบบเอกสาร v2)
+//    ส่วน `VoidReversed` เป็น number (service คำนวณเป็น float มาแล้ว)
+
+export interface VoidRequest {
+  reason: string;
+}
+
+export interface VoidAccountDelta {
+  account_id: number;
+  /** ติดลบ = เงินออกจากกระเป๋า, บวก = เงินกลับเข้ากระเป๋า */
+  delta: number;
+}
+
+export interface VoidReversed {
+  amount: number;
+  paid_amount_delta: number;
+  /** การเปลี่ยนแปลงสุทธิของเครดิตนักเรียน (ลบ = ถอนเครดิตส่วนเกินคืนเข้าระบบ) */
+  credit_restored: number;
+  accounts: VoidAccountDelta[];
+}
+
+/** รูปเดียวกันทั้ง 4 endpoint void (documents / payment-events / expense-vouchers / income-batches) */
+export interface VoidResponse {
+  status: string;
+  message: string | null;
+  doc_type: string;
+  doc_id: number;
+  receipt_no: string | null;
+  voided_at: string | null;
+  reversed: VoidReversed;
+}
+
+export type BillAdjustmentType = 'write_off' | 'discount';
+
+export interface BillAdjustmentRequest {
+  /** 🔴 backend รับเป็น number (`amount: float`) — ปัด 2 ตำแหน่งก่อนส่ง */
+  amount: number;
+  reason: string;
+  /** 🔑 คีย์ต่อการเปิด modal 1 ครั้ง — คำขอซ้ำด้วยคีย์เดิมคืนผลเดิม ไม่ตัดซ้ำ */
+  idempotency_key: string;
+}
+
+export interface BillAdjustmentItem {
+  id: number;
+  adjustment_type: string;
+  amount: string;
+  status: string;
+  written_off_total: string;
+  remaining: string;
+  bill_status: string;
+  journal_entry_id: string | null;
+  created_at: string | null;
+  reason: string | null;
+}
+
+export interface BillAdjustmentResponse {
+  status: string;
+  message: string | null;
+  /** true = คีย์เดิม + payload เดิม ⇒ คืนรายการที่มีอยู่ (ไม่ได้ตัดใหม่) */
+  reused: boolean;
+  adjustment: BillAdjustmentItem;
+  /** ใบแจ้งหนี้ที่ถูกยกเลิกเพราะบิลถูกตัดครบ (backend ตัดสิน) */
+  voided_invoices: number;
+}
+
+export interface BillAdjustmentListItem {
+  id: number;
+  student_payment_id: number;
+  adjustment_type: string;
+  amount: string;
+  reason: string | null;
+  status: string;
+  voided_at: string | null;
+  void_reason: string | null;
+  journal_entry_id: string | null;
+  created_by: number | null;
+  created_at: string | null;
+}
+
+export interface BillAdjustmentListResponse {
+  items: BillAdjustmentListItem[];
+  total: number;
 }

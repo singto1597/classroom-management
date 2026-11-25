@@ -200,7 +200,7 @@ class StudentPaymentSummary(BaseModel):
 class StudentPaymentDetail(BaseModel):
     payment_id: int
     status: str
-    paid_amount: float 
+    paid_amount: float
     total_amount: float
     paid_at: Optional[datetime]
     slip_image_url: Optional[str]
@@ -212,6 +212,11 @@ class StudentPaymentDetail(BaseModel):
     first_name_en: Optional[str] = None
     last_name_en: Optional[str] = None
     nickname_en: Optional[str] = None
+    # ✂️ [FIN-V2 / P6.2→P6.3] ยอดที่ถูกตัดจำหน่าย/ให้ส่วนลดสะสมของบิลนี้ (0 = ไม่เคยตัด)
+    #    ค่าเริ่มต้น 0 ทำให้ endpoint/ผู้เรียกเดิมไม่พังถ้าโค้ดใหม่ยังไม่ส่งมา
+    written_off_amount: float = 0.0
+    # ชนิดบิล (`project` / `fine`) — หน้าจอใช้ซ่อนปุ่มตัดหนี้บนบิลค่าปรับ
+    collection_kind: Optional[str] = None
 
 class CollectionStatusResponse(BaseModel):
     collection_id: int

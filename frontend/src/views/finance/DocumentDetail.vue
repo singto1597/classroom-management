@@ -9,7 +9,11 @@
  * ยังไม่มีเลขก่อน finalized ⇒ route ใช้ **คู่ (`doc_type`, `doc_id`)** ที่ backend
  * รับประกันว่ามีจริงเสมอ (`GET /finance/documents/{doc_type}/{doc_id}`)
  *
- * 🔓 อ่านอย่างเดียว — ไม่มีปุ่มเขียน/ยกเลิกในนี้ (P6.3 จะ mount `VoidReasonModal` เอง)
+ * 🚫 [P6.3] ปุ่ม "ยกเลิกเอกสาร" mount ที่นี่ — **เฉพาะ `invoice`** ที่ยัง active:
+ *    - REC/DEP → ต้องยกเลิกผ่านเหตุการณ์รับเงิน (`/payment-events/{id}/void`)
+ *    - CERT    → ต้องยกเลิกพร้อม PV (backend ตอบ 409 ชี้ทาง)
+ *    - ACK/RPT → มีปุ่มของตัวเองในหน้า P5.5
+ *    ⇒ หน้าจอแสดง "ข้อความชี้ทาง" แทนปุ่มสำหรับชนิดเหล่านั้น ไม่เดา endpoint เอง
  *
  * 🧩 `line_items` / `document_meta` **โครงต่างกันตามชนิด** ⇒ ทุกคีย์เป็น optional
  *    และแสดงเฉพาะคีย์ที่มีค่า (ห้าม hardcode ว่ามีทุกคีย์ — Jinja/BE อาจเพิ่ม/ลดได้)
@@ -23,6 +27,7 @@ import { RouterLink, useRoute } from 'vue-router';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import DocumentTypeBadge from '@/components/finance/DocumentTypeBadge.vue';
+import VoidReasonModal from '@/components/finance/VoidReasonModal.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
@@ -262,6 +267,84 @@ const downloadPdf = async () => {
     isDownloading.value = false;
   }
 };
+
+// ── 🚫 ยกเลิกเอกสาร (P6.3) ─────────────────────────────────────────────────
+//
+// 🔴 `void_document` รับเฉพาะ `invoice` — REC/DEP/CERT/ACK/RPT ต้องผ่านเส้นทางของมันเอง
+//    (backend ตอบ 409 พร้อมชี้ endpoint) ⇒ หน้าจอไม่เดา endpoint จาก doc_type
+// 🔴 ไม่มี idempotency key (ตั้งใจ) — กดซ้ำต้องได้ 409 "ยกเลิกแล้ว" จาก backend
+
+const canManageFinance = computed(() => authStore.canManageFinance);
+
+const isVoidOpen = ref(false);
+const isVoiding = ref(false);
+const voidError = ref('');
+
+const canVoidInvoice = computed(
+  () =>
+    canManageFinance.value &&
+    doc.value?.doc_type === 'invoice' &&
+    doc.value?.status === 'active',
+);
+
+/** ข้อความชี้ทางสำหรับชนิดที่ยกเลิกเดี่ยวไม่ได้ — ไม่แสดงปุ่มที่กดแล้วได้ 400/409 */
+const voidHelpText = computed(() => {
+  const current = doc.value;
+  if (!canManageFinance.value || !current || current.status !== 'active') return '';
+  switch (current.doc_type) {
+    case 'receipt':
+    case 'deposit':
+      return 'เอกสารนี้เกิดจากรายการรับเงิน — ยกเลิกที่ประวัติการรับเงิน (เหตุการณ์รับเงิน)';
+    case 'payment_voucher':
+      return 'ใบสำคัญจ่ายยกเลิกได้ที่หน้าใบสำคัญจ่าย (ทะเบียนเอกสาร)';
+    case 'certificate':
+      return 'ใบรับรองแทนใบเสร็จยกเลิกเดี่ยวไม่ได้ — ต้องยกเลิกพร้อมใบสำคัญจ่ายที่ออกคู่กัน';
+    default:
+      // ACK/RPT มีปุ่มของตัวเองในหน้า P5.5 — ไม่แสดงข้อความซ้ำ
+      return '';
+  }
+});
+
+/** สรุปสิ่งที่กำลังจะถูกกลับ — ค่าจากเอกสารที่โหลดไว้ (ห้ามคำนวณใหม่) */
+const voidSummary = computed<Array<{ label: string; value: string }>>(() => {
+  const current = doc.value;
+  if (!current) return [];
+  return [
+    { label: 'เลขที่เอกสาร', value: current.doc_no ?? `#${current.doc_id}` },
+    { label: 'ประเภท', value: typeLabel(current.doc_type) },
+    { label: 'ยอดรวม', value: amountText(current.amount) },
+  ];
+});
+
+const openVoid = () => {
+  voidError.value = '';
+  isVoidOpen.value = true;
+};
+
+const confirmVoid = async (reason: string) => {
+  const current = doc.value;
+  if (!current || isVoiding.value) return;
+  isVoiding.value = true;
+  voidError.value = '';
+  try {
+    await FinanceService.voidDocument(currentRoomId, current.doc_type, current.doc_id, {
+      reason,
+    });
+    isVoidOpen.value = false;
+    await dialog.alert(
+      'ยกเลิกแล้ว',
+      'เอกสารถูกยกเลิก — ยังพิมพ์ดูได้และจะแสดงป้าย "ยกเลิก" ในทะเบียน',
+      'success',
+    );
+    // 🔄 reload เพื่อเห็นสถานะ voided + ป้าย และปุ่มหาย (ไม่พาออกจากหน้า)
+    await load();
+  } catch (error: unknown) {
+    // 409/400 → แสดงข้อความไทยจาก backend ในกล่องแดงของ modal (ไม่ปิดเอง)
+    voidError.value = error instanceof Error ? error.message : 'ยกเลิกเอกสารไม่สำเร็จ';
+  } finally {
+    isVoiding.value = false;
+  }
+};
 </script>
 
 <template>
@@ -271,21 +354,42 @@ const downloadPdf = async () => {
         <i class="bi bi-chevron-left" aria-hidden="true"></i>
         กลับทะเบียนเอกสาร
       </RouterLink>
-      <button
-        v-if="doc"
-        type="button"
-        class="btn-primary"
-        :disabled="isDownloading"
-        @click="downloadPdf"
-      >
-        <i
-          class="bi"
-          :class="isDownloading ? 'bi-hourglass-split' : 'bi-file-earmark-pdf'"
-          aria-hidden="true"
-        ></i>
-        ดาวน์โหลด PDF
-      </button>
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- 🚫 ยกเลิกเอกสาร — เฉพาะใบแจ้งหนี้ที่ยัง active (ชนิดอื่นมีข้อความชี้ทางด้านล่าง) -->
+        <button
+          v-if="canVoidInvoice"
+          type="button"
+          class="btn-danger"
+          :disabled="isVoiding"
+          @click="openVoid"
+        >
+          <i class="bi bi-x-octagon" aria-hidden="true"></i>
+          ยกเลิกเอกสาร
+        </button>
+        <button
+          v-if="doc"
+          type="button"
+          class="btn-primary"
+          :disabled="isDownloading"
+          @click="downloadPdf"
+        >
+          <i
+            class="bi"
+            :class="isDownloading ? 'bi-hourglass-split' : 'bi-file-earmark-pdf'"
+            aria-hidden="true"
+          ></i>
+          ดาวน์โหลด PDF
+        </button>
+      </div>
     </div>
+
+    <p
+      v-if="voidHelpText"
+      class="rounded-xl border border-line bg-canvas px-3 py-2 text-sm text-ink-3"
+    >
+      <i class="bi bi-info-circle" aria-hidden="true"></i>
+      {{ voidHelpText }}
+    </p>
 
     <!-- URL ผิดรูป (ชนิดไม่รู้จัก / id ไม่ใช่จำนวนเต็ม) — ไม่ต้องยิง API -->
     <StateBlock
@@ -551,5 +655,17 @@ const downloadPdf = async () => {
         </dl>
       </div>
     </template>
+
+    <!-- ═══════════════════ แผ่น: ยกเลิกเอกสาร (P6.3) ═══════════════════ -->
+    <VoidReasonModal
+      :open="isVoidOpen"
+      title="ยกเลิกเอกสาร"
+      description="ยกเลิกแล้วย้อนกลับไม่ได้ — เอกสารยังอยู่ในทะเบียนพร้อมป้ายยกเลิก"
+      :summary="voidSummary"
+      :busy="isVoiding"
+      :error-message="voidError"
+      @close="isVoidOpen = false"
+      @confirm="confirmVoid"
+    />
   </div>
 </template>

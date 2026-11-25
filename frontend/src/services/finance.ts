@@ -144,6 +144,12 @@ import type {
   MonthlyReportListResponse,
   MonthlyReportResponse,
   MonthlyReportStatus,
+  // 🚫✂️ [FIN-V2 / P6.1+P6.2 API → P6.3 UI] ยกเลิกเอกสาร/เหตุการณ์เงิน + ตัดหนี้/ให้ส่วนลดบิล
+  VoidRequest,
+  VoidResponse,
+  BillAdjustmentRequest,
+  BillAdjustmentResponse,
+  BillAdjustmentListResponse,
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1453,5 +1459,93 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/monthly-reports/${id}/pdf`,
       { params: { target_type: 'room' }, responseType: 'blob' }
     ) as unknown as Blob;
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🚫 [FIN-V2 / P6.1 → P6.3] ยกเลิกเอกสาร/เหตุการณ์เงิน
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⚠️ `/documents/{doc_type}/{id}/void` รับเฉพาะ `invoice` (REC/DEP → 409 ชี้ไป event,
+  //    CERT → 409 ชี้ไป PV, ACK/RPT → endpoint ของมันเอง) — backend เป็นผู้ตัดสิน ไม่เดาที่จอ
+  // 🔴 ไม่มี idempotency key โดยเจตนา: void เปลี่ยนสถานะซ้ำไม่ได้ การกดซ้ำต้องได้ 409
+
+  async voidDocument(
+    roomId: number,
+    docType: string,
+    docId: number,
+    payload: VoidRequest
+  ): Promise<VoidResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/documents/${docType}/${docId}/void?target_type=room`,
+      payload
+    ) as unknown as VoidResponse;
+  },
+
+  async voidPaymentEvent(
+    roomId: number,
+    eventId: number,
+    payload: VoidRequest
+  ): Promise<VoidResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/payment-events/${eventId}/void?target_type=room`,
+      payload
+    ) as unknown as VoidResponse;
+  },
+
+  async voidExpenseVoucher(
+    roomId: number,
+    voucherId: number,
+    payload: VoidRequest
+  ): Promise<VoidResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/expense-vouchers/${voucherId}/void?target_type=room`,
+      payload
+    ) as unknown as VoidResponse;
+  },
+
+  async voidIncomeBatch(
+    roomId: number,
+    batchId: number,
+    payload: VoidRequest
+  ): Promise<VoidResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/income-batches/${batchId}/void?target_type=room`,
+      payload
+    ) as unknown as VoidResponse;
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ✂️ [FIN-V2 / P6.2 → P6.3] ตัดหนี้ / ให้ส่วนลดบิลโครงการ
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔑 `idempotency_key` สร้างตอนเปิด modal (stable ต่อ retry) — ส่งซ้ำคีย์เดิมได้ผลเดิม
+
+  async writeOffBill(
+    roomId: number,
+    paymentId: number,
+    payload: BillAdjustmentRequest
+  ): Promise<BillAdjustmentResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/payments/${paymentId}/write-off?target_type=room`,
+      payload
+    ) as unknown as BillAdjustmentResponse;
+  },
+
+  async discountBill(
+    roomId: number,
+    paymentId: number,
+    payload: BillAdjustmentRequest
+  ): Promise<BillAdjustmentResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/payments/${paymentId}/discount?target_type=room`,
+      payload
+    ) as unknown as BillAdjustmentResponse;
+  },
+
+  async getBillAdjustments(
+    roomId: number,
+    paymentId: number
+  ): Promise<BillAdjustmentListResponse> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/payments/${paymentId}/adjustments?target_type=room`
+    ) as unknown as BillAdjustmentListResponse;
   },
 };

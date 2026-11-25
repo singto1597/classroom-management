@@ -9,8 +9,9 @@
  * ผู้รับ เงินสด/เครดิตที่ใช้/เครดิตที่เพิ่ม และเอกสาร REC/DEP · handover อยู่
  * ไทม์ไลน์เดียวกัน
  *
- * 🔓 อ่านอย่างเดียว: สมาชิกทุกคน (`require_member` ฝั่ง backend) — หน้าไม่มีปุ่ม
- *    แก้/void/print ใด ๆ (P6.1 เป็นเจ้าของ void)
+ * 🔓 สมาชิกทุกคนอ่านได้ (`require_member` ฝั่ง backend) — 🚫 [P6.3] ผู้มีสิทธิ์จัดการ
+ *    การเงินเห็นปุ่ม "ยกเลิกเหตุการณ์" บน event ที่ยัง active (ยกเลิก REC+DEP+เครดิต
+ *    พร้อมกันที่ backend) — handover ไม่มีปุ่ม (P3.1 ไม่มี void endpoint ของมันเอง)
  *
  * 🔑 pagination เป็น **cursor** `(occurred_at, kind, id)` จาก backend — ห้าม
  *    ใช้ offset เอง; "โหลดเพิ่ม" ต้องส่ง `next_cursor` เดิมกลับไปเท่านั้น
@@ -32,6 +33,7 @@ import PageIntro from '@/components/ui/PageIntro.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppChip from '@/components/ui/AppChip.vue'
 import PeriodPicker from '@/components/finance/PeriodPicker.vue'
+import VoidReasonModal from '@/components/finance/VoidReasonModal.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import { useDialog } from '@/composables/useDialog'
@@ -255,6 +257,61 @@ const toggleExpanded = (item: PaymentHistoryItem) => {
 }
 
 const isExpanded = (item: PaymentHistoryItem): boolean => expandedIds.value.has(itemKey(item))
+
+// ── 🚫 ยกเลิกเหตุการณ์รับเงิน (FIN-V2 / P6.3) ─────────────────────────────
+//
+// 🔴 ไม่มี idempotency key (ตั้งใจ) — กดซ้ำต้องได้ 409 จาก backend
+// 🔴 หลังสำเร็จ **ห้ามลบการ์ดออก** — ประวัติคือหลักฐาน; reload แล้วเห็น badge "ยกเลิกแล้ว"
+
+const canManageFinance = computed(() => authStore.canManageFinance)
+
+const isVoidOpen = ref(false)
+const isVoiding = ref(false)
+const voidError = ref('')
+const voidTarget = ref<PaymentHistoryItem | null>(null)
+
+const canVoidEvent = (item: PaymentHistoryItem): boolean =>
+  canManageFinance.value && !!item.event && item.status === 'active'
+
+const openVoid = (item: PaymentHistoryItem) => {
+  voidTarget.value = item
+  voidError.value = ''
+  isVoidOpen.value = true
+}
+
+/** สรุปสิ่งที่กำลังจะถูกกลับ — ค่าจาก event ที่ backend ส่งมา (ห้ามคำนวณ) */
+const voidSummary = computed<Array<{ label: string; value: string }>>(() => {
+  const target = voidTarget.value
+  if (!target?.event) return []
+  return [
+    { label: 'ผู้จ่าย', value: target.event.payer_name },
+    { label: 'ผู้รับเงิน', value: target.event.receiver_name },
+    { label: 'ยอดที่ใช้', value: formatMoney(target.event.total_applied) },
+    { label: 'เวลา', value: stamp(target.occurred_at) },
+  ]
+})
+
+const confirmVoid = async (reason: string) => {
+  const target = voidTarget.value
+  if (!target || isVoiding.value) return
+  isVoiding.value = true
+  voidError.value = ''
+  try {
+    await FinanceService.voidPaymentEvent(roomId, target.id, { reason })
+    isVoidOpen.value = false
+    await dialog.alert(
+      'ยกเลิกแล้ว',
+      'เหตุการณ์รับเงินและเอกสารที่เกิดจากรายการนี้ถูกยกเลิกแล้ว — การ์ดยังอยู่ในประวัติพร้อมป้ายยกเลิก',
+      'success',
+    )
+    // 🔄 โหลดช่วงเดิมใหม่ทั้งหน้า — ไม่พยายามแก้เฉพาะการ์ด (กันสองแหล่งความจริง)
+    await load()
+  } catch (error: unknown) {
+    voidError.value = error instanceof Error ? error.message : 'ยกเลิกเหตุการณ์ไม่สำเร็จ'
+  } finally {
+    isVoiding.value = false
+  }
+}
 </script>
 
 <template>
@@ -382,6 +439,14 @@ const isExpanded = (item: PaymentHistoryItem): boolean => expandedIds.value.has(
               </RouterLink>
             </div>
 
+            <!-- 🚫 ยกเลิกเหตุการณ์ — เฉพาะ event ที่ยัง active และผู้มีสิทธิ์จัดการการเงิน -->
+            <div v-if="canVoidEvent(item)" class="mt-2 flex justify-end">
+              <AppButton variant="quiet" @click="openVoid(item)">
+                <i class="bi bi-x-octagon" aria-hidden="true"></i>
+                ยกเลิกเหตุการณ์
+              </AppButton>
+            </div>
+
             <button
               v-if="item.event.lines.length"
               type="button"
@@ -479,5 +544,17 @@ const isExpanded = (item: PaymentHistoryItem): boolean => expandedIds.value.has(
         </AppButton>
       </div>
     </template>
+
+    <!-- ════════════════ แผ่น: ยกเลิกเหตุการณ์รับเงิน (P6.3) ════════════════ -->
+    <VoidReasonModal
+      :open="isVoidOpen && !!voidTarget"
+      title="ยกเลิกเหตุการณ์รับเงิน"
+      description="เงิน/เครดิตที่รับไว้จะถูกย้อนกลับ และเอกสาร REC/DEP ของรายการนี้จะถูกยกเลิกพร้อมกัน"
+      :summary="voidSummary"
+      :busy="isVoiding"
+      :error-message="voidError"
+      @close="isVoidOpen = false"
+      @confirm="confirmVoid"
+    />
   </div>
 </template>

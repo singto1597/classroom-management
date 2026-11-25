@@ -7,11 +7,14 @@ import type { CollectionStatus, Account, StudentPaymentDetail } from '@/types/fi
 import { displayName } from '@/utils/name'
 import { formatThaiDateTime } from '@/utils/datetime'
 import { downloadBlob, combinedPdfFilename } from '@/utils/download'
+// ✂️ [FIN-V2 / P6.3] สูตรยอดคงเหลือ 3 พจน์ — ที่เดียวของฝั่งหน้าจอ
+import { isSettled, outstandingOf } from '@/utils/outstanding'
 
 import PageIntro from '@/components/ui/PageIntro.vue'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import AppSheet from '@/components/ui/AppSheet.vue'
+import WriteOffModal from '@/components/finance/WriteOffModal.vue'
 import { useDialog } from '@/composables/useDialog'
 
 const route = useRoute()
@@ -67,6 +70,22 @@ const payForm = reactive({
   slipUrl: '',
 })
 
+/**
+ * ✂️ [FIN-V2 / P6.3] ยอดคงเหลือ 3 พจน์ = `amount - paid - written_off`
+ *
+ * 🔴 ห้ามเขียนสูตร 2 พจน์ (ยอดเต็มลบจ่ายแล้ว) ในหน้านี้อีก — บิลที่ถูกตัดหนี้จะโชว์ยอดเกิน
+ *    ทุกจุดที่ลืม (จำนวนเงินในช่องรับเงินก็จะเติมเกินจริง)
+ */
+const outstandingOfStudent = (student: StudentPaymentDetail) =>
+  outstandingOf({
+    amount: student.total_amount,
+    paid: student.paid_amount,
+    writtenOff: student.written_off_amount,
+  })
+
+/** "ไม่มีอะไรค้าง" — บิลที่ถูกตัดหนี้มี `paid < amount` แต่ settled แล้ว */
+const isStudentSettled = (student: StudentPaymentDetail) => isSettled(outstandingOfStudent(student))
+
 /** เปิดแผ่นรับเงิน — ยอดเริ่มต้นคือยอดคงเหลือของบิลนั้น */
 const handlePay = (student: StudentPaymentDetail) => {
   if (!isAdmin.value) {
@@ -75,12 +94,38 @@ const handlePay = (student: StudentPaymentDetail) => {
   }
   payTarget.value = student
   payForm.accountId = accounts.value[0]?.id.toString() ?? ''
-  payForm.amount =
-    student.total_amount - student.paid_amount > 0
-      ? String(student.total_amount - student.paid_amount)
-      : ''
+  const remaining = outstandingOfStudent(student)
+  payForm.amount = remaining > 0 ? String(remaining) : ''
   payForm.slipUrl = ''
   isPayOpen.value = true
+}
+
+// ──────────────────────── ✂️ ตัดหนี้ / ให้ส่วนลด (P6.3) ────────────────────────
+const isWriteOffOpen = ref(false)
+const writeOffTarget = ref<StudentPaymentDetail | null>(null)
+
+/** ชนิดบิลจาก backend — บิลค่าปรับ (`fine`) ถูกปฏิเสธ 409 ⇒ ต้องไม่โชว์ปุ่มตั้งแต่แรก */
+const canWriteOff = (student: StudentPaymentDetail) =>
+  canManageFinance.value &&
+  student.collection_kind !== 'fine' &&
+  outstandingOfStudent(student) > 0
+
+const handleWriteOff = (student: StudentPaymentDetail) => {
+  writeOffTarget.value = student
+  isWriteOffOpen.value = true
+}
+
+const writeOffBillLabel = computed(() =>
+  writeOffTarget.value
+    ? `บิลของ ${displayName(writeOffTarget.value)} · โครงการ #${collectionId}`
+    : '',
+)
+
+/** หลังสำเร็จ reload ทั้งหน้า — เลือกทางนี้เพื่อไม่ให้มีสองแหล่งความจริงในหน่วยความจำ */
+const handleWriteOffSaved = () => {
+  isWriteOffOpen.value = false
+  void dialog.notify('บันทึกการตัดหนี้แล้ว')
+  void fetchDetail()
 }
 
 const submitPayment = async () => {
@@ -445,13 +490,28 @@ onMounted(() => {
             </div>
 
             <!-- สถานะ -->
-            <div v-if="s.status === 'paid'" class="flex shrink-0 flex-col items-end gap-1">
+            <div v-if="s.status === 'waived'" class="flex shrink-0 flex-col items-end gap-1">
+              <span class="chip bg-canvas text-ink-2">
+                <i class="bi bi-scissors" aria-hidden="true"></i>
+                ตัดหนี้ครบแล้ว
+              </span>
+              <small v-if="s.written_off_amount > 0" class="num text-caption font-bold text-ink-3">
+                ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
+              </small>
+            </div>
+            <div
+              v-else-if="s.status === 'paid' || isStudentSettled(s)"
+              class="flex shrink-0 flex-col items-end gap-1"
+            >
               <span class="chip bg-ok-50 text-ok-700">
                 <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                 จ่ายครบแล้ว
               </span>
               <small v-if="s.paid_at" class="num text-caption font-bold text-ink-3">
                 <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
+              </small>
+              <small v-if="s.written_off_amount > 0" class="num text-caption font-bold text-ink-3">
+                ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
               </small>
             </div>
             <div v-else-if="s.paid_amount > 0" class="flex shrink-0 flex-col items-end gap-1">
@@ -460,13 +520,21 @@ onMounted(() => {
                 ฿{{ formatNumber(s.paid_amount) }}
               </span>
               <small class="num text-caption font-bold text-danger-600">
-                ค้างอีก ฿{{ formatNumber(s.total_amount - s.paid_amount) }}
+                ค้างอีก ฿{{ formatNumber(outstandingOfStudent(s)) }}
+              </small>
+              <small v-if="s.written_off_amount > 0" class="num text-caption font-bold text-ink-3">
+                ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
               </small>
             </div>
-            <span v-else class="chip shrink-0 bg-danger-50 text-danger-700">
-              <i class="bi bi-clock-fill" aria-hidden="true"></i>
-              ค้าง ฿{{ formatNumber(s.total_amount) }}
-            </span>
+            <div v-else class="flex shrink-0 flex-col items-end gap-1">
+              <span class="chip bg-danger-50 text-danger-700">
+                <i class="bi bi-clock-fill" aria-hidden="true"></i>
+                ค้าง ฿{{ formatNumber(outstandingOfStudent(s)) }}
+              </span>
+              <small v-if="s.written_off_amount > 0" class="num text-caption font-bold text-ink-3">
+                ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
+              </small>
+            </div>
           </div>
 
           <!-- ปุ่มจัดการ -->
@@ -486,6 +554,16 @@ onMounted(() => {
                   aria-hidden="true"
                 ></i>
                 ใบเสร็จ
+              </button>
+              <!-- ✂️ ตัดหนี้/ให้ส่วนลด — บิลค่าปรับ (`fine`) ไม่โชว์ (P6.2 ปฏิเสธ 409) -->
+              <button
+                v-if="canWriteOff(s)"
+                type="button"
+                class="btn-ghost-ui"
+                @click="handleWriteOff(s)"
+              >
+                <i class="bi bi-scissors" aria-hidden="true"></i>
+                ตัดหนี้
               </button>
               <button
                 v-if="s.status === 'pending' && isAdmin"
@@ -550,13 +628,34 @@ onMounted(() => {
                   </p>
                 </td>
                 <td>
-                  <div v-if="s.status === 'paid'" class="flex flex-col items-start gap-1">
+                  <div v-if="s.status === 'waived'" class="flex flex-col items-start gap-1">
+                    <span class="chip bg-canvas text-ink-2">
+                      <i class="bi bi-scissors" aria-hidden="true"></i>
+                      ตัดหนี้ครบแล้ว
+                    </span>
+                    <small
+                      v-if="s.written_off_amount > 0"
+                      class="num text-caption font-bold text-ink-3"
+                    >
+                      ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
+                    </small>
+                  </div>
+                  <div
+                    v-else-if="s.status === 'paid' || isStudentSettled(s)"
+                    class="flex flex-col items-start gap-1"
+                  >
                     <span class="chip bg-ok-50 text-ok-700">
                       <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
                       จ่ายครบแล้ว
                     </span>
                     <small v-if="s.paid_at" class="num text-caption font-bold text-ink-3">
                       <i class="bi bi-clock" aria-hidden="true"></i> {{ formatThaiDateTime(s.paid_at) }}
+                    </small>
+                    <small
+                      v-if="s.written_off_amount > 0"
+                      class="num text-caption font-bold text-ink-3"
+                    >
+                      ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
                     </small>
                   </div>
                   <div v-else-if="s.paid_amount > 0" class="flex flex-col items-start gap-1">
@@ -565,13 +664,27 @@ onMounted(() => {
                       ทยอยจ่ายแล้ว ฿{{ formatNumber(s.paid_amount) }}
                     </span>
                     <small class="num text-caption font-bold text-danger-600">
-                      (ค้างอีก ฿{{ formatNumber(s.total_amount - s.paid_amount) }})
+                      (ค้างอีก ฿{{ formatNumber(outstandingOfStudent(s)) }})
+                    </small>
+                    <small
+                      v-if="s.written_off_amount > 0"
+                      class="num text-caption font-bold text-ink-3"
+                    >
+                      ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
                     </small>
                   </div>
-                  <span v-else class="chip bg-danger-50 text-danger-700">
-                    <i class="bi bi-clock-fill" aria-hidden="true"></i>
-                    ค้างจ่าย (฿{{ formatNumber(s.total_amount) }})
-                  </span>
+                  <div v-else class="flex flex-col items-start gap-1">
+                    <span class="chip bg-danger-50 text-danger-700">
+                      <i class="bi bi-clock-fill" aria-hidden="true"></i>
+                      ค้างจ่าย (฿{{ formatNumber(outstandingOfStudent(s)) }})
+                    </span>
+                    <small
+                      v-if="s.written_off_amount > 0"
+                      class="num text-caption font-bold text-ink-3"
+                    >
+                      ตัดหนี้ไปแล้ว ฿{{ formatNumber(s.written_off_amount) }}
+                    </small>
+                  </div>
                 </td>
                 <td>
                   <div class="flex justify-end gap-2">
@@ -592,6 +705,16 @@ onMounted(() => {
                           aria-hidden="true"
                         ></i>
                         ใบเสร็จ
+                      </button>
+                      <!-- ✂️ ตัดหนี้/ให้ส่วนลด — บิลค่าปรับ (`fine`) ไม่โชว์ (P6.2 ปฏิเสธ 409) -->
+                      <button
+                        v-if="canWriteOff(s)"
+                        type="button"
+                        class="btn-ghost-ui"
+                        @click="handleWriteOff(s)"
+                      >
+                        <i class="bi bi-scissors" aria-hidden="true"></i>
+                        ตัดหนี้
                       </button>
                       <button
                         v-if="s.status === 'pending' && isAdmin"
@@ -644,7 +767,7 @@ onMounted(() => {
       :title="payTarget ? `รับเงิน: ${displayName(payTarget)}` : 'รับเงิน'"
       :description="
         payTarget
-          ? `ยอดคงเหลือ ฿${formatNumber(payTarget.total_amount - payTarget.paid_amount)}`
+          ? `ยอดคงเหลือ ฿${formatNumber(outstandingOfStudent(payTarget))}`
           : undefined
       "
       size="form"
@@ -697,5 +820,15 @@ onMounted(() => {
         </div>
       </template>
     </AppSheet>
+
+    <!-- ══════════════════ แผ่น: ตัดหนี้ / ให้ส่วนลด (P6.3) ══════════════════ -->
+    <WriteOffModal
+      :open="isWriteOffOpen && !!writeOffTarget"
+      :payment-id="writeOffTarget?.payment_id ?? 0"
+      :bill-label="writeOffBillLabel"
+      :outstanding="writeOffTarget ? outstandingOfStudent(writeOffTarget) : 0"
+      @close="isWriteOffOpen = false"
+      @saved="handleWriteOffSaved"
+    />
   </div>
 </template>
