@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 289 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 290 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -293,6 +293,7 @@
 - [💳 เครดิตต้องเกิดพร้อมใบรับเงิน: `payment_event_id` เขียนตอน INSERT และ `manual+\[\]` = ไม่ปิดบิล](#เครดิตต้องเกิดพร้อมใบรับเงิน-paymenteventid-เขียนตอน-insert-และ-manual-ไม่ปิดบิล)
 - [📜 ไทม์ไลน์การเงิน: UNION ต้องมีทั้งสองกิ่งเสมอ + cursor 3 คีย์ `(occurred_at, kind, id)`](#ไทม์ไลน์การเงิน-union-ต้องมีทั้งสองกิ่งเสมอ-cursor-3-คีย์-occurredat-kind-id)
 - [💸 ใบสำคัญจ่ายหลายบรรทัด: journal ต้องแยกต่อบรรทัด + PV ต้องมี `idempotency_key` ของตัวเอง](#ใบสำคัญจ่ายหลายบรรทัด-journal-ต้องแยกต่อบรรทัด-pv-ต้องมี-idempotencykey-ของตัวเอง)
+- [🧾 เทสต์เอกสาร: shell มีถ้อยคำใน CSS comment — ห้าม assert "ไม่มีคำนั้น" ด้วยข้อความดิบ](#เทสต์เอกสาร-shell-มีถ้อยคำใน-css-comment-ห้าม-assert-ไม่มีคำนั้น-ด้วยข้อความดิบ)
 
 <!-- TOC:END -->
 
@@ -4999,4 +5000,16 @@
   - mixin ใหม่ใช้ `_resolve_asset_ledger`/`_insert_journal_entry` (LedgerMixin) + `resolve_room_id` (BaseMixin) ⇒ วางใน MRO **ก่อน** ทั้งคู่; เพิ่มเมธอดใน `_MONEY_PATHS` แล้วรันตัวตรวจ completeness
 - **Rule:** (1) 🔴 journal **ต่อบรรทัด** ห้ามรวมก้อนเดียว (2) 🔴 PV = 1 ใบต่อ voucher และมี `idempotency_key='pv:{id}'` (3) 🔴 ตรวจครบก่อนเขียนแถวแรก + ล็อกกระเป๋าตาม id ขึ้น (4) 🔴 409 ต้องแยกจาก 400 (จับ conflict ก่อน `ValueError`) (5) 🔴 ห้ามเรียก `_issue_payment_voucher` เดิมสำหรับใบหลายบรรทัด (snapshot shape เดิม)
 - **Tests/Verification:** `backend/tests/test_finance_expense_voucher.py` 17 ตัว (2 txn + 2 journal Dr=Cr=350, ยอดกระเป๋าแยกใบ, PV 1 ใบ + anchor txn แรก + layout/idem, 3 signatures, replay ใบเดิม, payload ต่าง 409, ยอดรวมไม่ตรง 400, เงินไม่พอไม่มีร่องรอย, หมวดรายรับ 400, custody+room_fund 400, rollback ที่บรรทัด 2, member 403, ขอบเขตห้อง 403/404, เพดาน 50, `_MONEY_PATHS`, list/detail shape, งบ used=350 ไม่ใช่ 700), `test_finance_money_lock.py` ครบทั้งไฟล์, `test_finance_budgets.py` เขียว
+- **Date Added:** 2026-11-25
+
+### 🧾 เทสต์เอกสาร: shell มีถ้อยคำใน CSS comment — ห้าม assert "ไม่มีคำนั้น" ด้วยข้อความดิบ
+- **Context/Problem:** P5.3 (document adapters) เขียน assertion ว่าใบ `DEP v2` ต้องไม่มีตารางของใบเสร็จ (`"ยอดเต็ม"`, `"รับครั้งนี้"`) และชุดพิมพ์ผสมต้องมี `<style>` ครั้งเดียว — เทสต์แดงทั้งที่เทมเพลตถูก เพราะ `receipt.html` เป็น shell ที่ถูกเรนเดอร์**ทุกใบ**: CSS comment มีวลี `"ยอดเต็มของรายการ"` และคอมเมนต์ใน `<style>` มีตัวอักษร `<style>` อยู่เอง ⇒ `html.count("<style>")` ได้ 2 และ `"ยอดเต็ม" not in html` เป็น False เสมอ
+- **Root Cause:** Jinja ตัด `{# #}` ของ partial ออก แต่ **HTML/CSS comment ของ shell ไม่ถูกตัด** — shell ถูกเรนเดอร์ครั้งเดียวต่อไฟล์ PDF และ comment เหล่านั้นติดไปกับ output ทุกใบ (รวมถึงคอมเมนต์อธิบายที่เขียนขึ้นเพื่อนักพัฒนารุ่นถัดไป)
+- **Correct Pattern/Solution:**
+  - assert "ไม่มีตารางบิล" ด้วย **โครงสร้าง** เช่น `'<table class="items"' not in html` (partial ใบเสร็จใช้คลาสนี้เสมอ; CSS เขียน `.items` ไม่มี `class="` นำ)
+  - assert "shell ถูกเรนเดอร์ครั้งเดียว" ด้วยค่าที่มีเฉพาะในโค้ดจริง เช่น `html.count("@page { size: A4;") == 1` หรือ `html.count("data:font/ttf;base64,") == 2` — ไม่ใช่ `<style>`
+  - ถ้าต้อง assert ถ้อยคำบนกระดาษจริง ให้เลือกวลีที่ **ไม่มีทางอยู่ในคอมเมนต์** (เช่น `"ยังไม่ถูกหักปิดบิลใด"` ของ partial DEP) หรือ assert บน context dict ก่อนเรนเดอร์
+  - baseline byte-stability ของ legacy: hash HTML ที่ **มาสก์ฟอนต์ base64** (`re.sub(r"url\('data:font/[^']+'\)", "url('<FONT>')", html)`) เพื่อไม่ให้ baseline พองด้วย data URI ~45KB × 2
+- **Rule:** (1) 🔴 ห้าม assert การไม่มีอยู่ของคำไทย/แท็ก ด้วยการค้นใน HTML ที่ shell ครอบ — shell มีคอมเมนต์ทุกใบ (2) 🔴 นับ "ครั้งเดียวต่อไฟล์" ด้วย marker ของ shell จริง (`@page`, จำนวน `data:font/`) (3) 🔴 regression ของ legacy เก็บเป็น SHA-256 ของ HTML ที่มาสก์ฟอนต์แล้ว ไม่ใช่สำเนา HTML ทั้งก้อน
+- **Tests/Verification:** `backend/tests/test_finance_document_adapters.py` (7 + 2 guard), `backend/tests/test_finance_legacy_pdf_regression.py` (5: digest receipt/voucher, ชุดผสม 2 legacy + 1 DEP v2, layout/event NULL, v2 ไม่ถูกยุบ)
 - **Date Added:** 2026-11-25

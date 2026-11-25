@@ -186,9 +186,16 @@ async def test_v2_context_uses_snapshot_not_live_bill(db_pool, admin_headers):
 
 # ═══════════════════════════════════════════════ 2. dispatch เลือก partial v2
 async def test_v2_dispatch_selects_v2_body():
-    for doc_type in ("receipt", "deposit"):
-        ctx = FinanceService._document_context(_v2_doc(doc_type=doc_type))
-        assert ctx["body_template"] == "_receipt_body_v2.html"
+    # 🗂️ [P5.3] DEP v2 มี partial ของตัวเอง (`_deposit_body_v2.html`) — ใบรับเงินล่วงหน้า
+    # ไม่มีบิล จึงห้ามใช้ตาราง/ถ้อยคำของใบเสร็จ (adapter registry เป็นแหล่งความจริง)
+    assert (
+        FinanceService._document_context(_v2_doc(doc_type="receipt"))["body_template"]
+        == "_receipt_body_v2.html"
+    )
+    assert (
+        FinanceService._document_context(_v2_doc(doc_type="deposit"))["body_template"]
+        == "_deposit_body_v2.html"
+    )
 
 
 # ═══════════════════════════════════════════════════ 3. legacy ยังใช้ partial เดิม
@@ -279,7 +286,9 @@ async def test_v2_deposit_html_prints_balance():
     html = _render(doc)
     assert "เครดิตคงเหลือก่อนเติม" in html and "100.00" in html
     assert "เครดิตคงเหลือหลังเติม" in html and "600.00" in html
-    assert "ยังไม่หักปิดบิลใด" not in html
+    # 🧾 [P5.3] `_deposit_body_v2.html` **ต้องบอกชัดว่าเงินนี้ยังไม่ปิดหนี้ใด**
+    #    (เดิม partial ใบเสร็จไม่เคยพิมพ์ประโยคนี้ — DEP ถูกพิมพ์ด้วยถ้อยคำของ REC)
+    assert "ยังไม่ถูกหักปิดบิลใด" in html
 
 
 # ═══════════════════════════════════════ 8. snapshot ว่าง/คีย์หาย ต้องเรนเดอร์ได้

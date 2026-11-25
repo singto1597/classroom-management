@@ -56,6 +56,10 @@ from .constants import (
     RECEIPT_NO_TEMPLATE, RECEIPT_SEQ_BUDGET_MSG, RECEIPT_SEQ_MAX,
     RECEIPT_SEQ_OVERFLOW_MSG, THAI_MONTHS_SHORT, THAI_TZ,
 )
+# 🗂️ [P5.3] ทางแยกเทมเพลต = registry ไม่ใช่ ternary ในไฟล์นี้
+#    ⚠️ `document_adapters` import แค่ `constants` ที่ระดับโมดูล (service import แบบ lazy)
+#       ⇒ ไม่มี circular import กับ `service.py` ที่ import ไฟล์นี้อยู่
+from .document_adapters import resolve_adapter
 from .helpers import _as_utc
 
 # คอลัมน์ที่ SELECT จาก finance_receipts ซ้ำ ๆ — รวมไว้ที่เดียวกันลืมเพิ่มที่ใดที่หนึ่ง
@@ -110,6 +114,9 @@ _MAX_MERGED_MEMBERS = 12
 #       ใบสำคัญจ่ายใช้ `_voucher_body.html`
 #    ⚠️ ชื่อไฟล์ต้องตรงกับไฟล์จริงใน `backend/templates/finance/` — พิมพ์ผิดจะได้
 #       `TemplateNotFound` **ตอนกดพิมพ์** ไม่ใช่ตอน import (เทสต์ที่เรนเดอร์ทุกชนิดจึงจำเป็น)
+#    🗂️ [P5.3] **แหล่งความจริงย้ายไป `document_adapters`** (`(1, doc_type)` keyed registry)
+#       ⇒ สองค่าด้านล่างเหลือไว้เป็นชื่อเรียกของ legacy ให้เทสต์/mutation อ้างถึงได้
+#       ห้ามใช้ตัดสินใจว่าใบไหนใช้ partial ไหน — ถาม `resolve_adapter` เท่านั้น
 _RECEIPT_BODY_TEMPLATE = "_receipt_body.html"
 _VOUCHER_BODY_TEMPLATE = "_voucher_body.html"
 
@@ -2166,12 +2173,23 @@ class ReceiptsMixin:
         """
         # 🧾 [P2.2] เอกสาร v2 อ่าน snapshot ของตัวเอง — partial แยกไฟล์ (REC/DEP)
         #    ⚠️ legacy (layout 1) ต้องเดินต่อด้วยโค้ดเดิม **ไบต์ต่อไบต์**
-        if int(d.get("layout_version") or 1) >= 2:
+        layout_version = int(d.get("layout_version") or 1)
+        if layout_version >= 2:
             # 🧾 [P2.6] INV/ACK มี partial + snapshot รูปของตัวเอง (ช่องทาง/QR/รายชื่อ ACK)
             #    ⇒ dispatch เฉพาะสองชนิดนี้ก่อน แล้วที่เหลือใช้ของ P2.2
             if d.get("doc_type") in (DOC_TYPE_INVOICE, DOC_TYPE_ACKNOWLEDGEMENT):
-                return cls._document_context_invoice_v2(d)
-            return cls._document_context_v2(d)
+                context = cls._document_context_invoice_v2(d)
+            else:
+                context = cls._document_context_v2(d)
+            # 🗂️ [P5.3] `body_template` ของ layout 2 = คำตอบจาก registry ตัวเดียว
+            #    🔴 ไม่ปล่อยให้ `_body_template_for` เป็นแหล่งความจริงคู่ขนาน: เฟส 4/5 ลงทะเบียน
+            #       ชนิดของตัวเองที่ `document_adapters` ⇒ ถ้าตรงนี้ไม่ถาม registry ด้วย
+            #       "adapter บอกไฟล์หนึ่ง แต่พิมพ์อีกไฟล์" จะเกิดขึ้นโดยไม่มีอะไรฟ้อง
+            #    🔑 `layout_version` ก็เขียนกลับจาก adapter (`int(...)` กันค่าที่ส่งมาเป็น str)
+            adapter = resolve_adapter(layout_version, d.get("doc_type"))
+            context["body_template"] = adapter.body_template
+            context["layout_version"] = adapter.layout_version
+            return context
         amount = float(d["amount"])
         paid_total = float(d["paid_total_after"])
         line_items, line_items_hidden = cls._line_items_for_print(d.get("line_items"))
@@ -2260,11 +2278,12 @@ class ReceiptsMixin:
             #    ⚠️ เป็น `{% include %}` ไม่ใช่ shell ที่สอง: ผู้ใช้ติ๊กใบเสร็จปนกับใบสำคัญ
             #       ในคำขอเดียวได้ และทั้งไฟล์ถูกเรนเดอร์ครั้งเดียวผ่าน Gotenberg ⇒ `<style>`
             #       (ฟอนต์ base64 ~61,000 ตัวอักษร) ต้องอยู่นอกลูปเสมอ
-            "body_template": (
-                _VOUCHER_BODY_TEMPLATE
-                if d["doc_type"] == DOC_TYPE_PAYMENT_VOUCHER
-                else _RECEIPT_BODY_TEMPLATE
-            ),
+            #    🗂️ [P5.3] legacy = adapter `(1, doc_type)` ตัวเดียวกันที่ v2 ใช้ถาม
+            #       ⇒ ผลลัพธ์ไบต์เดิม (`payment_voucher` → `_voucher_body.html`,
+            #       ที่เหลือ → `_receipt_body.html`) แต่มีที่เดียวให้แก้ในอนาคต
+            #       🔴 ชนิด layout 1 ที่ยังไม่ลงทะเบียน → `ValueError` ข้อความไทย
+            #          (router แปลง 400) ไม่ใช่พิมพ์ด้วยเทมเพลตผิดเงียบ ๆ
+            "body_template": resolve_adapter(1, d["doc_type"]).body_template,
             # 🧑💼 ผู้เบิก/ผู้รับเงิน — ใช้ `issued_to_name` ตรง ๆ **ไม่เก็บซ้ำใน snapshot**
             #    เพราะ `finance_receipts.issued_to_name` *คือ* "คนที่เอกสารออกให้" อยู่แล้ว
             "voucher_payee_name": d.get("issued_to_name"),
@@ -2414,6 +2433,15 @@ class ReceiptsMixin:
         order, buckets = [], {}
         for d in docs:
             key = cls._merge_key(d)
+            # 🧾 [P5.3] เอกสาร `layout_version >= 2` **ห้ามยุบ** — คนละเทมเพลตกับ legacy
+            #    🔴 ถ้าปล่อยให้ยุบ: REC v1 กับ REC v2 ของนักเรียนคนเดียวกันจะกลายเป็น
+            #       หน้าเดียวที่ใช้ `_merged_context` (โครงของ legacy) ⇒ บรรทัดของ v2
+            #       ถูกอ่านด้วยคีย์แบบ legacy และเทมเพลต v2 ไม่เคยถูกใช้เลย
+            #    🎯 v2 ออกเป็น **1 ใบต่อ 1 เหตุการณ์รับเงิน** อยู่แล้ว (P2.1) ⇒ ไม่มี
+            #       เหตุผลทางธุรกิจให้ยุบ · legacy ทั้งหมดเป็น layout 1 ⇒ พฤติกรรมเดิม
+            #       ของไฟล์รวม (F6) ไม่เปลี่ยนไบต์
+            if key is not None and int(d.get("layout_version") or 1) >= 2:
+                key = None
             if key is None:
                 order.append(("doc", d))
                 continue

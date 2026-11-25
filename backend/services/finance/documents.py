@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 # 🖨️ ทางแยกของ `body_template` — shell `receipt.html` ใช้ร่วมทุก layout
 _V2_RECEIPT_BODY_TEMPLATE = "_receipt_body_v2.html"
+# 🧾 [P5.3] DEP v2 มี partial ของตัวเอง — **ไม่มีตารางบิล** (เงินยังไม่ปิดหนี้ใด)
+#    🔴 ห้ามใช้ `_receipt_body_v2.html` ต่อ: คอลัมน์ "ยอดเต็ม/คงเหลือ" ของใบเสร็จ
+#       จะพิมพ์ 0.00 ใต้บรรทัดของ DEP ซึ่งอ่านได้ว่า "ยังค้างชำระ"
+_V2_DEPOSIT_BODY_TEMPLATE = "_deposit_body_v2.html"
 # 💸 [P4.6] เอกสารจ่าย/รับรอง/รายรับอื่น — partial แยกไฟล์ตามชนิด (ไม่อัด `{% if %}`)
 _VOUCHER_BODY_V2_TEMPLATE = "_voucher_body_v2.html"
 _CERTIFICATE_BODY_V2_TEMPLATE = "_certificate_body_v2.html"
@@ -71,7 +75,8 @@ class DocumentsMixin:
     def _body_template_for(cls, d: dict) -> str:
         """เอกสารนี้ใช้ partial ไหนของ shell
 
-        - REC/DEP (layout 2) → `_receipt_body_v2.html`
+        - REC (layout 2) → `_receipt_body_v2.html`
+        - DEP (layout 2) → `_deposit_body_v2.html` (P5.3 — ไม่มีตารางบิล)
         - PV / CERT / INC (layout 2) → partial ของชนิดนั้น (P4.6)
         - layout 2 ชนิดอื่นที่ยังไม่มีเทมเพลต → ถอยไป partial เดิม + เตือนครั้งเดียว
           (พิมพ์ได้ ดีกว่า 500)
@@ -79,8 +84,10 @@ class DocumentsMixin:
         layout = int(d.get("layout_version") or 1)
         doc_type = d.get("doc_type")
         if layout >= 2:
-            if doc_type in (DOC_TYPE_RECEIPT, DOC_TYPE_DEPOSIT):
+            if doc_type == DOC_TYPE_RECEIPT:
                 return _V2_RECEIPT_BODY_TEMPLATE
+            if doc_type == DOC_TYPE_DEPOSIT:
+                return _V2_DEPOSIT_BODY_TEMPLATE
             if doc_type == DOC_TYPE_PAYMENT_VOUCHER:
                 return _VOUCHER_BODY_V2_TEMPLATE
             if doc_type == DOC_TYPE_CERTIFICATE:
