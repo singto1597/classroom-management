@@ -46,6 +46,10 @@ from .people import PeopleMixin
 #    `resolve_room_id` (BaseMixin) ผ่าน MRO ⇒ ต้องวาง **ก่อน** AccrualMixin
 #    (กติกา: mixin ใหม่วางก่อนตัวที่มันพึ่ง) · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
 from .individual_accounts import IndividualAccountsMixin
+# 🧮 [FIN-V2 / P1.5] เครื่องจัดสรรเงินรับ (preview) — พึ่ง `_open_bill_predicate`
+#    (AccrualMixin) และ `_load_credit_balance` (CreditsMixin) ⇒ ต้องวาง **ก่อน**
+#    ทั้งสองตัวตามกติกา MRO · engine เองอยู่ใน `allocation.py` แบบ pure function
+from .allocation import AllocationMixin
 
 
 class FinanceService(
@@ -83,6 +87,10 @@ class FinanceService(
     # 👤 [FIN-V2 / P1.3] — บัญชีรายบุคคล + statement (อ่านอย่างเดียว)
     #    พึ่ง `_open_bill_predicate()` ของ AccrualMixin ⇒ อยู่ก่อนมันตามกติกา MRO
     IndividualAccountsMixin,
+    # 🧮 [FIN-V2 / P1.5] — preview การจัดสรร (อ่านอย่างเดียว)
+    #    พึ่ง `_open_bill_predicate()` (Accrual) และ `_load_credit_balance` (Credits)
+    #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO (mixin ที่อยู่บนชนะ)
+    AllocationMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,

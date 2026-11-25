@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 276 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 277 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -280,6 +280,7 @@
 - [🚀 `pull_all.sh` ไม่มี `set -e` ⇒ build ล้มแต่ deploy ต่อ — "สำเร็จ" หลอก ๆ ที่ของเก่ายังรัน](#pullallsh-ไม่มี-set--e-build-ล้มแต่-deploy-ต่อ-สำเร็จ-หลอก-ๆ-ที่ของเก่ายังรัน)
 - [🧮 unique index บน "บรรทัดของเหตุการณ์" ต้องคีย์ด้วย `line_kind` ใน predicate — 1 บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว](#unique-index-บน-บรรทัดของเหตุการณ์-ต้องคีย์ด้วย-linekind-ใน-predicate-1-บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว)
 - [🔁 `ON CONFLICT` บน partial unique ต้องประกาศ predicate ตรงเป๊ะ — และ `DO UPDATE` ต้องไม่แตะชื่อที่ครูแก้เอง](#on-conflict-บน-partial-unique-ต้องประกาศ-predicate-ตรงเป๊ะ-และ-do-update-ต้องไม่แตะชื่อที่ครูแก้เอง)
+- [🧮 จัดสรรเงิน: คิดเป็น "สตางค์จำนวนเต็ม" และเศษจากปัดต้องไปเป็นเครดิต — ห้ามยัดเข้าบิล](#จัดสรรเงิน-คิดเป็น-สตางค์จำนวนเต็ม-และเศษจากปัดต้องไปเป็นเครดิต-ห้ามยัดเข้าบิล)
 
 <!-- TOC:END -->
 
@@ -4769,4 +4770,16 @@
   - ชื่อ default ประกอบด้วย `COALESCE(first_name, first_name_en, 'นักเรียน #' || student_no)` — **ห้ามอ้าง `v_student_profiles.display_name`** เพราะ view ไม่มีคอลัมน์นี้ (มีแค่ first/last/nickname ไทย-อังกฤษ)
 - **Rule:** (1) 🔴 ทุกครั้งที่ upsert กับ index ที่มี `WHERE` ให้คัดลอก predicate มาใส่ `ON CONFLICT (...)` แบบคำต่อคำ — ใช้ predicate ให้ห่างกันแม้ช่องว่าง (2) 🔴 `DO UPDATE` ต้องระบุคอลัมน์ที่ **ระบบเป็นเจ้าของเท่านั้น** — ถ้าคอลัมน์นั้นผู้ใช้แก้ได้ ให้คงค่าเดิมและอัปเดตแค่ `updated_at` (3) 🔴 เทสต์ idempotency ต้องมี 3 รอบ: รอบแรก created>0, รอบสอง created=0/updated=จำนวนเดิม, แก้ค่าที่ผู้ใช้เป็นเจ้าของแล้วรอบสาม **ค่ายังอยู่**
 - **Tests/Verification:** `backend/tests/test_finance_people.py` — `test_sync_students_is_idempotent` (รอบ 1 `created == active_count`, รอบ 2 `created == 0` + `updated == active_count` + จำนวนแถวเท่าเดิม, แก้ `display_name` เป็น `'ชื่อที่ครูตั้งเอง'` แล้วซิงก์รอบ 3 ► ชื่อไม่เปลี่ยน) และ `test_sync_only_active_students` (`status='left'` ไม่ถูกสร้าง)
+- **Date Added:** 2026-11-25
+
+### 🧮 จัดสรรเงิน: คิดเป็น "สตางค์จำนวนเต็ม" และเศษจากปัดต้องไปเป็นเครดิต — ห้ามยัดเข้าบิล
+- **Context/Problem:** งาน P1.5 (`services/finance/allocation.py`) ต้องแบ่งเงินสด + เครดิตลงบิลเปิดหลายใบ และ P2.1 ต้องเขียนผลชุดเดียวกับที่จอพรีวิวโชว์ — ถ้าคำนวณด้วย `float` และ/หรือมีสองโค้ดคำนวณ จะเจอ "จอโชว์หัก 500 แต่ระบบหัก 700" โดยไม่มีอะไรฟ้อง และบิล 333.33 × 3 กับเงิน 1000.00 มีเศษ 1 สตางค์ที่ต้องมีคำตอบชัดเจน
+- **Root Cause:** (1) `Decimal` จาก asyncpg ต้องผ่าน `to_satang()` (quantize `ROUND_HALF_UP` แล้ว × 100) ก่อนเข้าเครื่องคำนวณทุกครั้ง — `Decimal(float)` ตรง ๆ ได้เศษ binary (2) `cash_left` จากส่วนที่บิลจ่ายครบแล้ว **ไม่ใช่**เงินที่เอาไปเพิ่มบรรทัดถัดไปได้ เพราะ `outstanding_stang` เป็นเพดาน ⇒ ถ้าไม่แปลงเป็น `credit_added` จะได้ `bill_after` ติดลบหรือสมการ `amount_received + credit_used = total_applied + credit_added` ไม่ผ่าน CHECK ของ `finance_payment_events`
+- **Correct Pattern/Solution:**
+  - engine เดียว = pure function ที่รับ `outstanding_stang` (ผู้เรียกรับผิดชอบหัก `paid_amount` + `written_off_amount`) และคืน plan ที่มี `_stang` ทุกยอด + `assert_plan_equation()` ปิดท้าย
+  - วนบิลตาม `due_date ASC NULLS LAST, collection_id ASC` · **เงินสดก่อนเครดิตในบิลเดียวกัน** · 1 บรรทัด = 1 แหล่งเงิน
+  - เศษที่เหลือ: `excess_action='credit'` → `credit_added` · `'none'` → `AllocationError("EXCESS_NOT_ALLOWED")` ตั้งแต่ preview
+  - ตัวอย่างจริง: 333.33 × 3 ด้วยเงิน 1000.00 ⇒ applied 999.99 + credit_added 0.01 (ไม่หาย ไม่เกิน)
+- **Rule:** (1) 🔴 เงินทุกจุดใน engine เป็น `int` สตางค์ — แปลงกลับเป็น string 2 ตำแหน่งเฉพาะตอนตอบ (2) 🔴 preview กับ commit ต้องเรียกฟังก์ชันเดียวกัน และ commit ต้องโหลดซ้ำใต้ `_lock_room_money` (preview เป็น snapshot ไม่ใช่สัญญา) (3) 🔴 warning ของนโยบายที่ผู้ใช้คาดไม่ถึง (เช่น `CREDIT_UNUSED_BECAUSE_CASH_COVERED`) ต้องมีเสมอ — ห้ามเงียบ
+- **Tests/Verification:** `backend/tests/test_finance_allocation.py` — `test_rounding_never_loses_a_satang` (333.33 ×3: applied 999.99 + credit_added 0.01 = 1000.00), `test_preview_endpoint_matches_pure_function` (ยิง API จริงแล้วเทียบบรรทัดต่อบรรทัดกับ `build_allocation_plan`) และ `test_preview_does_not_write`
 - **Date Added:** 2026-11-25

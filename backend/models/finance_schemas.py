@@ -1239,3 +1239,67 @@ class StudentStatementResponse(BaseModel):
     date_to: Optional[date] = None
     entries: List[StudentStatementEntry] = Field(default_factory=list)
     documents: List[StatementDocumentItem] = Field(default_factory=list)
+
+# =============================================================================
+# 🧮 [FIN-V2 / P1.5] พรีวิวการจัดสรรเงินรับ (allocation engine)
+# =============================================================================
+# ⚠️ ต่อท้ายเท่านั้น (hot file) · import ไว้ที่บล็อกนี้เพื่อคงการเพิ่มแบบต่อท้าย
+# 💰 เงินใน response เป็น **string 2 ตำแหน่ง** · request รับ `Decimal` (ไม่ใช่ float)
+#    เพื่อไม่ให้ 0.1+0.2 เพี้ยนก่อนถึง engine (engine แปลงเป็นสตางค์อีกชั้น)
+
+from decimal import Decimal  # noqa: E402
+from typing import Literal  # noqa: E402
+
+
+class AllocationPreviewRequest(BaseModel):
+    """คำขอพรีวิวจัดสรรเงิน — ยังไม่เขียนอะไรลง DB (commit อยู่ที่ P2.1)
+
+    🔑 `amount_received` เป็น `Decimal` — Pydantic v2 รับทั้ง JSON number และ string
+       ("1200.00") แล้วเก็บเป็นทศนิยมแม่นยำ ⇒ ห้ามเปลี่ยนเป็น `float`
+    """
+    student_id: int = Field(..., gt=0)
+    amount_received: Decimal = Field(
+        Decimal("0"), ge=0, description="ยอดเงินสดที่รับ (บาท) — 0 ได้ถ้าใช้เครดิตล้วน"
+    )
+    use_credit: bool = Field(False, description="ใช้เครดิตที่มีอยู่ปิดบิลหรือไม่")
+    excess_action: Literal["credit", "none"] = Field(
+        "credit", description="เงินเกิน: เก็บเป็นเครดิต หรือปฏิเสธ (none)"
+    )
+    bill_selection: Literal["auto", "manual"] = Field(
+        "auto", description="auto = ทุกบิลเปิดตามลำดับ · manual = เฉพาะ bill_ids"
+    )
+    bill_ids: Optional[List[int]] = Field(
+        None, description="ใช้เมื่อ bill_selection='manual' — ต้องเป็นบิลที่ยังเปิด"
+    )
+    channel_id: Optional[int] = Field(
+        None, gt=0, description="ช่องทางชำระเงิน (ตรวจว่ามีจริง/เปิดใช้งาน — ยังไม่ใช้คำนวณ)"
+    )
+
+
+class AllocationLine(BaseModel):
+    """บรรทัดจัดสรร 1 บรรทัด — **1 แหล่งเงิน/บรรทัด** (cash หรือ credit เท่านั้น)
+
+    🔴 ห้ามรวม cash+credit เป็นบรรทัดเดียว: P2.1 ต้องรู้ว่า `credit_apply` ถูกใช้เท่าไร
+    """
+    student_payment_id: int
+    collection_id: Optional[int] = None
+    title: str
+    collection_kind: Optional[str] = None
+    fund_type: Optional[str] = None
+    due_date: Optional[date] = None
+    source: Literal["cash", "credit"]
+    amount: str
+    # ยอดคงเหลือของบิลก่อน/หลังบรรทัดนี้ (snapshot ที่ P2.1 จะเขียน)
+    bill_before: str
+    bill_after: str
+
+
+class AllocationPreviewResponse(BaseModel):
+    """ผลพรีวิว — สมการ `amount_received + credit_used == total_applied + credit_added`
+    ต้องผ่านเสมอ (engine ตรวจด้วย `assert_plan_equation`)"""
+    allocations: List[AllocationLine] = Field(default_factory=list)
+    total_applied: str
+    credit_used: str
+    credit_added: str
+    remaining_unapplied: str
+    warnings: List[str] = Field(default_factory=list)

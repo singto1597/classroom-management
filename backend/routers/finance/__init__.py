@@ -17,6 +17,8 @@ from .fines import router as fines_router
 from .people import router as people_router
 # 👤 [FIN-V2 / P1.3] บัญชีรายบุคคล + statement
 from .individual_accounts import router as individual_accounts_router
+# 🧮 [FIN-V2 / P1.5] พรีวิวการจัดสรรเงินรับ
+from .allocation import router as allocation_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -49,5 +51,8 @@ router.include_router(people_router)
 # 👤 [FIN-V2 / P1.3] — path ขึ้นต้น `/finance/individual-accounts` ซึ่งไม่ซ้ำกับกลุ่มใด
 #    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์
 router.include_router(individual_accounts_router)
+# 🧮 [FIN-V2 / P1.5] — path ขึ้นต้น `/finance/payment-events` (preview)
+#    ⚠️ ต้องอยู่ **ก่อน** router P2.1 ที่จะประกาศ `/{event_id}` — static ก่อน dynamic
+router.include_router(allocation_router)
 
 __all__ = ["router"]
