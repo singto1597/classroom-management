@@ -2369,3 +2369,164 @@ export interface DocumentRefItem {
   doc_type: DocumentType;
   doc_id: number;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🧾 [FIN-V2 / P5.5 UI] ใบรับทราบยอดค้าง (ACK) + รายงานปิดงบเดือน (RPT)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ เงินของสองกลุ่มนี้เป็น **number** ที่ backend ปัดทศนิยม 2 ตำแหน่งแล้ว
+//    (ต่างจาก `DocumentDetail.amount` ที่เป็น string) — `formatMoney` รับได้ทั้งคู่
+//    แต่การบวกต้อง `roundMoney(...)`
+//
+// 🔴 `counted_cash` = `null` จนกว่าจะปิดงบ — แสดงด้วย `!== null` เสมอ
+//    (`0` คือค่าที่นับถูกต้องและปิดงบได้)
+
+export type AckScope = 'room' | 'selected';
+
+/** แถวรายการ ACK — ไม่มีรายชื่อนักเรียน (ดึงเฉพาะตอนเปิดใบ) */
+export interface AckListItem {
+  receipt_no: string;
+  doc_type: string;
+  doc_type_label: string | null;
+  /** ยอดค้างรวม ณ วันออก (snapshot ใน `finance_ack_entries`) */
+  amount: number;
+  paid_total_after: number;
+  entry_count: number;
+  scope: AckScope | null;
+  note: string | null;
+  /** วันที่ของเอกสาร = เวลาของเหตุการณ์ (timestamptz) — ใช้ `formatThaiDateTime` */
+  event_at: string | null;
+  issued_at: string | null;
+  status: string;
+  voided_at: string | null;
+  void_reason: string | null;
+}
+
+export interface AckListResponse {
+  status: string;
+  items: AckListItem[];
+  /** จำนวนใบในผลลัพธ์ (ไม่ใช่ยอดเงิน) */
+  total: number;
+}
+
+/** หนึ่งบรรทัดใน ACK = หนึ่งนักเรียนที่มียอดค้าง ณ วันออก */
+export interface AckEntry {
+  student_id: number;
+  student_no: number | null;
+  student_name: string | null;
+  outstanding_amount: number;
+  invoice_receipt_id: number | null;
+  invoice_receipt_no: string | null;
+}
+
+/** เอกสาร ACK หนึ่งใบ — เฉพาะฟิลด์ที่จอใช้ (ไม่ mirror `ReceiptResponse` ทั้งก้อน) */
+export interface AckReceipt {
+  id: number;
+  receipt_no: string;
+  doc_type: string;
+  doc_type_label: string | null;
+  is_receipt: boolean;
+  amount: number;
+  paid_total_after: number;
+  note: string | null;
+  status: string;
+  event_at: string | null;
+  issued_at: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  /** snapshot ของเอกสาร (scope / entries / include_invoice …) */
+  document_meta: Record<string, unknown>;
+}
+
+export interface AckDetailResponse {
+  status: string;
+  message?: string | null;
+  receipt: AckReceipt;
+  entries: AckEntry[];
+  entry_count: number;
+}
+
+export interface AckIssueRequest {
+  scope: AckScope;
+  /** ส่งเฉพาะ `scope='selected'` (1–100 คน) — `scope='room'` ต้องไม่ส่ง */
+  student_ids?: number[];
+  include_invoice: boolean;
+  note?: string;
+  /** 🔁 สร้างครั้งเดียวต่อการเปิด modal — retry ต้องใช้ค่าเดิม */
+  idempotency_key: string;
+}
+
+export interface AckIssueResponse {
+  status: string;
+  message?: string | null;
+  receipt: AckReceipt;
+  entries: AckEntry[];
+  invoice_receipt_nos: string[];
+  /** true = คีย์เดิม + payload เดิม ⇒ คืนใบที่มีอยู่ (ไม่ได้ออกใหม่) */
+  reused: boolean;
+}
+
+export type MonthlyReportStatus = 'draft' | 'final' | 'voided';
+
+export interface MonthlyReportCreate {
+  /** ปี พ.ศ. เช่น 2569 */
+  year_be: number;
+  month: number;
+  note?: string;
+}
+
+/** บรรทัดหมวดใน snapshot (รายรับ/รายจ่าย) */
+export interface MonthlyReportCategoryLine {
+  account_code: string;
+  account_name: string;
+  amount: number;
+}
+
+/**
+ * snapshot งวดที่ backend สร้างตอนออกฉบับร่าง (P5.4)
+ * ⚠️ อ่านแบบ guard เท่านั้น — คีย์อาจขาดในใบเก่า
+ */
+export interface MonthlyReportSnapshot {
+  period?: { year_be?: number; month?: number };
+  income_by_category?: MonthlyReportCategoryLine[];
+  expense_by_category?: MonthlyReportCategoryLine[];
+  cash?: { opening?: number; closing?: number };
+  finalize_note?: string;
+  note?: string;
+  [key: string]: unknown;
+}
+
+export interface MonthlyReportResponse {
+  id: number;
+  report_no: string;
+  year_be: number;
+  month: number;
+  version: number;
+  status: MonthlyReportStatus;
+  total_income: number;
+  total_expense: number;
+  opening_cash: number;
+  closing_cash: number;
+  /** null จนกว่าจะปิดงบ — ห้ามใช้ truthiness (`0` คือค่าที่ถูกต้อง) */
+  counted_cash: number | null;
+  variance: number | null;
+  finalized_at: string | null;
+  finalized_by: number | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  created_at: string | null;
+  snapshot: MonthlyReportSnapshot;
+}
+
+export interface MonthlyReportListResponse {
+  status: string;
+  items: MonthlyReportResponse[];
+  total: number;
+}
+
+export interface MonthlyReportDetailResponse {
+  status: string;
+  message?: string | null;
+  report: MonthlyReportResponse;
+  signatures: DocumentSignatureItem[];
+}

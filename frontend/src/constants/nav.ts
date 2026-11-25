@@ -53,6 +53,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
   // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — วางติด "การเงิน" เพราะเป็นทางเข้าหลักของเอกสาร
   { name: 'ทะเบียนเอกสาร', path: '/finance/documents', icon: 'bi-folder2-open' },
+  // 🧾 [FIN-V2 / P5.5] เอกสารปิดรอบ — ACK แจ้งยอดค้าง, RPT สรุปปิดงบเดือน
+  { name: 'ใบรับทราบยอดค้าง', path: '/finance/acknowledgements', icon: 'bi-receipt' },
+  {
+    name: 'รายงานปิดงบ',
+    path: '/finance/monthly-reports',
+    icon: 'bi-file-earmark-bar-graph',
+  },
   { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
   // 📢 P2.6 — "ประกาศ" คือรายการที่อ่านได้ทุกคน (เดิมเมนูชี้ไปหน้าเขียนอย่างเดียว)
   // ปุ่ม "ส่งประกาศ" อยู่ในหน้ารายการ ไม่ต้องมีเมนูที่สอง
@@ -116,6 +123,13 @@ export const MORE_NAV_GROUPS: readonly NavGroup[] = [
     title: 'การเงิน',
     items: [
       { name: 'ทะเบียนเอกสาร', path: '/finance/documents', icon: 'bi-folder2-open' },
+      // 🧾 [FIN-V2 / P5.5] เอกสารปิดรอบ
+      { name: 'ใบรับทราบยอดค้าง', path: '/finance/acknowledgements', icon: 'bi-receipt' },
+      {
+        name: 'รายงานปิดงบ',
+        path: '/finance/monthly-reports',
+        icon: 'bi-file-earmark-bar-graph',
+      },
     ],
   },
   {
@@ -231,6 +245,14 @@ export const routeTitles = {
   'finance-income-batches': 'ใบรับเงิน',
   'finance-income-batch-create': 'สร้างใบรับเงิน',
   'finance-income-batch-detail': 'รายละเอียดใบรับเงิน',
+  // 🧾 [FIN-V2 / P5.5] เอกสารปิดรอบ — ACK/RPT
+  // ⚠️ `finance-acknowledgements`/`finance-monthly-reports` อยู่ใน `NAV_ITEMS`;
+  //    หน้าลูก (detail/new) เข้าจากหน้ารายการเท่านั้น
+  'finance-acknowledgements': 'ใบรับทราบยอดค้าง',
+  'finance-acknowledgement-detail': 'รายละเอียดใบรับทราบ',
+  'finance-monthly-reports': 'รายงานปิดงบ',
+  'finance-monthly-report-new': 'สร้างรายงานปิดงบ',
+  'finance-monthly-report': 'รายละเอียดรายงานปิดงบ',
 
   // ── กิจกรรม ─────────────────────────────────────────────────────────────
   activities: 'กิจกรรมและผู้เข้าร่วม',

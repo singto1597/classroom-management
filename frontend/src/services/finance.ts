@@ -133,7 +133,17 @@ import type {
   DocumentListQuery,
   DocumentListResponse,
   DocumentRefItem,
-  DocumentType
+  DocumentType,
+  // 🧾 [FIN-V2 / P5.4 API → P5.5 UI] ใบรับทราบยอดค้าง + รายงานปิดงบเดือน
+  AckDetailResponse,
+  AckIssueRequest,
+  AckIssueResponse,
+  AckListResponse,
+  MonthlyReportCreate,
+  MonthlyReportDetailResponse,
+  MonthlyReportListResponse,
+  MonthlyReportResponse,
+  MonthlyReportStatus,
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1300,5 +1310,148 @@ export const FinanceService = {
       { items },
       { params: { target_type: 'room' }, responseType: 'blob' }
     ) as unknown as Blob;
-  }
+  },
+
+  // ==========================================
+  // 🧾 [FIN-V2 / P5.4 API → P5.5 UI] ใบรับทราบยอดค้าง (ACK)
+  // ==========================================
+  //
+  // ⚠️ ACK **ไม่แตะเงิน** — ใบที่ยกเลิกแล้วยังอ่าน/พิมพ์ได้ (เป็นหลักฐานว่าเคยแจ้ง)
+  // 🔁 `issueAcknowledgement` ต้องได้ `idempotency_key` เดิมตอน retry
+  //    — การสร้างคีย์ใหม่ต่อการกดคือ "ใบที่สอง" ในสายตา backend
+
+  async getAcknowledgements(
+    roomId: number,
+    params: { from?: string; to?: string; includeVoided?: boolean } = {}
+  ): Promise<AckListResponse> {
+    const query: Record<string, string> = { target_type: 'room' };
+    if (params.from) query.from = params.from;
+    if (params.to) query.to = params.to;
+    if (params.includeVoided) query.include_voided = 'true';
+    return await api.get(
+      `/api/classroom/${roomId}/finance/acknowledgements`,
+      { params: query }
+    ) as unknown as AckListResponse;
+  },
+
+  async getAcknowledgement(
+    roomId: number,
+    receiptNo: string
+  ): Promise<AckDetailResponse> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/acknowledgements/${encodeURIComponent(receiptNo)}`,
+      { params: { target_type: 'room' } }
+    ) as unknown as AckDetailResponse;
+  },
+
+  async issueAcknowledgement(
+    roomId: number,
+    payload: AckIssueRequest
+  ): Promise<AckIssueResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/acknowledgements?target_type=room`,
+      payload
+    ) as unknown as AckIssueResponse;
+  },
+
+  async voidAcknowledgement(
+    roomId: number,
+    receiptNo: string,
+    payload: { reason: string }
+  ): Promise<ApiSuccessResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/acknowledgements/${encodeURIComponent(receiptNo)}/void?target_type=room`,
+      payload
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  /**
+   * 🖨️ PDF ของ ACK — **ไม่มี** route เฉพาะของ ACK ใน backend (P5.4 ไม่ออกเส้นทางพิมพ์)
+   * ⇒ ใช้เส้นทางทะเบียนเอกสาร: `GET /finance/documents/acknowledgement/{doc_id}/pdf`
+   * ซึ่งเดินผ่าน adapter `(2, 'acknowledgement')` ของ P5.3 (ไบต์เดียวกับที่พิมพ์ชุด)
+   *
+   * ⚠️ ต้องรู้ `doc_id` (int) ไม่ใช่เลขที่เอกสาร ⇒ อ่าน detail ก่อน 1 คำขอ
+   *    (ยอมจ่ายหนึ่ง round-trip แลกกับการไม่ต้องให้หน้าจอรู้จัก id ภายใน)
+   */
+  async downloadAckPdf(roomId: number, receiptNo: string): Promise<Blob> {
+    const detail = (await api.get(
+      `/api/classroom/${roomId}/finance/acknowledgements/${encodeURIComponent(receiptNo)}`,
+      { params: { target_type: 'room' } }
+    )) as unknown as AckDetailResponse;
+    return await api.get(
+      `/api/classroom/${roomId}/finance/documents/acknowledgement/${detail.receipt.id}/pdf`,
+      { params: { target_type: 'room' }, responseType: 'blob' }
+    ) as unknown as Blob;
+  },
+
+  // ==========================================
+  // 📊 [FIN-V2 / P5.4 API → P5.5 UI] รายงานปิดงบเดือน (RPT)
+  // ==========================================
+  //
+  // 🔴 `counted_cash` ส่งเป็น **string** 2 ตำแหน่ง (`"12345.00"`) — Pydantic
+  //    แปลง Decimal จากสตริงได้ตรง ๆ ส่วน number จาก input มีเศษ 1e-12 ได้
+  //    แล้ว backend จะตอบ 400 "ยอดต่าง" ทั้งที่ผู้ใช้นับถูก
+
+  async getMonthlyReports(
+    roomId: number,
+    params: { year?: number; status?: MonthlyReportStatus } = {}
+  ): Promise<MonthlyReportListResponse> {
+    const query: Record<string, string> = { target_type: 'room' };
+    if (params.year !== undefined) query.year = String(params.year);
+    if (params.status) query.status = params.status;
+    return await api.get(
+      `/api/classroom/${roomId}/finance/monthly-reports`,
+      { params: query }
+    ) as unknown as MonthlyReportListResponse;
+  },
+
+  async getMonthlyReport(
+    roomId: number,
+    id: number
+  ): Promise<MonthlyReportDetailResponse> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/monthly-reports/${id}?target_type=room`
+    ) as unknown as MonthlyReportDetailResponse;
+  },
+
+  // ⚠️ backend ตอบ `MonthlyReportDetailResponse` (report + signatures) ไม่ใช่ report เดี่ยว
+  async createMonthlyReport(
+    roomId: number,
+    payload: MonthlyReportCreate
+  ): Promise<MonthlyReportDetailResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/monthly-reports?target_type=room`,
+      payload
+    ) as unknown as MonthlyReportDetailResponse;
+  },
+
+  async finalizeMonthlyReport(
+    roomId: number,
+    id: number,
+    payload: { counted_cash: string; note?: string }
+  ): Promise<MonthlyReportDetailResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/monthly-reports/${id}/finalize?target_type=room`,
+      payload
+    ) as unknown as MonthlyReportDetailResponse;
+  },
+
+  async voidMonthlyReport(
+    roomId: number,
+    id: number,
+    payload: { reason: string }
+  ): Promise<ApiSuccessResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/monthly-reports/${id}/void?target_type=room`,
+      payload
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  // 🖨️ PDF ใช้ `Content-Disposition` ฝั่ง backend — ชื่อไฟล์ที่ FE ตั้งต้องตรงกัน
+  async downloadMonthlyReportPdf(roomId: number, id: number): Promise<Blob> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/monthly-reports/${id}/pdf`,
+      { params: { target_type: 'room' }, responseType: 'blob' }
+    ) as unknown as Blob;
+  },
 };

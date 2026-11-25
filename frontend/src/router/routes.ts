@@ -581,6 +581,68 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 🧾 [FIN-V2 / P5.5] ใบรับทราบยอดค้าง (ACK) — อ่านเปิดให้สมาชิก (`require_member`)
+        // ปุ่มออกใบ/ยกเลิก gate ด้วย `canManageFinance`; backend บังคับ MANAGE_FINANCE ซ้ำ
+        // ⚠️ ACK ไม่แตะเงิน — void แล้วไม่กระทบยอดบัญชีใด ๆ
+        path: '/finance/acknowledgements',
+        name: 'finance-acknowledgements',
+        component: () => import('@/views/finance/AckList.vue'),
+        meta: {
+          title: routeTitles['finance-acknowledgements'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 🔑 ใช้เลขเอกสารเป็น param (backend หา detail ด้วย `receipt_no` ไม่ใช่ id)
+        path: '/finance/acknowledgements/:receiptNo',
+        name: 'finance-acknowledgement-detail',
+        component: () => import('@/views/finance/AckDetail.vue'),
+        meta: {
+          title: routeTitles['finance-acknowledgement-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📊 [FIN-V2 / P5.5] รายงานปิดงบเดือน (RPT) — อ่านเปิดให้สมาชิก (`require_member`)
+        path: '/finance/monthly-reports',
+        name: 'finance-monthly-reports',
+        component: () => import('@/views/finance/MonthlyReportList.vue'),
+        meta: {
+          title: routeTitles['finance-monthly-reports'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // ⚠️ `new` ต้องมาก่อน `:id` — ไม่งั้น vue-router จับ `new` เป็น id → 422
+        path: '/finance/monthly-reports/new',
+        name: 'finance-monthly-report-new',
+        component: () => import('@/views/finance/MonthlyReportWizard.vue'),
+        meta: {
+          title: routeTitles['finance-monthly-report-new'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'form',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน `new` (และ path อื่น) ถูกกลืน + กัน `Number('abc') = NaN`
+        path: '/finance/monthly-reports/:id(\\d+)',
+        name: 'finance-monthly-report',
+        component: () => import('@/views/finance/MonthlyReportWizard.vue'),
+        meta: {
+          title: routeTitles['finance-monthly-report'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         path: '/discord-connect',
         name: 'DiscordConnect',
         component: () => import('@/components/discord/DiscordConnectGuide.vue'),
