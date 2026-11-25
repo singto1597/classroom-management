@@ -224,7 +224,8 @@ async def test_voucher_html_prints_lines_and_three_signatures():
     assert "มีหลักฐาน" in html and "ไม่มีหลักฐาน" in html
     assert "250.00" in html and "100.00" in html and "350.00" in html
     # 3 ช่องของใบสั่งจ่าย — slot ต้องจัดวางแบบ 3 ช่อง
-    assert "sign sign-3" in html
+    # 🖨️ [A4] shell v2 ใช้แบนด์ลายเซ็นมาตรฐาน (`sig-band`); `.sign sign-3` เป็นของ legacy
+    assert "sig-band sig-3" in html
     for role in ("ผู้จัดทำ", "ผู้อนุมัติ", "ผู้รับเงิน"):
         assert role in html
     for name in ("ครูผู้จัดทำ", "ครูอนุมัติ", "ร้านวัสดุทดสอบ"):

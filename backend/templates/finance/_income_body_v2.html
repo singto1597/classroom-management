@@ -1,110 +1,78 @@
+{% import '_v2_macros.html' as m with context %}
+{# ══════════════════════════════════════════════════════════════════════════════
+   💰 ใบรับเงิน (INC) v2 — รายรับอื่นหลายบรรทัด ผู้จ่ายเป็นข้อความอิสระ
+   🔴 INC เป็นหลักฐาน **รับเงิน** จริง แต่ **ห้ามยืมถ้อยคำของใบแจ้งหนี้**
+      ("เรียกเก็บจาก"/"ยอดค้างชำระ") และห้ามมีชื่อเอกสารรับเงินแบบเต็มในไฟล์นี้
+   ⚠️ ทุกคีย์ที่อ้างถึงถูกตั้งใน `_income_context_v2` แบบไม่มีเงื่อนไข (แม้ None/[])
+   ══════════════════════════════════════════════════════════════════════════════ #}
+{{ m.doc_header(d.doc_title or 'ใบรับเงิน', 'Income Receipt', d.room_name, d.room_code, compact=true, size=46) }}
 
-  {% if d.is_voided %}
-  <div class="void-banner">
-    เอกสารนี้ถูกยกเลิกแล้ว — VOID
-    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
-  </div>
-  {% endif %}
-
-  <div class="head">
-    <div>
-      <h1>{{ d.doc_title }}</h1>
-      <div class="room">
-        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
-      </div>
-    </div>
-    <div class="doc-title">
-      <div class="label">เลขที่ {{ d.doc_no_text or d.receipt_no }}</div>
-      <div class="no">วันที่ {{ d.document_date_text or '-' }}</div>
-    </div>
-  </div>
-
-  <hr>
-
-  {# ══════════════════════════════════════════════════════════════════════════
-     💰 ใบรับเงิน (INC) v2 (P4.6) — รายรับอื่นหลายบรรทัด ผู้จ่ายเป็นข้อความอิสระ
-     🔴 INC เป็นหลักฐาน **รับเงิน** จริง แต่ **ห้ามยืมถ้อยคำของใบแจ้งหนี้**
-        ("เรียกเก็บจาก"/"ยอดค้างชำระ") — ภาษาของใบนี้คือ "รับเงินจาก"
-     ⚠️ ทุกคีย์ที่อ้างถึงถูกตั้งใน `_income_context_v2` แบบไม่มีเงื่อนไข (แม้ None/[])
-     ══════════════════════════════════════════════════════════════════════════ #}
-
-  <table class="meta">
-    <tr>
-      {# 🙋 ผู้จ่าย — ข้อความอิสระจาก snapshot (ไม่ผูกบัญชีนักเรียน/ผู้ปกครอง) #}
-      <td class="k">รับเงินจาก</td>
-      <td><strong>{{ d.payer_name or '-' }}</strong></td>
-    </tr>
-    <tr>
-      <td class="k">ผู้รับเงิน</td>
-      <td>{{ d.income_receiver_name or '-' }}</td>
-    </tr>
-    <tr>
-      <td class="k">กระเป๋า</td>
-      <td>{{ d.income_wallet_name or '-' }}</td>
-    </tr>
-    {% if d.income_channel_text %}
-    <tr>
-      <td class="k">ช่องทาง</td>
-      <td>{{ d.income_channel_text }}</td>
-    </tr>
-    {% endif %}
-  </table>
-
-  {# 📋 1 บรรทัด = 1 รายการรายรับของใบนี้ — ยอดรวมพิมพ์จาก `d.amount` เสมอ #}
-  <table class="items">
-    <thead>
-      <tr>
-        <th style="width: 40px;">#</th>
-        <th>รายการรับเงิน</th>
-        <th class="num" style="width: 126px;">จำนวนเงิน (บาท)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in d.income_lines %}
-      <tr>
-        <td>{{ loop.index }}</td>
-        <td>{{ it.title }}</td>
-        <td class="num">{{ "{:,.2f}".format(it.amount_applied) }}</td>
-      </tr>
-      {% endfor %}
-      {% if d.line_items_hidden %}
-      <tr>
-        <td colspan="3" class="more">
-          และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
-        </td>
-      </tr>
+<div class="info-band">
+  <div class="info-col-left">
+    <table class="kv-table">
+      <tr><td class="k">รับเงินจาก</td><td class="v"><strong>{{ d.payer_name or '-' }}</strong></td></tr>
+      <tr><td class="k">ผู้รับเงิน</td><td class="v">{{ d.income_receiver_name or '-' }}</td></tr>
+      <tr><td class="k">กระเป๋า</td><td class="v">{{ d.income_wallet_name or '-' }}</td></tr>
+      {% if d.income_channel_text %}
+      <tr><td class="k">ช่องทาง</td><td class="v">{{ d.income_channel_text }}</td></tr>
       {% endif %}
-      <tr>
-        <td colspan="2" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.amount) }}</td>
-      </tr>
-    </tbody>
-  </table>
+    </table>
+  </div>
+  <div class="info-col-right">
+    {{ m.ref_block('เลขที่', d.doc_no_text or d.receipt_no, 'วันที่', d.document_date_only_text, d.document_time_text) }}
+  </div>
+</div>
 
-  <div class="amount-box">
-    <div class="words">({{ d.amount_text }})</div>
-    <div class="figures">{{ "{:,.2f}".format(d.amount) }} ฿</div>
+<div class="bill-frame">
+  <div class="bill-table-wrap{% if d.income_lines | length > 6 %} auto-canvas{% endif %}">
+    <table class="bill-items">
+      <thead>
+        <tr>
+          <th style="width: 34px;">#</th>
+          <th>รายการรับเงิน</th>
+          <th class="num" style="width: 126px;">จำนวนเงิน (บาท)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in d.income_lines %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ it.title }}</td>
+          <td class="num">{{ m.money(it.amount_applied) }}</td>
+        </tr>
+        {% endfor %}
+        {% if d.line_items_hidden %}
+        <tr>
+          <td colspan="3" class="cell-muted">
+            และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
   </div>
 
-  <div class="note">รายรับอื่น ไม่ผูกบิลนักเรียน</div>
-  {% if d.note %}
-  <div class="note">หมายเหตุ: {{ d.note }}</div>
-  {% endif %}
-
-  {# ✍️ 2 ช่อง: ผู้ออกเอกสาร · ผู้รับเงิน — ช่องที่ไม่มีชื่อเว้นว่างให้เซ็นมือ #}
-  <div class="sign">
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.income_prepared_name or '' }}</div>
-      <div class="role">ผู้ออกเอกสาร</div>
+  <div class="bill-grand-band">
+    <div class="grand-label">รวมทั้งสิ้น</div>
+    <div class="grand-right">
+      <div class="grand-amount">{{ m.money(d.amount) }} ฿</div>
+      <div class="grand-words">({{ d.amount_text }})</div>
     </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.income_receiver_signer_name or '' }}</div>
-      <div class="role">ผู้รับเงิน</div>
-    </div>
   </div>
+</div>
 
-  <div class="foot">
-    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.doc_no_text or d.receipt_no }}
+<div class="lower-band">
+  <div class="lower-col-note">
+    <p class="lower-note-text">รายรับอื่น ไม่ผูกบิลนักเรียน</p>
+    {% if d.note %}
+    <p class="lower-note-text"><strong>หมายเหตุ:</strong> {{ d.note }}</p>
+    {% endif %}
   </div>
+</div>
+
+<div class="sig-band">
+  {{ m.sig_block('ผู้ออกเอกสาร', d.income_prepared_name, date_text='วันที่') }}
+  {{ m.sig_block('ผู้รับเงิน', d.income_receiver_signer_name, date_text='วันที่') }}
+</div>
+
+{{ m.doc_foot('ต้นฉบับ — สำหรับผู้รับเงิน', d.doc_no_text or d.receipt_no) }}

@@ -1,160 +1,135 @@
+{% import '_v2_macros.html' as m with context %}
+{# ══════════════════════════════════════════════════════════════════════════════
+   🧾 ใบเสร็จรับเงิน (REC) v2 — 1 ใบ = 1 ครั้งรับเงิน (หลายบิลได้)
+   🔴 แบนเนอร์ VOID เป็นของ shell (`receipt_v2.html`) ไม่ใช่ของ partial นี้
+   🔴 ถ้อยคำ "ได้รับเงินจาก"/"ผู้ชำระเงิน" ใช้ได้ที่นี่ (REC เป็นหลักฐานรับเงิน)
+   🔴 แถว "รวมทั้งสิ้น" พิมพ์ `d.amount` ที่บันทึกไว้ ไม่ใช่ผลบวกของบรรทัดที่แสดง
+   ══════════════════════════════════════════════════════════════════════════════ #}
+{{ m.doc_header(d.doc_title or 'ใบเสร็จรับเงิน', 'Receipt', d.room_name, d.room_code) }}
 
-  {% if d.is_voided %}
-  {# 🚫 ใบที่ยกเลิกแล้วต้องอ่านออกก่อนตัวเลขใด ๆ — คลาสเดียวกับ `_receipt_body.html` #}
-  <div class="void-banner">
-    เอกสารนี้ถูกยกเลิกแล้ว — VOID
-    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
-  </div>
-  {% endif %}
-
-  <div class="head">
-    <div>
-      <h1>{{ d.doc_title }}</h1>
-      <div class="room">
-        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
-      </div>
-    </div>
-    <div class="doc-title">
-      {# 🧾 เอกสาร v2 = 1 ใบต่อ 1 รายการรับเงิน ⇒ มีเลขที่เดี่ยวเสมอ (ต่างจากใบยุบ F6) #}
-      <div class="label">เลขที่ {{ d.receipt_no }}</div>
-      <div class="no">วันที่ {{ d.document_date_text or '-' }}</div>
-    </div>
-  </div>
-
-  <hr>
-
-  <table class="meta">
-    <tr>
-      {# 🧾 ใบรับเงินล่วงหน้า (DEP) ไม่ใช่ใบเสร็จของหนี้ ⇒ ใช้ป้าย "ผู้ชำระเงิน"
-         ⚠️ ทั้งสองกรณี payer_name มาจาก snapshot (`document_meta`) ไม่ใช่ JOIN สด #}
-      <td class="k">{% if d.doc_type == 'deposit' %}ผู้ชำระเงิน{% else %}ได้รับเงินจาก{% endif %}</td>
-      <td><strong>{{ d.payer_name or '-' }}</strong>{% if d.student_no %} — เลขที่ {{ d.student_no }}{% endif %}</td>
-    </tr>
-    <tr>
-      <td class="k">ผู้รับเงิน</td>
-      <td>{{ d.issuer_name or '-' }}</td>
-    </tr>
-    {% if d.channel_text %}
-    <tr>
-      <td class="k">ช่องทาง</td>
-      <td>{{ d.channel_text }}</td>
-    </tr>
-    {% endif %}
-    {% if d.doc_type == 'deposit' %}
-    <tr>
-      <td class="k">ประเภท</td>
-      <td>เงินรับล่วงหน้า (เครดิตคงเหลือของนักเรียน)</td>
-    </tr>
-    {% endif %}
-  </table>
-
-  {# 📋 1 บรรทัด = 1 บิลของ "การรับเงินครั้งนี้" — ยอดทุกช่องมาจาก snapshot ตอนออกเอกสาร
-     ⚠️ ช่องที่ไม่มีค่า (bill_amount/bill_remaining = None) พิมพ์ "—" ไม่ใช่ `format(None)`
-     🔴 แถว "รวมทั้งสิ้น" พิมพ์ `d.amount` (ยอดที่บันทึกไว้) ไม่ใช่ผลบวกของบรรทัดที่แสดง
-        ⇒ การตัดบรรทัดเกิน 20 ไม่ทำให้ยอดบนใบผิด #}
-  <table class="items">
-    <thead>
+<div class="info-band">
+  <div class="info-col-left">
+    <table class="kv-table">
       <tr>
-        <th style="width: 40px;">#</th>
-        <th>รายการ</th>
-        <th class="num" style="width: 104px;">ยอดเต็ม</th>
-        <th class="num" style="width: 104px;">รับครั้งนี้</th>
-        <th class="num" style="width: 96px;">คงเหลือ</th>
-        <th style="width: 96px;">แหล่ง</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in d.line_items %}
-      <tr>
-        <td>{{ loop.index }}</td>
-        <td>{{ it.title }}</td>
-        <td class="num">{% if it.bill_amount is not none %}{{ "{:,.2f}".format(it.bill_amount) }}{% else %}—{% endif %}</td>
-        <td class="num">{{ "{:,.2f}".format(it.amount_applied) }}</td>
-        <td class="num">{% if it.bill_remaining is not none %}{{ "{:,.2f}".format(it.bill_remaining) }}{% else %}—{% endif %}</td>
-        <td class="due">{{ it.source_text or '—' }}</td>
-      </tr>
-      {% endfor %}
-      {% if d.line_items_hidden %}
-      <tr>
-        <td colspan="6" class="more">
-          และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+        <td class="k">ได้รับเงินจาก</td>
+        <td class="v">
+          <strong>{{ d.payer_name or '-' }}</strong>
+          {%- if d.student_no %} · เลขที่ {{ d.student_no }}{% endif %}
         </td>
       </tr>
+      <tr><td class="k">ผู้รับเงิน</td><td class="v">{{ d.issuer_name or '-' }}</td></tr>
+      {% if d.channel_text %}
+      <tr><td class="k">ช่องทาง</td><td class="v">{{ d.channel_text }}</td></tr>
       {% endif %}
-      <tr>
-        <td colspan="3" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.amount) }}</td>
-        <td colspan="2"></td>
-      </tr>
-    </tbody>
-  </table>
+    </table>
+  </div>
+  <div class="info-col-right">
+    {{ m.ref_block('เลขที่', d.receipt_no, 'วันที่', d.document_date_only_text, d.document_time_text) }}
+  </div>
+</div>
 
-  <div class="amount-box">
-    <div class="words">({{ d.amount_text }})</div>
-    <div class="figures">{{ "{:,.2f}".format(d.amount) }} ฿</div>
+<div class="bill-frame">
+  <div class="bill-table-wrap{% if d.line_items | length > 6 %} auto-canvas{% endif %}">
+    <table class="bill-items">
+      <thead>
+        <tr>
+          <th style="width: 34px;">#</th>
+          <th>รายการ</th>
+          <th class="num" style="width: 96px;">ยอดเต็ม</th>
+          <th class="num" style="width: 96px;">รับครั้งนี้</th>
+          <th class="num" style="width: 90px;">คงเหลือ</th>
+          <th style="width: 84px;">แหล่ง</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in d.line_items %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ it.title }}</td>
+          <td class="num">{{ m.money_or_dash(it.bill_amount) }}</td>
+          <td class="num">{{ m.money(it.amount_applied) }}</td>
+          <td class="num">{{ m.money_or_dash(it.bill_remaining) }}</td>
+          <td class="cell-muted">{{ it.source_text or '—' }}</td>
+        </tr>
+        {% endfor %}
+        {% if d.line_items_hidden %}
+        <tr>
+          <td colspan="6" class="cell-muted">
+            และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
   </div>
 
-  {# 💳 ยอดแยกแหล่งเงิน — แสดงเฉพาะเมื่อมีเครดิตเข้ามาเกี่ยวข้อง
-     ⚠️ `amount_received` เป็น None ได้ (DEP ไม่มีคีย์นี้) ⇒ เช็ค `is not none` #}
-  {% if d.credit_used > 0 or d.credit_added > 0 %}
-  <table class="meta" style="margin-top: 12px;">
-    {% if d.amount_received is not none %}
-    <tr>
-      <td class="k">รับชำระเป็นเงิน</td>
-      <td>{{ "{:,.2f}".format(d.amount_received) }} บาท</td>
-    </tr>
-    {% endif %}
-    {% if d.credit_used > 0 %}
-    <tr>
-      <td class="k">ใช้เครดิต</td>
-      <td>{{ "{:,.2f}".format(d.credit_used) }} บาท</td>
-    </tr>
-    {% endif %}
-    {% if d.credit_added > 0 %}
-    <tr>
-      <td class="k">เก็บส่วนเกินเป็นเครดิต</td>
-      <td>{{ "{:,.2f}".format(d.credit_added) }} บาท</td>
-    </tr>
-    {% endif %}
-  </table>
-  {% endif %}
-
-  {# 💰 DEP: ยอดเครดิตก่อน/หลัง — snapshot ของ "ครั้งนั้น" ⇒ พิมพ์ซ้ำได้ตัวเลขเดิม #}
-  {% if d.balance_before is not none or d.balance_after is not none %}
-  <table class="meta" style="margin-top: 10px;">
-    {% if d.balance_before is not none %}
-    <tr>
-      <td class="k">เครดิตคงเหลือก่อนเติม</td>
-      <td>{{ "{:,.2f}".format(d.balance_before) }} บาท</td>
-    </tr>
-    {% endif %}
-    {% if d.balance_after is not none %}
-    <tr>
-      <td class="k">เครดิตคงเหลือหลังเติม</td>
-      <td>{{ "{:,.2f}".format(d.balance_after) }} บาท</td>
-    </tr>
-    {% endif %}
-  </table>
-  {% endif %}
-
-  {% if d.note %}
-  <div class="note">หมายเหตุ: {{ d.note }}</div>
-  {% endif %}
-
-  {# ✍️ 2 ช่อง: ผู้ชำระเงิน กับ ผู้รับเงิน/ผู้ออกเอกสาร (doc-matrix: DEP = ผู้รับเงิน + ผู้ออก) #}
-  <div class="sign">
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.payer_name or '' }}</div>
-      <div class="role">ผู้ชำระเงิน</div>
+  <div class="bill-summary-band">
+    <div class="bill-summary-notes">
+      {% if d.note %}
+      <div class="note-heading">หมายเหตุ</div>
+      <div>{{ d.note }}</div>
+      {% endif %}
     </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.issuer_name or '' }}</div>
-      <div class="role">ผู้รับเงิน / ผู้ออกเอกสาร</div>
+    <div class="bill-summary-totals">
+      <table class="sum-kv">
+        {% if d.line_bill_total is not none %}
+        <tr><td class="sk">ยอดเต็มรวม</td><td class="sv">{{ m.money(d.line_bill_total) }}</td></tr>
+        {% endif %}
+        {% if d.amount_received is not none %}
+        <tr><td class="sk">รับชำระเป็นเงิน</td><td class="sv">{{ m.money(d.amount_received) }}</td></tr>
+        {% endif %}
+        {% if d.credit_used > 0 %}
+        <tr><td class="sk">ใช้เครดิต</td><td class="sv">{{ m.money(d.credit_used) }}</td></tr>
+        {% endif %}
+        {% if d.credit_added > 0 %}
+        <tr><td class="sk">เก็บส่วนเกินเป็นเครดิต</td><td class="sv">{{ m.money(d.credit_added) }}</td></tr>
+        {% endif %}
+        {% if d.line_remaining_total is not none %}
+        <tr class="highlight-row">
+          <td class="sk">คงเหลือหลังชำระครั้งนี้</td>
+          <td class="sv">{{ m.money(d.line_remaining_total) }}</td>
+        </tr>
+        {% endif %}
+      </table>
     </div>
   </div>
 
-  <div class="foot">
-    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.receipt_no }}
+  <div class="bill-grand-band">
+    <div class="grand-label">รวมทั้งสิ้น</div>
+    <div class="grand-right">
+      <div class="grand-amount">{{ m.money(d.amount) }} ฿</div>
+      <div class="grand-words">({{ d.amount_text }})</div>
+    </div>
   </div>
+</div>
+
+<div class="lower-band">
+  <div class="lower-col-pay">
+    <div class="lower-heading">วิธีชำระเงิน</div>
+    <ul class="pay-options">
+      {% if d.amount_received is none or d.amount_received > 0 %}
+      <li><span class="radio-circle checked"></span>เงินสด / โอนเข้าบัญชีห้อง</li>
+      {% endif %}
+      {% if d.credit_used > 0 %}
+      <li><span class="radio-circle checked"></span>หักจากเครดิตคงเหลือของนักเรียน</li>
+      {% endif %}
+    </ul>
+    {% if d.paid_total_after %}
+    <div class="pay-sub-detail">ยอดสะสมที่ชำระแล้วทั้งสิ้น {{ m.money(d.paid_total_after) }} บาท</div>
+    {% endif %}
+  </div>
+  <div class="lower-col-note">
+    <div class="lower-heading">รายละเอียด</div>
+    <p class="lower-note-text">
+      คอลัมน์ <strong>คงเหลือ</strong> คือยอดค้างของบิลแต่ละรายการภายหลังหักการชำระครั้งนี้
+      — เอกสารนี้ออกโดยอัตโนมัติจากรายการที่บันทึกในระบบ
+    </p>
+  </div>
+</div>
+
+<div class="sig-band">
+  {{ m.sig_block('ผู้ชำระเงิน', d.payer_name, date_text='วันที่') }}
+  {{ m.sig_block('ผู้รับเงิน / ผู้ออกเอกสาร', d.issuer_name, date_text='วันที่') }}
+</div>
+
+{{ m.doc_foot('ต้นฉบับ — สำหรับผู้ชำระเงินเก็บไว้ตรวจสอบ', d.receipt_no) }}

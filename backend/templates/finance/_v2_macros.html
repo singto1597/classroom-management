@@ -1,0 +1,89 @@
+{# ══════════════════════════════════════════════════════════════════════════════
+   Macro กลางของเอกสาร A4 (layout v2) — หัวกระดาษ/แบรนด์/ลายเซ็น/ท้ายกระดาษ
+   ⚠️ ไฟล์นี้ **ห้ามมี `<style>`** และห้ามมีเนื้อหาเฉพาะชนิดใดชนิดหนึ่ง
+      (shell `receipt_v2.html` ถือ style เดียว — เทสต์ grep partial ห้ามมี `<style>`)
+   ⚠️ ต้อง import แบบ `with context` เพื่อเห็น `brand_name`/`brand_sub` จาก shell
+   ══════════════════════════════════════════════════════════════════════════════ #}
+
+{# 🏷️ โลโก้จริงของแอป = Bootstrap Icons `box-fill` ตัวเดียวกับ
+   `frontend/public/box-fill.svg` และ `<i class="bi bi-box-fill">` ที่ทุกหน้าจอใช้
+   (กล่องสีน้ำเงิน --brand #1D4ED8 + ไอคอนขาว) — **ห้ามวาดโลโก้ใหม่ขึ้นเอง** #}
+{% macro logo(size=34) -%}
+<span class="brand-logo" style="width: {{ size }}px; height: {{ size }}px; border-radius: {{ (size * 0.26) | round | int }}px;">
+<svg viewBox="0 0 16 16" width="{{ (size * 0.62) | round | int }}" height="{{ (size * 0.62) | round | int }}" aria-hidden="true">
+<path fill="#FFFFFF" fill-rule="evenodd" d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5l2.404.961L10.404 2zm3.564 1.426L5.596 5 8 5.961 14.154 3.5zm3.25 1.7-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464z"/>
+</svg>
+</span>
+{%- endmacro %}
+
+{# 🏷️ แบรนด์: โลโก้จริง + WORDMARK + บรรทัดย่อย (ชื่อห้อง) #}
+{% macro brand(room_name, room_code, compact=false, size=34) -%}
+<div class="std-brand-mark">
+{{- logo(size) }}
+<div class="brand-text-right">
+<div class="brand-sys-name">{{ brand_name }}</div>
+<div class="brand-sys-sub">
+{{- brand_sub -}}
+{%- if room_name %} · {{ room_name }}{% endif -%}
+{%- if room_code %} · {{ room_code }}{% endif -%}
+</div>
+</div>
+</div>
+{%- endmacro %}
+
+{# 🧾 หัวเอกสาร: หัวเรื่องไทย + subtitle + แบรนด์ + เส้นคั่น (มาตรฐาน A4) #}
+{% macro doc_header(title_th, title_en, room_name, room_code, compact=false, size=34) -%}
+<div class="std-header{% if compact %} compact-header{% endif %}">
+<div class="std-title-group">
+<h1 class="std-title-th">{{ title_th }}</h1>
+{% if title_en %}<div class="std-title-en">{{ title_en }}</div>{% endif %}
+</div>
+{{- brand(room_name, room_code, compact, size) }}
+</div>
+<hr class="rule-solid">
+{%- endmacro %}
+
+{# 🧮 ตัวเลขเงิน — ทศนิยม 2 ตำแหน่งคั่นหลักพัน (ไม่มีสกุลเงินกำกับ; partial ใส่เอง) #}
+{% macro money(v) -%}
+{%- if v is not none -%}{{ "{:,.2f}".format(v) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro money_or_dash(v) -%}
+{%- if v is not none %}{{ "{:,.2f}".format(v) }}{% else %}—{% endif -%}
+{%- endmacro %}
+
+{# 🔢 ตารางคีย์–ค่า ฝั่งซ้ายของ info band #}
+{% macro kv_row(k, v, wide=false) -%}
+<tr><td class="k">{{ k }}</td><td class="v">{{ v }}</td></tr>
+{%- endmacro %}
+
+{# 📇 กล่องเลขที่/วันที่ (ฝั่งขวาของ info band) #}
+{% macro ref_block(num_label, num_value, date_label, date_value, time_text=none) -%}
+<table class="kv-table">
+<tr><td class="k">{{ num_label }}</td><td class="doc-number-val">{{ num_value or '—' }}</td></tr>
+{% if date_value %}
+<tr><td class="k">{{ date_label }}</td><td class="v">{{ date_value }}{% if time_text %} · {{ time_text }}{% endif %}</td></tr>
+{% endif %}
+</table>
+{%- endmacro %}
+
+{# ✍️ หนึ่งช่องลายเซ็น — ชื่อว่างได้ (เว้นให้เซ็นมือ ห้ามพิมพ์ "-") #}
+{% macro sig_block(role, name='', sub_role='', date_text='') -%}
+<div class="sig-block">
+<div class="sig-line-row">
+<div class="sig-dots"></div>
+<span class="sig-role-inline">{{ role }}</span>
+</div>
+<div class="sig-name-row">{{ name or '' }}</div>
+{% if sub_role %}<div class="sig-sub-role">{{ sub_role }}</div>{% endif %}
+{% if date_text %}<div class="sig-date-row">{{ date_text }}<span class="sig-date-dots"></span></div>{% endif %}
+</div>
+{%- endmacro %}
+
+{# 🦶 ท้ายกระดาษ — ป้ายสำเนา/ผู้ถือ และเลขอ้างอิง #}
+{% macro doc_foot(copy_label, ref, ref_label='เลขที่') -%}
+<div class="doc-foot">
+<span class="doc-foot-copy">{{ copy_label }} · เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน</span>
+{% if ref %}<span class="doc-foot-ref">{{ ref_label }} {{ ref }}</span>{% endif %}
+</div>
+{%- endmacro %}

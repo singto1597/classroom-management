@@ -30,6 +30,7 @@ from .constants import (
     DOC_TYPE_LABELS, DOC_TYPE_MONTHLY_REPORT, DOC_TYPE_PAYMENT_VOUCHER,
     DOC_TYPE_RECEIPT,
 )
+from .helpers import _thai_dt_parts
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +253,25 @@ class DocumentsMixin:
         paid_total = _as_float_or_none(d.get("paid_total_after")) or 0.0
         line_items, line_items_hidden = cls._v2_line_items(d)
         doc_type = d.get("doc_type")
+        doc_date_only, doc_time = _thai_dt_parts(
+            d.get("event_at") or d.get("issued_at")
+        )
+
+        # 📐 ยอดรวมของ "คอลัมน์" ตารางบิล — คำนวณเฉพาะเมื่อทุกแถวมีค่าและไม่มีแถวถูกตัด
+        #    ⇒ ตารางที่แสดงไม่ครบจะไม่พิมพ์ยอดรวมที่ดูเหมือนยอดของทั้งใบผิด
+        #    ⚠️ PV/CERT/INC ทับ `line_items` ใน helper ของตน **หลัง** สร้าง context นี้
+        #       ⇒ คีย์สามตัวนี้ใช้ได้เฉพาะ REC (partial อื่นไม่ควรอ่าน)
+        line_bill_total = None
+        line_remaining_total = None
+        if line_items and not line_items_hidden:
+            if all(it.get("bill_amount") is not None for it in line_items):
+                line_bill_total = round(
+                    sum(float(it["bill_amount"]) for it in line_items), 2
+                )
+            if all(it.get("bill_remaining") is not None for it in line_items):
+                line_remaining_total = round(
+                    sum(float(it["bill_remaining"]) for it in line_items), 2
+                )
 
         context = {
             "doc_title": DOC_TYPE_LABELS.get(doc_type) or d.get("doc_type_label"),
@@ -263,6 +283,9 @@ class DocumentsMixin:
             "document_date_text": cls._thai_datetime_text(
                 d.get("event_at") or d.get("issued_at")
             ),
+            # 🖨️ [A4] หัวเอกสารแยก "วันที่" กับ "เวลา" คนละช่อง (มาตรฐาน A4)
+            "document_date_only_text": doc_date_only,
+            "document_time_text": doc_time,
             "is_voided": d.get("status") == DOC_STATUS_VOIDED,
             "void_reason": d.get("void_reason"),
             "room_name": d.get("room_name"),
@@ -287,6 +310,12 @@ class DocumentsMixin:
             "paid_total_after_text": baht_text(paid_total),
             "line_items": line_items,
             "line_items_hidden": line_items_hidden,
+            # 📐 ยอดรวมคอลัมน์ของตารางบิล (เฉพาะ REC — None = ไม่ครบ ห้ามพิมพ์)
+            "line_bill_total": line_bill_total,
+            "line_remaining_total": line_remaining_total,
+            "line_totals_complete": (
+                line_bill_total is not None and line_remaining_total is not None
+            ),
             # 🔴 คีย์ชุด legacy — ต้องถูกตั้งเสมอ (บทเรียน Jinja `is not none`)
             "collection_title": None,
             "collection_due_date": None,

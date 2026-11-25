@@ -1,110 +1,81 @@
+{% import '_v2_macros.html' as m with context %}
+{# ══════════════════════════════════════════════════════════════════════════════
+   🧾 ใบรับรองแทนใบเสร็จ (CERT) v2 — รับรอง **เฉพาะบรรทัดที่ไม่มีหลักฐาน**
+   🔴 ห้ามมีชื่อเอกสารรับเงินแบบเต็ม ("ใบเสร็จ" + "รับเงิน") ในไฟล์นี้ — เทสต์ grep
+      ⇒ ถ้อยคำรับรองจึงพูดถึง "หลักฐานการรับเงินจากร้านค้า" ไม่ใช่คำนั้น
+   🔴 ห้ามอ้างคีย์ธง "เป็นหลักฐานรับเงิน" เช่นเดียวกับ PV
+   ══════════════════════════════════════════════════════════════════════════════ #}
+{{ m.doc_header(d.doc_title or 'ใบรับรองแทนใบเสร็จ', 'Certificate in Lieu of Receipt', d.room_name, d.room_code, compact=true, size=46) }}
 
-  {% if d.is_voided %}
-  <div class="void-banner">
-    เอกสารนี้ถูกยกเลิกแล้ว — VOID
-    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
+<div class="info-band">
+  <div class="info-col-left">
+    <table class="kv-table wide-k">
+      <tr><td class="k">อ้างอิงใบสำคัญจ่าย</td><td class="v"><strong>{{ d.pv_receipt_no or '-' }}</strong></td></tr>
+      <tr><td class="k">ผู้รับเงิน</td><td class="v">{{ d.voucher_payee_name or '-' }}</td></tr>
+      <tr><td class="k">บรรทัดที่รับรอง</td><td class="v">{{ d.cert_source_line_nos | join(', ') or '-' }}</td></tr>
+    </table>
   </div>
-  {% endif %}
-
-  <div class="head">
-    <div>
-      <h1>{{ d.doc_title }}</h1>
-      <div class="room">
-        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
-      </div>
-    </div>
-    <div class="doc-title">
-      <div class="label">เลขที่ {{ d.doc_no_text or d.receipt_no }}</div>
-      <div class="no">วันที่ {{ d.document_date_text or '-' }}</div>
-    </div>
+  <div class="info-col-right">
+    {{ m.ref_block('เลขที่', d.doc_no_text or d.receipt_no, 'วันที่', d.document_date_only_text, d.document_time_text) }}
   </div>
+</div>
 
-  <hr>
-
-  {# ══════════════════════════════════════════════════════════════════════════
-     🧾 ใบรับรองแทนใบเสร็จ (CERT) v2 (P4.6) — รับรอง **เฉพาะบรรทัดที่ไม่มีหลักฐาน**
-     🔴 ไฟล์นี้ห้ามมีชื่อเอกสารรับเงินแบบเต็ม (คำ 5 คำที่ขึ้นต้นด้วย "ใบเสร็จ")
-        — ใช้ "ใบรับรองแทนใบเสร็จ" เท่านั้น; เทสต์ grep ไฟล์นี้ดักไว้
-        ⇒ ถ้อยคำรับรองด้านล่างจึงพูดถึง "หลักฐานการรับเงินจากร้านค้า" ไม่ใช่คำนั้น
-     🔴 ไฟล์นี้ห้ามอ้างถึงคีย์ธง "เป็นหลักฐานรับเงิน" เช่นเดียวกับ partial ของ
-        ใบสำคัญจ่าย — CERT เป็นเอกสารรับรองการจ่าย ไม่ใช่หลักฐานว่ารับเงิน
-     ══════════════════════════════════════════════════════════════════════════ #}
-
-  <table class="meta">
-    <tr>
-      <td class="k">อ้างอิงใบสำคัญจ่าย</td>
-      <td><strong>{{ d.pv_receipt_no or '-' }}</strong></td>
-    </tr>
-    <tr>
-      <td class="k">ผู้รับเงิน</td>
-      <td>{{ d.voucher_payee_name or '-' }}</td>
-    </tr>
-    <tr>
-      {# 🔗 ลำดับบรรทัดของใบสำคัญจ่ายที่ CERT ครอบ — ตรวจย้อนหลังได้ว่า CERT นี้
-         รับรองบรรทัดใด (P4.2 เก็บ `source_line_nos` ไว้ใน document_meta) #}
-      <td class="k">บรรทัดที่รับรอง</td>
-      <td>{{ d.cert_source_line_nos | join(', ') or '-' }}</td>
-    </tr>
-  </table>
-
-  <table class="items">
-    <thead>
-      <tr>
-        <th style="width: 64px;">บรรทัด</th>
-        <th>รายละเอียดที่รับรอง</th>
-        <th class="num" style="width: 126px;">จำนวนเงิน (บาท)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in d.cert_lines %}
-      <tr>
-        <td>{{ it.line_no }}</td>
-        <td>{{ it.title }}</td>
-        <td class="num">{{ "{:,.2f}".format(it.amount) }}</td>
-      </tr>
-      {% endfor %}
-      {% if d.line_items_hidden %}
-      <tr>
-        <td colspan="3" class="more">
-          และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
-        </td>
-      </tr>
-      {% endif %}
-      <tr>
-        <td colspan="2" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.cert_amount) }}</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="amount-box">
-    <div class="words">({{ d.cert_amount_text }})</div>
-    <div class="figures">{{ "{:,.2f}".format(d.cert_amount) }} ฿</div>
+<div class="bill-frame">
+  <div class="bill-table-wrap{% if d.cert_lines | length > 6 %} auto-canvas{% endif %}">
+    <table class="bill-items">
+      <thead>
+        <tr>
+          <th style="width: 64px;">บรรทัด</th>
+          <th>รายละเอียดที่รับรอง</th>
+          <th class="num" style="width: 126px;">จำนวนเงิน (บาท)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in d.cert_lines %}
+        <tr>
+          <td>{{ it.line_no }}</td>
+          <td>{{ it.title }}</td>
+          <td class="num">{{ m.money(it.amount) }}</td>
+        </tr>
+        {% endfor %}
+        {% if d.line_items_hidden %}
+        <tr>
+          <td colspan="3" class="cell-muted">
+            และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
   </div>
 
-  <div class="note">
-    ขอรับรองว่าได้จ่ายเงินตามรายการข้างต้น และไม่มีหลักฐานการรับเงินจากร้านค้า
-    สำหรับรายการเหล่านี้
-  </div>
-
-  {% if d.note %}
-  <div class="note">หมายเหตุ: {{ d.note }}</div>
-  {% endif %}
-
-  {# ✍️ 2 ช่อง: ผู้จัดทำ · ผู้อนุมัติ — ช่องที่ไม่มีชื่อเว้นว่างให้เซ็นมือ #}
-  <div class="sign">
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.cert_prepared_name or '' }}</div>
-      <div class="role">ผู้จัดทำ</div>
-    </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.cert_approved_name or '' }}</div>
-      <div class="role">ผู้อนุมัติ</div>
+  <div class="bill-grand-band">
+    <div class="grand-label">รวมทั้งสิ้น</div>
+    <div class="grand-right">
+      <div class="grand-amount">{{ m.money(d.cert_amount) }} ฿</div>
+      <div class="grand-words">({{ d.cert_amount_text }})</div>
     </div>
   </div>
+</div>
 
-  <div class="foot">
-    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.doc_no_text or d.receipt_no }}
+<div class="cert-box">
+  <div class="cert-box-title">คำรับรอง</div>
+  ขอรับรองว่าได้จ่ายเงินตามรายการข้างต้น และไม่มีหลักฐานการรับเงินจากร้านค้า
+  สำหรับรายการเหล่านี้
+</div>
+
+{% if d.note %}
+<div class="lower-band">
+  <div class="lower-col-note">
+    <div class="lower-heading">หมายเหตุ</div>
+    <p class="lower-note-text">{{ d.note }}</p>
   </div>
+</div>
+{% endif %}
+
+<div class="sig-band">
+  {{ m.sig_block('ผู้จัดทำ', d.cert_prepared_name, date_text='วันที่') }}
+  {{ m.sig_block('ผู้อนุมัติ', d.cert_approved_name, date_text='วันที่') }}
+</div>
+
+{{ m.doc_foot('ต้นฉบับ — แนบกับใบสำคัญจ่ายของห้อง', d.doc_no_text or d.receipt_no) }}

@@ -1,178 +1,141 @@
-  {% if d.is_voided %}
-  {# 🚫 รายงานที่ยกเลิกแล้วต้องอ่านออกก่อนตัวเลขใด ๆ — คลาสเดียวกับ partial ใบเสร็จ #}
-  <div class="void-banner">
-    รายงานปิดงบนี้ถูกยกเลิกแล้ว — VOID
-    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
-  </div>
-  {% endif %}
+{% import '_v2_macros.html' as m with context %}
+{# ══════════════════════════════════════════════════════════════════════════════
+   📊 รายงานปิดงบเดือน (RPT) v2 — เอกสาร **ภายใน** ของห้อง ไม่ใช่ใบแจกผู้ปกครอง
+   🔴 ทุกตัวเลขมาจาก snapshot ณ ตอนสร้าง + `counted_cash`/`variance` ตอนปิดงบ
+      — ไม่คำนวณใหม่บนกระดาษ (รายงานที่พิมพ์แล้วต้องสร้างซ้ำได้)
+   🔴 RPT **ไม่มี** คีย์ของ base context (`amount`, `line_items`, `document_date_text`,
+      `payer_name`) ⇒ partial นี้ห้ามอ่านคีย์เหล่านั้น
+   ══════════════════════════════════════════════════════════════════════════════ #}
+{{ m.doc_header(d.doc_title or d.doc_type_label or 'รายงานปิดงบ', 'Monthly Closing Report', d.room_name, d.room_code, compact=true, size=46) }}
 
-  <div class="head">
-    <div>
-      <h1>{{ d.doc_type_label }}</h1>
-      <div class="room">
-        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
-      </div>
-    </div>
-    <div class="doc-title">
-      <div class="label">เลขที่ {{ d.report_no }}</div>
-      <div class="no">รอบเดือน {{ d.month_text }} {{ d.year_be }}</div>
-    </div>
-  </div>
-
-  <hr>
-
-  {# ══════════════════════════════════════════════════════════════════════════
-     📊 รายงานปิดงบเดือน (P5.4) — เอกสาร **ภายใน** ของห้อง ไม่ใช่ใบที่แจกผู้ปกครอง
-     🔴 ทุกตัวเลขมาจาก snapshot ของ `finance_monthly_reports.snapshot` ณ ตอนสร้าง
-        + `counted_cash`/`variance` ที่บันทึกตอนปิดงบ — ไม่คำนวณใหม่บนกระดาษ
-     ⚠️ ห้ามใส่ `<style>`/`padding` ในไฟล์นี้: shell `receipt.html` จัดหน้าให้แล้ว
-     ⚠️ ห้าม `id` คงที่ — ชุดพิมพ์อาจมีหลายใบในไฟล์เดียว
-     ══════════════════════════════════════════════════════════════════════════ #}
-
-  <table class="meta">
-    <tr>
-      <td class="k">รอบบัญชี</td>
-      <td>{{ d.period_start or "-" }} ถึง {{ d.period_end or "-" }} ({{ d.month_text }} {{ d.year_be }})</td>
-    </tr>
-    <tr>
-      <td class="k">ฉบับที่ / สถานะ</td>
-      <td>v{{ d.version }} · {{ d.status_text }}</td>
-    </tr>
-    {% if d.finalized_at %}
-    <tr>
-      <td class="k">ปิดงบเมื่อ</td>
-      <td>{{ d.finalized_at }}</td>
-    </tr>
-    {% endif %}
-  </table>
-
-  {# ─── รายรับ ──────────────────────────────────────────────────────────── #}
-  <table class="items">
-    <thead>
+<div class="info-band">
+  <div class="info-col-left">
+    <table class="kv-table wide-k">
       <tr>
-        <th style="width: 90px;">รหัสบัญชี</th>
-        <th>หมวดรายรับ</th>
-        <th class="num" style="width: 120px;">จำนวนเงิน (บาท)</th>
+        <td class="k">รอบบัญชี</td>
+        <td class="v">
+          {{ d.period_start_text or d.period_start or '-' }} ถึง {{ d.period_end_text or d.period_end or '-' }}
+          ({{ d.month_text }} {{ d.year_be }})
+        </td>
       </tr>
-    </thead>
-    <tbody>
-      {% for it in d.income_by_category %}
+      <tr><td class="k">ฉบับที่ / สถานะ</td><td class="v">v{{ d.version }} · {{ d.status_text }}</td></tr>
+      {% if d.finalized_at %}
       <tr>
-        <td class="due">{{ it.account_code or '—' }}</td>
-        <td>{{ it.account_name }}</td>
-        <td class="num">{{ "{:,.2f}".format(it.amount) }}</td>
-      </tr>
-      {% endfor %}
-      {% if not d.income_by_category %}
-      <tr>
-        <td colspan="3" class="more">ไม่มีรายได้บันทึกไว้ในงวดนี้</td>
+        <td class="k">ปิดงบเมื่อ</td>
+        <td class="v">{{ d.finalized_date_text or d.finalized_at }}{% if d.finalized_time_text %} · {{ d.finalized_time_text }}{% endif %}</td>
       </tr>
       {% endif %}
-      <tr>
-        <td colspan="2" style="text-align: right; font-weight: 700;">รวมรายรับ</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.total_income) }}</td>
-      </tr>
-    </tbody>
-  </table>
+    </table>
+  </div>
+  <div class="info-col-right">
+    {{ m.ref_block('เลขที่', d.report_no, 'วันที่', d.finalized_date_text, d.finalized_time_text) }}
+  </div>
+</div>
 
-  {# ─── รายจ่าย ─────────────────────────────────────────────────────────── #}
-  <table class="items">
+<div class="rpt-kpi-row">
+  <div class="rpt-kpi-cell"><span class="rk">รายรับรวม</span><span class="rv">{{ m.money(d.total_income) }}</span></div>
+  <div class="rpt-kpi-cell"><span class="rk">รายจ่ายรวม</span><span class="rv">{{ m.money(d.total_expense) }}</span></div>
+  <div class="rpt-kpi-cell"><span class="rk">เงินสดปิดงบ</span><span class="rv">{{ m.money(d.closing_cash) }}</span></div>
+  <div class="rpt-kpi-cell">
+    <span class="rk">เงินสดนับได้</span>
+    <span class="rv">{{ m.money_or_dash(d.counted_cash) }}</span>
+  </div>
+  <div class="rpt-kpi-cell"><span class="rk">ผลต่าง</span><span class="rv">{{ m.money_or_dash(d.variance) }}</span></div>
+</div>
+
+<div class="rpt-split" style="margin-top: 10px;">
+  <div class="rpt-split-left">
+    <div class="sub-section-title">รายรับตามหมวด<span class="sub-unit">บาท</span></div>
+    <div class="sub-frame">
+      <table class="mini-table">
+        <thead>
+          <tr><th style="width: 74px;">รหัสบัญชี</th><th>หมวดรายรับ</th><th class="num">จำนวนเงิน</th></tr>
+        </thead>
+        <tbody>
+          {% for it in d.income_by_category %}
+          <tr>
+            <td class="cell-muted">{{ it.account_code or '—' }}</td>
+            <td>{{ it.account_name }}</td>
+            <td class="num">{{ m.money(it.amount) }}</td>
+          </tr>
+          {% endfor %}
+          {% if not d.income_by_category %}
+          <tr><td colspan="3" class="cell-muted">ไม่มีรายได้บันทึกไว้ในงวดนี้</td></tr>
+          {% endif %}
+          <tr class="mini-total">
+            <td colspan="2">รวมรายรับ</td>
+            <td class="num">{{ m.money(d.total_income) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="rpt-split-right">
+    <div class="sub-section-title">รายจ่ายตามหมวด<span class="sub-unit">บาท</span></div>
+    <div class="sub-frame">
+      <table class="mini-table">
+        <thead>
+          <tr><th style="width: 74px;">รหัสบัญชี</th><th>หมวดรายจ่าย</th><th class="num">จำนวนเงิน</th></tr>
+        </thead>
+        <tbody>
+          {% for it in d.expense_by_category %}
+          <tr>
+            <td class="cell-muted">{{ it.account_code or '—' }}</td>
+            <td>{{ it.account_name }}</td>
+            <td class="num">{{ m.money(it.amount) }}</td>
+          </tr>
+          {% endfor %}
+          {% if not d.expense_by_category %}
+          <tr><td colspan="3" class="cell-muted">ไม่มีรายจ่ายบันทึกไว้ในงวดนี้</td></tr>
+          {% endif %}
+          <tr class="mini-total">
+            <td colspan="2">รวมรายจ่าย</td>
+            <td class="num">{{ m.money(d.total_expense) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="sub-section-title">กระแสเงินสดของงวด<span class="sub-unit">บาท</span></div>
+<div class="sub-frame">
+  <table class="mini-table">
     <thead>
-      <tr>
-        <th style="width: 90px;">รหัสบัญชี</th>
-        <th>หมวดรายจ่าย</th>
-        <th class="num" style="width: 120px;">จำนวนเงิน (บาท)</th>
-      </tr>
+      <tr><th>รายการ</th><th class="num" style="width: 140px;">จำนวนเงิน</th></tr>
     </thead>
     <tbody>
-      {% for it in d.expense_by_category %}
-      <tr>
-        <td class="due">{{ it.account_code or '—' }}</td>
-        <td>{{ it.account_name }}</td>
-        <td class="num">{{ "{:,.2f}".format(it.amount) }}</td>
-      </tr>
-      {% endfor %}
-      {% if not d.expense_by_category %}
-      <tr>
-        <td colspan="3" class="more">ไม่มีรายจ่ายบันทึกไว้ในงวดนี้</td>
-      </tr>
-      {% endif %}
-      <tr>
-        <td colspan="2" style="text-align: right; font-weight: 700;">รวมรายจ่าย</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.total_expense) }}</td>
-      </tr>
-    </tbody>
-  </table>
-
-  {# ─── เงินสด: ยกมา + รับ − จ่าย = ปิด ─────────────────────────────────── #}
-  <table class="items">
-    <thead>
-      <tr>
-        <th>กระแสเงินสด</th>
-        <th class="num" style="width: 140px;">จำนวนเงิน (บาท)</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>เงินสดยกมา</td>
-        <td class="num">{{ "{:,.2f}".format(d.cash.opening) }}</td>
-      </tr>
-      <tr>
-        <td>บวกรายรับในงวด</td>
-        <td class="num">{{ "{:,.2f}".format(d.cash.income) }}</td>
-      </tr>
-      <tr>
-        <td>หักรายจ่ายในงวด</td>
-        <td class="num">({{ "{:,.2f}".format(d.cash.expense) }})</td>
-      </tr>
-      <tr>
-        <td style="font-weight: 700;">เงินสดคงเหลือตามบัญชี (ปิดงบ)</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.cash.closing) }}</td>
-      </tr>
+      <tr><td>เงินสดยกมา</td><td class="num">{{ m.money(d.cash.opening) }}</td></tr>
+      <tr><td>บวกรายรับในงวด</td><td class="num">{{ m.money(d.cash.income) }}</td></tr>
+      <tr><td>หักรายจ่ายในงวด</td><td class="num">({{ m.money(d.cash.expense) }})</td></tr>
+      <tr class="mini-total"><td>เงินสดคงเหลือตามบัญชี (ปิดงบ)</td><td class="num">{{ m.money(d.cash.closing) }}</td></tr>
       {% if d.counted_cash is not none %}
-      <tr>
-        <td>เงินสดนับได้จริง</td>
-        <td class="num">{{ "{:,.2f}".format(d.counted_cash) }}</td>
-      </tr>
-      <tr>
-        <td>ผลต่าง (นับได้ − ตามบัญชี)</td>
-        <td class="num">{{ "{:,.2f}".format(d.variance) }}</td>
-      </tr>
+      <tr><td>เงินสดนับได้จริง</td><td class="num">{{ m.money(d.counted_cash) }}</td></tr>
+      <tr class="mini-total"><td>ผลต่าง (นับได้ − ตามบัญชี)</td><td class="num">{{ m.money(d.variance) }}</td></tr>
       {% endif %}
     </tbody>
   </table>
+</div>
 
-  {% if d.counted_cash is none and not d.is_voided %}
-  {# ⚠️ ฉบับร่างต้องบอกให้ชัดว่ายังไม่ปิดงบ — ตัวเลข "ปิดงบ" คือยอดตามบัญชี ไม่ใช่ยอดนับจริง #}
-  <div class="note">
-    ฉบับร่าง — ยังไม่ได้นับเงินสดและปิดงบ ยอด "ปิดงบ" ข้างต้นเป็นยอดตามบัญชีเท่านั้น
+{% if d.counted_cash is none and not d.is_voided %}
+<div class="pay-sub-detail">
+  ฉบับร่าง — ยังไม่ได้นับเงินสดและปิดงบ ยอด "ปิดงบ" ข้างต้นเป็นยอดตามบัญชีเท่านั้น
+</div>
+{% endif %}
+
+{% if d.note %}
+<div class="lower-band">
+  <div class="lower-col-note">
+    <div class="lower-heading">หมายเหตุ</div>
+    <p class="lower-note-text">{{ d.note }}</p>
   </div>
-  {% endif %}
+</div>
+{% endif %}
 
-  {% if d.note %}
-  <div class="note">หมายเหตุ: {{ d.note }}</div>
-  {% endif %}
+<div class="sig-band sig-3">
+  {{ m.sig_block('ผู้จัดทำ', d.prepared_by, date_text='วันที่') }}
+  {{ m.sig_block('ผู้อนุมัติ', d.approved_by, date_text='วันที่') }}
+  {{ m.sig_block('ผู้ตรวจสอบ', d.checked_by, date_text='วันที่') }}
+</div>
 
-  {# ✍️ 3 ช่องตามสเปก: ผู้จัดทำ · ผู้อนุมัติ · ผู้ตรวจสอบ (schema มี role 'receiver' = ผู้ตรวจสอบ)
-     🔴 `sign sign-3` ลดความกว้างช่องเป็น 30% (คลาสมีอยู่แล้วใน shell) #}
-  <div class="sign sign-3">
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.prepared_by or '' }}</div>
-      <div class="role">ผู้จัดทำ</div>
-    </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.approved_by or '' }}</div>
-      <div class="role">ผู้อนุมัติ</div>
-    </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.checked_by or '' }}</div>
-      <div class="role">ผู้ตรวจสอบ</div>
-    </div>
-  </div>
-
-  <div class="foot">
-    รายงานฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.report_no }}
-  </div>
+{{ m.doc_foot('รายงานภายในของห้อง', d.report_no) }}

@@ -447,6 +447,14 @@ THAI_MONTHS_SHORT = (
 # และต้องพิมพ์ได้แม้ frontend ไม่ได้ออนไลน์
 RECEIPT_TEMPLATE_DIR = "templates/finance"
 RECEIPT_TEMPLATE_NAME = "receipt.html"
+# 🖨️ [A4] shell ตามมาตรฐานเอกสาร A4 — ใช้เฉพาะชุดที่มีเอกสาร v2 (`body_template`
+#    ลงท้าย `_v2.html`) ส่วนชุด legacy ล้วนยังใช้ `receipt.html` เดิม ⇒ ไบต์ของใบเก่า
+#    ไม่ขยับ (digest test) และใบ legacy ที่ปนในชุดผสมได้สไตล์เดิมผ่าน `.legacy-doc`
+RECEIPT_V2_TEMPLATE_NAME = "receipt_v2.html"
+# 🏷️ ชื่อแบรนด์บนหัวกระดาษ — ค่าคงที่ **ห้าม derive จากข้อมูลห้อง** (ทุกเอกสารต้อง
+#    ดูเป็นชุดเดียวกัน) ตรงกับ `APP_NAME` ของแอป (`frontend/src/router/meta.ts`)
+PDF_BRAND_NAME = "SYNCROOM"
+PDF_BRAND_SUB_LABEL = "Classroom Finance"
 # ฟอนต์ไทยต้อง "ส่งไปกับ request" เสมอ — Gotenberg เรนเดอร์ใน container ของตัวเอง
 # URL แบบ file:///app/... จึงไป resolve ที่ filesystem ของ Gotenberg ไม่ใช่ของ backend
 RECEIPT_FONT_DIR = "assets/fonts"
