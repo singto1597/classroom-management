@@ -202,6 +202,8 @@ _MONEY_PATHS = [
     # 💸 [FIN-V2 / P4.1] ใบสำคัญจ่ายหลายบรรทัด — เขียน voucher/lines/txn/journal/PV
     #    และลดยอดกระเป๋าหลายใบ ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น
     ("expense_vouchers", "ExpenseVouchersMixin", "create_expense_voucher"),
+    # 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด — ล็อกห้องก่อน INSERT ทุกแถว
+    ("income_batches", "IncomeBatchesMixin", "create_income_batch"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง

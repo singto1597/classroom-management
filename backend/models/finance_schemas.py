@@ -1978,3 +1978,103 @@ class ExpenseVoucherDetailResponse(BaseModel):
     created_at: datetime
     lines: List[ExpenseVoucherLineItem] = Field(default_factory=list)
     signatures: List[ExpenseVoucherSignatureItem] = Field(default_factory=list)
+
+
+from typing import Any, Dict  # noqa: E402
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด (income batch)
+#    กระเป๋าเดียวต่อใบ · ผู้จ่ายเป็นข้อความอิสระ · INC 1 ใบ + 2 ลายเซ็น
+# ─────────────────────────────────────────────────────────────────────────
+class IncomeLineCreate(BaseModel):
+    """1 บรรทัดของใบรับเงิน — ไม่มีกระเป๋า/สถานะใบเสร็จ (schema ไม่มีคอลัมน์)"""
+    description: str
+    amount: Decimal
+    category_id: int
+
+
+class IncomeBatchCreate(BaseModel):
+    """คำขอสร้างใบรับเงิน — ทั้งใบ atomic
+
+    ⚠️ ไม่ใส่ constraint Pydantic บน `idempotency_key`/`lines` โดยเจตนา —
+    จำนวนบรรทัด 1..50, ความยาวคีย์ 8..128, ยอดรวม และความถูกต้องของหมวด/กระเป๋า/
+    person/channel ถูกตรวจใน service ⇒ ผู้ใช้เห็น 400 พร้อมข้อความไทย ไม่ใช่ 422
+    """
+    idempotency_key: str
+    payer_name: str
+    receiver_person_id: Optional[int] = None
+    # 🖊️ ใช้เมื่อไม่ส่ง person — ถ้าส่ง person ระบบใช้ชื่อจากทะเบียนเสมอ
+    receiver_name: Optional[str] = None
+    wallet_account_id: int
+    channel_id: Optional[int] = None
+    income_date: Optional[date] = None
+    note: Optional[str] = None
+    total_amount: Optional[Decimal] = None
+    # 🖊️ ชื่อผู้ออกเอกสาร (ลายเซ็นช่อง `prepared`) — ไม่ส่งมาก็อ่านจากโปรไฟล์
+    user_name: Optional[str] = None
+    lines: List[IncomeLineCreate] = Field(default_factory=list)
+
+
+class IncomeBatchResponse(BaseModel):
+    """ผลของ `POST /finance/income-batches` — `reused=true` = คีย์เดิม payload เดิม"""
+    id: int
+    total_amount: float
+    line_count: int
+    inc_receipt_id: int
+    inc_receipt_no: str
+    created_at: datetime
+    reused: bool = False
+
+
+class IncomeBatchListItem(BaseModel):
+    id: int
+    income_date: date
+    payer_name: str
+    receiver_name: str
+    total_amount: float
+    line_count: int
+    status: str
+    inc_receipt_id: Optional[int] = None
+    inc_receipt_no: Optional[str] = None
+    created_at: datetime
+
+
+class IncomeBatchListResponse(BaseModel):
+    items: List[IncomeBatchListItem] = Field(default_factory=list)
+    total: float
+
+
+class IncomeBatchLineItem(BaseModel):
+    line_no: int
+    description: str
+    amount: float
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    finance_transaction_id: Optional[int] = None
+
+
+class IncomeBatchSignatureItem(BaseModel):
+    role: str
+    person_id: Optional[int] = None
+    signer_name: str
+
+
+class IncomeBatchDetailResponse(BaseModel):
+    id: int
+    income_date: date
+    payer_name: str
+    receiver_person_id: Optional[int] = None
+    receiver_name: str
+    wallet_account_id: int
+    channel_id: Optional[int] = None
+    # 🎭 snapshot ที่ shape แล้ว (channel_type/label/bank_name/…_masked)
+    channel: Dict[str, Any] = Field(default_factory=dict)
+    note: Optional[str] = None
+    total_amount: float
+    status: str
+    inc_receipt_id: Optional[int] = None
+    inc_receipt_no: Optional[str] = None
+    created_at: datetime
+    lines: List[IncomeBatchLineItem] = Field(default_factory=list)
+    signatures: List[IncomeBatchSignatureItem] = Field(default_factory=list)

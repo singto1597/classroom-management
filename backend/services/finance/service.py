@@ -84,6 +84,11 @@ from .credit_rounds import CreditRoundsMixin
 #    ⇒ ต้องวาง **ก่อน** สองตัวนั้น · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
 #    (ชื่อใหม่ทั้งหมด: `create_expense_voucher`/`list_expense_vouchers`/…)
 from .expense_vouchers import ExpenseVouchersMixin
+# 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด — พึ่ง `_resolve_asset_ledger`/
+#    `_insert_journal_entry` (LedgerMixin), `resolve_room_id`/`_get_room_server_id`
+#    (BaseMixin) และ `_resolve_actor_name` (ExpenseVouchersMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** LedgerMixin/BaseMixin · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
+from .income_batches import IncomeBatchesMixin
 
 
 class FinanceService(
@@ -154,6 +159,9 @@ class FinanceService(
     #    พึ่ง `_resolve_asset_ledger`/`_insert_journal_entry` (LedgerMixin) และ
     #    `resolve_room_id` (BaseMixin) ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO
     ExpenseVouchersMixin,
+    # 💰 [FIN-V2 / P4.4] — ใบรับเงินหลายบรรทัด (1 ใบ = N txn + N journal + 1 INC)
+    #    พึ่ง helper เดียวกับ P4.1 ⇒ อยู่ติดกันก่อน LedgerMixin/BaseMixin
+    IncomeBatchesMixin,
     # 🧮 [FIN-V2 / P1.5] — preview การจัดสรร (อ่านอย่างเดียว)
     #    พึ่ง `_open_bill_predicate()` (Accrual) และ `_load_credit_balance` (Credits)
     #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO (mixin ที่อยู่บนชนะ)

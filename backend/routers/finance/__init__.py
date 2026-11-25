@@ -35,6 +35,8 @@ from .payment_history import router as payment_history_router
 from .credit_rounds import router as credit_rounds_router
 # 💸 [FIN-V2 / P4.1] ใบสำคัญจ่ายหลายบรรทัด — P4.2 จะต่อ CERT ในไฟล์ service/router เดิม
 from .expense_vouchers import router as expense_vouchers_router
+# 💰 [FIN-V2 / P4.4] ใบรับเงินหลายบรรทัด (INC 1 ใบ + 2 ลายเซ็น)
+from .income_batches import router as income_batches_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -96,5 +98,8 @@ router.include_router(credit_rounds_router)
 # 💸 [FIN-V2 / P4.1] — path ขึ้นต้น `/finance/expense-vouchers` ซึ่งไม่ซ้ำกับกลุ่มใด
 #    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์ · P4.2 ต่อ CERT ในไฟล์ router เดียวกัน
 router.include_router(expense_vouchers_router)
+# 💰 [FIN-V2 / P4.4] — path ขึ้นต้น `/finance/income-batches` ซึ่งไม่ซ้ำกับกลุ่มใด
+#    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์ (static ก่อน dynamic ภายในไฟล์นั้น)
+router.include_router(income_batches_router)
 
 __all__ = ["router"]
