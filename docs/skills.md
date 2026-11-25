@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 291 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 292 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -295,6 +295,7 @@
 - [💸 ใบสำคัญจ่ายหลายบรรทัด: journal ต้องแยกต่อบรรทัด + PV ต้องมี `idempotency_key` ของตัวเอง](#ใบสำคัญจ่ายหลายบรรทัด-journal-ต้องแยกต่อบรรทัด-pv-ต้องมี-idempotencykey-ของตัวเอง)
 - [🧾 เทสต์เอกสาร: shell มีถ้อยคำใน CSS comment — ห้าม assert "ไม่มีคำนั้น" ด้วยข้อความดิบ](#เทสต์เอกสาร-shell-มีถ้อยคำใน-css-comment-ห้าม-assert-ไม่มีคำนั้น-ด้วยข้อความดิบ)
 - [✂️ ตารางการเงินที่สร้างก่อน migration ไม่มี `created_at` — อย่าเดาคอลัมน์จากตารางรุ่นใหม่](#ตารางการเงินที่สร้างก่อน-migration-ไม่มี-createdat-อย่าเดาคอลัมน์จากตารางรุ่นใหม่)
+- [🧩 FIN-V2 ประกอบครบ: สิ่งที่เห็นได้เฉพาะเมื่อทุก package อยู่ด้วยกัน](#fin-v2-ประกอบครบ-สิ่งที่เห็นได้เฉพาะเมื่อทุก-package-อยู่ด้วยกัน)
 
 <!-- TOC:END -->
 
@@ -5025,4 +5026,22 @@
   - เทสต์ที่ผ่าน init_db แต่ไม่เคยยิง endpoint จะไม่จับ error นี้ — ต้องมีเทสต์ยิง HTTP จริงของฟังก์ชันใหม่อย่างน้อยหนึ่งตัวต่อ endpoint (P6.2 มี 2 ตัวจับได้)
 - **Rule:** (1) 🔴 อย่าเดาว่าตารางการเงินมี `created_at`/audit column ครบ — ตรวจ DDL ของตารางนั้น (2) 🔴 ไม่มี timestamp → เรียงด้วย `id` และไม่คืนฟิลด์ที่ไม่มีจริง (3) 🔴 ฟังก์ชันใหม่ทุกตัวต้องมีเทสต์ยิง HTTP/บริการจริง ไม่ใช่แค่ import ผ่าน
 - **Tests/Verification:** `backend/tests/test_finance_bill_adjustments.py` (18 ตัว — เพิ่ม 2 ตัวตรวจชื่อซ้ำเป็นตัวจับบั๊กนี้), `backend/tests/test_finance_outstanding_formula.py` (11 ตัว: debtors xfail(strict) per Gotcha 1, aging, summary, receipts breakdown, export, late-fee base, reminders, me/stats, home/summary, credits, revert), `test_finance_money_lock.py` เขียว
+- **Date Added:** 2026-11-25
+
+### 🧩 FIN-V2 ประกอบครบ: สิ่งที่เห็นได้เฉพาะเมื่อทุก package อยู่ด้วยกัน
+- **Context/Problem:** เขียน 33 package แยก session ทำให้แต่ละ brief ล็อกพฤติกรรมของตัวเองได้ แต่มีกับดัก 5 อย่างที่ **ไม่ปรากฏ** ใน package ใด package เดียว — เห็นตอนประกอบ/ปิดรอบ (P6.5) เท่านั้น:
+  (1) ยอดค้างที่มี "สูตร 3 พจน์" (`amount − paid − written_off`) อยู่หลายจุด ถ้าใครแก้จุดเดียวโดยไม่อัปเดต `test_finance_outstanding_formula.py` ตัวเลขจะไม่ตรงกันแบบเงียบ ๆ;
+  (2) เอกสารสองยุค (layout 1/2) ใช้ shell HTML เดียวกัน ⇒ ถ้า adapter คืน context ไม่ครบ Jinja `is not none` จะกลายเป็น True และพิมพ์ผิดใบ;
+  (3) redirect หน้าจอเก่าต้องพึ่ง **backend resolver** (`by-no`) ไม่ใช่ map ฝั่ง FE เพราะ CERT 4 ตัวอักษร/RPT ไม่มีเลขก่อน finalized;
+  (4) void ที่พ่วงหลายเอกสารต้อง atomic ทั้งก้อน — ถ้า void REC สำเร็จแต่ DEP ค้าง ผู้ใช้เห็นใบเดียวถูกยกเลิก;
+  (5) idempotency ของ v2 อยู่ที่ **DB unique** (`payment_event_id`, `idempotency_key`) ไม่ใช่ที่ service ⇒ retry ซ้อนจากหลาย replica ยังได้ใบเดิม
+- **Root Cause:** แต่ละ package ทดสอบ "ของตัวเอง" ด้วย fixture ของตัวเอง; ความสอดคล้องข้าม package (สูตรที่ใช้ร่วมกัน, adapter contract, resolver, atomic rollback) ไม่มีเทสต์ไหนถือเป็นเจ้าของ ⇒ เจอตอนรันชุดรวม/QA เท่านั้น
+- **Correct Pattern/Solution:**
+  - **สูตร 3 พจน์** ทุก call site ต้องอ่านจาก `_open_bill_predicate()` + `COALESCE(...,0)` เดียวกัน — aging `grand_total` = dashboard `receivable_total` = หน้ารายชื่อ (มี parity test ล็อก)
+  - **adapter เอกสาร** คืน context ครบทุกคีย์ที่ template อ่าน และ `layout_version=1` ต้องไม่เปลี่ยนไบต์ (hash ที่มาสก์ฟอนต์)
+  - **`by-no` resolver** เป็น backend ตัวเดียวของ "เลข → (doc_type, doc_id)"; FE route `/finance/documents/by-no/:docNo` ต้องมาก่อน `/:docType/:docId` (static-before-dynamic)
+  - **redirect legacy** ใช้ `router.replace` + `createLatestGuard` และ 404 แสดงทางออก (ไม่ใช่ error กลาง) — route `/finance/receipts` ไม่มี `name` เพื่อไม่ให้โค้ดใหม่ลิงก์มา
+  - **void** ยกเลิกทุกเอกสาร/แถวใน transaction เดียว + audit นอก/ในตามกติกา read-only ที่ใช้ร่วมกัน
+- **Rule:** (1) 🔴 เปลี่ยนสูตรค้างต้องอัปเดต parity test ทั้งชุด (2) 🔴 เอกสารใหม่ห้ามแก้ shell/partial legacy (3) 🔴 ทางเข้า legacy = redirect ของ, ไม่ใช่ map ฝั่ง FE (4) 🔴 void หลายเอกสารต้อง all-or-nothing (5) 🔴 grep `/finance/receipts` เหลือเฉพาะ redirect + คอมเมนต์
+- **Tests/Verification:** `backend/tests/test_finance_outstanding_formula.py`, `test_finance_dashboard_ownership.py` (parity aging), `test_finance_legacy_pdf_regression.py` (byte stability), `frontend/src/router/__tests__/routes.spec.ts` (redirect + static-before-dynamic), `frontend/src/views/finance/__tests__/legacyReceiptRedirect.spec.ts`
 - **Date Added:** 2026-11-25

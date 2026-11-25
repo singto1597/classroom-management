@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { routes } from '@/router/routes';
+import routesSource from '@/router/routes.ts?raw';
 import {
   NAV_ITEMS,
   NAV_TABS,
@@ -233,5 +234,53 @@ describe('pageTitle', () => {
   it('ไม่มีชื่อหน้า ⇒ ชื่อแอปเต็ม', () => {
     expect(pageTitle(undefined)).toBe(DEFAULT_TITLE);
     expect(pageTitle('   ')).toBe(DEFAULT_TITLE);
+  });
+});
+
+/**
+ * 🔁 [FIN-V2 / P6.5] ทางเข้าใบเสร็จเดิมถูกยกเป็น redirect — ล็อกไว้เพื่อไม่ให้ใคร
+ * "คืน" หน้าเก่าหรือลบ redirect ที่ deep link จาก Discord/บุ๊กมาร์กยังต้องใช้
+ */
+describe('[P6.5] ทางเข้าเอกสาร legacy', () => {
+  interface RawChild {
+    path: string;
+    name?: string;
+    redirect?: unknown;
+    meta?: { title?: string; navTab?: string };
+  }
+  const appChildren = ((routes.find((r) => r.path === '/app')?.children ??
+    []) as unknown) as RawChild[];
+  const childByPath = (path: string): RawChild | undefined =>
+    appChildren.find((r) => r.path === path);
+
+  it('/finance/receipts redirect ไปทะเบียนเอกสาร และไม่มีชื่อ route', () => {
+    const legacy = childByPath('/finance/receipts');
+    expect(legacy).toBeDefined();
+    expect(legacy?.redirect).toEqual({ name: 'finance-documents' });
+    // ไม่มี `name` โดยเจตนา — ไม่ต้องมี routeTitles/navTab และโค้ดใหม่ห้ามลิงก์มาที่นี่
+    expect(legacy?.name).toBeUndefined();
+  });
+
+  it('deep link เก่า /finance/receipts/:receiptNo ยังมีชื่อ + navTab การเงิน', () => {
+    const detail = childByPath('/finance/receipts/:receiptNo');
+    expect(detail?.name).toBe('finance-receipt-detail');
+    expect(detail?.meta?.navTab).toBe('finance');
+    expect(detail?.meta?.title).toBeTruthy();
+  });
+
+  it('/finance/documents/by-no/:docNo ประกาศก่อน /finance/documents/:docType/:docId', () => {
+    const byNo = appChildren.findIndex((r) => r.path === '/finance/documents/by-no/:docNo');
+    const byId = appChildren.findIndex((r) => r.path === '/finance/documents/:docType/:docId');
+    expect(byNo).toBeGreaterThanOrEqual(0);
+    expect(byId).toBeGreaterThanOrEqual(0);
+    // static-before-dynamic — ไม่งั้น `by-no` ถูกจับเป็นค่า `:docType`
+    expect(byNo).toBeLessThan(byId);
+    expect(childByPath('/finance/documents/by-no/:docNo')?.name).toBe('finance-document-by-no');
+    expect(childByPath('/finance/documents/by-no/:docNo')?.meta?.navTab).toBe('finance');
+  });
+
+  it('ไม่มี route ชี้ ReceiptList.vue / ReceiptDetail.vue แล้ว', () => {
+    expect(routesSource).not.toContain('ReceiptList.vue');
+    expect(routesSource).not.toContain('ReceiptDetail.vue');
   });
 });

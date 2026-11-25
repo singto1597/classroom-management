@@ -374,7 +374,7 @@ const showIssued = async (receiptNo: string, reused: boolean, allowOpen: boolean
       })
     : await dialog.alert(reused ? 'ใบเสร็จนี้เคยออกแล้ว' : 'ออกใบเสร็จเรียบร้อย', text, reused ? 'info' : 'success')
   if (allowOpen && result.isConfirmed) {
-    await router.push(`/finance/receipts/${receiptNo}`)
+    await router.push(`/finance/documents/by-no/${encodeURIComponent(receiptNo)}`)
   }
 }
 

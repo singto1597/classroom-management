@@ -150,8 +150,9 @@ describe('PaymentHistory — event + handover timeline (P3.4)', () => {
     expect(text).toContain('เครดิตใช้ ฿200.00')
 
     const hrefs = wrapper.findAll('a').map((a) => a.attributes('href'))
-    expect(hrefs).toContain('/finance/receipts/REC-2569-0042')
-    expect(hrefs).toContain('/finance/receipts/DEP-2569-0007')
+    // [P6.5] ลิงก์เอกสารชี้ `/finance/documents/by-no/...` ไม่ใช่ทางเข้า legacy แล้ว
+    expect(hrefs).toContain('/finance/documents/by-no/REC-2569-0042')
+    expect(hrefs).toContain('/finance/documents/by-no/DEP-2569-0007')
   })
 
   it('แสดง handover ในไทม์ไลน์เดียวกัน พร้อม badge ยกเลิกและเหตุผล', async () => {

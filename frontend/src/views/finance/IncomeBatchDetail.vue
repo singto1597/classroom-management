@@ -228,7 +228,7 @@ onMounted(() => {
             </p>
             <p v-if="detail.inc_receipt_no">
               <RouterLink
-                :to="`/finance/receipts/${detail.inc_receipt_no}`"
+                :to="`/finance/documents/by-no/${encodeURIComponent(detail.inc_receipt_no)}`"
                 class="font-bold text-brand-700 hover:underline"
               >
                 เปิดเอกสาร INC ในทะเบียน

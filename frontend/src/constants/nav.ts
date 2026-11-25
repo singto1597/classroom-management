@@ -224,11 +224,14 @@ export const routeTitles = {
   'finance-student-statement': 'รายการเดินบัญชี',
   'finance-statements': 'งบการเงิน',
   'finance-budgets': 'งบประมาณ',
-  'finance-receipts': 'ใบเสร็จ / ใบแจ้งหนี้',
+  // 🔁 [FIN-V2 / P6.5] `finance-receipts` ไม่มีแล้ว — route เดิม redirect ไปทะเบียน
+  //    ⚠️ `finance-receipt-detail` คงไว้: deep link เก่ายังสร้าง path นี้ได้
   'finance-receipt-detail': 'รายละเอียดเอกสาร',
   // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — คำตรง docs/glossary.md ("เอกสาร")
   'finance-documents': 'ทะเบียนเอกสาร',
   'finance-document-detail': 'รายละเอียดเอกสาร',
+  // 🔗 [FIN-V2 / P6.5] แปลงเลขเอกสารเป็นหน้า detail — ทางเข้าของโค้ดใหม่
+  'finance-document-by-no': 'รายละเอียดเอกสาร',
   // 👜 [FIN-V2 / P3.2] เงินสดรอส่งมอบ — คำตรง docs/glossary.md (P3.1 เติมคำแล้ว)
   // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการ์ดตั้งค่า/การเงิน)
   'finance-custody': 'เงินสดรอส่งมอบ',

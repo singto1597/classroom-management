@@ -69,7 +69,7 @@ const DEFAULT_ROUTES = [
   '/finance/credits',
   '/finance/statements',
   '/finance/budgets',
-  '/finance/receipts',
+  '/finance/documents',
   '/discord-connect',
   '/messages',
   '/activities',

@@ -584,7 +584,7 @@ watch([selectedMonth, selectedYear], () => {
 
         <!-- ใบเสร็จ / ใบแจ้งหนี้ — ลิงก์เต็มความกว้างแบบเดียวกัน (F3) -->
         <RouterLink
-          to="/finance/receipts"
+          to="/finance/documents"
           class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
         >
           <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">

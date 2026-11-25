@@ -571,7 +571,7 @@ const handleRefundDecision = async (refund: FineRefund, action: 'approve' | 'rej
           </AppChip>
           <RouterLink
             v-if="fine.invoice_no"
-            :to="`/finance/receipts/${fine.invoice_no}`"
+            :to="`/finance/documents/by-no/${encodeURIComponent(fine.invoice_no)}`"
             class="chip bg-info-50 text-info-700 transition-colors hover:bg-info-100"
           >
             <i class="bi bi-file-earmark-text" aria-hidden="true"></i>

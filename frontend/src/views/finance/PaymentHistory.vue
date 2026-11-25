@@ -246,7 +246,8 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 const docLabel = (docType: string): string => DOC_TYPE_LABELS[docType] ?? docType.toUpperCase()
 
-const docLink = (receiptNo: string): string => `/finance/receipts/${encodeURIComponent(receiptNo)}`
+const docLink = (receiptNo: string): string =>
+  `/finance/documents/by-no/${encodeURIComponent(receiptNo)}`
 
 const toggleExpanded = (item: PaymentHistoryItem) => {
   const key = itemKey(item)

@@ -206,7 +206,7 @@ onMounted(() => {
             </p>
             <p v-if="detail.pv_receipt_no">
               <RouterLink
-                :to="`/finance/receipts/${detail.pv_receipt_no}`"
+                :to="`/finance/documents/by-no/${encodeURIComponent(detail.pv_receipt_no)}`"
                 class="font-bold text-brand-700 hover:underline"
               >
                 เปิดเอกสาร PV ในทะเบียน
@@ -240,7 +240,7 @@ onMounted(() => {
               </p>
             </div>
             <RouterLink
-              :to="`/finance/receipts/${detail.cert_receipt_no}`"
+              :to="`/finance/documents/by-no/${encodeURIComponent(detail.cert_receipt_no)}`"
               class="btn-ghost-ui"
             >
               <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>

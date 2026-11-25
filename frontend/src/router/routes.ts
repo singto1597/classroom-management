@@ -425,26 +425,19 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
-        // ทะเบียนเอกสาร — อ่านเปิดให้สมาชิก ปุ่มออกเอกสารอยู่ในหน้าที่ยื่นบริบทให้
-        // (CollectionDetail สำหรับใบเสร็จ · DebtorList สำหรับใบแจ้งหนี้) ไม่ใช่ที่นี่
+        // 🔁 [FIN-V2 / P6.5] ทางเข้าเก่า: รายการใบเสร็จ/ใบแจ้งหนี้ → ทะเบียนเอกสาร (P5.2)
+        //    ⚠️ ไม่มี `name` โดยเจตนา — ไม่ต้องมี routeTitles/navTab และไม่ให้โค้ดใหม่
+        //    ลิงก์มาที่ทางเข้า legacy (redirect ยังอยู่เพื่อบุ๊กมาร์ก/Discord ที่แชร์ไปแล้ว)
         path: '/finance/receipts',
-        name: 'finance-receipts',
-        component: () => import('@/views/finance/ReceiptList.vue'),
-        meta: {
-          title: routeTitles['finance-receipts'],
-          navTab: 'finance',
-          headerBack: true,
-          width: 'wide',
-        },
+        redirect: { name: 'finance-documents' },
       },
       {
-        // ⚠️ ต้องประกาศ **หลัง** `finance/receipts` — ไม่งั้น vue-router จะพยายาม
-        //    match `receipts` เป็นค่า `:receiptNo` (route แรกที่ตรงกว่าชนะ แต่ลำดับ
-        //    ของ static-before-dynamic คือสิ่งที่อ่านแล้วไม่ต้องเดา)
-        // `receiptNo` เป็น string รูป REC-2569-0042 — backend validate pattern ให้อีกชั้น
+        // 🔁 [FIN-V2 / P6.5] ลิงก์/บุ๊กมาร์กเก่าที่ชี้ใบใดใบหนึ่ง → แปลงเลขเป็น detail ของทะเบียน
+        //    ⚠️ ต้องประกาศ **หลัง** `finance/receipts` (static-before-dynamic)
+        //    `receiptNo` เป็น string รูป REC-2569-0042 — backend เป็นผู้แปลงเป็น (doc_type, doc_id)
         path: '/finance/receipts/:receiptNo',
         name: 'finance-receipt-detail',
-        component: () => import('@/views/finance/ReceiptDetail.vue'),
+        component: () => import('@/views/finance/LegacyReceiptRedirect.vue'),
         meta: {
           title: routeTitles['finance-receipt-detail'],
           navTab: 'finance',
@@ -453,8 +446,21 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 🔗 [FIN-V2 / P6.5] แปลงเลขเอกสารเป็นหน้า detail — ทางเข้าปกติของโค้ดใหม่
+        //    ⚠️ ต้องอยู่ **ก่อน** `/finance/documents/:docType/:docId` ไม่งั้น `by-no`
+        //    จะถูกจับเป็นค่า `:docType`
+        path: '/finance/documents/by-no/:docNo',
+        name: 'finance-document-by-no',
+        component: () => import('@/views/finance/LegacyReceiptRedirect.vue'),
+        meta: {
+          title: routeTitles['finance-document-by-no'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — เอกสาร 8 ชนิดในตารางเดียว (อ่านอย่างเดียว)
-        // ⚠️ ไม่ทับ `/finance/receipts` — ทะเบียนเดิมยังอยู่จนถึง P6.5
         path: '/finance/documents',
         name: 'finance-documents',
         component: () => import('@/views/finance/DocumentRegistry.vue'),

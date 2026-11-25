@@ -437,6 +437,10 @@ export const FinanceService = {
   //    - `doc_type: 'receipt'` = **idempotent** → กดซ้ำได้เลขเดิม, response กลับมา `reused: true`
   //    - `doc_type: 'invoice'` = **point-in-time** → กดซ้ำได้ **เลขใหม่ทุกครั้ง** (กินเลขจริง)
   //    ⇒ ปุ่มที่ออกใบแจ้งหนี้ต้องมี confirm เสมอก่อนยิง
+  //
+  // 🧹 [FIN-V2 / P6.5] เมธอดในหมวดนี้ **ไม่มีหน้าจอใช้แล้ว** (ทะเบียนเอกสาร P5.2 +
+  //    `resolveDocumentByNo` แทน) — คงไว้เพราะ endpoint ยังเปิดตาม api-v2 §15 และ
+  //    bot/สคริปต์ภายนอกอาจเรียก · ห้ามลบเพื่อ "เก็บกวาด" โดยไม่ตรวจผู้เรียกก่อน
 
   // 📋 รายการเอกสารของห้อง — กรองช่วงวันที่ตาม **วันตามปฏิทินไทย** (ตรงกับงบการเงิน F1)
   async getReceipts(roomId: number, params: ReceiptQueryParams = {}): Promise<ReceiptListItem[]> {

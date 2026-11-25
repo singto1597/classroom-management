@@ -3,12 +3,11 @@
  * 🗂️ [FIN-V2 / P5.2] หน้าทะเบียนเอกสารรวม — เอกสาร 8 ชนิดในตารางเดียว
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ทำไมไม่แก้ `ReceiptList.vue`
+ * ทำไมเป็นหน้าใหม่ ไม่ใช่การแก้ทะเบียนเดิม
  * ═══════════════════════════════════════════════════════════════════════════
- * ทะเบียนเดิมกรองได้ชนิดเดียว + `LIMIT 500` แข็ง + ไม่มี RPT และไม่มี cross-link
- * การ refactor ไฟล์ 1,200 บรรทัดในเฟส 5 เสี่ยงทำ legacy พังก่อน P6.5 ⇒ หน้านี้เป็น
- * **หน้าใหม่แยกสิ้นเชิง** ที่อ่าน API `GET /finance/documents` ของ P5.1
- * (P6.5 ค่อย redirect / ลบ view เก่า)
+ * ทะเบียนเดิม (ลบแล้วใน P6.5) กรองได้ชนิดเดียว + `LIMIT 500` แข็ง + ไม่มี RPT
+ * และไม่มี cross-link ⇒ หน้านี้เป็น **หน้าใหม่แยกสิ้นเชิง** ที่อ่าน API
+ * `GET /finance/documents` ของ P5.1 และเป็นปลายทางของ redirect `/finance/receipts`
  *
  * 🔓 อ่านเปิดให้สมาชิก (`require_member` ฝั่ง backend) — ไม่มีปุ่มเขียนใด ๆ
  *    ยกเว้น "พิมพ์ชุด" ที่เป็นการอ่าน+เรนเดอร์ PDF
@@ -290,14 +289,7 @@ onBeforeUnmount(() => {
   <div class="space-y-4 sm:space-y-5">
     <PageIntro
       description="เอกสารทุกชนิดของห้องอยู่ในที่เดียว — กรองตามวันที่ นักเรียน ผู้รับ ช่องทาง หรือสถานะ แล้วเลือกหลายใบเพื่อพิมพ์เป็นชุด"
-    >
-      <template #actions>
-        <RouterLink to="/finance/receipts" class="btn-ghost-ui">
-          <i class="bi bi-archive" aria-hidden="true"></i>
-          ทะเบียนแบบเดิม
-        </RouterLink>
-      </template>
-    </PageIntro>
+    />
 
     <DocumentFilters v-model="filters" @submit="onSubmit" />
 
