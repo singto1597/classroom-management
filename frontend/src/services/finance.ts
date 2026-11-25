@@ -1,4 +1,6 @@
 import api from './api';
+// 🗂️ [FIN-V2 / P5.2] ตัวแปลงตัวกรองทะเบียน → query params (ตรรกะบริสุทธิ์ มีเทสต์ใน utils)
+import { buildDocumentQuery } from '@/utils/documentFilters';
 
 import type {
   Account,
@@ -125,7 +127,13 @@ import type {
   IncomeBatchCreate,
   IncomeBatchCreateResponse,
   IncomeBatchDetail,
-  IncomeBatchListResponse
+  IncomeBatchListResponse,
+  // 🗂️ [FIN-V2 / P5.1 API → P5.2 UI] ทะเบียนเอกสารรวม
+  DocumentDetail,
+  DocumentListQuery,
+  DocumentListResponse,
+  DocumentRefItem,
+  DocumentType
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1231,6 +1239,65 @@ export const FinanceService = {
   async downloadIncomeBatchPdf(roomId: number, id: number): Promise<Blob> {
     return await api.get(
       `/api/classroom/${roomId}/finance/income-batches/${id}/pdf`,
+      { params: { target_type: 'room' }, responseType: 'blob' }
+    ) as unknown as Blob;
+  },
+
+  // ==========================================
+  // 🗂️ [FIN-V2 / P5.1 API → P5.2 UI] ทะเบียนเอกสารรวม
+  // ==========================================
+  //
+  // 🔓 อ่านเปิดให้สมาชิก (`require_member` ฝั่ง backend) — ไม่มีเมธอดเขียนในกลุ่มนี้
+  // ⚠️ `doc_types` ส่งเป็นสตริงคั่นจุลภาค และ `status: 'all'` → `include_voided=true`
+  //    — แปลงที่ `buildDocumentQuery` (utils/documentFilters.ts) ที่เดียว
+
+  async getDocuments(
+    roomId: number,
+    query: DocumentListQuery = {}
+  ): Promise<DocumentListResponse> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/documents`,
+      { params: { target_type: 'room', ...buildDocumentQuery(query) } }
+    ) as unknown as DocumentListResponse;
+  },
+
+  async getDocumentDetail(
+    roomId: number,
+    docType: DocumentType,
+    docId: number
+  ): Promise<DocumentDetail> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/documents/${docType}/${docId}?target_type=room`
+    ) as unknown as DocumentDetail;
+  },
+
+  // 🔗 resolver สำหรับลิงก์เก่า/ค้นด้วยเลขเอกสาร — 404 เมื่อไม่พบ (ข้อความไทยจาก backend)
+  async resolveDocumentByNo(roomId: number, docNo: string): Promise<DocumentDetail> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/documents/by-no/${encodeURIComponent(docNo)}`,
+      { params: { target_type: 'room' } }
+    ) as unknown as DocumentDetail;
+  },
+
+  async downloadDocumentPdf(
+    roomId: number,
+    docType: DocumentType,
+    docId: number
+  ): Promise<Blob> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/documents/${docType}/${docId}/pdf`,
+      { params: { target_type: 'room' }, responseType: 'blob' }
+    ) as unknown as Blob;
+  },
+
+  // 🖨️ พิมพ์ชุด ≤100 ใบ (mixed layout ได้) — backend ตอบ 404 ทั้งคำขอถ้ามีใบใดขาด
+  async printDocumentBundle(
+    roomId: number,
+    items: DocumentRefItem[]
+  ): Promise<Blob> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/documents/print-bundle`,
+      { items },
       { params: { target_type: 'room' }, responseType: 'blob' }
     ) as unknown as Blob;
   }

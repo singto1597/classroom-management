@@ -453,6 +453,32 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — เอกสาร 8 ชนิดในตารางเดียว (อ่านอย่างเดียว)
+        // ⚠️ ไม่ทับ `/finance/receipts` — ทะเบียนเดิมยังอยู่จนถึง P6.5
+        path: '/finance/documents',
+        name: 'finance-documents',
+        component: () => import('@/views/finance/DocumentRegistry.vue'),
+        meta: {
+          title: routeTitles['finance-documents'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📄 [FIN-V2 / P5.2] รายละเอียดเอกสาร — รับคู่ (`doc_type`, `doc_id`) ไม่ใช่เลขเอกสาร
+        // เพราะเลข RPT ยังไม่มีก่อน finalized และเลขเอกสารชนกันได้ข้ามชนิด
+        path: '/finance/documents/:docType/:docId',
+        name: 'finance-document-detail',
+        component: () => import('@/views/finance/DocumentDetail.vue'),
+        meta: {
+          title: routeTitles['finance-document-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         // 👜 [FIN-V2 / P3.2] เงินสดรอส่งมอบ — อ่านเปิดให้สมาชิก (backend `require_member`)
         // ปุ่มเขียน (ตั้งกระเป๋า/ส่งมอบ/ยกเลิก) gate ด้วย `canManageFinance` ในตัวหน้า
         // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา — เข้าจากการ์ดใน `/finance/settings` / การเงิน

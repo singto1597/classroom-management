@@ -2200,3 +2200,172 @@ export interface IncomeBatchDetail {
   lines: IncomeBatchLineItem[];
   signatures: IncomeBatchSignatureItem[];
 }
+
+// ==========================================
+// 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — สัญญาของ API P5.1
+// ==========================================
+//
+// 🔴 `doc_type` 8 ชนิดคือสัญญาเดียวกับ `REGISTRY_DOC_TYPES` ฝั่ง backend
+//    (`services/finance/constants.py`) — เพิ่มชนิดใหม่ต้องแก้ทั้งสองฝั่ง
+//    และ `DOC_TYPE_LABELS` ใน `utils/documentFilters.ts` ด้วย (มีเทสต์คุม)
+//
+// ⚠️ ทุกเอกสาร **ไม่ใช่** `Receipt` — RPT มาจาก `finance_monthly_reports`
+//    ⇒ ฟิลด์ที่เอกสารชนิดนั้นไม่มีจะเป็น `null` เสมอ (อย่าตีความว่าเป็น 0/ว่าง)
+
+/** ชนิดเอกสารในทะเบียนรวม — ลำดับตรงกับตัวกรองบนหน้าจอ */
+export type DocumentType =
+  | 'receipt'
+  | 'invoice'
+  | 'acknowledgement'
+  | 'deposit'
+  | 'payment_voucher'
+  | 'certificate'
+  | 'income'
+  | 'monthly_report';
+
+/**
+ * ตัวกรองของทะเบียน — ใช้เป็น v-model ของ `DocumentFilters.vue`
+ *
+ * - `doc_types` ว่าง/ไม่ส่ง = ทุกชนิด
+ * - `status: 'all'` ⇒ ส่ง `include_voided=true` ไม่ส่ง `status` (แปลงที่ `buildDocumentQuery`)
+ * - วันที่เป็น `YYYY-MM-DD` (ISO) — backend ตีความเป็น **วันไทย** เอง (half-open)
+ */
+export interface DocumentListQuery {
+  doc_types?: DocumentType[];
+  from?: string;
+  to?: string;
+  student_id?: number | null;
+  receiver_id?: number | null;
+  channel_id?: number | null;
+  status?: 'active' | 'voided' | 'all';
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** แถวในทะเบียน — เงินเป็นสตริง 2 ตำแหน่ง (backend) ⇒ `Number()` ก่อนบวกลบ */
+export interface DocumentListItem {
+  doc_type: DocumentType;
+  doc_id: number;
+  doc_no: string | null;
+  /** tz-aware ISO ของ `COALESCE(event_at, issued_at)` — ใช้ `formatThaiDateTime` ไม่ใช่ `formatThaiDate` */
+  doc_at: string | null;
+  amount: string | null;
+  status: string;
+  layout_version: number;
+  student_id: number | null;
+  student_no: number | null;
+  student_name: string | null;
+  receiver_person_id: number | null;
+  receiver_name: string | null;
+  channel_id: number | null;
+  line_item_count: number | null;
+}
+
+export interface DocumentListResponse {
+  items: DocumentListItem[];
+  /** จำนวน **แถว** ทั้งหมดที่ตรงตัวกรอง (ไม่ใช่หน้าปัจจุบัน) */
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface DocumentSignatureItem {
+  role: string;
+  person_id: number | null;
+  signer_name: string;
+  signed_at: string | null;
+}
+
+/** ลิงก์ระหว่างเอกสาร — `direction` บอกว่าเอกสารที่เปิดอยู่คือต้นทาง (`out`) หรือปลายทาง (`in`) */
+export interface DocumentLink {
+  link_type: string;
+  direction: 'out' | 'in';
+  doc_type: DocumentType;
+  doc_id: number;
+  doc_no: string | null;
+}
+
+/**
+ * บรรทัดบนเอกสาร — **โครงต่างกันตามชนิด** (REC v2 = `amount_applied`, INV = `amount`,
+ * PV = `description`) ⇒ ทุกคีย์เป็น optional และอ่านแบบมี guard เสมอ
+ * (`noUncheckedIndexedAccess` เปิดอยู่ — อย่าเข้าถึงคีย์ที่ไม่ได้ประกาศ)
+ */
+export interface DocumentLineItem {
+  line_no?: number;
+  title?: string | null;
+  description?: string | null;
+  amount?: number | null;
+  amount_applied?: number | null;
+  bill_amount?: number | null;
+  bill_remaining?: number | null;
+  cash_amount?: number | null;
+  credit_amount?: number | null;
+  due_date?: string | null;
+  category_name?: string | null;
+  wallet_name?: string | null;
+  budget_label?: string | null;
+  source?: string | null;
+  receipt_status?: string | null;
+  paper_bill_count?: number | null;
+  [key: string]: unknown;
+}
+
+/**
+ * รายละเอียดเอกสารทุกชนิดในรูปเดียว — ฟิลด์ที่ไม่เกี่ยวกับชนิดนั้นเป็น `null`
+ * (RPT ใช้เฉพาะบล็อก `year_be`…`snapshot`)
+ */
+export interface DocumentDetail {
+  doc_type: DocumentType;
+  doc_id: number;
+  doc_no: string | null;
+  doc_type_label: string | null;
+  doc_at: string | null;
+  issued_at: string | null;
+  /** เงินเป็นสตริง 2 ตำแหน่ง — `Number(amount ?? 0)` ก่อน `formatMoney` */
+  amount: string | null;
+  amounts_in_words: string | null;
+  status: string;
+  layout_version: number;
+  student_id: number | null;
+  student_no: number | null;
+  student_name: string | null;
+  receiver_person_id: number | null;
+  receiver_name: string | null;
+  channel_id: number | null;
+  payment_event_id: number | null;
+  line_item_count: number | null;
+  issued_to_name: string | null;
+  issued_by_name: string | null;
+  note: string | null;
+  void_reason: string | null;
+  voided_at: string | null;
+  /** snapshot ของเอกสาร v2 — คีย์มีได้ไม่ครบทุกชนิด (อ่านแบบ `typeof === 'string'` ก่อนใช้) */
+  document_meta: Record<string, unknown>;
+  line_items: DocumentLineItem[] | null;
+  /** ใบเสร็จยุบรวม (layout 1) — ข้อมูลบิลต้นทาง */
+  collection_title: string | null;
+  collection_due_date: string | null;
+  collection_amount: number | null;
+  remaining: number | null;
+  signatures: DocumentSignatureItem[];
+  links: DocumentLink[];
+  // 🧾 เฉพาะ RPT
+  year_be: number | null;
+  month: number | null;
+  version: number | null;
+  total_income: number | null;
+  total_expense: number | null;
+  opening_cash: number | null;
+  closing_cash: number | null;
+  counted_cash: number | null;
+  variance: number | null;
+  finalized_at: string | null;
+  snapshot: Record<string, unknown> | null;
+}
+
+/** รายการเดียวในคำขอพิมพ์ชุด — ใช้ composite key `doc_type:doc_id` เสมอ (id ชนกันข้ามตาราง) */
+export interface DocumentRefItem {
+  doc_type: DocumentType;
+  doc_id: number;
+}

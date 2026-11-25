@@ -51,6 +51,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check' },
   { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
+  // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — วางติด "การเงิน" เพราะเป็นทางเข้าหลักของเอกสาร
+  { name: 'ทะเบียนเอกสาร', path: '/finance/documents', icon: 'bi-folder2-open' },
   { name: 'กิจกรรม', path: '/activities', icon: 'bi-calendar-heart' },
   // 📢 P2.6 — "ประกาศ" คือรายการที่อ่านได้ทุกคน (เดิมเมนูชี้ไปหน้าเขียนอย่างเดียว)
   // ปุ่ม "ส่งประกาศ" อยู่ในหน้ารายการ ไม่ต้องมีเมนูที่สอง
@@ -106,6 +108,14 @@ export const MORE_NAV_GROUPS: readonly NavGroup[] = [
       { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
       { name: 'ของฉัน', path: '/me/activity', icon: 'bi-bookmark-star' },
       { name: 'แผนผังห้องเรียน', path: '/roadmap', icon: 'bi-map' },
+    ],
+  },
+  {
+    // 🗂️ [FIN-V2 / P5.2] — "ทะเบียนเอกสาร" ไม่อยู่ในแท็บการเงินล่าง ⇒ ต้องมีกลุ่มของตัวเอง
+    // (ตัว "การเงิน" เองอยู่ในแท็บล่างแล้ว จึงไม่ซ้ำที่นี่)
+    title: 'การเงิน',
+    items: [
+      { name: 'ทะเบียนเอกสาร', path: '/finance/documents', icon: 'bi-folder2-open' },
     ],
   },
   {
@@ -202,6 +212,9 @@ export const routeTitles = {
   'finance-budgets': 'งบประมาณ',
   'finance-receipts': 'ใบเสร็จ / ใบแจ้งหนี้',
   'finance-receipt-detail': 'รายละเอียดเอกสาร',
+  // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — คำตรง docs/glossary.md ("เอกสาร")
+  'finance-documents': 'ทะเบียนเอกสาร',
+  'finance-document-detail': 'รายละเอียดเอกสาร',
   // 👜 [FIN-V2 / P3.2] เงินสดรอส่งมอบ — คำตรง docs/glossary.md (P3.1 เติมคำแล้ว)
   // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการ์ดตั้งค่า/การเงิน)
   'finance-custody': 'เงินสดรอส่งมอบ',
