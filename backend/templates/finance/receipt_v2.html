@@ -162,21 +162,24 @@
   .compact-header .std-title-th { font-size: 24px; }
   .compact-header .std-title-en { font-size: 14.5px; }
 
+  /* Logo pinned to the very top-right corner of the header, wordmark lines
+     stacked underneath it (user request 2026-11-26). */
   .std-brand-mark {
     flex: 0 0 auto;
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    align-items: flex-end;
+    align-self: flex-start;
+    gap: 6px;
   }
 
-  /* Real app logo: brand-blue tile with the white box glyph (same lockup as the
-     app header / landing). Colour is the app's --brand token. */
+  /* Real app logo: the box glyph alone in the app's --brand blue, no tile
+     background (user request 2026-11-26: plain box on white paper). */
   .brand-logo {
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background-color: #1D4ED8;
   }
 
   .brand-text-right { text-align: right; }

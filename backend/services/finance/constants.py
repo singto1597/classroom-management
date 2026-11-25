@@ -454,7 +454,9 @@ RECEIPT_V2_TEMPLATE_NAME = "receipt_v2.html"
 # 🏷️ ชื่อแบรนด์บนหัวกระดาษ — ค่าคงที่ **ห้าม derive จากข้อมูลห้อง** (ทุกเอกสารต้อง
 #    ดูเป็นชุดเดียวกัน) ตรงกับ `APP_NAME` ของแอป (`frontend/src/router/meta.ts`)
 PDF_BRAND_NAME = "SYNCROOM"
-PDF_BRAND_SUB_LABEL = "Classroom Finance"
+# 🌐 ที่อยู่เว็บที่พิมพ์บนหัวเอกสาร — ค่าคงที่ **ไม่ derive จาก env/ข้อมูลห้อง**
+#    เพื่อให้กระดาษทุกใบ (รวมที่พิมพ์จาก staging) ชี้ที่เว็บจริงที่ผู้ปกครองใช้
+PDF_BRAND_URL = "class.singto1597.xyz"
 # ฟอนต์ไทยต้อง "ส่งไปกับ request" เสมอ — Gotenberg เรนเดอร์ใน container ของตัวเอง
 # URL แบบ file:///app/... จึงไป resolve ที่ filesystem ของ Gotenberg ไม่ใช่ของ backend
 RECEIPT_FONT_DIR = "assets/fonts"
