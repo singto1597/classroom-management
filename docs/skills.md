@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 273 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 274 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -277,6 +277,7 @@
 - [🧲 ฟิลด์ที่ frontend ต้องใช้ แต่ `response_model` ไม่ประกาศ = Pydantic กรองทิ้งเงียบ ๆ (HTTP 200, เทสต์เขียว, UI พัง)](#ฟิลด์ที่-frontend-ต้องใช้-แต่-responsemodel-ไม่ประกาศ-pydantic-กรองทิ้งเงียบ-ๆ-http-200-เทสต์เขียว-ui-พัง)
 - [📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`](#ส่งวันละครั้ง-ต้องจองสิทธิ์ใน-db-ไม่ใช่ใน-memory-และตัวเช็กเวลาต้องเป็น-ไม่ใช่)
 - [⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ](#ค่าปรับ-อัตโนมัติ-ต้องผูกกับ-บิลต้นทาง-ด้วย-unique-index-และยอดบิลต้องมาจาก-fcamount-เสมอ)
+- [🚀 `pull_all.sh` ไม่มี `set -e` ⇒ build ล้มแต่ deploy ต่อ — "สำเร็จ" หลอก ๆ ที่ของเก่ายังรัน](#pullallsh-ไม่มี-set--e-build-ล้มแต่-deploy-ต่อ-สำเร็จ-หลอก-ๆ-ที่ของเก่ายังรัน)
 
 <!-- TOC:END -->
 
@@ -4697,3 +4698,29 @@
 - **Rule:** (1) 🔴 ตัวกันซ้ำของ "เกิดได้ครั้งเดียวตลอดชีพ" ต้องเป็น unique index บน **กุญแจทางธุรกิจ** (บิลต้นทาง) — `NOT EXISTS` เป็นแค่การลดงาน (2) 🔴 อย่าใส่ `status <> 'cancelled'` ใน index ที่กันการออกซ้ำ — จะกลายเป็นลูป (3) 🔴 ยอดบิล/ยอดค้างทั้งระบบอ่าน `FC.amount` ⇒ ยอดต่างกันต่อคน = แถวต่อคน (4) 🔴 งานที่ "ลองใหม่ได้ทุกวัน" ต้อง idempotent ที่ DB ต่อรอบ/ต่อ replica ไม่ใช่ที่ memory (5) 🔴 FK ที่ชี้ `users` ห้ามใช้ `0` แทน "ระบบ" — ใช้ `NULL`
 - **Tests/Verification:** `pytest -q /app/tests/test_finance_late_fees.py /app/tests/test_finance_custom_charges.py` = 15 passed (เลือกบิลตามผ่อนผัน, fixed/percent/เพดานยอดค้าง, accrual 11002/49001, INV-, auto_late_fee, เรียกซ้ำไม่ออกใหม่, เตือนเจ้าของบิล, worker เรียกก่อนเตือน, ยอดต่อคน/รวมซ้ำ, 403, all-or-nothing) ร่วมกับชุดการเงินเดิม 179 passed
 - **Date Added:** 2026-11-24
+
+### 🚀 `pull_all.sh` ไม่มี `set -e` ⇒ build ล้มแต่ deploy ต่อ — "สำเร็จ" หลอก ๆ ที่ของเก่ายังรัน
+
+- **Context/Problem:** deploy 2026-11-25 (P1–P6.5, commit `6616a4e`) เจอสองชั้นซ้อนกัน:
+  1. container บนเครื่องนี้ resolve DNS ไม่ได้ (`docker run redis:7-alpine nslookup deb.debian.org` timeout — `/etc/resolv.conf` ใน container ชี้ DNS ของ ISP แต่ query จาก bridge ไม่ถึง) ⇒ `docker build` ล้มที่ `apt-get update` (`Temporary failure resolving 'deb.debian.org'`) แม้ host จะใช้เน็ตปกติ
+  2. `pull_all.sh` **ไม่มี `set -e`** ⇒ build ทั้ง 3 ตัวล้ม แต่สคริปต์ยังรัน `docker stack deploy` ต่อและพิมพ์ `✅ อัปเดตเสร็จสมบูรณ์` — ผลคือ service spec ชี้ image ที่ไม่มีอยู่ ส่วน task เก่ายังรัน (zero-downtime จึงดูปกติ) และ service **ใหม่** (`finance_reminder_worker`) ขึ้น `No such image` วนไม่หยุด
+  - กับดักการตรวจ: `docker service ls` โชว์ image จาก **spec** ไม่ใช่ image ที่ task รันจริง ⇒ ต้องดู `docker service ps <svc>` หรือ `/api/version`
+- **Correct Pattern/Solution:**
+  ```bash
+  set -euo pipefail                 # build/deploy ล้ม = หยุดทันที ไม่มี "สำเร็จ" ปลอม
+
+  # build ให้ออกเน็ตได้บนเครื่องที่ container DNS พัง (override ได้เมื่อย้ายเครื่อง)
+  BUILD_NETWORK="--network=${DOCKER_BUILD_NETWORK:-host}"
+  docker build $BUILD_NETWORK --build-arg GIT_SHA=$IMAGE_TAG -t ... ./backend
+
+  # docker stack deploy ไม่ตรวจ image ให้ — ตรวจเองก่อนแตะของที่รันอยู่
+  docker image inspect classroom-${ENV_NAME}-backend:${IMAGE_TAG} >/dev/null
+
+  # deploy แล้วต้องรอ replicas นิ่งเป็น x/x (4/3 ระหว่าง rollover ยังไม่นับ)
+  docker stack services ${ENV_NAME}_app --format '{{.Name}} {{.Replicas}}'
+  ```
+  - `/api/version` ที่ยิงผ่าน Cloudflare จะได้ **ค่า cache เก่า** — ตรวจระหว่าง deploy ให้ยิงตรง `curl -H "Host: <api domain>" http://127.0.0.1/api/version` แล้วค่อยยืนยันผ่านโดเมนจริงพร้อม cache-buster `?t=$(date +%s)`
+  - หลัง deploy ดู log backend ว่ามี `✅ apply migration ...` และ `Application startup complete.` ก่อนประกาศว่าเสร็จ
+- **Rule:** (1) 🔴 สคริปต์ deploy ต้อง `set -euo pipefail` — ไม่มีข้อยกเว้น (2) 🔴 ก่อน `stack deploy` ต้อง `docker image inspect` ให้ครบทุก image (3) 🔴 หลัง deploy ต้องรอ task นิ่งเป็น `x/x` ไม่ใช่ดู spec (4) 🔴 build ในเครื่องนี้ใช `--network=host` ถ้า container DNS ยังพัง — ห้ามสรุปว่า build ผ่านจาก exit code ของสคริปต์ที่ไม่มี `set -e`
+- **Tests/Verification:** 2026-11-25 — rerun `./pull_all.sh` บน staging หลังแก้ (build ด้วย host network, image ครบ, รอ `x/x`) · staging + production ขึ้น `git_sha=6616a4e` · production log: `✅ apply migration 0010_fines_accrual` → `0011_late_fees_custom_charges`
+- **Date Added:** 2026-11-25
