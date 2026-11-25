@@ -192,6 +192,12 @@ export const routeTitles = {
   'finance-aging': 'รายงานอายุหนี้',
   'finance-my-debts': 'ยอดค้างชำระของฉัน',
   'finance-credits': 'เงินรับล่วงหน้า',
+  // 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล + รายการเดินบัญชี — คำตรง docs/glossary.md
+  // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการ์ด dashboard) — ถ้าเพิ่มเมนู
+  //    ต้องเพิ่มใน `MORE_NAV_GROUPS` ด้วย ไม่งั้นเทสต์ `constants/nav` แดง
+  'finance-individual-accounts': 'บัญชีรายบุคคล',
+  'finance-individual-account-detail': 'บัญชีรายบุคคล',
+  'finance-student-statement': 'รายการเดินบัญชี',
   'finance-statements': 'งบการเงิน',
   'finance-budgets': 'งบประมาณ',
   'finance-receipts': 'ใบเสร็จ / ใบแจ้งหนี้',

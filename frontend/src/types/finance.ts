@@ -1423,3 +1423,114 @@ export interface FinanceSettings {
 }
 
 export type FinanceSettingsUpdate = Partial<FinanceSettings>;
+
+// ──────────────────────────── 👤 บัญชีรายบุคคล (FIN-V2 / P1.3 API → P1.4 UI)
+// ⚠️ เงินทุกฟิลด์เป็น **string ทศนิยม 2 ตำแหน่ง** ตามสัญญา api-v2
+//    ⇒ ต้อง `formatMoney(Number(x))` ก่อนแสดงผลเสมอ (ดู Gotchas ของ brief P1.4)
+
+/** ตัวกรองสถานะของหน้า list — ตรงกับ `VALID_ACCOUNT_STATUS` ฝั่ง backend */
+export type IndividualAccountStatus = 'all' | 'outstanding' | 'credit' | 'settled';
+
+/** ประเภทเงินของบิล — `fee_collections.fund_type` (มิติรายงาน ไม่ใช่บัญชีแยก) */
+export type FundType = 'room_fund' | 'pass_through';
+
+/** บิลที่ยังเปิด (ยังค้าง) ของนักเรียน 1 ใบ — `open_bills` ใน `IndividualAccountItem` */
+export interface OpenBillItem {
+  student_payment_id: number;
+  collection_id: number | null;
+  title: string;
+  amount: string;
+  paid_amount: string;
+  written_off_amount: string;
+  outstanding: string;
+  /** ISO date `YYYY-MM-DD` (ไม่ใช่ timestamp) — ใช้ `formatThaiDate` */
+  due_date: string | null;
+  status: string;
+  collection_kind: string | null;
+  fund_type: FundType | null;
+}
+
+/** เหตุการณ์รับเงินล่าสุด — ว่างได้จนถึง P2.1 (ตาราง event ยังไม่มีข้อมูลจริง) */
+export interface RecentPaymentEventItem {
+  event_id: number;
+  /** ISO timestamp — ใช้ `formatThaiDateTime` */
+  event_at: string;
+  amount_received: string;
+  credit_used: string;
+  receiver_name: string | null;
+}
+
+/** บัญชีของนักเรียน 1 คน — รวมยอดค้าง/เครดิต/บิลเปิด/เหตุการณ์ล่าสุด */
+export interface IndividualAccountItem {
+  student_id: number;
+  student_no: number;
+  name: string;
+  outstanding_total: string;
+  overdue_total: string;
+  upcoming_total: string;
+  credit_balance: string;
+  ready_to_apply: string;
+  open_bills: OpenBillItem[];
+  recent_events: RecentPaymentEventItem[];
+}
+
+/** รายการทั้งห้อง — `as_of` = "วันนี้" ตามเวลาไทยที่ backend ใช้ตัดสิน overdue */
+export interface IndividualAccountListResponse {
+  as_of: string;
+  items: IndividualAccountItem[];
+}
+
+/** รายละเอียดคนเดียว — รูปร่างเดียวกับ item ใน list เพื่อใช้ component เดียว */
+export type IndividualAccountDetailResponse = IndividualAccountItem;
+
+export interface IndividualAccountQuery {
+  status?: IndividualAccountStatus;
+  q?: string;
+  fund_type?: string;
+}
+
+/** ประเภทบรรทัดใน statement — `payment_event` ยังว่างจนถึง P2.1 */
+export type StatementEntryKind =
+  | 'bill'
+  | 'payment'
+  | 'payment_event'
+  | 'credit_topup'
+  | 'credit_apply'
+  | 'credit_reverse';
+
+/** บรรทัดเดินบัญชี — `amount` มีเครื่องหมายแล้ว (บิล + · รับเงิน −) */
+export interface StudentStatementEntry {
+  entry_id: string;
+  kind: string;
+  /** ISO timestamp — ใช้ `formatThaiDateTime` */
+  occurred_at: string;
+  description: string;
+  amount: string;
+  /** ยอดเครดิตคงเหลือหลังรายการ — มีเฉพาะบรรทัดเครดิต */
+  balance_after: string | null;
+  reference_id: number | null;
+}
+
+/** โครงเอกสารใน statement — P5.1 (registry) จะเติมข้อมูลจริง รอบนี้ `[]` เสมอ */
+export interface StatementDocumentItem {
+  doc_type: string;
+  doc_no: string | null;
+  issued_at: string | null;
+  amount: string | null;
+}
+
+/** statement ตามช่วงวันที่ — เรียง `occurred_at` จากเก่าไปใหม่ */
+export interface StudentStatementResponse {
+  student_id: number;
+  student_no: number;
+  name: string;
+  date_from: string | null;
+  date_to: string | null;
+  entries: StudentStatementEntry[];
+  documents: StatementDocumentItem[];
+}
+
+export interface StudentStatementQuery {
+  from?: string;
+  to?: string;
+}

@@ -83,7 +83,13 @@ import type {
   PersonUpdate,
   PeopleSyncResult,
   FinanceSettings,
-  FinanceSettingsUpdate
+  FinanceSettingsUpdate,
+  // 👤 [FIN-V2 / P1.3 API → P1.4 UI] บัญชีรายบุคคล + statement
+  IndividualAccountListResponse,
+  IndividualAccountDetailResponse,
+  IndividualAccountQuery,
+  StudentStatementResponse,
+  StudentStatementQuery
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -884,5 +890,38 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/settings?target_type=room`,
       payload
     ) as unknown as FinanceSettings;
+  },
+
+  // ──────────────────────────── 👤 บัญชีรายบุคคล (FIN-V2 / P1.4)
+  // อ่านอย่างเดียว — สมาชิกห้องอ่านได้ (backend `require_member`) ⇒ ไม่มี gate ฝั่งนี้
+  // ค่าที่ `undefined` ถูก axios ตัดทิ้งเอง ⇒ ส่ง `params` ตรง ๆ ได้ ไม่ต้องประกอบเอง
+
+  async getIndividualAccounts(
+    roomId: number,
+    params: IndividualAccountQuery = {}
+  ): Promise<IndividualAccountListResponse> {
+    return await api.get(`/api/classroom/${roomId}/finance/individual-accounts`, {
+      params: { target_type: 'room', ...params }
+    }) as unknown as IndividualAccountListResponse;
+  },
+
+  async getIndividualAccount(
+    roomId: number,
+    studentId: number
+  ): Promise<IndividualAccountDetailResponse> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/individual-accounts/${studentId}?target_type=room`
+    ) as unknown as IndividualAccountDetailResponse;
+  },
+
+  async getStudentStatement(
+    roomId: number,
+    studentId: number,
+    params: StudentStatementQuery = {}
+  ): Promise<StudentStatementResponse> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/individual-accounts/${studentId}/statement`,
+      { params: { target_type: 'room', ...params } }
+    ) as unknown as StudentStatementResponse;
   }
 };

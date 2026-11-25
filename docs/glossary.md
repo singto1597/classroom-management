@@ -105,6 +105,8 @@
 | **บิล / งวด** | หนึ่งรายการที่นักเรียนต้องจ่ายในโปรเจกต์ | `student_payments` | invoice (สำหรับงวด) · ใบวางบิล |
 | **ผู้ค้างชำระ** | นักเรียนที่ยังไม่จ่ายครบ | `/finance/debtors` | ลูกหนี้ · debtor |
 | **เงินรับล่วงหน้า** | เงินที่นักเรียนจ่ายเก็บไว้ก่อน (เครดิต) | `student_credits` | เครดิต · credit |
+| **บัญชีรายบุคคล** | หน้าเดียวที่รวมยอดค้าง · เกินกำหนด · เครดิตของนักเรียนแต่ละคน (แทนการเปิดสองหน้าคู่กัน `ผู้ค้างชำระ` + `เงินรับล่วงหน้า`) — อ่านอย่างเดียว สมาชิกห้องเข้าถึงได้ | `/finance/individual-accounts`, `IndividualAccountsMixin` | บัญชีนักเรียน · ลูกหนี้รายคน · account |
+| **รายการเดินบัญชี** | ลำดับบิล/รับเงิน/เครดิตของนักเรียนคนหนึ่งตามช่วงวันที่ (เก่า→ใหม่) พร้อมยอดเครดิตคงเหลือหลังรายการ | `/finance/individual-accounts/:id/statement`, `get_student_statement` | statement (เมื่อหมายถึงหน้าของนักเรียน) · ใบแจ้งรายการ |
 | **งบประมาณ** | วงเงินที่ตั้งไว้ต่อหมวด | `finance_budgets` | budget |
 | **งบการเงิน** | รายงานสรุปฐานะ (รายรับ–รายจ่าย) | `/finance/statements` | ใบงบ · statement |
 | **ค่าปรับ** | บิลที่ออกจากการทำผิดกฎ/ไม่ทำเวร — 1 ครั้ง : 1 คน = 1 ใบ (มี INV- ของตัวเอง) | `fines`, `/finance/fines` | ปรับ · penalty · penalty bill |
@@ -192,6 +194,8 @@
 | ใบเสร็จ / ใบแจ้งหนี้ / ใบรับเงินล่วงหน้า | `receipt` / `invoice` / `deposit` |
 | ผู้ค้างชำระ | `debtor` · บิลเปิด = `open bill` (`_open_bill_predicate`) |
 | เงินรับล่วงหน้า | `credit` |
+| บัญชีรายบุคคล | `individual_account` · `_load_individual_accounts` · `IndividualAccountsMixin` · route `finance-individual-accounts` |
+| รายการเดินบัญชี | `statement` (`get_student_statement`) · ชนิดบรรทัด `bill` / `payment` / `payment_event` / `credit_topup` / `credit_apply` / `credit_reverse` |
 | ค่าปรับ | `fine` (ตาราง `fines`) · โปรเจกต์ซ่อน = `collection_kind` = `'fine'` |
 | ประเภทความผิด | `fine_type` (ตาราง `fine_types`) |
 | คำขอยกเว้น / คำขอคืนเงิน | `waiver` / `refund` (ตาราง `fine_waivers` / `fine_refunds`) |

@@ -324,6 +324,44 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล — รวมผู้ค้างชำระ + เงินรับล่วงหน้าเป็นรายชื่อเดียว
+        // อ่านเปิดให้สมาชิก (backend `require_member`) ⇒ ห้ามใส่ permission ที่นี่
+        // ⚠️ static ต้องมาก่อน `:studentId` — แม้ regex `\d+` กันได้ ก็อ่านง่ายกว่า
+        path: '/finance/individual-accounts',
+        name: 'finance-individual-accounts',
+        component: () => import('@/views/finance/IndividualAccounts.vue'),
+        meta: {
+          title: routeTitles['finance-individual-accounts'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน path อื่นถูกกลืนและกัน `Number('abc') = NaN`
+        path: '/finance/individual-accounts/:studentId(\\d+)',
+        name: 'finance-individual-account-detail',
+        component: () => import('@/views/finance/IndividualAccountDetail.vue'),
+        meta: {
+          title: routeTitles['finance-individual-account-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // 📒 รายการเดินบัญชี — route ยาวกว่าต้องประกาศหลัง detail (แม้ regex กันได้)
+        path: '/finance/individual-accounts/:studentId(\\d+)/statement',
+        name: 'finance-student-statement',
+        component: () => import('@/views/finance/StudentStatement.vue'),
+        meta: {
+          title: routeTitles['finance-student-statement'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         // ⚖️ [P5] ค่าปรับ — อ่านเปิดให้สมาชิก (backend กรองเฉพาะของตัวเองให้)
         // ปุ่มเขียน (ออก/แก้/ยกเลิก/ขอยกเว้น/ขอคืนเงิน/อนุมัติ) gate ด้วย `canManageFinance`
         // ⚠️ static `fines` ต้องมาก่อน `fines/:id` — และ backend เองก็มีกับดัก

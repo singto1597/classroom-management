@@ -540,6 +540,23 @@ watch([selectedMonth, selectedYear], () => {
           <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
         </RouterLink>
 
+        <!-- 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล — ทางเข้าใหม่เดียวของยอดค้าง+เครดิต -->
+        <RouterLink
+          to="/finance/individual-accounts"
+          class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">
+            <i class="bi bi-person-vcard text-xl" aria-hidden="true"></i>
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-bold text-ink-2">บัญชีรายบุคคล</span>
+            <span class="block truncate text-xs text-ink-3">
+              ยอดค้าง เครดิต และรายการเดินบัญชีของนักเรียนแต่ละคน
+            </span>
+          </span>
+          <i class="bi bi-chevron-right shrink-0 text-ink-3" aria-hidden="true"></i>
+        </RouterLink>
+
         <!-- ใบเสร็จ / ใบแจ้งหนี้ — ลิงก์เต็มความกว้างแบบเดียวกัน (F3) -->
         <RouterLink
           to="/finance/receipts"
