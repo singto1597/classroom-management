@@ -89,6 +89,11 @@ from .expense_vouchers import ExpenseVouchersMixin
 #    (BaseMixin) และ `_resolve_actor_name` (ExpenseVouchersMixin) ผ่าน MRO
 #    ⇒ ต้องอยู่ **ก่อน** LedgerMixin/BaseMixin · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
 from .income_batches import IncomeBatchesMixin
+# 🗂️ [FIN-V2 / P5.1] ทะเบียนเอกสารรวม — อ่านอย่างเดียว; เรียก `_shape_receipt_detail`/
+#    `_document_context(s)` (ReceiptsMixin) และ `render_receipt_pdf` ผ่าน MRO
+#    ⇒ ต้องอยู่ **หลัง** ReceiptsMixin และก่อน Accrual/Ledger ตามกติกาทั่วไป
+#    (ชื่อใหม่ทั้งหมด: `list_documents`/`get_document_detail`/…)
+from .document_registry import DocumentRegistryMixin
 
 
 class FinanceService(
@@ -121,6 +126,10 @@ class FinanceService(
     #    แต่การวางติดกันทำให้อ่านออกว่า "ชุดเอกสารเป็นเรื่องของทะเบียนเอกสาร"
     #    ⚠️ ห้ามย้าย `ReceiptsMixin` ไปหลัง mixin ที่พึ่ง `_shape_receipt*`/`_RECEIPT_COLUMNS`
     ReceiptBatchesMixin,
+    # 🗂️ [FIN-V2 / P5.1] — ทะเบียนเอกสารรวม (อ่านอย่างเดียว) วางติด ReceiptBatchesMixin
+    #    ตาม brief · พึ่ง `_shape_receipt_detail`/`_document_context(s)` ของ ReceiptsMixin
+    #    และ `_document_context_v2` ของ DocumentsMixin ผ่าน MRO ⇒ อยู่ใต้ทั้งคู่แล้ว
+    DocumentRegistryMixin,
     CreditsMixin,
     BudgetsMixin,
     CollectionsMixin,

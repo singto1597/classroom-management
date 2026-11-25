@@ -2078,3 +2078,113 @@ class IncomeBatchDetailResponse(BaseModel):
     created_at: datetime
     lines: List[IncomeBatchLineItem] = Field(default_factory=list)
     signatures: List[IncomeBatchSignatureItem] = Field(default_factory=list)
+
+
+# =====================================================================
+# 🗂️ [FIN-V2 / P5.1] ทะเบียนเอกสารรวม
+# =====================================================================
+# ⚠️ ห้ามเพิ่ม `__all__` ที่ไฟล์นี้ — router หลายตัว `import *` จากที่นี่และพึ่ง
+#    พฤติกรรม "ทุกคลาสที่ประกาศ = ส่งออก" (ดูคอมเมนต์กลางไฟล์)
+class DocumentListItem(BaseModel):
+    """แถวของทะเบียน — เงินเป็นสตริง 2 ตำแหน่ง (ตรงกับ `formatMoney` ของ frontend)"""
+    doc_type: str
+    doc_id: int
+    doc_no: Optional[str] = None
+    doc_at: Optional[datetime] = None
+    amount: Optional[str] = None
+    status: str
+    layout_version: int = 1
+    student_id: Optional[int] = None
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    receiver_person_id: Optional[int] = None
+    receiver_name: Optional[str] = None
+    channel_id: Optional[int] = None
+    line_item_count: Optional[int] = None
+
+
+class DocumentListResponse(BaseModel):
+    items: List[DocumentListItem] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+class DocumentSignatureItem(BaseModel):
+    role: str
+    person_id: Optional[int] = None
+    signer_name: str
+    signed_at: Optional[datetime] = None
+
+
+class DocumentLinkItem(BaseModel):
+    """ลิงก์ระหว่างเอกสาร — `direction` บอกว่าวันนี้เราคือ "ต้นทาง" หรือ "ปลายทาง" """
+    link_type: str
+    direction: Literal["out", "in"]
+    doc_type: str
+    doc_id: int
+    doc_no: Optional[str] = None
+
+
+class DocumentDetailResponse(BaseModel):
+    """รายละเอียดเอกสารทุกชนิดในรูปเดียว — ฟิลด์ที่ไม่เกี่ยวกับชนิดนั้นเป็น `None`
+
+    REC/INV/ACK/DEP/PV/CERT/INC มาจาก `finance_receipts`; monthly_report มาจาก
+    `finance_monthly_reports` (ฟิลด์ `year_be`…`variance` มีค่าเฉพาะ RPT)
+    """
+    doc_type: str
+    doc_id: int
+    doc_no: Optional[str] = None
+    doc_type_label: Optional[str] = None
+    doc_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
+    # 💰 เงินเป็นสตริง 2 ตำแหน่ง + คำอ่านไทย (แหล่งเดียวกับที่พิมพ์บนกระดาษ)
+    amount: Optional[str] = None
+    amounts_in_words: Optional[str] = None
+    status: str
+    layout_version: int = 1
+    student_id: Optional[int] = None
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    receiver_person_id: Optional[int] = None
+    receiver_name: Optional[str] = None
+    channel_id: Optional[int] = None
+    payment_event_id: Optional[int] = None
+    line_item_count: Optional[int] = None
+    issued_to_name: Optional[str] = None
+    issued_by_name: Optional[str] = None
+    note: Optional[str] = None
+    void_reason: Optional[str] = None
+    voided_at: Optional[datetime] = None
+    # 📋 snapshot ของเอกสาร (v2) — ใช้แสดงรายละเอียดโดยไม่ JOIN สด
+    document_meta: Dict[str, Any] = Field(default_factory=dict)
+    line_items: Optional[List[Dict[str, Any]]] = None
+    # 📚 ใบเสร็จยุบรวม (layout 1) — ชื่อ/ยอดของบิลต้นทาง
+    collection_title: Optional[str] = None
+    collection_due_date: Optional[date] = None
+    collection_amount: Optional[float] = None
+    remaining: Optional[float] = None
+    signatures: List[DocumentSignatureItem] = Field(default_factory=list)
+    links: List[DocumentLinkItem] = Field(default_factory=list)
+    # 🧾 เฉพาะ RPT (`finance_monthly_reports`)
+    year_be: Optional[int] = None
+    month: Optional[int] = None
+    version: Optional[int] = None
+    total_income: Optional[float] = None
+    total_expense: Optional[float] = None
+    opening_cash: Optional[float] = None
+    closing_cash: Optional[float] = None
+    counted_cash: Optional[float] = None
+    variance: Optional[float] = None
+    finalized_at: Optional[datetime] = None
+    snapshot: Optional[Dict[str, Any]] = None
+
+
+class DocumentRefItem(BaseModel):
+    doc_type: str
+    doc_id: int
+
+
+class DocumentPrintBundleRequest(BaseModel):
+    """พิมพ์ชุด — dedupe/เพดาน 100/การมีอยู่จริง ตรวจที่ service (400/404 ภาษาไทย)"""
+    items: List[DocumentRefItem] = Field(default_factory=list)

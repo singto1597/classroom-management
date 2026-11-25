@@ -501,3 +501,29 @@ DOC_TYPE_PREFIXES[DOC_TYPE_CERTIFICATE] = "CERT"
 PROJECT_BAD_DEBT_CODE = "59002"
 PROJECT_BAD_DEBT_NAME = "หนี้สูญ (โครงการ)"
 SYSTEM_LEDGER_SPECS[PROJECT_BAD_DEBT_CODE] = (PROJECT_BAD_DEBT_NAME, "expense")
+
+# =====================================================================
+# [FIN-V2 / P5.1] ทะเบียนเอกสารรวม — ชนิดที่รับ + เพดานหน้า
+# =====================================================================
+# 📚 ลำดับนี้คือลำดับที่ผู้ใช้เห็นในตัวกรองของหน้าทะเบียน (P5.2)
+# ⚠️ ทุกค่าต้องมีใน `DOC_TYPE_LABELS` (มีเทสต์ตรวจ) — ชนิดที่ไม่มีคำนำหน้า
+#    (`monthly_report`) ก็อยู่ในลิสต์เพราะทะเบียนรวม RPT ด้วย
+REGISTRY_DOC_TYPES = (
+    DOC_TYPE_RECEIPT,
+    DOC_TYPE_INVOICE,
+    DOC_TYPE_ACKNOWLEDGEMENT,
+    DOC_TYPE_DEPOSIT,
+    DOC_TYPE_PAYMENT_VOUCHER,
+    DOC_TYPE_CERTIFICATE,
+    DOC_TYPE_INCOME,
+    DOC_TYPE_MONTHLY_REPORT,
+)
+# 📄 pagination แบบ offset — ทะเบียนสูงสุดหลักพันต่อห้อง, การเปลี่ยนตัวกรองบ่อย
+#    ทำให้ offset ตรงกับที่ผู้ใช้คาดมากกว่า cursor
+REGISTRY_PAGE_DEFAULT = 50
+REGISTRY_PAGE_MAX = 200
+
+
+def doc_type_label(doc_type: str) -> str:
+    """ชื่อไทยของชนิดเอกสาร — ถอยไปใช้ค่าดิบถ้ายังไม่มีป้าย (ไม่ raise)"""
+    return DOC_TYPE_LABELS.get(doc_type, doc_type)
