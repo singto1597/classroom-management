@@ -2422,3 +2422,32 @@ class DuplicateTitleResponse(BaseModel):
     """ผลตรวจชื่อโครงการซ้ำ — เตือนอย่างเดียว ไม่บล็อกการสร้าง"""
     duplicates: List[DuplicateTitleItem] = Field(default_factory=list)
     warning: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 📊 [FIN-V2 / P6.4] เงินของห้อง "ตอนนี้" (money ownership) — snapshot ปัจจุบัน
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⚠️ ตัวเลขเป็น `float` (number) ตรงกับ `FinanceSummaryResponse` และ `utils/money.ts`
+#    ของฝั่ง FE ที่รับ number — ถ้าอนาคตเปลี่ยนเป็น string ต้องแก้ FE ทุกจุด (TS จะฟ้อง)
+class MoneyOwnershipReceiver(BaseModel):
+    """ผู้รับเงินที่ยังถือเงินของห้องอยู่ (จาก custodial account ที่มีเจ้าของ)"""
+    receiver_id: int
+    name: str
+    held: float
+
+
+class MoneyOwnershipResponse(BaseModel):
+    """สมการเงินของห้อง: `total_cash = room_wallets + custody_held`,
+    `net_room_money = total_cash − credit_liability` (backend คำนวณ, FE ห้ามรวมเอง)
+
+    🔴 `net_room_money` ติดลบได้ — แปลว่าเครดิตที่ติดค้างมากกว่าเงินสด (ข้อมูลผิด)
+       ต้องแสดงบนจอ ไม่ใช่ clamp
+    """
+    room_wallets: float
+    custody_held: float
+    total_cash: float
+    credit_liability: float
+    receivable_total: float
+    net_room_money: float
+    by_receiver: List[MoneyOwnershipReceiver] = Field(default_factory=list)
+    quick_actions: List[str] = Field(default_factory=list)

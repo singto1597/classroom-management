@@ -48,6 +48,8 @@ from .voids import router as voids_router
 #    path ไม่ทับกลุ่มใด (`/finance/payments/{id}/write-off|discount|adjustments`,
 #    `/finance/fee-collections/...`) ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์
 from .bill_adjustments import router as bill_adjustments_router
+# 📊 [FIN-V2 / P6.4] แดชบอร์ดเงินของห้อง — `/finance/dashboard/ownership` (อ่านอย่างเดียว)
+from .dashboard import router as dashboard_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -131,5 +133,10 @@ router.include_router(voids_router)
 #       `fee-collections` เป็น segment ใหม่ ⇒ ลำดับ include ไม่มีผลกับพฤติกรรม
 #    ⚠️ **ภายในไฟล์** ประกาศ `duplicate-check` (static) ก่อน `{collection_id}` เสมอ
 router.include_router(bill_adjustments_router)
+
+# 📊 [FIN-V2 / P6.4] — path ขึ้นต้น `/finance/dashboard/ownership` ซึ่งไม่ซ้ำกับกลุ่มใด
+#    (`dashboard` เป็น segment ใหม่) ⇒ ลำดับ include ไม่มีผล แต่ประกาศท้ายเพื่อให้ diff
+#    ของงานนี้ต่อเติมท้ายไฟล์
+router.include_router(dashboard_router)
 
 __all__ = ["router"]

@@ -2627,3 +2627,26 @@ export interface BillAdjustmentListResponse {
   items: BillAdjustmentListItem[];
   total: number;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📊 [FIN-V2 / P6.4] เงินของห้อง "ตอนนี้" (money ownership) — snapshot ปัจจุบัน
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⚠️ ตัวเลขเป็น number (ไม่ใช่ string) ตรงกับ `MoneyOwnershipResponse` — ส่งเข้า
+//    `formatMoney` ได้ตรง ๆ · คนละความหมายกับ `FinanceSummary` ที่คิดตามงวดเดือน
+
+export interface MoneyOwnershipReceiver {
+  receiver_id: number;
+  name: string;
+  held: number;
+}
+
+export interface MoneyOwnership {
+  room_wallets: number;
+  custody_held: number;
+  total_cash: number;
+  credit_liability: number;
+  receivable_total: number;
+  net_room_money: number;
+  by_receiver: MoneyOwnershipReceiver[];
+  quick_actions: string[];
+}

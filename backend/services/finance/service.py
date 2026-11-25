@@ -114,6 +114,10 @@ from .voids import VoidMixin
 #    `_lock_room_money`/`resolve_room_id` (BaseMixin) ผ่าน MRO
 #    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief (ชื่อใหม่ทั้งหมด)
 from .bill_adjustments import BillAdjustmentsMixin
+# 📊 [FIN-V2 / P6.4] แดชบอร์ดเงินของห้อง (snapshot ปัจจุบัน) — อ่านอย่างเดียว
+#    ใช้ `resolve_room_id` (BaseMixin) และ `_open_bill_predicate` (AccrualMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/BaseMixin ตามกติกาทั่วไป (ชื่อใหม่ทั้งหมด)
+from .dashboard import DashboardMixin
 
 
 class FinanceService(
@@ -206,6 +210,10 @@ class FinanceService(
     # ✂️ [FIN-V2 / P6.2] — ตัดจำหน่าย/ส่วนลดบิล (write_off/discount) + fund_type
     #    ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
     BillAdjustmentsMixin,
+    # 📊 [FIN-V2 / P6.4] — แดชบอร์ดเงินของห้อง (อ่านอย่างเดียว)
+    #    พึ่ง `resolve_room_id` (BaseMixin) และ `_open_bill_predicate` (AccrualMixin)
+    #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO · ชื่อใหม่: `get_money_ownership`
+    DashboardMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,

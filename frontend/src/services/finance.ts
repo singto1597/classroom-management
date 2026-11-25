@@ -150,6 +150,8 @@ import type {
   BillAdjustmentRequest,
   BillAdjustmentResponse,
   BillAdjustmentListResponse,
+  // 📊 [FIN-V2 / P6.4] เงินของห้อง "ตอนนี้" (snapshot ปัจจุบัน — ไม่ผูกงวดเดือน)
+  MoneyOwnership,
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1547,5 +1549,15 @@ export const FinanceService = {
     return await api.get(
       `/api/classroom/${roomId}/finance/payments/${paymentId}/adjustments?target_type=room`
     ) as unknown as BillAdjustmentListResponse;
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 📊 [FIN-V2 / P6.4] แดชบอร์ดเงินของห้อง (snapshot ปัจจุบัน)
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⚠️ ไม่รับ month/year โดยเจตนา — "ตอนนี้ห้องมีเงินเท่าไหร่" ไม่ใช่ตัวเลขตามงวด
+  async getMoneyOwnership(roomId: number): Promise<MoneyOwnership> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/dashboard/ownership?target_type=room`
+    ) as unknown as MoneyOwnership;
   },
 };
