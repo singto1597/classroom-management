@@ -36,6 +36,8 @@ from core.exceptions import RoomNotFoundError
 from core.rbac import require_member, require_permission
 
 from .base import _lock_room_money, service_logger
+# 🧾 [FIN-V2 / P4.2] CERT พ่วง PV — ฟังก์ชันระดับโมดูล ไม่ใช่ mixin (ไม่มีชื่อชน)
+from .certificates import issue_certificate_locked
 from .constants import (
     BUDDHIST_ERA_OFFSET, DOC_TYPE_PAYMENT_VOUCHER, DOC_TYPE_PREFIXES,
     RECEIPT_NO_TEMPLATE, RECEIPT_SEQ_MAX, RECEIPT_SEQ_OVERFLOW_MSG, THAI_TZ,
@@ -280,7 +282,7 @@ class ExpenseVouchersMixin:
 
                     # 🔁 idempotency ชั้นที่ 1 — อ่านก่อนเขียนใต้ล็อกห้อง
                     existing = await conn.fetchrow(
-                        """SELECT id, total_amount, pv_receipt_id, created_at
+                        """SELECT id, total_amount, pv_receipt_id, cert_receipt_id, created_at
                            FROM finance_expense_vouchers
                            WHERE room_id = $1 AND idempotency_key = $2""",
                         target_room_id, key,
@@ -299,12 +301,27 @@ class ExpenseVouchersMixin:
                             )
                         stored_hash = _json_of(pv["document_meta"] if pv else None).get("request_hash")
                         if pv and stored_hash == request_hash:
+                            # 🧾 P4.2 — replay ต้องคืน CERT เดิมด้วย (ไม่สร้างใหม่)
+                            cert_row = None
+                            if existing["cert_receipt_id"]:
+                                cert_row = await conn.fetchrow(
+                                    """SELECT id, receipt_no, amount, document_meta
+                                       FROM finance_receipts WHERE id = $1""",
+                                    existing["cert_receipt_id"],
+                                )
+                            cert_meta = (
+                                _json_of(cert_row["document_meta"]) if cert_row else {}
+                            )
                             return {
                                 "id": existing["id"],
                                 "total_amount": _money(existing["total_amount"]),
                                 "line_count": int(line_count or 0),
                                 "pv_receipt_id": pv["id"],
                                 "pv_receipt_no": pv["receipt_no"],
+                                "cert_receipt_id": cert_row["id"] if cert_row else None,
+                                "cert_receipt_no": cert_row["receipt_no"] if cert_row else None,
+                                "cert_amount": _money(cert_row["amount"]) if cert_row else None,
+                                "cert_line_nos": cert_meta.get("source_line_nos") or [],
                                 "created_at": existing["created_at"],
                                 "reused": True,
                             }
@@ -502,6 +519,8 @@ class ExpenseVouchersMixin:
                             0, voucher_id, row["funding_source"],
                         )
                         txn_id = txn["id"]
+                        # 🧾 P4.2 — เก็บ txn ต่อบรรทัดไว้ให้ CERT อ้าง (บรรทัด none แรก)
+                        row["finance_transaction_id"] = txn_id
                         if first_txn_id is None:
                             first_txn_id = txn_id
                             first_txn_created_at = txn["created_at"]
@@ -613,12 +632,40 @@ class ExpenseVouchersMixin:
                         conn, target_room_id, pv["id"], signature_specs
                     )
 
+                    # 🧾 [FIN-V2 / P4.2] CERT อัตโนมัติ — เฉพาะประเภท `none`
+                    #    🔴 ไม่ลง journal/txn/balance (CERT เป็นเอกสารรับรอง ไม่ใช่เงิน)
+                    none_lines = [
+                        r for r in normalized if r["receipt_status"] == "none"
+                    ]
+                    cert = await issue_certificate_locked(
+                        conn,
+                        room_id=target_room_id,
+                        voucher_id=voucher_id,
+                        pv_receipt_id=pv["id"],
+                        pv_receipt_no=pv["receipt_no"],
+                        payee_name=payee_name,
+                        payee_person_id=req.payee_person_id,
+                        user_id=user_id,
+                        user_name=user_name,
+                        event_at_db=_as_utc(first_txn_created_at),
+                        issued_at_db=await conn.fetchval("SELECT CURRENT_TIMESTAMP"),
+                        none_lines=none_lines,
+                        snapshot=snapshot,
+                        signatures=signature_specs,
+                    )
+                    cert_row = cert["receipt"]
+                    cert_meta = _json_of(cert_row["document_meta"]) if cert_row else {}
+
                     result = {
                         "id": voucher_id,
                         "total_amount": total,
                         "line_count": len(normalized),
                         "pv_receipt_id": pv["id"],
                         "pv_receipt_no": pv["receipt_no"],
+                        "cert_receipt_id": int(cert_row["id"]) if cert_row else None,
+                        "cert_receipt_no": cert_row["receipt_no"] if cert_row else None,
+                        "cert_amount": _money(cert_row["amount"]) if cert_row else None,
+                        "cert_line_nos": cert_meta.get("source_line_nos") or [],
                         "created_at": voucher["created_at"],
                         "reused": False,
                     }
@@ -631,6 +678,7 @@ class ExpenseVouchersMixin:
                             "total_amount": total,
                             "line_count": len(normalized),
                             "pv_receipt_id": pv["id"],
+                            "cert_receipt_id": result["cert_receipt_id"],
                             "idempotency_key": key,
                         },
                         endpoint_or_command="FinanceService.create_expense_voucher",
@@ -755,7 +803,9 @@ class ExpenseVouchersMixin:
                               V.default_wallet_account_id, V.note, V.total_amount, V.status,
                               V.pv_receipt_id, V.cert_receipt_id, V.created_at,
                               PR.receipt_no AS pv_receipt_no,
-                              CR.receipt_no AS cert_receipt_no
+                              CR.receipt_no AS cert_receipt_no,
+                              CR.amount AS cert_amount,
+                              CR.document_meta AS cert_meta
                        FROM finance_expense_vouchers V
                        LEFT JOIN finance_receipts PR ON PR.id = V.pv_receipt_id
                        LEFT JOIN finance_receipts CR ON CR.id = V.cert_receipt_id
@@ -821,6 +871,14 @@ class ExpenseVouchersMixin:
                     "pv_receipt_no": voucher["pv_receipt_no"],
                     "cert_receipt_id": voucher["cert_receipt_id"],
                     "cert_receipt_no": voucher["cert_receipt_no"],
+                    "cert_amount": (
+                        _money(voucher["cert_amount"])
+                        if voucher["cert_receipt_id"] else None
+                    ),
+                    "cert_line_nos": (
+                        _json_of(voucher["cert_meta"]).get("source_line_nos") or []
+                        if voucher["cert_receipt_id"] else []
+                    ),
                     "created_at": voucher["created_at"],
                     "lines": lines,
                     "signatures": [

@@ -1925,12 +1925,20 @@ class ExpenseVoucherSignatureItem(BaseModel):
 
 
 class ExpenseVoucherResponse(BaseModel):
-    """ผลของ `POST /finance/expense-vouchers` — `reused=true` = คีย์เดิม payload เดิม"""
+    """ผลของ `POST /finance/expense-vouchers` — `reused=true` = คีย์เดิม payload เดิม
+
+    🧾 [P4.2] `cert_*` มีค่าเฉพาะเมื่อมีบรรทัด `receipt_status='none'`;
+    `cert_amount` = ผลรวม **เฉพาะบรรทัด none** (ไม่เท่ากับ `total_amount` เสมอ)
+    """
     id: int
     total_amount: float
     line_count: int
     pv_receipt_id: int
     pv_receipt_no: str
+    cert_receipt_id: Optional[int] = None
+    cert_receipt_no: Optional[str] = None
+    cert_amount: Optional[float] = None
+    cert_line_nos: List[int] = Field(default_factory=list)
     created_at: datetime
     reused: bool = False
 
@@ -1965,6 +1973,8 @@ class ExpenseVoucherDetailResponse(BaseModel):
     pv_receipt_no: Optional[str] = None
     cert_receipt_id: Optional[int] = None
     cert_receipt_no: Optional[str] = None
+    cert_amount: Optional[float] = None
+    cert_line_nos: List[int] = Field(default_factory=list)
     created_at: datetime
     lines: List[ExpenseVoucherLineItem] = Field(default_factory=list)
     signatures: List[ExpenseVoucherSignatureItem] = Field(default_factory=list)

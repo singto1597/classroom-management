@@ -598,7 +598,11 @@ async def test_voucher_list_and_detail_shapes(
     assert d["lines"][0]["category_name"] == "วัสดุสำนักงาน"
     assert d["lines"][1]["wallet_name"] == "ธนาคารห้อง"
     assert len(d["signatures"]) == 3
-    assert d["cert_receipt_id"] is None  # CERT เป็นของ P4.2
+    # 🧾 P4.2 — บรรทัด default `receipt_status='none'` ⇒ มี CERT พ่วง PV เสมอ
+    assert d["cert_receipt_id"] is not None
+    assert d["cert_receipt_no"].startswith("CERT-")
+    assert d["cert_line_nos"] == [1, 2]
+    assert _money(d["cert_amount"]) == "350.00"
 
 
 # ═══════════════════════ 17. งบประมาณนับยอดใช้จากบรรทัด (ไม่นับซ้ำ)
