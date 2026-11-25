@@ -63,7 +63,8 @@ _RECEIPT_COLUMNS = """
     R.student_payment_id, R.legacy_transaction_id, R.student_id, R.collection_id,
     R.amount, R.paid_total_after, R.issued_to_name, R.issued_by_name, R.note,
     R.event_at, R.status, R.voided_at, R.voided_by, R.void_reason, R.issued_at,
-    R.batch_id
+    R.batch_id,
+    R.layout_version, R.document_meta, R.payment_event_id, R.receiver_person_id
 """
 
 # 🗓️ "วันที่ของเอกสาร" — ใช้ `event_at` ถ้ามี ไม่งั้นถอยไปใช้ `issued_at`
@@ -218,6 +219,16 @@ class ReceiptsMixin:
         d["event_at"] = _as_utc(d.get("event_at"))
         d["voided_at"] = _as_utc(d.get("voided_at"))
         d["line_items"] = cls._parse_line_items(d.get("line_items"))
+        # 🧾 [P2.2] layout/snapshot ของเอกสาร v2 — `document_meta` มาจาก jsonb
+        #    ⇒ asyncpg คืนเป็น **str** ต้อง parse (ลืมแล้ว template จะได้สตริง)
+        d["layout_version"] = int(d.get("layout_version") or 1)
+        meta = d.get("document_meta")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except (ValueError, TypeError):
+                meta = {}
+        d["document_meta"] = meta if isinstance(meta, dict) else {}
         return d
 
     @staticmethod
@@ -1864,6 +1875,10 @@ class ReceiptsMixin:
                     where = "WHERE R.room_id = $1"
                 else:
                     where = f"WHERE R.room_id = $1 AND R.deleted_at IS NULL AND R.status = '{DOC_STATUS_ACTIVE}'"
+                # 🧾 [P2.2] ทะเบียนเดิมเห็นเฉพาะเอกสาร legacy — ใบ v2 ยังเปิด/พิมพ์ได้ผ่าน
+                #    `get_receipt` แต่หน้านี้ใช้เลย์เอาต์เดิมซึ่งอ่าน snapshot v2 ไม่ครบ
+                #    (P5.2 จะมี registry ใหม่ที่รวมทั้งสอง layout) · กรองทั้ง include_voided
+                where += " AND R.layout_version = 1"
                 params: List = [target_room_id]
                 idx = 2
                 if doc_type:
@@ -2137,6 +2152,10 @@ class ReceiptsMixin:
            ถ้าเส้นทาง PDF ใบเดียวประกอบ context เอง "พิมพ์ใบเดี่ยว" กับ "พิมพ์รวมแล้วตัดหน้า"
            จะได้กระดาษคนละแบบโดยไม่มีใครรู้จนกว่าจะมีคนเอามาวางเทียบกัน
         """
+        # 🧾 [P2.2] เอกสาร v2 อ่าน snapshot ของตัวเอง — partial แยกไฟล์ (REC/DEP)
+        #    ⚠️ legacy (layout 1) ต้องเดินต่อด้วยโค้ดเดิม **ไบต์ต่อไบต์**
+        if int(d.get("layout_version") or 1) >= 2:
+            return cls._document_context_v2(d)
         amount = float(d["amount"])
         paid_total = float(d["paid_total_after"])
         line_items, line_items_hidden = cls._line_items_for_print(d.get("line_items"))

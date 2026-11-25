@@ -56,6 +56,10 @@ from .allocation import AllocationMixin
 #    ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม (ชื่อขึ้นต้น `_issue_event_*` ทั้งหมด)
 from .payment_events import PaymentEventsMixin
 from .receipts_v2 import ReceiptsV2Mixin
+# 🧾 [FIN-V2 / P2.2] context/template ของเอกสาร v2 — `_document_context` (ReceiptsMixin)
+#    dispatch มาที่ `_document_context_v2` ผ่าน MRO ⇒ mixin นี้ต้องอยู่ใน MRO ก่อนเรียก
+#    (ชื่อไม่ชนกับ mixin ใด — `_body_template_for`/`_v2_line_items`/`_document_context_v2`)
+from .documents import DocumentsMixin
 
 
 class FinanceService(
@@ -75,6 +79,9 @@ class FinanceService(
     CustomChargesMixin,
     ExportMixin,
     ReportingMixin,
+    # 🧾 [FIN-V2 / P2.2] — วาง**ก่อน** `ReceiptsMixin` ตาม brief (mixin ที่อยู่บนชนะ)
+    #    `ReceiptsMixin._document_context` เรียก `cls._document_context_v2` ผ่าน MRO
+    DocumentsMixin,
     ReceiptsMixin,
     # 📚 วาง **หลัง** `ReceiptsMixin` โดยเจตนา: `ReceiptBatchesMixin` ไม่ได้ override
     #    ฟังก์ชันใดของ ReceiptsMixin (ชื่อไม่ชนกันเลย) ⇒ ลำดับไม่มีผลกับพฤติกรรม

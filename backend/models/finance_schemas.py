@@ -617,10 +617,23 @@ class ReceiptLineItem(BaseModel):
        จะไม่เท่ากับยอดพาดหัว (ที่เก็บไว้ตอนออก) = เอกสารขัดแย้งตัวเอง
     """
     title: Optional[str] = None
-    amount: float
+    amount: Optional[float] = None
     # 📅 ISO `YYYY-MM-DD` (JSON ไม่มีชนิด DATE) — frontend จัดรูปเป็นไทยเองที่เดียวกับ
     #    วันที่อื่น ๆ ในระบบ ⇒ จอกับกระดาษได้สตริงเดียวกันจาก `THAI_MONTHS_SHORT`
     due_date: Optional[str] = None
+    # 🧾 [FIN-V2 / P2.2] รูปของบรรทัดใน **เอกสารระดับ event** (layout_version=2)
+    #    🔴 `amount` เปลี่ยนเป็น optional เพราะ v2 ไม่มีคีย์นี้ (มียอดแยกแหล่ง) —
+    #       ถ้าปล่อยเป็น required ใบ v2 ที่เปิดผ่านหน้า detail จะ ValidationError = 500
+    #       ทั้งที่เอกสารและ snapshot ถูกต้อง
+    collection_id: Optional[int] = None
+    student_payment_id: Optional[int] = None
+    bill_amount: Optional[float] = None
+    amount_applied: Optional[float] = None
+    cash_amount: Optional[float] = None
+    credit_amount: Optional[float] = None
+    bill_remaining: Optional[float] = None
+    # 💰 cash | credit | mixed — ป้าย "แหล่งเงิน" ของบรรทัด
+    source: Optional[str] = None
 
 
 class ReceiptResponse(BaseModel):
@@ -737,6 +750,10 @@ class ReceiptDetailResponse(ReceiptListItem, VoucherFields):
     collection_due_date: Optional[date] = None
     room_name: Optional[str] = None
     room_code: Optional[str] = None
+    # 🧾 [FIN-V2 / P2.2] เลย์เอาต์ของเอกสาร — 1 = legacy (รอบบิล), 2 = ระดับ event
+    #    🔴 ต้องประกาศที่นี่ ไม่งั้น `response_model` ตัดทิ้ง **เงียบ ๆ** ⇒ หน้าจอ/P2.3
+    #       แยกไม่ออกว่าใบที่เปิดมาควรใช้เทมเพลต/ปุ่มไหน
+    layout_version: int = 1
 
 
 class BatchPaymentConfirmResponse(SuccessResponse):

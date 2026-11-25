@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 279 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 280 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -283,6 +283,7 @@
 - [🧮 จัดสรรเงิน: คิดเป็น "สตางค์จำนวนเต็ม" และเศษจากปัดต้องไปเป็นเครดิต — ห้ามยัดเข้าบิล](#จัดสรรเงิน-คิดเป็น-สตางค์จำนวนเต็ม-และเศษจากปัดต้องไปเป็นเครดิต-ห้ามยัดเข้าบิล)
 - [🧾 เอกสารระดับ event: `INSERT … RETURNING` ใช้ alias ไม่ได้ และ idempotency ต้องคีย์ที่ `payment_event_id` ไม่ใช่ `student_payment_id`](#เอกสารระดับ-event-insert-returning-ใช้-alias-ไม่ได้-และ-idempotency-ต้องคีย์ที่-paymenteventid-ไม่ใช่-studentpaymentid)
 - [🔒 เมธอดเขียนใหม่ต้องลงทะเบียนใน `_MONEY_PATHS` และยึด `_lock_room_money` — ถ้า RBAC อยู่ใน helper ต้องเพิ่ม helper ใน `_LOCKING_HELPERS`](#เมธอดเขียนใหม่ต้องลงทะเบียนใน-moneypaths-และยึด-lockroommoney-ถ้า-rbac-อยู่ใน-helper-ต้องเพิ่ม-helper-ใน-lockinghelpers)
+- [🧾 เทมเพลต v2: dispatch ที่ `_document_context` จุดเดียว + เลย์เอาต์ snapshot ที่ไม่ JOIN บิลสด — และทะเบียนเดิมต้องกรอง `layout_version`](#เทมเพลต-v2-dispatch-ที่-documentcontext-จุดเดียว-เลย์เอาต์-snapshot-ที่ไม่-join-บิลสด-และทะเบียนเดิมต้องกรอง-layoutversion)
 
 <!-- TOC:END -->
 
@@ -4811,4 +4812,18 @@
   - ⚠️ ห้ามใส่ `_confirm_single_payment` ใน `_LOCKING_HELPERS` — มัน *รับ* ล็อกต่อจากผู้เรียก ไม่ใช่ผู้ยึด
 - **Rule:** (1) 🔴 PR ที่เพิ่มเมธอดเขียนการเงินต้องอัปเดต `_MONEY_PATHS`/`_LOCKING_HELPERS` ในไฟล์เทสต์เดียวกัน — ตัวตรวจชั้น (1) ไม่จับ path ที่ RBAC อยู่ใน helper (2) 🔴 helper ที่แชร์ชื่อแบบ substring (`f"{helper}("`) ห้ามตั้งชื่อขึ้นต้นด้วยชื่อในรายการเดิม (3) 🔴 อย่าปล่อย regression แดงข้ามแพ็กเกจ — failure แบบนี้คือช่อง deadlock จริง ไม่ใช่ noise
 - **Tests/Verification:** `backend/tests/test_finance_money_lock.py` — ทั้งชุด 91 passed หลังเติมล็อกใน `people.py` + ลงทะเบียน `people.*`/`payment_events.create_payment_event` + `_create_locked` เป็น locking helper
+- **Date Added:** 2026-11-25
+
+### 🧾 เทมเพลต v2: dispatch ที่ `_document_context` จุดเดียว + เลย์เอาต์ snapshot ที่ไม่ JOIN บิลสด — และทะเบียนเดิมต้องกรอง `layout_version`
+- **Context/Problem:** P2.2 เพิ่มเทมเพลตใบเสร็จ v2 (`_receipt_body_v2.html`) สำหรับใบ `layout_version=2` ที่มี `line_items` หลายบรรทัด (`bill_amount`/`amount_applied`/`bill_remaining`/`source`) แต่ต้องไม่แตะใบ legacy แม้ไบต์เดียว ขณะที่ `_document_context` เดิมสร้าง context รอบ "บิล" (`collection_id`, `student_payment_id`, `remaining`) ซึ่งไม่มีคีย์ของ v2 เลย และทะเบียน `GET /finance/receipts` ยังไม่รู้จักเลย์เอาต์ใหม่
+- **Root Cause:** (1) context ของ legacy คำนวณ `collection_amount`/`remaining` จากบิล/แคมเปญ — ใบ v2 ไม่มีบิลเดียว ⇒ ถ้าใช้ร่วมกันจะได้ช่องว่าง/ตัวเลขผิด และถ้า JOIN `fee_collections` สด การแก้ชื่อบิลภายหลังจะเปลี่ยนกระดาษที่แจกไปแล้ว (2) `Undefined is not none` เป็น True ⇒ context v2 ที่ขาดคีย์ที่เทมเพลต `format()` จะ 500 (3) ถ้ากรอง `layout_version=1` ที่ `get_receipt` ด้วย ใบ v2 จะเปิด/พิมพ์ไม่ได้เลย
+- **Correct Pattern/Solution:**
+  - dispatch **ที่ `_document_context` จุดเดียว**: `if int(d.get("layout_version") or 1) >= 2: return cls._document_context_v2(d)` — เส้นทางพิมพ์ใบเดียว (`render_receipt_pdf`) และพิมพ์รวม (`_document_contexts`) ใช้ทั้งคู่ ⇒ ไม่มีทาง "พิมพ์เดี่ยวกับพิมพ์รวมได้กระดาษคนละแบบ"
+  - context v2 ตั้งคีย์ legacy **ครบทุกตัว** (เป็น `None`/`[]`) บวกคีย์ v2 (`credit_used`, `credit_added`, `amount_received`, `balance_before/after`, `channel_text`, `body_template`) ⇒ partial ใหม่ใช้ `is not none` กับทุกช่องได้โดยไม่ต้อง default
+  - `body_template` = ทางแยกของ partial (ไม่ใช่ `is_receipt`) — v2 REC/DEP → `_receipt_body_v2.html`, ชนิด v2 อื่นที่ยังไม่มีเทมเพลตถอยไป partial เดิม + `logger.warning` ครั้งเดียวต่อ doc_type (พิมพ์ได้ ดีกว่า 500)
+  - ยอดบนใบ: แถว "รวมทั้งสิ้น" พิมพ์ `d.amount` (ค่าที่บันทึก) **ไม่ใช่ผลบวกของบรรทัดที่แสดง** — ตัดเกิน 20 บรรทัดแล้วยอดยังถูก; คำอ่านคิดใหม่จาก `baht_text(amount)` ไม่เชื่อ `amounts_in_words` ใน snapshot
+  - ทะเบียนเดิม: `get_receipts` เพิ่ม `AND R.layout_version = 1` **ที่เดียว** — `get_receipt` **ห้ามกรอง** ไม่งั้นใบ v2 เปิด/พิมพ์ไม่ได้
+  - `ReceiptLineItem.amount` ต้องเป็น `Optional[float]` (snapshot v2 มี `amount_applied` ไม่มี `amount`) และ `ReceiptDetailResponse` ต้องประกาศ `layout_version` — `response_model` ตัดฟิลด์ที่ไม่ได้ประกาศทิ้งเงียบ ๆ
+- **Rule:** (1) 🔴 เอกสาร v2 พิมพ์จาก snapshot (`line_items` + `document_meta`) เท่านั้น — ห้าม JOIN บิล/แคมเปญสด (2) 🔴 dispatch อยู่ที่ `_document_context` จุดเดียว ห้ามสร้างสาขาที่สามใน partial legacy (3) 🔴 ทะเบียน = กรอง layout 1 / detail = ไม่กรอง (4) 🔴 เพิ่มฟิลด์ใน response ต้องประกาศใน Pydantic model ด้วย ไม่งั้นถูกตัดทิ้ง
+- **Tests/Verification:** `backend/tests/test_finance_receipt_v2_template.py` — `test_v2_context_uses_snapshot_not_live_bill` (แก้ `fee_collections.title` แล้วพิมพ์ซ้ำ ► ชื่อเดิม), `test_v2_dispatch_selects_v2_body`, `test_legacy_receipt_context_unchanged`, `test_legacy_receipt_html_byte_stable`, `test_registry_hides_v2_documents` (ทะเบียนเห็นเฉพาะ layout 1 แต่ `get_receipt` คืนใบ v2), `test_v2_deposit_html_prints_balance`, `test_v2_body_handles_missing_optional_keys`, `test_font_faces_count_still_two`
 - **Date Added:** 2026-11-25
