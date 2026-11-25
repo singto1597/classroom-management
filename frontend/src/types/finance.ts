@@ -1752,3 +1752,93 @@ export interface BulkPaymentErrorDetail {
   student_id: number
   item_code: string
 }
+
+// ──────────────────────── 👜 เงินสดรอส่งมอบ (FIN-V2 / P3.1 API → P3.2 UI)
+// 🔴 ชื่อฟิลด์ตรงกับ response ของ `services/finance/custody.py` เป๊ะ ๆ:
+//    `GET /finance/custody` → `{ total_held, items }`
+//    `GET /finance/custody/{person_id}/movements` → `{ person_id, account_id, items }`
+//    เงินทุกฟิลด์เป็น **number** (P3.1 ตัดเป็น 2 ตำแหน่งมาแล้ว) ⇒ ใช้ `formatMoney`
+//    เท่านั้น ห้าม `toFixed()` เองในหน้าจอ
+
+export type CustodyAccountKind = 'cash' | 'transfer'
+
+/** หนึ่งแถวของกระเป๋า custody — คนหนึ่งมีได้กระเป๋าเดียวต่อห้อง */
+export interface CustodyItem {
+  person_id: number
+  display_name: string
+  account_id: number
+  account_name: string
+  account_kind: CustodyAccountKind
+  balance: number
+  /** ISO timestamp ของ handover ที่ยัง active ล่าสุด — `null` = ยังไม่เคยส่งมอบ */
+  last_handover_at: string | null
+}
+
+export interface CustodyListResponse {
+  /** ผลรวมยอดถือของทุกคนในห้อง (number, 2 ตำแหน่ง) */
+  total_held: number
+  items: CustodyItem[]
+}
+
+export interface CustodyAccountCreate {
+  owner_person_id: number
+  /** ค่าเริ่มต้น `cash` — ตรงกับ Literal ของ backend */
+  account_kind?: CustodyAccountKind
+}
+
+/** ผลของ `POST /finance/custody/accounts` */
+export interface CustodyAccount {
+  person_id: number
+  account_id: number
+  account_name: string
+  account_kind: CustodyAccountKind
+  balance: number
+  is_custody: boolean
+}
+
+export interface CustodyHandoverCreate {
+  /** 🔑 สร้างตอน **เปิดฟอร์ม** และใช้ค่าเดิมตลอดการ retry — ดู `newIdempotencyKey` */
+  idempotency_key: string
+  from_account_id: number
+  to_account_id: number
+  /** number 2 ตำแหน่ง (ใช้ `roundMoney`) */
+  amount: number
+  handed_over_by_person_id?: number | null
+  received_by_person_id?: number | null
+  note?: string | null
+}
+
+export interface CustodyHandover {
+  id: number
+  from_account_id: number
+  to_account_id: number
+  amount: number
+  status: 'active' | 'voided'
+  /** id ของ journal entry (string ตามสัญญา — ใช้ตรวจสอบ ไม่ใช่แสดงให้ผู้ใช้ทั่วไป) */
+  journal_entry_id: string | null
+  created_at: string | null
+}
+
+export type CustodyMovementKind = 'handover_in' | 'handover_out' | 'income' | 'expense'
+
+/**
+ * หนึ่งบรรทัดของการเคลื่อนไหว — `amount` มีเครื่องหมายตามทิศทางแล้ว
+ * ⚠️ P3.1 คืนเฉพาะ handover ที่ **ยัง active** ⇒ รายการที่ยกเลิกแล้วจะหายจากลิสต์
+ *    (ไม่ใช่บั๊ก — ฝั่งอ่านยึดยอดจริง ไม่ยึดประวัติที่ถูกกลับรายการ)
+ */
+export interface CustodyMovement {
+  kind: CustodyMovementKind
+  /** id ของ handover หรือ finance_transactions ตาม `kind` (string จาก backend) */
+  source_id: string
+  amount: number
+  description: string | null
+  /** เลขที่ใบเสร็จ ถ้ารายการนั้นมีใบเสร็จ — ยังไม่ผูกลิงก์ในรอบ P3.2 */
+  reference_no: string | null
+  occurred_at: string
+}
+
+export interface CustodyMovementListResponse {
+  person_id: number
+  account_id: number
+  items: CustodyMovement[]
+}

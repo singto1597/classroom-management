@@ -23,6 +23,8 @@ import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import AppSheet from '@/components/ui/AppSheet.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 import { useDialog } from '@/composables/useDialog';
+// 👜 [FIN-V2 / P3.2] สรุปเงินสดรอส่งมอบบนการ์ดทางเข้า
+import { formatMoney } from '@/utils/money';
 
 const authStore = useAuthStore();
 
@@ -574,6 +576,20 @@ const saveFinanceSettings = async () => {
 onMounted(() => {
   void fetchPeopleAndSettings();
 });
+
+/* 👜 [FIN-V2 / P3.2] สรุปเงินสดรอส่งมอบ — การ์ดทางเข้าไปหน้า `/finance/custody`
+ * ⚠️ โหลดแบบ **ไม่บล็อกหน้า**: ถ้า API ล้มเหลว ซ่อนเฉพาะตัวเลข ไม่ทำให้หน้า
+ *    ตั้งค่าพัง (brief P3.2 กำหนดไว้แบบนี้) — ยอดจริงอยู่ในหน้าคุมเอง */
+const custodySummary = ref<{ total_held: number; count: number } | null>(null);
+
+void (async () => {
+  try {
+    const res = await FinanceService.getCustody(authStore.currentRoomId!);
+    custodySummary.value = { total_held: res.total_held, count: res.items.length };
+  } catch {
+    custodySummary.value = null;
+  }
+})();
 </script>
 
 <template>
@@ -966,6 +982,38 @@ onMounted(() => {
           </button>
         </div>
       </form>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         👜 [FIN-V2 / P3.2] เงินสดรอส่งมอบ — การ์ดทางเข้า (ไม่ใช่เมนูหลัก)
+         ═══════════════════════════════════════════════════════════════
+         ยอดเป็นสรุปจาก `GET /finance/custody` (โหลดแบบไม่บล็อก) — ถ้าโหลดไม่ได้
+         จะซ่อนตัวเลขแต่ลิงก์ยังใช้ได้ (หน้าปลายทางโหลดเองอีกครั้ง)
+         🔓 สมาชิกทุกคนเข้าได้ (backend `require_member`); ปุ่มเขียนอยู่ในหน้านั้น -->
+    <div class="page-card overflow-hidden">
+      <div class="border-b border-line bg-canvas px-4 py-3 sm:px-5">
+        <h2 class="section-title flex items-center gap-2">
+          <i class="bi bi-wallet2 text-brand-700" aria-hidden="true"></i>
+          <span class="truncate">เงินสดรอส่งมอบ</span>
+        </h2>
+        <p class="mt-0.5 text-sm text-ink-3">
+          ยอดที่ผู้ถือเงินรับไปแล้วยังไม่นำส่ง — โอนเข้า-ออกได้โดยไม่นับเป็นรายรับหรือรายจ่าย
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
+        <div v-if="custodySummary">
+          <p class="text-xs font-bold text-ink-3">ยอดถือรวมทั้งห้อง</p>
+          <p class="text-xl font-bold tabular-nums text-ink-1">
+            {{ formatMoney(custodySummary.total_held) }}
+          </p>
+          <p class="text-xs text-ink-3">ผู้ถือเงิน {{ custodySummary.count }} คน</p>
+        </div>
+        <p v-else class="text-sm text-ink-3">เปิดหน้าเพื่อดูยอดและจัดการผู้ถือเงิน</p>
+        <RouterLink to="/finance/custody" class="btn-ghost-ui">
+          <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>
+          เปิดหน้าเงินสดรอส่งมอบ
+        </RouterLink>
+      </div>
     </div>
     </template>
     </template>

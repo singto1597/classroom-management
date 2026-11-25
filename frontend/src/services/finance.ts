@@ -102,7 +102,14 @@ import type {
   PaymentChannelUpdate,
   // 📥 [FIN-V2 / P2.7] รับเงินหลายคนในรอบเดียว
   BulkPaymentEventCreate,
-  BulkPaymentEventResult
+  BulkPaymentEventResult,
+  // 👜 [FIN-V2 / P3.1 API → P3.2 UI] เงินสดรอส่งมอบ
+  CustodyListResponse,
+  CustodyAccountCreate,
+  CustodyAccount,
+  CustodyHandoverCreate,
+  CustodyHandover,
+  CustodyMovementListResponse
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1034,5 +1041,61 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/payment-channels/${channelId}/qr.svg`,
       { params, responseType: 'blob' }
     ) as unknown as Blob;
+  },
+
+  // ──────────────────── 👜 เงินสดรอส่งมอบ (FIN-V2 / P3.1 API → P3.2 UI)
+  // 🔓 อ่าน: `require_member` — ทุกสมาชิกห้องเห็นยอด/ความเคลื่อนไหวได้
+  // 🔒 เขียน: `MANAGE_FINANCE` (backend 403) — UI ซ่อนปุ่มด้วย `canManageFinance`
+  // ⚠️ หลัง mutation ทุกครั้งให้เรียก `getCustody` ใหม่เสมอ — ห้ามคำนวณยอดฝั่งจอ
+
+  async getCustody(roomId: number): Promise<CustodyListResponse> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/custody?target_type=room`
+    ) as unknown as CustodyListResponse;
+  },
+
+  async createCustodyAccount(
+    roomId: number,
+    payload: CustodyAccountCreate
+  ): Promise<CustodyAccount> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/custody/accounts?target_type=room`,
+      payload
+    ) as unknown as CustodyAccount;
+  },
+
+  async createCustodyHandover(
+    roomId: number,
+    payload: CustodyHandoverCreate
+  ): Promise<CustodyHandover> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/custody/handover?target_type=room`,
+      payload
+    ) as unknown as CustodyHandover;
+  },
+
+  async getCustodyMovements(
+    roomId: number,
+    personId: number,
+    params: { from?: string; to?: string } = {}
+  ): Promise<CustodyMovementListResponse> {
+    const query: Record<string, string | number> = { target_type: 'room' };
+    if (params.from) query.from_date = params.from;
+    if (params.to) query.to_date = params.to;
+    return await api.get(
+      `/api/classroom/${roomId}/finance/custody/${personId}/movements`,
+      { params: query }
+    ) as unknown as CustodyMovementListResponse;
+  },
+
+  async voidCustodyHandover(
+    roomId: number,
+    handoverId: number,
+    payload: { reason: string }
+  ): Promise<ApiSuccessResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/custody/handovers/${handoverId}/void?target_type=room`,
+      payload
+    ) as unknown as ApiSuccessResponse;
   }
 };

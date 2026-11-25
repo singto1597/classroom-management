@@ -453,6 +453,21 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 👜 [FIN-V2 / P3.2] เงินสดรอส่งมอบ — อ่านเปิดให้สมาชิก (backend `require_member`)
+        // ปุ่มเขียน (ตั้งกระเป๋า/ส่งมอบ/ยกเลิก) gate ด้วย `canManageFinance` ในตัวหน้า
+        // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา — เข้าจากการ์ดใน `/finance/settings` / การเงิน
+        //    ไม่เพิ่มเมนูหลักซ้ำกับหน้า `/finance`
+        path: '/finance/custody',
+        name: 'finance-custody',
+        component: () => import('@/views/finance/CustodyList.vue'),
+        meta: {
+          title: routeTitles['finance-custody'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         path: '/discord-connect',
         name: 'DiscordConnect',
         component: () => import('@/components/discord/DiscordConnectGuide.vue'),
