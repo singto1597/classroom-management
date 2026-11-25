@@ -553,12 +553,17 @@ async def test_add_transaction_response_carries_the_document_number(client, db_p
     assert body["receipt_no"] in body["message"], "ข้อความต้องบอกเลขที่ออกให้ด้วย"
 
 
-@pytest.mark.parametrize("doc_type", sorted(DOC_TYPE_LABELS))
+@pytest.mark.parametrize("doc_type", sorted(DOC_TYPE_PREFIXES))
 async def test_pdf_filename_covers_every_doc_type(doc_type):
-    """ชื่อไฟล์ต้องไม่ตกไปที่ default `document-…` ของชนิดใด ๆ ที่ประกาศไว้
+    """ชื่อไฟล์ต้องไม่ตกไปที่ default `document-…` ของชนิดใด ๆ ที่มีเลขเอกสาร
 
-    🔑 parametrize บน `DOC_TYPE_LABELS` ⇒ **ชนิดใหม่ในอนาคตได้เทสต์ฟรี**
+    🔑 parametrize บน `DOC_TYPE_PREFIXES` ⇒ **ชนิดใหม่ในอนาคตได้เทสต์ฟรี**
        (เพิ่มป้ายแต่ลืมเพิ่มชื่อไฟล์ = เทสต์นี้ล้มทันที)
+
+    ⚠️ [FIN-V2] เปลี่ยนจาก `DOC_TYPE_LABELS` เป็น `DOC_TYPE_PREFIXES` เพราะ
+       `monthly_report` (RPT) **ไม่มีคำนำหน้าเอกสาร** — เลขของมันมาจาก
+       `finance_monthly_reports.version` ไม่ใช่ `receipt_sequences`
+       ⇒ สร้าง `receipt_no` ให้ทดสอบไม่ได้โดยธรรมชาติ ไม่ใช่ "ลืมใส่ชื่อไฟล์"
     """
     name = pdf_filename(f"{DOC_TYPE_PREFIXES[doc_type]}-2569-0001", doc_type)
     assert not name.startswith("document-"), (

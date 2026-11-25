@@ -218,6 +218,12 @@ def pdf_filename(receipt_no: str, doc_type: str) -> str:
         #    กลืนความผิดเงียบ ๆ) ⇒ มีเทสต์ parametrize บน `DOC_TYPE_LABELS` คอยจับ
         "income": "income",
         "payment_voucher": "payment_voucher",
+        # 🆕 [FIN-V2 / P1.1] ชนิดใหม่ที่ประกาศใน `DOC_TYPE_LABELS` แล้ว — ถ้าไม่ใส่
+        #    ไฟล์จะชื่อ `document-ACK-…` (default กลืนความผิด) ⇒ เทสต์ parametrize
+        #    บน `DOC_TYPE_LABELS` ล้มทันที · ตัวพิมพ์ของเอกสารจริงมาใน P5.x
+        "acknowledgement": "acknowledgement",
+        "certificate": "certificate",
+        "monthly_report": "monthly_report",
     }.get(doc_type, "document")
     safe = receipt_no.replace("/", "-")
     return f"{prefix}-{safe}.pdf"

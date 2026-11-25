@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 274 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 275 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -278,6 +278,7 @@
 - [📣 "ส่งวันละครั้ง" ต้องจองสิทธิ์ใน DB ไม่ใช่ใน memory — และตัวเช็กเวลาต้องเป็น `>=` ไม่ใช่ `==`](#ส่งวันละครั้ง-ต้องจองสิทธิ์ใน-db-ไม่ใช่ใน-memory-และตัวเช็กเวลาต้องเป็น-ไม่ใช่)
 - [⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ](#ค่าปรับ-อัตโนมัติ-ต้องผูกกับ-บิลต้นทาง-ด้วย-unique-index-และยอดบิลต้องมาจาก-fcamount-เสมอ)
 - [🚀 `pull_all.sh` ไม่มี `set -e` ⇒ build ล้มแต่ deploy ต่อ — "สำเร็จ" หลอก ๆ ที่ของเก่ายังรัน](#pullallsh-ไม่มี-set--e-build-ล้มแต่-deploy-ต่อ-สำเร็จ-หลอก-ๆ-ที่ของเก่ายังรัน)
+- [🧮 unique index บน "บรรทัดของเหตุการณ์" ต้องคีย์ด้วย `line_kind` ใน predicate — 1 บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว](#unique-index-บน-บรรทัดของเหตุการณ์-ต้องคีย์ด้วย-linekind-ใน-predicate-1-บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว)
 
 <!-- TOC:END -->
 
@@ -4733,4 +4734,19 @@
 - **Rule:** (1) 🔴 สคริปต์ deploy ต้อง `set -euo pipefail` — ไม่มีข้อยกเว้น (2) 🔴 ก่อน `stack deploy` ต้อง `docker image inspect` ให้ครบทุก image (3) 🔴 หลัง deploy ต้องรอ **ทั้ง** `UpdateStatus.State ∈ {completed, none}` **และ** task นิ่ง `x/x` (ต้องเห็นพร้อม 2 ครั้งติดกัน) — `x/x` เดี่ยว ๆ ไม่ใช่หลักฐานว่าเวอร์ชันใหม่ขึ้นแล้ว (4) 🔴 build ในเครื่องนี้ใช `--network=host` ถ้า container DNS ยังพัง — ห้ามสรุปว่า build ผ่านจาก exit code ของสคริปต์ที่ไม่มี `set -e`
 - **Tests/Verification:** 2026-11-25 — rerun `./pull_all.sh` บน staging หลังแก้ (build ด้วย host network, image ครบ, รอ `x/x`) · staging + production ขึ้น `git_sha=6616a4e` · production log: `✅ apply migration 0010_fines_accrual` → `0011_late_fees_custom_charges`
   - รอบถัดมาเจอว่า loop เก่าตัดสินเร็วเกิน: สคริปต์จบแล้ว `staging_app_backend` ยัง `UpdateStatus=updating` + `4/3` ⇒ อ่าน state จาก swarm เพิ่ม ซ้อมบน staging ที่ `ea2f714`: ตอนสคริปต์ exit ทุก service `completed` และ `/api/version` = `ea2f714` ทันที
+- **Date Added:** 2026-11-25
+
+### 🧮 unique index บน "บรรทัดของเหตุการณ์" ต้องคีย์ด้วย `line_kind` ใน predicate — 1 บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว
+- **Context/Problem:** ออกแบบ `finance_payment_event_lines` (บรรทัดของเหตุการณ์รับเงิน 1 ครั้ง) แล้วอยากกัน "บิล 1 ใบถูกปิดซ้ำสองบรรทัดใน event เดียว" จึงเขียน `UNIQUE (event_id, student_payment_id) WHERE student_payment_id IS NOT NULL` — สมเหตุสมผลเมื่อคิดว่า 1 บิลถูกปิดครั้งเดียว แต่ **พังทันที** กับเคสที่ผู้ปกครองจ่าย "เงินสด 60 + ใช้เครดิต 40" ไปปิดบิลใบเดียวกัน: บรรทัด `bill` (ผูก `finance_transaction_id`) และ `credit_apply` (ผูก `credit_entry_id`) อ้าง `student_payment_id` **ตัวเดียวกัน** ⇒ unique โยน `UniqueViolationError` ทั้งที่ข้อมูลถูกต้อง
+- **Root Cause:** บรรทัดไม่ได้ unique ด้วยคู่ (event, บิล) แต่ด้วย **(event, บิล, ชนิดบรรทัด)** — `line_kind` เป็นส่วนหนึ่งของเอกลักษณ์ของแถว ไม่ใช่แค่คอลัมน์ประกอบ และ **Postgres ไม่รู้เรื่องนี้** ถ้าไม่ใส่ลง predicate ⇒ ตัว index กลายเป็นข้อห้ามที่เข้มกว่ากฎธุรกิจ
+- **Correct Pattern/Solution:**
+  ```sql
+  CREATE UNIQUE INDEX idx_finance_payment_event_lines_bill
+      ON finance_payment_event_lines(event_id, student_payment_id)
+      WHERE line_kind = 'bill' AND student_payment_id IS NOT NULL;
+  ```
+  - `credit_apply` / `credit_topup` อยู่นอก predicate ⇒ ชนิดเดียวกันยังกันซ้ำกันเองได้ถ้าต้องการในอนาคต แต่ข้ามชนิดกันได้
+  - ใช้ partial index คู่กับ CHECK ที่บังคับรูปทรงของแต่ละ `line_kind` (`bill` ต้องมี `finance_transaction_id`, `credit_apply` ต้องมี `credit_entry_id`) — CHECK กัน "แถวพิการ", unique กัน "แถวซ้ำ"
+- **Rule:** (1) 🔴 ก่อนตั้ง unique บนตารางที่มีคอลัมน์ "ชนิด/สถานะ" (`line_kind`, `doc_type`, `entry_type`, `role`) ให้ถามว่า **แถวชนิดต่างกันอ้าง parent เดียวกันได้ legitimately ไหม** — ถ้าได้ ชนิดนั้นต้องอยู่ใน predicate (2) 🔴 เทสต์ต้องมีเคส "ชนิดต่างกันผ่าน" **และ** "ชนิดเดียวกันซ้ำถูกกัน" — เทสต์เฉพาะเคสซ้ำจะไม่จับ index ที่เข้มเกิน (3) 🔴 partial index กับ NULL: predicate ต้องมี `NOT NULL` guard เสมอ ไม่งั้น `NULL` ทุกแถว "ไม่ซ้ำกัน" ตามนิยาม Postgres และด่านหลุดเงียบ ๆ (บทเรียนซ้ำกับ `COALESCE(...,0)` ข้างต้น)
+- **Tests/Verification:** `backend/tests/test_finance_schema_v2.py` — `test_event_line_unique_allows_cash_and_credit_for_same_bill` (insert bill 60 + credit_apply 40 ของบิลเดียวกัน ► ผ่าน, แล้ว insert `bill` ที่สอง ► `UniqueViolationError`) และ `test_migration_0013_creates_indexes` ตรวจ `indexdef` ว่ามี `line_kind` อยู่ใน predicate (กันคนแก้ index กลับในอนาคต)
 - **Date Added:** 2026-11-25

@@ -330,10 +330,11 @@ AUTO_BATCH_MIN = 2
 # 🚧 เพดานจำนวนใบต่อชุด = เพดาน PDF รวม (`RECEIPTS_PER_PDF_MAX`)
 #    ⇒ "โหลดทั้งชุดเป็นไฟล์เดียว" ทำงานได้เสมอไม่ว่าชุดจะถูกสร้างมาอย่างไร
 BATCH_RECEIPTS_MAX = 100
-# คำนำหน้าเลขเอกสารต่อชนิด — ยาว 2–3 ตัวอักษร ต้องตรงกับ `RECEIPT_NO_PATTERN`
+# คำนำหน้าเลขเอกสารต่อชนิด — ยาว 2–4 ตัวอักษร ต้องตรงกับ `RECEIPT_NO_PATTERN`
 # ℹ️ เดิมคอมเมนต์ตรงนี้เขียนว่า "บังคับ `[A-Z]{3}` ⇒ เพิ่มชนิดใหม่ต้องเป็น 3 ตัวอักษรเท่านั้น"
 #    ซึ่ง **เป็นคำโกหกหลัง F6** — pattern ถูกผ่อนเป็น `[A-Z]{2,3}` แล้ว (ดูเหตุผลที่ตัว pattern)
-#    ⇒ `PV` (2 ตัว) ใช้ได้ · เก็บหมายเหตุนี้ไว้เพราะคอมเมนต์ที่ค้างความจริงอันตรายกว่าการไม่มีคอมเมนต์
+#    ⇒ `PV` (2 ตัว) ใช้ได้ · [FIN-V2] ผ่อนต่อเป็น `[A-Z]{2,4}` ⇒ `CERT` (4 ตัว) ใช้ได้
+#    · เก็บหมายเหตุนี้ไว้เพราะคอมเมนต์ที่ค้างความจริงอันตรายกว่าการไม่มีคอมเมนต์
 DOC_TYPE_PREFIXES = {
     DOC_TYPE_RECEIPT: "REC",
     DOC_TYPE_INVOICE: "INV",
@@ -355,10 +356,12 @@ DOC_TYPE_PREFIXES = {
 # router ใช้ pattern นี้กับ Path(...) โดยตรง — แก้ที่เดียวต้องแก้ทั้งสองที่
 RECEIPT_NO_TEMPLATE = "{prefix}-{year_be:04d}-{seq:04d}"
 # 🔑 [F6] ผ่อนจาก `[A-Z]{3}` เป็น `[A-Z]{2,3}` เพื่อให้ `PV` (ใบสำคัญจ่าย) ใช้ได้
+# 🔑 [FIN-V2 / P1.1] ผ่อนต่อเป็น `[A-Z]{2,4}` เพื่อให้ `CERT` (4 ตัว) ใช้ได้ —
+#    `CERT` เป็นคำนำหน้าที่ยาวที่สุดในชุดเอกสาร v2 (ACK/INC/PV ยังอยู่ 2–3 ตัว)
 #    ⚠️ ยัง **ไม่ผ่อนเป็น `[A-Z]+`** โดยเจตนา: pattern นี้คือ path param ของ
 #       GET detail/PDF ⇒ ยิ่งกว้างยิ่งเปิดช่องให้สตริงแปลก ๆ วิ่งเข้า query เปล่า ๆ
-#       ชนิดใหม่ในอนาคตควรมีคำนำหน้า 2–3 ตัวเท่านั้น ถ้าต้องยาวกว่านี้ให้ขยาย **อย่างมีเหตุผล**
-RECEIPT_NO_PATTERN = r"^[A-Z]{2,3}-\d{4}-\d{4}$"
+#       ชนิดใหม่ในอนาคตควรมีคำนำหน้าไม่เกิน 4 ตัว ถ้าต้องยาวกว่านี้ให้ขยาย **อย่างมีเหตุผล**
+RECEIPT_NO_PATTERN = r"^[A-Z]{2,4}-\d{4}-\d{4}$"
 
 # 🚧 เพดานลำดับที่ **ต้อง** มี เพราะสองที่นี้ผูกกันด้วยจำนวนหลัก:
 #    `{seq:04d}` เกิน 9999 แล้ว *กว้างขึ้นเอง* เป็น 5 หลัก (ไม่ error) แต่ `RECEIPT_NO_PATTERN`
@@ -468,3 +471,33 @@ RECEIPT_FONT_FAMILY = "NotoSansThai"
 # 🖊️ น้ำหนักที่เทมเพลตใช้อ้างอิง — ต้องมีไฟล์ครบทุกตัว ไม่งั้น Chromium จะ synthesize
 #    ตัวหนาเองแล้วสระ/วรรณยุกต์ไทยจะเพี้ยน (มีเทสต์กันไว้)
 RECEIPT_FONT_WEIGHTS = tuple(weight for _, weight in RECEIPT_FONT_FILES.values())
+
+# =====================================================================
+# [FIN-V2 / P1.1] เอกสารชุดใหม่ของ Finance v2 — ชนิด/คำนำหน้า/ledger
+# =====================================================================
+# ℹ️ เพิ่ม "รายการใน dict" แทนการประกาศ dict ใหม่ทั้งก้อน — การ re-declare จะทับ
+#    ของเดิม (REC/INV/DEP/PV/INC) และทำให้เลขเอกสารเก่าใช้ไม่ได้ทันที
+DOC_TYPE_ACKNOWLEDGEMENT = "acknowledgement"
+DOC_TYPE_CERTIFICATE = "certificate"
+# monthly_report ไม่มีคำนำหน้าใน DOC_TYPE_PREFIXES โดยเจตนา: RPT ไม่จองเลขผ่าน
+# `receipt_sequences` แต่ใช้ `finance_monthly_reports.version` (ดู doc-matrix §3)
+DOC_TYPE_MONTHLY_REPORT = "monthly_report"
+
+DOC_TYPE_LABELS[DOC_TYPE_ACKNOWLEDGEMENT] = "ใบรับทราบยอดค้าง"
+DOC_TYPE_LABELS[DOC_TYPE_CERTIFICATE] = "ใบรับรองแทนใบเสร็จ"
+DOC_TYPE_LABELS[DOC_TYPE_MONTHLY_REPORT] = "รายงานปิดงบ"
+
+DOC_TYPE_PREFIXES[DOC_TYPE_ACKNOWLEDGEMENT] = "ACK"
+DOC_TYPE_PREFIXES[DOC_TYPE_CERTIFICATE] = "CERT"
+
+# ℹ️ ไม่เพิ่ม ACK/CERT เข้า RECEIPT_LIKE_DOC_TYPES โดยเจตนา:
+#    - ACK ไม่มีการรับเงิน (ลายเซ็น ≠ เงิน) ⇒ ห้ามพิมพ์ถ้อยคำ "ได้รับเงินจาก"
+#    - CERT เป็นใบรับรองแทนใบเสร็จ ⇒ ต้องใช้ถ้อยคำของตัวเอง (ดู docs/skills.md
+#      เรื่อง "เอกสารที่ไม่มีบิลต้องมีถ้อยคำของตัวเอง")
+
+# 🏦 ledger ของระบบ: หนี้สูญของบิลโครงการ (59001 = หนี้สูญค่าปรับอยู่แล้ว)
+#    ℹ️ ใส่ใน `SYSTEM_LEDGER_SPECS` เดียวกันเพื่อให้ `_resolve_system_ledger`
+#       ตรวจชื่อ/ประเภท/collision guard ให้ฟรี — ห้ามสร้าง ledger ตรง ๆ ใน service
+PROJECT_BAD_DEBT_CODE = "59002"
+PROJECT_BAD_DEBT_NAME = "หนี้สูญ (โครงการ)"
+SYSTEM_LEDGER_SPECS[PROJECT_BAD_DEBT_CODE] = (PROJECT_BAD_DEBT_NAME, "expense")
