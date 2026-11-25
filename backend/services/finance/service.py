@@ -38,6 +38,10 @@ from .reminders import RemindersMixin
 from .late_fees import LateFeesMixin
 # 🧾 เรียกเก็บเงินเองรายบุคคล (Phase 6.5) — ใช้ `_create_bills_with_accrual` ผ่าน MRO
 from .custom_charges import CustomChargesMixin
+# 👥 [FIN-V2 / P1.2] ผู้เกี่ยวข้องทางการเงิน + finance_settings — ไม่พึ่ง helper ของ
+#    mixin ใด (ใช้ `resolve_room_id` จาก BaseMixin ผ่าน MRO) แต่วางก่อน Accrual/Ledger
+#    ตามกติกา "mixin ใหม่วางก่อนตัวที่มันอาจพึ่ง" · P2.1+ อ่าน `default_receiver` จากที่นี่
+from .people import PeopleMixin
 
 
 class FinanceService(
@@ -70,6 +74,8 @@ class FinanceService(
     CategoriesMixin,
     AccountsMixin,
     BackfillMixin,
+    # 👥 [FIN-V2 / P1.2] — อ่าน/เขียนทะเบียนผู้เกี่ยวข้อง + ตั้งค่าห้อง (ไม่มีชื่อชน)
+    PeopleMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,

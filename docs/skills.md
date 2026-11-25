@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 275 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 276 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -279,6 +279,7 @@
 - [⏰ ค่าปรับ "อัตโนมัติ" ต้องผูกกับ **บิลต้นทาง** ด้วย unique index — และยอดบิลต้องมาจาก `FC.amount` เสมอ](#ค่าปรับ-อัตโนมัติ-ต้องผูกกับ-บิลต้นทาง-ด้วย-unique-index-และยอดบิลต้องมาจาก-fcamount-เสมอ)
 - [🚀 `pull_all.sh` ไม่มี `set -e` ⇒ build ล้มแต่ deploy ต่อ — "สำเร็จ" หลอก ๆ ที่ของเก่ายังรัน](#pullallsh-ไม่มี-set--e-build-ล้มแต่-deploy-ต่อ-สำเร็จ-หลอก-ๆ-ที่ของเก่ายังรัน)
 - [🧮 unique index บน "บรรทัดของเหตุการณ์" ต้องคีย์ด้วย `line_kind` ใน predicate — 1 บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว](#unique-index-บน-บรรทัดของเหตุการณ์-ต้องคีย์ด้วย-linekind-ใน-predicate-1-บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว)
+- [🔁 `ON CONFLICT` บน partial unique ต้องประกาศ predicate ตรงเป๊ะ — และ `DO UPDATE` ต้องไม่แตะชื่อที่ครูแก้เอง](#on-conflict-บน-partial-unique-ต้องประกาศ-predicate-ตรงเป๊ะ-และ-do-update-ต้องไม่แตะชื่อที่ครูแก้เอง)
 
 <!-- TOC:END -->
 
@@ -4749,4 +4750,23 @@
   - ใช้ partial index คู่กับ CHECK ที่บังคับรูปทรงของแต่ละ `line_kind` (`bill` ต้องมี `finance_transaction_id`, `credit_apply` ต้องมี `credit_entry_id`) — CHECK กัน "แถวพิการ", unique กัน "แถวซ้ำ"
 - **Rule:** (1) 🔴 ก่อนตั้ง unique บนตารางที่มีคอลัมน์ "ชนิด/สถานะ" (`line_kind`, `doc_type`, `entry_type`, `role`) ให้ถามว่า **แถวชนิดต่างกันอ้าง parent เดียวกันได้ legitimately ไหม** — ถ้าได้ ชนิดนั้นต้องอยู่ใน predicate (2) 🔴 เทสต์ต้องมีเคส "ชนิดต่างกันผ่าน" **และ** "ชนิดเดียวกันซ้ำถูกกัน" — เทสต์เฉพาะเคสซ้ำจะไม่จับ index ที่เข้มเกิน (3) 🔴 partial index กับ NULL: predicate ต้องมี `NOT NULL` guard เสมอ ไม่งั้น `NULL` ทุกแถว "ไม่ซ้ำกัน" ตามนิยาม Postgres และด่านหลุดเงียบ ๆ (บทเรียนซ้ำกับ `COALESCE(...,0)` ข้างต้น)
 - **Tests/Verification:** `backend/tests/test_finance_schema_v2.py` — `test_event_line_unique_allows_cash_and_credit_for_same_bill` (insert bill 60 + credit_apply 40 ของบิลเดียวกัน ► ผ่าน, แล้ว insert `bill` ที่สอง ► `UniqueViolationError`) และ `test_migration_0013_creates_indexes` ตรวจ `indexdef` ว่ามี `line_kind` อยู่ใน predicate (กันคนแก้ index กลับในอนาคต)
+- **Date Added:** 2026-11-25
+
+### 🔁 `ON CONFLICT` บน partial unique ต้องประกาศ predicate ตรงเป๊ะ — และ `DO UPDATE` ต้องไม่แตะชื่อที่ครูแก้เอง
+- **Context/Problem:** งานซิงก์นักเรียนเข้า `finance_people` (ปุ่ม "ซิงก์รายชื่อ") เขียน upsert ครั้งเดียวทั้งห้องด้วย `INSERT ... SELECT ... FROM students` แล้ว `ON CONFLICT (room_id, student_id) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = NOW()` — เจอ `asyncpg.exceptions.InvalidColumnReferenceError: there is no unique or exclusion constraint matching the ON CONFLICT specification` และถ้าแก้ให้ผ่านแบบนั้นจริง ชื่อที่ครูแก้ด้วยมือ (`'ชื่อที่ครูตั้งเอง'`) จะถูกทับทุกครั้งที่กดซิงก์
+- **Root Cause:** (1) index ที่รองรับ upsert เป็น **partial** (`idx_finance_people_student WHERE student_id IS NOT NULL AND deleted_at IS NULL`) — Postgres แมตช์ `ON CONFLICT (คอลัมน์)` กับ index ที่มี predicate ไม่ได้ ถ้าไม่ระบุ `WHERE` เดียวกันในคำสั่ง (คอลัมน์ตรงกันไม่พอ semantics "แถวไหนถูกกันซ้ำ" ต้องตรงด้วย) (2) `DO UPDATE` ทุกคอลัมน์ = ประกาศว่า "ระบบเป็นเจ้าของค่า" ซึ่งผิดสำหรับ `display_name` ที่ผู้ใช้แก้ได้ (3) นับ created/updated จาก `RETURNING (xmax = 0)` — ถ้าใช้ `conn.status` หรือ COUNT ในลูปจะนับผิด/timeout
+- **Correct Pattern/Solution:**
+  ```sql
+  INSERT INTO finance_people (room_id, person_type, student_id, display_name, roles)
+  SELECT $1, 'student', S.id, <ชื่อที่ประกอบจาก first_name/nickname>, ARRAY['receive']
+  FROM students S LEFT JOIN v_student_profiles P ON P.student_id = S.id
+  WHERE S.room_id = $1 AND S.status = 'active' AND S.deleted_at IS NULL
+  ON CONFLICT (room_id, student_id) WHERE student_id IS NOT NULL AND deleted_at IS NULL
+  DO UPDATE SET updated_at = NOW()        -- 🔑 แตะแค่ timestamp ไม่ทับชื่อ
+  RETURNING (xmax = 0) AS inserted;
+  ```
+  - `created = count(inserted=True)`, `updated = ที่เหลือ` ⇒ idempotent รอบสองได้ `created=0`
+  - ชื่อ default ประกอบด้วย `COALESCE(first_name, first_name_en, 'นักเรียน #' || student_no)` — **ห้ามอ้าง `v_student_profiles.display_name`** เพราะ view ไม่มีคอลัมน์นี้ (มีแค่ first/last/nickname ไทย-อังกฤษ)
+- **Rule:** (1) 🔴 ทุกครั้งที่ upsert กับ index ที่มี `WHERE` ให้คัดลอก predicate มาใส่ `ON CONFLICT (...)` แบบคำต่อคำ — ใช้ predicate ให้ห่างกันแม้ช่องว่าง (2) 🔴 `DO UPDATE` ต้องระบุคอลัมน์ที่ **ระบบเป็นเจ้าของเท่านั้น** — ถ้าคอลัมน์นั้นผู้ใช้แก้ได้ ให้คงค่าเดิมและอัปเดตแค่ `updated_at` (3) 🔴 เทสต์ idempotency ต้องมี 3 รอบ: รอบแรก created>0, รอบสอง created=0/updated=จำนวนเดิม, แก้ค่าที่ผู้ใช้เป็นเจ้าของแล้วรอบสาม **ค่ายังอยู่**
+- **Tests/Verification:** `backend/tests/test_finance_people.py` — `test_sync_students_is_idempotent` (รอบ 1 `created == active_count`, รอบ 2 `created == 0` + `updated == active_count` + จำนวนแถวเท่าเดิม, แก้ `display_name` เป็น `'ชื่อที่ครูตั้งเอง'` แล้วซิงก์รอบ 3 ► ชื่อไม่เปลี่ยน) และ `test_sync_only_active_students` (`status='left'` ไม่ถูกสร้าง)
 - **Date Added:** 2026-11-25

@@ -422,3 +422,78 @@ describe('FinanceService — ⚖️ ค่าปรับ/รายงานอ�
     expect(uri).toContain('target_type=room');
   });
 });
+
+describe('FinanceService — 👥 ผู้เกี่ยวข้องทางการเงิน/ตั้งค่าห้อง (FIN-V2 / P1.2)', () => {
+  const ROOM = 42;
+
+  it('getPeople ส่งตัวกรอง (type/active/q) ลง query + target_type=room', async () => {
+    await FinanceService.getPeople(ROOM, { type: 'teacher', active: true, q: 'สมชาย' });
+    const uri = decodeURIComponent(firstUri());
+    expect(uri).toContain(`/api/classroom/${ROOM}/finance/people?`);
+    expect(uri).toContain('type=teacher');
+    expect(uri).toContain('active=true');
+    expect(uri).toContain('q=สมชาย');
+    expect(uri).toContain('target_type=room');
+    expect(first().body).toBeUndefined();
+  });
+
+  it('getPeople ไม่ส่งคีย์ที่ไม่ได้ใช้ (q=undefined ต้องถูกตัดทิ้ง ไม่กลายเป็น q=undefined)', async () => {
+    await FinanceService.getPeople(ROOM, { active: true });
+    const uri = decodeURIComponent(firstUri());
+    expect(uri).not.toContain('q=');
+    // ⚠️ ใช้ regex ขึ้นต้นด้วย ?/& — `target_type=` มีคำว่า `type=` อยู่ข้างใน
+    expect(uri).not.toMatch(/[?&]type=/);
+  });
+
+  it('🔴 sync-students เป็น POST ที่ /finance/people/sync-students (ไม่ใช่ /people/{id})', async () => {
+    await FinanceService.syncStudents(ROOM);
+    expect(first().method).toBe('POST');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/people/sync-students?`);
+  });
+
+  it('แก้ไข/ปิดใช้งานผู้เกี่ยวข้องใช้ PATCH/DELETE ที่ /finance/people/{id}', async () => {
+    await FinanceService.updatePerson(ROOM, 7, { roles: ['pay'] });
+    expect(first().method).toBe('PATCH');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/people/7?`);
+    expect(firstBody()).toMatchObject({ roles: ['pay'] });
+
+    captured.length = 0;
+    await FinanceService.deletePerson(ROOM, 7);
+    expect(first().method).toBe('DELETE');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/people/7?`);
+  });
+
+  it('settings อ่านด้วย GET และเขียนด้วย PATCH ที่ /finance/settings', async () => {
+    await FinanceService.getFinanceSettings(ROOM);
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/settings?`);
+    expect(first().body).toBeUndefined();
+
+    captured.length = 0;
+    await FinanceService.updateFinanceSettings(ROOM, {
+      require_receiver: false,
+      receipt_note: null,
+    });
+    expect(first().method).toBe('PATCH');
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/settings?`);
+    // `null` ต้องอยู่ (แปลว่า "ล้างค่า") — ต่างจาก `undefined` ที่ axios ตัดทิ้ง
+    expect(firstBody()).toMatchObject({ require_receiver: false, receipt_note: null });
+  });
+
+  it('getPeople คืนรายการที่แกะจาก { people } แล้ว — หน้าจอใช้ .length ได้ตรง ๆ', async () => {
+    const original = api.defaults.adapter;
+    api.defaults.adapter = async (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => ({
+      data: { people: [{ person_id: 3, display_name: 'ครูสมหญิง' }] },
+      status: 200,
+      statusText: 'OK',
+      headers: new AxiosHeaders(),
+      config,
+    });
+
+    try {
+      const people = await FinanceService.getPeople(ROOM);
+      expect(people.map((p) => p.person_id)).toEqual([3]);
+    } finally {
+      api.defaults.adapter = original;
+    }
+  });
+});

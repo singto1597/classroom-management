@@ -75,7 +75,15 @@ import type {
   FineRefundListResponse,
   FineRefundActionResponse,
   AgingResponse,
-  FineSummary
+  FineSummary,
+  // 👥 [FIN-V2 / P1.2] ผู้เกี่ยวข้องทางการเงิน + ตั้งค่าห้อง
+  FinancePerson,
+  PersonListResponse,
+  PersonCreate,
+  PersonUpdate,
+  PeopleSyncResult,
+  FinanceSettings,
+  FinanceSettingsUpdate
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -816,5 +824,65 @@ export const FinanceService = {
     return await api.get(`/api/classroom/${roomId}/finance/receivables/aging`, {
       params: { target_type: 'room', as_of: asOf }
     }) as unknown as AgingResponse;
+  },
+
+  // ──────────────────────────── 👥 ผู้เกี่ยวข้องทางการเงิน (FIN-V2 / P1.2)
+  // 🔒 ปุ่มเขียนต้อง gate ด้วย `canManageFinance` — backend บังคับ MANAGE_FINANCE อยู่แล้ว
+  //    แต่การซ่อนปุ่มทำให้ผู้ใช้ไม่ต้องเจอ 403 โดยไม่รู้สาเหตุ
+  async getPeople(
+    roomId: number,
+    query: { type?: string; active?: boolean; q?: string } = {}
+  ): Promise<FinancePerson[]> {
+    const res = await api.get(`/api/classroom/${roomId}/finance/people`, {
+      params: { target_type: 'room', ...query }
+    }) as unknown as PersonListResponse;
+    return res.people;
+  },
+
+  async createPerson(roomId: number, payload: PersonCreate): Promise<FinancePerson> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/people?target_type=room`,
+      payload
+    ) as unknown as FinancePerson;
+  },
+
+  async updatePerson(
+    roomId: number,
+    personId: number,
+    payload: PersonUpdate
+  ): Promise<FinancePerson> {
+    return await api.patch(
+      `/api/classroom/${roomId}/finance/people/${personId}?target_type=room`,
+      payload
+    ) as unknown as FinancePerson;
+  },
+
+  // ปิดใช้งาน = soft delete ฝั่ง backend (แถวเดิมยังอยู่เพื่อการตรวจสอบ)
+  async deletePerson(roomId: number, personId: number): Promise<{ status: string }> {
+    return await api.delete(
+      `/api/classroom/${roomId}/finance/people/${personId}?target_type=room`
+    ) as unknown as { status: string };
+  },
+
+  async syncStudents(roomId: number): Promise<PeopleSyncResult> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/people/sync-students?target_type=room`
+    ) as unknown as PeopleSyncResult;
+  },
+
+  async getFinanceSettings(roomId: number): Promise<FinanceSettings> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/settings?target_type=room`
+    ) as unknown as FinanceSettings;
+  },
+
+  async updateFinanceSettings(
+    roomId: number,
+    payload: FinanceSettingsUpdate
+  ): Promise<FinanceSettings> {
+    return await api.patch(
+      `/api/classroom/${roomId}/finance/settings?target_type=room`,
+      payload
+    ) as unknown as FinanceSettings;
   }
 };

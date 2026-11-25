@@ -1371,3 +1371,55 @@ export interface FineSummary {
   by_type: FineSummaryTypeRow[];
   top_debtors: FineSummaryDebtorRow[];
 }
+
+// ──────────────────────────── 👥 ผู้เกี่ยวข้องทางการเงิน (FIN-V2 / P1.2)
+// 🎭 ต้องตรงกับ CHECK ของ DB: chk_finance_people_roles / chk_finance_people_student_link
+export type PersonType = 'student' | 'teacher' | 'external';
+export type PersonRole = 'receive' | 'pay' | 'approve';
+
+/** แถวจาก `GET /finance/people` — ชื่อเป็น snapshot ที่ครูแก้ได้ในทะเบียน */
+export interface FinancePerson {
+  person_id: number;
+  person_type: PersonType;
+  student_id: number | null;
+  display_name: string;
+  phone: string | null;
+  roles: PersonRole[];
+  is_active: boolean;
+  note: string | null;
+}
+
+export interface PersonListResponse {
+  people: FinancePerson[];
+}
+
+export interface PersonCreate {
+  person_type: PersonType;
+  student_id?: number | null;
+  display_name: string;
+  phone?: string | null;
+  roles?: PersonRole[];
+  is_active?: boolean;
+  note?: string | null;
+}
+
+export type PersonUpdate = Partial<Omit<PersonCreate, 'person_type'>> & {
+  person_type?: PersonType;
+};
+
+/** ผลของปุ่ม "ซิงก์รายชื่อนักเรียน" — `skipped` เผื่ออนาคต (ตอนนี้ 0) */
+export interface PeopleSyncResult {
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
+/** ค่าเริ่มต้นของหน้าจอรับเงิน — GET คืนค่า default เสมอแม้ยังไม่เคยตั้งค่า */
+export interface FinanceSettings {
+  default_receiver_person_id: number | null;
+  default_wallet_account_id: number | null;
+  require_receiver: boolean;
+  receipt_note: string | null;
+}
+
+export type FinanceSettingsUpdate = Partial<FinanceSettings>;

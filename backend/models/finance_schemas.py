@@ -1068,3 +1068,79 @@ class ReceiptBatchDissolveResponse(BaseModel):
     """คำตอบหลังยุบชุด — คืนจำนวนใบที่ถูกปลดออกจากชุด (เอกสารไม่ถูกแตะ)"""
     batch_id: int
     detached_count: int
+
+# =============================================================================
+# 👥 [FIN-V2 / P1.2] ผู้เกี่ยวข้องทางการเงิน + ตั้งค่าการเงินของห้อง
+# =============================================================================
+# ⚠️ import ตรงนี้ (ไม่ใช่บนหัวไฟล์) โดยเจตนา: ไฟล์นี้เป็น hot file ของหลาย
+#    package — ต่อท้ายอย่างเดียวทำให้ diff ไม่ชนกับงานที่ merge ก่อน/หลัง
+from typing import Literal  # noqa: E402
+
+
+class PersonCreate(BaseModel):
+    """เพิ่มผู้เกี่ยวข้องทางการเงิน 1 คน
+
+    🔑 ไม่บังคับ `student_id` ที่ชั้น Pydantic โดยเจตนา: กฎ "student ต้องมีรหัส /
+       ครู-บุคคลภายนอกห้ามมี" ตรวจที่ service เพื่อคืน **400 ภาษาไทย** ที่ผู้ใช้
+       อ่านรู้เรื่อง (ไม่ใช่ 422 ของ Pydantic ที่บอกแค่ว่าฟิลด์ผิด)
+    """
+    person_type: Literal["student", "teacher", "external"]
+    student_id: Optional[int] = None
+    display_name: str = Field(..., min_length=1, max_length=200)
+    phone: Optional[str] = Field(None, max_length=50)
+    roles: List[Literal["receive", "pay", "approve"]] = Field(default_factory=lambda: ["receive"])
+    is_active: bool = True
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class PersonUpdate(BaseModel):
+    """PATCH — ส่งมาแค่ฟิลด์ที่จะแก้ (service ใช้ `model_dump(exclude_unset=True)`)
+
+    ⚠️ `null` ที่ `student_id`/`phone`/`note` = ล้างค่า (ต่างจาก "ไม่ส่งมา")
+    """
+    person_type: Optional[Literal["student", "teacher", "external"]] = None
+    student_id: Optional[int] = None
+    display_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    phone: Optional[str] = Field(None, max_length=50)
+    roles: Optional[List[Literal["receive", "pay", "approve"]]] = None
+    is_active: Optional[bool] = None
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class PersonResponse(BaseModel):
+    """แถวผู้เกี่ยวข้องที่ส่งออก — ไม่คืน `linked_user_id` (ข้อมูลภายใน)"""
+    person_id: int
+    person_type: str
+    student_id: Optional[int] = None
+    display_name: str
+    phone: Optional[str] = None
+    roles: List[str]
+    is_active: bool
+    note: Optional[str] = None
+
+
+class PersonListResponse(BaseModel):
+    people: List[PersonResponse]
+
+
+class PeopleSyncResponse(BaseModel):
+    """ผลซิงก์รายชื่อนักเรียน → ทะเบียนผู้เกี่ยวข้อง"""
+    created: int
+    updated: int
+    skipped: int
+
+
+class FinanceSettingsResponse(BaseModel):
+    """ค่าเริ่มต้นของหน้าจอรับเงิน — คืนค่า default เสมอแม้ยังไม่มีแถวใน DB"""
+    default_receiver_person_id: Optional[int] = None
+    default_wallet_account_id: Optional[int] = None
+    require_receiver: bool = True
+    receipt_note: Optional[str] = None
+
+
+class FinanceSettingsUpdate(BaseModel):
+    """PATCH ตั้งค่าการเงิน — ทุกฟิลด์ optional; `null` = ล้างค่า"""
+    default_receiver_person_id: Optional[int] = None
+    default_wallet_account_id: Optional[int] = None
+    require_receiver: Optional[bool] = None
+    receipt_note: Optional[str] = Field(None, max_length=500)
