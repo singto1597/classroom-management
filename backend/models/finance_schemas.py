@@ -1144,3 +1144,98 @@ class FinanceSettingsUpdate(BaseModel):
     default_wallet_account_id: Optional[int] = None
     require_receiver: Optional[bool] = None
     receipt_note: Optional[str] = Field(None, max_length=500)
+
+# =============================================================================
+# 👤 [FIN-V2 / P1.3] บัญชีรายบุคคล + statement
+# =============================================================================
+# ⚠️ ต่อท้ายเท่านั้น (hot file) · `Literal` ถูก import ไปแล้วที่บล็อก P1.2
+# 💰 เงินทุกฟิลด์เป็น **string ทศนิยม 2 ตำแหน่ง** ตาม api-v2 — ห้ามใช้ float ใน response
+
+class OpenBillItem(BaseModel):
+    """บิลที่ยังเปิดของนักเรียน 1 ใบ (ฟิลด์ตาม api-v2 §2)
+
+    🔑 ไม่มี `SELECT *` ฝั่ง service — ฟิลด์ที่หลุดตรงนี้ คือสัญญากับ FE
+    """
+    student_payment_id: int
+    collection_id: Optional[int] = None
+    title: str
+    amount: str
+    paid_amount: str
+    written_off_amount: str
+    outstanding: str
+    due_date: Optional[date] = None
+    status: str
+    collection_kind: Optional[str] = None
+    fund_type: Optional[str] = None
+
+
+class RecentPaymentEventItem(BaseModel):
+    """เหตุการณ์รับเงินล่าสุด (ตารางว่างจนถึง P2.1 — `recent_events` จะเป็น `[]`)"""
+    event_id: int
+    event_at: datetime
+    amount_received: str
+    credit_used: str
+    receiver_name: Optional[str] = None
+
+
+class IndividualAccountItem(BaseModel):
+    """บัญชีของนักเรียน 1 คน — รวมยอดค้าง/เครดิต/บิลเปิด/เหตุการณ์ล่าสุด"""
+    student_id: int
+    student_no: int
+    name: str
+    outstanding_total: str
+    overdue_total: str
+    upcoming_total: str
+    credit_balance: str
+    ready_to_apply: str
+    open_bills: List[OpenBillItem] = Field(default_factory=list)
+    recent_events: List[RecentPaymentEventItem] = Field(default_factory=list)
+
+
+class IndividualAccountListResponse(BaseModel):
+    """รายการบัญชีทั้งห้อง — `as_of` = "วันนี้" ตามเวลาไทยที่ใช้ตัดสิน overdue"""
+    as_of: date
+    items: List[IndividualAccountItem]
+
+
+class IndividualAccountDetailResponse(IndividualAccountItem):
+    """รายละเอียดคนเดียว — รูปร่างเดียวกับ item ใน list เพื่อให้ FE ใช้ component เดียว"""
+    pass
+
+
+class StudentStatementEntry(BaseModel):
+    """บรรทัดใน statement (เดินบัญชี)
+
+    `amount` มีเครื่องหมายตามผลต่อ "ยอดที่นักเรียนค้าง" —
+    บิล + · รับเงิน − · เติมเครดิต + · ใช้เครดิต − · คืนเครดิต +
+    `balance_after` = ยอดเครดิตคงเหลือหลังรายการ (มีเฉพาะบรรทัดเครดิต)
+    """
+    entry_id: str
+    kind: str
+    occurred_at: datetime
+    description: str
+    amount: str
+    balance_after: Optional[str] = None
+    reference_id: Optional[int] = None
+
+
+class StatementDocumentItem(BaseModel):
+    """📄 โครงเอกสารใน statement — P5.1 (registry) จะเติมข้อมูลจริง
+
+    รอบนี้ service คืน `documents: []` เสมอ แต่ FE ต่อสัญญาไว้ก่อนได้
+    """
+    doc_type: str
+    doc_no: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    amount: Optional[str] = None
+
+
+class StudentStatementResponse(BaseModel):
+    """statement ตามช่วงวันที่ (default = ทั้งหมด) เรียง `occurred_at ASC`"""
+    student_id: int
+    student_no: int
+    name: str
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    entries: List[StudentStatementEntry] = Field(default_factory=list)
+    documents: List[StatementDocumentItem] = Field(default_factory=list)

@@ -15,6 +15,8 @@ from .export import router as export_router
 from .fines import router as fines_router
 # 👥 [FIN-V2 / P1.2] ผู้เกี่ยวข้องทางการเงิน + ตั้งค่าห้อง
 from .people import router as people_router
+# 👤 [FIN-V2 / P1.3] บัญชีรายบุคคล + statement
+from .individual_accounts import router as individual_accounts_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -44,5 +46,8 @@ router.include_router(fines_router)
 # 👥 [FIN-V2 / P1.2] — path ขึ้นต้น `/finance/people` และ `/finance/settings`
 #    ซึ่งไม่ซ้ำกับกลุ่มใด ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์
 router.include_router(people_router)
+# 👤 [FIN-V2 / P1.3] — path ขึ้นต้น `/finance/individual-accounts` ซึ่งไม่ซ้ำกับกลุ่มใด
+#    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์
+router.include_router(individual_accounts_router)
 
 __all__ = ["router"]

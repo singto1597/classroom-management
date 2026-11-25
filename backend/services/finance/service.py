@@ -42,6 +42,10 @@ from .custom_charges import CustomChargesMixin
 #    mixin ใด (ใช้ `resolve_room_id` จาก BaseMixin ผ่าน MRO) แต่วางก่อน Accrual/Ledger
 #    ตามกติกา "mixin ใหม่วางก่อนตัวที่มันอาจพึ่ง" · P2.1+ อ่าน `default_receiver` จากที่นี่
 from .people import PeopleMixin
+# 👤 [FIN-V2 / P1.3] บัญชีรายบุคคล — ใช้ `_open_bill_predicate` (AccrualMixin) และ
+#    `resolve_room_id` (BaseMixin) ผ่าน MRO ⇒ ต้องวาง **ก่อน** AccrualMixin
+#    (กติกา: mixin ใหม่วางก่อนตัวที่มันพึ่ง) · ไม่มีชื่อฟังก์ชันชนกับ mixin ใด
+from .individual_accounts import IndividualAccountsMixin
 
 
 class FinanceService(
@@ -76,6 +80,9 @@ class FinanceService(
     BackfillMixin,
     # 👥 [FIN-V2 / P1.2] — อ่าน/เขียนทะเบียนผู้เกี่ยวข้อง + ตั้งค่าห้อง (ไม่มีชื่อชน)
     PeopleMixin,
+    # 👤 [FIN-V2 / P1.3] — บัญชีรายบุคคล + statement (อ่านอย่างเดียว)
+    #    พึ่ง `_open_bill_predicate()` ของ AccrualMixin ⇒ อยู่ก่อนมันตามกติกา MRO
+    IndividualAccountsMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,
