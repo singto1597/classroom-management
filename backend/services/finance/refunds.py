@@ -32,7 +32,7 @@ from .constants import (
     REQUEST_STATUS_PENDING,
     REQUEST_STATUS_REJECTED,
 )
-from .helpers import _as_utc
+from .helpers import _as_utc, _full_name
 from .waivers import _notify_finance_managers
 
 _EPS = 0.005
@@ -234,16 +234,15 @@ class RefundsMixin:
 
                     # 👤 ชื่อผู้รับเงินบนเอกสาร = นักเรียนเจ้าของค่าปรับ
                     student = await conn.fetchrow(
-                        """SELECT S.student_no, U.first_name, U.nickname, U.first_name_en
+                        """SELECT S.student_no, U.prefix, U.first_name, U.last_name,
+                                  U.first_name_en, U.last_name_en
                            FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                            WHERE S.id = $1""",
                         fine["student_id"],
                     )
                     payee_name = "นักเรียน"
                     if student:
-                        payee_name = student["first_name"] or student["first_name_en"] or "นักเรียน"
-                        if student["nickname"]:
-                            payee_name += f" ({student['nickname']})"
+                        payee_name = _full_name(student) or "นักเรียน"
 
                     description = (
                         f"คืนเงินค่าปรับ #{refund['fine_id']} · {fine['fine_type_name']} · "

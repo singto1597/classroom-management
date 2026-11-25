@@ -33,6 +33,7 @@ from core.exceptions import RoomNotFoundError
 from core.rbac import require_member
 
 from .base import service_logger
+from .helpers import _full_name
 from .baht_text import baht_text
 from .constants import (
     DOC_STATUS_VOIDED,
@@ -71,18 +72,13 @@ def _int_or_none(value) -> Optional[int]:
         return None
 
 
-def _student_name(first_name, first_name_en, nickname) -> Optional[str]:
-    """ชื่อนักเรียนจากคอลัมน์ `users` — รูปเดียวกับ `_display_name` ของใบเสร็จ
+def _student_name(row) -> Optional[str]:
+    """ชื่อ-นามสกุลเต็มของนักเรียนจากแถวที่ JOIN `users` — ไม่ต่อชื่อเล่น
 
     `students` ไม่มีคอลัมน์ชื่อ (ชื่ออยู่ที่ `users` ผ่าน `students.user_id`)
     ⇒ นักเรียนที่ยังไม่ผูกบัญชีผู้ใช้จะได้ `None` ไม่ใช่ "Unknown" ปลอม ๆ
     """
-    name = first_name or first_name_en
-    if not name:
-        return None
-    if nickname:
-        name = f"{name} ({nickname})"
-    return name
+    return _full_name(row) or None
 
 
 def _jsonb_dict(raw) -> dict:
@@ -234,8 +230,11 @@ class DocumentRegistryMixin:
                             R.layout_version                             AS layout_version,
                             R.student_id                                 AS student_id,
                             S.student_no                                 AS student_no,
-                            COALESCE(NULLIF(BTRIM(U.first_name), ''),
-                                     NULLIF(BTRIM(U.username), ''))      AS student_name,
+                            COALESCE(
+                                NULLIF(BTRIM(CONCAT_WS(' ', U.prefix, U.first_name,
+                                                       U.last_name)), ''),
+                                NULLIF(BTRIM(U.first_name), ''),
+                                NULLIF(BTRIM(U.username), ''))           AS student_name,
                             COALESCE(R.receiver_person_id,
                                      NULLIF(R.document_meta->>'receiver_person_id', '')::bigint)
                                                                          AS receiver_person_id,
@@ -672,7 +671,7 @@ class DocumentRegistryMixin:
                    FC.amount AS collection_amount,
                    FC.due_date AS collection_due_date,
                    S.student_no,
-                   U.first_name, U.first_name_en, U.nickname,
+                   U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en,
                    FP.display_name AS receiver_name,
                    R2.room_name, R2.room_code
             FROM finance_receipts R
@@ -718,9 +717,7 @@ class DocumentRegistryMixin:
         d["doc_at"] = row["event_at"] or row["issued_at"]
         d["status"] = row["status"]
         d["layout_version"] = int(row["layout_version"] or 1)
-        d["student_name"] = _student_name(
-            row["first_name"], row["first_name_en"], row["nickname"]
-        )
+        d["student_name"] = _student_name(row)
         d["receiver_person_id"] = receiver_person_id
         d["receiver_name"] = row["receiver_name"]
         d["channel_id"] = _int_or_none(meta.get("channel_id"))

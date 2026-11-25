@@ -1208,8 +1208,8 @@ void (async () => {
           <select id="personStudent" v-model="personForm.student_id" class="field">
             <option :value="null">— เลือกนักเรียน —</option>
             <option v-for="student in students" :key="student.id" :value="student.id">
-              {{ student.student_no }}. {{ student.first_name }} {{ student.last_name }}
-              <template v-if="student.nickname"> ({{ student.nickname }})</template>
+              {{ student.student_no }}. {{ student.prefix }} {{ student.first_name }}
+              {{ student.last_name }}
             </option>
           </select>
         </div>

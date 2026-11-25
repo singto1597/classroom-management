@@ -899,7 +899,7 @@ const handleRefundDecision = async (refund: FineRefund, action: 'approve' | 'rej
                 @change="toggleIssueStudent(s.id)"
               />
               <span class="min-w-0 flex-1 truncate">
-                {{ s.first_name }} {{ s.last_name }}
+                {{ s.prefix }} {{ s.first_name }} {{ s.last_name }}
                 <span class="text-ink-3">· เลขที่ {{ s.student_no }}</span>
               </span>
             </label>

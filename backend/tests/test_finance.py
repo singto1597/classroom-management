@@ -1733,8 +1733,8 @@ async def test_get_student_debts_returns_pending_sorted(db_pool):
         room_id=room_id, user_id=owner,
     )
     assert data["student_id"] == student_id
-    # service สร้างชื่อจาก first_name + nickname (ไม่รวม last_name)
-    assert data["student_name"] == "Kid"
+    # 🪪 ชื่อ-นามสกุลเต็มทางการ (นโยบาย 2026-11-25) — ไม่ต่อชื่อเล่น
+    assert data["student_name"] == "Kid One"
     assert float(data["total_pending_amount"]) == pytest.approx(1100.0)  # 600 + 500
     # ORDER BY FC.due_date ASC, FC.id ASC → บิลที่ครบกำหนดก่อน (2026-10-01) มาก่อน
     assert data["debts"][0]["collection_status"] == "closed"

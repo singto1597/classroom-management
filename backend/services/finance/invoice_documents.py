@@ -339,7 +339,8 @@ class InvoiceDocumentsMixin:
         """`finance_ack_entries` + ชื่อ/เลขนักเรียน + เลข INV ที่ผูกอยู่ → ใช้ทั้งตอนออกและ replay"""
         rows = await conn.fetch(
             """SELECT E.student_id, E.outstanding_amount, E.invoice_receipt_id,
-                      S.student_no, U.first_name, U.nickname, U.first_name_en,
+                      S.student_no, U.prefix, U.first_name, U.last_name,
+                      U.first_name_en, U.last_name_en,
                       I.receipt_no AS invoice_receipt_no
                  FROM finance_ack_entries E
                  JOIN students S ON S.id = E.student_id

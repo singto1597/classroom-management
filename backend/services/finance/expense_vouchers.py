@@ -42,7 +42,7 @@ from .constants import (
     BUDDHIST_ERA_OFFSET, DOC_TYPE_PAYMENT_VOUCHER, DOC_TYPE_PREFIXES,
     RECEIPT_NO_TEMPLATE, RECEIPT_SEQ_MAX, RECEIPT_SEQ_OVERFLOW_MSG, THAI_TZ,
 )
-from .helpers import _as_utc
+from .helpers import _as_utc, _full_name
 
 # 🧾 ชนิดเอกสารของลายเซ็น — ตรงกับ `doc_type` ใน `finance_receipts`
 _SIGN_DOC_TYPE = DOC_TYPE_PAYMENT_VOUCHER
@@ -201,18 +201,15 @@ class ExpenseVouchersMixin:
 
     @classmethod
     async def _resolve_actor_name(cls, conn: asyncpg.Connection, user_id: int) -> str:
-        """ชื่อผู้ใช้สำหรับลายเซ็นผู้จัดทำ — อ่านจากโปรไฟล์ (รูปแบบเดียวกับ `_display_name`)"""
+        """ชื่อผู้ใช้สำหรับลายเซ็นผู้จัดทำ — ชื่อ-นามสกุลเต็มทางการ (ไม่ต่อชื่อเล่น)"""
         row = await conn.fetchrow(
-            """SELECT first_name, first_name_en, nickname, username
+            """SELECT prefix, first_name, last_name, first_name_en, last_name_en, username
                FROM users WHERE id = $1""",
             user_id,
         )
         if not row:
             return "ผู้ใช้"
-        name = row["first_name"] or row["first_name_en"] or row["username"] or "ผู้ใช้"
-        if row["nickname"]:
-            name += f" ({row['nickname']})"
-        return name
+        return _full_name(row) or row["username"] or "ผู้ใช้"
 
     @classmethod
     async def _insert_voucher_signatures(

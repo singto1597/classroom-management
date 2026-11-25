@@ -431,7 +431,7 @@ class PaymentEventsMixin:
         # 5) ตรวจทุกอย่างให้ครบ **ก่อน** จองเลข/เขียนเงิน
         student = await conn.fetchrow(
             """SELECT S.id, S.student_no,
-                      U.first_name, U.nickname, U.first_name_en
+                      U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en
                FROM students S
                LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = $1 AND S.room_id = $2 AND S.deleted_at IS NULL""",

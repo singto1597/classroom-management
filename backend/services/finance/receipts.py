@@ -60,7 +60,7 @@ from .constants import (
 #    ⚠️ `document_adapters` import แค่ `constants` ที่ระดับโมดูล (service import แบบ lazy)
 #       ⇒ ไม่มี circular import กับ `service.py` ที่ import ไฟล์นี้อยู่
 from .document_adapters import resolve_adapter
-from .helpers import _as_utc
+from .helpers import _as_utc, _full_name
 
 # คอลัมน์ที่ SELECT จาก finance_receipts ซ้ำ ๆ — รวมไว้ที่เดียวกันลืมเพิ่มที่ใดที่หนึ่ง
 _RECEIPT_COLUMNS = """
@@ -198,11 +198,12 @@ class ReceiptsMixin:
 
     @staticmethod
     def _display_name(row) -> str:
-        """ชื่อผู้ชำระแบบเดียวกับที่ `_confirm_single_payment` ใช้ (ให้ตรงกันทั้งระบบ)"""
-        name = row["first_name"] or row["first_name_en"] or "Unknown"
-        if row["nickname"]:
-            name += f" ({row['nickname']})"
-        return name
+        """ชื่อผู้ชำระ/ผู้รับเงิน = ชื่อ-นามสกุลเต็มทางการ (ไม่ต่อชื่อเล่น)
+
+        ⚠️ ใช้ประโยชน์ได้ทั้ง snapshot (`issued_to_name`) และ snapshot ใหม่ —
+           เอกสารที่ออกไปแล้วยังอ่านค่าที่บันทึกไว้ ไม่ได้คำนวณซ้ำจาก DB
+        """
+        return _full_name(row) or "Unknown"
 
     @classmethod
     def _shape_receipt(cls, row) -> dict:
@@ -353,7 +354,7 @@ class ReceiptsMixin:
                    FC.amount AS collection_amount, FC.status AS collection_status,
                    FC.collection_kind AS collection_kind,
                    S.id AS student_id, S.student_no,
-                   U.first_name, U.last_name, U.nickname, U.first_name_en,
+                   U.prefix, U.first_name, U.last_name, U.first_name_en,
                    R.room_name, R.room_code
             FROM student_payments SP
             JOIN fee_collections FC ON SP.collection_id = FC.id
@@ -467,7 +468,7 @@ class ReceiptsMixin:
                    (FC.amount - COALESCE(SP.paid_amount, 0)
                              - COALESCE(SP.written_off_amount, 0)) AS outstanding,
                    FC.due_date,
-                   S.student_no, U.first_name, U.nickname, U.first_name_en
+                   S.student_no, U.prefix, U.first_name, U.last_name, U.first_name_en
             FROM students S
             LEFT JOIN v_student_profiles U ON U.student_id = S.id
             JOIN student_payments SP ON S.id = SP.student_id
@@ -489,7 +490,7 @@ class ReceiptsMixin:
         """
         return await conn.fetch(f"""
             SELECT S.id AS student_id, S.student_no,
-                   U.first_name, U.nickname, U.first_name_en,
+                   U.prefix, U.first_name, U.last_name, U.first_name_en,
                    SUM(FC.amount - COALESCE(SP.paid_amount, 0)
                              - COALESCE(SP.written_off_amount, 0)) AS outstanding
             FROM students S
@@ -498,17 +499,14 @@ class ReceiptsMixin:
             JOIN fee_collections FC ON SP.collection_id = FC.id
             WHERE S.room_id = $1 AND {cls._open_bill_predicate()}
               AND FC.collection_kind = $2
-            GROUP BY S.id, S.student_no, U.first_name, U.nickname, U.first_name_en
+            GROUP BY S.id, S.student_no, U.prefix, U.first_name, U.last_name, U.first_name_en
             ORDER BY S.student_no ASC
         """, room_id, COLLECTION_KIND_PROJECT)
 
     @staticmethod
     def _debtor_display_name(row) -> str:
         """ชื่อนักเรียนแบบเดียวกับ `get_all_debtors` (ให้ข้อความ "ข้ามใคร" ตรงกับหน้าจอ)"""
-        name = row["first_name"] or row["first_name_en"] or "Unknown"
-        if row["nickname"]:
-            name += f" ({row['nickname']})"
-        return name
+        return _full_name(row) or "Unknown"
 
     # ================================================================== core
     @staticmethod
@@ -1049,7 +1047,7 @@ class ReceiptsMixin:
 
         # 👤 snapshot ชื่อผู้ฝาก ณ เวลาที่ออก (เอกสารที่พิมพ์แล้วต้องไม่ย้อนเปลี่ยนตามชื่อในอนาคต)
         payer = await conn.fetchrow(
-            """SELECT U.first_name, U.nickname, U.first_name_en
+            """SELECT U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en
                FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = $1 AND S.room_id = $2""",
             student_id, target_room_id,

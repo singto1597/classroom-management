@@ -78,6 +78,7 @@ export interface StudentPaymentDetail {
   slip_image_url: string | null;
   student_id: number; // ✨ ฟีเจอร์ใหม่จาก AI
   student_no: number;
+  prefix: string | null;
   first_name: string;
   last_name: string;
   nickname: string | null;
@@ -150,6 +151,7 @@ export interface FinanceSummary {
 export interface BasicStudent {
   id: number;
   student_no: number;
+  prefix: string | null;
   first_name: string;
   last_name: string;
   nickname: string;

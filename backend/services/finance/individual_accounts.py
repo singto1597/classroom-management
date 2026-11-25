@@ -46,6 +46,7 @@ from core.rbac import require_member
 from core.exceptions import StudentNotFoundError
 
 from .base import service_logger
+from .helpers import _full_name
 
 # จำนวนเหตุการณ์รับเงินล่าสุดต่อคนที่ส่งไปให้หน้าจอ (แค่พรีวิว — ประวัติเต็มอยู่ที่ P3.4)
 RECENT_EVENTS_LIMIT = 5
@@ -71,15 +72,12 @@ def _money_str(value) -> str:
 
 
 def _student_name(row) -> str:
-    """ชื่อที่แสดง = first_name → first_name_en → Unknown (+ nickname ในวงเล็บ)
+    """ชื่อที่แสดงบนบัญชี/บิล = คำนำหน้า + ชื่อ + นามสกุล (ไทย → อังกฤษ → Unknown)
 
     ⚠️ ต้องประกอบเอง — `v_student_profiles` ไม่มีคอลัมน์ `display_name`
-       (ตรงกับ `_resolve_student_name` ใน base.py และ receivables/credits)
+       🔴 ไม่ต่อชื่อเล่นในวงเล็บ (นโยบาย 2026-11-25: บิล/เอกสารต้องทางการ)
     """
-    name = row["first_name"] or row["first_name_en"] or "Unknown"
-    if row["nickname"]:
-        name += f" ({row['nickname']})"
-    return name
+    return _full_name(row) or "Unknown"
 
 
 class IndividualAccountsMixin:
@@ -124,8 +122,8 @@ class IndividualAccountsMixin:
         students = await conn.fetch(
             f"""
             SELECT S.id AS student_id, S.student_no,
-                   U.first_name, U.nickname, U.first_name_en,
-                   U.last_name_en, U.nickname_en
+                   U.prefix, U.first_name, U.last_name, U.first_name_en,
+                   U.last_name_en
             FROM students S
             LEFT JOIN v_student_profiles U ON U.student_id = S.id
             WHERE {' AND '.join(conds)}
@@ -377,8 +375,8 @@ class IndividualAccountsMixin:
             student = await conn.fetchrow(
                 """
                 SELECT S.id AS student_id, S.student_no,
-                       U.first_name, U.nickname, U.first_name_en,
-                       U.last_name_en, U.nickname_en
+                       U.prefix, U.first_name, U.last_name, U.first_name_en,
+                       U.last_name_en
                 FROM students S
                 LEFT JOIN v_student_profiles U ON U.student_id = S.id
                 WHERE S.id = $1 AND S.room_id = $2 AND S.deleted_at IS NULL

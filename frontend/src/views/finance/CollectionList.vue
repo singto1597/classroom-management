@@ -601,9 +601,6 @@ onMounted(() => {
                   </span>
                   <div class="min-w-0 truncate text-sm font-bold text-ink-2">
                     {{ displayName(s) }}
-                    <span v-if="s.nickname || s.nickname_en" class="font-normal text-ink-3">
-                      ({{ s.nickname || s.nickname_en }})
-                    </span>
                   </div>
                 </div>
 

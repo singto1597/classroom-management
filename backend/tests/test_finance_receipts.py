@@ -288,7 +288,8 @@ async def test_issue_receipt_happy_path_and_deep_db(client, db_pool, admin_heade
     assert receipt["amount"] == 1000.0
     assert receipt["amount_text"] == "หนึ่งพันบาทถ้วน"
     assert receipt["paid_total_after"] == 1000.0
-    assert receipt["issued_to_name"] == "เด็กชายทดสอบ"
+    # 🪪 ชื่อ-นามสกุลเต็ม (ไม่ต่อชื่อเล่น): fixture ตั้ง first_name="เด็กชายทดสอบ", last_name="ทดลอง"
+    assert receipt["issued_to_name"] == "เด็กชายทดสอบ ทดลอง"
     assert receipt["note"] == "ออกให้ผู้ปกครอง"
     # issued_at ต้องเป็น tz-aware เสมอ (ไม่งั้น JS ตีเป็นเวลาเบราว์เซอร์ → คลาด 7 ชม.)
     _assert_tz_aware_iso(receipt["issued_at"])

@@ -29,6 +29,8 @@ import asyncpg
 
 from core.rbac import require_member
 
+from .helpers import _full_name
+
 _VALID_KINDS = ("all", "event", "handover")
 _MAX_LIMIT = 100
 _DEFAULT_LIMIT = 30
@@ -247,16 +249,15 @@ async def _build_items(
                 })
 
             name_rows = await conn.fetch(
-                """SELECT S.id, P.first_name, P.first_name_en, P.nickname
+                """SELECT S.id, P.prefix, P.first_name, P.last_name,
+                          P.first_name_en, P.last_name_en
                    FROM students S
                    LEFT JOIN v_student_profiles P ON P.student_id = S.id
                    WHERE S.id = ANY($1::int[]) AND S.room_id = $2""",
                 student_ids, room_id,
             )
             for row in name_rows:
-                name = row["first_name"] or row["first_name_en"] or "Unknown"
-                if row["nickname"]:
-                    name += f" ({row['nickname']})"
+                name = _full_name(row) or "Unknown"
                 student_names[int(row["id"])] = name
 
         if handover_rows:

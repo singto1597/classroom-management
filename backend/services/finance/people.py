@@ -494,16 +494,21 @@ class PeopleMixin:
                         INSERT INTO finance_people
                             (room_id, person_type, student_id, display_name, roles)
                         SELECT $1, 'student', S.id,
+                               -- 🔴 ชื่อ-นามสกุลเต็ม (ไม่ต่อชื่อเล่น) — ใช้บนบิล/เอกสารการเงิน
                                COALESCE(
-                                   NULLIF(BTRIM(P.first_name), ''),
-                                   NULLIF(BTRIM(P.first_name_en), ''),
+                                   NULLIF(BTRIM(CONCAT_WS(
+                                       ' ',
+                                       NULLIF(BTRIM(P.prefix), ''),
+                                       NULLIF(BTRIM(P.first_name), ''),
+                                       NULLIF(BTRIM(P.last_name), '')
+                                   )), ''),
+                                   NULLIF(BTRIM(CONCAT_WS(
+                                       ' ',
+                                       NULLIF(BTRIM(P.first_name_en), ''),
+                                       NULLIF(BTRIM(P.last_name_en), '')
+                                   )), ''),
                                    'นักเรียน #' || S.student_no
-                               )
-                               || CASE
-                                      WHEN NULLIF(BTRIM(P.nickname), '') IS NOT NULL
-                                      THEN ' (' || BTRIM(P.nickname) || ')'
-                                      ELSE ''
-                                  END,
+                               ),
                                ARRAY['receive']::TEXT[]
                         FROM students S
                         LEFT JOIN v_student_profiles P ON P.student_id = S.id

@@ -30,6 +30,7 @@ from services.action_service import ActionService
 from services.notification_service import notify_user
 
 from .base import _lock_room_money, service_logger
+from .helpers import _full_name
 from .constants import (
     COLLECTION_KIND_FINE,
     FINE_STATUS_CANCELLED,
@@ -66,8 +67,8 @@ _FINE_SELECT = f"""
            COALESCE(SP.paid_amount, 0) AS paid_amount,
            SP.status AS payment_status,
            SP.deleted_at AS payment_deleted_at,
-           S.student_no, U.first_name, U.nickname, U.first_name_en,
-           U.last_name_en, U.nickname_en,
+           S.student_no, U.prefix, U.first_name, U.last_name, U.first_name_en,
+           U.last_name_en,
            INV.receipt_no AS invoice_no
     FROM fines F
     JOIN student_payments SP ON SP.id = F.student_payment_id
@@ -84,10 +85,8 @@ class FinesMixin:
     # =================================================================
     @staticmethod
     def _student_display_name(row) -> str:
-        name = row["first_name"] or row["first_name_en"] or "Unknown"
-        if row["nickname"]:
-            name += f" ({row['nickname']})"
-        return name
+        """ชื่อ-นามสกุลเต็มทางการบนบิลค่าปรับ (ไม่ต่อชื่อเล่น)"""
+        return _full_name(row) or "Unknown"
 
     @classmethod
     def _shape_fine(cls, row) -> dict:
