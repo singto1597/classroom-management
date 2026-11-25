@@ -1534,3 +1534,105 @@ export interface StudentStatementQuery {
   from?: string;
   to?: string;
 }
+
+// ──────────────────────── 💸 รับเงิน 1 ครั้ง = 1 event (FIN-V2 / P2.1 API → P2.3 UI)
+// ⚠️ เงินทุกฟิลด์เป็น **string ทศนิยม 2 ตำแหน่ง** ตามสัญญา api-v2 §4
+//    ⇒ `formatMoney(Number(x))` ก่อนแสดงผล · request ส่ง string เสมอ (ไม่ส่ง number)
+
+/** แหล่งเงินของบรรทัดจัดสรร — 1 บรรทัด = 1 แหล่ง (ห้ามรวมเงินสด+เครดิตในบรรทัดเดียว) */
+export type AllocationSource = 'cash' | 'credit'
+
+/** เงินเกินหลังปิดบิล: เก็บเป็นเครดิต หรือปฏิเสธ (`none` = backend ตอบ 400) */
+export type ExcessAction = 'credit' | 'none'
+
+/** เลือกบิลที่จะปิด: `auto` = ทุกบิลเปิด · `manual` = เฉพาะ `bill_ids` */
+export type BillSelection = 'auto' | 'manual'
+
+/**
+ * บรรทัดจัดสรร 1 บรรทัด — ใช้ทั้งผล preview และผล commit
+ *
+ * 🔴 `amount`/`bill_before`/`bill_after` เป็น string ⇒ ต้อง `Number(...)` ก่อนคำนวณ
+ *    preview มีฟิลด์บริบทของบิล (`title`, `due_date`, …) มาด้วย ส่วน commit มีชุดเดียวกับ
+ *    snapshot ที่เขียนลง `line_items` ⇒ ทำเป็น optional ให้ type เดียวใช้ได้ทั้งคู่
+ */
+export interface AllocationLine {
+  student_payment_id: number;
+  /** บิลบรรทัดนี้ปิด — ข้อมูลบริบทมีใน preview, ไม่มีใน commit */
+  collection_id?: number | null;
+  title?: string;
+  collection_kind?: string | null;
+  fund_type?: FundType | null;
+  /** ISO date `YYYY-MM-DD` — ใช้ `formatThaiDate` */
+  due_date?: string | null;
+  source: AllocationSource;
+  amount: string;
+  bill_before: string;
+  bill_after: string;
+}
+
+/** คำขอพรีวิว — ยังไม่เขียนอะไรลง DB (commit แยกที่ `PaymentEventCreate`) */
+export interface AllocationPreviewRequest {
+  student_id: number;
+  amount_received: string;
+  use_credit: boolean;
+  excess_action: ExcessAction;
+  bill_selection: BillSelection;
+  bill_ids: number[];
+  channel_id: number | null;
+}
+
+/** ผลพรีวิว — สมการ `amount_received + credit_used = total_applied + credit_added` ผ่านเสมอ */
+export interface AllocationPreviewResponse {
+  allocations: AllocationLine[];
+  total_applied: string;
+  credit_used: string;
+  credit_added: string;
+  remaining_unapplied: string;
+  warnings: string[];
+}
+
+/** คำขอบันทึกรับเงิน — ต้องมี `idempotency_key` (สร้างครั้งเดียวต่อการกด 1 ครั้ง) */
+export interface PaymentEventCreate extends AllocationPreviewRequest {
+  idempotency_key: string;
+  /** กระเป๋าที่รับเงินเข้า — backend บังคับ > 0 */
+  wallet_account_id: number;
+  payer_name: string | null;
+  payer_person_id: number | null;
+  receiver_person_id: number | null;
+  receiver_name: string | null;
+  note: string | null;
+  /** ISO timestamp — `null` = ให้ DB ใช้เวลาปัจจุบัน */
+  event_at: string | null;
+}
+
+/** เอกสารที่ event นี้สร้าง (REC/DEP, `layout_version=2`) */
+export interface PaymentEventDocument {
+  id: number;
+  doc_type: 'receipt' | 'deposit';
+  receipt_no: string;
+  amount: string;
+  layout_version: number;
+  event_at: string | null;
+  issued_at: string | null;
+  status: string;
+}
+
+/**
+ * ผลของ `POST /finance/payment-events`
+ *
+ * 🔁 `reused=true` = backend คืน event เดิมจาก `idempotency_key` (กดซ้ำ/เน็ตหลุด)
+ * ⚠️ `receipt_no` เป็น `null` ได้เมื่อ "ใช้เครดิตปิดบิลล้วน" (ไม่มีเงินสด ⇒ ไม่มีใบเสร็จใหม่)
+ */
+export interface PaymentEventResult {
+  event_id: number;
+  receipt_no: string | null;
+  deposit_no: string | null;
+  amount_received: string;
+  credit_used: string;
+  credit_added: string;
+  total_applied: string;
+  allocations: AllocationLine[];
+  documents: PaymentEventDocument[];
+  reused: boolean;
+  warnings: string[];
+}

@@ -6,7 +6,8 @@
  * และเป็นที่ลงจอดของ "เปิดจากรายการเดินบัญชี" ในอนาคต
  *
  * 🔓 อ่านอย่างเดียว · สมาชิกห้องอ่านได้ — ห้าม gate ด้วย `isAdmin`
- * 🧾 ปุ่ม "รับเงิน" ยังไม่มี (P2.3) — การ์ดไม่มีปุ่มปลอมที่กดแล้วเงียบ
+ * 🧾 ปุ่ม "รับเงิน" (P2.3) แสดงเฉพาะผู้มี `MANAGE_FINANCE` — backend บังคับสิทธิ์อยู่แล้ว
+ *    แต่การซ่อนปุ่มทำให้สมาชิกทั่วไปไม่ต้องเจอ 403 โดยไม่รู้สาเหตุ
  *
  * ⚠️ เงินเป็น string 2 ตำแหน่งจาก API ⇒ `formatMoney(Number(x))` / `formatAmount(Number(x))`
  */
@@ -23,6 +24,8 @@ import { formatThaiDate, formatThaiDateTime, todayIso } from '@/utils/datetime'
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import AccountSummaryCard from '@/components/finance/AccountSummaryCard.vue'
+import ReceiveMoneyModal from '@/components/finance/ReceiveMoneyModal.vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import { useDialog } from '@/composables/useDialog'
 
 const route = useRoute()
@@ -31,6 +34,8 @@ const dialog = useDialog()
 const currentRoomId = authStore.currentRoomId!
 
 const account = ref<IndividualAccountItem | null>(null)
+/** modal รับเงิน (P2.3) — เปิดได้เฉพาะผู้มีสิทธิ์ และต้องมี account โหลดแล้ว */
+const receiveOpen = ref(false)
 const isLoading = ref(true)
 const hasError = ref(false)
 const notFound = ref(false)
@@ -76,6 +81,19 @@ const loadAccount = async () => {
 // route param เปลี่ยน (เช่นกดจากรายการเดินบัญชีของอีกคน) ⇒ โหลดใหม่ ไม่ค้างข้อมูลเก่า
 watch(studentId, () => void loadAccount())
 
+/**
+ * หลังบันทึกรับเงินสำเร็จ: การ์ดสรุป/บิล/เครดิต เปลี่ยนทั้งหมด ⇒ โหลดใหม่ทันที
+ * (modal ยังเปิดอยู่เพื่อโชว์ผล + ปุ่มดาวน์โหลดใบเสร็จ)
+ */
+const onPaymentSaved = async () => {
+  await loadAccount()
+}
+
+/** ถ้าเปลี่ยนนักเรียนระหว่าง modal เปิด (route param เปลี่ยน) ⇒ ปิดเพื่อกันบันทึกผิดคน */
+watch(studentId, () => {
+  receiveOpen.value = false
+})
+
 onMounted(loadAccount)
 </script>
 
@@ -104,6 +122,13 @@ onMounted(loadAccount)
     />
 
     <template v-else-if="account">
+      <div v-if="authStore.canManageFinance" class="flex justify-end">
+        <AppButton variant="primary" @click="receiveOpen = true">
+          <i class="bi bi-cash-coin" aria-hidden="true"></i>
+          รับเงิน
+        </AppButton>
+      </div>
+
       <AccountSummaryCard :account="account" />
 
       <!-- ══════════════════════ บิลที่ยังเปิด ══════════════════════ -->
@@ -237,7 +262,7 @@ onMounted(loadAccount)
             </p>
             <p class="mt-0.5 text-caption text-ink-3">
               ใช้ได้ {{ formatMoney(Number(account.ready_to_apply)) }}
-              — ใช้ปิดบิลได้ในขั้นตอนรับเงิน (เร็ว ๆ นี้)
+              — เลือกใช้ได้ในขั้นตอนรับเงิน
             </p>
           </div>
         </div>
@@ -284,6 +309,14 @@ onMounted(loadAccount)
           </li>
         </ul>
       </section>
+
+      <ReceiveMoneyModal
+        :open="receiveOpen"
+        :student-id="account.student_id"
+        :student-name="account.name"
+        @close="receiveOpen = false"
+        @saved="onPaymentSaved"
+      />
     </template>
   </div>
 </template>

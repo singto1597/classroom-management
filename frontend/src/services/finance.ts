@@ -89,7 +89,12 @@ import type {
   IndividualAccountDetailResponse,
   IndividualAccountQuery,
   StudentStatementResponse,
-  StudentStatementQuery
+  StudentStatementQuery,
+  // 💸 [FIN-V2 / P2.1 API → P2.3 UI] รับเงิน 1 ครั้ง = 1 event
+  AllocationPreviewRequest,
+  AllocationPreviewResponse,
+  PaymentEventCreate,
+  PaymentEventResult
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -923,5 +928,30 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/individual-accounts/${studentId}/statement`,
       { params: { target_type: 'room', ...params } }
     ) as unknown as StudentStatementResponse;
+  },
+
+  // ──────────────────────── 💸 รับเงิน 1 ครั้ง = 1 event (FIN-V2 / P2.3)
+  // 🔴 เส้นใหม่เท่านั้น: 1 event → 1 REC (หลายบรรทัด) + DEP — ห้ามใช้
+  //    `confirmPayment`/`confirmBatchPayment` แทน (เส้นเดิมออกใบเสร็จแยกต่อบิล)
+  // ⚠️ เงินส่งเป็น **string 2 ตำแหน่ง** ตามสัญญา api-v2 §4 (Decimal ฝั่ง backend)
+
+  async previewPaymentEvent(
+    roomId: number,
+    payload: AllocationPreviewRequest
+  ): Promise<AllocationPreviewResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/payment-events/preview?target_type=room`,
+      payload
+    ) as unknown as AllocationPreviewResponse;
+  },
+
+  async createPaymentEvent(
+    roomId: number,
+    payload: PaymentEventCreate
+  ): Promise<PaymentEventResult> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/payment-events?target_type=room`,
+      payload
+    ) as unknown as PaymentEventResult;
   }
 };

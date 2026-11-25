@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 280 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 281 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -284,6 +284,7 @@
 - [🧾 เอกสารระดับ event: `INSERT … RETURNING` ใช้ alias ไม่ได้ และ idempotency ต้องคีย์ที่ `payment_event_id` ไม่ใช่ `student_payment_id`](#เอกสารระดับ-event-insert-returning-ใช้-alias-ไม่ได้-และ-idempotency-ต้องคีย์ที่-paymenteventid-ไม่ใช่-studentpaymentid)
 - [🔒 เมธอดเขียนใหม่ต้องลงทะเบียนใน `_MONEY_PATHS` และยึด `_lock_room_money` — ถ้า RBAC อยู่ใน helper ต้องเพิ่ม helper ใน `_LOCKING_HELPERS`](#เมธอดเขียนใหม่ต้องลงทะเบียนใน-moneypaths-และยึด-lockroommoney-ถ้า-rbac-อยู่ใน-helper-ต้องเพิ่ม-helper-ใน-lockinghelpers)
 - [🧾 เทมเพลต v2: dispatch ที่ `_document_context` จุดเดียว + เลย์เอาต์ snapshot ที่ไม่ JOIN บิลสด — และทะเบียนเดิมต้องกรอง `layout_version`](#เทมเพลต-v2-dispatch-ที่-documentcontext-จุดเดียว-เลย์เอาต์-snapshot-ที่ไม่-join-บิลสด-และทะเบียนเดิมต้องกรอง-layoutversion)
+- [💸 หน้าจอรับเงิน v2: `idempotency_key` เกิดตอนกดครั้งแรก และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด](#หน้าจอรับเงิน-v2-idempotencykey-เกิดตอนกดครั้งแรก-และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด)
 
 <!-- TOC:END -->
 
@@ -4826,4 +4827,18 @@
   - `ReceiptLineItem.amount` ต้องเป็น `Optional[float]` (snapshot v2 มี `amount_applied` ไม่มี `amount`) และ `ReceiptDetailResponse` ต้องประกาศ `layout_version` — `response_model` ตัดฟิลด์ที่ไม่ได้ประกาศทิ้งเงียบ ๆ
 - **Rule:** (1) 🔴 เอกสาร v2 พิมพ์จาก snapshot (`line_items` + `document_meta`) เท่านั้น — ห้าม JOIN บิล/แคมเปญสด (2) 🔴 dispatch อยู่ที่ `_document_context` จุดเดียว ห้ามสร้างสาขาที่สามใน partial legacy (3) 🔴 ทะเบียน = กรอง layout 1 / detail = ไม่กรอง (4) 🔴 เพิ่มฟิลด์ใน response ต้องประกาศใน Pydantic model ด้วย ไม่งั้นถูกตัดทิ้ง
 - **Tests/Verification:** `backend/tests/test_finance_receipt_v2_template.py` — `test_v2_context_uses_snapshot_not_live_bill` (แก้ `fee_collections.title` แล้วพิมพ์ซ้ำ ► ชื่อเดิม), `test_v2_dispatch_selects_v2_body`, `test_legacy_receipt_context_unchanged`, `test_legacy_receipt_html_byte_stable`, `test_registry_hides_v2_documents` (ทะเบียนเห็นเฉพาะ layout 1 แต่ `get_receipt` คืนใบ v2), `test_v2_deposit_html_prints_balance`, `test_v2_body_handles_missing_optional_keys`, `test_font_faces_count_still_two`
+- **Date Added:** 2026-11-25
+
+### 💸 หน้าจอรับเงิน v2: `idempotency_key` เกิดตอนกดครั้งแรก และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด
+- **Context/Problem:** P2.3 สร้าง `ReceiveMoneyModal` ที่ยิง `POST /finance/payment-events/preview` ระหว่างพิมพ์ (debounce 350ms) แล้ว commit ด้วย `POST /finance/payment-events` — ระหว่างทางมีกับดัก 4 ข้อที่ทำให้ "เงินถูกบันทึกผิด" ไม่ใช่แค่หน้าจอเพี้ยน: (1) สร้าง `idempotency_key` ตอนเปิดแผ่น ⇒ ผู้ใช้แก้ยอดแล้วกดยืนยัน คีย์ยังตรงกับรอบที่ไม่ได้ส่ง ⇒ เน็ตหลุดแล้วกดซ้ำได้รายการเดิมทั้งที่ยอดเปลี่ยน (หรือแย่กว่า: สร้างใหม่ทุก retry ⇒ เงินก้อนเดียวเขียนสองรอบ) (2) พรีวิวที่ยิงไม่ทันกันแล้วตอบกลับสลับลำดับ ⇒ ตารางจัดสรรที่เห็นเป็นของค่ายอดเก่า แต่ปุ่มยืนยันส่งยอดใหม่ (3) ใช้ `type="number"` ⇒ ล้อเมาส์/ลูกศรเปลี่ยนยอดเงินได้โดยไม่ตั้งใจ (4) ระหว่าง commit มีคนอื่นปิดบิล ⇒ commit ตอบ 409 ซึ่งถ้าเงียบแล้วกดซ้ำด้วยยอดเก่าจะได้ error ซ้ำไม่จบ
+- **Root Cause:** ทุกข้อคือ "สถานะที่ผู้ใช้เห็น" กับ "ข้อมูลที่ backend จะเขียน" ถูกแยกจากกันโดยไม่มีตัวกลางยืนยัน: คีย์ idempotency เป็นสัญญาระดับ **การกด 1 ครั้ง** (ไม่ใช่ระดับฟอร์ม ไม่ใช่ระดับ modal), preview เป็น **snapshot** ที่หมดอายุได้ทันทีที่ข้อมูลบิลเปลี่ยน, และ `<input type=number>` ให้เบราว์เซอร์แก้ค่าด้วยการเลื่อนโดยไม่ผ่าน `input` event ตามที่คาด
+- **Correct Pattern/Solution:**
+  - `MoneyInput.vue`: `type="text"` + `inputmode="decimal"` + sanitize เอง (เลข + จุดเดียว + ทศนิยม ≤2 **ตัดทิ้งไม่ปัด**) — ค่าว่าง/`.` เดี่ยว = `null` ไม่ใช่ 0; blur จัดรูปด้วย `formatAmount`, focus ถอด comma เพื่อให้เคอร์เซอร์ทำงาน
+  - debounce 350ms + `createLatestGuard` ของ preview: เปลี่ยนยอด/ติ๊กเครดิต/เลือกบิล ⇒ **ล้าง `preview` ทันที** (ปุ่มยืนยันปิด) แล้วค่อยยิงใหม่ ⇒ ไม่มีทางกดยืนยันด้วยผลพรีวิวที่ล้าสมัย
+  - `attemptKey.value ??= newIdempotencyKey()` **เฉพาะใน `submit()`** — คงค่าเดิมเมื่อล้มเหลว/409, ตั้ง `null` เฉพาะสำเร็จหรือปิดแผ่น/เปลี่ยนนักเรียน
+  - 409 จาก preview **หรือ** commit ⇒ `getIndividualAccount` ใหม่ + พรีวิวใหม่ + บอกผู้ใช้ว่าบิลเปลี่ยน — ห้าม resubmit เงียบ ๆ ด้วยยอดเก่า; `403/404` แยกข้อความ ไม่ยัดเป็น error กลาง
+  - ยอดรวมท้ายตาราง (`BillAllocationTable`) ใช้ `total_applied/credit_used/credit_added` จาก **ผลพรีวิว** ไม่ใช่ผลบวกบรรทัดที่แสดง (engine อาจจัดสรรบิลที่หน้าจอยังไม่รู้จัก)
+  - เครดิตล้วน (`receipt_no = null`) ⇒ ไม่มีปุ่มดาวน์โหลด REC และ hint บอกเหตุผล; เงินทุกช่องใน payload เป็น string 2 ตำแหน่ง (`roundMoney(x).toFixed(2)`) ไม่ใช่ number
+- **Rule:** (1) 🔴 คีย์ idempotency = ต่อ "การกดยืนยัน 1 ครั้ง" — สร้างใน `submit()` เท่านั้น และห้ามสร้างใหม่ใน retry (2) 🔴 เปลี่ยน input ใด ๆ ของพรีวิวต้องล้าง `preview` ก่อนยิงใหม่ — ปุ่มยืนยันต้องผูกกับผลพรีวิวล่าสุดเสมอ (3) 🔴 409 = โหลดใหม่ ห้ามส่งซ้ำด้วยยอดเดิม (4) 🔴 เงินทุกช่องกรอกผ่าน `MoneyInput` ไม่ใช่ `<input type="number">` (5) 🔴 ยอดรวมบนจอต้องมาจาก backend ไม่ใช่บวกเอง
+- **Tests/Verification:** `frontend/src/components/finance/__tests__/ReceiveMoneyModal.spec.ts` (debounce 350ms ยิงครั้งเดียวด้วยยอดล่าสุด, retry ใช้ key เดิม + payload ครบ, 409 ⇒ โหลดบัญชี/พรีวิวใหม่, เครดิตล้วนไม่มีปุ่ม REC), `MoneyInput.spec.ts` (ตัดทศนิยมที่ 3, ค่าว่าง = null, blur จัดรูป, ค่าภายนอกสะท้อนเข้าช่อง), `BillAllocationTable.spec.ts` (totals จาก backend, แยกเงินสด/เครดิต, โหมด manual), `src/services/__tests__/finance.spec.ts` (URL preview/commit + ไม่ใช่ `/payments/batch`)
 - **Date Added:** 2026-11-25

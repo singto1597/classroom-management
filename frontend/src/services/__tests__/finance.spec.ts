@@ -497,3 +497,66 @@ describe('FinanceService — 👥 ผู้เกี่ยวข้องทา�
     }
   });
 });
+
+describe('FinanceService — รับเงิน 1 ครั้ง = 1 event (FIN-V2 / P2.3)', () => {
+  const ROOM = 42;
+
+  /**
+   * 🔴 เส้นทางนี้ **ต้องไม่** ยิง `/finance/payments/batch` (legacy = ใบเสร็จแยกต่อบิล)
+   *    ตัวชี้ขาดคือ URL ของ preview/commit ซึ่งเป็น endpoint เดียวที่สร้าง
+   *    `payment_event` + REC ใบเดียว + DEP ได้ — ถ้าวันหนึ่งมีคน "ย่อ" ไปใช้ endpoint เก่า
+   *    จำนวนใบเสร็จต่อการรับเงิน 1 ครั้งจะเปลี่ยน ⇒ เทสต์นี้ต้องล้ม
+   */
+  const PREVIEW_PAYLOAD = {
+    student_id: 11,
+    amount_received: '100.00',
+    use_credit: false,
+    excess_action: 'none' as const,
+    bill_selection: 'auto' as const,
+    bill_ids: [] as number[],
+    channel_id: null,
+  }
+
+  it('preview ยิง POST /finance/payment-events/preview พร้อม target_type=room', async () => {
+    await FinanceService.previewPaymentEvent(ROOM, PREVIEW_PAYLOAD)
+
+    expect(first().method).toBe('POST')
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/payment-events/preview?`)
+    expect(firstUri()).toContain('target_type=room')
+    expect(firstBody()).toMatchObject({
+      student_id: 11,
+      amount_received: '100.00',
+      use_credit: false,
+      excess_action: 'none',
+      bill_selection: 'auto',
+      bill_ids: [],
+      channel_id: null,
+    })
+  })
+
+  it('commit ยิง POST /finance/payment-events (ไม่ใช่ /payments/batch) + ส่ง idempotency_key', async () => {
+    await FinanceService.createPaymentEvent(ROOM, {
+      ...PREVIEW_PAYLOAD,
+      idempotency_key: 'a'.repeat(32),
+      wallet_account_id: 5,
+      payer_name: 'อาร์ม',
+      payer_person_id: null,
+      receiver_person_id: 1,
+      receiver_name: 'ครูเอ',
+      note: null,
+      event_at: null,
+    })
+
+    expect(first().method).toBe('POST')
+    expect(firstUri()).toContain(`/api/classroom/${ROOM}/finance/payment-events?`)
+    expect(firstUri()).not.toContain('/payments/batch')
+    expect(firstBody()).toMatchObject({
+      idempotency_key: 'a'.repeat(32),
+      wallet_account_id: 5,
+      receiver_person_id: 1,
+      // 🔑 ต้องอยู่เป็น `null` ใน JSON ไม่ใช่หายไป — backend แยก "ไม่ระบุ" กับ "ไม่ได้ส่ง"
+      note: null,
+      event_at: null,
+    })
+  })
+});
