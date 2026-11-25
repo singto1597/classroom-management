@@ -468,6 +468,19 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน — อ่านเปิดให้สมาชิก (`require_member`)
+        // รวม payment event + การส่งมอบเงินสดในไทม์ไลน์เดียว · ไม่มีปุ่มเขียน
+        path: '/finance/payment-history',
+        name: 'finance-payment-history',
+        component: () => import('@/views/finance/PaymentHistory.vue'),
+        meta: {
+          title: routeTitles['finance-payment-history'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         path: '/discord-connect',
         name: 'DiscordConnect',
         component: () => import('@/components/discord/DiscordConnectGuide.vue'),

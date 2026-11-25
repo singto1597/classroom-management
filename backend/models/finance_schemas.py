@@ -1746,3 +1746,62 @@ class CustodyMovementListResponse(BaseModel):
     person_id: int
     account_id: int
     items: List[CustodyMovementItem] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน (payment event + ส่งมอบเงินสด)
+# ═══════════════════════════════════════════════════════════════════════════
+class PaymentHistoryLine(BaseModel):
+    """หนึ่งบรรทัดของ event — บิล / ใช้เครดิตปิดบิล / เติมเครดิต"""
+    line_kind: Literal["bill", "credit_apply", "credit_topup"]
+    amount: float
+    bill_before: Optional[float] = None
+    bill_after: Optional[float] = None
+    collection_title: Optional[str] = None
+
+
+class PaymentHistoryDocument(BaseModel):
+    """เอกสารที่ผูกกับ event (REC/DEP) — `deleted_at` ไม่ null ไม่ถูกส่งมา"""
+    doc_type: str
+    receipt_no: str
+    status: Optional[str] = None
+
+
+class PaymentHistoryEvent(BaseModel):
+    student_id: int
+    student_name: Optional[str] = None
+    payer_name: str
+    receiver_name: str
+    amount_received: float
+    credit_used: float
+    credit_added: float
+    total_applied: float
+    reference_no: Optional[str] = None
+    lines: List[PaymentHistoryLine] = Field(default_factory=list)
+    documents: List[PaymentHistoryDocument] = Field(default_factory=list)
+
+
+class PaymentHistoryHandover(BaseModel):
+    from_account_name: Optional[str] = None
+    to_account_name: Optional[str] = None
+    amount: float
+    handed_over_by_name: Optional[str] = None
+    received_by_name: Optional[str] = None
+    note: Optional[str] = None
+    void_reason: Optional[str] = None
+
+
+class PaymentHistoryItem(BaseModel):
+    """หนึ่งแถวในไทม์ไลน์ — `event` หรือ `handover` อย่างใดอย่างหนึ่งเท่านั้น"""
+    kind: Literal["event", "handover"]
+    id: int
+    occurred_at: datetime
+    status: str
+    event: Optional[PaymentHistoryEvent] = None
+    handover: Optional[PaymentHistoryHandover] = None
+
+
+class PaymentHistoryResponse(BaseModel):
+    """`GET /finance/payment-history` — cursor ทำงานโดยไม่ซ้ำ/ไม่ข้าม"""
+    items: List[PaymentHistoryItem] = Field(default_factory=list)
+    next_cursor: Optional[str] = None

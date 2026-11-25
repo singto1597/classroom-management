@@ -29,6 +29,8 @@ from .payment_channels import router as payment_channels_router
 from .acknowledgements import router as acknowledgements_router
 # 👜 [FIN-V2 / P3.1] เงินสดรอส่งมอบ — กระเป๋า custody + การส่งมอบ + เคลื่อนไหว
 from .custody import router as custody_router
+# 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน (อ่านอย่างเดียว)
+from .payment_history import router as payment_history_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -81,5 +83,8 @@ router.include_router(acknowledgements_router)
 # 👜 [FIN-V2 / P3.1] — path ขึ้นต้น `/finance/custody` ซึ่งไม่ซ้ำกับกลุ่มใด
 #    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์ (static มาก่อน dynamic ภายในไฟล์นั้น)
 router.include_router(custody_router)
+# 📜 [FIN-V2 / P3.4] — path ขึ้นต้น `/finance/payment-history` ซึ่งไม่ซ้ำกับกลุ่มใด
+#    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์ (อ่านล้วน ไม่มี dynamic segment)
+router.include_router(payment_history_router)
 
 __all__ = ["router"]

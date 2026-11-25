@@ -109,7 +109,10 @@ import type {
   CustodyAccount,
   CustodyHandoverCreate,
   CustodyHandover,
-  CustodyMovementListResponse
+  CustodyMovementListResponse,
+  // 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน (อ่านอย่างเดียว)
+  PaymentHistoryResponse,
+  PaymentHistoryQuery
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1097,5 +1100,24 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/custody/handovers/${handoverId}/void?target_type=room`,
       payload
     ) as unknown as ApiSuccessResponse;
+  },
+
+  // ═══ 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน ═══════════════════════════════
+  // อ่านอย่างเดียว — event + custody handover ในไทม์ไลน์เดียว, cursor 3 คีย์
+  // ⚠️ ต้องตัด key ที่เป็น `undefined`/`''` ออกก่อนส่ง ไม่งั้น axios จะส่ง
+  //    `?student_id=undefined` แล้ว backend ตอบ 422
+  async getPaymentHistory(
+    roomId: number,
+    params: PaymentHistoryQuery = {}
+  ): Promise<PaymentHistoryResponse> {
+    const query: Record<string, string | number> = { target_type: 'room' };
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null || value === '') continue;
+      query[key] = value;
+    }
+    return await api.get(
+      `/api/classroom/${roomId}/finance/payment-history`,
+      { params: query }
+    ) as unknown as PaymentHistoryResponse;
   }
 };

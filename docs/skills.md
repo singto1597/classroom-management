@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 287 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 288 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -291,6 +291,7 @@
 - [📥 รับเงินหลายคน: แยก "core ของ event" ออกจาก RBAC โดยไม่ให้เส้นเดิมเปลี่ยนไบต์ + มอนคีย์ปิดแค่ทางเดียว](#รับเงินหลายคน-แยก-core-ของ-event-ออกจาก-rbac-โดยไม่ให้เส้นเดิมเปลี่ยนไบต์-มอนคีย์ปิดแค่ทางเดียว)
 - [👜 เงินสดรอส่งมอบ: กระเป๋าคือแถวปกติของ `finance_accounts` — idempotency ต้องพึ่ง journal metadata](#เงินสดรอส่งมอบ-กระเป๋าคือแถวปกติของ-financeaccounts-idempotency-ต้องพึ่ง-journal-metadata)
 - [💳 เครดิตต้องเกิดพร้อมใบรับเงิน: `payment_event_id` เขียนตอน INSERT และ `manual+\[\]` = ไม่ปิดบิล](#เครดิตต้องเกิดพร้อมใบรับเงิน-paymenteventid-เขียนตอน-insert-และ-manual-ไม่ปิดบิล)
+- [📜 ไทม์ไลน์การเงิน: UNION ต้องมีทั้งสองกิ่งเสมอ + cursor 3 คีย์ `(occurred_at, kind, id)`](#ไทม์ไลน์การเงิน-union-ต้องมีทั้งสองกิ่งเสมอ-cursor-3-คีย์-occurredat-kind-id)
 
 <!-- TOC:END -->
 
@@ -4959,4 +4960,22 @@
   - `deposit_no` คือหลักฐานของ topup; ถ้า event เติมเครดิตล้วนได้ `receipt_no` กลับมา = ความผิดปกติ ให้ UI เตือนให้แจ้งผู้ดูแล
 - **Rule:** (1) 🔴 `payment_event_id` ต้องอยู่ใน INSERT ของ `student_credits` — ห้าม UPDATE ภายหลัง (2) 🔴 `manual` + `[]` = ไม่ปิดบิล ไม่ใช่ error (3) 🔴 undo แถวที่มาจาก event = 409 และ UI ต้องไม่แสดงปุ่มยกเลิก (4) 🔴 เงินสด/เครดิตใช้ event เดียวกัน แต่เครดิตล้วนไม่มี REC/transaction
 - **Tests/Verification:** `backend/tests/test_finance_credits.py` +9 (legacy row = NULL, event topup = DEP ไม่มี REC, event apply ไม่มี transaction/REC, undo event = 409, undo legacy ยังได้, detail เปิด `payment_event_id`, topup `manual+[]`, apply ไม่มีบิล = 400, money-lock shape), `test_finance_allocation.py` ปรับ `manual+[]`, `test_finance_payment_events.py` ยังเขียว, `frontend/…/CreditPanel.spec.ts` 4 + `credit-consolidation.spec.ts` 3
+- **Date Added:** 2026-11-25
+
+### 📜 ไทม์ไลน์การเงิน: UNION ต้องมีทั้งสองกิ่งเสมอ + cursor 3 คีย์ `(occurred_at, kind, id)`
+- **Context/Problem:** P3.4 ทำหน้าประวัติการรับเงินที่รวม payment event + custody handover ไว้ไทม์ไลน์เดียว และเจอกับดัก 3 ข้อ:
+  (1) ประกอบ SQL ตาม `kind` (ตัดกิ่ง UNION ที่ไม่ใช้ทิ้ง) แล้ว asyncpg ตอบ `IndeterminateDatatypeError: could not determine data type of parameter $5`
+  (2) `occurred_at` ซ้ำได้ (event หลายรายการใน transaction เดียวกัน / seed batch) ⇒ `LIMIT/OFFSET` และ cursor คีย์เดียวจะข้ามหรือซ้ำแถว
+  (3) รายการที่ถูกยกเลิก (`status='voided'`) ถ้าซ่อนจากประวัติจะอธิบายยอดที่หายไปไม่ได้
+- **Root Cause:** (1) asyncpg เตรียม statement จาก SQL ที่ได้รับจริง — parameter ที่ **ไม่ถูกอ้างอิงสักที่** ใน statement จะถูกเดาชนิดไม่ได้ แม้ฝั่ง Python ส่งค่ามาพร้อม `::text` cast ก็ตาม (cast ต้องอยู่ใน SQL ที่รัน). (2) `occurred_at` ไม่ unique ⇒ ต้องมี tie-breaker ที่ **รวมแล้ว unique ตลอดกาล** = `(occurred_at, kind, id)` เพราะ id เป็น PK ของตารางตนและ kind แยกตาราง. (3) ประวัติการเงินเป็นหลักฐาน ไม่ใช่ยอดคงเหลือ.
+- **Correct Pattern/Solution:**
+  - **ใส่ทั้งสองกิ่ง UNION เสมอ** แล้วกรองชนิดด้วย parameter: กิ่ง event มี `AND $11::text <> 'handover'`, กิ่ง handover มี `AND $11::text <> 'event'` ⇒ ทุก `$n` ถูกอ้างอิงอย่างน้อยหนึ่งที่ และ `kind` ไม่ต้อง interpolate SQL
+  - cursor = `base64url(f"{iso}|{kind}|{id}")` (ตัด `=` ท้าย); decode ผิดรูป/ไม่มี tz ⇒ `ValueError` → router 400; where = `(occurred_at, kind, id) < ($ts, $kind, $id)` เรียง `DESC` ตรงคอลัมน์
+  - `COALESCE(event_at, created_at) AS occurred_at` ใช้ **ทั้ง select / filter วันที่ / cursor** — พลาดที่ใดที่หนึ่ง event เก่า (`event_at IS NULL`) จะหายจากทุกหน้า
+  - วันไทย: `$n::date::timestamp AT TIME ZONE 'Asia/Bangkok'` (และ `($n::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok'` เป็นขอบบนแบบ exclusive) — เทียบ `date` กับ `timestamptz` ตรง ๆ = เที่ยงคืน UTC (07:00 ไทย)
+  - ห้าม JOIN บรรทัด/เอกสารใน query หลัก (แถวทวีคูณทำให้ pagination เพี้ยน) ⇒ ได้หน้าแล้วค่อยโหลด batch ด้วย `= ANY($1::bigint[])` (สูงสุด 5 query/หน้า)
+  - read-only service เป็น **module-level function** เมื่อ brief ห้ามแตะ `service.py` — เรียก `require_member` เอง ไม่ต้อง mixin/MRO และไม่ลง `_MONEY_PATHS`
+  - FE: กลุ่มวันใช้ `Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' })` บน timestamp (ห้าม `formatThaiDate` กับ timestamp) + "โหลดเพิ่ม" ส่ง `next_cursor` เดิมกลับ + `createLatestGuard` กันคำขอเก่า
+- **Rule:** (1) 🔴 SQL ที่มีกิ่งเลือกตาม filter — อย่าตัดกิ่งทิ้งถ้ามันถือ parameter (2) 🔴 cursor ของไทม์ไลน์ = 3 คีย์ `(occurred_at, kind, id)` (3) 🔴 `COALESCE(event_at, created_at)` ต้องเหมือนกันทุกจุด (4) 🔴 voided ต้องแสดงพร้อมสถานะ ไม่ซ่อน (5) 🔴 read-only page ไม่มี `_lock_room_money`/audit
+- **Tests/Verification:** `backend/tests/test_finance_payment_history.py` 12 ตัว (merge/เรียง, lines+docs batch, handover names, kind/student/person/receiver filter, cursor ไม่ซ้ำ/ไม่ข้ามทั้งเวลาเท่ากัน, ขอบวันไทย UTC 23:30, voided ยังแสดง, member 403, cursor ผิดรูป 400, ไม่แตะ money path), `frontend/src/views/finance/__tests__/payment-history.spec.ts` 6 ตัว
 - **Date Added:** 2026-11-25

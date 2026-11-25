@@ -1849,3 +1849,74 @@ export interface CustodyMovementListResponse {
   account_id: number
   items: CustodyMovement[]
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📜 [FIN-V2 / P3.4] ประวัติการรับเงิน — event + custody handover (อ่านเท่านั้น)
+// ═══════════════════════════════════════════════════════════════════════════
+/** หนึ่งบรรทัดของ event — บิล / ใช้เครดิตปิดบิล / เติมเครดิต */
+export interface PaymentHistoryLine {
+  line_kind: 'bill' | 'credit_apply' | 'credit_topup'
+  amount: number
+  bill_before: number | null
+  bill_after: number | null
+  collection_title: string | null
+}
+
+/** เอกสารที่ผูกกับ event (REC/DEP) — backend กรอง `deleted_at IS NULL` มาแล้ว */
+export interface PaymentHistoryDocument {
+  doc_type: string
+  receipt_no: string
+  status: string | null
+}
+
+export interface PaymentHistoryEvent {
+  student_id: number
+  student_name: string | null
+  payer_name: string
+  receiver_name: string
+  amount_received: number
+  credit_used: number
+  credit_added: number
+  total_applied: number
+  reference_no: string | null
+  lines: PaymentHistoryLine[]
+  documents: PaymentHistoryDocument[]
+}
+
+export interface PaymentHistoryHandover {
+  from_account_name: string | null
+  to_account_name: string | null
+  amount: number
+  handed_over_by_name: string | null
+  received_by_name: string | null
+  note: string | null
+  void_reason: string | null
+}
+
+/** หนึ่งแถวในไทม์ไลน์ — `event` หรือ `handover` อย่างใดอย่างหนึ่งเท่านั้น */
+export interface PaymentHistoryItem {
+  kind: 'event' | 'handover'
+  id: number
+  occurred_at: string
+  status: string
+  event: PaymentHistoryEvent | null
+  handover: PaymentHistoryHandover | null
+}
+
+export interface PaymentHistoryResponse {
+  items: PaymentHistoryItem[]
+  next_cursor: string | null
+}
+
+/** พารามิเตอร์ของ `GET /finance/payment-history` — วันที่เป็น YYYY-MM-DD (วันไทย) */
+export interface PaymentHistoryQuery {
+  from?: string
+  to?: string
+  kind?: 'all' | 'event' | 'handover'
+  student_id?: number
+  person_id?: number
+  receiver_id?: number
+  q?: string
+  cursor?: string
+  limit?: number
+}
