@@ -9,6 +9,7 @@ from typing import Optional
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import ForbiddenError, RoomNotFoundError
@@ -19,6 +20,7 @@ from models.finance_schemas import (
 from services.finance.income_batches import (
     IncomeBatchIdempotencyConflict, IncomeBatchNotFoundError,
 )
+from services.finance.pdf import PdfRenderError
 from services.finance_service import FinanceService
 
 from routers._common import TargetResolution, get_target, get_audit_context
@@ -113,3 +115,40 @@ async def get_income_batch(
         )
     except Exception as e:
         _raise_translated(e)
+
+
+@router.get("/{target_id}/finance/income-batches/{batch_id}/pdf")
+async def download_income_batch_pdf(
+    batch_id: int,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """ดาวน์โหลด INC ของใบรับเงินเป็น PDF (เรนเดอร์ผ่าน Gotenberg)
+
+    ⚠️ ไม่ประกาศ `response_model` โดยเจตนา — response เป็น binary stream
+    🔴 ใบที่ถูกยกเลิกพิมพ์ได้ (partial ประทับแบนเนอร์) ⇒ ไม่กรอง status ที่ service
+    """
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        pdf_bytes, filename = await FinanceService.render_income_batch_pdf(
+            pool=pool, batch_id=batch_id, client_source=client_source,
+            actor_identifier=actor, user_id=user_ctx["user_id"],
+            server_id=target.server_id, room_id=target.room_id,
+        )
+    except (RoomNotFoundError, IncomeBatchNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except PdfRenderError as e:
+        raise HTTPException(status_code=502, detail=f"สร้างไฟล์ PDF ไม่สำเร็จ: {e}")
+
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )

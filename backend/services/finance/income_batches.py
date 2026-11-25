@@ -774,3 +774,41 @@ class IncomeBatchesMixin:
             except Exception:
                 pass
             raise e
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 🖨️ พิมพ์ INC เป็น PDF (P4.6)
+    # ─────────────────────────────────────────────────────────────────────
+    @classmethod
+    async def render_income_batch_pdf(
+        cls,
+        pool: asyncpg.Pool,
+        batch_id: int,
+        *,
+        client_source: str,
+        actor_identifier: str,
+        user_id: int,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+    ) -> tuple:
+        """เรนเดอร์ INC ของ batch เป็น PDF → `(bytes, filename)`
+
+        🎯 resolve ห้อง + ตรวจสมาชิกก่อนคืนเลขเอกสาร — **ห้ามให้ข้ามห้อง**
+        🔴 ไม่กรอง `status`/`deleted_at` ของ INC: ใบ void ต้องพิมพ์ได้พร้อมแบนเนอร์
+        ♻️ เรียก `render_receipt_pdf` ตัวเดิม (ไม่มี logic เรนเดอร์ซ้ำ)
+        """
+        async with pool.acquire() as conn:
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+            await require_member(conn, target_room_id, user_id)
+            receipt_no = await conn.fetchval(
+                """SELECT R.receipt_no
+                   FROM finance_income_batches B
+                   JOIN finance_receipts R ON R.id = B.inc_receipt_id
+                   WHERE B.id = $1 AND B.room_id = $2""",
+                batch_id, target_room_id,
+            )
+        if not receipt_no:
+            raise IncomeBatchNotFoundError("ไม่พบเอกสารใบรับเงินของใบนี้")
+        return await cls.render_receipt_pdf(
+            pool, receipt_no, client_source, actor_identifier,
+            server_id=server_id, room_id=target_room_id, user_id=user_id,
+        )

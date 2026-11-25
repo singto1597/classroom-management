@@ -906,3 +906,44 @@ class ExpenseVouchersMixin:
             except Exception:
                 pass
             raise e
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 🖨️ พิมพ์ PV เป็น PDF (P4.6)
+    # ─────────────────────────────────────────────────────────────────────
+    @classmethod
+    async def render_expense_voucher_pdf(
+        cls,
+        pool: asyncpg.Pool,
+        voucher_id: int,
+        *,
+        client_source: str,
+        actor_identifier: str,
+        user_id: int,
+        server_id: Optional[int] = None,
+        room_id: Optional[int] = None,
+    ) -> tuple:
+        """เรนเดอร์ PV ของ voucher เป็น PDF → `(bytes, filename)`
+
+        🎯 resolve ห้อง + ตรวจสมาชิกก่อนคืนเลขเอกสาร — **ห้ามให้ข้ามห้อง**
+           (เลข PV มาจาก id ของ voucher ในห้องที่ยึดแล้วเท่านั้น)
+        🔴 ไม่กรอง `status`/`deleted_at` ของ PV: ใบที่ถูกยกเลิกต้องพิมพ์ได้
+           เพื่อตรวจสอบย้อนหลัง (partial ประทับแบนเนอร์ VOID เอง) — ตัวกรองเดียว
+           ที่ใช้คือ `V.room_id = $2` ซึ่งเป็นการกันข้ามห้อง ไม่ใช่การซ่อนใบ void
+        ♻️ เรียก `render_receipt_pdf` ตัวเดิม ⇒ ไม่มี logic เรนเดอร์ซ้ำให้จอ/กระดาษเพี้ยน
+        """
+        async with pool.acquire() as conn:
+            target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
+            await require_member(conn, target_room_id, user_id)
+            receipt_no = await conn.fetchval(
+                """SELECT R.receipt_no
+                   FROM finance_expense_vouchers V
+                   JOIN finance_receipts R ON R.id = V.pv_receipt_id
+                   WHERE V.id = $1 AND V.room_id = $2""",
+                voucher_id, target_room_id,
+            )
+        if not receipt_no:
+            raise ExpenseVoucherNotFoundError("ไม่พบเอกสารใบสำคัญจ่ายของใบนี้")
+        return await cls.render_receipt_pdf(
+            pool, receipt_no, client_source, actor_identifier,
+            server_id=server_id, room_id=target_room_id, user_id=user_id,
+        )
