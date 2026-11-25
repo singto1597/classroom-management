@@ -72,9 +72,20 @@ docker stack deploy -c docker-compose.app.yml ${ENV_NAME}_app
 
 # 5.2 ⏳ รอ service ขึ้นครบตาม spec — กันกรณี deploy "สำเร็จ" แต่ task วิ่งไม่ขึ้น
 #     (เช่น image หาย, health check ไม่ผ่าน) · ปรับเวลาได้ที่ DEPLOY_WAIT_SECONDS
+#
+#     ⚠️ นับ replica อย่างเดียวไม่พอ (บทเรียน 2026-11-25 จาก PR #140):
+#     update เป็น start-first ⇒ ระหว่าง rollover "3/3" ยังเป็น task เก่าได้ และถ้า
+#     FailureAction=pause (ค่าที่ stack นี้ใช้) task ใหม่ที่ขึ้นไม่ได้จะทำให้ swarm
+#     "หยุด" การอัปเดต แต่ task เก่ายังรันครบ ⇒ `x/x` + คำว่า "สำเร็จ" = ภาพหลอก
+#     ต้องอ่าน `UpdateStatus.State` ของ swarm ซึ่งจะบอกว่า rollover จบจริงหรือไม่
+service_update_state() {
+    docker service inspect "$1" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}none{{end}}'
+}
+
 DEPLOY_WAIT_SECONDS="${DEPLOY_WAIT_SECONDS:-300}"
-echo "⏳ รอ service ขึ้นครบ (สูงสุด ${DEPLOY_WAIT_SECONDS}s)..."
+echo "⏳ รอ service ขึ้นครบและ rollover จบ (สูงสุด ${DEPLOY_WAIT_SECONDS}s)..."
 deadline=$((SECONDS + DEPLOY_WAIT_SECONDS))
+ready_streak=0
 while :; do
     not_ready=""
     for stack in ${ENV_NAME}_pdf ${ENV_NAME}_app; do
@@ -84,15 +95,38 @@ while :; do
             [ -z "$name" ] && continue
             # "4/3" ระหว่าง rollover ถือว่ายังไม่นิ่ง — ต้องได้ "x/x" เท่านั้น
             if [ -z "$replicas" ] || [ "${replicas%%/*}" != "${replicas##*/}" ]; then
-                not_ready+="  ${name} ${replicas}"$'\n'
+                not_ready+="  ${name} replicas=${replicas}"$'\n'
             fi
+            state=$(service_update_state "$name")
+            case "$state" in
+                none|completed)
+                    ;;
+                paused|rollback_started|rollback_paused|rollback_completed)
+                    echo "❌ swarm หยุด/ย้อนการอัปเดต ${name} (UpdateStatus=${state})"
+                    echo "   task ใหม่ขึ้นไม่ได้ ⇒ task เดิมอาจยังรันครบ (ดูเหมือนสำเร็จแต่เวอร์ชันใหม่ไม่ได้ขึ้น)"
+                    echo "   ตรวจ: docker service ps ${name} --no-trunc"
+                    echo "   แก้สาเหตุแล้วรัน ./pull_all.sh ใหม่อีกครั้ง — ระหว่างนี้ระบบเดิมยังให้บริการ"
+                    exit 1
+                    ;;
+                *)
+                    not_ready+="  ${name} update=${state}"$'\n'
+                    ;;
+            esac
         done <<< "$services_out"
     done
 
     if [ -z "$not_ready" ]; then
-        echo "✅ ทุก service ขึ้นครบตาม spec"
-        break
+        # ต้องเห็น "พร้อม" สองครั้งติดกัน — กันจับจังหวะที่ docker stack deploy เพิ่งคืนค่า
+        # และ service ยังไม่เริ่มสลับ task (UpdateStatus ยังเป็น completed ของรอบก่อน)
+        ready_streak=$((ready_streak + 1))
+        if [ "$ready_streak" -ge 2 ]; then
+            echo "✅ ทุก service ขึ้นครบตาม spec และ rollover จบแล้ว"
+            break
+        fi
+        sleep 5
+        continue
     fi
+    ready_streak=0
     if [ "$SECONDS" -ge "$deadline" ]; then
         echo "❌ service ไม่ขึ้นครบภายใน ${DEPLOY_WAIT_SECONDS}s:"
         printf '%s' "$not_ready"
