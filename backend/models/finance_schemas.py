@@ -1658,3 +1658,87 @@ class BulkPaymentEventResponse(BaseModel):
     events: List[BulkPaymentEventItemResult]
     total_amount_received: str  # "1250.50"
     reused: bool = False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P3.1] เงินสดรอส่งมอบ (custody)
+# ══════════════════════════════════════════════════════════════════════════════
+class CustodyAccountCreate(BaseModel):
+    """สร้างกระเป๋า custody ให้ผู้เกี่ยวข้อง 1 คน (ได้ 1 ใบต่อคนต่อห้อง)"""
+    owner_person_id: int = Field(..., gt=0)
+    account_kind: Literal["cash", "transfer"] = "cash"
+
+
+class CustodyAccountResponse(BaseModel):
+    """กระเป๋า custody ที่สร้าง/ฟื้น — `balance` เป็นตัวเลข 2 ตำแหน่ง"""
+    person_id: int
+    account_id: int
+    account_name: str
+    account_kind: str
+    balance: float
+    is_custody: bool = True
+
+
+class CustodyListItem(BaseModel):
+    person_id: int
+    display_name: str
+    account_id: int
+    account_name: str
+    account_kind: str
+    balance: float
+    last_handover_at: Optional[datetime] = None
+
+
+class CustodyListResponse(BaseModel):
+    """`GET /finance/custody` — ทุกคนที่มีกระเป๋า (รวมยอด 0) + ยอดถือรวม"""
+    total_held: float
+    items: List[CustodyListItem] = Field(default_factory=list)
+
+
+class CustodyHandoverCreate(BaseModel):
+    """คำขอส่งมอบเงิน — idempotent ด้วย `idempotency_key` (8–128 ตัวอักษร)"""
+    idempotency_key: str = Field(..., min_length=8, max_length=128)
+    from_account_id: int = Field(..., gt=0)
+    to_account_id: int = Field(..., gt=0)
+    amount: float = Field(..., gt=0)
+    handed_over_by_person_id: Optional[int] = Field(None, gt=0)
+    received_by_person_id: Optional[int] = Field(None, gt=0)
+    note: Optional[str] = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def _distinct_accounts(self):
+        # กันที่ขอบเขต HTTP ก่อน — service ตรวจซ้ำอีกชั้นเพราะถูกเรียกตรงได้
+        if self.from_account_id == self.to_account_id:
+            raise ValueError("ส่งมอบเข้ากระเป๋าเดิมไม่ได้")
+        return self
+
+
+class CustodyHandoverResponse(BaseModel):
+    id: int
+    from_account_id: int
+    to_account_id: int
+    amount: float
+    status: str
+    journal_entry_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class CustodyHandoverVoid(BaseModel):
+    """เหตุผลยกเลิกการส่งมอบ — บังคับ เพราะต้องเก็บใน audit + void_reason"""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class CustodyMovementItem(BaseModel):
+    """หนึ่งบรรทัดของการเคลื่อนไหว — expense/out เป็นลบ, income/in เป็นบวก"""
+    kind: Literal["handover_in", "handover_out", "income", "expense"]
+    source_id: str
+    amount: float
+    description: Optional[str] = None
+    reference_no: Optional[str] = None
+    occurred_at: datetime
+
+
+class CustodyMovementListResponse(BaseModel):
+    person_id: int
+    account_id: int
+    items: List[CustodyMovementItem] = Field(default_factory=list)

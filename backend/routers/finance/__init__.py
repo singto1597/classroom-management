@@ -27,6 +27,8 @@ from .payment_events_bulk import router as payment_events_bulk_router
 from .payment_channels import router as payment_channels_router
 # 🧾 [FIN-V2 / P2.6] ใบรับทราบยอดค้าง (ACK) — P5.4 จะต่อท้ายไฟล์ router นี้
 from .acknowledgements import router as acknowledgements_router
+# 👜 [FIN-V2 / P3.1] เงินสดรอส่งมอบ — กระเป๋า custody + การส่งมอบ + เคลื่อนไหว
+from .custody import router as custody_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -76,5 +78,8 @@ router.include_router(payment_channels_router)
 # 🧾 [FIN-V2 / P2.6] — path ขึ้นต้น `/finance/acknowledgements` ซึ่งไม่ซ้ำกับกลุ่มใด
 #    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์ · P5.4 ต่อ GET/void ในไฟล์ router เดียวกัน
 router.include_router(acknowledgements_router)
+# 👜 [FIN-V2 / P3.1] — path ขึ้นต้น `/finance/custody` ซึ่งไม่ซ้ำกับกลุ่มใด
+#    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์ (static มาก่อน dynamic ภายในไฟล์นั้น)
+router.include_router(custody_router)
 
 __all__ = ["router"]

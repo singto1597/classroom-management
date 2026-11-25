@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 285 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 286 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -289,6 +289,7 @@
 - [💳 ฟอร์มแก้ไขข้อมูลที่ API คืนมาแบบ mask: "เว้นว่าง" ต้องละคีย์ ไม่ใช่ส่ง `null`](#ฟอร์มแก้ไขข้อมูลที่-api-คืนมาแบบ-mask-เว้นว่าง-ต้องละคีย์-ไม่ใช่ส่ง-null)
 - [🧾 ใบแจ้งหนี้ v2 + ใบรับทราบยอดค้าง: ถ้อยคำบนกระดาษเป็นสัญญา และ `response_model` เติมฟิลด์ให้เอง](#ใบแจ้งหนี้-v2-ใบรับทราบยอดค้าง-ถ้อยคำบนกระดาษเป็นสัญญา-และ-responsemodel-เติมฟิลด์ให้เอง)
 - [📥 รับเงินหลายคน: แยก "core ของ event" ออกจาก RBAC โดยไม่ให้เส้นเดิมเปลี่ยนไบต์ + มอนคีย์ปิดแค่ทางเดียว](#รับเงินหลายคน-แยก-core-ของ-event-ออกจาก-rbac-โดยไม่ให้เส้นเดิมเปลี่ยนไบต์-มอนคีย์ปิดแค่ทางเดียว)
+- [👜 เงินสดรอส่งมอบ: กระเป๋าคือแถวปกติของ `finance_accounts` — idempotency ต้องพึ่ง journal metadata](#เงินสดรอส่งมอบ-กระเป๋าคือแถวปกติของ-financeaccounts-idempotency-ต้องพึ่ง-journal-metadata)
 
 <!-- TOC:END -->
 
@@ -4919,4 +4920,24 @@
   - พรีวิวรายคน (`Promise.allSettled`) ต้องถูก **ล้างทั้งชุด** เมื่อยอด/ติ๊ก/ตัวเลือกเปลี่ยน — ไม่งั้นยืนยันด้วยยอดที่ยังไม่เคยตรวจ
 - **Rule:** (1) 🔴 ฟังก์ชัน core ที่แยกไว้ห้ามทำ RBAC/ล็อก/แจ้งเตือนเอง — เป็นหน้าที่ caller (2) 🔴 patch method ของ mixin ในเทสต์ต้องอ้างผ่าน `FinanceService` (3) 🔴 replay ต้องตรงทั้งชุดคีย์ + reference + active; เจอบางส่วน = 409 ห้ามเดาว่า replay (4) 🔴 `reference_no` ไม่ unique ใน DB — ตรวจใต้ล็อกห้องเสมอ (5) 🔴 อย่าให้ `String(object)` เล็ดลอดเป็นข้อความ error ของเงิน
 - **Tests/Verification:** `backend/tests/test_finance_bulk_receive.py` 17 ตัว (event/REC ต่อคน, reference/event_at เดียว, all-or-nothing, numbering rollback, duplicate student, replay ผ่าน API ซ้ำ, reference conflict, notify ครั้งเดียว/ไม่แจ้งตอน replay, เครดิตล้วนไม่มี REC, ผสมเงินสด+เครดิต, ยอด 0 ไม่มีเครดิต, RBAC, ช่องทาง null, กระเป๋าต่างห้อง, เพดาน 100, error พก `student_id`), `frontend/src/components/finance/__tests__/BulkReceiveSheet.spec.ts` 8 ตัว, `src/services/__tests__/apiErrors.spec.ts` (+1 object detail)
+- **Date Added:** 2026-11-25
+
+### 👜 เงินสดรอส่งมอบ: กระเป๋าคือแถวปกติของ `finance_accounts` — idempotency ต้องพึ่ง journal metadata
+- **Context/Problem:** P3.1 ทำ "เงินสดรอส่งมอบ" (custody) ซึ่งมี 5 กับดักที่ทำให้ยอด/journal เพี้ยนได้:
+  (1) ถ้าคิดว่า custody เป็น "บัญชีแยกประเภทใหม่" จะต้องเพิ่ม ledger 11003 แล้ว reconciliation/`_scan_account_diffs` ทั้งชุดไม่รู้จักมัน
+  (2) ถ้าเขียน `finance_transactions` ตอนส่งมอบ dashboard/งบประมาณจะนับเป็นรายรับ+รายจ่ายซ้ำ
+  (3) partial unique `idx_finance_accounts_custody_owner` **ไม่ครอบ** แถวที่ `deleted_at` ไม่ null ⇒ INSERT ใหม่จะกลายเป็นกระเป๋าสองใบต่อคนในสายตาประวัติ
+  (4) `finance_custody_handovers` (migration 0012) **ไม่มี** `idempotency_key` ⇒ ถ้า retry ด้วยคีย์เดิมจะได้แถวใหม่ + ยอดขยับซ้ำ
+  (5) void ที่ void journal เดิมอย่างเดียว (ไม่เขียนใบกลับรายการ) ทำให้ยอดบัญชีไม่ตรงกับ journal
+- **Root Cause:** custody ไม่ใช่แนวคิดบัญชีใหม่ — เป็น**แถวกระเป๋าปกติ**ที่ระบุเจ้าของชัดเจน (`is_custody` + `owner_person_id`) การส่งมอบจึงเป็นการโอนสินทรัพย์→สินทรัพย์ที่ใช้ machinery เดิมทั้งชุด; ส่วน idempotency ที่สคีมาไม่ได้รองรับต้องเก็บที่ **metadata ของ journal** ซึ่งถูกสร้างใน transaction เดียวกันและมี room lock serialize ให้อยู่แล้ว
+- **Correct Pattern/Solution:**
+  - กระเป๋า custody = `INSERT finance_accounts (…, is_custody=TRUE, is_primary=FALSE)`; **ห้ามตั้ง `is_primary`** (partial unique `(room_id, account_kind)` จะชนกระเป๋าหลัก)
+  - `_ensure_custody_account_locked` = หาแถว active → ถ้าไม่มี หาแถว soft-deleted ยอด 0 แล้ว **ฟื้น** (`deleted_at=NULL`) → ถ้ายอดไม่ 0 คืน 409 → ค่อย INSERT ใหม่
+  - handover: RBAC → `_lock_room_money` → idempotency (`journal_entries.metadata->>'idempotency_key'` + `status='active'`) → ล็อกกระเป๋าครั้งละชุด `WHERE id = ANY(...) ORDER BY id FOR UPDATE` → guard ยอดต้นทาง **ก่อน UPDATE** → `UPDATE balance ±` (ให้ DB คำนวณ DECIMAL) → `INSERT finance_custody_handovers` → `_insert_journal_entry(reference_type='custody_handover', lines=[Dr to, Cr from])` → ผูก `journal_entry_id`
+  - **ห้าม** `INSERT INTO finance_transactions` และห้ามออก REC/PV/INC/DEP ของ handover
+  - void: คืนยอดสองฝั่ง → guard **ยอดปลายทาง** (`to.balance < amount` ⇒ 409) → `UPDATE journal_entries SET status='voided', deleted_at=NOW()` → เขียน journal กลับรายการ `custody_handover_void` (Dr from / Cr to) → ตั้ง handover `voided`
+  - `get_custody_movements` UNION handover (out = ลบ, in = บวก) + `finance_transactions` ของกระเป๋า (expense = ลบ) แล้วเรียง `occurred_at DESC, id DESC` จำกัด 500
+  - เพิ่ม 3 เมธอดเขียนใน `_MONEY_PATHS` — และ**รันตัวตรวจ completeness ซ้ำเสมอ** เพราะมันจับช่องว่างของแพ็กเกจก่อนหน้าได้ (P3.1 เจอ `issue_acknowledgements` ของ P2.6 ที่ล็อกถูกแต่มิได้ลงทะเบียน)
+- **Rule:** (1) 🔴 custody = กระเป๋าธรรมดา ไม่มี ledger/ตารางใหม่ (2) 🔴 handover ห้ามแตะ `finance_transactions` (3) 🔴 idempotency ของ handover อยู่ที่ journal metadata ใต้ room lock — ห้ามใช้ `created_at`/`amount` เป็นคีย์ (4) 🔴 void ต้องทั้ง void ใบเดิมและเขียนใบกลับรายการ (5) 🔴 เพิ่มเมธอดเขียนเงินแล้วต้องลง `_MONEY_PATHS` และรันตัวตรวจ completeness
+- **Tests/Verification:** `backend/tests/test_finance_custody.py` 13 ตัว (1 กระเป๋า/คน + ห้าม primary, receive role, RBAC member 403, balanced journal + ไม่มี finance_transactions, ทิศ custody→main, ยอดไม่พอไม่เหลือร่องรอย, idempotent replay, 409 payload ต่าง, void คืนยอด + void journal เดิม + ใบกลับรายการ, void guard ปลายทางใช้เงิน, movements เรียงใหม่→เก่า, room scope 404, ตัวตรวจ `_MONEY_PATHS`), `test_finance_money_lock.py` ผ่านทั้งไฟล์
 - **Date Added:** 2026-11-25

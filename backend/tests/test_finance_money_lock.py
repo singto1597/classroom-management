@@ -187,6 +187,15 @@ _MONEY_PATHS = [
     ("payment_channels", "PaymentChannelsMixin", "create_payment_channel"),
     ("payment_channels", "PaymentChannelsMixin", "update_payment_channel"),
     ("payment_channels", "PaymentChannelsMixin", "delete_payment_channel"),
+    # 👜 [FIN-V2 / P3.1] เงินสดรอส่งมอบ — handover ย้าย balance สองฝั่ง + เขียน journal
+    #    ⇒ ต้องอยู่ใต้ล็อกห้องเดียวกับเส้นทางเงินอื่น (custody account เป็นแถวกระเป๋าปกติ)
+    ("custody", "CustodyMixin", "create_custody_account"),
+    ("custody", "CustodyMixin", "create_handover"),
+    ("custody", "CustodyMixin", "void_handover"),
+    # 🧾 [FIN-V2 / P2.6] ช่องว่างที่ P3.1 ตรวจเจอตอนรันตัวตรวจ completeness ซ้ำ:
+    #    `issue_acknowledgements` เขียนเอกสาร (ACK + INV ทั้งชุด) และยึดล็อกห้องถูกต้องแล้ว
+    #    แต่ไม่เคยถูกเพิ่มในสัญญา ⇒ เพิ่มแบบ additive เพื่อให้ตัวตรวจครอบจริง
+    ("invoice_documents", "InvoiceDocumentsMixin", "issue_acknowledgements"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง
