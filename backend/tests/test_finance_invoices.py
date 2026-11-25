@@ -441,7 +441,8 @@ async def test_room_wide_skips_a_zero_outstanding_bill_and_reports_it(
     body = res.json()
     assert body["issued_count"] == 2, "คนที่ยอดเหลือ 0 ต้องไม่ได้รับใบ"
     assert [s["student_id"] for s in body["skipped"]] == [zero]
-    assert body["skipped"][0]["student_name"] == "จ่ายครบแต่ยัง pending"
+    # 🪪 ชื่อ-นามสกุลเต็ม (ไม่ต่อชื่อเล่น): fixture เติมนามสกุล "ทดลอง" ให้ทุกคน
+    assert body["skipped"][0]["student_name"] == "จ่ายครบแต่ยัง pending ทดลอง"
     assert "0.01" in body["skipped"][0]["reason"] or "สตางค์" in body["skipped"][0]["reason"]
 
     assert await _db_seq(db_pool, room_id) == 2, "ต้องไม่กินเลขให้คนที่ถูกข้าม"

@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 292 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 294 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -296,6 +296,8 @@
 - [🧾 เทสต์เอกสาร: shell มีถ้อยคำใน CSS comment — ห้าม assert "ไม่มีคำนั้น" ด้วยข้อความดิบ](#เทสต์เอกสาร-shell-มีถ้อยคำใน-css-comment-ห้าม-assert-ไม่มีคำนั้น-ด้วยข้อความดิบ)
 - [✂️ ตารางการเงินที่สร้างก่อน migration ไม่มี `created_at` — อย่าเดาคอลัมน์จากตารางรุ่นใหม่](#ตารางการเงินที่สร้างก่อน-migration-ไม่มี-createdat-อย่าเดาคอลัมน์จากตารางรุ่นใหม่)
 - [🧩 FIN-V2 ประกอบครบ: สิ่งที่เห็นได้เฉพาะเมื่อทุก package อยู่ด้วยกัน](#fin-v2-ประกอบครบ-สิ่งที่เห็นได้เฉพาะเมื่อทุก-package-อยู่ด้วยกัน)
+- [🖨️ เอกสารสองยุคใช้ shell คนละไฟล์ — เลือกจาก `body_template` และอย่า assert `.doc { padding }` ด้วย substring](#เอกสารสองยุคใช้-shell-คนละไฟล์-เลือกจาก-bodytemplate-และอย่า-assert-doc-padding-ด้วย-substring)
+- [🪪 ชื่อบนบิล/เอกสารการเงิน = ชื่อเต็มทางการ (คำนำหน้า + ชื่อ + นามสกุล) ไม่ต่อชื่อเล่น](#ชื่อบนบิลเอกสารการเงิน-ชื่อเต็มทางการ-คำนำหน้า-ชื่อ-นามสกุล-ไม่ต่อชื่อเล่น)
 
 <!-- TOC:END -->
 
@@ -5044,4 +5046,31 @@
   - **void** ยกเลิกทุกเอกสาร/แถวใน transaction เดียว + audit นอก/ในตามกติกา read-only ที่ใช้ร่วมกัน
 - **Rule:** (1) 🔴 เปลี่ยนสูตรค้างต้องอัปเดต parity test ทั้งชุด (2) 🔴 เอกสารใหม่ห้ามแก้ shell/partial legacy (3) 🔴 ทางเข้า legacy = redirect ของ, ไม่ใช่ map ฝั่ง FE (4) 🔴 void หลายเอกสารต้อง all-or-nothing (5) 🔴 grep `/finance/receipts` เหลือเฉพาะ redirect + คอมเมนต์
 - **Tests/Verification:** `backend/tests/test_finance_outstanding_formula.py`, `test_finance_dashboard_ownership.py` (parity aging), `test_finance_legacy_pdf_regression.py` (byte stability), `frontend/src/router/__tests__/routes.spec.ts` (redirect + static-before-dynamic), `frontend/src/views/finance/__tests__/legacyReceiptRedirect.spec.ts`
+- **Date Added:** 2026-11-25
+
+### 🖨️ เอกสารสองยุคใช้ shell คนละไฟล์ — เลือกจาก `body_template` และอย่า assert `.doc { padding }` ด้วย substring
+- **Context/Problem:** ปรับ partial v2 ทั้ง 8 ชนิดให้เป็นมาตรฐาน A4 โดย **ไม่แตะ `receipt.html`** (byte contract ของใบเก่า) ⇒ ต้องมี shell ใหม่ `receipt_v2.html` และเลือกใช้ตามเนื้อในของ bundle ระหว่างทางเจอ 4 กับดักที่เทสต์เดิม/quirk ของ Jinja ทำให้พังเงียบ:
+  (1) `render_receipts_html` ต้องเลือก shell ด้วย `any(str(c.get("body_template") or "").endswith("_v2.html"))` **ไม่ใช่ `layout_version`** — RPT ไม่มี `layout_version` เลย แต่มี `body_template` (ถ้าเลือกด้วย layout_version RPT จะตกลงไป shell legacy);
+  (2) กฎ `.doc` ของ legacy เขียนบรรทัดเดียว `.doc { padding: 14mm 14mm 10mm; }` แต่ v2 เขียนหลายบรรทัด ⇒ assertion แบบ substring ของ `.doc { padding: 13mm 15mm 11mm; }` **ไม่ match** (แก้เป็น `re.search(r"\.doc\s*\{[^}]*padding:\s*13mm 15mm 11mm", html)`);
+  (3) แบนเนอร์/ตราประทับ VOID ต้อง **เป็นของ shell** (`.v2-doc.is-voided` เท่านั้น) — ถ้า partial ยังวาด `<div class="void-banner">` ของตัวเอง ใบที่ยกเลิกจะได้แบนเนอร์ซ้ำ 2 บล็อก;
+  (4) CSS comment ของ shell v2 ต้องเป็น **อังกฤษล้วน** — เทสต์ INV/ACK นับคำไทย ("ผู้รับเงิน") ใน HTML ที่เรนเดอร์แล้ว ⇒ คอมเมนต์ไทยใน `<style>` จะกลายเป็น match และทำเทสต์ "ห้ามมีคำนั้น" แดง
+- **Root Cause:** shell เดียวรับผิดชอบ typography/กระดาษของทุกเอกสาร แต่เอกสารสองยุคมีสัญญาคนละชุด; ตัวเลือก shell เดิมผูกกับ layout_version ของ REC/DEP เท่านั้น ทำให้เอกสารที่เกิดจาก service อื่น (RPT/PV/CERT/INC) ไม่มีธงนั้น
+- **Correct Pattern/Solution:**
+  - shell ใหม่ `receipt_v2.html` — `<style>` เดียว · `@page { size: A4; margin: 0; }` · `.doc` padding 13/15/11 · `.doc-break` คั่นหน้า · wrapper ชั้นในแยก `.v2-doc` (flex) กับ `.legacy-doc` (block) ⇒ legacy partial ใน bundle ผสมยังได้หน้าตาเดิม
+  - เลือก shell จาก `body_template`; `_get_template(path)` + `@lru_cache(maxsize=2)` ให้ shell ทั้งสองถูกแคชแยกกัน
+  - macro กลาง `_v2_macros.html` ต้อง `{% import ... as m with context %}` (ไม่ใช่ import เปล่า) เพื่อเห็น `brand_name`/`brand_sub`/`qr_data_uri` จาก context
+  - เทสต์ที่ล็อก layout ให้ผูกกับ **ตัวที่แยกแยะได้จริง**: padding ใช้ regex, จำนวน `@page`/`</style>`/font data URI, จำนวน wrapper `class="doc(?: doc-break)?"`, และ partial ทั้ง 8 ต้องมีคำ `void-banner` **0 ครั้ง**
+- **Rule:** (1) 🔴 legacy-only bundle ต้องได้ `receipt.html` เป๊ะ (digest ไม่ขยับ) (2) 🔴 เลือก shell ด้วย `body_template` endswith `_v2.html` (3) 🔴 VOID chrome เป็นของ shell เท่านั้น (4) 🔴 CSS comment ของ shell v2 = อังกฤษล้วน (5) 🔴 assert ค่า CSS ที่เขียนหลายบรรทัดด้วย regex ไม่ใช่ substring
+- **Tests/Verification:** `backend/tests/test_finance_pdf_a4_shell.py` (เลือก shell legacy/v2 + RPT · `@page`/font/`.doc` counter · VOID ครั้งเดียว · partial 8 ไฟล์ไม่มี void-banner · mixed bundle `.legacy-doc` · โลโก้จริง), `test_finance_legacy_pdf_regression.py`, `test_finance_pdf_multi_doc.py`, `test_finance_invoice_channels_ack.py`, `test_finance_document_adapters.py`
+- **Date Added:** 2026-11-25
+
+### 🪪 ชื่อบนบิล/เอกสารการเงิน = ชื่อเต็มทางการ (คำนำหน้า + ชื่อ + นามสกุล) ไม่ต่อชื่อเล่น
+- **Context/Problem:** บิลและเอกสารทุกชนิดพิมพ์ชื่อในรูป `ชื่อ(ชื่อเล่น)` เช่น `นายพัฒนพล(สิงโต)` ซึ่งไม่ทางการสำหรับเอกสารที่มอบให้ผู้ปกครอง/ใช้เป็นหลักฐานการเงิน
+- **Root Cause:** ข้อความชื่อถูกประกอบกระจายอยู่หลายจุด — SQL ใน service หลายไฟล์ (`people.py`, `credits.py`, `base.py`, `export.py`, `receipts.py`, …) ต่อ nickname เอง และฝั่ง FE `displayName()` ไม่ได้รวม `prefix` ⇒ แก้จุดเดียวไม่พอ และลำดับคีย์ใน object ที่ส่งเข้า template ไม่สอดคล้องกัน
+- **Correct Pattern/Solution:**
+  - backend: helper กลาง `_full_name(row)` ใน `services/finance/helpers.py` = `prefix + first_name + last_name` (ไทยก่อน; ถ้าไม่มีชื่อไทยค่อยใช้คู่ `first_name_en/last_name_en`) — เอกสารทุกใบเรียกตัวนี้ ห้ามต่อ nickname
+  - frontend: `frontend/src/utils/name.ts::displayName()` รวม `prefix` และไม่ต่อวงเล็บชื่อเล่น; type ที่ใช้บนจอเงิน (`StudentPaymentDetail`, `BasicStudent`, …) ต้องมี `prefix: string | null`
+  - ชื่อเล่นยังใช้ได้ในบริบทไม่ทางการ (เช่น autocomplete/เพื่อน) แต่ **ห้ามขึ้นบนบิล/PDF/ใบแจ้งหนี้/ใบเสร็จ**
+- **Rule:** (1) 🔴 เอกสารการเงินใช้ชื่อเต็มทางการเท่านั้น (2) 🔴 อย่าประกอบชื่อเองใน SQL/JS — ใช้ `_full_name`/`displayName` (3) 🔴 ฟิลด์ `prefix` ต้องมีใน response type ที่หน้าจอเงินใช้ ไม่งั้นพิมพ์ชื่อได้แต่ขาดคำนำหน้าแบบเงียบ ๆ
+- **Tests/Verification:** type-check frontend ผ่าน · vitest `src/utils/__tests__/name.spec.ts` (ล็อกนโยบายชื่อ) + `src/views/finance` + `src/components/finance` + `src/router/__tests__/routes.spec.ts` เขียว · backend: `test_finance_receipts.py` (`issued_to_name` = ชื่อ-นามสกุลเต็ม), `test_finance_invoices.py` (`skipped[].student_name`), `test_finance_document_templates.py` (ชื่อบน PV/CERT/INC)
 - **Date Added:** 2026-11-25

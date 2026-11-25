@@ -17,6 +17,7 @@
    ผ่าน API จริง (P4.1/P4.4) ไม่ได้ใส่แถวปลอม ⇒ snapshot มีรูปเดียวกับของจริง
 """
 import random
+import re
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -302,7 +303,9 @@ async def test_multi_doc_renders_one_page_wrapper_per_document():
     assert len(pages) == 3
     assert pages.count("doc-break") == 2, "ทุกหน้า ยกเว้นหน้าสุดท้าย ต้องมีตัวแบ่งหน้า"
     # padding ของระยะขอบอยู่ที่ `.doc` (ไม่ใช่ body)
-    assert ".doc { padding: 14mm 14mm 10mm; }" in html
+    # 🖨️ [A4] shell v2 ใช้ระยะขอบมาตรฐาน 13/15/11 (legacy-only ยังได้ 14/14/10)
+    #    กฎ `.doc` ของ shell v2 เขียนหลายบรรทัด ⇒ จับด้วย regex ไม่ใช่ substring ตรง ๆ
+    assert re.search(r"\.doc\s*\{[^}]*padding:\s*13mm 15mm 11mm", html)
 
 
 def re_find_pages(html: str) -> list:

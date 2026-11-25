@@ -1,153 +1,111 @@
+{% import '_v2_macros.html' as m with context %}
+{# ══════════════════════════════════════════════════════════════════════════════
+   💸 ใบสำคัญจ่าย (PV) v2 — เอกสาร **สั่งจ่าย** หลายบรรทัด
+   🔴 ห้ามอ้างคีย์ธง "เป็นหลักฐานรับเงิน" ในไฟล์นี้ (บทเรียน `_voucher_body.html`)
+      คีย์นั้นเป็น False ⇒ จะเลือกสาขาถ้อยคำของใบแจ้งหนี้ทั้งใบ
+   🔴 แถว "รวมทั้งสิ้น" พิมพ์ `d.amount` ที่บันทึกไว้ ไม่ใช่ผลบวกของบรรทัดที่แสดง
+   ⚠️ ช่องลายเซ็นที่ไม่มีชื่อ = เว้นว่างให้เซ็นมือ (ห้ามพิมพ์ "-")
+   ══════════════════════════════════════════════════════════════════════════════ #}
+{{ m.doc_header(d.doc_title or 'ใบสำคัญจ่าย', 'Payment Voucher', d.room_name, d.room_code, size=46) }}
 
-  {% if d.is_voided %}
-  {# 🚫 เอกสารที่ยกเลิกแล้วต้องอ่านออกก่อนตัวเลขใด ๆ — คลาสเดียวกับ partial ใบเสร็จ #}
-  <div class="void-banner">
-    เอกสารนี้ถูกยกเลิกแล้ว — VOID
-    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
-  </div>
-  {% endif %}
-
-  <div class="head">
-    <div>
-      <h1>{{ d.doc_title }}</h1>
-      <div class="room">
-        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
-      </div>
-    </div>
-    <div class="doc-title">
-      <div class="label">เลขที่ {{ d.doc_no_text or d.receipt_no }}</div>
-      <div class="no">วันที่ {{ d.voucher_date_text or d.document_date_text or '-' }}</div>
-    </div>
-  </div>
-
-  <hr>
-
-  {# ══════════════════════════════════════════════════════════════════════════
-     💸 ใบสำคัญจ่าย v2 (P4.6) — เอกสาร **สั่งจ่าย** หลายบรรทัด
-     🔴 ไฟล์นี้ห้ามอ้างถึงคีย์ธง "เป็นหลักฐานรับเงิน" (บทเรียน `_voucher_body.html`):
-        คีย์นั้นเป็น False สำหรับใบสำคัญเสมอ ⇒ ถ้าเอาไปใช้ใน `{% if %}` จะเลือกสาขา
-        ของ "ไม่ใช่หลักฐานรับเงิน" ซึ่งเป็นที่อยู่ของถ้อยคำใบแจ้งหนี้
-        ("เรียกเก็บจาก"/"ยอดค้างชำระ") ทั้งใบ
-     ⚠️ ทุกคีย์ที่อ้างถึงถูกตั้งใน `_voucher_context_v2` แบบไม่มีเงื่อนไข (แม้ None/[])
-        ⇒ `"{:,.2f}".format(...)` ไม่มีทางได้ `Undefined` (ซึ่งจะ TypeError = 500)
-     ══════════════════════════════════════════════════════════════════════════ #}
-
-  <table class="meta">
-    <tr>
-      {# 🙋 ผู้รับเงิน — snapshot ณ ตอนออกเอกสาร (ไม่ JOIN ทะเบียนสด) #}
-      <td class="k">ผู้รับเงิน</td>
-      <td><strong>{{ d.voucher_payee_name or '-' }}</strong></td>
-    </tr>
-    <tr>
-      {# 🖊️ ผู้อนุมัติว่างได้ตามสเปก ("แล้วแต่ตกลงกันในห้อง") ⇒ "-" บน meta ได้
-         (ต่างจากช่องลายมือชื่อที่ต้องเว้นว่าง ไม่ใช่ขีดกลาง) #}
-      <td class="k">ผู้อนุมัติ</td>
-      <td>{{ d.voucher_approver_name or '-' }}</td>
-    </tr>
-    <tr>
-      {# 🏦 กระเป๋าที่จ่าย — snapshot เก็บชื่อกระเป๋าไว้ (กระเป๋าถูกลบภายหลังก็ยังพิมพ์ได้) #}
-      <td class="k">จ่ายจากกระเป๋า</td>
-      <td>
-        {{- d.voucher_account_name or '-' -}}
-        {%- if d.voucher_channel_text %} <span class="due">({{ d.voucher_channel_text }})</span>{% endif %}
-      </td>
-    </tr>
-    <tr>
-      {# 📎 เอกสารแนบ — พิมพ์สถานะที่บันทึกไว้ (ช่องติ๊กเปล่าบนไฟล์ PDF ติ๊กไม่ได้) #}
-      <td class="k">เอกสารแนบ</td>
-      <td>
-        {%- if d.voucher_attachment_count -%}
-          แนบหลักฐานมาแล้ว {{ d.voucher_attachment_count }} รายการ
-        {%- else -%}
-          ไม่ได้แนบหลักฐานมา
-        {%- endif -%}
-        {%- if d.voucher_total_paper_bill_count -%}
-          · ใบกระดาษรวม {{ d.voucher_total_paper_bill_count }} ใบ
-        {%- endif -%}
-      </td>
-    </tr>
-  </table>
-
-  {# 📋 1 บรรทัด = 1 รายการเบิกของ voucher — ยอดทุกช่องมาจาก snapshot ตอนออกเอกสาร
-     🔴 แถว "รวมทั้งสิ้น" พิมพ์ `d.amount` (ยอดที่บันทึกไว้) ไม่ใช่ผลบวกของบรรทัดที่แสดง
-        ⇒ การตัดบรรทัดเกิน 30 ไม่ทำให้ยอดบนใบผิด #}
-  <table class="items">
-    <thead>
+<div class="info-band">
+  <div class="info-col-left">
+    <table class="kv-table wide-k">
+      <tr><td class="k">ผู้รับเงิน</td><td class="v"><strong>{{ d.voucher_payee_name or '-' }}</strong></td></tr>
+      <tr><td class="k">ผู้อนุมัติ</td><td class="v">{{ d.voucher_approver_name or '-' }}</td></tr>
       <tr>
-        <th style="width: 32px;">#</th>
-        <th>รายละเอียดการเบิก</th>
-        <th style="width: 92px;">หมวด</th>
-        <th style="width: 76px;">งบ</th>
-        <th style="width: 88px;">กระเป๋า</th>
-        <th style="width: 78px;">หลักฐาน</th>
-        <th class="num" style="width: 52px;">ใบกระดาษ</th>
-        <th class="num" style="width: 96px;">จำนวนเงิน (บาท)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in d.voucher_lines %}
-      <tr>
-        <td>{{ it.line_no }}</td>
-        <td>{{ it.title }}</td>
-        <td class="due">{{ it.category_name or '—' }}</td>
-        <td class="due">{{ it.budget_label or '—' }}</td>
-        <td class="due">{{ it.wallet_name or '—' }}</td>
-        <td class="due">{{ it.receipt_status_text or '—' }}</td>
-        <td class="num">{{ it.paper_bill_count or 0 }}</td>
-        <td class="num">{{ "{:,.2f}".format(it.amount_applied) }}</td>
-      </tr>
-      {% endfor %}
-      {% if d.line_items_hidden %}
-      <tr>
-        <td colspan="8" class="more">
-          และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+        <td class="k">จ่ายจากกระเป๋า</td>
+        <td class="v">
+          {{- d.voucher_account_name or '-' -}}
+          {%- if d.voucher_channel_text %} ({{ d.voucher_channel_text }}){% endif %}
         </td>
       </tr>
-      {% endif %}
       <tr>
-        <td colspan="7" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.amount) }}</td>
+        <td class="k">เอกสารแนบ</td>
+        <td class="v">
+          {%- if d.voucher_attachment_count -%}
+            แนบหลักฐานมาแล้ว {{ d.voucher_attachment_count }} รายการ
+          {%- else -%}
+            ไม่ได้แนบหลักฐานมา
+          {%- endif -%}
+          {%- if d.voucher_total_paper_bill_count %} · ใบกระดาษรวม {{ d.voucher_total_paper_bill_count }} ใบ{% endif %}
+        </td>
       </tr>
-    </tbody>
-  </table>
+    </table>
+  </div>
+  <div class="info-col-right">
+    {{ m.ref_block('เลขที่', d.doc_no_text or d.receipt_no, 'วันที่', d.document_date_only_text, d.document_time_text) }}
+  </div>
+</div>
 
-  <div class="amount-box">
-    {# 🔒 "จำนวนเงินตัวอักษร" — มาจาก `baht_text(amount)` ตัวเดียวกับตัวเลข #}
-    <div class="words">({{ d.amount_text }})</div>
-    <div class="figures">{{ "{:,.2f}".format(d.amount) }} ฿</div>
+<div class="bill-frame">
+  <div class="bill-table-wrap{% if d.voucher_lines | length > 5 %} auto-canvas{% endif %}">
+    <table class="bill-items">
+      <thead>
+        <tr>
+          <th style="width: 30px;">#</th>
+          <th>รายละเอียดการเบิก</th>
+          <th style="width: 86px;">หมวด</th>
+          <th style="width: 64px;">งบ</th>
+          <th style="width: 82px;">กระเป๋า</th>
+          <th style="width: 74px;">หลักฐาน</th>
+          <th class="num" style="width: 56px;">ใบกระดาษ</th>
+          <th class="num" style="width: 92px;">จำนวนเงิน (บาท)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in d.voucher_lines %}
+        <tr>
+          <td>{{ it.line_no }}</td>
+          <td>{{ it.title }}</td>
+          <td class="cell-muted">{{ it.category_name or '—' }}</td>
+          <td class="cell-muted">{{ it.budget_label or '—' }}</td>
+          <td class="cell-muted">{{ it.wallet_name or '—' }}</td>
+          <td class="cell-muted">{{ it.receipt_status_text or '—' }}</td>
+          <td class="num">{{ it.paper_bill_count or 0 }}</td>
+          <td class="num">{{ m.money(it.amount_applied) }}</td>
+        </tr>
+        {% endfor %}
+        {% if d.line_items_hidden %}
+        <tr>
+          <td colspan="8" class="cell-muted">
+            และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
   </div>
 
-  {% if d.cert_receipt_no %}
-  <div class="note">
-    ออกใบรับรองแทนใบเสร็จเลขที่ {{ d.cert_receipt_no }}
-    {%- if d.cert_amount is not none %} ({{ "{:,.2f}".format(d.cert_amount) }} บาท){% endif %}
-  </div>
-  {% endif %}
-
-  {% if d.note %}
-  <div class="note">หมายเหตุ: {{ d.note }}</div>
-  {% endif %}
-
-  {# ✍️ 3 ช่องของใบสั่งจ่าย: ผู้จัดทำ · ผู้อนุมัติ · ผู้รับเงิน
-     ⚠️ ช่องที่ไม่มีชื่อ = เว้นว่างให้เซ็นมือ ห้ามพิมพ์ "-" #}
-  <div class="sign sign-3">
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.voucher_prepared_name or '' }}</div>
-      <div class="role">ผู้จัดทำ</div>
+  <div class="bill-grand-band">
+    <div class="grand-label">รวมทั้งสิ้น</div>
+    <div class="grand-right">
+      <div class="grand-amount">{{ m.money(d.amount) }} ฿</div>
+      <div class="grand-words">({{ d.amount_text }})</div>
     </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.voucher_approved_name or '' }}</div>
-      <div class="role">ผู้อนุมัติ</div>
-    </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.voucher_receiver_name or '' }}</div>
-      <div class="role">ผู้รับเงิน</div>
-    </div>
   </div>
+</div>
 
-  <div class="foot">
-    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.doc_no_text or d.receipt_no }}
+{% if d.cert_receipt_no or d.note %}
+<div class="lower-band">
+  <div class="lower-col-note">
+    {% if d.cert_receipt_no %}
+    <p class="lower-note-text">
+      ออกใบรับรองแทนใบเสร็จเลขที่ {{ d.cert_receipt_no }}
+      {%- if d.cert_amount is not none %} ({{ m.money(d.cert_amount) }} บาท){% endif %}
+    </p>
+    {% endif %}
+    {% if d.note %}
+    <p class="lower-note-text"><strong>หมายเหตุ:</strong> {{ d.note }}</p>
+    {% endif %}
   </div>
+</div>
+{% endif %}
+
+<div class="sig-band sig-3">
+  {{ m.sig_block('ผู้จัดทำ', d.voucher_prepared_name, date_text='วันที่') }}
+  {{ m.sig_block('ผู้อนุมัติ', d.voucher_approved_name, date_text='วันที่') }}
+  {{ m.sig_block('ผู้รับเงิน', d.voucher_receiver_name, date_text='วันที่') }}
+</div>
+
+{{ m.doc_foot('ต้นฉบับ — สำหรับผู้รับเงินและฝ่ายบัญชีของห้อง', d.doc_no_text or d.receipt_no) }}

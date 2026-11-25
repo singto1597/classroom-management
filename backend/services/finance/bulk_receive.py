@@ -275,7 +275,7 @@ class BulkReceiveMixin:
 
         student_rows = await conn.fetch(
             """SELECT S.id, S.student_no,
-                      U.first_name, U.nickname, U.first_name_en
+                      U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en
                FROM students S
                LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = ANY($1::bigint[]) AND S.room_id = $2
@@ -435,7 +435,7 @@ class BulkReceiveMixin:
 
         student_rows = await conn.fetch(
             """SELECT S.id, S.student_no,
-                      U.first_name, U.nickname, U.first_name_en
+                      U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en
                FROM students S
                LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = ANY($1::bigint[]) AND S.room_id = $2""",

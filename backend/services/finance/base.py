@@ -20,7 +20,7 @@ from .constants import (
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
-    _legacy_id_from_journal,
+    _legacy_id_from_journal, _full_name,
 )
 
 service_logger = AuditLogger(service_name="FINANCE")
@@ -139,7 +139,7 @@ class BaseMixin:
 
     @staticmethod
     async def _resolve_student_name(conn: asyncpg.Connection, student_id: int) -> str:
-        """ชื่อที่ใช้บนข้อความ Discord — ไทย → อังกฤษ → "นักเรียน" แล้วต่อชื่อเล่นในวงเล็บ
+        """ชื่อเต็มทางการ (คำนำหน้า + ชื่อ + นามสกุล; ไม่ต่อชื่อเล่น) — ไทย → อังกฤษ → "นักเรียน"
 
         ใช้ join `v_student_profiles` (ข้อมูลที่ resolve แล้ว) เหมือนทั้งโมดูลการเงิน
         ⇒ ไม่ต้องรู้ว่าชื่อมาจากบัญชีกลางหรือ override ของห้อง
@@ -148,17 +148,14 @@ class BaseMixin:
            (รับ `row` 1 ตัว) และอยู่ใน MRO ก่อน `BaseMixin` ⇒ จะถูกเรียกทับแบบเงียบ ๆ
         """
         row = await conn.fetchrow(
-            """SELECT U.first_name, U.nickname, U.first_name_en
+            """SELECT U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en
                FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = $1""",
             student_id,
         )
         if not row:
             return "นักเรียน"
-        name = row["first_name"] or row["first_name_en"] or "นักเรียน"
-        if row["nickname"]:
-            name += f" ({row['nickname']})"
-        return name
+        return _full_name(row) or "นักเรียน"
 
     @staticmethod
     def _period_start(
@@ -203,7 +200,7 @@ class BaseMixin:
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch("""
-                    SELECT S.id, S.student_no, U.first_name, U.last_name, U.nickname,
+                    SELECT S.id, S.student_no, U.prefix, U.first_name, U.last_name, U.nickname,
                            U.first_name_en, U.last_name_en, U.nickname_en
                     FROM students S
                     LEFT JOIN v_student_profiles U ON U.student_id = S.id

@@ -1,16 +1,18 @@
 // 🌟 ชื่อสำหรับแสดงผล: ชื่อไทยก่อน (ถ้ามี) แล้วค่อยชื่ออังกฤษ
 // — ตามนโยบาย English-primary identity, Thai display (mirror จาก backend/core/name_utils.py)
 export interface NameParts {
+  prefix?: string | null
   first_name?: string | null
   last_name?: string | null
   first_name_en?: string | null
   last_name_en?: string | null
 }
 
+// 🔴 ไม่ต่อชื่อเล่นในวงเล็บ — บิล/รายการเงินใช้ชื่อ-นามสกุลเต็มทางการ (นโยบาย 2026-11-25)
 export function displayName(p: NameParts): string {
   const thFirst = (p.first_name || '').trim()
   const thLast = (p.last_name || '').trim()
-  if (thFirst || thLast) return `${thFirst} ${thLast}`.trim()
+  if (thFirst || thLast) return `${(p.prefix || '').trim()} ${thFirst} ${thLast}`.trim()
   const enFirst = (p.first_name_en || '').trim()
   const enLast = (p.last_name_en || '').trim()
   return `${enFirst} ${enLast}`.trim()

@@ -4,7 +4,49 @@ import zlib
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Optional
 
-from .constants import THAI_TZ, CUTOFF_DATE
+from .constants import BUDDHIST_ERA_OFFSET, THAI_MONTHS_SHORT, THAI_TZ, CUTOFF_DATE
+
+
+def _thai_dt_parts(aware_dt: Optional[datetime]) -> tuple:
+    """timestamptz → ("13 ก.ย. 2569", "19:41 น.") — แยกวัน/เวลาสำหรับหัวเอกสาร A4
+
+    ⚠️ รับ **datetime** ตัวเดียวกับ `_thai_datetime_text` (ไม่ parse สตริงที่ประกอบแล้ว)
+       ⇒ รูปแบบวัน/เวลาไม่มีทางขัดกับ `document_date_text` และแก้ที่เดียวมีผลทั้งคู่
+       · naive = UTC wall-clock ตามธรรมเนียมของทั้งโมดูลการเงิน
+    """
+    if aware_dt is None:
+        return None, None
+    if aware_dt.tzinfo is None:
+        aware_dt = aware_dt.replace(tzinfo=timezone.utc)
+    thai = aware_dt.astimezone(THAI_TZ)
+    date_text = (
+        f"{thai.day} {THAI_MONTHS_SHORT[thai.month - 1]} "
+        f"{thai.year + BUDDHIST_ERA_OFFSET}"
+    )
+    return date_text, f"{thai.strftime('%H:%M')} น."
+
+
+def _full_name(row: Any) -> str:
+    """ชื่อเต็มทางการสำหรับบิล/เอกสารการเงิน = คำนำหน้า + ชื่อ + นามสกุล
+
+    - ใช้ชื่อไทยก่อนเสมอ; ถ้าไม่มีชื่อไทยจึงใช้คู่ชื่ออังกฤษ (ไม่ผสมไทย/อังกฤษ)
+    - **ไม่ต่อชื่อเล่นในวงเล็บ** (นโยบาย 2026-11-25: กระดาษและรายการบิลต้องทางการ
+      — ผู้ใช้ขอให้เปลี่ยนจาก "ชื่อ (ชื่อเล่น)" เป็นชื่อ-นามสกุลเต็ม)
+    - รับได้ทั้ง asyncpg `Record` และ `dict` ที่ไม่มีคอลัมน์ครบ (คืนสตริงว่าง)
+    """
+    def pick(key: str) -> str:
+        try:
+            value = row[key]
+        except (KeyError, IndexError, TypeError):
+            return ""
+        return value.strip() if isinstance(value, str) else ""
+
+    prefix = pick("prefix")
+    first = pick("first_name")
+    last = pick("last_name")
+    if not first:
+        prefix, first, last = "", pick("first_name_en"), pick("last_name_en")
+    return " ".join(part for part in (prefix, first, last) if part)
 
 
 def _metadata_to_dict(raw: Any) -> dict:

@@ -284,3 +284,47 @@ describe('[P6.5] ทางเข้าเอกสาร legacy', () => {
     expect(routesSource).not.toContain('ReceiptDetail.vue');
   });
 });
+
+/**
+ * 🔁 [FIN-V2 / merge] "ผู้ค้างชำระ" + "เงินรับล่วงหน้า" ถูกยุบเข้า "บัญชีรายบุคคล" หน้าเดียว
+ *
+ * ล็อก redirect ไว้เพราะ deep link เดิม (Discord/บุ๊กมาร์ก/การ์ดบน dashboard รุ่นเก่า)
+ * ต้องยังใช้งานได้ และต้องเปิดมาที่ **แท็บที่ถูก** ไม่ใช่แค่หน้าแรกของรายการ
+ */
+describe('[FIN-V2 / merge] ทางเข้าเก่าของงานเงินรายคน', () => {
+  interface RawChild {
+    path: string;
+    name?: string;
+    redirect?: unknown;
+  }
+  const appChildren = ((routes.find((r) => r.path === '/app')?.children ??
+    []) as unknown) as RawChild[];
+  const childByPath = (path: string): RawChild | undefined =>
+    appChildren.find((r) => r.path === path);
+
+  it('/finance/debtors redirect ไปบัญชีรายบุคคล พร้อมแท็บ "ค้างชำระ"', () => {
+    const legacy = childByPath('/finance/debtors');
+    expect(legacy).toBeDefined();
+    expect(legacy?.redirect).toEqual({
+      name: 'finance-individual-accounts',
+      query: { status: 'outstanding' },
+    });
+    // ไม่มี `name` โดยเจตนา — ไม่ต้องมี routeTitles/navTab
+    expect(legacy?.name).toBeUndefined();
+  });
+
+  it('/finance/credits redirect ไปบัญชีรายบุคคล พร้อมแท็บ "มีเครดิต"', () => {
+    const legacy = childByPath('/finance/credits');
+    expect(legacy).toBeDefined();
+    expect(legacy?.redirect).toEqual({
+      name: 'finance-individual-accounts',
+      query: { status: 'credit' },
+    });
+    expect(legacy?.name).toBeUndefined();
+  });
+
+  it('ไม่มี route ชี้ DebtorList.vue / CreditList.vue แล้ว', () => {
+    expect(routesSource).not.toContain('DebtorList.vue');
+    expect(routesSource).not.toContain('CreditList.vue');
+  });
+});

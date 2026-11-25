@@ -18,6 +18,7 @@ import asyncpg
 from core.rbac import has_any_permission, require_member
 
 from .base import service_logger
+from .helpers import _full_name
 from .constants import (
     COLLECTION_KIND_FINE,
     COLLECTION_KIND_PROJECT,
@@ -81,8 +82,8 @@ class ReceivablesMixin:
                 f"""
                 SELECT SP.id AS payment_id, SP.student_id,
                        S.student_no,
-                       U.first_name, U.nickname, U.first_name_en,
-                       U.last_name_en, U.nickname_en,
+                       U.prefix, U.first_name, U.last_name, U.first_name_en,
+                       U.last_name_en,
                        FC.id AS collection_id, FC.title AS collection_title,
                        FC.collection_kind AS collection_kind, FC.due_date,
                        F.id AS fine_id,
@@ -116,9 +117,7 @@ class ReceivablesMixin:
                     continue
                 kind = r["collection_kind"] or COLLECTION_KIND_PROJECT
                 bucket, overdue_days = aging_bucket_for(r["due_date"], as_of)
-                name = r["first_name"] or r["first_name_en"] or "Unknown"
-                if r["nickname"]:
-                    name += f" ({r['nickname']})"
+                name = _full_name(r) or "Unknown"
 
                 detail_rows.append({
                     "payment_id": r["payment_id"],
@@ -210,8 +209,8 @@ class ReceivablesMixin:
                        COALESCE(SP.paid_amount, 0) AS paid_amount,
                        SP.deleted_at AS payment_deleted_at,
                        S.student_no,
-                       U.first_name, U.nickname, U.first_name_en,
-                       U.last_name_en, U.nickname_en
+                       U.prefix, U.first_name, U.last_name, U.first_name_en,
+                       U.last_name_en
                 FROM fines F
                 JOIN student_payments SP ON SP.id = F.student_payment_id
                 LEFT JOIN students S ON S.id = F.student_id
@@ -277,9 +276,7 @@ class ReceivablesMixin:
                             totals["due_soon_amount"] + outstanding, 2
                         )
 
-                    name = r["first_name"] or r["first_name_en"] or "Unknown"
-                    if r["nickname"]:
-                        name += f" ({r['nickname']})"
+                    name = _full_name(r) or "Unknown"
                     sd = by_student.setdefault(r["student_id"], {
                         "student_id": r["student_id"],
                         "student_no": r["student_no"],

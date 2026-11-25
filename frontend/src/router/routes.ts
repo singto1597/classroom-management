@@ -284,15 +284,11 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 🔁 [FIN-V2 / merge] ยุบ "ผู้ค้างชำระ" เข้า `individual-accounts` แล้ว
+        // ไม่มี `name` โดยเจตนา — ไม่ต้องมี routeTitles/navTab และโค้ดใหม่ห้ามลิงก์มาที่นี่
+        // (deep link เก่ายังใช้ได้: เปิดหน้ารวมพร้อมแท็บ "ค้างชำระ")
         path: '/finance/debtors',
-        name: 'finance-debtors',
-        component: () => import('@/views/finance/DebtorList.vue'),
-        meta: {
-          title: routeTitles['finance-debtors'],
-          navTab: 'finance',
-          headerBack: true,
-          width: 'wide',
-        },
+        redirect: { name: 'finance-individual-accounts', query: { status: 'outstanding' } },
       },
       {
         // 💰 หนี้ของ **ตัวเอง** — ปลายทางของการ์ด "บิลค้างชำระ" บนหน้าหลัก (P3.2)
@@ -309,19 +305,10 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
-        // 💰 [F4] เงินรับล่วงหน้า — อ่านเปิดให้สมาชิก (ตรงกับ require_member ฝั่ง backend)
-        // ส่วนปุ่มเขียน (เติม/หัก/ยกเลิก) gate ด้วย `canManageFinance` ในตัวหน้า
-        // ⚠️ ห้าม gate ที่นี่ด้วย `isAdmin` — เหรัญญิกที่มี MANAGE_FINANCE จะเข้าหน้าไม่ได้
-        //    (กับดักเดียวกับที่ DebtorList.vue อธิบายไว้เรื่องโมดัลรับเงิน)
+        // 🔁 [FIN-V2 / merge] ยุบ "เงินรับล่วงหน้า" เข้า `individual-accounts` แล้ว
+        // ไม่มี `name` โดยเจตนา — deep link เก่าเปิดหน้ารวมพร้อมแท็บ "มีเครดิต"
         path: '/finance/credits',
-        name: 'finance-credits',
-        component: () => import('@/views/finance/CreditList.vue'),
-        meta: {
-          title: routeTitles['finance-credits'],
-          navTab: 'finance',
-          headerBack: true,
-          width: 'wide',
-        },
+        redirect: { name: 'finance-individual-accounts', query: { status: 'credit' } },
       },
       {
         // 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล — รวมผู้ค้างชำระ + เงินรับล่วงหน้าเป็นรายชื่อเดียว

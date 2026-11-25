@@ -30,6 +30,7 @@ from services.action_service import ActionService
 from services.notification_service import notify_user
 
 from .constants import COLLECTION_KIND_PROJECT
+from .helpers import _full_name
 
 # จำนวนวันล่วงหน้าที่ถือว่า "ใกล้ครบกำหนด"
 REMINDER_LOOKAHEAD_DAYS = 3
@@ -48,11 +49,8 @@ _EPS = 0.005
 
 
 def _student_name(row) -> str:
-    """ไทย → อังกฤษ → "นักเรียน" แล้วต่อชื่อเล่นในวงเล็บ (รูปแบบเดียวกับทั้งโมดูลการเงิน)"""
-    name = row["first_name"] or row["first_name_en"] or "นักเรียน"
-    if row["nickname"]:
-        name += f" ({row['nickname']})"
-    return name
+    """ชื่อ-นามสกุลเต็มทางการ (ไทย → อังกฤษ → "นักเรียน") — ไม่ต่อชื่อเล่น"""
+    return _full_name(row) or "นักเรียน"
 
 
 class RemindersMixin:
@@ -81,9 +79,11 @@ class RemindersMixin:
                    SP.student_id,
                    S.user_id,
                    S.student_no,
+                   U.prefix,
                    U.first_name,
-                   U.nickname,
+                   U.last_name,
                    U.first_name_en,
+                   U.last_name_en,
                    FC.title,
                    FC.due_date,
                    (FC.amount - COALESCE(SP.paid_amount, 0) - COALESCE(SP.written_off_amount, 0)) AS outstanding,

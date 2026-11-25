@@ -1,96 +1,78 @@
-  {% if d.is_voided %}
-  {# 🚫 ใบที่ยกเลิกแล้วต้องอ่านออกก่อนตัวเลขใด ๆ — คลาสเดียวกับ `_receipt_body.html` #}
-  <div class="void-banner">
-    เอกสารนี้ถูกยกเลิกแล้ว — VOID
-    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
-  </div>
-  {% endif %}
+{% import '_v2_macros.html' as m with context %}
+{# ══════════════════════════════════════════════════════════════════════════════
+   📋 ใบรับทราบยอดค้าง (ACK) v2 — แจ้งยอดค้างรวมของทั้งห้อง ไม่มีการรับเงิน
+   🔴 คำที่ **ห้ามมี** ในไฟล์นี้และใน HTML ที่ออก: "ผู้รับเงิน" · "ใบเสร็จรับเงิน" ·
+      "ช่องทางชำระเงิน" · QR/data URI — เทสต์ grep ทั้ง HTML
+   🔴 ยอดรวมท้ายตารางพิมพ์ `d.amount` ที่บันทึกไว้ ไม่ใช่ผลบวกของบรรทัดที่แสดง
+   ══════════════════════════════════════════════════════════════════════════════ #}
+{{ m.doc_header(d.doc_title or 'ใบรับทราบยอดค้าง', 'Outstanding Balance Acknowledgement', d.room_name, d.room_code, compact=true, size=46) }}
 
-  <div class="head">
-    <div>
-      <h1>{{ d.doc_title }}</h1>
-      <div class="room">
-        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
-      </div>
-    </div>
-    <div class="doc-title">
-      <div class="label">เลขที่ {{ d.receipt_no }}</div>
-      <div class="no">วันที่ {{ d.document_date_text or '-' }}</div>
-    </div>
-  </div>
-
-  <hr>
-
-  {# ⚠️ ถ้อยคำของ ACK ต้องบอกชัดว่า "ไม่ใช่หลักฐานการชำระเงิน" — เอกสารนี้ใช้แจ้ง/รับทราบ
-     ยอดค้างเท่านั้น ไม่มีการรับเงินใด ๆ (doc-matrix: ACK ไม่มี QR/ช่องทาง) #}
-  <div style="margin: 12px 0; padding: 9px 12px; border: 1px solid #d6d3d1; background: #fafaf9;">
-    เอกสารนี้เป็นการรับทราบยอดค้างเท่านั้น ไม่ใช่หลักฐานการชำระเงิน
-  </div>
-
-  <table class="meta">
-    <tr>
-      <td class="k">ผู้ออกเอกสาร</td>
-      <td>{{ d.issuer_name or '-' }}</td>
-    </tr>
-    <tr>
-      <td class="k">จำนวนรายการ</td>
-      <td>{{ d.entry_count }} คน</td>
-    </tr>
-  </table>
-
-  {# 📋 1 บรรทัด = 1 นักเรียนที่มียอดค้างในรอบนี้ — snapshot จาก `document_meta.entries`
-     🔴 ยอดรวมท้ายตารางพิมพ์ `d.amount` ที่บันทึกไว้ ไม่ใช่ผลบวกของบรรทัดที่แสดง #}
-  <table class="items">
-    <thead>
-      <tr>
-        <th style="width: 40px;">#</th>
-        <th style="width: 100px;">เลขที่นักเรียน</th>
-        <th>ชื่อนักเรียน</th>
-        <th class="num" style="width: 120px;">ยอดค้าง</th>
-        <th style="width: 140px;">ใบแจ้งหนี้</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in d.ack_entries %}
-      <tr>
-        <td>{{ loop.index }}</td>
-        <td>{% if it.student_no is not none %}{{ it.student_no }}{% else %}—{% endif %}</td>
-        <td>{{ it.student_name or '-' }}</td>
-        <td class="num">{{ "{:,.2f}".format(it.outstanding_amount) }}</td>
-        <td class="due">{{ it.invoice_receipt_no or '—' }}</td>
-      </tr>
-      {% endfor %}
-      <tr>
-        <td colspan="3" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
-        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.amount) }}</td>
-        <td></td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="amount-box">
-    <div class="words">({{ d.amount_text }})</div>
-    <div class="figures">{{ "{:,.2f}".format(d.amount) }} ฿</div>
-  </div>
-
-  {% if d.note %}
-  <div class="note">หมายเหตุ: {{ d.note }}</div>
-  {% endif %}
-
-  {# ✍️ 2 ช่อง: ผู้รับทราบ (เว้นบรรทัดให้เซ็น) กับผู้แจ้ง (= ผู้ออกเอกสาร) #}
-  <div class="sign">
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who"></div>
-      <div class="role">ผู้รับทราบ</div>
-    </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.issuer_name or '' }}</div>
-      <div class="role">ผู้แจ้ง</div>
+<div class="info-band">
+  <div class="info-col-left">
+    <table class="kv-table">
+      <tr><td class="k">ผู้ออกเอกสาร</td><td class="v">{{ d.issuer_name or '-' }}</td></tr>
+      <tr><td class="k">จำนวนรายการ</td><td class="v">{{ d.entry_count }} คน</td></tr>
+    </table>
+    <div class="pay-sub-detail">
+      เอกสารนี้เป็นการรับทราบยอดค้างเท่านั้น ไม่ใช่หลักฐานการชำระเงิน
     </div>
   </div>
-
-  <div class="foot">
-    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.receipt_no }}
+  <div class="info-col-right">
+    {{ m.ref_block('เลขที่', d.receipt_no, 'วันที่', d.document_date_only_text, d.document_time_text) }}
   </div>
+</div>
+
+<div class="bill-frame">
+  <div class="bill-table-wrap auto-canvas">
+    <table class="ack-items">
+      <thead>
+        <tr>
+          <th style="width: 30px;" class="center">#</th>
+          <th style="width: 78px;">เลขที่นักเรียน</th>
+          <th>ชื่อนักเรียน</th>
+          <th style="width: 92px;" class="num">ยอดค้าง (บาท)</th>
+          <th style="width: 118px;">ใบแจ้งหนี้</th>
+          <th style="width: 110px;">ลายมือชื่อ</th>
+          <th style="width: 86px;">วันที่</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in d.ack_entries %}
+        <tr>
+          <td class="center">{{ loop.index }}</td>
+          <td>{{ it.student_no if it.student_no is not none else '—' }}</td>
+          <td>{{ it.student_name or '-' }}</td>
+          <td class="num">{{ m.money(it.outstanding_amount) }}</td>
+          <td class="cell-muted">{{ it.invoice_receipt_no or '—' }}</td>
+          <td></td>
+          <td class="date-cell">……… / ……… / ………</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bill-grand-band">
+    <div class="grand-label">ยอดค้างรวมทั้งสิ้น</div>
+    <div class="grand-right">
+      <div class="grand-amount">{{ m.money(d.amount) }} ฿</div>
+      <div class="grand-words">({{ d.amount_text }})</div>
+    </div>
+  </div>
+</div>
+
+{% if d.note %}
+<div class="lower-band">
+  <div class="lower-col-note">
+    <div class="lower-heading">หมายเหตุ</div>
+    <p class="lower-note-text">{{ d.note }}</p>
+  </div>
+</div>
+{% endif %}
+
+<div class="sig-band">
+  {{ m.sig_block('ผู้รับทราบ', '', date_text='วันที่') }}
+  {{ m.sig_block('ผู้แจ้ง', d.issuer_name, date_text='วันที่') }}
+</div>
+
+{{ m.doc_foot('เหรัญญิก / ผู้แจ้ง', d.receipt_no) }}

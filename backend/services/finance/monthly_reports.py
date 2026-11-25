@@ -31,8 +31,10 @@ from core.exceptions import RoomNotFoundError
 from core.rbac import require_member, require_permission
 
 from .base import _lock_room_money, service_logger
-from .constants import BUDDHIST_ERA_OFFSET, DOC_TYPE_MONTHLY_REPORT, THAI_TZ
-from .helpers import _thai_day_start, _thai_next_day_start
+from .constants import (
+    BUDDHIST_ERA_OFFSET, DOC_TYPE_MONTHLY_REPORT, THAI_MONTHS_SHORT, THAI_TZ,
+)
+from .helpers import _thai_day_start, _thai_dt_parts, _thai_next_day_start
 
 # 🖨️ partial ของ shell `receipt.html` — ต้องมีไฟล์จริง (เทสต์ P5.3 ตรวจทุก key ที่ลงทะเบียน)
 MONTHLY_REPORT_BODY_TEMPLATE = "_monthly_report_body_v2.html"
@@ -89,6 +91,29 @@ def _report_no_for(year_be: int, month: int, version: int) -> str:
     """`RPT-2569-11` (v1) / `RPT-2569-11-v2` — เดือนต้อง 2 หลักเสมอ"""
     base = f"RPT-{year_be}-{month:02d}"
     return base if version <= 1 else f"{base}-v{version}"
+
+
+def _period_text(value) -> Optional[str]:
+    """วันของงวดใน snapshot (`date` หรือ ISO string) → "1 พ.ย. 2569" (พ.ศ.)
+
+    ⚠️ snapshot เก็บ `period` เป็นสตริง ISO ⇒ ต้อง parse ก่อน ไม่ใช่พิมพ์ดิบ
+       (ค.ศ. บนกระดาษที่เลขเอกสารเป็น พ.ศ. = ขัดแย้งกันเอง)
+    """
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            value = date.fromisoformat(value[:10])
+        except ValueError:
+            return value
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return (
+            f"{value.day} {THAI_MONTHS_SHORT[value.month - 1]} "
+            f"{value.year + BUDDHIST_ERA_OFFSET}"
+        )
+    return str(value)
 
 
 def _shape_report(row) -> dict:
@@ -830,10 +855,17 @@ class MonthlyReportsMixin:
 
         by_role = {s["role"]: s["signer_name"] for s in signatures}
         is_voided = report["status"] == "voided"
+        finalized_date, finalized_time = _thai_dt_parts(report["finalized_at"])
         return {
             "body_template": MONTHLY_REPORT_BODY_TEMPLATE,
             "doc_type": DOC_TYPE_MONTHLY_REPORT,
             "doc_type_label": "รายงานปิดงบ",
+            # 🖨️ หัวเอกสาร A4 อ่านคีย์นี้ (RPT ไม่มี `doc_title` จาก base context)
+            "doc_title": "รายงานปิดงบ",
+            "document_date_only_text": finalized_date,
+            "document_time_text": finalized_time,
+            "finalized_date_text": finalized_date,
+            "finalized_time_text": finalized_time,
             # 🧾 shell อ่าน `doc_no_text or receipt_no` สำหรับ `<title>`
             "doc_no_text": report["report_no"],
             "receipt_no": report["report_no"],
@@ -843,6 +875,8 @@ class MonthlyReportsMixin:
             "month_text": _THAI_MONTHS_FULL[month - 1],
             "period_start": period.get("start"),
             "period_end": period.get("end"),
+            "period_start_text": _period_text(period.get("start")),
+            "period_end_text": _period_text(period.get("end")),
             "version": report["version"],
             "status": report["status"],
             "status_text": {"draft": "ฉบับร่าง", "final": "ปิดงบแล้ว", "voided": "ยกเลิก"}.get(

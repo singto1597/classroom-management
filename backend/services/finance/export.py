@@ -100,7 +100,7 @@ class ExportMixin:
         rows = await conn.fetch(
             """SELECT S.id                                 AS student_id,
                       S.student_no, S.student_id            AS student_id_no,
-                      U.first_name, U.last_name, U.nickname,
+                      U.prefix, U.first_name, U.last_name,
                       U.first_name_en, U.last_name_en, U.nickname_en,
                       FC.id          AS collection_id,
                       FC.title, FC.amount, FC.due_date, FC.status,
@@ -138,10 +138,9 @@ class ExportMixin:
         for r in rows:
             first = (r["first_name"] or r.get("first_name_en") or "").strip()
             last = (r["last_name"] or r.get("last_name_en") or "").strip()
-            name = " ".join(p for p in (first, last) if p) or "Unknown"
-            nickname = r["nickname"] or r.get("nickname_en") or ""
-            if nickname:
-                name += f" ({nickname})"
+            prefix = (r["prefix"] or "").strip()
+            name = " ".join(p for p in (prefix, first, last) if p) or "Unknown"
+            nickname = r.get("nickname_en") or ""
             outstanding = round(float(r["outstanding"] or 0.0), 2)
             seen_students.add(r["student_id"])
             total_outstanding += outstanding

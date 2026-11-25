@@ -480,12 +480,6 @@ onMounted(() => {
               </div>
               <div class="min-w-0">
                 <p class="truncate text-sm font-bold text-ink">{{ displayName(s) }}</p>
-                <p
-                  v-if="s.nickname || s.nickname_en"
-                  class="truncate text-xs italic text-ink-3"
-                >
-                  ({{ s.nickname || s.nickname_en }})
-                </p>
               </div>
             </div>
 
@@ -623,9 +617,6 @@ onMounted(() => {
                 <td class="num font-bold text-ink-3">#{{ s.student_no }}</td>
                 <td>
                   <p class="font-bold text-ink">{{ displayName(s) }}</p>
-                  <p v-if="s.nickname || s.nickname_en" class="text-xs italic text-ink-3">
-                    ({{ s.nickname || s.nickname_en }})
-                  </p>
                 </td>
                 <td>
                   <div v-if="s.status === 'waived'" class="flex flex-col items-start gap-1">

@@ -27,7 +27,7 @@ from .constants import (
 )
 from .helpers import (
     _naive_thai_dt, _clamp_to_cutoff, _ExportPeriodView, _resolve_inclusive_period,
-    _legacy_id_from_journal, _as_utc,
+    _legacy_id_from_journal, _as_utc, _full_name,
 )
 from .base import _lock_payments_in_order, _lock_room_money, service_logger
 # 🧾 รับเงินรวบยอดต้องออกใบเสร็จให้ทุกรายการใน transaction เดียวกัน (F5)
@@ -173,7 +173,7 @@ class CollectionsMixin:
         payment_info = await conn.fetchrow(
             """SELECT FC.amount as total_amount, SP.paid_amount as current_paid, FC.title,
                       FC.collection_kind AS collection_kind,
-                      U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en
+                      U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en
                FROM student_payments SP
                JOIN fee_collections FC ON SP.collection_id = FC.id
                JOIN students S ON SP.student_id = S.id
@@ -201,8 +201,7 @@ class CollectionsMixin:
         new_status = 'paid' if new_total_paid >= total_amount else 'pending'
         status_msg = "จ่ายครบแล้ว" if new_status == 'paid' else f"ทยอยจ่าย (ขาดอีก {total_amount - new_total_paid} ฿)"
 
-        stu_name = payment_info['first_name'] or payment_info.get('first_name_en') or "Unknown"
-        if payment_info['nickname']: stu_name += f" ({payment_info['nickname']})"
+        stu_name = _full_name(payment_info) or "Unknown"
         dynamic_desc = f"รับเงิน: {payment_info['title']} จาก {stu_name} [{status_msg}]"
 
         trans_id = await conn.fetchval(
@@ -534,8 +533,9 @@ class CollectionsMixin:
                         --    จำเป็นเพราะหน้าจอ CollectionDetail ต้องแสดง "ตัดหนี้ไปแล้ว" และ
                         --    ซ่อนปุ่มตัดหนี้บนบิลค่าปรับ ⇒ ถ้าไม่มีสองฟิลด์นี้ หน้าจอต้องเดา
                         SP.written_off_amount, FC.collection_kind as collection_kind,
-                        S.student_no, U.first_name, U.last_name, U.nickname,
-                        U.first_name_en, U.last_name_en, U.nickname_en, FC.amount as total_amount
+                        S.student_no, U.prefix, U.first_name, U.last_name,
+                        U.nickname, U.first_name_en, U.last_name_en, U.nickname_en,
+                        FC.amount as total_amount
                     FROM student_payments SP
                     JOIN students S ON SP.student_id = S.id
                     LEFT JOIN v_student_profiles U ON U.student_id = S.id
@@ -671,7 +671,7 @@ class CollectionsMixin:
                 target_room_id = await cls.resolve_room_id(conn, server_id, room_id)
                 # 🛡️ สมาชิกห้องดูได้ (transparency) แต่ต้องเป็นสมาชิกห้องนี้เท่านั้น (กันข้ามห้อง)
                 await require_member(conn, target_room_id, user_id)
-                student = await conn.fetchrow("SELECT S.id, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
+                student = await conn.fetchrow("SELECT S.id, U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id WHERE S.id = $1 AND S.room_id = $2", student_id, target_room_id)
                 if not student: raise RoomNotFoundError("ไม่พบข้อมูลนักเรียนคนนี้ในห้อง")
 
                 # 📌 ใช้ predicate "บิลเปิด" มาตรฐานเดียวทั้งระบบ (ดู accrual.py)
@@ -698,8 +698,7 @@ class CollectionsMixin:
                     formatted_debts.append(row_dict)
                     total_pending += row_dict['amount']
 
-                formatted_name = student['first_name'] or student.get('first_name_en') or "Unknown"
-                if student['nickname']: formatted_name += f" ({student['nickname']})"
+                formatted_name = _full_name(student) or "Unknown"
 
                 result = {"student_id": student_id, "student_name": formatted_name, "total_pending_amount": total_pending, "debts": formatted_debts}
 
@@ -1031,7 +1030,7 @@ class CollectionsMixin:
                 # 📌 predicate "บิลเปิด" มาตรฐานเดียว (ไม่กรอง FC.status) — ยอดนี้ต้องตรงกับ
                 #    `get_student_debts`, `_load_open_bills`, AR ledger และใบแจ้งหนี้รวม
                 rows = await conn.fetch(f"""
-                    SELECT S.id as student_id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en,
+                    SELECT S.id as student_id, S.student_no, U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en,
                            COUNT(SP.id) as overdue_count, SUM(FC.amount - COALESCE(SP.paid_amount, 0)) as total_pending_amount,
                            COALESCE(CR.balance_after, 0) as credit_balance
                     FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
@@ -1042,12 +1041,11 @@ class CollectionsMixin:
                         ORDER BY id DESC LIMIT 1
                     ) CR ON TRUE
                     WHERE S.room_id = $1 AND {cls._open_bill_predicate()}
-                    GROUP BY S.id, S.student_no, U.first_name, U.nickname, U.first_name_en, U.last_name_en, U.nickname_en, CR.balance_after ORDER BY S.student_no ASC
+                    GROUP BY S.id, S.student_no, U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en, CR.balance_after ORDER BY S.student_no ASC
                 """, target_room_id)
                 debtors = []
                 for r in rows:
-                    name = r['first_name'] or r.get('first_name_en') or "Unknown"
-                    if r['nickname']: name += f" ({r['nickname']})"
+                    name = _full_name(r) or "Unknown"
                     # 💰 `total_pending_amount` = ยอด **ดิบ** คงความหมายเดิมไว้เป๊ะ
                     #    (`DebtorList.vue` และบอท `finance_api.py` อ่านฟิลด์นี้อยู่)
                     #    ส่วนยอดที่ต้องเก็บจริงส่งมาเป็นฟิลด์ใหม่ `net_pending_amount`

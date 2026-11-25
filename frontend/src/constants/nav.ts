@@ -209,13 +209,11 @@ export const routeTitles = {
   'finance-transaction-history': 'ประวัติการทำรายการ',
   'finance-collections': 'โปรเจกต์เก็บเงิน',
   'finance-collection-detail': 'รายละเอียดโปรเจกต์',
-  'finance-debtors': 'ผู้ค้างชำระ',
   // ⚖️ [P5] ค่าปรับ + รายงานอายุหนี้ — ใช้คำใน docs/glossary.md ตรงตัว
   'finance-fines': 'ค่าปรับ',
   'finance-fine-detail': 'รายละเอียดค่าปรับ',
   'finance-aging': 'รายงานอายุหนี้',
   'finance-my-debts': 'ยอดค้างชำระของฉัน',
-  'finance-credits': 'เงินรับล่วงหน้า',
   // 👤 [FIN-V2 / P1.4] บัญชีรายบุคคล + รายการเดินบัญชี — คำตรง docs/glossary.md
   // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการ์ด dashboard) — ถ้าเพิ่มเมนู
   //    ต้องเพิ่มใน `MORE_NAV_GROUPS` ด้วย ไม่งั้นเทสต์ `constants/nav` แดง

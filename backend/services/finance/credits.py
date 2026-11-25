@@ -54,7 +54,7 @@ from .constants import (
     CREDIT_ENTRY_APPLY, CREDIT_ENTRY_REVERSE, CREDIT_ENTRY_TOPUP,
     REFERENCE_TYPE_CREDIT_APPLY, REFERENCE_TYPE_CREDIT_TOPUP,
 )
-from .helpers import _as_utc
+from .helpers import _as_utc, _full_name
 
 # 💰 ยอดที่ "น้อยกว่าหนึ่งสตางค์" ถือว่าไม่มีนัยสำคัญ — ใช้เป็นด่านเดียวกันทั้งไฟล์
 #    (ปัดเป็นทศนิยม 2 ตำแหน่งก่อนเทียบเสมอ เพราะ DECIMAL(15,2) เก็บได้แค่นั้น)
@@ -337,7 +337,8 @@ class CreditsMixin:
 
         # 👤 ตรวจนักเรียน: ต้องเป็นของห้องนี้ ยังไม่ถูกลบ และยัง active
         student = await conn.fetchrow(
-            """SELECT S.id, S.student_no, U.first_name, U.nickname, U.first_name_en
+            """SELECT S.id, S.student_no, U.prefix, U.first_name, U.last_name,
+                      U.first_name_en, U.last_name_en
                FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.id = $1 AND S.room_id = $2 AND S.deleted_at IS NULL
                  AND S.status = 'active'""",
@@ -355,9 +356,7 @@ class CreditsMixin:
         if not valid_account:
             raise ValueError("กระเป๋าเงินไม่มีอยู่ หรือไม่ใช่ของห้องนี้!")
 
-        payer_name = student["first_name"] or student["first_name_en"] or "Unknown"
-        if student["nickname"]:
-            payer_name += f" ({student['nickname']})"
+        payer_name = _full_name(student) or "Unknown"
         description = f"รับเงินล่วงหน้า: {payer_name}"
 
         # 📝 1) แถว legacy — เงินเข้าจริงในกระเป๋า ⇒ ต้องมีร่องรอยใน "เงินเคลื่อนไหว"
@@ -462,7 +461,7 @@ class CreditsMixin:
         row = await conn.fetchrow(
             """SELECT SC.id, SC.student_id, SC.amount, SC.balance_after,
                       SC.finance_transaction_id, SC.journal_entry_id, SC.payment_event_id,
-                      U.first_name, U.nickname, U.first_name_en
+                      U.prefix, U.first_name, U.last_name, U.first_name_en, U.last_name_en
                FROM student_credits SC
                LEFT JOIN students S ON S.id = SC.student_id
                LEFT JOIN v_student_profiles U ON U.student_id = S.id
@@ -473,9 +472,7 @@ class CreditsMixin:
             # คีย์ชนะการแข่งขันแต่แถวหายไปแล้ว (ถูกลบระหว่างนั้น) — ให้ผู้ใช้ลองใหม่
             # ดีกว่าเดาว่าอะไรเกิดขึ้น
             raise ValueError("ไม่พบรายการเติมเครดิตที่บันทึกไว้ กรุณาทำรายการใหม่")
-        name = row["first_name"] or row["first_name_en"] or "Unknown"
-        if row["nickname"]:
-            name += f" ({row['nickname']})"
+        name = _full_name(row) or "Unknown"
         # 🧾 ดึงใบ DEP เดิมด้วย "ตัวค้นเดียวกับที่ `_issue_deposit` ใช้กันซ้ำ"
         #    ⇒ เส้นทางกดซ้ำกับการออกเอกสารปกติไม่มีทางเห็น "ใบคนละใบ" กัน
         deposit = (
@@ -595,16 +592,15 @@ class CreditsMixin:
         if not student_ids:
             return {}
         rows = await conn.fetch(
-            """SELECT S.id, S.student_no, U.first_name, U.nickname, U.first_name_en
+            """SELECT S.id, S.student_no, U.prefix, U.first_name, U.last_name,
+                      U.first_name_en, U.last_name_en
                FROM students S LEFT JOIN v_student_profiles U ON U.student_id = S.id
                WHERE S.room_id = $1 AND S.deleted_at IS NULL AND S.id = ANY($2::int[])""",
             target_room_id, student_ids,
         )
         out = {}
         for r in rows:
-            name = r["first_name"] or r["first_name_en"] or "Unknown"
-            if r["nickname"]:
-                name += f" ({r['nickname']})"
+            name = _full_name(r) or "Unknown"
             out[r["id"]] = {
                 "student_id": r["id"], "student_no": r["student_no"], "display_name": name,
             }
@@ -1104,8 +1100,8 @@ class CreditsMixin:
                 await require_member(conn, target_room_id, user_id)
                 rows = await conn.fetch(
                     f"""SELECT S.id AS student_id, S.student_no,
-                              U.first_name, U.nickname, U.first_name_en, U.last_name_en,
-                              U.nickname_en,
+                              U.prefix, U.first_name, U.last_name, U.first_name_en,
+                              U.last_name_en,
                               COALESCE(SC.balance_after, 0) AS credit_balance,
                               COALESCE(D.pending_amount, 0) AS total_pending_amount
                        FROM students S
@@ -1129,9 +1125,7 @@ class CreditsMixin:
                 )
                 out = []
                 for r in rows:
-                    name = r["first_name"] or r["first_name_en"] or "Unknown"
-                    if r["nickname"]:
-                        name += f" ({r['nickname']})"
+                    name = _full_name(r) or "Unknown"
                     credit = round(float(r["credit_balance"]), 2)
                     pending = round(float(r["total_pending_amount"]), 2)
                     out.append({

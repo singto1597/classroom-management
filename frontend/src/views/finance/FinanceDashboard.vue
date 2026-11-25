@@ -486,7 +486,7 @@ watch([selectedMonth, selectedYear], () => {
           </RouterLink>
 
           <RouterLink
-            to="/finance/debtors"
+            to="/finance/individual-accounts?status=outstanding"
             class="flex flex-col items-center gap-1.5 rounded-control border border-line px-2 py-2.5 text-center transition-colors hover:bg-canvas active:scale-[0.97]"
           >
             <span class="flex h-9 w-9 items-center justify-center rounded-control bg-brand-50 text-brand-700">
@@ -600,13 +600,11 @@ watch([selectedMonth, selectedYear], () => {
         </RouterLink>
 
         <!--
-          💰 เงินรับล่วงหน้า (F4) — ลิงก์เต็มความกว้างแบบเดียวกัน
-          ⚠️ ลิงก์นี้อยู่ในหน้าที่ gate ด้วย `isAdmin` ⇒ **ไม่ใช่ทางเข้าเดียว**
-             ทางเข้าที่ไม่ผ่าน `isAdmin` อยู่ที่หัวหน้า `DebtorList.vue` (ดูคอมเมนต์ที่นั่น)
-             เพราะหน้านั้นเปิดให้สมาชิกอยู่แล้ว ⇒ เหรัญญิกที่มี MANAGE_FINANCE เข้าได้แน่นอน
+          💰 เงินรับล่วงหน้า — เข้าหน้ารวม "บัญชีรายบุคคล" พร้อมแท็บ "มีเครดิต"
+          (หน้าเดิม `/finance/credits` ถูกยุบแล้ว; route เก่าเป็น redirect มาที่นี่)
         -->
         <RouterLink
-          to="/finance/credits"
+          to="/finance/individual-accounts?status=credit"
           class="mt-2 flex min-h-11 items-center gap-3 rounded-control border border-line px-3 py-2.5 transition-colors hover:bg-canvas active:scale-[0.97]"
         >
           <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-brand-50 text-brand-700">

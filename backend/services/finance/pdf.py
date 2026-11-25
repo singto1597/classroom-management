@@ -30,9 +30,10 @@ import httpx
 
 from core.config import settings
 from .constants import (
-    PDF_ASSET_MISSING_MSG, PDF_RENDER_FAILED_MSG, PDF_RENDER_UNAVAILABLE_MSG,
+    PDF_ASSET_MISSING_MSG, PDF_BRAND_NAME, PDF_BRAND_SUB_LABEL,
+    PDF_RENDER_FAILED_MSG, PDF_RENDER_UNAVAILABLE_MSG,
     RECEIPT_FONT_DIR, RECEIPT_FONT_FAMILY, RECEIPT_FONT_FILES,
-    RECEIPT_TEMPLATE_DIR, RECEIPT_TEMPLATE_NAME,
+    RECEIPT_TEMPLATE_DIR, RECEIPT_TEMPLATE_NAME, RECEIPT_V2_TEMPLATE_NAME,
 )
 
 logger = logging.getLogger("API_FINANCE_PDF")
@@ -42,6 +43,8 @@ logger = logging.getLogger("API_FINANCE_PDF")
 #    services/finance/pdf.py → parents[2] = โฟลเดอร์ backend/
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_PATH = BACKEND_ROOT / RECEIPT_TEMPLATE_DIR / RECEIPT_TEMPLATE_NAME
+# 🖨️ [A4] shell ของเอกสาร v2 — เลือกที่ `render_receipts_html` ตาม `body_template`
+V2_TEMPLATE_PATH = BACKEND_ROOT / RECEIPT_TEMPLATE_DIR / RECEIPT_V2_TEMPLATE_NAME
 FONT_DIR = BACKEND_ROOT / RECEIPT_FONT_DIR
 
 # Gotenberg 8: endpoint เดียวที่ใช้ (multipart: ฟิลด์ชื่อ `files` และต้องชื่อ index.html)
@@ -76,21 +79,23 @@ def _font_data_uri(font_key: str) -> str:
     return f"data:font/ttf;base64,{encoded}"
 
 
-@lru_cache(maxsize=1)
-def _get_template():
-    """โหลด Jinja2 template ครั้งเดียว (autoescape เปิด — กันชื่อนักเรียนที่มี < > ทำ HTML พัง)"""
+def _load_template(path: Path):
+    """สร้าง Jinja2 Environment ของโฟลเดอร์ `path.parent` แล้วโหลด `path.name`
+
+    ⚠️ ข้อความ error ต้อง **ไม่มี path เต็มบนเซิร์ฟเวอร์** — ดู `PDF_ASSET_MISSING_MSG`
+    """
     try:
         import jinja2
     except ImportError as e:  # pragma: no cover - กัน dependency หายตอน deploy
         logger.error("ยังไม่ได้ติดตั้ง jinja2 — เพิ่ม jinja2 ลง backend/requirements.txt")
         raise PdfRenderError(PDF_ASSET_MISSING_MSG) from e
 
-    if not TEMPLATE_PATH.is_file():
-        logger.error("ไม่พบเทมเพลตใบเสร็จ: %s", TEMPLATE_PATH)
+    if not path.is_file():
+        logger.error("ไม่พบเทมเพลตใบเสร็จ: %s", path)
         raise PdfRenderError(PDF_ASSET_MISSING_MSG)
 
     env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(TEMPLATE_PATH.parent)),
+        loader=jinja2.FileSystemLoader(str(path.parent)),
         autoescape=jinja2.select_autoescape(["html"]),
         # 🔴 `keep_trailing_newline=True` **ไม่ใช่ความสวย** — Jinja ตัด "\n" ตัวสุดท้ายของ
         #    **ทุกไฟล์เทมเพลต** ทิ้งโดยปริยาย (ค่า default เป็น False) ซึ่งมองไม่เห็นเลย
@@ -102,7 +107,20 @@ def _get_template():
         #       นับ (ทุกตัวนับ `class="doc"` / `data:font/ttf;base64,` ที่อยู่กลางไฟล์)
         keep_trailing_newline=True,
     )
-    return env.get_template(TEMPLATE_PATH.name)
+    return env.get_template(path.name)
+
+
+# 🖨️ shell สองไฟล์ แยก cache คนละตัว — `lru_cache` แบบไม่มี argument อ่าน global
+#    `TEMPLATE_PATH`/`V2_TEMPLATE_PATH` ตอนเรียกครั้งแรก ⇒ เทสต์ที่ patch `TEMPLATE_PATH`
+#    แล้ว `_get_template.cache_clear()` ยังได้ template จาก path ที่ patch (contract เดิม)
+@lru_cache(maxsize=1)
+def _get_template():
+    return _load_template(TEMPLATE_PATH)
+
+
+@lru_cache(maxsize=1)
+def _get_v2_template():
+    return _load_template(V2_TEMPLATE_PATH)
 
 
 def render_receipts_html(contexts: list) -> str:
@@ -135,8 +153,18 @@ def render_receipts_html(contexts: list) -> str:
         ),
         "font_family": RECEIPT_FONT_FAMILY,
         "font_faces": _font_faces(),
+        # 🏷️ หัวกระดาษของ shell v2 — ส่งเป็น context เพื่อให้ partial ที่ `import ... with context`
+        #    อ่านได้ (ค่าคงที่จาก constants.py ที่เดียว)
+        "brand_name": PDF_BRAND_NAME,
+        "brand_sub": PDF_BRAND_SUB_LABEL,
     }
-    return _get_template().render(**ctx)
+    # 🖨️ [A4] เลือก shell ตาม **เนื้อใน**: ชุดที่มีเอกสาร v2 อย่างน้อยหนึ่งใบใช้ shell A4
+    #    ⚠️ ชุด legacy ล้วนต้องได้ `receipt.html` เดิมเป๊ะ — digest ของใบเก่าถูกล็อกไว้
+    uses_v2 = any(
+        str(c.get("body_template") or "").endswith("_v2.html") for c in contexts
+    )
+    template = _get_v2_template() if uses_v2 else _get_template()
+    return template.render(**ctx)
 
 
 def render_receipt_html(context: dict) -> str:

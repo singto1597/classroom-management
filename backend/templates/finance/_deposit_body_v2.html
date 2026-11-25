@@ -1,112 +1,96 @@
-  {# 🧾 [FIN-V2 / P5.3] ใบรับเงินล่วงหน้า (DEP) `layout_version = 2`
-     ────────────────────────────────────────────────────────────────────────
-     🔴 DEP **ไม่ผูกบิล** — จึงไม่มีตารางบิล/ยอดเต็ม/คงเหลือรายบิลเหมือน `_receipt_body_v2.html`
-        ถ้าลอกตารางนั้นมา บนกระดาษจะเห็นคอลัมน์ "คงเหลือ 0.00" ที่อ่านเหมือน "ยังค้างอยู่"
-        ทั้งที่เงินก้อนนี้เข้ากระเป๋าเครดิตของนักเรียนแล้ว
-     🔴 ถ้อยคำ "ยังไม่ถูกหักปิดบิลใด" **ต้องตรงกับ** `_merged_item_title` ฝั่ง legacy
-        (`doc_type == 'deposit'` → "รับเงินล่วงหน้า (ยังไม่หักปิดบิลใด)") — ผู้ปกครอง
-        จะได้อ่านข้อความเดียวกันไม่ว่าจะได้ใบเดี่ยวหรือใบที่ถูกยุบ
-     ⚠️ ทุกคีย์ที่อาจไม่มีใน snapshot ใช้ `.get(...)`/`| default('-')` — ห้ามพึ่ง
-        `is not none` บนคีย์ที่หายไป (`Undefined` ตอบ True แล้ว `format()` ระเบิดเป็น 500)
-     ⚠️ ห้ามใส่ `id` คงที่ใน partial นี้ — shell เรนเดอร์หลายใบในไฟล์เดียว #}
-  {% if d.is_voided %}
-  <div class="void-banner">
-    เอกสารนี้ถูกยกเลิกแล้ว — VOID
-    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
-  </div>
-  {% endif %}
+{% import '_v2_macros.html' as m with context %}
+{# ══════════════════════════════════════════════════════════════════════════════
+   🧾 ใบรับเงินล่วงหน้า (DEP) v2 — เงินเข้ากระเป๋าเครดิต ไม่ผูกบิล
+   🔴 **ห้าม** ตารางคอลัมน์ ยอดเต็ม/รับครั้งนี้/คงเหลือ รายบิล — DEP ไม่ปิดหนี้ใด
+      (ใช้ `bill-items` คอลัมน์เดียว ไม่ใช่ `table.items` ของใบเสร็จ)
+   🔴 ประโยค "ยังไม่ถูกหักปิดบิลใด" ต้องอยู่บนใบนี้เสมอ (ตรงกับถ้อยคำ legacy)
+   ⚠️ ทุกคีย์ที่อาจไม่มีใน snapshot ผ่าน `.get(...)`/`is mapping` — กัน `Undefined`
+   ══════════════════════════════════════════════════════════════════════════════ #}
+{{ m.doc_header(d.doc_title or 'ใบรับเงินล่วงหน้า', 'Advance Deposit Receipt', d.room_name, d.room_code) }}
 
-  <div class="head">
-    <div>
-      <h1>{{ d.doc_title or 'ใบรับเงินล่วงหน้า' }}</h1>
-      <div class="room">
-        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
-      </div>
+<div class="info-band">
+  <div class="info-col-left">
+    <table class="kv-table">
+      <tr>
+        <td class="k">ผู้ชำระเงิน</td>
+        <td class="v">
+          <strong>{{ d.payer_name or '-' }}</strong>
+          {%- if d.student_no %} · เลขที่ {{ d.student_no }}{% endif %}
+        </td>
+      </tr>
+      <tr><td class="k">ผู้รับเงิน</td><td class="v">{{ d.issuer_name or '-' }}</td></tr>
+      <tr><td class="k">ช่องทาง</td><td class="v">{{ d.channel_text or '-' }}</td></tr>
+      <tr><td class="k">ประเภท</td><td class="v">เงินรับล่วงหน้า (เครดิตคงเหลือของนักเรียน)</td></tr>
+      {% if d.event_meta is mapping and d.event_meta.get('credit_entry_id') %}
+      <tr><td class="k">อ้างอิงรายการเครดิต</td><td class="v">#{{ d.event_meta.get('credit_entry_id') }}</td></tr>
+      {% endif %}
+    </table>
+  </div>
+  <div class="info-col-right">
+    {{ m.ref_block('เลขที่', d.receipt_no, 'วันที่', d.document_date_only_text, d.document_time_text) }}
+  </div>
+</div>
+
+<div class="bill-frame">
+  <div class="bill-table-wrap short-canvas">
+    <table class="bill-items">
+      <thead>
+        <tr>
+          <th style="width: 34px;">#</th>
+          <th>รายการ</th>
+          <th class="num" style="width: 140px;">จำนวนเงิน (บาท)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in d.line_items %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ it.title }}</td>
+          <td class="num">{{ m.money(it.amount_applied) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bill-summary-band">
+    <div class="bill-summary-notes">
+      <div class="note-heading">เงินก้อนนี้ยังไม่ถูกหักปิดบิลใด</div>
+      <div>เก็บเป็นเครดิตคงเหลือของนักเรียน และจะถูกใช้เมื่อชำระบิลในครั้งถัดไป</div>
     </div>
-    <div class="doc-title">
-      <div class="label">เลขที่ {{ d.receipt_no }}</div>
-      <div class="no">วันที่ {{ d.document_date_text or '-' }}</div>
-    </div>
-  </div>
-
-  <hr>
-
-  <table class="meta">
-    <tr>
-      <td class="k">ผู้ชำระเงิน</td>
-      <td>
-        <strong>{{ d.payer_name or '-' }}</strong>{% if d.student_no %} — เลขที่ {{ d.student_no }}{% endif %}
-      </td>
-    </tr>
-    <tr>
-      <td class="k">ผู้รับเงิน</td>
-      <td>{{ d.issuer_name or '-' }}</td>
-    </tr>
-    <tr>
-      <td class="k">ช่องทาง</td>
-      <td>{{ d.channel_text or '-' }}</td>
-    </tr>
-    <tr>
-      <td class="k">ประเภท</td>
-      <td>เงินรับล่วงหน้า (เครดิตคงเหลือของนักเรียน)</td>
-    </tr>
-    {# 🔑 อ้างเลขรายการเครดิต — P2.1 ยังไม่เขียนคีย์นี้ลง snapshot ของ DEP
-       ⇒ `.get` บน dict ยอมรับการไม่มีคีย์ · `is mapping` กัน context ที่ไม่มี event_meta เลย #}
-    {% if d.event_meta is mapping and d.event_meta.get('credit_entry_id') %}
-    <tr>
-      <td class="k">อ้างอิงรายการเครดิต</td>
-      <td>#{{ d.event_meta.get('credit_entry_id') }}</td>
-    </tr>
-    {% endif %}
-  </table>
-
-  {# 💡 ประโยคที่ต้องมีบนใบนี้เสมอ — ผู้ปกครองต้องรู้ว่าเงินนี้**ยังไม่ปิดหนี้ใด** #}
-  <div class="note" style="margin-top: 10px;">
-    เงินจำนวนนี้ยังไม่ถูกหักปิดบิลใด — เก็บเป็นเครดิตคงเหลือของนักเรียน
-    และจะถูกใช้เมื่อชำระบิลในครั้งถัดไป
-  </div>
-
-  <div class="amount-box">
-    <div class="words">({{ d.amount_text }})</div>
-    <div class="figures">{{ "{:,.2f}".format(d.amount) }} ฿</div>
-  </div>
-
-  {# 💰 ยอดเครดิตก่อน/หลัง — snapshot ของ "ครั้งนั้น" ⇒ พิมพ์ซ้ำได้ตัวเลขเดิม #}
-  {% if d.balance_before is not none or d.balance_after is not none %}
-  <table class="meta" style="margin-top: 12px;">
-    {% if d.balance_before is not none %}
-    <tr>
-      <td class="k">เครดิตคงเหลือก่อนเติม</td>
-      <td>{{ "{:,.2f}".format(d.balance_before) }} บาท</td>
-    </tr>
-    {% endif %}
-    {% if d.balance_after is not none %}
-    <tr>
-      <td class="k">เครดิตคงเหลือหลังเติม</td>
-      <td>{{ "{:,.2f}".format(d.balance_after) }} บาท</td>
-    </tr>
-    {% endif %}
-  </table>
-  {% endif %}
-
-  {% if d.note %}
-  <div class="note">หมายเหตุ: {{ d.note }}</div>
-  {% endif %}
-
-  {# ✍️ DEP = ผู้ชำระเงิน + ผู้รับเงิน/ผู้ออกเอกสาร (doc-matrix §2.5) #}
-  <div class="sign">
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.payer_name or '' }}</div>
-      <div class="role">ผู้ชำระเงิน</div>
-    </div>
-    <div class="slot">
-      <div class="line"></div>
-      <div class="who">{{ d.issuer_name or '' }}</div>
-      <div class="role">ผู้รับเงิน / ผู้ออกเอกสาร</div>
+    <div class="bill-summary-totals">
+      <table class="sum-kv">
+        {% if d.balance_before is not none %}
+        <tr><td class="sk">เครดิตคงเหลือก่อนเติม</td><td class="sv">{{ m.money(d.balance_before) }}</td></tr>
+        {% endif %}
+        {% if d.balance_after is not none %}
+        <tr class="highlight-row"><td class="sk">เครดิตคงเหลือหลังเติม</td><td class="sv">{{ m.money(d.balance_after) }}</td></tr>
+        {% endif %}
+      </table>
     </div>
   </div>
 
-  <div class="foot">
-    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.receipt_no }}
+  <div class="bill-grand-band">
+    <div class="grand-label">เงินรับล่วงหน้าครั้งนี้</div>
+    <div class="grand-right">
+      <div class="grand-amount">{{ m.money(d.amount) }} ฿</div>
+      <div class="grand-words">({{ d.amount_text }})</div>
+    </div>
   </div>
+</div>
+
+{% if d.note %}
+<div class="lower-band">
+  <div class="lower-col-note">
+    <div class="lower-heading">หมายเหตุ</div>
+    <p class="lower-note-text">{{ d.note }}</p>
+  </div>
+</div>
+{% endif %}
+
+<div class="sig-band">
+  {{ m.sig_block('ผู้ชำระเงิน', d.payer_name, date_text='วันที่') }}
+  {{ m.sig_block('ผู้รับเงิน / ผู้ออกเอกสาร', d.issuer_name, date_text='วันที่') }}
+</div>
+
+{{ m.doc_foot('ต้นฉบับ — สำหรับผู้ชำระเงินเก็บไว้ตรวจสอบ', d.receipt_no) }}
