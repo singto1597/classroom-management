@@ -60,6 +60,10 @@ from .receipts_v2 import ReceiptsV2Mixin
 #    dispatch มาที่ `_document_context_v2` ผ่าน MRO ⇒ mixin นี้ต้องอยู่ใน MRO ก่อนเรียก
 #    (ชื่อไม่ชนกับ mixin ใด — `_body_template_for`/`_v2_line_items`/`_document_context_v2`)
 from .documents import DocumentsMixin
+# 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน + PromptPay QR — ใช้ `_lock_room_money`/
+#    `resolve_room_id`/`service_logger` ผ่าน MRO และ `qr.py` แบบ pure function
+#    (ไม่มีชื่อฟังก์ชันชนกับ mixin ใด ⇒ วางก่อน AccountsMixin ตาม brief)
+from .payment_channels import PaymentChannelsMixin
 
 
 class FinanceService(
@@ -99,6 +103,9 @@ class FinanceService(
     ReceiptsV2Mixin,
     TransactionsMixin,
     CategoriesMixin,
+    # 💳 [FIN-V2 / P2.4] — ช่องทางชำระเงิน + QR (อ่านผ่าน `require_member`,
+    #    เขียนผ่าน `MANAGE_FINANCE` ใต้ล็อกห้อง) · วางก่อน AccountsMixin ตาม brief
+    PaymentChannelsMixin,
     AccountsMixin,
     BackfillMixin,
     # 👥 [FIN-V2 / P1.2] — อ่าน/เขียนทะเบียนผู้เกี่ยวข้อง + ตั้งค่าห้อง (ไม่มีชื่อชน)

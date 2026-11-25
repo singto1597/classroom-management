@@ -181,6 +181,12 @@ _MONEY_PATHS = [
     #    ⚠️ RBAC + ล็อกอยู่ใน `_create_locked` (เมธอดนอกมีแค่ transaction) ⇒
     #       `_create_locked` อยู่ใน `_LOCKING_HELPERS` และมีเทสต์บังคับว่ามันล็อกจริง
     ("payment_events", "PaymentEventsMixin", "create_payment_event"),
+    # 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน — ตัวช่องทางไม่ใช่การเคลื่อนเงิน แต่
+    #    "active ≤ 3 + primary 1 ตัว" เป็น invariant ข้ามแถวที่ต้องนับใต้ล็อกห้อง
+    #    (เพิ่มตามที่ตัวตรวจ completeness จับได้ — P2.4 เปิดเมธอดเขียน 3 ตัว)
+    ("payment_channels", "PaymentChannelsMixin", "create_payment_channel"),
+    ("payment_channels", "PaymentChannelsMixin", "update_payment_channel"),
+    ("payment_channels", "PaymentChannelsMixin", "delete_payment_channel"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง

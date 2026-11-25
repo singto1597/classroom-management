@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 281 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 282 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -285,6 +285,7 @@
 - [🔒 เมธอดเขียนใหม่ต้องลงทะเบียนใน `_MONEY_PATHS` และยึด `_lock_room_money` — ถ้า RBAC อยู่ใน helper ต้องเพิ่ม helper ใน `_LOCKING_HELPERS`](#เมธอดเขียนใหม่ต้องลงทะเบียนใน-moneypaths-และยึด-lockroommoney-ถ้า-rbac-อยู่ใน-helper-ต้องเพิ่ม-helper-ใน-lockinghelpers)
 - [🧾 เทมเพลต v2: dispatch ที่ `_document_context` จุดเดียว + เลย์เอาต์ snapshot ที่ไม่ JOIN บิลสด — และทะเบียนเดิมต้องกรอง `layout_version`](#เทมเพลต-v2-dispatch-ที่-documentcontext-จุดเดียว-เลย์เอาต์-snapshot-ที่ไม่-join-บิลสด-และทะเบียนเดิมต้องกรอง-layoutversion)
 - [💸 หน้าจอรับเงิน v2: `idempotency_key` เกิดตอนกดครั้งแรก และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด](#หน้าจอรับเงิน-v2-idempotencykey-เกิดตอนกดครั้งแรก-และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด)
+- [📱 PromptPay QR: CRC16 ต้องคำนวณรวม `"6304"` และ "เลขที่เก็บใน DB" กับ "เลขที่ส่ง API" เป็นคนละรูปแบบ](#promptpay-qr-crc16-ต้องคำนวณรวม-6304-และ-เลขที่เก็บใน-db-กับ-เลขที่ส่ง-api-เป็นคนละรูปแบบ)
 
 <!-- TOC:END -->
 
@@ -4841,4 +4842,23 @@
   - เครดิตล้วน (`receipt_no = null`) ⇒ ไม่มีปุ่มดาวน์โหลด REC และ hint บอกเหตุผล; เงินทุกช่องใน payload เป็น string 2 ตำแหน่ง (`roundMoney(x).toFixed(2)`) ไม่ใช่ number
 - **Rule:** (1) 🔴 คีย์ idempotency = ต่อ "การกดยืนยัน 1 ครั้ง" — สร้างใน `submit()` เท่านั้น และห้ามสร้างใหม่ใน retry (2) 🔴 เปลี่ยน input ใด ๆ ของพรีวิวต้องล้าง `preview` ก่อนยิงใหม่ — ปุ่มยืนยันต้องผูกกับผลพรีวิวล่าสุดเสมอ (3) 🔴 409 = โหลดใหม่ ห้ามส่งซ้ำด้วยยอดเดิม (4) 🔴 เงินทุกช่องกรอกผ่าน `MoneyInput` ไม่ใช่ `<input type="number">` (5) 🔴 ยอดรวมบนจอต้องมาจาก backend ไม่ใช่บวกเอง
 - **Tests/Verification:** `frontend/src/components/finance/__tests__/ReceiveMoneyModal.spec.ts` (debounce 350ms ยิงครั้งเดียวด้วยยอดล่าสุด, retry ใช้ key เดิม + payload ครบ, 409 ⇒ โหลดบัญชี/พรีวิวใหม่, เครดิตล้วนไม่มีปุ่ม REC), `MoneyInput.spec.ts` (ตัดทศนิยมที่ 3, ค่าว่าง = null, blur จัดรูป, ค่าภายนอกสะท้อนเข้าช่อง), `BillAllocationTable.spec.ts` (totals จาก backend, แยกเงินสด/เครดิต, โหมด manual), `src/services/__tests__/finance.spec.ts` (URL preview/commit + ไม่ใช่ `/payments/batch`)
+- **Date Added:** 2026-11-25
+
+### 📱 PromptPay QR: CRC16 ต้องคำนวณรวม `"6304"` และ "เลขที่เก็บใน DB" กับ "เลขที่ส่ง API" เป็นคนละรูปแบบ
+- **Context/Problem:** P2.4 สร้าง PromptPay QR จาก server (`services/finance/qr.py` + `segno`) โดยเก็บเลขพร้อมเพย์ใน `finance_payment_channels.promptpay_id_masked` เพราะ schema 0012 ไม่มีคอลัมน์ full ID — ระหว่างทำมี 4 กับดักที่ทำให้ "QR สแกนไม่ผ่าน" หรือ "เลขเต็มหลุด API" โดยไม่มี error ให้เห็น:
+  (1) คำนวณ CRC ก่อนต่อ tag `63` ⇒ ได้เลข 4 หลักที่ไม่ตรงกับที่ธนาคารตรวจ (payload ดูสมบูรณ์ทุกไบต์)
+  (2) เบอร์ `0812345678` ใส่ tag `01` ตรง ๆ ⇒ ต้องแปลงเป็น `0066` + 9 หลัก (13 หลัก) ก่อน
+  (3) `segno.make_qr()` **ไม่รับ kwarg `micro`** (มีเฉพาะ `segno.make`) ⇒ TypeError ตอนเรียก ไม่ใช่ตอน import
+  (4) mask หลังเก็บ: คอลัมน์ชื่อ `promptpay_id_masked` แต่เก็บ **canonical เต็ม** ⇒ ถ้า `SELECT` แล้วส่ง dict ตรง ๆ เลขจะหลุดทุก endpoint
+- **Root Cause:** EMVCo กำหนดให้ CRC คำนวณจากข้อมูล **รวม tag และความยาวของฟิลด์ CRC เอง**; ช่องทางมือถือของ PromptPay ใช้รหัสประเทศ `0066` ไม่ใช่ `0`; และชื่อคอลัมน์ใน migration สื่อความหมายไม่ตรงกับเนื้อหา (ข้อจำกัดที่บันทึกไว้ใน brief P2.4 — ถ้าต้องการ mask at-rest จริงต้องเพิ่มคอลัมน์ใน migration 0014 ไม่ใช่แก้ 0012)
+- **Correct Pattern/Solution:**
+  - `with_crc_tag = "".join(parts) + "6304"` → `crc16_ccitt(with_crc_tag.encode("ascii"))` → ต่อท้าย `f"{crc:04X}"` (ตัวพิมพ์ใหญ่ ไม่มี `0x`)
+  - `normalize_promptpay_id`: ตัดช่องว่าง/`-`, 10 หลักขึ้นต้น `0` หรือ 11 หลักขึ้นต้น `66` → `"0066" + 9 หลัก`; 13/15 หลักเก็บตามเดิม; อื่น ๆ → `QrError("INVALID_PROMPTPAY_ID")`
+  - shaping ทุกครั้ง: `mask_promptpay_id(canonical)` (0066 → `081-XXX-5678`, 13 → `*********0123`, 15 → `***********2345`) และ `mask_account_number` (เก็บ 4 ท้าย) — เขียนลง `new_values`/`old_values` ของ audit ด้วยค่าที่ mask แล้วเท่านั้น
+  - `qr_mode` เป็นตัวตัดสิน: `open` + amount → `QR_MODE_MISMATCH`, `fixed` + ไม่มี amount → `QR_MODE_MISMATCH`, ยอดต้อง quantize 2 ตำแหน่งไม่เปลี่ยนค่า (>0, ≤99,999,999.99)
+  - `render_qr_svg` = `segno.make_qr(payload, error="m")` + `save(kind="svg", xmldecl=False, border=2, scale=4)`; route ตอบ `image/svg+xml` + `Cache-Control: no-store`
+  - preview QR คืนเฉพาะ `{"svg": …}` — **ห้ามคืน payload** แม้ api-v2 §5 จะระบุ (payload มีเลขเต็ม)
+  - active ≤ 3 + primary 1 ตัว: นับ/เคลียร์ใต้ `_lock_room_money` ใน transaction เดียวกัน และ `UPDATE … is_primary=FALSE` **ก่อน** insert/update ตัวใหม่ (partial unique ชนทันทีถ้าสลับลำดับ) — ลงทะเบียน 3 เมธอดใน `_MONEY_PATHS` ด้วย
+- **Rule:** (1) 🔴 CRC ของ EMVCo คำนวณรวม `"6304"` เสมอ — ใช้ golden vector ล็อกไว้ในเทสต์ (2) 🔴 เบอร์มือถือต้อง canonical 13 หลัก `0066…` ก่อนใส่ tag `01` (3) 🔴 ห้ามคืน `promptpay_id_masked`/`account_number_masked` จาก DB ตรง ๆ — ต้องผ่าน mask ทุกครั้ง (4) 🔴 `segno.make_qr` ไม่มี `micro`; ถ้าต้องบังคับ bust ใช้ `segno.make(..., micro=False)` (5) 🔴 ห้าม log payload/เลขเต็ม แม้ใน audit
+- **Tests/Verification:** `backend/tests/test_finance_qr.py` (CRC `b"123456789"` = 0x29B1, golden open/fixed 100.00/1250.50, เบอร์ 5 รูปแบบ → canonical เดียว, mask ไม่มีเลขเต็ม, amount/mode guards, SVG ไม่มี `<script>`), `backend/tests/test_finance_payment_channels.py` (mask ใน DB/response/audit, custom_qr 400, active ≤ 3, primary 1 ตัว + promote, QR 400 เมื่อปิดใช้งาน/ไม่ใช่พร้อมเพย์/open+amount/fixed ไม่มี amount, `no-store`, QR ไม่เขียน DB, RBAC, soft delete, concurrency 2 คำขอ)
 - **Date Added:** 2026-11-25

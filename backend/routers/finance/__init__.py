@@ -21,6 +21,8 @@ from .individual_accounts import router as individual_accounts_router
 from .allocation import router as allocation_router
 # 🧾 [FIN-V2 / P2.1] บันทึก/อ่านรายการรับเงิน (payment event)
 from .payment_events import router as payment_events_router
+# 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน + PromptPay QR
+from .payment_channels import router as payment_channels_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -60,5 +62,9 @@ router.include_router(allocation_router)
 #    ⚠️ ประกาศ **หลัง** allocation_router โดยเจตนา: `/payment-events/preview` (static)
 #       ต้องชนะ `/{event_id}` (dynamic) — ถ้าสลับลำดับ preview จะตอบ 422
 router.include_router(payment_events_router)
+# 💳 [FIN-V2 / P2.4] — path ขึ้นต้น `/finance/payment-channels` ซึ่งไม่ซ้ำกับกลุ่มใด
+#    ⚠️ ภายในไฟล์ router ประกาศ `POST /preview-qr` **ก่อน** `GET /{channel_id}/qr.svg`
+#       (static ก่อน dynamic) — ลำดับ include ตรงนี้ไม่มีผลกับ route ภายในไฟล์นั้น
+router.include_router(payment_channels_router)
 
 __all__ = ["router"]

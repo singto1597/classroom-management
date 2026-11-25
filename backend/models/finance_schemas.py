@@ -1449,3 +1449,84 @@ class PaymentEventListItem(BaseModel):
 
 class PaymentEventListResponse(BaseModel):
     items: List[PaymentEventListItem] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 💳 [FIN-V2 / P2.4] ช่องทางชำระเงิน + PromptPay QR
+# ═══════════════════════════════════════════════════════════════════════════
+from decimal import Decimal  # noqa: E402
+from typing import Literal  # noqa: E402
+
+
+class PaymentChannelCreate(BaseModel):
+    """เพิ่มช่องทางชำระเงิน
+
+    🔑 `account_number` / `promptpay_id` เป็น **write-only** — service เก็บเฉพาะ
+       ค่าที่ mask/canonical แล้ว และไม่คืนค่าทั้งสองนี้ออกจาก API
+    """
+    channel_type: Literal["cash", "bank_transfer", "promptpay", "custom_qr"]
+    label: str = Field(..., min_length=1, max_length=100)
+    wallet_account_id: Optional[int] = Field(None, gt=0)
+    account_name: Optional[str] = Field(None, max_length=200)
+    bank_name: Optional[str] = Field(None, max_length=200)
+    account_number: Optional[str] = Field(
+        None, max_length=50, description="เลขบัญชีเต็ม (write-only — API ไม่คืน)",
+    )
+    promptpay_id: Optional[str] = Field(
+        None, max_length=30,
+        description="เบอร์/เลขบัตร/e-wallet (write-only — API ไม่คืนเลขเต็ม)",
+    )
+    qr_mode: Optional[Literal["open", "fixed"]] = None
+    is_primary: bool = False
+    is_active: bool = True
+    sort_order: Optional[int] = Field(None, ge=0)
+
+
+class PaymentChannelUpdate(BaseModel):
+    """PATCH ช่องทาง — ส่งมาเฉพาะฟิลด์ที่จะแก้ (`exclude_unset`)"""
+    channel_type: Optional[Literal["cash", "bank_transfer", "promptpay", "custom_qr"]] = None
+    label: Optional[str] = Field(None, min_length=1, max_length=100)
+    wallet_account_id: Optional[int] = Field(None, gt=0)
+    account_name: Optional[str] = Field(None, max_length=200)
+    bank_name: Optional[str] = Field(None, max_length=200)
+    account_number: Optional[str] = Field(None, max_length=50)
+    promptpay_id: Optional[str] = Field(None, max_length=30)
+    qr_mode: Optional[Literal["open", "fixed"]] = None
+    is_primary: Optional[bool] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = Field(None, ge=0)
+
+
+class PaymentChannelResponse(BaseModel):
+    """ช่องทางที่ส่งออก — ไม่มีเลขบัญชี/PromptPay เต็มทั้งสิ้น"""
+    id: int
+    channel_type: str
+    label: str
+    wallet_account_id: Optional[int] = None
+    wallet_account_name: Optional[str] = None
+    account_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number_masked: Optional[str] = None
+    promptpay_id_masked: Optional[str] = None
+    qr_mode: Optional[str] = None
+    is_primary: bool
+    is_active: bool
+    sort_order: int
+    has_qr: bool = False
+
+
+class PaymentChannelListResponse(BaseModel):
+    channels: List[PaymentChannelResponse] = Field(default_factory=list)
+
+
+class QrPreviewRequest(BaseModel):
+    """พรีวิว QR ของช่องทางที่บันทึกแล้ว (ยังไม่รองรับ preview ก่อนบันทึก)"""
+    channel_id: int = Field(..., gt=0)
+    amount: Optional[Decimal] = Field(
+        None, description="ไม่ส่ง = QR open · ส่ง = ต้องเป็น QR fixed ของช่องทางนั้น",
+    )
+
+
+class QrPreviewResponse(BaseModel):
+    """⚠️ คืนเฉพาะ SVG — payload มีเลข PromptPay เต็ม จึงห้ามออกจาก server"""
+    svg: str
