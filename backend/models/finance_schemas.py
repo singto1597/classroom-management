@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, model_validator
-from typing import Optional, List
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Literal, Optional, List, Union
 from datetime import date, datetime
 from dataclasses import dataclass
 from fastapi import Query
@@ -583,6 +583,11 @@ class ReceiptInvoiceIssueRequest(BaseModel):
     #    (เท่ากับเพดานของ `ReceiptBatchIssueRequest` โดยเจตนา — "หนึ่ง HTTP request"
     #     ของระบบนี้มีขนาดเท่ากันไม่ว่าจะเป็นเส้นทางไหน)
     student_ids: List[int] = Field(..., min_length=1, max_length=100)
+    # 💳 [FIN-V2 / P2.6] ช่องทางที่จะพิมพ์บนใบ (≤3, ไม่ส่ง = 3 ช่องทางแรกของห้อง)
+    #    ⚠️ **ไม่** ใส่ `max_length=3` โดยเจตนา — Pydantic จะตอบ 422 ที่ frontend แปลได้แค่
+    #       "ข้อมูลไม่ถูกต้อง" ส่วน service ตอบ 400 พร้อมข้อความไทยที่บอกทางออก
+    #       ("เลือกได้ไม่เกิน 3 ช่องทาง") — หลักเดียวกับคอมเมนต์ของ `ReceiptCombinedPdfRequest`
+    channel_ids: Optional[List[int]] = None
     note: Optional[str] = Field(None, max_length=255)
     user_name: Optional[str] = Field(None, max_length=100)
 
@@ -593,6 +598,9 @@ class ReceiptRoomInvoiceRequest(BaseModel):
     ⇒ ไม่รับ `student_ids` เลยโดยเจตนา: ถ้ารับ ผู้เรียกจะกลายเป็นคนตัดสินว่าใครควรได้ใบ
       ซึ่งเป็นสิ่งที่ผู้ใช้เลือกไม่ถูก (เขาไม่รู้ว่าใครค้างเท่าไร ณ วินาทีที่กด)
     """
+    # 💳 [FIN-V2 / P2.6] เหตุผลที่ไม่ใส่ `max_length=3` — ดูคอมเมนต์ของ
+    #    `ReceiptInvoiceIssueRequest.channel_ids` (service ตอบ 400 ภาษาไทย)
+    channel_ids: Optional[List[int]] = None
     note: Optional[str] = Field(None, max_length=255)
     user_name: Optional[str] = Field(None, max_length=100)
 
@@ -607,6 +615,22 @@ class ReceiptCombinedPdfRequest(BaseModel):
        (ต่างจาก `student_ids` ข้างบนที่เพดานเป็นเรื่อง "ขนาดงานที่ยอมรับ" ไม่ใช่ "วิธีแก้")
     """
     receipt_nos: List[str] = Field(..., min_length=1)
+
+
+class ReceiptInvoiceLineItem(BaseModel):
+    """บรรทัดของ **ใบแจ้งหนี้** — รูปเดิม 3 คีย์ (`title`/`amount`/`due_date`) เท่านั้น
+
+    🔴 `extra="forbid"` เป็นหัวใจของ `Union` ด้านล่าง ไม่ใช่ความเข้มงวดเพิ่งคิดขึ้น:
+       `ReceiptLineItem` (v2) ประกาศฟิลด์เพิ่ม 9 ตัวเป็น optional ⇒ ถ้าใช้โมเดลเดียว
+       Pydantic จะ **เติมค่า None ให้ครบทุกตัว** ตอน serialize ⇒ สัญญาเดิมของหน้ารายละเอียด
+       ใบแจ้งหนี้ (`test_finance_invoices.py` ยึด `{title, amount, due_date}` เป๊ะ)
+       พังทันทีโดยที่ข้อมูลใน DB ถูกต้อง — ไม่ใช่บั๊กข้อมูล แต่เป็นบั๊กสัญญา response
+       👉 forbid ทำให้ dict ที่มีคีย์เกินตกไปเข้าตัวที่สอง = ใบ v2 ยังได้ฟิลด์ครบเหมือนเดิม
+    """
+    model_config = ConfigDict(extra="forbid")
+    title: Optional[str] = None
+    amount: Optional[float] = None
+    due_date: Optional[str] = None
 
 
 class ReceiptLineItem(BaseModel):
@@ -664,7 +688,9 @@ class ReceiptResponse(BaseModel):
     # 📋 ตารางแจกแจงของใบแจ้งหนี้รวมยอด — `None` = เอกสารใบเดียวต่อหนึ่งบิล (ใบเสร็จทุกใบ)
     #    ⚠️ ใน **ทะเบียนเอกสาร** (`GET /finance/receipts`) ค่านี้เป็น None เสมอโดยเจตนา
     #       (คิวรีนั้นไม่ดึง jsonb มาด้วย — โหลดได้ถึง 500 แถว) ⇒ ไม่ใช่บั๊ก
-    line_items: Optional[List[ReceiptLineItem]] = None
+    # 🔀 Union เรียง "แคบก่อนกว้าง": ใบแจ้งหนี้ (3 คีย์) จับคู่ตัวแรกด้วย `extra="forbid"`
+    #    ส่วนเอกสาร v2 (มี `cash_amount`/`source` ฯลฯ) ตกไปตัวที่สองโดยไม่เสียฟิลด์ใด
+    line_items: Optional[List[Union[ReceiptInvoiceLineItem, ReceiptLineItem]]] = None
     # 🗓️ "วันที่ของเอกสาร" = เวลาของ **เหตุการณ์** (รับเงิน / ออกใบแจ้งหนี้) ไม่ใช่วันที่กดพิมพ์
     #    ⇒ frontend ต้องแสดงค่านี้ ไม่ใช่ issued_at ไม่งั้นจอกับกระดาษลงคนละวัน
     #    (ของเดิมที่มีอยู่ก่อนเพิ่มคอลัมน์นี้จะไม่มีค่า → frontend ถอยไปใช้ issued_at)
@@ -1530,3 +1556,47 @@ class QrPreviewRequest(BaseModel):
 class QrPreviewResponse(BaseModel):
     """⚠️ คืนเฉพาะ SVG — payload มีเลข PromptPay เต็ม จึงห้ามออกจาก server"""
     svg: str
+
+
+# ─────────────────────────────────────────── 🧾 [FIN-V2 / P2.6] ACK (ใบรับทราบยอดค้าง)
+class AckIssueRequest(BaseModel):
+    """ออกใบรับทราบยอดค้าง **1 ใบต่อรอบ** — ทั้งห้อง หรือเฉพาะคนที่เลือก
+
+    ⚠️ เอกสารนี้ **ไม่มีการรับเงิน**: ไม่เขียน `finance_transactions`/journal/เครดิต
+       และ `paid_total_after` ของใบ = 0 ⇒ ไม่ออกใบเสร็จ ไม่มี QR/ช่องทางชำระ
+    """
+    # ✅ Literal ไม่ใช่ str — ค่าที่พิมพ์ผิด (`"all"`) จะถูกปฏิเสธเป็น 422 ที่นี่
+    #    แทนที่จะไหลเข้า service แล้วไปตีความผิดเงียบ ๆ
+    scope: Literal["room", "selected"]
+    # 📌 `scope='selected'` ต้องส่ง ≥1 คน; `scope='room'` ต้อง **ไม่** ส่ง (router ตรวจก่อนแตะ DB)
+    student_ids: Optional[List[int]] = Field(None, max_length=100)
+    # 🔗 ออก INV v2 ให้แต่ละคนที่มียอดค้างก่อน แล้วผูกเลข INV ลง ACK (link_type='invoice_for_ack')
+    include_invoice: bool = True
+    # 💳 [FIN-V2 / P2.6] เหตุผลที่ไม่ใส่ `max_length=3` — ดูคอมเมนต์ของ
+    #    `ReceiptInvoiceIssueRequest.channel_ids` (service ตอบ 400 ภาษาไทย)
+    channel_ids: Optional[List[int]] = None
+    note: Optional[str] = Field(None, max_length=255)
+    user_name: Optional[str] = Field(None, max_length=100)
+    # 🔁 บังคับส่ง — กดซ้ำด้วยคีย์เดิมต้องได้ใบเดิม (`reused=true`) ไม่ใช่ใบใหม่ที่กินเลข
+    idempotency_key: str = Field(..., min_length=1, max_length=64)
+
+
+class AckEntryResponse(BaseModel):
+    """หนึ่งบรรทัดใน ACK = หนึ่งนักเรียนที่มียอดค้างในรอบนั้น (snapshot ณ วันออก)"""
+    student_id: int
+    student_no: Optional[int] = None
+    student_name: Optional[str] = None
+    outstanding_amount: float
+    invoice_receipt_id: Optional[int] = None
+    invoice_receipt_no: Optional[str] = None
+
+
+class AckIssueResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    # 🔴 ประกาศ `entries`/`invoice_receipt_nos` ที่นี่เสมอ — ไม่งั้น `response_model`
+    #    จะตัดทิ้งเงียบ ๆ (กับดักเดิมของ FastAPI ใน `docs/skills.md`)
+    receipt: ReceiptResponse
+    entries: List[AckEntryResponse]
+    invoice_receipt_nos: List[str] = Field(default_factory=list)
+    reused: bool = False

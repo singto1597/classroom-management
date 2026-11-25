@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 283 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 284 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -287,6 +287,7 @@
 - [💸 หน้าจอรับเงิน v2: `idempotency_key` เกิดตอนกดครั้งแรก และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด](#หน้าจอรับเงิน-v2-idempotencykey-เกิดตอนกดครั้งแรก-และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด)
 - [📱 PromptPay QR: CRC16 ต้องคำนวณรวม `"6304"` และ "เลขที่เก็บใน DB" กับ "เลขที่ส่ง API" เป็นคนละรูปแบบ](#promptpay-qr-crc16-ต้องคำนวณรวม-6304-และ-เลขที่เก็บใน-db-กับ-เลขที่ส่ง-api-เป็นคนละรูปแบบ)
 - [💳 ฟอร์มแก้ไขข้อมูลที่ API คืนมาแบบ mask: "เว้นว่าง" ต้องละคีย์ ไม่ใช่ส่ง `null`](#ฟอร์มแก้ไขข้อมูลที่-api-คืนมาแบบ-mask-เว้นว่าง-ต้องละคีย์-ไม่ใช่ส่ง-null)
+- [🧾 ใบแจ้งหนี้ v2 + ใบรับทราบยอดค้าง: ถ้อยคำบนกระดาษเป็นสัญญา และ `response_model` เติมฟิลด์ให้เอง](#ใบแจ้งหนี้-v2-ใบรับทราบยอดค้าง-ถ้อยคำบนกระดาษเป็นสัญญา-และ-responsemodel-เติมฟิลด์ให้เอง)
 
 <!-- TOC:END -->
 
@@ -4882,4 +4883,16 @@
   - แท็บใช้ `AppTabs v-model` + `settingsTab` เป็น `ref` local; เนื้อหาเดิมทั้งหมดอยู่ใน `<template v-if="settingsTab === 'general'">` — ต้องไม่ย้าย/รีเซ็ต state ของกระเป๋า/หมวดหมู่
 - **Rule:** (1) 🔴 ห้าม prefill ค่า `*_masked` ลงช่องกรอกหรือส่งกลับ backend (2) 🔴 ฟิลด์ลับที่เว้นว่าง = **ละคีย์ออก** ไม่ใช่ `null` (3) 🔴 QR ต้องแสดงผ่าน `<img>` + object URL และ revoke ทุกเส้นทาง (4) 🔴 ปุ่มเขียนการเงินใช้ `canManageFinance` ไม่ใช่ `isAdmin` (5) 🔴 ปุ่มทำลายข้อมูล (ลบ) ต้องอยู่ใน `RowActionMenu` ไม่ติดกับ “แก้ไข”
 - **Tests/Verification:** `frontend/src/components/finance/__tests__/PaymentChannelsSettings.spec.ts` (mask-only render, ซ่อนปุ่มเขียน, disable ที่ 3, เปิดที่ 4 ไม่ยิง API, payload สร้าง PromptPay ครบ, แก้แล้วไม่มี key `promptpay_id`/`account_number`, เปลี่ยนชนิดไม่ได้, ลบต้องยืนยัน + reload, ตั้งหลัก, QR open ไม่ส่ง amount, fixed ต้องมียอด, revoke ตอนปิด, badge, error+retry), `frontend/src/services/__tests__/finance.spec.ts` (URL ทั้ง 5 + `responseType=blob` + `amount=250.50`) — `npm run test:unit` 504 ผ่าน
+- **Date Added:** 2026-11-25
+
+### 🧾 ใบแจ้งหนี้ v2 + ใบรับทราบยอดค้าง: ถ้อยคำบนกระดาษเป็นสัญญา และ `response_model` เติมฟิลด์ให้เอง
+- **Context/Problem:** P2.6 เปลี่ยน INV เป็น `layout_version=2` (snapshot ช่องทาง ≤3 + QR + ACK ใหม่) แล้วเทสต์เดิม 3 ตัวแดงทั้งที่ข้อมูลถูก: (1) `test_line_items_survive_the_jsonb_round_trip` — Pydantic เติมฟิลด์ optional ของ `ReceiptLineItem` (9 ตัว: `cash_amount`, `bill_remaining`, …) ให้ทุกบรรทัด ⇒ `set(items[0])` ของใบแจ้งหนี้ไม่ใช่ `{title, amount, due_date}` อีก (2) `test_get_receipt_detail_and_list_filters` — ทะเบียนกรอง `layout_version = 1` ⇒ INV v2 ที่เพิ่งออกหายจากรายการทั้งที่ผู้ใช้กดออกสำเร็จ (3) `test_invoice_pdf_uses_billing_wording_not_receipt_wording` — เทมเพลต v2 เขียน "เรียน" และไม่มี "เรียกเก็บจาก"/"ผู้รับแจ้ง" ทั้งที่มาตรฐาน A4 (ฟอร์ม INV) ใช้สองคำนี้คำต่อคำ
+- **Root Cause:** (1) `response_model` เป็น **ตัวกรอง + ตัวเติมค่า default** ไม่ใช่แค่ตัดฟิลด์ — การเพิ่มฟิลด์ optional ให้โมเดลเดียวที่รับสองรูปข้อมูล (legacy 3 คีย์ / v2 หลายคีย์) ทำให้รูปแคบเปลี่ยนรูปเงียบ ๆ; (2) P2.2 ตั้งสมมติฐาน "ทะเบียนเดิมใช้เลย์เอาต์เดิม ⇒ ซ่อน v2 ทั้งหมด" แต่ P2.6 ทำให้ INV เป็น v2 ⇒ สมมติฐานกลายเป็น "ผู้ใช้ออกใบแล้วหาไม่เจอ"; (3) ป้ายบนกระดาษไม่ใช่แค่สไตล์ — เทสต์เดิมยึดถ้อยคำของ **แบบฟอร์ม A4** ("เรียกเก็บจาก" = ผู้ถูกเรียกเก็บ, "ผู้รับแจ้ง" = ผู้ได้รับ **การแจ้ง** ไม่ใช่ผู้รับเงิน) ⇒ เทมเพลตที่คิดถ้อยคำเองทำให้สัญญากับเอกสารมาตรฐานแตกระหว่างเฟส
+- **Correct Pattern/Solution:**
+  - `line_items: Optional[List[Union[ReceiptInvoiceLineItem, ReceiptLineItem]]]` — ตัวแรก `model_config = ConfigDict(extra="forbid")` มี 3 คีย์เดิม วาง **ซ้าย** (แคบก่อนกว้าง): dict ใบแจ้งหนี้จับตัวแรกและ serialize 3 คีย์; dict v2 มีคีย์เกิน ⇒ fail ⇒ ตกไปตัวที่สองและได้ฟิลด์ครบเหมือนเดิม ห้ามแก้เทสต์เดิมเพื่อตามโมเดล
+  - ทะเบียนเดิม: `AND (R.layout_version = 1 OR R.doc_type = 'invoice')` — INV ต้องเห็นเพราะเป็นทางเดียวที่ผู้ใช้ตามหาใบที่เพิ่งออก; REC/DEP v2 ยังซ่อน (P2.2 test ยึด) จน P5.1/P5.2 registry ใหม่มาแทน
+  - `_document_context_invoice_v2` ต้อง re-hydrate คีย์ legacy ที่ `_document_context_v2` ตั้งเป็น `None` เสมอ — เคสจริง: `collection_title` ("ยอดค้างชำระรวม N โครงการ") ถูกสร้างใน `_shape_receipt_detail` แต่ context v2 ล้างทิ้ง ⇒ ใบหายหัวข้อ
+  - ถ้อยคำ INV ยึด A4: `<td class="k">เรียกเก็บจาก</td>` + ท้ายใบ "ต้นฉบับ — สำหรับผู้รับแจ้งเก็บไว้ตรวจสอบยอด"; **ห้าม** ใส่ "ผู้รับเงิน" (คนละคำกับ "ผู้รับแจ้ง") และไม่เพิ่มช่องเซ็นผู้รับ
+- **Rule:** (1) 🔴 เพิ่มฟิลด์ optional ให้โมเดลที่รับหลายรูปข้อมูล = ต้องแยก subtype ด้วย `extra="forbid"` แล้ว Union เรียงแคบ→กว้าง (2) 🔴 เปลี่ยน layout ของเอกสารชนิดใด ต้องทบทวนตัวกรองทะเบียนของชนิดนั้นทันที — "ซ่อน v2" ไม่ใช่กฎถาวร (3) 🔴 context v2 ต้องตั้งคีย์ legacy ครบ **ด้วยค่าจริง** ไม่ใช่ `None` เมื่อแถวยังมีค่านั้น (4) 🔴 ป้ายบนกระดาษลอกจากมาตรฐาน A4 คำต่อคำ; "ผู้รับแจ้ง" ≠ "ผู้รับเงิน"
+- **Tests/Verification:** `backend/tests/test_finance_invoice_channels_ack.py` (snapshot ≤3/primary first, mask, QR fixed/open, 400 ไม่เผาเลข, ACK total/entries/ไม่ขยับเงิน/idempotent/all-or-nothing), `test_finance_invoices.py` (line item 3 คีย์), `test_finance_receipts.py` (ทะเบียนเห็น INV, ถ้อยคำ INV), `test_finance_receipt_v2_template.py`
 - **Date Added:** 2026-11-25

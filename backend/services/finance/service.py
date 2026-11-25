@@ -56,6 +56,10 @@ from .allocation import AllocationMixin
 #    ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม (ชื่อขึ้นต้น `_issue_event_*` ทั้งหมด)
 from .payment_events import PaymentEventsMixin
 from .receipts_v2 import ReceiptsV2Mixin
+# 🧾 [FIN-V2 / P2.6] INV v2 + ACK — override `_issue_invoice_aggregate` (ReceiptsMixin)
+#    และ `_body_template_for` (DocumentsMixin) ผ่าน MRO ⇒ ต้องอยู่ใน MRO **ก่อน** ทั้งคู่
+#    (ชื่ออื่นเป็นชื่อใหม่: `issue_acknowledgements`/`_invoice_channel_snapshot`/…)
+from .invoice_documents import InvoiceDocumentsMixin
 # 🧾 [FIN-V2 / P2.2] context/template ของเอกสาร v2 — `_document_context` (ReceiptsMixin)
 #    dispatch มาที่ `_document_context_v2` ผ่าน MRO ⇒ mixin นี้ต้องอยู่ใน MRO ก่อนเรียก
 #    (ชื่อไม่ชนกับ mixin ใด — `_body_template_for`/`_v2_line_items`/`_document_context_v2`)
@@ -83,6 +87,10 @@ class FinanceService(
     CustomChargesMixin,
     ExportMixin,
     ReportingMixin,
+    # 🧾 [FIN-V2 / P2.6] — MRO ต้องเป็น InvoiceDocumentsMixin → DocumentsMixin → ReceiptsMixin
+    #    ⇒ INV ที่ออกผ่าน `issue_invoices*` กลายเป็น v2 (override `_issue_invoice_aggregate`)
+    #    และ `_body_template_for` ของ INV/ACK ชนะ version ของ DocumentsMixin
+    InvoiceDocumentsMixin,
     # 🧾 [FIN-V2 / P2.2] — วาง**ก่อน** `ReceiptsMixin` ตาม brief (mixin ที่อยู่บนชนะ)
     #    `ReceiptsMixin._document_context` เรียก `cls._document_context_v2` ผ่าน MRO
     DocumentsMixin,

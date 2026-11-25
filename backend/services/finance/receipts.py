@@ -48,7 +48,8 @@ from .base import _lock_payments_in_order, _lock_room_money, service_logger
 from .baht_text import baht_text
 from .constants import (
     BATCH_SOURCE_AUTO, BATCH_SOURCE_ROOM, COLLECTION_KIND_PROJECT,
-    BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED, DOC_TYPE_DEPOSIT,
+    BUDDHIST_ERA_OFFSET, DOC_STATUS_ACTIVE, DOC_STATUS_VOIDED,
+    DOC_TYPE_ACKNOWLEDGEMENT, DOC_TYPE_DEPOSIT,
     DOC_TYPE_INCOME, DOC_TYPE_INVOICE, DOC_TYPE_LABELS, DOC_TYPE_PREFIXES,
     DOC_TYPE_PAYMENT_VOUCHER, DOC_TYPE_RECEIPT,
     PDF_BATCH_TIMEOUT, RECEIPTS_PER_PDF_MAX, RECEIPT_LIKE_DOC_TYPES,
@@ -1656,6 +1657,7 @@ class ReceiptsMixin:
         cls, pool: asyncpg.Pool, student_ids: List[int], user_id: int, client_source: str,
         actor_identifier: str, note: Optional[str] = None, user_name: str = "—",
         server_id: Optional[int] = None, room_id: Optional[int] = None,
+        channel_ids: Optional[List[int]] = None,
     ) -> dict:
         """ออกใบแจ้งหนี้ **ยอดค้างรวม** ให้นักเรียนที่เลือก — 1 คน = 1 ใบ (all-or-nothing)
 
@@ -1698,6 +1700,8 @@ class ReceiptsMixin:
                     for sid in unique_ids:
                         row = await cls._issue_invoice_aggregate(
                             conn, target_room_id, sid, user_id, user_name, note, issued_at_db,
+                            # 💳 [P2.6] ช่องทางที่ผู้ใช้เลือก (None = 3 ช่องทางแรกของห้อง)
+                            channel_ids=channel_ids,
                         )
                         issued.append(cls._shape_receipt(row))
 
@@ -1747,6 +1751,7 @@ class ReceiptsMixin:
         cls, pool: asyncpg.Pool, user_id: int, client_source: str, actor_identifier: str,
         note: Optional[str] = None, user_name: str = "—",
         server_id: Optional[int] = None, room_id: Optional[int] = None,
+        channel_ids: Optional[List[int]] = None,
     ) -> dict:
         """ออกใบแจ้งหนี้ให้ **ทุกคนที่มียอดค้าง** ในห้อง — 1 คน = 1 ใบ (all-or-nothing)
 
@@ -1792,6 +1797,8 @@ class ReceiptsMixin:
                     for sid in issuable:
                         row = await cls._issue_invoice_aggregate(
                             conn, target_room_id, sid, user_id, user_name, note, issued_at_db,
+                            # 💳 [P2.6] ช่องทางที่ผู้ใช้เลือก (None = 3 ช่องทางแรกของห้อง)
+                            channel_ids=channel_ids,
                         )
                         issued.append(cls._shape_receipt(row))
 
@@ -1878,7 +1885,12 @@ class ReceiptsMixin:
                 # 🧾 [P2.2] ทะเบียนเดิมเห็นเฉพาะเอกสาร legacy — ใบ v2 ยังเปิด/พิมพ์ได้ผ่าน
                 #    `get_receipt` แต่หน้านี้ใช้เลย์เอาต์เดิมซึ่งอ่าน snapshot v2 ไม่ครบ
                 #    (P5.2 จะมี registry ใหม่ที่รวมทั้งสอง layout) · กรองทั้ง include_voided
-                where += " AND R.layout_version = 1"
+                # 🧾 [P2.6] **ข้อยกเว้นเดียว: INV** — ใบแจ้งหนี้เปลี่ยนเป็น layout 2 ที่นี่ แต่
+                #    หน้าทะเบียนเดิมยังเป็นทางเดียวที่ผู้ใช้เห็นใบที่เพิ่งออก ⇒ ถ้ากรองทิ้ง
+                #    ผู้ใช้ออก INV สำเร็จแล้วหาไม่เจอ (และ `doc_type=invoice` filter ว่างเปล่า)
+                #    ⚠️ REC/DEP v2 ยังถูกซ่อนตามเดิม (P2.2 test ยึดพฤติกรรมนั้น) — P5.2 registry
+                #       ใหม่จะรวมทั้งสอง layout แล้วลบบรรทัดนี้
+                where += " AND (R.layout_version = 1 OR R.doc_type = 'invoice')"
                 params: List = [target_room_id]
                 idx = 2
                 if doc_type:
@@ -2155,6 +2167,10 @@ class ReceiptsMixin:
         # 🧾 [P2.2] เอกสาร v2 อ่าน snapshot ของตัวเอง — partial แยกไฟล์ (REC/DEP)
         #    ⚠️ legacy (layout 1) ต้องเดินต่อด้วยโค้ดเดิม **ไบต์ต่อไบต์**
         if int(d.get("layout_version") or 1) >= 2:
+            # 🧾 [P2.6] INV/ACK มี partial + snapshot รูปของตัวเอง (ช่องทาง/QR/รายชื่อ ACK)
+            #    ⇒ dispatch เฉพาะสองชนิดนี้ก่อน แล้วที่เหลือใช้ของ P2.2
+            if d.get("doc_type") in (DOC_TYPE_INVOICE, DOC_TYPE_ACKNOWLEDGEMENT):
+                return cls._document_context_invoice_v2(d)
             return cls._document_context_v2(d)
         amount = float(d["amount"])
         paid_total = float(d["paid_total_after"])

@@ -1,0 +1,141 @@
+  {% if d.is_voided %}
+  {# 🚫 ใบที่ยกเลิกแล้วต้องอ่านออกก่อนตัวเลขใด ๆ — คลาสเดียวกับ `_receipt_body.html` #}
+  <div class="void-banner">
+    เอกสารนี้ถูกยกเลิกแล้ว — VOID
+    {% if d.void_reason %}<span class="why">เหตุผล: {{ d.void_reason }}</span>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="head">
+    <div>
+      <h1>{{ d.doc_title }}</h1>
+      <div class="room">
+        {{ d.room_name }}{% if d.room_code %} ({{ d.room_code }}){% endif %}
+      </div>
+    </div>
+    <div class="doc-title">
+      <div class="label">เลขที่ {{ d.receipt_no }}</div>
+      <div class="no">วันที่ {{ d.document_date_text or '-' }}</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <table class="meta">
+    <tr>
+      {# 🧾 ใบแจ้งหนี้ **ไม่มี** ช่องเซ็นผู้รับเงิน — เป็นเอกสารเรียกเก็บ ไม่ใช่หลักฐานรับเงิน
+         ⚠️ ถ้อยคำ "เรียกเก็บจาก"/"ผู้รับแจ้ง" ยึดตามมาตรฐาน A4 (ฟอร์ม INV) คำต่อคำ —
+            "ผู้รับแจ้ง" = ผู้ที่ได้รับ **การแจ้ง** (ผู้ปกครอง/นักเรียน) ไม่ใช่ผู้รับเงิน
+            ⇒ ห้ามใช้ "ผู้รับเงิน" ที่นี่เด็ดขาด แม้จะดูเหมือนคำเดียวกัน #}
+      <td class="k">เรียกเก็บจาก</td>
+      <td><strong>{{ d.payer_name or '-' }}</strong>{% if d.student_no %} — เลขที่ {{ d.student_no }}{% endif %}</td>
+    </tr>
+    {% if d.collection_title %}
+    <tr>
+      <td class="k">รายการ</td>
+      <td>{{ d.collection_title }}</td>
+    </tr>
+    {% endif %}
+    {% if d.due_date_text %}
+    <tr>
+      <td class="k">ครบกำหนดชำระ</td>
+      <td>{{ d.due_date_text }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  {# 📋 1 บรรทัด = 1 บิลที่ยังค้าง ณ วันออกเอกสาร — snapshot ล้วน (ห้าม JOIN บิลสด)
+     🔴 แถว "รวมทั้งสิ้น" พิมพ์ `d.amount` ที่บันทึกไว้ ไม่ใช่ผลบวกของบรรทัดที่แสดง
+        ⇒ การตัดบรรทัดเกิน 20 ไม่ทำให้ยอดบนใบผิด #}
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width: 40px;">#</th>
+        <th>รายการ</th>
+        <th style="width: 120px;">วันครบกำหนด</th>
+        <th class="num" style="width: 120px;">จำนวนเงิน</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in d.line_items %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ it.title }}</td>
+        <td class="due">{% if it.due_date_text is not none %}{{ it.due_date_text }}{% else %}—{% endif %}</td>
+        <td class="num">{{ "{:,.2f}".format(it.amount) }}</td>
+      </tr>
+      {% endfor %}
+      {% if d.line_items_hidden %}
+      <tr>
+        <td colspan="4" class="more">
+          และอีก {{ d.line_items_hidden }} รายการ — ดูรายละเอียดทั้งหมดได้ที่ทะเบียนเอกสาร
+        </td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td colspan="2" style="text-align: right; font-weight: 700;">รวมทั้งสิ้น</td>
+        <td></td>
+        <td class="num" style="font-weight: 700;">{{ "{:,.2f}".format(d.amount) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="amount-box">
+    <div class="words">({{ d.amount_text }})</div>
+    <div class="figures">{{ "{:,.2f}".format(d.amount) }} ฿</div>
+  </div>
+
+  {# 💳 ช่องทางชำระเงิน — snapshot ณ วันออกเอกสาร (≤3, primary อยู่ลำดับแรก)
+     🔒 ห้ามพิมพ์เลขพร้อมเพย์/เลขบัญชีเต็ม — snapshot เก็บแต่ค่า mask แล้ว #}
+  {% if d.channels %}
+  <div style="margin-top: 14px;">
+    <div style="font-weight: 700; margin-bottom: 4px;">ช่องทางชำระเงิน</div>
+    <table class="meta">
+      {% for ch in d.channels %}
+      <tr>
+        <td class="k">
+          {{ ch.label or ch.channel_type }}
+          {% if ch.is_primary %}<span style="color: #0f766e; font-weight: 700;">· ช่องทางหลัก</span>{% endif %}
+        </td>
+        <td>
+          {% if ch.bank_name %}{{ ch.bank_name }} · {% endif %}
+          {% if ch.account_name %}{{ ch.account_name }}{% endif %}
+          {% if ch.account_number_masked %} · เลขบัญชี {{ ch.account_number_masked }}{% endif %}
+          {% if ch.promptpay_id_masked %} · พร้อมเพย์ {{ ch.promptpay_id_masked }}{% endif %}
+          {% if ch.qr_mode %} · QR {% if ch.qr_mode == 'fixed' %}ฝังยอด{% else %}ไม่ฝังยอด{% endif %}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {# 📱 QR ของช่องทางหลัก — สร้างจาก payload ที่ server เก็บไว้เป็น snapshot
+     🔴 base64 data URI เท่านั้น (ห้าม `|safe` กับ SVG ดิบ) และขนาดเป็น mm เพื่อไม่ล้น A4 #}
+  {% if d.qr_data_uri %}
+  <div style="margin-top: 12px; text-align: center;">
+    <img src="{{ d.qr_data_uri }}" alt="PromptPay QR" style="width: 34mm; height: 34mm;">
+    <div style="font-size: 11px; color: #57534e;">สแกนด้วยแอปธนาคารเพื่อชำระผ่านพร้อมเพย์</div>
+  </div>
+  {% endif %}
+
+  {% if d.note %}
+  <div class="note">หมายเหตุ: {{ d.note }}</div>
+  {% endif %}
+
+  <div class="note">เอกสารนี้เป็นการเรียกเก็บเงิน ไม่ใช่หลักฐานการชำระเงิน</div>
+
+  {# ✍️ INV มี **ช่องเดียว** — ผู้ออกเอกสาร (doc-matrix: INV ไม่มีช่องเซ็นผู้รับ) #}
+  <div class="sign">
+    <div class="slot">
+      <div class="line"></div>
+      <div class="who">{{ d.issuer_name or '' }}</div>
+      <div class="role">ผู้ออกเอกสาร</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    เอกสารฉบับนี้ออกโดยระบบบริหารจัดการห้องเรียน — เลขที่ {{ d.receipt_no }}<br>
+    {# ⚠️ "ผู้รับแจ้ง" ที่นี่คือผู้ปกครอง/นักเรียนผู้ได้รับใบ — ไม่ใช่ผู้รับเงิน (มาตรฐาน A4) #}
+    ต้นฉบับ — สำหรับผู้รับแจ้งเก็บไว้ตรวจสอบยอด
+  </div>
