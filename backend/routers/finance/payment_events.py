@@ -20,10 +20,11 @@ from core.exceptions import (
 )
 from models.finance_schemas import (
     PaymentEventCreate, PaymentEventDetailResponse, PaymentEventListResponse,
-    PaymentEventResponse,
+    PaymentEventResponse, VoidRequest, VoidResponse,
 )
 from services.finance.allocation import AllocationError, ChannelNotFoundError
 from services.finance.payment_events import PaymentEventAccountNotFoundError
+from services.finance.voids import VoidConflictError
 from services.finance_service import FinanceService
 
 from routers._common import TargetResolution, get_target, get_audit_context
@@ -121,3 +122,35 @@ async def get_payment_event(
         )
     except Exception as e:
         _raise_translated(e)
+
+
+# 🚫 [FIN-V2 / P6.1] void event — ต้องยกเลิกทั้ง event (REC+DEP+เครดิต+journal) พร้อมกัน
+#    🔴 จับ `VoidConflictError` **ก่อน** `ValueError` — ไม่งั้น 409 จะกลายเป็น 400
+@router.post(
+    "/{target_id}/finance/payment-events/{event_id}/void",
+    response_model=VoidResponse,
+)
+async def void_payment_event(
+    event_id: int,
+    req: VoidRequest,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """ยกเลิกรายการรับเงิน (MANAGE_FINANCE) — คืนเงิน/บิล/เครดิต + void REC/DEP"""
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.void_payment_event(
+            pool=pool, event_id=event_id, req=req, user_id=user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor,
+            server_id=target.server_id, room_id=target.room_id,
+        )
+    except (PaymentNotFoundError, RoomNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except VoidConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

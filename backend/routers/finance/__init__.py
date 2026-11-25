@@ -41,6 +41,9 @@ from .income_batches import router as income_batches_router
 from .documents import router as documents_router
 # 📊 [FIN-V2 / P5.4] รายงานปิดงบเดือน — `/finance/monthly-reports*`
 from .monthly_reports import router as monthly_reports_router
+# 🚫 [FIN-V2 / P6.1] void endpoint กลาง — `/finance/documents/{doc_type}/{doc_id}/void`
+#    (เฉพาะ INV/CERT — ชนิดที่แตะเงินต้องยกเลิกผ่าน router ของ resource นั้น)
+from .voids import router as voids_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -111,5 +114,11 @@ router.include_router(documents_router)
 
 # 📊 [FIN-V2 / P5.4] RPT — path ไม่ทับกลุ่มใด (ลำดับ include ไม่มีผลกับพฤติกรรม)
 router.include_router(monthly_reports_router)
+
+# 🚫 [FIN-V2 / P6.1] void กลาง — `/finance/documents/{doc_type}/{doc_id}/void`
+#    ⚠️ ประกาศ **หลัง** documents_router โดยเจตนา: path นี้ยาวกว่า (`.../void`)
+#       และเป็น POST ขณะที่ registry ใช้ GET ⇒ ไม่มีทางชนกัน แต่การวางท้ายทำให้
+#       diff ของงานนี้ต่อเติมท้ายไฟล์
+router.include_router(voids_router)
 
 __all__ = ["router"]

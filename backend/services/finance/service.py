@@ -101,6 +101,12 @@ from .acknowledgements import AcknowledgmentMixin
 # 📊 [FIN-V2 / P5.4] RPT — พึ่ง `_lock_room_money` (BaseMixin) และ `_resolve_student_name`
 #    (BaseMixin) ผ่าน MRO · ไม่แตะเงิน/journal (อ่านอย่างเดียวต่อบัญชี)
 from .monthly_reports import MonthlyReportsMixin
+# 🚫 [FIN-V2 / P6.1] void engine — ยกเลิก event/PV/INC/เอกสารแบบ atomic จุดเดียว
+#    พึ่ง `_lock_room_money`/`_lock_payments_in_order` (BaseMixin), `_sync_fine_status`/
+#    `_assert_*_fine_*` (FinesMixin), `_load_credit_balance` (CreditsMixin) และ
+#    `_resolve_actor_name` (ExpenseVouchersMixin) ผ่าน MRO
+#    ⇒ ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief (ชื่อใหม่ทั้งหมด)
+from .voids import VoidMixin
 
 
 class FinanceService(
@@ -186,6 +192,10 @@ class FinanceService(
     #    ต้องอยู่ **ก่อน** AccrualMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
     AcknowledgmentMixin,
     MonthlyReportsMixin,
+    # 🚫 [FIN-V2 / P6.1] — void engine (event/PV/INC + INV/CERT dispatch)
+    #    ต้องอยู่ **ก่อน** AccrualMixin/LedgerMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
+    #    (`void_*` เป็นชื่อใหม่; `_void_receipt_ids_locked`/`_void_*_locked` ขึ้นต้น `_`)
+    VoidMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,

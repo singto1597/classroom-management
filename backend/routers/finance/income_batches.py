@@ -15,11 +15,12 @@ from core.dependencies import get_db_pool, get_current_user
 from core.exceptions import ForbiddenError, RoomNotFoundError
 from models.finance_schemas import (
     IncomeBatchCreate, IncomeBatchDetailResponse, IncomeBatchListResponse,
-    IncomeBatchResponse,
+    IncomeBatchResponse, VoidRequest, VoidResponse,
 )
 from services.finance.income_batches import (
     IncomeBatchIdempotencyConflict, IncomeBatchNotFoundError,
 )
+from services.finance.voids import VoidConflictError
 from services.finance.pdf import PdfRenderError
 from services.finance_service import FinanceService
 
@@ -152,3 +153,35 @@ async def download_income_batch_pdf(
             "Content-Length": str(len(pdf_bytes)),
         },
     )
+
+
+# 🚫 [FIN-V2 / P6.1] void INC — ต้องมีเงินในกระเป๋าพอคืน (กันยอดติดลบ) + void INC/journal
+#    🔴 จับ `VoidConflictError` **ก่อน** `ValueError` — ไม่งั้น 409 จะกลายเป็น 400
+@router.post(
+    "/{target_id}/finance/income-batches/{batch_id}/void",
+    response_model=VoidResponse,
+)
+async def void_income_batch(
+    batch_id: int,
+    req: VoidRequest,
+    request: Request,
+    target: TargetResolution = Depends(get_target),
+    pool: asyncpg.Pool = Depends(get_db_pool),
+    user_ctx: dict = Depends(get_current_user),
+):
+    """ยกเลิกใบรับเงิน (MANAGE_FINANCE) — คืนเงินในกระเป๋า + void INC/journal"""
+    try:
+        client_source, actor = get_audit_context(request, user_ctx)
+        return await FinanceService.void_income_batch(
+            pool=pool, batch_id=batch_id, req=req, user_id=user_ctx["user_id"],
+            client_source=client_source, actor_identifier=actor,
+            server_id=target.server_id, room_id=target.room_id,
+        )
+    except (IncomeBatchNotFoundError, RoomNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except VoidConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

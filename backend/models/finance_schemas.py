@@ -2286,3 +2286,41 @@ class MonthlyReportDetailResponse(BaseModel):
     message: Optional[str] = None
     report: MonthlyReportResponse
     signatures: List[DocumentSignatureItem] = Field(default_factory=list)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P6.1] void engine — คำขอ/คำตอบกลางของการยกเลิกเอกสาร/เหตุการณ์เงิน
+# ══════════════════════════════════════════════════════════════════════════════
+class VoidRequest(BaseModel):
+    """เหตุผลยกเลิกเอกสาร
+
+    🔴 **ไม่ใช้ `min_length=1` โดยเจตนา** — ถ้าปล่อยให้ Pydantic ปฏิเสธ จะได้ **422**
+       แต่กติกาของ API นี้คือ 400 สำหรับ request ที่ผู้ใช้กรอกผิด ⇒ service เป็นผู้ trim
+       แล้ว raise `ValueError` (ว่าง/ช่องว่างล้วน ⇒ 400 พร้อมข้อความไทย)
+    """
+    reason: str = Field(default="", max_length=500)
+
+
+class VoidAccountDelta(BaseModel):
+    """ผลกระทบต่อกระเป๋าเงิน 1 ใบ — `delta` ติดลบ = เงินออก, บวก = เงินกลับ"""
+    account_id: int
+    delta: float
+
+
+class VoidReversed(BaseModel):
+    """ยอดที่ย้อนกลับ — ใช้แสดงผลสรุปหลังยกเลิก"""
+    amount: float = 0.0
+    paid_amount_delta: float = 0.0
+    # 📊 การเปลี่ยนแปลงสุทธิของเครดิตนักเรียน (ลบ = ถอนเครดิตส่วนเกินคืนเข้าระบบ)
+    credit_restored: float = 0.0
+    accounts: List[VoidAccountDelta] = Field(default_factory=list)
+
+
+class VoidResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    doc_type: str
+    doc_id: int
+    receipt_no: Optional[str] = None
+    voided_at: Optional[datetime] = None
+    reversed: VoidReversed = Field(default_factory=VoidReversed)
