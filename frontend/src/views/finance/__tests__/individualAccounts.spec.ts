@@ -26,6 +26,8 @@ import type {
  *   5. ปุ่มออกใบแจ้งหนี้ส่ง **id ที่ติ๊กไว้** ไป backend (1 คน = 1 ใบ)
  *   6. 🔒 ปุ่มเขียนทุกตัว gate ด้วย `canManageFinance` (ไม่ใช่ `isAdmin`)
  *   7. ตัดเครดิตรวบรวมขอข้อเสนอก่อน (`getCreditPlan`) — ยังไม่เขียนอะไร
+ *   8. การ์ดมือถือไม่มีปุ่ม "เปิดบัญชี" ซ้ำ (กดการ์ดเข้าได้อยู่แล้ว) และเมนู ⋮
+ *      อยู่มุมขวาบนของการ์ด ไม่ใช่แถวล่างสุด
  */
 const authState = vi.hoisted(() => ({
   currentRoomId: 7,
@@ -394,6 +396,19 @@ describe('IndividualAccounts — หน้าเดียวของงาน�
     })
   })
 
+  it('การ์ดไม่มีปุ่ม "เปิดบัญชี" ซ้ำ และเมนู ⋮ อยู่ในมุมขวาบนของการ์ด', async () => {
+    const wrapper = await mountPage()
+
+    expect(buttonWithText(wrapper, 'เปิดบัญชี')).toBeUndefined()
+
+    // การ์ดมือถือเรนเดอร์ก่อนตาราง ⇒ ตัวแรกคือของใบแรก
+    const cardMenu = wrapper.findAllComponents(RowActionMenuStub)[0]!
+    const corner = cardMenu.element.closest('.absolute')
+    expect(corner).not.toBeNull()
+    expect(corner!.className).toContain('right-1')
+    expect(corner!.className).toContain('top-1')
+  })
+
   it('ไม่มีสิทธิ์จัดการการเงิน ⇒ ไม่มีปุ่มเขียน/ช่องติ๊ก และเมนูเหลือเฉพาะอ่าน', async () => {
     authState.canManageFinance = false
     const wrapper = await mountPage()
@@ -405,8 +420,9 @@ describe('IndividualAccounts — หน้าเดียวของงาน�
     expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0)
     expect(FinanceService.getAccounts).not.toHaveBeenCalled()
 
+    // ไม่มี "เปิดบัญชี" ในเมนู — การ์ด/แถวเปิดบัญชีด้วยการกดที่ตัวแถวเองอยู่แล้ว
     const menu = wrapper.findAllComponents(RowActionMenuStub)[0]!
     const keys = (menu.props('items') as { key: string }[]).map((i) => i.key)
-    expect(keys).toEqual(['open', 'history'])
+    expect(keys).toEqual(['history'])
   })
 })
