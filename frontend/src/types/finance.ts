@@ -2089,3 +2089,114 @@ export interface ExpenseVoucherDetail {
   lines: ExpenseVoucherLineItem[];
   signatures: ExpenseVoucherSignatureItem[];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💰 [FIN-V2 / P4.5] ใบรับเงินหลายบรรทัด (income batch) — INC 1 ใบ/ชุด
+//    ⚠️ **กระเป๋าเดียวต่อใบ** (schema ของ P4.4 ไม่มี wallet ต่อบรรทัด)
+//    ⚠️ ผู้จ่ายเป็นข้อความอิสระ — ไม่มี `student_id`/person ผูกกับช่องนี้
+// ═══════════════════════════════════════════════════════════════════════════
+/** 1 บรรทัดที่ส่งไปสร้าง — ไม่มีกระเป๋า/สถานะใบเสร็จ/งบ (schema ไม่มีคอลัมน์) */
+export interface IncomeBatchLinePayload {
+  description: string;
+  amount: number;
+  category_id: number;
+}
+
+export interface IncomeBatchCreate {
+  idempotency_key: string;
+  /** ข้อความอิสระ — พิมพ์ลงเอกสารตรง ๆ ห้ามเดา/จับคู่นักเรียนจากชื่อ */
+  payer_name: string;
+  /** เลือกจากทะเบียน — ถ้าส่ง คนนี้ชนะ `receiver_name` เสมอ (server ใช้ชื่อทะเบียน) */
+  receiver_person_id?: number | null;
+  /** ใช้เมื่อไม่เลือก person — required เมื่อ `receiver_person_id` เป็น null */
+  receiver_name?: string | null;
+  /** กระเป๋าเดียวทั้งใบ */
+  wallet_account_id: number;
+  /** ต้องผูกกระเป๋าเดียวกับ `wallet_account_id` (ถ้าช่องทางผูกกระเป๋าไว้) */
+  channel_id?: number | null;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) — ไม่ส่ง = server ใช้ CURRENT_DATE */
+  income_date?: string | null;
+  note?: string | null;
+  /** server คำนวณใหม่จากบรรทัด — ส่งได้แต่ห้ามใช้เป็นแหล่งความจริง */
+  total_amount?: number;
+  lines: IncomeBatchLinePayload[];
+}
+
+/** ผลของ `POST /finance/income-batches` — `reused=true` = คีย์เดิม payload เดิม */
+export interface IncomeBatchCreateResponse {
+  id: number;
+  total_amount: number;
+  line_count: number;
+  inc_receipt_id: number;
+  inc_receipt_no: string;
+  created_at: string;
+  reused: boolean;
+}
+
+export interface IncomeBatchListItem {
+  id: number;
+  /** `YYYY-MM-DD` (วันตามปฏิทินไทย) */
+  income_date: string;
+  payer_name: string;
+  receiver_name: string;
+  total_amount: number;
+  line_count: number;
+  status: string;
+  inc_receipt_id: number | null;
+  inc_receipt_no: string | null;
+  created_at: string;
+}
+
+/** `total` = **ผลบวกยอดเงินของทุกใบ** ไม่ใช่จำนวนใบ */
+export interface IncomeBatchListResponse {
+  items: IncomeBatchListItem[];
+  total: number;
+}
+
+/**
+ * snapshot ของช่องทางที่ถูกคัดไว้บนเอกสาร — ค่า mask ไว้แล้ว
+ * 🔴 label/เลขบัญชีคือ **ภาพ ณ วันที่บันทึก** ไม่ใช่ค่าปัจจุบันของช่องทาง
+ */
+export interface IncomeBatchChannelSnapshot {
+  channel_type?: PaymentChannelType;
+  label?: string | null;
+  account_name?: string | null;
+  bank_name?: string | null;
+  account_number_masked?: string | null;
+  promptpay_id_masked?: string | null;
+}
+
+export interface IncomeBatchLineItem {
+  line_no: number;
+  description: string;
+  amount: number;
+  category_id: number | null;
+  category_name: string | null;
+  finance_transaction_id: number | null;
+}
+
+export interface IncomeBatchSignatureItem {
+  role: string;
+  person_id: number | null;
+  signer_name: string;
+}
+
+export interface IncomeBatchDetail {
+  id: number;
+  income_date: string;
+  payer_name: string;
+  receiver_person_id: number | null;
+  receiver_name: string;
+  wallet_account_id: number;
+  channel_id: number | null;
+  /** `{}` เมื่อไม่ได้เลือกช่องทาง */
+  channel: IncomeBatchChannelSnapshot;
+  note: string | null;
+  total_amount: number;
+  status: string;
+  inc_receipt_id: number | null;
+  inc_receipt_no: string | null;
+  created_at: string;
+  lines: IncomeBatchLineItem[];
+  signatures: IncomeBatchSignatureItem[];
+}

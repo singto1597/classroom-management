@@ -213,6 +213,11 @@ export const routeTitles = {
   'finance-expense-vouchers': 'ใบสำคัญจ่าย',
   'finance-expense-voucher-create': 'สร้างใบสำคัญจ่าย',
   'finance-expense-voucher-detail': 'รายละเอียดใบสำคัญจ่าย',
+  // 💰 [FIN-V2 / P4.5] ใบรับเงินหลายบรรทัด — คำตรง docs/glossary.md
+  // ⚠️ ไม่อยู่ใน `NAV_ITEMS` โดยเจตนา (เข้าจากการเงิน/หน้ารายการ)
+  'finance-income-batches': 'ใบรับเงิน',
+  'finance-income-batch-create': 'สร้างใบรับเงิน',
+  'finance-income-batch-detail': 'รายละเอียดใบรับเงิน',
 
   // ── กิจกรรม ─────────────────────────────────────────────────────────────
   activities: 'กิจกรรมและผู้เข้าร่วม',

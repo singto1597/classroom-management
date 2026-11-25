@@ -518,6 +518,43 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 💰 [FIN-V2 / P4.5] ใบรับเงินหลายบรรทัด — อ่านเปิดให้สมาชิก (`require_member`)
+        // ปุ่มสร้าง/ฟอร์ม gate ด้วย `canManageFinance`; backend บังคับ MANAGE_FINANCE ซ้ำ
+        path: '/finance/income-batches',
+        name: 'finance-income-batches',
+        component: () => import('@/views/finance/IncomeBatchList.vue'),
+        meta: {
+          title: routeTitles['finance-income-batches'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
+        // ⚠️ `new` ต้องมาก่อน `:id` — ไม่งั้น vue-router จับ `new` เป็น id
+        path: '/finance/income-batches/new',
+        name: 'finance-income-batch-create',
+        component: () => import('@/views/finance/IncomeBatchCreate.vue'),
+        meta: {
+          title: routeTitles['finance-income-batch-create'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'form',
+        },
+      },
+      {
+        // 🔢 `\d+` กัน path อื่นถูกกลืนและกัน `Number('abc') = NaN`
+        path: '/finance/income-batches/:id(\\d+)',
+        name: 'finance-income-batch-detail',
+        component: () => import('@/views/finance/IncomeBatchDetail.vue'),
+        meta: {
+          title: routeTitles['finance-income-batch-detail'],
+          navTab: 'finance',
+          headerBack: true,
+          width: 'wide',
+        },
+      },
+      {
         path: '/discord-connect',
         name: 'DiscordConnect',
         component: () => import('@/components/discord/DiscordConnectGuide.vue'),

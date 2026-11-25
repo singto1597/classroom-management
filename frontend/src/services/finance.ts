@@ -120,7 +120,12 @@ import type {
   ExpenseVoucherCreate,
   ExpenseVoucherCreateResponse,
   ExpenseVoucherDetail,
-  ExpenseVoucherListResponse
+  ExpenseVoucherListResponse,
+  // 💰 [FIN-V2 / P4.4 API → P4.5 UI] ใบรับเงินหลายบรรทัด
+  IncomeBatchCreate,
+  IncomeBatchCreateResponse,
+  IncomeBatchDetail,
+  IncomeBatchListResponse
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -1183,6 +1188,49 @@ export const FinanceService = {
   async downloadExpenseVoucherPdf(roomId: number, id: number): Promise<Blob> {
     return await api.get(
       `/api/classroom/${roomId}/finance/expense-vouchers/${id}/pdf`,
+      { params: { target_type: 'room' }, responseType: 'blob' }
+    ) as unknown as Blob;
+  },
+
+  // ==========================================
+  // 💰 [FIN-V2 / P4.4 API → P4.5 UI] ใบรับเงินหลายบรรทัด (income batch)
+  // ==========================================
+
+  async getIncomeBatches(
+    roomId: number,
+    params: { from?: string; to?: string; status?: 'active' | 'voided' } = {}
+  ): Promise<IncomeBatchListResponse> {
+    const query: Record<string, string> = { target_type: 'room' };
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === '') continue;
+      query[key] = value;
+    }
+    return await api.get(
+      `/api/classroom/${roomId}/finance/income-batches`,
+      { params: query }
+    ) as unknown as IncomeBatchListResponse;
+  },
+
+  async getIncomeBatch(roomId: number, id: number): Promise<IncomeBatchDetail> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/income-batches/${id}?target_type=room`
+    ) as unknown as IncomeBatchDetail;
+  },
+
+  async createIncomeBatch(
+    roomId: number,
+    payload: IncomeBatchCreate
+  ): Promise<IncomeBatchCreateResponse> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/income-batches?target_type=room`,
+      payload
+    ) as unknown as IncomeBatchCreateResponse;
+  },
+
+  // 🖨️ PDF มาจาก P4.6 ตัวเดียว (`GET .../{id}/pdf`) — ห้ามสร้าง print view ในหน้า
+  async downloadIncomeBatchPdf(roomId: number, id: number): Promise<Blob> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/income-batches/${id}/pdf`,
       { params: { target_type: 'room' }, responseType: 'blob' }
     ) as unknown as Blob;
   }

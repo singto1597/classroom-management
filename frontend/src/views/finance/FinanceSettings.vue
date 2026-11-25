@@ -1329,5 +1329,32 @@ void (async () => {
         </RouterLink>
       </div>
     </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         💰 [FIN-V2 / P4.5] ใบรับเงิน — การ์ดทางเข้า (ไม่ใช่เมนูหลัก)
+         ═══════════════════════════════════════════════════════════════
+         🔓 อ่านเปิดให้สมาชิก (backend `require_member`) · ปุ่มสร้างอยู่ในหน้ารายการ
+         และซ่อนตาม `canManageFinance` — การ์ดนี้ไม่เรียก API เพิ่ม -->
+    <div
+      v-if="settingsTab === 'general' && !isLoading && !hasError"
+      class="page-card overflow-hidden"
+    >
+      <div class="border-b border-line bg-canvas px-4 py-3 sm:px-5">
+        <h2 class="section-title flex items-center gap-2">
+          <i class="bi bi-cash-stack text-brand-700" aria-hidden="true"></i>
+          <span class="truncate">ใบรับเงิน</span>
+        </h2>
+        <p class="mt-0.5 text-sm text-ink-3">
+          รายรับอื่นที่ไม่ใช่บิลนักเรียน — หลายหมวดในใบเดียว และ INC ออกทุกใบ
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
+        <p class="text-sm text-ink-3">ดูใบที่ออกแล้ว หรือสร้างใบใหม่เมื่อมีรายรับเข้ามา</p>
+        <RouterLink to="/finance/income-batches" class="btn-ghost-ui">
+          <i class="bi bi-arrow-right-circle" aria-hidden="true"></i>
+          เปิดหน้าใบรับเงิน
+        </RouterLink>
+      </div>
+    </div>
   </div>
 </template>
