@@ -5,26 +5,37 @@
  * หน้านี้ **แยก route** โดยเจตนา (ไม่ใช่ modal) เพื่อส่งลิงก์ให้ผู้ปกครอง/นักเรียนได้
  * และเป็นที่ลงจอดของ "เปิดจากรายการเดินบัญชี" ในอนาคต
  *
+ * รวมเป็น **โต๊ะทำงานของนักเรียน 1 คน**:
+ *   บิลค้าง · รับเงิน · เครดิตเต็มรูปแบบ (เติม/ตัด/ประวัติ/ยกเลิกการหัก) · ประวัติรับเงินล่าสุด
+ *
  * 🔓 อ่านอย่างเดียว · สมาชิกห้องอ่านได้ — ห้าม gate ด้วย `isAdmin`
- * 🧾 ปุ่ม "รับเงิน" (P2.3) แสดงเฉพาะผู้มี `MANAGE_FINANCE` — backend บังคับสิทธิ์อยู่แล้ว
- *    แต่การซ่อนปุ่มทำให้สมาชิกทั่วไปไม่ต้องเจอ 403 โดยไม่รู้สาเหตุ
+ * 🔒 ปุ่มเขียน (รับเงิน/เติมเครดิต/หักเครดิต/ยกเลิก) gate ด้วย `canManageFinance`
  *
  * ⚠️ เงินเป็น string 2 ตำแหน่งจาก API ⇒ `formatMoney(Number(x))` / `formatAmount(Number(x))`
+ *    ส่วน `CreditPanel`/โมดัลเครดิตใช้ `StudentCreditBalance` (number) ⇒ แปลงผ่าน `creditBalance`
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { FinanceService } from '@/services/finance'
 import { apiStatus } from '@/services/api'
-import type { IndividualAccountItem } from '@/types/finance'
+import type {
+  Account,
+  IndividualAccountItem,
+  StudentCreditBalance,
+  StudentCreditEntry,
+} from '@/types/finance'
 import { createLatestGuard } from '@/utils/latest'
-import { formatAmount, formatMoney } from '@/utils/money'
+import { formatAmount, formatMoney, roundMoney } from '@/utils/money'
 import { formatThaiDate, formatThaiDateTime, todayIso } from '@/utils/datetime'
 
 import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import AccountSummaryCard from '@/components/finance/AccountSummaryCard.vue'
 import ReceiveMoneyModal from '@/components/finance/ReceiveMoneyModal.vue'
+import CreditPanel from '@/components/finance/CreditPanel.vue'
+import CreditTopUpModal from '@/components/finance/CreditTopUpModal.vue'
+import CreditApplyModal from '@/components/finance/CreditApplyModal.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import { useDialog } from '@/composables/useDialog'
 
@@ -32,10 +43,10 @@ const route = useRoute()
 const authStore = useAuthStore()
 const dialog = useDialog()
 const currentRoomId = authStore.currentRoomId!
+const currentUserName = authStore.currentUserName!
+const canManageFinance = computed(() => authStore.canManageFinance)
 
 const account = ref<IndividualAccountItem | null>(null)
-/** modal รับเงิน (P2.3) — เปิดได้เฉพาะผู้มีสิทธิ์ และต้องมี account โหลดแล้ว */
-const receiveOpen = ref(false)
 const isLoading = ref(true)
 const hasError = ref(false)
 const notFound = ref(false)
@@ -54,6 +65,7 @@ const fundTypeLabel = (value: string | null) => (value ? FUND_TYPE_LABELS[value]
 const today = todayIso()
 const isOverdue = (dueDate: string | null) => !!dueDate && dueDate < today
 
+// ─────────────────────────────────────────────────────── โหลดบัญชี
 const loadAccount = async () => {
   const token = detailGuard.begin()
   isLoading.value = true
@@ -78,23 +90,145 @@ const loadAccount = async () => {
   }
 }
 
-// route param เปลี่ยน (เช่นกดจากรายการเดินบัญชีของอีกคน) ⇒ โหลดใหม่ ไม่ค้างข้อมูลเก่า
-watch(studentId, () => void loadAccount())
+// ─────────────────────────────────────────────────────── เครดิต (P3.3)
+const creditEntries = ref<StudentCreditEntry[]>([])
+const creditLoading = ref(false)
+const creditError = ref(false)
+const creditGuard = createLatestGuard()
 
-/**
- * หลังบันทึกรับเงินสำเร็จ: การ์ดสรุป/บิล/เครดิต เปลี่ยนทั้งหมด ⇒ โหลดใหม่ทันที
- * (modal ยังเปิดอยู่เพื่อโชว์ผล + ปุ่มดาวน์โหลดใบเสร็จ)
- */
-const onPaymentSaved = async () => {
-  await loadAccount()
+const loadCredit = async () => {
+  const token = creditGuard.begin()
+  creditLoading.value = true
+  creditError.value = false
+  try {
+    const res = await FinanceService.getStudentCredit(currentRoomId, studentId.value)
+    if (!creditGuard.isCurrent(token)) return
+    creditEntries.value = res.entries
+  } catch {
+    if (!creditGuard.isCurrent(token)) return
+    // ไม่เด้ง alert ซ้ำกับ loadAccount — ส่วนเครดิตมี StateBlock ให้ลองใหม่เอง
+    creditError.value = true
+  } finally {
+    if (creditGuard.isCurrent(token)) creditLoading.value = false
+  }
 }
 
-/** ถ้าเปลี่ยนนักเรียนระหว่าง modal เปิด (route param เปลี่ยน) ⇒ ปิดเพื่อกันบันทึกผิดคน */
-watch(studentId, () => {
-  receiveOpen.value = false
+const refreshAll = async () => {
+  await Promise.all([loadAccount(), loadCredit()])
+}
+
+/** แปลง `IndividualAccountItem` (string) → `StudentCreditBalance` (number) ให้ CreditPanel/โมดัล */
+const creditBalance = computed<StudentCreditBalance | null>(() => {
+  const a = account.value
+  if (!a) return null
+  return {
+    student_id: a.student_id,
+    student_no: a.student_no,
+    student_name: a.name,
+    credit_balance: Number(a.credit_balance),
+    total_pending_amount: Number(a.outstanding_total),
+    net_pending_amount: roundMoney(Number(a.outstanding_total) - Number(a.ready_to_apply)),
+  }
 })
 
-onMounted(loadAccount)
+// ─────────────────────────────────────────────────────── กระเป๋าเงิน (โมดัลเติม/หัก)
+const accounts = ref<Account[]>([])
+
+const loadAccountOptions = async () => {
+  if (!canManageFinance.value) {
+    accounts.value = []
+    return
+  }
+  try {
+    accounts.value = await FinanceService.getAccounts(currentRoomId)
+  } catch {
+    accounts.value = []
+  }
+}
+
+// ─────────────────────────────────────────────────────── รับเงิน (P2.3)
+/** modal รับเงิน — เปิดได้เฉพาะผู้มีสิทธิ์ และต้องมี account โหลดแล้ว */
+const receiveOpen = ref(false)
+
+/** หลังบันทึกรับเงินสำเร็จ: การ์ดสรุป/บิล/เครดิต เปลี่ยนทั้งหมด ⇒ โหลดใหม่ทันที */
+const onPaymentSaved = async () => {
+  await refreshAll()
+}
+
+// ─────────────────────────────────────────────────────── เติม/หักเครดิต
+const topUpOpen = ref(false)
+const applyOpen = ref(false)
+
+/** หลังเติม/หักสำเร็จ — ยอดบัญชีและประวัติเครดิตเปลี่ยนทั้งคู่ */
+const onCreditChanged = async () => {
+  await refreshAll()
+}
+
+/** ↩️ ยกเลิก "การหัก" 1 รายการ (คืนเครดิต + เปิดบิลกลับเป็นค้าง) */
+const handleUndo = async (entry: StudentCreditEntry) => {
+  if (!canManageFinance.value) {
+    void dialog.alert('ไม่มีสิทธิ์', 'เฉพาะผู้มีสิทธิ์จัดการการเงินเท่านั้นที่ยกเลิกได้', 'error')
+    return
+  }
+  // 🧾 แถวที่เกิดจากใบรับเงิน **ห้ามยกเลิกตรง** (backend ตอบ 409)
+  if (entry.payment_event_id !== null && entry.payment_event_id !== undefined) {
+    void dialog.alert(
+      'ยกเลิกที่นี่ไม่ได้',
+      `รายการนี้เกิดจากใบรับเงิน #${entry.payment_event_id} — ต้องยกเลิกที่รายการรับเงินนั้น ` +
+        `(ระบบจะคืนบิล/เครดิต/บัญชีให้พร้อมกัน)`,
+      'info',
+    )
+    return
+  }
+  const confirmed = await dialog.confirm(
+    'ยกเลิกการหักนี้?',
+    `คืนเครดิต ${formatMoney(entry.amount)} เข้ากระเป๋านักเรียน และเปิดบิลกลับเป็น "ค้างชำระ" · ` +
+      `บิล: ${entry.collection_title ?? '—'} · รายการนี้จะยังอยู่ในประวัติ (ไม่ถูกลบ)`,
+    {
+      icon: 'warning',
+      danger: true,
+      confirmButtonText: 'ยืนยันยกเลิกการหัก',
+      cancelButtonText: 'ไม่ใช่',
+    },
+  )
+  if (!confirmed.isConfirmed) return
+
+  try {
+    const res = await FinanceService.undoCreditApplication(currentRoomId, {
+      credit_entry_id: entry.id,
+      user_name: currentUserName,
+    })
+    await dialog.fire({
+      icon: 'success',
+      title: 'ยกเลิกการหักเรียบร้อย',
+      text:
+        `คืนเครดิต ${formatMoney(res.reverted_amount)} · ` +
+        `เครดิตคงเหลือ ${formatMoney(res.credit_balance_after)}`,
+    })
+    await refreshAll()
+  } catch (error: unknown) {
+    void dialog.alert(
+      'ยกเลิกไม่สำเร็จ',
+      error instanceof Error ? error.message : 'ไม่มีอะไรถูกเปลี่ยนแปลง',
+      'error',
+    )
+  }
+}
+
+// route param เปลี่ยน (เช่นกดจากรายการเดินบัญชีของอีกคน) ⇒ โหลดใหม่ ไม่ค้างข้อมูลเก่า
+// และปิดโมดัลทั้งหมดเพื่อกันบันทึกผิดคน
+watch(studentId, () => {
+  receiveOpen.value = false
+  topUpOpen.value = false
+  applyOpen.value = false
+  creditEntries.value = []
+  void refreshAll()
+})
+
+onMounted(() => {
+  void loadAccountOptions()
+  void refreshAll()
+})
 </script>
 
 <template>
@@ -118,11 +252,11 @@ onMounted(loadAccount)
       v-else-if="hasError"
       variant="error"
       title="โหลดบัญชีของนักเรียนไม่สำเร็จ"
-      @retry="loadAccount"
+      @retry="refreshAll"
     />
 
     <template v-else-if="account">
-      <div v-if="authStore.canManageFinance" class="flex justify-end">
+      <div v-if="canManageFinance" class="flex justify-end">
         <AppButton variant="primary" @click="receiveOpen = true">
           <i class="bi bi-cash-coin" aria-hidden="true"></i>
           รับเงิน
@@ -247,29 +381,40 @@ onMounted(loadAccount)
         </template>
       </section>
 
-      <!-- ══════════════════════ เครดิต ══════════════════════ -->
-      <section class="page-card flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
-        <div class="flex items-center gap-3">
-          <span
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-ok-50 text-ok-700"
+      <!-- ══════════════════════ เครดิต (เงินรับล่วงหน้า) ══════════════════════ -->
+      <section class="space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="font-display text-base font-bold text-ink-1">
+            <i class="bi bi-piggy-bank me-1.5 text-ok-700" aria-hidden="true"></i>
+            เครดิต (เงินรับล่วงหน้า)
+          </h2>
+          <RouterLink
+            :to="{ name: 'finance-student-statement', params: { studentId } }"
+            class="btn-ghost-ui"
           >
-            <i class="bi bi-piggy-bank text-xl" aria-hidden="true"></i>
-          </span>
-          <div>
-            <p class="text-caption font-bold text-ink-3">เครดิตคงเหลือ (เงินรับล่วงหน้า)</p>
-            <p class="num text-lg font-bold text-ok-700">
-              {{ formatMoney(Number(account.credit_balance)) }}
-            </p>
-            <p class="mt-0.5 text-caption text-ink-3">
-              ใช้ได้ {{ formatMoney(Number(account.ready_to_apply)) }}
-              — เลือกใช้ได้ในขั้นตอนรับเงิน
-            </p>
-          </div>
+            <i class="bi bi-journal-text" aria-hidden="true"></i>
+            รายการเดินบัญชี
+          </RouterLink>
         </div>
-        <RouterLink to="/finance/credits" class="btn-ghost-ui shrink-0">
-          <i class="bi bi-journal-text" aria-hidden="true"></i>
-          ดูประวัติเงินรับล่วงหน้า
-        </RouterLink>
+
+        <StateBlock
+          v-if="creditError"
+          variant="error"
+          title="โหลดประวัติเครดิตไม่สำเร็จ"
+          @retry="loadCredit"
+        />
+
+        <CreditPanel
+          v-else-if="creditBalance"
+          :student="creditBalance"
+          :entries="creditEntries"
+          :can-manage="canManageFinance"
+          :loading="creditLoading"
+          @topup="topUpOpen = true"
+          @apply="applyOpen = true"
+          @history="loadCredit"
+          @undo="handleUndo"
+        />
       </section>
 
       <!-- ══════════════════════ ประวัติรับเงินล่าสุด ══════════════════════ -->
@@ -316,6 +461,22 @@ onMounted(loadAccount)
         :student-name="account.name"
         @close="receiveOpen = false"
         @saved="onPaymentSaved"
+      />
+
+      <CreditTopUpModal
+        :open="topUpOpen"
+        :student="creditBalance"
+        :accounts="accounts"
+        @close="topUpOpen = false"
+        @saved="onCreditChanged"
+      />
+
+      <CreditApplyModal
+        :open="applyOpen"
+        :student="creditBalance"
+        :accounts="accounts"
+        @close="applyOpen = false"
+        @applied="onCreditChanged"
       />
     </template>
   </div>

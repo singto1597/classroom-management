@@ -522,7 +522,7 @@ const goToMyProfile = async () => {
 
           <RouterLink
             v-if="isAdmin"
-            to="/finance/debtors"
+            to="/finance/individual-accounts?status=outstanding"
             class="card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-card border border-danger-200 bg-surface p-3 text-center sm:p-4"
           >
             <i class="bi bi-exclamation-triangle text-lg text-danger-500" aria-hidden="true"></i>
