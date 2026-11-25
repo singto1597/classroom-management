@@ -43,6 +43,7 @@ import asyncpg
 from core.exceptions import RoomNotFoundError
 from core.rbac import require_permission
 
+from .acknowledgements import assert_ack_replay_matches
 from .base import _lock_room_money, service_logger
 from .constants import (
     BATCH_SOURCE_AUTO, BUDDHIST_ERA_OFFSET, DOC_TYPE_ACKNOWLEDGEMENT,
@@ -417,6 +418,10 @@ class InvoiceDocumentsMixin:
                         target_room_id, DOC_TYPE_ACKNOWLEDGEMENT, req.idempotency_key,
                     )
                     if existing is not None:
+                        # 🧾 [P5.4] คีย์เดิม + payload ต่าง = 409 ไม่ใช่คืนใบเดิมเงียบ ๆ
+                        #    (ลูกค้าจะเข้าใจว่าได้ใบใหม่ที่ครอบรายชื่อชุดใหม่ ทั้งที่กระดาษ
+                        #    ที่พิมพ์ออกมาเป็นชุดเก่า)
+                        assert_ack_replay_matches(existing, req)
                         return await cls._ack_response(conn, existing, reused=True)
 
                     # 🕐 เวลาเดียวทั้งชุด — ปี พ.ศ. บนเลข ACK และ `event_at` มาจากค่าเดียวกัน
@@ -474,6 +479,8 @@ class InvoiceDocumentsMixin:
 
                     document_meta = {
                         "scope": req.scope,
+                        # 🧾 [P5.4] เก็บไว้เทียบตอน replay (คีย์เดิมต้องได้ payload เดิม)
+                        "include_invoice": bool(req.include_invoice),
                         "entry_count": len(entries),
                         "total_outstanding": total,
                         "entries": [

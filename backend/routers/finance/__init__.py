@@ -39,6 +39,8 @@ from .expense_vouchers import router as expense_vouchers_router
 from .income_batches import router as income_batches_router
 # 🗂️ [FIN-V2 / P5.1] ทะเบียนเอกสารรวม — `/finance/documents*` (static ก่อน dynamic ภายในไฟล์)
 from .documents import router as documents_router
+# 📊 [FIN-V2 / P5.4] รายงานปิดงบเดือน — `/finance/monthly-reports*`
+from .monthly_reports import router as monthly_reports_router
 
 router = APIRouter()
 router.include_router(reporting_router)
@@ -106,5 +108,8 @@ router.include_router(income_batches_router)
 # 🗂️ [FIN-V2 / P5.1] — path ขึ้นต้น `/finance/documents` ซึ่งไม่ซ้ำกับกลุ่มใด
 #    ⇒ ประกาศท้ายเพื่อให้ diff ต่อเติมท้ายไฟล์
 router.include_router(documents_router)
+
+# 📊 [FIN-V2 / P5.4] RPT — path ไม่ทับกลุ่มใด (ลำดับ include ไม่มีผลกับพฤติกรรม)
+router.include_router(monthly_reports_router)
 
 __all__ = ["router"]

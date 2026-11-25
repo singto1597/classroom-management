@@ -27,7 +27,8 @@ from typing import Optional
 from .baht_text import baht_text
 from .constants import (
     DOC_STATUS_VOIDED, DOC_TYPE_CERTIFICATE, DOC_TYPE_DEPOSIT, DOC_TYPE_INCOME,
-    DOC_TYPE_LABELS, DOC_TYPE_PAYMENT_VOUCHER, DOC_TYPE_RECEIPT,
+    DOC_TYPE_LABELS, DOC_TYPE_MONTHLY_REPORT, DOC_TYPE_PAYMENT_VOUCHER,
+    DOC_TYPE_RECEIPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,9 @@ _V2_DEPOSIT_BODY_TEMPLATE = "_deposit_body_v2.html"
 _VOUCHER_BODY_V2_TEMPLATE = "_voucher_body_v2.html"
 _CERTIFICATE_BODY_V2_TEMPLATE = "_certificate_body_v2.html"
 _INCOME_BODY_V2_TEMPLATE = "_income_body_v2.html"
+# 📊 [P5.4] รายงานปิดงบ — context ประกอบที่ `MonthlyReportsMixin._monthly_report_context`
+#    (แถวอยู่ในตารางอื่น) แต่ทางแยกนี้ต้องตรงกับ registry ของ P5.3 เสมอ
+_MONTHLY_REPORT_BODY_V2_TEMPLATE = "_monthly_report_body_v2.html"
 _LEGACY_RECEIPT_BODY_TEMPLATE = "_receipt_body.html"
 
 # ✂️ v2 ตั้งใจให้เห็นครบกว่า legacy (12) เพราะ 1 ใบ = 1 ครั้งรับเงินของบิลหลายใบ
@@ -94,6 +98,10 @@ class DocumentsMixin:
                 return _CERTIFICATE_BODY_V2_TEMPLATE
             if doc_type == DOC_TYPE_INCOME:
                 return _INCOME_BODY_V2_TEMPLATE
+            if doc_type == DOC_TYPE_MONTHLY_REPORT:
+                # 📊 [P5.4] ต้องตรงกับ `document_adapters` — เทสต์
+                # `test_registry_agrees_with_body_template_for_for_layout_2` บังคับ
+                return _MONTHLY_REPORT_BODY_V2_TEMPLATE
             if doc_type not in _warned_unsupported:
                 _warned_unsupported.add(doc_type)
                 logger.warning(

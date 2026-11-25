@@ -143,6 +143,8 @@
 | `deposit` | **ใบรับเงินล่วงหน้า** | `DEP-2569-0003` | รับเงินเก็บไว้ก่อน |
 | `payment_voucher` | **ใบสำคัญจ่าย** | `PV-2569-0007` | ห้องจ่ายเงินออก |
 | `income` | **ใบรับเงิน** | `INC-2569-0011` | รับเงินเข้าที่ไม่ได้มาจากบิลของนักเรียน |
+| `acknowledgement` | **ใบรับทราบยอดค้าง** | `ACK-2569-0001` | 1 รอบ/ห้อง — แจ้งยอดค้างให้ผู้ปกครองลงชื่อรับทราบ (**ไม่ใช่**หลักฐานการรับเงิน · ไม่แตะเงิน) |
+| `monthly_report` | **รายงานปิดงบ** | `RPT-2569-11` (`-v2`…) | ปิดงบรายเดือน — snapshot รายรับ/รายจ่าย + นับเงินสด + `variance` (ตาราง `finance_monthly_reports`) |
 
 > แหล่งอ้างอิง: `backend/services/finance/constants.py` → `DOC_TYPE_LABELS`, `DOC_TYPE_PREFIXES`
 > (ทั้งสองตารางต้องแก้คู่กัน และ `RECEIPT_LIKE_DOC_TYPES` เป็นตัวตัดสินถ้อยคำบนกระดาษ)
@@ -207,6 +209,8 @@
 | ช่วงงดรบกวน | `app_settings` ที่คีย์ `quiet_hours` (`QUIET_HOURS_KEY`) |
 | รายรับ/รายจ่าย | `income` / `expense` (ใน `finance_transactions.type`) |
 | ใบเสร็จ / ใบแจ้งหนี้ / ใบรับเงินล่วงหน้า | `receipt` / `invoice` / `deposit` |
+| ใบรับทราบยอดค้าง | `acknowledgement` (`finance_receipts` + `finance_ack_entries`) · `AcknowledgmentMixin` |
+| รายงานปิดงบ | `monthly_report` (`finance_monthly_reports`) · `MonthlyReportsMixin` · `variance` = เงินนับได้ − ตามบัญชี |
 | ผู้ค้างชำระ | `debtor` · บิลเปิด = `open bill` (`_open_bill_predicate`) |
 | เงินรับล่วงหน้า | `credit` |
 | บัญชีรายบุคคล | `individual_account` · `_load_individual_accounts` · `IndividualAccountsMixin` · route `finance-individual-accounts` |

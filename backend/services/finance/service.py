@@ -94,6 +94,13 @@ from .income_batches import IncomeBatchesMixin
 #    ⇒ ต้องอยู่ **หลัง** ReceiptsMixin และก่อน Accrual/Ledger ตามกติกาทั่วไป
 #    (ชื่อใหม่ทั้งหมด: `list_documents`/`get_document_detail`/…)
 from .document_registry import DocumentRegistryMixin
+# 🧾 [FIN-V2 / P5.4] ACK — อ่าน/ยกเลิก (ออกใบเป็นของ P2.6) · พึ่ง `_shape_receipt*`/
+#    `_RECEIPT_COLUMNS` (ReceiptsMixin) และ `_load_ack_entries` (InvoiceDocumentsMixin)
+#    ผ่าน MRO ⇒ วางก่อน AccrualMixin ตาม brief (ชื่อใหม่ทั้งหมด)
+from .acknowledgements import AcknowledgmentMixin
+# 📊 [FIN-V2 / P5.4] RPT — พึ่ง `_lock_room_money` (BaseMixin) และ `_resolve_student_name`
+#    (BaseMixin) ผ่าน MRO · ไม่แตะเงิน/journal (อ่านอย่างเดียวต่อบัญชี)
+from .monthly_reports import MonthlyReportsMixin
 
 
 class FinanceService(
@@ -175,6 +182,10 @@ class FinanceService(
     #    พึ่ง `_open_bill_predicate()` (Accrual) และ `_load_credit_balance` (Credits)
     #    ⇒ อยู่ก่อนทั้งคู่ตามกติกา MRO (mixin ที่อยู่บนชนะ)
     AllocationMixin,
+    # 🧾 [FIN-V2 / P5.4] — ACK วงจรชีวิต (รายการ/รายละเอียด/ยกเลิก) + RPT
+    #    ต้องอยู่ **ก่อน** AccrualMixin ตาม brief · ชื่อไม่ชนกับ mixin ใด
+    AcknowledgmentMixin,
+    MonthlyReportsMixin,
     AccrualMixin,
     LedgerMixin,
     BaseMixin,

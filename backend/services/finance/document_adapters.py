@@ -35,6 +35,7 @@ from .constants import (
     DOC_TYPE_DEPOSIT,
     DOC_TYPE_INCOME,
     DOC_TYPE_INVOICE,
+    DOC_TYPE_MONTHLY_REPORT,
     DOC_TYPE_PAYMENT_VOUCHER,
     DOC_TYPE_RECEIPT,
 )
@@ -53,6 +54,8 @@ V2_ACKNOWLEDGEMENT_BODY = "_acknowledgement_body_v2.html"
 V2_VOUCHER_BODY = "_voucher_body_v2.html"
 V2_CERTIFICATE_BODY = "_certificate_body_v2.html"
 V2_INCOME_BODY = "_income_body_v2.html"
+# 📊 [P5.4] รายงานปิดงบ — partial ของตัวเอง (ตารางรายรับ/รายจ่าย/เงินสด + 3 ลายเซ็น)
+V2_MONTHLY_REPORT_BODY = "_monthly_report_body_v2.html"
 
 
 @dataclass(frozen=True)
@@ -157,6 +160,12 @@ def _register_default_adapters() -> None:
     register(DocumentAdapter(2, DOC_TYPE_PAYMENT_VOUCHER, V2_VOUCHER_BODY, _build_context))
     register(DocumentAdapter(2, DOC_TYPE_CERTIFICATE, V2_CERTIFICATE_BODY, _build_context))
     register(DocumentAdapter(2, DOC_TYPE_INCOME, V2_INCOME_BODY, _build_context))
+    # 📊 [P5.4] RPT — เอกสารของตัวเองในตาราง `finance_monthly_reports`
+    #    (`_document_context_v2` ไม่รองรับ RPT; context ประกอบที่
+    #     `MonthlyReportsMixin._monthly_report_context` ⇒ adapter นี้ใช้ตรวจ/พิมพ์ผ่าน registry)
+    register(
+        DocumentAdapter(2, DOC_TYPE_MONTHLY_REPORT, V2_MONTHLY_REPORT_BODY, _build_context)
+    )
 
 
 _register_default_adapters()

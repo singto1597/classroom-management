@@ -2188,3 +2188,101 @@ class DocumentRefItem(BaseModel):
 class DocumentPrintBundleRequest(BaseModel):
     """พิมพ์ชุด — dedupe/เพดาน 100/การมีอยู่จริง ตรวจที่ service (400/404 ภาษาไทย)"""
     items: List[DocumentRefItem] = Field(default_factory=list)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P5.4] ACK — รายการ/รายละเอียด/ยกเลิก (การออกใบเป็นของ P2.6)
+# ══════════════════════════════════════════════════════════════════════════════
+class AckListItem(BaseModel):
+    """แถวรายการ ACK — ไม่มีรายชื่อนักเรียน (ดึงเฉพาะตอนเปิดใบ)"""
+    receipt_no: str
+    doc_type: str
+    doc_type_label: Optional[str] = None
+    amount: float
+    paid_total_after: float = 0.0
+    entry_count: int = 0
+    scope: Optional[str] = None
+    note: Optional[str] = None
+    # 🗓️ "วันที่ของเอกสาร" = event_at (ตัวเดียวกับที่พิมพ์) — issued_at ไว้เป็น fallback
+    event_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
+    status: str = "active"
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+
+
+class AckListResponse(BaseModel):
+    status: str = "success"
+    items: List[AckListItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class AckDetailResponse(BaseModel):
+    """ACK 1 ใบ + รายชื่อผู้ค้าง (snapshot ณ วันออก — ไม่ JOIN บิลสด)"""
+    status: str = "success"
+    message: Optional[str] = None
+    receipt: ReceiptResponse
+    entries: List[AckEntryResponse] = Field(default_factory=list)
+    entry_count: int = 0
+
+
+class AckVoidRequest(BaseModel):
+    """เหตุผลยกเลิก ACK — บังคับ เพราะต้องเก็บใน `void_reason` + audit"""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# [FIN-V2 / P5.4] RPT — รายงานปิดงบเดือน (`finance_monthly_reports`)
+# ══════════════════════════════════════════════════════════════════════════════
+class MonthlyReportCreate(BaseModel):
+    """สร้างฉบับร่าง — ต้องไม่ซ้ำงวดที่มี active อยู่ (service ตอบ 409)"""
+    year_be: int = Field(..., ge=2400, le=2700, description="ปี พ.ศ. เช่น 2569")
+    month: int = Field(..., ge=1, le=12)
+    # 📝 ไม่มีคอลัมน์ `note` ในตาราง — service เก็บลง `snapshot.note`
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class MonthlyReportFinalize(BaseModel):
+    """ปิดงบ — เงินสดนับจริงต้องตรงกับ `closing_cash` (service ตรวจ, 400 ถ้าต่าง)"""
+    counted_cash: Decimal = Field(..., ge=0, description="เงินสดที่นับได้จริง (บาท)")
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class MonthlyReportVoid(BaseModel):
+    """ยกเลิกรายงาน — ได้เฉพาะฉบับล่าสุดของเดือน และต้องมีเหตุผล"""
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class MonthlyReportResponse(BaseModel):
+    id: int
+    report_no: str
+    year_be: int
+    month: int
+    version: int
+    status: str
+    total_income: float
+    total_expense: float
+    opening_cash: float
+    closing_cash: float
+    counted_cash: Optional[float] = None
+    variance: Optional[float] = None
+    finalized_at: Optional[datetime] = None
+    finalized_by: Optional[int] = None
+    voided_at: Optional[datetime] = None
+    void_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # 📋 snapshot ณ ตอนสร้าง — หมวดรายรับ/รายจ่าย + cash flow + cash_gap
+    snapshot: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MonthlyReportListResponse(BaseModel):
+    status: str = "success"
+    items: List[MonthlyReportResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class MonthlyReportDetailResponse(BaseModel):
+    status: str = "success"
+    message: Optional[str] = None
+    report: MonthlyReportResponse
+    signatures: List[DocumentSignatureItem] = Field(default_factory=list)
