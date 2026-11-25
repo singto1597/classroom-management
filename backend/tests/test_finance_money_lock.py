@@ -169,6 +169,18 @@ _MONEY_PATHS = [
     ("refunds", "RefundsMixin", "request_refund"),
     ("refunds", "RefundsMixin", "approve_refund"),
     ("refunds", "RefundsMixin", "_decide_refund_without_money"),
+    # 👥 [FIN-V2 / P1.2] ทะเบียนผู้เกี่ยวข้อง + ค่าเริ่มต้นหน้าจอรับเงิน
+    #    — ชื่อผู้รับเงินบนเอกสาร/กระเป๋าเริ่มต้นมาจากที่นี่ ⇒ ต้องเรียงกับเส้นทางเงินอื่น
+    #    (เพิ่มตามที่ตัวตรวจ completeness จับได้: P1.2 เปิดเมธอดเขียนโดยยังไม่ยึดล็อกห้อง)
+    ("people", "PeopleMixin", "create_person"),
+    ("people", "PeopleMixin", "update_person"),
+    ("people", "PeopleMixin", "delete_person"),
+    ("people", "PeopleMixin", "sync_students"),
+    ("people", "PeopleMixin", "update_settings"),
+    # 🧾 [FIN-V2 / P2.1] 1 ครั้งรับเงิน = event + REC/DEP + หลายธุรกรรม
+    #    ⚠️ RBAC + ล็อกอยู่ใน `_create_locked` (เมธอดนอกมีแค่ transaction) ⇒
+    #       `_create_locked` อยู่ใน `_LOCKING_HELPERS` และมีเทสต์บังคับว่ามันล็อกจริง
+    ("payment_events", "PaymentEventsMixin", "create_payment_event"),
 ]
 
 # 🔴 สิ่งที่ถือว่า "เขียนเงิน" — ใช้ตรวจ **ลำดับ** ว่าล็อกมาก่อนการเขียนจริง
@@ -212,6 +224,9 @@ _MONEY_WRITE_MARKERS = [
 _LOCKING_HELPERS = [
     "_issue_one", "_issue_invoice_aggregate",
     "_issue_payment_voucher", "_issue_income_doc",
+    # 🧾 [FIN-V2 / P2.1] เนื้อใน transaction ของ `create_payment_event`
+    #    — ยึดล็อกห้องเป็นคำสั่งแรกหลัง RBAC (เทสต์ตัวล่างบังคับข้อนี้ให้)
+    "_create_locked",
 ]
 
 

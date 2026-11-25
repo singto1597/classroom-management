@@ -29,7 +29,7 @@ import asyncpg
 
 from core.rbac import require_member, require_permission
 
-from .base import service_logger
+from .base import _lock_room_money, service_logger
 
 # 🎭 บทบาทที่ประกาศใน DB (`chk_finance_people_roles`) — ต้องตรงกันทั้งสองฝั่ง
 VALID_PERSON_TYPES = ("student", "teacher", "external")
@@ -224,6 +224,10 @@ class PeopleMixin:
                     raise ValueError("ชื่อผู้เกี่ยวข้องต้องไม่ว่าง")
 
                 async with conn.transaction():
+                    # 🔒 ล็อกห้องก่อนแตะข้อมูลใด ๆ — ทะเบียนผู้เกี่ยวข้องเป็นต้นทางของ
+                    #    ชื่อผู้รับเงินบนเอกสาร ⇒ ต้องเรียงกับเส้นทางเงินอื่นเหมือนกัน
+                    await _lock_room_money(conn, target_room_id)
+
                     existing = await conn.fetchval(
                         """SELECT id FROM finance_people
                            WHERE room_id = $1 AND student_id = $2 AND deleted_at IS NULL""",
@@ -295,6 +299,9 @@ class PeopleMixin:
 
                 updates = req.model_dump(exclude_unset=True)
                 async with conn.transaction():
+                    # 🔒 ล็อกห้องก่อนอ่าน-แก้แถว (เหมือนทุกเส้นทางที่เขียนข้อมูลการเงิน)
+                    await _lock_room_money(conn, target_room_id)
+
                     current = await conn.fetchrow(
                         """SELECT id, person_type, student_id, display_name, phone,
                                   roles, is_active, note
@@ -392,6 +399,9 @@ class PeopleMixin:
                 await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
 
                 async with conn.transaction():
+                    # 🔒 ล็อกห้องก่อนอ่าน-แก้แถว (เหมือนทุกเส้นทางที่เขียนข้อมูลการเงิน)
+                    await _lock_room_money(conn, target_room_id)
+
                     current = await conn.fetchrow(
                         """SELECT id, person_type, student_id, display_name, phone,
                                   roles, is_active, note
@@ -476,6 +486,9 @@ class PeopleMixin:
                 await require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")
 
                 async with conn.transaction():
+                    # 🔒 ล็อกห้องก่อนเขียนทะเบียน (idempotent sync ก็ยังเขียนแถว)
+                    await _lock_room_money(conn, target_room_id)
+
                     rows = await conn.fetch(
                         """
                         INSERT INTO finance_people
@@ -612,6 +625,9 @@ class PeopleMixin:
 
                 updates = req.model_dump(exclude_unset=True)
                 async with conn.transaction():
+                    # 🔒 ล็อกห้องก่อน upsert ค่าเริ่มต้น (หน้าจอรับเงินอ่านค่าที่นี่)
+                    await _lock_room_money(conn, target_room_id)
+
                     current = await conn.fetchrow(
                         """SELECT default_receiver_person_id, default_wallet_account_id,
                                   require_receiver, receipt_note

@@ -50,6 +50,12 @@ from .individual_accounts import IndividualAccountsMixin
 #    (AccrualMixin) และ `_load_credit_balance` (CreditsMixin) ⇒ ต้องวาง **ก่อน**
 #    ทั้งสองตัวตามกติกา MRO · engine เองอยู่ใน `allocation.py` แบบ pure function
 from .allocation import AllocationMixin
+# 🧾 [FIN-V2 / P2.1] event + เอกสาร v2 — พึ่ง `_confirm_single_payment` (Collections),
+#    `_apply_plan_locked`/`_load_credit_balance` (Credits), `_display_name`/
+#    `_thai_year_be` (Receipts) และ `_open_bill_predicate` (Accrual) ผ่าน MRO
+#    ⇒ ไม่ override ฟังก์ชันใดของ mixin เดิม (ชื่อขึ้นต้น `_issue_event_*` ทั้งหมด)
+from .payment_events import PaymentEventsMixin
+from .receipts_v2 import ReceiptsV2Mixin
 
 
 class FinanceService(
@@ -78,6 +84,12 @@ class FinanceService(
     CreditsMixin,
     BudgetsMixin,
     CollectionsMixin,
+    # 🧾 [FIN-V2 / P2.1] — วาง **หลัง** Receipts/Credits/Collections ตามที่ brief กำหนด
+    #    (ไม่มีชื่อฟังก์ชันชนกัน: `_issue_event_*`/`create_payment_event` เป็นชื่อใหม่)
+    #    ⚠️ `PaymentEventsMixin` เรียก `_money_str` ของ AllocationMixin ผ่าน MRO
+    #       และ `_issue_event_*` ของ ReceiptsV2Mixin — ทั้งคู่ค้นเจอด้านล่างได้เสมอ
+    PaymentEventsMixin,
+    ReceiptsV2Mixin,
     TransactionsMixin,
     CategoriesMixin,
     AccountsMixin,

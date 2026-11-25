@@ -1303,3 +1303,132 @@ class AllocationPreviewResponse(BaseModel):
     credit_added: str
     remaining_unapplied: str
     warnings: List[str] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 🧾 [FIN-V2 / P2.1] รายการรับเงิน (payment event)
+#    ⚠️ ต่อท้ายเท่านั้น (hot file) — `Decimal`/`Literal` ถูก import ไว้แล้วที่บล็อก P1.5
+# ═══════════════════════════════════════════════════════════════════════════
+class PaymentEventCreate(BaseModel):
+    """คำขอ "รับเงิน 1 ครั้ง" — ปิดได้หลายบิล + ใช้เครดิต + เก็บส่วนเกินเป็นเครดิต
+
+    🔑 `idempotency_key` บังคับ (8–64): กดซ้ำ/เน็ตหลุดต้องได้ event เดิม ไม่ใช่ charge ซ้ำ
+    💰 `amount_received` เป็น `Decimal` — ห้ามเปลี่ยนเป็น `float` (เศษสตางค์จะเพี้ยน)
+    """
+    idempotency_key: str = Field(
+        ..., min_length=8, max_length=64,
+        description="คีย์กันส่งซ้ำจาก client (สร้างครั้งเดียวต่อการกดยืนยัน)",
+    )
+    student_id: int = Field(..., gt=0)
+    wallet_account_id: int = Field(..., gt=0, description="กระเป๋าที่รับเงินเข้า")
+    payer_name: Optional[str] = Field(None, max_length=200)
+    payer_person_id: Optional[int] = Field(None, gt=0)
+    receiver_person_id: Optional[int] = Field(None, gt=0)
+    receiver_name: Optional[str] = Field(None, max_length=200)
+    channel_id: Optional[int] = Field(None, gt=0)
+    amount_received: Decimal = Field(
+        Decimal("0"), ge=0,
+        description="ยอดเงินสดที่รับ (บาท) — 0 ได้ถ้าใช้เครดิตล้วน",
+    )
+    use_credit: bool = Field(False, description="ใช้เครดิตที่มีอยู่ปิดบิลหรือไม่")
+    excess_action: Literal["credit", "none"] = Field(
+        "credit", description="เงินเกิน: เก็บเป็นเครดิต หรือปฏิเสธ"
+    )
+    bill_selection: Literal["auto", "manual"] = Field(
+        "auto", description="auto = ทุกบิลเปิด · manual = เฉพาะ bill_ids"
+    )
+    bill_ids: Optional[List[int]] = Field(
+        None, description="ใช้เมื่อ bill_selection='manual' — ต้องเป็นบิลที่ยังเปิด"
+    )
+    note: Optional[str] = Field(None, max_length=1000)
+    event_at: Optional[datetime] = Field(
+        None, description="เวลารับเงิน (tz-aware) — ค่าเริ่มต้น = เวลาปัจจุบันของ DB"
+    )
+    slip_image_url: Optional[str] = Field(None, max_length=500)
+
+
+class PaymentEventAllocation(BaseModel):
+    """บรรทัดที่ลงบิล 1 บรรทัด — `source` บอกว่าเงินมาจากเงินสดหรือเครดิต"""
+    student_payment_id: int
+    collection_id: Optional[int] = None
+    title: str
+    source: Literal["cash", "credit"]
+    amount: str
+    bill_before: str
+    bill_after: str
+
+
+class PaymentEventDocument(BaseModel):
+    """เอกสารที่ event นี้สร้าง (REC/DEP) — `layout_version=2`"""
+    id: int
+    doc_type: str
+    receipt_no: str
+    amount: str
+    layout_version: int
+    event_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
+    status: str
+
+
+class PaymentEventResponse(BaseModel):
+    """ผลของ POST /payment-events — `reused=true` = คืน event เดิมจาก idempotency
+
+    🔒 ไม่มี `channel_snapshot` ดิบ (เลขบัญชีเต็ม) — ใช้ `PaymentEventDetailResponse.channel`
+       ที่เก็บเฉพาะค่าที่ปิดบังแล้ว
+    """
+    event_id: int
+    receipt_no: Optional[str] = None
+    deposit_no: Optional[str] = None
+    amount_received: str
+    credit_used: str
+    credit_added: str
+    total_applied: str
+    allocations: List[PaymentEventAllocation] = Field(default_factory=list)
+    documents: List[PaymentEventDocument] = Field(default_factory=list)
+    reused: bool = False
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PaymentEventLine(BaseModel):
+    """บรรทัดดิบของ event (`bill` / `credit_apply` / `credit_topup`)"""
+    id: int
+    line_kind: str
+    student_payment_id: Optional[int] = None
+    finance_transaction_id: Optional[int] = None
+    credit_entry_id: Optional[int] = None
+    amount: str
+    bill_amount_before: Optional[str] = None
+    bill_amount_after: Optional[str] = None
+    meta: dict = Field(default_factory=dict)
+
+
+class PaymentEventDetailResponse(PaymentEventResponse):
+    """GET /payment-events/{id} — เพิ่มข้อมูลหัว event + บรรทัดดิบ"""
+    student_id: int
+    payer_name: str
+    receiver_name: str
+    channel: dict = Field(default_factory=dict)
+    note: Optional[str] = None
+    status: str
+    event_at: datetime
+    created_at: datetime
+    lines: List[PaymentEventLine] = Field(default_factory=list)
+
+
+class PaymentEventListItem(BaseModel):
+    event_id: int
+    student_id: int
+    payer_name: str
+    receiver_name: str
+    amount_received: str
+    credit_used: str
+    credit_added: str
+    total_applied: str
+    event_at: datetime
+    receipt_no: Optional[str] = None
+    deposit_no: Optional[str] = None
+    status: str
+
+
+class PaymentEventListResponse(BaseModel):
+    items: List[PaymentEventListItem] = Field(default_factory=list)

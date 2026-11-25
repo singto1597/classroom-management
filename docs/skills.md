@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 277 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 279 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -281,6 +281,8 @@
 - [🧮 unique index บน "บรรทัดของเหตุการณ์" ต้องคีย์ด้วย `line_kind` ใน predicate — 1 บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว](#unique-index-บน-บรรทัดของเหตุการณ์-ต้องคีย์ด้วย-linekind-ใน-predicate-1-บิลมีสิทธิ์มีทั้งบรรทัดเงินสดและบรรทัดเครดิตในครั้งเดียว)
 - [🔁 `ON CONFLICT` บน partial unique ต้องประกาศ predicate ตรงเป๊ะ — และ `DO UPDATE` ต้องไม่แตะชื่อที่ครูแก้เอง](#on-conflict-บน-partial-unique-ต้องประกาศ-predicate-ตรงเป๊ะ-และ-do-update-ต้องไม่แตะชื่อที่ครูแก้เอง)
 - [🧮 จัดสรรเงิน: คิดเป็น "สตางค์จำนวนเต็ม" และเศษจากปัดต้องไปเป็นเครดิต — ห้ามยัดเข้าบิล](#จัดสรรเงิน-คิดเป็น-สตางค์จำนวนเต็ม-และเศษจากปัดต้องไปเป็นเครดิต-ห้ามยัดเข้าบิล)
+- [🧾 เอกสารระดับ event: `INSERT … RETURNING` ใช้ alias ไม่ได้ และ idempotency ต้องคีย์ที่ `payment_event_id` ไม่ใช่ `student_payment_id`](#เอกสารระดับ-event-insert-returning-ใช้-alias-ไม่ได้-และ-idempotency-ต้องคีย์ที่-paymenteventid-ไม่ใช่-studentpaymentid)
+- [🔒 เมธอดเขียนใหม่ต้องลงทะเบียนใน `_MONEY_PATHS` และยึด `_lock_room_money` — ถ้า RBAC อยู่ใน helper ต้องเพิ่ม helper ใน `_LOCKING_HELPERS`](#เมธอดเขียนใหม่ต้องลงทะเบียนใน-moneypaths-และยึด-lockroommoney-ถ้า-rbac-อยู่ใน-helper-ต้องเพิ่ม-helper-ใน-lockinghelpers)
 
 <!-- TOC:END -->
 
@@ -4782,4 +4784,31 @@
   - ตัวอย่างจริง: 333.33 × 3 ด้วยเงิน 1000.00 ⇒ applied 999.99 + credit_added 0.01 (ไม่หาย ไม่เกิน)
 - **Rule:** (1) 🔴 เงินทุกจุดใน engine เป็น `int` สตางค์ — แปลงกลับเป็น string 2 ตำแหน่งเฉพาะตอนตอบ (2) 🔴 preview กับ commit ต้องเรียกฟังก์ชันเดียวกัน และ commit ต้องโหลดซ้ำใต้ `_lock_room_money` (preview เป็น snapshot ไม่ใช่สัญญา) (3) 🔴 warning ของนโยบายที่ผู้ใช้คาดไม่ถึง (เช่น `CREDIT_UNUSED_BECAUSE_CASH_COVERED`) ต้องมีเสมอ — ห้ามเงียบ
 - **Tests/Verification:** `backend/tests/test_finance_allocation.py` — `test_rounding_never_loses_a_satang` (333.33 ×3: applied 999.99 + credit_added 0.01 = 1000.00), `test_preview_endpoint_matches_pure_function` (ยิง API จริงแล้วเทียบบรรทัดต่อบรรทัดกับ `build_allocation_plan`) และ `test_preview_does_not_write`
+- **Date Added:** 2026-11-25
+
+### 🧾 เอกสารระดับ event: `INSERT … RETURNING` ใช้ alias ไม่ได้ และ idempotency ต้องคีย์ที่ `payment_event_id` ไม่ใช่ `student_payment_id`
+- **Context/Problem:** P2.1 ออกใบเสร็จ **1 ใบต่อ 1 รายการรับเงิน** (`finance_receipts.payment_event_id` ไม่ NULL, `student_payment_id` เป็น NULL, `layout_version=2`) จึงเขียน `_issue_event_receipt` เลียนแบบ `_issue_one` โดยประกาศรายการคอลัมน์ครั้งเดียว (`_EVENT_DOC_COLUMNS = "R.id, R.room_id, …"`) แล้วใช้ทั้งใน `SELECT … FROM finance_receipts R` และ `INSERT … RETURNING {_EVENT_DOC_COLUMNS}` — เทสต์ตัวแรกพังทันทีด้วย `asyncpg.exceptions.UndefinedTableError: missing FROM-clause entry for table "r"` แม้ SQL จะดูถูกทุกบรรทัด
+- **Root Cause:** `RETURNING` ของ `INSERT` ไม่มี FROM clause ให้ alias `R` อ้างถึง — alias ใช้ได้เฉพาะคำสั่งที่มี `FROM finance_receipts R` จริง ⇒ ชุดคอลัมน์ "เดียวกัน" ใช้ข้ามบริบทไม่ได้ การแชร์ string เดียวจึงพังเฉพาะจุด RETURNING (SELECT ผ่าน) ทำให้ error ดูเหมือน schema ผิดทั้งที่ DDL ถูก
+- **Correct Pattern/Solution:**
+  ```python
+  _EVENT_DOC_COLUMNS = """R.id, R.room_id, R.receipt_no, ..."""
+  _EVENT_DOC_RETURNING = _EVENT_DOC_COLUMNS.replace("R.", "")  # RETURNING ไม่มี alias
+  ```
+  - idempotency 3 ชั้นของเอกสาร event: (1) `_find_event_document(event_id, doc_type)` ก่อนจองเลข (2) `idx_finance_receipts_event_active (payment_event_id, doc_type) WHERE payment_event_id IS NOT NULL AND deleted_at IS NULL` (3) savepoint รอบ INSERT + `except UniqueViolationError` **นอก** savepoint แล้วอ่านใบที่ชนะ
+  - เลขเอกสารจองด้วย upsert `receipt_sequences … ON CONFLICT DO UPDATE … RETURNING last_seq` และ `raise` เมื่อเกิน `RECEIPT_SEQ_MAX` **ใน transaction** ⇒ เลขที่จองไปถูก rollback ไม่ถูกเผา
+  - ปี พ.ศ. ใช้ `_thai_year_be(event_at)` ของ **เหตุการณ์รับเงิน** ไม่ใช่ `CURRENT_TIMESTAMP` ตอนออกเอกสาร
+- **Rule:** (1) 🔴 คอลัมน์ที่แชร์ระหว่าง `SELECT … FROM t A` กับ `INSERT … RETURNING` ต้องมีสำเนาที่ไม่มี alias — เขียนคอมเมนต์กำกับไว้ (2) 🔴 อย่าเลียนแบบ `_issue_one` ตรง ๆ สำหรับเอกสารระดับ event: `student_payment_id` เป็น NULL ⇒ index เดิม (`idx_finance_receipts_tx_active`) และ unique ของ legacy **ไม่กันซ้ำให้** ต้องมี unique ของ event เอง (3) 🔴 เอกสารที่อ้าง FK ของ event ต้องอ่านกลับด้วย `payment_event_id` ไม่ใช่ `legacy_transaction_id` (DEP ของ event ผูกธุรกรรม top-up แค่แถวเดียว แต่ replay ต้องคืนใบเดิมของ event)
+- **Tests/Verification:** `backend/tests/test_finance_payment_events.py` — `test_event_commits_single_bill_and_issues_one_receipt` (REC 1 ใบ `layout_version=2`, `student_payment_id IS NULL`), `test_event_uses_credit_and_cash_on_same_bill` (บรรทัด `bill` + `credit_apply` บนบิลเดียวผ่าน partial index), `test_idempotent_replay_returns_same_documents` (ยิงซ้ำ ► REC/DEP ยัง 1 ใบ, `reused=true`, notify ครั้งเดียว), `test_receipt_number_year_from_event_at` (2024-12-31T17:00Z ► `REC-2568-…`)
+- **Date Added:** 2026-11-25
+
+### 🔒 เมธอดเขียนใหม่ต้องลงทะเบียนใน `_MONEY_PATHS` และยึด `_lock_room_money` — ถ้า RBAC อยู่ใน helper ต้องเพิ่ม helper ใน `_LOCKING_HELPERS`
+- **Context/Problem:** P1.2 เพิ่ม `PeopleMixin` 5 เมธอดที่เขียนข้อมูล (`create_person`/`update_person`/`delete_person`/`sync_students`/`update_settings`) แต่ไม่ได้ยึดล็อกห้อง — จับได้ตอนรัน regression ของ P2.1 (`test_money_path_list_covers_every_manage_finance_entry_point` ฟ้องทั้ง 5 ตัว) ขณะเดียวกัน P2.1 `create_payment_event` ยึดล็อกถูกต้องแต่ตัวตรวจกลับ **มองไม่เห็น** เพราะ RBAC + ล็อกอยู่ใน helper `_create_locked` ไม่ได้อยู่ในเมธอดนอก
+- **Root Cause:** ตัวตรวจเป็นเชิงโครงสร้าง (อ่านซอร์ส) สองชั้น: (1) ไล่เมธอดที่มี literal `require_permission(conn, target_room_id, user_id, "MANAGE_FINANCE")` **และ** `async with conn.transaction():` ในเมธอดเดียวกัน แล้วเทียบกับ `_MONEY_PATHS` (2) สำหรับ path ที่ลงทะเบียนแล้ว บังคับว่า `await _lock_room_money(` (หรือชื่อใน `_LOCKING_HELPERS`) ต้องมาก่อน marker การเขียนเงิน ⇒ เมธอดที่แยก RBAC ไป helper จะหลุดชั้น (1) และ path ที่ไม่ลงทะเบียนจะไม่มีใครตรวจ ordering ให้เลย
+- **Correct Pattern/Solution:**
+  - ทุกเมธอดที่เขียนข้อมูลการเงิน (รวมทะเบียนคน/ค่าเริ่มต้นที่หน้าจอรับเงินอ่าน) ต้องมี `await _lock_room_money(conn, target_room_id)` เป็นคำสั่งแรกใน transaction หลัง RBAC
+  - ลงทะเบียน `(module, Class, method)` ใน `_MONEY_PATHS` ทันทีใน PR เดียวกัน
+  - ถ้าเมธอดนอก delegator ไป helper ที่ถือ RBAC + ล็อก (`create_payment_event` → `_create_locked`) ให้เพิ่มชื่อ helper ใน `_LOCKING_HELPERS` — เทสต์ `test_locking_helpers_take_the_lock_first` จะบังคับว่า helper นั้นล็อกก่อนเขียนเงินจริง
+  - ⚠️ ห้ามใส่ `_confirm_single_payment` ใน `_LOCKING_HELPERS` — มัน *รับ* ล็อกต่อจากผู้เรียก ไม่ใช่ผู้ยึด
+- **Rule:** (1) 🔴 PR ที่เพิ่มเมธอดเขียนการเงินต้องอัปเดต `_MONEY_PATHS`/`_LOCKING_HELPERS` ในไฟล์เทสต์เดียวกัน — ตัวตรวจชั้น (1) ไม่จับ path ที่ RBAC อยู่ใน helper (2) 🔴 helper ที่แชร์ชื่อแบบ substring (`f"{helper}("`) ห้ามตั้งชื่อขึ้นต้นด้วยชื่อในรายการเดิม (3) 🔴 อย่าปล่อย regression แดงข้ามแพ็กเกจ — failure แบบนี้คือช่อง deadlock จริง ไม่ใช่ noise
+- **Tests/Verification:** `backend/tests/test_finance_money_lock.py` — ทั้งชุด 91 passed หลังเติมล็อกใน `people.py` + ลงทะเบียน `people.*`/`payment_events.create_payment_event` + `_create_locked` เป็น locking helper
 - **Date Added:** 2026-11-25
