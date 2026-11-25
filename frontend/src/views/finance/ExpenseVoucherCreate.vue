@@ -215,6 +215,23 @@ const validate = (): string | null => {
   return null;
 };
 
+/**
+ * ตัดธงฝั่งจอ (`walletTouched`) ออกก่อนส่ง server — เขียนฟิลด์ของ payload ตรง ๆ
+ * แทน destructuring-omit เพราะฟิลด์ใหม่ที่เพิ่มทีหลังจะไม่หลุดไปกับ payload
+ * โดยไม่ตั้งใจ (TS บังคับให้แก้ฟังก์ชันนี้เมื่อมีฟิลด์บังคับใหม่)
+ */
+const toPayloadLine = (line: DraftLine): ExpenseVoucherLinePayload => ({
+  description: line.description.trim(),
+  amount: line.amount,
+  category_id: line.category_id,
+  budget_id: line.budget_id,
+  wallet_account_id: line.wallet_account_id,
+  receipt_status: line.receipt_status,
+  paper_bill_count: line.paper_bill_count,
+  attachment_placeholder: line.attachment_placeholder,
+  funding_source: line.funding_source,
+});
+
 const buildPayload = (): ExpenseVoucherCreate => ({
   idempotency_key: idempotencyKey.value,
   default_wallet_account_id: defaultWalletId.value,
@@ -225,11 +242,7 @@ const buildPayload = (): ExpenseVoucherCreate => ({
   total_amount: totalAmount.value,
   approved_by_person_id: approverPersonId.value,
   approved_by_name: approverName.value.trim() || null,
-  // ตัดธงฝั่งจอออก — server ไม่รู้จัก `walletTouched`
-  lines: lines.value.map(({ walletTouched: _touched, ...line }) => ({
-    ...line,
-    description: line.description.trim(),
-  })),
+  lines: lines.value.map(toPayloadLine),
 });
 
 /** 🆕 หลัง 409 — คีย์ใหม่ + ฟอร์มว่าง (ผู้ใช้ต้องกรอกใบใหม่ ไม่ใช่แก้ของเดิม) */
