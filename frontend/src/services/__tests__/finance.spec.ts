@@ -43,6 +43,8 @@ interface Captured {
    *    `obj.title === null` จะผ่านทั้งที่ `undefined` ก็ถูกตัดทิ้งเหมือนกัน
    */
   body: unknown;
+  /** `responseType` ที่ axios ใช้จริง — ใช้พิสูจน์ว่า QR ขอเป็น Blob */
+  responseType: string | undefined;
 }
 
 const captured: Captured[] = [];
@@ -56,6 +58,7 @@ beforeEach(() => {
       uri: api.getUri(config),
       method: (config.method ?? 'get').toUpperCase(),
       body: config.data,
+      responseType: config.responseType,
     });
     return {
       data: { status: 'ok', items: [], total_applied: 0, total_balance_after: 0 },
@@ -316,6 +319,7 @@ describe('FinanceService — 🧾 เคลียร์หนี้แล้ว�
         uri: api.getUri(config),
         method: (config.method ?? 'get').toUpperCase(),
         body: config.data,
+        responseType: config.responseType,
       });
       return {
         data: {
@@ -559,4 +563,70 @@ describe('FinanceService — รับเงิน 1 ครั้ง = 1 event (
       event_at: null,
     })
   })
+});
+
+describe('FinanceService — ช่องทางชำระเงิน + PromptPay QR (FIN-V2 / P2.5)', () => {
+  const ROOM = 42;
+
+  /** คำขอล่าสุด — เทสต์ชุดนี้ยิงหลายครั้งใน `it` เดียว จึงอ่านตัวท้าย ไม่ใช่ตัวแรก */
+  const last = (): Captured => {
+    const req = captured[captured.length - 1];
+    if (!req) throw new Error('ไม่มีการเรียก API เลย — adapter ไม่ถูกเรียก (เทสต์จะเขียวหลอก)');
+    return req;
+  };
+
+  /** body ของคำขอล่าสุด (parse จากสตริง JSON ที่ axios ส่งจริง) */
+  const lastBody = (): Record<string, unknown> => {
+    const raw = last().body;
+    if (typeof raw !== 'string') throw new Error('คาดว่า body เป็นสตริง JSON');
+    return JSON.parse(raw) as Record<string, unknown>;
+  };
+
+  /**
+   * 🔴 ล็อก URL ของทั้งชุด — endpoint เหล่านี้เป็นของใหม่ (P2.4) และการพิมพ์เส้นทาง
+   *    ผิดจะได้ 404 ที่หน้าจอเท่านั้น (type-check ไม่จับสตริง) ⇒ ทดสอบที่ URL จริง
+   */
+  it('list/create/update/delete ใช้ /finance/payment-channels พร้อม target_type=room', async () => {
+    await FinanceService.getPaymentChannels(ROOM, true);
+    expect(last().method).toBe('GET');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels?`);
+    expect(last().uri).toContain('target_type=room');
+    expect(last().uri).toContain('include_inactive=true');
+
+    await FinanceService.createPaymentChannel(ROOM, {
+      channel_type: 'cash',
+      label: 'เงินสด',
+      wallet_account_id: null,
+      account_name: null,
+      bank_name: null,
+      account_number: null,
+      promptpay_id: null,
+      qr_mode: null,
+      is_primary: true,
+      is_active: true,
+    });
+    expect(last().method).toBe('POST');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels?`);
+    expect(lastBody()).toMatchObject({ channel_type: 'cash', label: 'เงินสด' });
+
+    await FinanceService.updatePaymentChannel(ROOM, 9, { is_active: false });
+    expect(last().method).toBe('PATCH');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels/9?`);
+    expect(lastBody()).toEqual({ is_active: false });
+
+    await FinanceService.deletePaymentChannel(ROOM, 9);
+    expect(last().method).toBe('DELETE');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels/9?`);
+  });
+
+  it('QR ขอเป็น blob และส่ง amount เฉพาะเมื่อระบุ (ทศนิยม 2 ตำแหน่ง)', async () => {
+    await FinanceService.getPaymentChannelQr(ROOM, 9);
+    expect(last().method).toBe('GET');
+    expect(last().uri).toContain(`/api/classroom/${ROOM}/finance/payment-channels/9/qr.svg?`);
+    expect(last().responseType).toBe('blob');
+    expect(last().uri).not.toContain('amount=');
+
+    await FinanceService.getPaymentChannelQr(ROOM, 9, 250.5);
+    expect(last().uri).toContain('amount=250.50');
+  });
 });

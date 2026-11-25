@@ -94,7 +94,12 @@ import type {
   AllocationPreviewRequest,
   AllocationPreviewResponse,
   PaymentEventCreate,
-  PaymentEventResult
+  PaymentEventResult,
+  // 💳 [FIN-V2 / P2.4 API → P2.5 UI] ช่องทางชำระเงิน + PromptPay QR
+  PaymentChannel,
+  PaymentChannelListResponse,
+  PaymentChannelCreate,
+  PaymentChannelUpdate
 } from '@/types/finance';
 
 // ✨ Envelope สำเร็จของ backend (SuccessResponse) — ใช้กับการสร้าง/แก้ไข/ลบทุกตัว
@@ -953,5 +958,66 @@ export const FinanceService = {
       `/api/classroom/${roomId}/finance/payment-events?target_type=room`,
       payload
     ) as unknown as PaymentEventResult;
+  },
+
+  // ──────────────────── 💳 ช่องทางชำระเงิน + PromptPay QR (FIN-V2 / P2.5)
+  // 🔴 `account_number`/`promptpay_id` เป็น write-only: ส่งได้เฉพาะตอนสร้าง/แก้
+  //    — response มีแต่ `*_masked` ⇒ ห้ามนำค่า mask ใส่ payload (จะถูกเก็บเป็นเลขจริง)
+  // 🔓 อ่านรายการได้ทุกสมาชิกห้อง (backend `require_member`) ⇒ ไม่ gate ฝั่งนี้
+
+  async getPaymentChannels(roomId: number, includeInactive = false): Promise<PaymentChannel[]> {
+    const res = (await api.get(`/api/classroom/${roomId}/finance/payment-channels`, {
+      params: { target_type: 'room', include_inactive: includeInactive }
+    })) as unknown as PaymentChannelListResponse;
+    return res.channels;
+  },
+
+  async createPaymentChannel(
+    roomId: number,
+    payload: PaymentChannelCreate
+  ): Promise<PaymentChannel> {
+    return await api.post(
+      `/api/classroom/${roomId}/finance/payment-channels?target_type=room`,
+      payload
+    ) as unknown as PaymentChannel;
+  },
+
+  async updatePaymentChannel(
+    roomId: number,
+    channelId: number,
+    payload: PaymentChannelUpdate
+  ): Promise<PaymentChannel> {
+    return await api.patch(
+      `/api/classroom/${roomId}/finance/payment-channels/${channelId}?target_type=room`,
+      payload
+    ) as unknown as PaymentChannel;
+  },
+
+  async deletePaymentChannel(
+    roomId: number,
+    channelId: number
+  ): Promise<ApiSuccessResponse> {
+    return await api.delete(
+      `/api/classroom/${roomId}/finance/payment-channels/${channelId}?target_type=room`
+    ) as unknown as ApiSuccessResponse;
+  },
+
+  /**
+   * SVG ของ PromptPay QR (server สร้างจากเลขที่เก็บไว้ — payload ไม่เคยออกจาก backend)
+   *
+   * ⚠️ `amount` ส่ง **เฉพาะ** ช่องทาง `qr_mode='fixed'` (backend ตอบ 400 ถ้า open + amount
+   *    และถ้า fixed ไม่มี amount) — ส่งเป็นสตริง 2 ตำแหน่งตรงกับสัญญา Decimal
+   */
+  async getPaymentChannelQr(
+    roomId: number,
+    channelId: number,
+    amount?: number
+  ): Promise<Blob> {
+    const params: Record<string, string | number> = { target_type: 'room' };
+    if (amount !== undefined && amount !== null) params.amount = amount.toFixed(2);
+    return await api.get(
+      `/api/classroom/${roomId}/finance/payment-channels/${channelId}/qr.svg`,
+      { params, responseType: 'blob' }
+    ) as unknown as Blob;
   }
 };

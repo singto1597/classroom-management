@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 282 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 283 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -286,6 +286,7 @@
 - [🧾 เทมเพลต v2: dispatch ที่ `_document_context` จุดเดียว + เลย์เอาต์ snapshot ที่ไม่ JOIN บิลสด — และทะเบียนเดิมต้องกรอง `layout_version`](#เทมเพลต-v2-dispatch-ที่-documentcontext-จุดเดียว-เลย์เอาต์-snapshot-ที่ไม่-join-บิลสด-และทะเบียนเดิมต้องกรอง-layoutversion)
 - [💸 หน้าจอรับเงิน v2: `idempotency_key` เกิดตอนกดครั้งแรก และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด](#หน้าจอรับเงิน-v2-idempotencykey-เกิดตอนกดครั้งแรก-และพรีวิวที่ช้ากว่าการพิมพ์คือยอดที่ผิด)
 - [📱 PromptPay QR: CRC16 ต้องคำนวณรวม `"6304"` และ "เลขที่เก็บใน DB" กับ "เลขที่ส่ง API" เป็นคนละรูปแบบ](#promptpay-qr-crc16-ต้องคำนวณรวม-6304-และ-เลขที่เก็บใน-db-กับ-เลขที่ส่ง-api-เป็นคนละรูปแบบ)
+- [💳 ฟอร์มแก้ไขข้อมูลที่ API คืนมาแบบ mask: "เว้นว่าง" ต้องละคีย์ ไม่ใช่ส่ง `null`](#ฟอร์มแก้ไขข้อมูลที่-api-คืนมาแบบ-mask-เว้นว่าง-ต้องละคีย์-ไม่ใช่ส่ง-null)
 
 <!-- TOC:END -->
 
@@ -4861,4 +4862,24 @@
   - active ≤ 3 + primary 1 ตัว: นับ/เคลียร์ใต้ `_lock_room_money` ใน transaction เดียวกัน และ `UPDATE … is_primary=FALSE` **ก่อน** insert/update ตัวใหม่ (partial unique ชนทันทีถ้าสลับลำดับ) — ลงทะเบียน 3 เมธอดใน `_MONEY_PATHS` ด้วย
 - **Rule:** (1) 🔴 CRC ของ EMVCo คำนวณรวม `"6304"` เสมอ — ใช้ golden vector ล็อกไว้ในเทสต์ (2) 🔴 เบอร์มือถือต้อง canonical 13 หลัก `0066…` ก่อนใส่ tag `01` (3) 🔴 ห้ามคืน `promptpay_id_masked`/`account_number_masked` จาก DB ตรง ๆ — ต้องผ่าน mask ทุกครั้ง (4) 🔴 `segno.make_qr` ไม่มี `micro`; ถ้าต้องบังคับ bust ใช้ `segno.make(..., micro=False)` (5) 🔴 ห้าม log payload/เลขเต็ม แม้ใน audit
 - **Tests/Verification:** `backend/tests/test_finance_qr.py` (CRC `b"123456789"` = 0x29B1, golden open/fixed 100.00/1250.50, เบอร์ 5 รูปแบบ → canonical เดียว, mask ไม่มีเลขเต็ม, amount/mode guards, SVG ไม่มี `<script>`), `backend/tests/test_finance_payment_channels.py` (mask ใน DB/response/audit, custom_qr 400, active ≤ 3, primary 1 ตัว + promote, QR 400 เมื่อปิดใช้งาน/ไม่ใช่พร้อมเพย์/open+amount/fixed ไม่มี amount, `no-store`, QR ไม่เขียน DB, RBAC, soft delete, concurrency 2 คำขอ)
+- **Date Added:** 2026-11-25
+
+### 💳 ฟอร์มแก้ไขข้อมูลที่ API คืนมาแบบ mask: "เว้นว่าง" ต้องละคีย์ ไม่ใช่ส่ง `null`
+- **Context/Problem:** P2.5 ทำแท็บ “ช่องทางชำระเงิน” ในหน้า `/finance/settings` ให้แก้เลขบัญชี/เลขพร้อมเพย์ได้ แต่ backend (P2.4) คืนแค่ `account_number_masked`/`promptpay_id_masked` เพราะเก็บเลขเต็มไว้ใช้สร้าง QR — ระหว่างทำมี 4 กับดักที่ทำให้ “แก้ชื่อช่องทาง” แล้วบัญชีพัง:
+  (1) prefill ค่า mask ลงช่องกรอก ⇒ กดบันทึกแล้ว backend เก็บ `081-XXX-5678` เป็นเลขจริง
+  (2) ส่ง `{ promptpay_id: null }` เพราะคิดว่า “ไม่ได้แก้” ⇒ backend `exclude_unset` ตีความเป็น “ล้างค่า”
+  (3) ใช้ `isAdmin` gate ปุ่ม ⇒ เหรัญญิกที่มี `MANAGE_FINANCE` แต่ไม่ใช่แอดมินมองเห็นแต่กดไม่ได้
+  (4) แสดง SVG ด้วย `v-html` หรือค้าง object URL ⇒ XSS ในอนาคต / Blob ค้างหน่วยความจำ
+- **Root Cause:** response ของ endpoint ที่อ่าน (GET) เป็น **สแนปช็อตที่ mask แล้ว** ไม่ใช่ค่าที่แก้ได้ — ฟอร์ม edit ต้องถือว่า “ช่องลับไม่รู้ค่าเดิม” และใช้สัญญา `exclude_unset` ของ PATCH เป็นกลไกคงค่าเดิม; ส่วนสิทธิ์เขียนเป็นของ service ไม่ใช่บทบาทแอดมินของหน้า
+- **Correct Pattern/Solution:**
+  - ช่อง `account_number`/`promptpay_id` ตอนแก้ = `''` เสมอ + `placeholder` เป็นค่า mask + hint “เว้นว่าง = คงเลขเดิม”
+  - payload update สร้าง object ด้วยมือ: ใส่ `account_number`/`promptpay_id` **เฉพาะเมื่อผู้ใช้กรอก** (`if (form.x.trim()) payload.x = form.x.trim()`); ห้ามส่ง `*_masked` กลับทุกกรณี
+  - สร้างใหม่ (POST) ต่างจากแก้: ส่งฟิลด์ทุกตัวตามชนิด ฟิลด์ที่ไม่ใช้ = `null` และใส่เลขเต็มที่ผู้ใช้พิมพ์
+  - `is_primary` ต้องมาคู่ `is_active` — ปุ่ม “ตั้งเป็นหลัก” disable เมื่อ inactive และ `@change` บน checkbox เปิดใช้งานยกเลิก primary ให้เอง
+  - ปุ่มเขียนทุกปุ่ม gate ด้วย `authStore.canManageFinance`; QR/รายการเปิดให้สมาชิกอ่าน (`require_member`)
+  - QR: `responseType: 'blob'` → `URL.createObjectURL` → `<img :src>` (**ห้าม `v-html`**); revoke ใน `closeQr()` ที่เรียกจาก `@close`, `onBeforeUnmount` และก่อนสร้างใหม่; fixed ต้องกรอกยอด (text + `inputmode=decimal` + ตรวจ ≤2 ตำแหน่ง) ก่อนเรียก API, open ไม่ส่ง `amount`
+  - `active ≤ 3`: ปุ่มเพิ่ม disable เมื่อครบ, การเปิดช่องทางที่ 4 ฟ้องก่อนยิง API — แต่ยัง show 400 จาก backend (มีคนแก้พร้อมกัน) และ reload หลัง error ทุกครั้ง
+  - แท็บใช้ `AppTabs v-model` + `settingsTab` เป็น `ref` local; เนื้อหาเดิมทั้งหมดอยู่ใน `<template v-if="settingsTab === 'general'">` — ต้องไม่ย้าย/รีเซ็ต state ของกระเป๋า/หมวดหมู่
+- **Rule:** (1) 🔴 ห้าม prefill ค่า `*_masked` ลงช่องกรอกหรือส่งกลับ backend (2) 🔴 ฟิลด์ลับที่เว้นว่าง = **ละคีย์ออก** ไม่ใช่ `null` (3) 🔴 QR ต้องแสดงผ่าน `<img>` + object URL และ revoke ทุกเส้นทาง (4) 🔴 ปุ่มเขียนการเงินใช้ `canManageFinance` ไม่ใช่ `isAdmin` (5) 🔴 ปุ่มทำลายข้อมูล (ลบ) ต้องอยู่ใน `RowActionMenu` ไม่ติดกับ “แก้ไข”
+- **Tests/Verification:** `frontend/src/components/finance/__tests__/PaymentChannelsSettings.spec.ts` (mask-only render, ซ่อนปุ่มเขียน, disable ที่ 3, เปิดที่ 4 ไม่ยิง API, payload สร้าง PromptPay ครบ, แก้แล้วไม่มี key `promptpay_id`/`account_number`, เปลี่ยนชนิดไม่ได้, ลบต้องยืนยัน + reload, ตั้งหลัก, QR open ไม่ส่ง amount, fixed ต้องมียอด, revoke ตอนปิด, badge, error+retry), `frontend/src/services/__tests__/finance.spec.ts` (URL ทั้ง 5 + `responseType=blob` + `amount=250.50`) — `npm run test:unit` 504 ผ่าน
 - **Date Added:** 2026-11-25

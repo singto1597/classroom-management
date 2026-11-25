@@ -1636,3 +1636,60 @@ export interface PaymentEventResult {
   reused: boolean;
   warnings: string[];
 }
+
+// ──────────────────────── 💳 ช่องทางชำระเงิน + PromptPay QR (FIN-V2 / P2.4–P2.5)
+// 🔴 ชื่อฟิลด์ตรงกับ `PaymentChannelResponse` ของ backend เป๊ะ ๆ — `*_masked`
+//    มีไว้แสดงเท่านั้น **ห้ามส่งกลับ** ตอนบันทึก (backend จะเก็บสตริงดอกจันลง DB)
+//    ค่าเต็ม (`account_number`/`promptpay_id`) เป็น write-only และมีแต่ใน create payload
+
+export type PaymentChannelType = 'cash' | 'bank_transfer' | 'promptpay' | 'custom_qr'
+
+export type QrMode = 'open' | 'fixed'
+
+export interface PaymentChannel {
+  id: number
+  channel_type: PaymentChannelType
+  label: string
+  wallet_account_id: number | null
+  wallet_account_name: string | null
+  account_name: string | null
+  bank_name: string | null
+  account_number_masked: string | null
+  promptpay_id_masked: string | null
+  qr_mode: QrMode | null
+  is_primary: boolean
+  is_active: boolean
+  sort_order: number
+  has_qr: boolean
+}
+
+export interface PaymentChannelListResponse {
+  channels: PaymentChannel[]
+}
+
+export interface PaymentChannelCreate {
+  channel_type: PaymentChannelType
+  label: string
+  wallet_account_id: number | null
+  account_name: string | null
+  bank_name: string | null
+  /** เลขบัญชีเต็ม — write-only (API ไม่คืน) */
+  account_number: string | null
+  /** เบอร์/เลขบัตร/e-wallet เต็ม — write-only (API ไม่คืน) */
+  promptpay_id: string | null
+  qr_mode: QrMode | null
+  is_primary: boolean
+  is_active: boolean
+  sort_order?: number | null
+}
+
+/**
+ * PATCH ช่องทาง — ส่งเฉพาะคีย์ที่เปลี่ยน
+ *
+ * ⚠️ การ **ไม่ส่ง** คีย์ ≠ การส่ง `null`: backend ใช้ `exclude_unset` จึงตีความ
+ *    "ไม่ส่ง" ว่าคงค่าเดิม และ `null` ว่า "ล้างค่า" ⇒ ช่องความลับที่เว้นว่างต้อง
+ *    **ละคีย์ออก** ไม่ใช่ส่งค่าว่าง
+ */
+export type PaymentChannelUpdate = Partial<Omit<PaymentChannelCreate, 'channel_type'>> & {
+  channel_type?: PaymentChannelType
+}

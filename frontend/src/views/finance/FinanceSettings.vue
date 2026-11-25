@@ -14,7 +14,9 @@ import type {
 } from '@/types/finance';
 
 import PersonPicker from '@/components/finance/PersonPicker.vue';
+import PaymentChannelsSettings from '@/components/finance/PaymentChannelsSettings.vue';
 import PageIntro from '@/components/ui/PageIntro.vue';
+import AppTabs from '@/components/ui/AppTabs.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
@@ -23,6 +25,11 @@ import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
 import { useDialog } from '@/composables/useDialog';
 
 const authStore = useAuthStore();
+
+// 🗂️ แท็บภายในหน้าเดียว — ค่า local เท่านั้น (ไม่ผูก query route ในรอบนี้)
+//    "ทั่วไป" = กระเป๋า/หมวดหมู่/ผู้เกี่ยวข้อง/ค่าเริ่มต้น (ของเดิมทั้งหมด)
+//    "ช่องทางชำระเงิน" = component แยกที่โหลด/เซฟเอง (P2.5)
+const settingsTab = ref<'general' | 'channels'>('general');
 
 
 // 🔒 ตั้งค่าการเงิน: "แก้ไข" เป็นปุ่มหลักที่อยู่จริงในแถว
@@ -572,9 +579,20 @@ onMounted(() => {
 <template>
   <div class="space-y-4 sm:space-y-5">
     <PageIntro
-      description="จัดการกระเป๋าเงินห้องและหมวดหมู่สำหรับบันทึกรายรับ/รายจ่าย"
+      description="จัดการกระเป๋าเงินห้อง หมวดหมู่ และช่องทางชำระเงินสำหรับบันทึกรายรับ/รายจ่าย"
     ></PageIntro>
 
+    <!-- 🗂️ แท็บ “ทั่วไป / ช่องทางชำระเงิน” — เนื้อหาแต่ละแท็บโหลดแยกกัน -->
+    <AppTabs
+      v-model="settingsTab"
+      :tabs="[
+        { value: 'general', label: 'ทั่วไป' },
+        { value: 'channels', label: 'ช่องทางชำระเงิน' },
+      ]"
+      group-label="หมวดการตั้งค่าการเงิน"
+    />
+
+    <template v-if="settingsTab === 'general'">
     <!-- สถานะโหลด / ผิดพลาด -->
     <SkeletonRows v-if="isLoading" :rows="4" height="h-24" />
     <StateBlock
@@ -584,7 +602,8 @@ onMounted(() => {
       @retry="fetchSettingsData"
     />
 
-    <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <template v-else>
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <!-- กระเป๋าเงินห้อง -->
       <div class="page-card h-fit overflow-hidden">
         <div
@@ -948,6 +967,10 @@ onMounted(() => {
         </div>
       </form>
     </div>
+    </template>
+    </template>
+
+    <PaymentChannelsSettings v-else />
 
     <!-- 🏦 ฟอร์มกระเป๋าเงิน — AppSheet แทน `Swal.fire({ html })` -->
     <AppSheet
