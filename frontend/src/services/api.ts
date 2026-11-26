@@ -8,9 +8,14 @@ import {
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
+  // 🔴 **ห้ามตั้ง `Content-Type` ที่นี่** — axios 1.x แปลง FormData เป็น JSON ทันที
+  //    เมื่อ header เป็น `application/json` (`if (isFormData) return hasJSONContentType
+  //    ? JSON.stringify(formDataToJSON(data)) : data`) ⇒ อัปโหลดไฟล์ได้ 422
+  //    "ฟิลด์ 'files': Field required" ทั้งที่ FormData มีไฟล์ครบ
+  //    axios ใส่ `application/json` ให้เองเมื่อ body เป็น object ปกติ และปล่อยให้
+  //    เบราว์เซอร์ใส่ `multipart/form-data; boundary=…` เองเมื่อ body เป็น FormData
   headers: {
     'Accept': 'application/json',
-    'Content-Type': 'application/json',
   },
 });
 
