@@ -260,6 +260,30 @@ describe('AppSheet', () => {
     w.unmount()
   })
 
+  it('z-index ของแผ่นปรับได้ — dialog กลางใช้ชั้นสูงกว่าแผ่น (80/90)', async () => {
+    const zLayers = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[style]'))
+        .map((el) => el.style.zIndex)
+        .filter(Boolean)
+
+    const base = mount(AppSheet, {
+      props: { open: true, label: 'แผ่นปกติ' },
+      attachTo: document.body,
+    })
+    await Promise.resolve()
+    expect(zLayers()).toEqual(expect.arrayContaining(['50', '60']))
+    base.unmount()
+    document.body.innerHTML = ''
+
+    const raised = mount(AppSheet, {
+      props: { open: true, label: 'dialog', overlayZIndex: 80, panelZIndex: 90 },
+      attachTo: document.body,
+    })
+    await Promise.resolve()
+    expect(zLayers()).toEqual(expect.arrayContaining(['80', '90']))
+    raised.unmount()
+  })
+
   it('Esc ส่ง close', async () => {
     const w = mount(AppSheet, {
       props: { open: true, label: 'ตัวกรอง' },
