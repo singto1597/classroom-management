@@ -23,8 +23,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # สร้าง User แบบ Non-root เพื่อความปลอดภัยในระดับ Production
+# 📎 [MEDIA] สร้าง /data/media **ก่อน** USER appuser — named volume ที่ยังว่างจะสืบทอด
+#    เจ้าของจากโฟลเดอร์ในอิมเมจ ถ้าปล่อยให้ Docker สร้างเองจะกลายเป็น root-owned
+#    ⇒ backend (appuser) เขียนรูป/PDF ไม่ได้ (ดู docker-compose.app.yml `media_data`)
 RUN adduser --disabled-password --gecos "" appuser && \
-    chown -R appuser /app
+    chown -R appuser /app && \
+    mkdir -p /data/media && chown -R appuser:appuser /data
 USER appuser
 
 # คัดลอก Source Code ทั้งหมดเข้าสู่ Container

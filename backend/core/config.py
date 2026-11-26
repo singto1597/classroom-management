@@ -80,6 +80,31 @@ class Settings(BaseSettings):
     #    ⚠️ 1 บิลต้นทางออกค่าปรับได้ครั้งเดียวตลอดชีพ (unique `uq_fines_late_fee_source`)
     FINANCE_LATE_FEE_ENABLED: bool = True
 
+    # 📎 [MEDIA] ไฟล์หลักฐานการเงิน — รูปภาพ + PDF เก็บบน named volume `${ENV_NAME}_media_data`
+    #    mount ที่ `/data/media` (เฉพาะ backend) · local driver สำหรับ single-node Swarm
+    #    ⚠️ ถ้าขยาย multi-node ต้องเปลี่ยน `MEDIA_STORAGE_BACKEND` ไป S3/R2 ผ่าน core/media
+    MEDIA_STORAGE_BACKEND: str = "local"
+    MEDIA_STORAGE_DIR: str = "/data/media"
+    MEDIA_IMAGE_SIZE_LIMIT_MB: int = 10
+    MEDIA_DOCUMENT_SIZE_LIMIT_MB: int = 20
+    # 🚧 เพดานต่อ record (รูป + PDF นับรวมกัน) — ตั้งใจให้สูงกว่า PRSC (3) เพราะหลักฐาน
+    #    การเบิกจ่ายมักมีหลายใบ แต่ยังคุมไม่ให้กลายเป็นอัลบั้ม
+    MEDIA_MAX_FINANCE_ATTACHMENTS: int = 20
+    # ต่อคำขอ — UI แบ่งชุดอัตโนมัติ ⇒ ไม่ต้อง buffer 20 × 20MB ใน memory ต่อ request
+    MEDIA_MAX_UPLOAD_PER_REQUEST: int = 5
+    MEDIA_MAX_UPLOAD_PER_HOUR: int = 100
+    # เพดานขนาดรวมต่อ record — 20 ไฟล์ × 20MB = 400MB คือ worst case ที่ไม่ควรเกิด
+    MEDIA_MAX_ATTACHMENT_BYTES_TOTAL_MB: int = 100
+    MEDIA_MAX_PDF_PAGES: int = 30
+    MEDIA_MAX_DIMENSION: int = 1600
+    MEDIA_MIN_DIMENSION: int = 64
+    MEDIA_THUMB_DIMENSION: int = 480
+    MEDIA_WEBP_QUALITY: int = 80
+    # อายุ signed URL 15 นาที ปัด exp เป็นรอบ 5 นาที (ดู core/media_signing.py)
+    MEDIA_URL_SIGNING_TTL_SECONDS: int = 900
+    MEDIA_URL_EXP_ROUND_SECONDS: int = 300
+    MEDIA_PURGE_AFTER_DAYS: int = 30
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

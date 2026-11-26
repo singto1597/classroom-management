@@ -53,3 +53,15 @@ class AcademicPeriodNotFoundError(Exception):
     "ช่วงเวลานี้ถูกลบแล้ว" ได้ ส่วน "ไม่ใช่สมาชิก" ต้องได้ 403
     """
     pass
+
+class FinanceAttachmentNotFoundError(Exception):
+    """ไม่พบไฟล์หลักฐานการเงิน (หรือถูกลบ/ไม่ได้อยู่ในห้องนี้) → 404"""
+    pass
+
+class PayloadTooLargeError(Exception):
+    """ไฟล์อัปโหลดใหญ่เกินเพดานที่ตั้งไว้ → 413"""
+    pass
+
+class RateLimitError(Exception):
+    """อัปโหลดเกินโควตาต่อชั่วโมง → 429"""
+    pass

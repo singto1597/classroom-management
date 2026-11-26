@@ -11,6 +11,7 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import RowActionMenu from '@/components/ui/RowActionMenu.vue';
 import type { RowActionItem } from '@/components/ui/RowActionMenu.vue';
+import FinanceEvidenceModal from '@/components/finance/FinanceEvidenceModal.vue';
 import { useDialog } from '@/composables/useDialog';
 
 const authStore = useAuthStore();
@@ -24,6 +25,17 @@ const isAdmin = computed(() => authStore.isAdmin);
 const transactions = ref<Transaction[]>([]);
 const totalCount = ref(0);
 const isLoading = ref(true);
+
+// 📎 หลักฐานของรายการที่กำลังเปิดดู
+const evidenceOpen = ref(false);
+const evidenceTransactionId = ref<number | null>(null);
+const evidenceDescription = ref('');
+
+function openEvidence(t: Transaction): void {
+  evidenceTransactionId.value = t.id;
+  evidenceDescription.value = t.description;
+  evidenceOpen.value = true;
+}
 
 // สถานะผิดพลาดสำหรับ StateBlock (แสดงผลเท่านั้น ไม่กระทบการเรียก API)
 const hasError = ref(false);
@@ -292,6 +304,15 @@ const resetFilters = () => {
               <span v-if="t.category_name" class="chip bg-canvas text-ink-3">
                 {{ t.category_name }}
               </span>
+              <button
+                v-if="(t.attachment_file_count ?? 0) > 0"
+                type="button"
+                class="chip bg-canvas text-ink-2"
+                @click="openEvidence(t)"
+              >
+                <i class="bi bi-paperclip" aria-hidden="true"></i>
+                {{ t.attachment_file_count }} ไฟล์
+              </button>
             </div>
 
             <div class="shrink-0">
@@ -345,6 +366,15 @@ const resetFilters = () => {
                     <span class="flex items-center gap-1 text-caption font-medium text-ink-3">
                       <i class="bi bi-person-circle" aria-hidden="true"></i> {{ t.recorded_by }}
                     </span>
+                    <button
+                      v-if="(t.attachment_file_count ?? 0) > 0"
+                      type="button"
+                      class="chip bg-canvas text-ink-2"
+                      @click="openEvidence(t)"
+                    >
+                      <i class="bi bi-paperclip" aria-hidden="true"></i>
+                      {{ t.attachment_file_count }} ไฟล์
+                    </button>
                   </div>
                 </td>
                 <td>
@@ -399,5 +429,15 @@ const resetFilters = () => {
         </div>
       </div>
     </template>
+
+    <!-- 📎 หลักฐานของรายการ -->
+    <FinanceEvidenceModal
+      :open="evidenceOpen"
+      owner-type="transaction"
+      :owner-id="evidenceTransactionId"
+      :title="evidenceDescription || 'ไฟล์หลักฐาน'"
+      :can-manage="authStore.canManageFinance"
+      @close="evidenceOpen = false"
+    />
   </div>
 </template>

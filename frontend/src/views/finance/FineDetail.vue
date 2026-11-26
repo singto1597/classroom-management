@@ -34,9 +34,12 @@ import AppSheet from '@/components/ui/AppSheet.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import AppChip from '@/components/ui/AppChip.vue'
+import FinanceFileUploader from '@/components/finance/FinanceFileUploader.vue'
+import FinanceEvidenceModal from '@/components/finance/FinanceEvidenceModal.vue'
 import { formatMoney, roundMoney } from '@/utils/money'
 import { formatThaiDate, formatThaiDateTime } from '@/utils/datetime'
 import { useDialog } from '@/composables/useDialog'
+import { compressImages } from '@/utils/imageCompress'
 import {
   WAIVER_CATEGORY_LABELS,
   WAIVER_STATUS_LABELS,
@@ -142,8 +145,14 @@ const isPayOpen = ref(false)
 const isPaying = ref(false)
 const payAmount = ref('')
 const payAccountId = ref('')
-const paySlipUrl = ref('')
 const payIssueReceipt = ref(true)
+/** 📎 ไฟล์หลักฐานที่เลือกไว้ — อัปโหลดหลังบันทึกการรับเงินสำเร็จ */
+const evidenceFiles = ref<File[]>([])
+const evidenceOpen = ref(false)
+
+function openEvidence(): void {
+  evidenceOpen.value = true
+}
 
 const payAmountNumber = computed(() => {
   const n = Number(payAmount.value)
@@ -154,7 +163,7 @@ const openPay = () => {
   if (!fine.value) return
   payAmount.value = fine.value.outstanding.toString()
   payAccountId.value = accounts.value[0]?.id.toString() ?? ''
-  paySlipUrl.value = ''
+  evidenceFiles.value = []
   payIssueReceipt.value = true
   isPayOpen.value = true
 }
@@ -179,10 +188,32 @@ const handlePay = async () => {
     const res = await FinanceService.confirmBatchPayment(currentRoomId, {
       items: [{ payment_id: fine.value.student_payment_id, paid_amount: payAmountNumber.value }],
       paid_to_account_id: Number(payAccountId.value),
-      slip_image_url: paySlipUrl.value.trim() || null,
       user_name: currentUserName,
       issue_receipts: payIssueReceipt.value,
     })
+
+    // 📎 อัปหลักฐานหลังบันทึกเงินสำเร็จ — ห้าม throw เข้า catch หลัก
+    if (evidenceFiles.value.length) {
+      try {
+        const prepared = await compressImages(evidenceFiles.value)
+        for (let i = 0; i < prepared.length; i += 5) {
+          await FinanceService.uploadFinanceAttachments(
+            currentRoomId,
+            'student_payment',
+            fine.value.student_payment_id,
+            prepared.slice(i, i + 5),
+            'payment_proof',
+          )
+        }
+      } catch (error: unknown) {
+        void dialog.alert(
+          'รับเงินแล้ว แต่แนบไฟล์ไม่สำเร็จ',
+          `${error instanceof Error ? error.message : 'กรุณาลองใหม่'} — เปิดหลักฐานของรายการนี้เพื่อแนบไฟล์อีกครั้ง`,
+          'warning',
+        )
+      }
+    }
+
     const nos = res.receipts.map((r) => r.receipt_no)
     await dialog.alert(
       'บันทึกการรับเงินเรียบร้อย',
@@ -501,6 +532,10 @@ const handleRefundDecision = async (refund: FineRefund, action: 'approve' | 'rej
             <i class="bi bi-cash-coin" aria-hidden="true"></i>
             บันทึกชำระเงิน
           </AppButton>
+          <AppButton v-if="fine.paid_amount > 0" variant="secondary" @click="openEvidence">
+            <i class="bi bi-paperclip" aria-hidden="true"></i>
+            หลักฐาน
+          </AppButton>
         </template>
       </PageIntro>
 
@@ -743,14 +778,13 @@ const handleRefundDecision = async (refund: FineRefund, action: 'approve' | 'rej
           </select>
         </div>
         <div>
-          <label class="field-label" for="pay-slip">ลิงก์สลิป (ไม่บังคับ)</label>
-          <input
-            id="pay-slip"
-            v-model="paySlipUrl"
-            type="url"
-            maxlength="1000"
-            class="field"
-            placeholder="https://…"
+          <label class="field-label">ไฟล์หลักฐาน / สลิป (ไม่บังคับ)</label>
+          <FinanceFileUploader
+            v-model:files="evidenceFiles"
+            owner-type="student_payment"
+            kind="payment_proof"
+            :max-count="20"
+            :disabled="isPaying"
           />
         </div>
         <label class="flex cursor-pointer items-center gap-2 text-sm">
@@ -933,5 +967,16 @@ const handleRefundDecision = async (refund: FineRefund, action: 'approve' | 'rej
         </div>
       </template>
     </AppSheet>
+
+    <!-- 📎 หลักฐานการชำระค่าปรับ -->
+    <FinanceEvidenceModal
+      v-if="fine"
+      :open="evidenceOpen"
+      owner-type="student_payment"
+      :owner-id="fine.student_payment_id"
+      :title="`หลักฐาน: ${fine.fine_type_name}`"
+      :can-manage="canManageFinance"
+      @close="evidenceOpen = false"
+    />
   </div>
 </template>

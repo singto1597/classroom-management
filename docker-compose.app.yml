@@ -25,6 +25,11 @@ services:
       #    ตั้ง 2 (Cloudflare + Traefik) ได้หลังยืนยันตามที่ core/request_context.py อธิบาย
       #    ⚠️ ห้ามใส่ `:-` fallback ที่มากกว่า 0 — จะเปิดช่อง spoof เงียบ ๆ ทุกที่ที่ลืมตั้ง
       - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-0}
+      # 📎 ไฟล์หลักฐานการเงิน (รูป + PDF) — volume กลางของทุก replica
+      - MEDIA_STORAGE_DIR=/data/media
+    volumes:
+      # ⚠️ local driver รองรับ single-node Swarm เท่านั้น — multi-node ต้องย้ายไป S3/R2
+      - media_data:/data/media
     networks:
       - shared_network
       - traefik-public
@@ -151,3 +156,9 @@ networks:
   shared_network:
     name: app-internal-${ENV_NAME}
     external: true
+
+volumes:
+  # 📎 ไฟล์หลักฐานการเงิน — แยกต่อ environment (staging/production ไม่เห็นไฟล์กัน)
+  # ⚠️ **key** ต้องเป็นค่าคงที่ (Swarm ไม่ interpolate top-level key) — ชื่อจริงมาจาก `name:`
+  media_data:
+    name: ${ENV_NAME}_media_data

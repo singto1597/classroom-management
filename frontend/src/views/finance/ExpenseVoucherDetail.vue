@@ -18,6 +18,7 @@ import { useRoute } from 'vue-router';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
+import FinanceEvidence from '@/components/finance/FinanceEvidence.vue';
 
 import { FinanceService } from '@/services/finance';
 import { apiStatus } from '@/services/api';
@@ -36,6 +37,7 @@ const currentRoomId = authStore.currentRoomId!;
 const voucherId = Number(route.params.id);
 
 const detail = ref<ExpenseVoucherDetail | null>(null);
+const canManageFinance = computed(() => authStore.canManageFinance);
 const isLoading = ref(true);
 const hasError = ref(false);
 const isNotFound = ref(false);
@@ -304,6 +306,16 @@ onMounted(() => {
                   <span class="mt-1 block text-xs text-ink-3">
                     {{ FUNDING_SOURCE_LABELS[line.funding_source] ?? line.funding_source }}
                   </span>
+                  <!-- 📎 ไฟล์หลักฐานของบรรทัดนี้ (ผูกกับ finance_transactions ของบรรทัด) -->
+                  <FinanceEvidence
+                    v-if="line.finance_transaction_id"
+                    class="mt-2"
+                    owner-type="transaction"
+                    :owner-id="line.finance_transaction_id"
+                    :can-manage="canManageFinance"
+                    kind="withdrawal_evidence"
+                    compact
+                  />
                 </td>
                 <td class="num text-right text-ink-3">{{ line.paper_bill_count }}</td>
                 <td class="num whitespace-nowrap text-right font-bold text-ink">

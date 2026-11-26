@@ -10,8 +10,10 @@ import PageIntro from '@/components/ui/PageIntro.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import AppTabs from '@/components/ui/AppTabs.vue';
+import FinanceFileUploader from '@/components/finance/FinanceFileUploader.vue';
 import type { AppTabItem } from '@/components/ui/AppTabs.vue';
 import { useDialog } from '@/composables/useDialog';
+import { compressImages } from '@/utils/imageCompress';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -45,12 +47,14 @@ const form = ref({
   description: '',
   from_account_id: '',
   to_account_id: '',
-  slip_image_url: '',
   // 🧾 [F6] ข้อมูลที่พิมพ์ลงบน "ใบสำคัญจ่าย" / "ใบรับเงิน"
   payee_name: '',
   approver_name: '',
   attachment_count: 0
 });
+
+/** 📎 ไฟล์หลักฐานที่เลือกไว้ก่อนบันทึก — อัปโหลดหลังรายการถูกสร้าง (มี transaction_id) */
+const evidenceFiles = ref<File[]>([]);
 
 const fetchInitData = async () => {
   isLoading.value = true;
@@ -109,6 +113,7 @@ const switchTab = (tab: 'expense' | 'income' | 'transfer') => {
   form.value.payee_name = '';
   form.value.approver_name = '';
   form.value.attachment_count = 0;
+  evidenceFiles.value = [];
 };
 
 const setTab = (value: string) => {
@@ -207,13 +212,38 @@ const handleSubmit = async () => {
         amount: form.value.amount,
         description: form.value.description,
         transaction_type: activeTab.value,
-        slip_image_url: form.value.slip_image_url || undefined,
         payee_name: form.value.payee_name.trim(),
         // 🖊️ ผู้อนุมัติ/เอกสารแนบเป็นเรื่องของ "ใบสำคัญจ่าย" ⇒ แท็บรายรับไม่ส่งไป
         approver_name: activeTab.value === 'expense' ? form.value.approver_name.trim() || null : null,
         attachment_count: activeTab.value === 'expense' ? Number(form.value.attachment_count) || 0 : 0,
         user_name: currentUserName
       });
+
+      // 📎 อัปโหลดหลักฐานที่เลือกไว้ (ถ้ามี) — **หลัง**รายการถูกสร้างแล้วเท่านั้น
+      //    ⚠️ ถ้าอัปพลาด รายการยังบันทึกสำเร็จ ⇒ ห้าม throw เข้า catch ด้านล่าง
+      //       (จะขึ้นว่า "บันทึกรายการไม่สำเร็จ" แล้วชวนให้กดซ้ำ = รายการเบิ้ล)
+      const transactionId = result.transaction_id ?? null;
+      if (transactionId != null && evidenceFiles.value.length) {
+        try {
+          const prepared = await compressImages(evidenceFiles.value);
+          const kind = activeTab.value === 'income' ? 'payment_proof' : 'expense_evidence';
+          for (let i = 0; i < prepared.length; i += 5) {
+            await FinanceService.uploadFinanceAttachments(
+              currentServerId,
+              'transaction',
+              transactionId,
+              prepared.slice(i, i + 5),
+              kind,
+            );
+          }
+        } catch (error: unknown) {
+          void dialog.alert(
+            'บันทึกรายการแล้ว แต่แนบไฟล์ไม่สำเร็จ',
+            `${error instanceof Error ? error.message : 'กรุณาลองใหม่'} — เปิดรายการในประวัติการเงินเพื่อแนบไฟล์อีกครั้ง`,
+            'warning',
+          );
+        }
+      }
 
       // 🖨️ เสนอทางโหลดเอกสารที่เพิ่งออก — ใช้เส้นทาง PDF เดิมของทะเบียนเอกสาร
       //    (ไม่เขียนเส้นทางใหม่ · ถ้า Gotenberg ล่ม ผู้ใช้ยังบันทึกสำเร็จไปแล้ว)
@@ -382,15 +412,15 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- สลิป (ไม่บังคับ) -->
-          <div>
-            <label class="field-label" for="slipUrl">URL รูปสลิปหลักฐาน (ถ้ามี)</label>
-            <input
-              id="slipUrl"
-              v-model="form.slip_image_url"
-              class="field"
-              type="url"
-              placeholder="https://..."
+          <!-- 📎 หลักฐาน (ไม่บังคับ) — รูปภาพหรือ PDF, อัปโหลดหลังบันทึกสำเร็จ -->
+          <div v-if="activeTab !== 'transfer'">
+            <label class="field-label">ไฟล์หลักฐาน (ถ้ามี)</label>
+            <FinanceFileUploader
+              v-model:files="evidenceFiles"
+              owner-type="transaction"
+              :kind="activeTab === 'income' ? 'payment_proof' : 'expense_evidence'"
+              :max-count="20"
+              :disabled="isSubmitting"
             />
           </div>
 

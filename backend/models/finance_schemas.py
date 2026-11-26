@@ -101,6 +101,9 @@ class TransactionCreateResponse(SuccessResponse):
     receipt_no: Optional[str] = None
     doc_type: Optional[str] = None
     doc_type_label: Optional[str] = None
+    # 📎 id ของรายการที่เพิ่งสร้าง — หน้าจอใช้แนบไฟล์หลักฐานทันทีหลังบันทึก
+    #    ⚠️ ต้องประกาศที่นี่ ไม่งั้น FastAPI ตัดทิ้งเงียบ ๆ (ดู docstring ด้านบน)
+    transaction_id: Optional[int] = None
 
 class TransferCreate(BaseModel):
     from_account_id: int
@@ -187,6 +190,9 @@ class TransactionResponse(BaseModel):
     account_name: Optional[str]
     category_name: Optional[str]
     transfer_group_id: Optional[int] = None
+    # 📎 จำนวนไฟล์หลักฐานที่ยังไม่ถูกลบ (รูป + PDF) — ใช้แสดง badge ในประวัติ
+    #    ⚠️ คนละตัวกับ `attachment_count` (จำนวนใบกระดาษที่พิมพ์บนเอกสาร)
+    attachment_file_count: int = 0
 
 class TransactionListResponse(BaseModel):
     total_count: int

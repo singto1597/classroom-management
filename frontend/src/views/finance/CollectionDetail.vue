@@ -15,7 +15,10 @@ import StateBlock from '@/components/ui/StateBlock.vue'
 import SkeletonRows from '@/components/ui/SkeletonRows.vue'
 import AppSheet from '@/components/ui/AppSheet.vue'
 import WriteOffModal from '@/components/finance/WriteOffModal.vue'
+import FinanceFileUploader from '@/components/finance/FinanceFileUploader.vue'
+import FinanceEvidenceModal from '@/components/finance/FinanceEvidenceModal.vue'
 import { useDialog } from '@/composables/useDialog'
+import { compressImages } from '@/utils/imageCompress'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,8 +70,21 @@ const isPaying = ref(false)
 const payForm = reactive({
   accountId: '',
   amount: '',
-  slipUrl: '',
 })
+
+/** 📎 ไฟล์หลักฐานที่เลือกไว้ — อัปโหลดหลังบันทึกการรับเงินสำเร็จ */
+const evidenceFiles = ref<File[]>([])
+
+// 📎 ดูหลักฐานของการรับเงินที่บันทึกแล้ว
+const evidenceOpen = ref(false)
+const evidencePaymentId = ref<number | null>(null)
+const evidenceStudentName = ref('')
+
+function openPaymentEvidence(student: StudentPaymentDetail): void {
+  evidencePaymentId.value = student.payment_id
+  evidenceStudentName.value = displayName(student)
+  evidenceOpen.value = true
+}
 
 /**
  * ✂️ [FIN-V2 / P6.3] ยอดคงเหลือ 3 พจน์ = `amount - paid - written_off`
@@ -96,7 +112,7 @@ const handlePay = (student: StudentPaymentDetail) => {
   payForm.accountId = accounts.value[0]?.id.toString() ?? ''
   const remaining = outstandingOfStudent(student)
   payForm.amount = remaining > 0 ? String(remaining) : ''
-  payForm.slipUrl = ''
+  evidenceFiles.value = []
   isPayOpen.value = true
 }
 
@@ -142,9 +158,31 @@ const submitPayment = async () => {
     await FinanceService.confirmPayment(currentServerId, student.payment_id, {
       paid_to_account_id: Number(payForm.accountId),
       paid_amount: amount,
-      slip_image_url: payForm.slipUrl.trim(),
       user_name: currentUserName,
     })
+
+    // 📎 อัปหลักฐานที่เลือกไว้ — หลังบันทึกเงินสำเร็จเท่านั้น (ห้าม throw เข้า catch หลัก)
+    if (evidenceFiles.value.length) {
+      try {
+        const prepared = await compressImages(evidenceFiles.value)
+        for (let i = 0; i < prepared.length; i += 5) {
+          await FinanceService.uploadFinanceAttachments(
+            currentServerId,
+            'student_payment',
+            student.payment_id,
+            prepared.slice(i, i + 5),
+            'payment_proof',
+          )
+        }
+      } catch (error: unknown) {
+        void dialog.alert(
+          'รับเงินแล้ว แต่แนบไฟล์ไม่สำเร็จ',
+          `${error instanceof Error ? error.message : 'กรุณาลองใหม่'} — เปิดหลักฐานของรายการนี้เพื่อแนบไฟล์อีกครั้ง`,
+          'warning',
+        )
+      }
+    }
+
     isPayOpen.value = false
     await dialog.fire({ icon: 'success', title: 'รับเงินสำเร็จ!', timer: 1500 })
     await fetchDetail()
@@ -574,6 +612,15 @@ onMounted(() => {
               >
                 รอแอดมินรับยอด
               </span>
+              <button
+                v-if="s.paid_amount > 0"
+                type="button"
+                class="btn-ghost-ui"
+                @click="openPaymentEvidence(s)"
+              >
+                <i class="bi bi-paperclip" aria-hidden="true"></i>
+                หลักฐาน
+              </button>
             </template>
             <template v-else>
               <button
@@ -722,6 +769,15 @@ onMounted(() => {
                       >
                         รอแอดมินรับยอด
                       </span>
+                      <button
+                        v-if="s.paid_amount > 0"
+                        type="button"
+                        class="btn-ghost-ui"
+                        @click="openPaymentEvidence(s)"
+                      >
+                        <i class="bi bi-paperclip" aria-hidden="true"></i>
+                        หลักฐาน
+                      </button>
                     </template>
                     <template v-else>
                       <button
@@ -790,13 +846,13 @@ onMounted(() => {
         </div>
 
         <div>
-          <label class="field-label" for="pay-slip">URL รูปสลิป (ถ้ามี)</label>
-          <input
-            id="pay-slip"
-            v-model="payForm.slipUrl"
-            type="url"
-            class="field"
-            placeholder="https://..."
+          <label class="field-label">ไฟล์หลักฐาน / สลิป (ถ้ามี)</label>
+          <FinanceFileUploader
+            v-model:files="evidenceFiles"
+            owner-type="student_payment"
+            kind="payment_proof"
+            :max-count="20"
+            :disabled="isPaying"
           />
         </div>
       </div>
@@ -820,6 +876,16 @@ onMounted(() => {
       :outstanding="writeOffTarget ? outstandingOfStudent(writeOffTarget) : 0"
       @close="isWriteOffOpen = false"
       @saved="handleWriteOffSaved"
+    />
+
+    <!-- 📎 หลักฐานของการรับเงิน -->
+    <FinanceEvidenceModal
+      :open="evidenceOpen"
+      owner-type="student_payment"
+      :owner-id="evidencePaymentId"
+      :title="evidenceStudentName ? `หลักฐาน: ${evidenceStudentName}` : 'ไฟล์หลักฐาน'"
+      :can-manage="canManageFinance"
+      @close="evidenceOpen = false"
     />
   </div>
 </template>

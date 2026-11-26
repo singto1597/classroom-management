@@ -18,6 +18,7 @@ from core.request_context import (
 from routers import classroom_sync_router
 from routers import student_router
 from routers import finance_router
+from routers import finance_file_router
 from routers import auth_router
 from routers import room_router
 from routers import action_router
@@ -155,6 +156,8 @@ app.include_router(room_router.router, prefix="/api/classroom", tags=["Rooms"])
 app.include_router(classroom_sync_router.router, prefix="/api/classroom", tags=["Classroom"])
 app.include_router(student_router.router, prefix="/api/classroom", tags=["Students"])
 app.include_router(finance_router.router, prefix="/api/classroom", tags=["Finance"])
+# 📎 ไฟล์หลักฐานการเงิน: signed URL — **ไม่มี auth header** โดยเจตนา (ดู routers/finance_file_router.py)
+app.include_router(finance_file_router.router, prefix="/api")
 app.include_router(action_router.router, prefix="/api/classroom", tags=["Actions"])
 app.include_router(activity_router.router, prefix="/api/classroom", tags=["Activities"])
 app.include_router(notification_router.router, prefix="/api/classroom", tags=["Notifications"])

@@ -4,11 +4,17 @@ import asyncpg
 import asyncio
 import random
 import string
+import tempfile
 import uuid
 from urllib.parse import urlparse
 from fastapi.testclient import TestClient
 
 from core.config import settings
+
+# 📎 ไฟล์หลักฐานการเงินในเทสต์ต้องไม่เขียนลง /data/media ของเครื่องจริง —
+#    ตั้ง temp dir **ก่อน** มีใครเรียก get_media_storage() (cache ตาม (backend, dir))
+settings.MEDIA_STORAGE_DIR = tempfile.mkdtemp(prefix="classroom_media_test_")
+
 from main import app
 # 👇 Import ฟังก์ชันสร้างตารางของมึงมา
 from core.init_db import init_db
