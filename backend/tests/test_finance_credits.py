@@ -75,6 +75,20 @@ def _key() -> str:
     return uuid.uuid4().hex
 
 
+async def _pin_legacy_layout(pool, receipt_no: str) -> None:
+    """ตรึงเอกสารเป็น layout เดิม (1) ก่อนยิงเส้นทางทะเบียนเก่า
+
+    🖨️ ตั้งแต่ 2026-11-26 เอกสารทุกชนิดออกด้วยดีไซน์ A4 ใหม่ (`layout_version = 2`)
+    แต่ `GET /finance/receipts` (ทะเบียนเดิม) อ่านเฉพาะ layout 1 ตามสัญญา P2.2
+    ⇒ เทสต์ที่ตรวจตัวกรองของเส้นทางเดิมต้องตรึงแถวให้เป็น legacy ก่อน
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_receipts SET layout_version = 1 WHERE receipt_no = $1",
+            receipt_no,
+        )
+
+
 # ═══════════════════════════════════════════════════════════════════ seed helpers
 async def _insert_account(pool, room_id: int, name: str = "กระเป๋ากลาง", balance: float = 0.0) -> int:
     async with pool.acquire() as conn:
@@ -486,13 +500,16 @@ async def test_apply_writes_no_transaction_and_does_not_double_count(
     assert inc_after == 400.0, "หักเครดิต = ตัด AR ไม่ใช่รับรู้รายได้ซ้ำ"
     assert await _ar_project_net(db_pool, room_id) == 0.0, "บิลถูกปิด ⇒ ผู้ค้างชำระเหลือ 0"
 
-    # 📄 ทะเบียน "เงินเคลื่อนไหว" เห็น 2 แถวจาก journal: เติมเครดิต + ออกบิล (รายได้คงค้าง)
-    #    แต่ **ไม่มี** แถวจากการหักเครดิต (เงินไม่ได้เคลื่อนไหวตอนหัก)
+    # 📄 ทะเบียน "เงินเคลื่อนไหว" เห็น **แค่การเติมเครดิต** (เงินเข้าครัวเรือนจริง)
+    #    - ออกบิล (Dr AR / Cr revenue) = รายได้คงค้าง ไม่ใช่เงินเคลื่อนไหว ⇒ ไม่มีแถว
+    #      (ถ้าโผล่ด้วย รายรับจะถูกนับซ้ำตอนรับเงินจริง — บั๊กที่ `_classify_journal_entry` กันไว้)
+    #    - หักเครดิตก็ไม่แตะกระเป๋า ⇒ ไม่มีแถว
     listing = client.get(_url(TRANSACTIONS_PATH, room_id), headers=admin_headers)
     assert listing.status_code == 200
     items = listing.json()["items"]
-    assert len(items) == 2, items
-    assert all(i["transaction_type"] == "income" for i in items)
+    assert len(items) == 1, items
+    assert items[0]["transaction_type"] == "income"
+    assert "รับเงินล่วงหน้า" in items[0]["description"]
 
 
 async def test_budget_overview_counts_issue_revenue_once_through_credit_application(
@@ -825,6 +842,7 @@ async def test_receipts_registry_accepts_deposit_filter(client, db_pool, admin_h
     account_id = await _insert_account(db_pool, room_id)
     student_id = await _make_debtor(db_pool, room_id)
     assert _top_up(client, admin_headers, student_id, account_id, 100.0).status_code == 200
+    await _pin_legacy_layout(db_pool, "DEP-2569-0001")
 
     res = client.get(_url(RECEIPTS_PATH, room_id) + "&doc_type=deposit", headers=admin_headers)
     assert res.status_code == 200, res.text

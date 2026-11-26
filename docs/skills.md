@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 294 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 297 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -298,6 +298,9 @@
 - [🧩 FIN-V2 ประกอบครบ: สิ่งที่เห็นได้เฉพาะเมื่อทุก package อยู่ด้วยกัน](#fin-v2-ประกอบครบ-สิ่งที่เห็นได้เฉพาะเมื่อทุก-package-อยู่ด้วยกัน)
 - [🖨️ เอกสารสองยุคใช้ shell คนละไฟล์ — เลือกจาก `body_template` และอย่า assert `.doc { padding }` ด้วย substring](#เอกสารสองยุคใช้-shell-คนละไฟล์-เลือกจาก-bodytemplate-และอย่า-assert-doc-padding-ด้วย-substring)
 - [🪪 ชื่อบนบิล/เอกสารการเงิน = ชื่อเต็มทางการ (คำนำหน้า + ชื่อ + นามสกุล) ไม่ต่อชื่อเล่น](#ชื่อบนบิลเอกสารการเงิน-ชื่อเต็มทางการ-คำนำหน้า-ชื่อ-นามสกุล-ไม่ต่อชื่อเล่น)
+- [🖨️ "เอกสารทุกชนิดใช้ดีไซน์ใหม่" = ผู้ผลิตเอกสารต้องเขียน `layout_version = 2` เอง — ทะเบียนเดิมยังซ่อน layout 2](#เอกสารทุกชนิดใช้ดีไซน์ใหม่-ผู้ผลิตเอกสารต้องเขียน-layoutversion-2-เอง-ทะเบียนเดิมยังซ่อน-layout-2)
+- [🏷️ ใบสำคัญจ่ายยุคก่อน P4.1 ไม่มี `lines` — เปลี่ยนดีไซน์ห้ามทำข้อมูลงบ/ช่องทาง/ลายเซ็นหายจากกระดาษ](#ใบสำคัญจ่ายยุคก่อน-p41-ไม่มี-lines-เปลี่ยนดีไซน์ห้ามทำข้อมูลงบช่องทางลายเซ็นหายจากกระดาษ)
+- [🧾 รับชำระหนี้ = Dr กระเป๋า / Cr ลูกหนี้ — ลูกหนี้เป็น asset แต่ไม่ใช่กระเป๋า ⇒ ต้องแยกก่อนจัดประเภท "โอนเงิน"](#รับชำระหนี้-dr-กระเป๋า-cr-ลูกหนี้-ลูกหนี้เป็น-asset-แต่ไม่ใช่กระเป๋า-ต้องแยกก่อนจัดประเภท-โอนเงิน)
 
 <!-- TOC:END -->
 
@@ -5074,3 +5077,39 @@
 - **Rule:** (1) 🔴 เอกสารการเงินใช้ชื่อเต็มทางการเท่านั้น (2) 🔴 อย่าประกอบชื่อเองใน SQL/JS — ใช้ `_full_name`/`displayName` (3) 🔴 ฟิลด์ `prefix` ต้องมีใน response type ที่หน้าจอเงินใช้ ไม่งั้นพิมพ์ชื่อได้แต่ขาดคำนำหน้าแบบเงียบ ๆ
 - **Tests/Verification:** type-check frontend ผ่าน · vitest `src/utils/__tests__/name.spec.ts` (ล็อกนโยบายชื่อ) + `src/views/finance` + `src/components/finance` + `src/router/__tests__/routes.spec.ts` เขียว · backend: `test_finance_receipts.py` (`issued_to_name` = ชื่อ-นามสกุลเต็ม), `test_finance_invoices.py` (`skipped[].student_name`), `test_finance_document_templates.py` (ชื่อบน PV/CERT/INC)
 - **Date Added:** 2026-11-25
+
+### 🖨️ "เอกสารทุกชนิดใช้ดีไซน์ใหม่" = ผู้ผลิตเอกสารต้องเขียน `layout_version = 2` เอง — ทะเบียนเดิมยังซ่อน layout 2
+- **Context/Problem:** ผู้ใช้แจ้งว่าใบสำคัญจ่าย/ใบรับเงินล่วงหน้า/ใบรับเงินอื่น ๆ ยังพิมพ์เป็นดีไซน์เดิม ทั้งที่เทมเพลต v2 พร้อมแล้ว · สาเหตุคือ issuer ทั้ง 6 ตัวใน `receipts.py` (`_issue_one` REC, `_issue_invoice_aggregate`, `_issue_fine_invoice`, `_issue_deposit`, `_issue_income_doc`, `_issue_payment_voucher`) ยัง INSERT โดยไม่ระบุ `layout_version` ⇒ DEFAULT = 1 ⇒ adapter เลือก shell/partial legacy ให้เอกสารที่ **เพิ่งออกวันนี้**
+- **Root Cause:** `layout_version` เดิมถูกเซ็ตจากเส้นทาง P4.1 (payment events) เท่านั้น — เส้นทางรับเงินเดิม (CollectionDetail ยังเรียก `issueReceipt`/`issueReceiptsBatch`) ไม่รู้จักคอลัมน์นี้ ⇒ เทมเพลตใหม่ "มีอยู่" แต่ไม่มีเอกสารใหม่ใบไหนถูกส่งไปใช้
+- **Correct Pattern/Solution:**
+  - ใส่ `layout_version` = `2` ตรง ๆ ใน INSERT ของ issuer **ทุกตัว** (ทั้งแบบมี `line_items` และไม่มี) พร้อมคอมเมนต์อ้างคำสั่งผู้ใช้ — อย่าพึ่ง DEFAULT และอย่าใช้ feature flag
+  - **เอกสารที่ออกไปแล้ว (layout 1) ห้าม backfill** — byte contract บังคับว่าพิมพ์ซ้ำต้องตรงกระดาษที่แจกไปแล้ว (plan 2026-11-26 ยืนยัน) ⇒ อย่าเขียน migration ที่ UPDATE layout_version ของแถวเก่า
+  - ทะเบียนเดิม `GET /finance/receipts` กรอง `layout_version = 1 OR doc_type = 'invoice'` ตามสัญญา P2.2 ⇒ หลังพลิก issuer เทสต์ที่ตรวจ **ตัวกรองของเส้นทางเดิม** จะได้ลิสต์ว่าง ต้อง `UPDATE finance_receipts SET layout_version = 1` ใน fixture (helper `_pin_legacy_layout`) พร้อมคอมเมนต์ — อย่าแก้ endpoint ให้โชว์ทุก layout
+  - อย่าใส่ปี ค.ศ. ลงคอมเมนต์ CSS ของ shell v2 (`/* user request 2026-11-26 */`) — เทสต์ "เอกสารห้ามมีปี ค.ศ. บนกระดาษ" สแกน HTML ดิบ และจะจับคอมเมนต์นั้น
+- **Rule:** (1) 🔴 issuer ทุกตัวต้องระบุ `layout_version = 2` เอง (2) 🔴 ห้าม backfill layout ของเอกสารเก่า (3) 🔴 ทะเบียนเดิม = legacy-only; เทสต์ต้องตรึง fixture ไม่ใช่ผ่อน endpoint (4) 🔴 shell CSS ห้ามมีเลขปี ค.ศ./คำไทย
+- **Tests/Verification:** `backend/tests/test_finance_transaction_documents.py` (PV/DEP/INC/INV พิมพ์ดีไซน์ใหม่), `test_finance_receipt_batches.py` + `test_finance_receipts.py` + `test_finance_credits.py` (ตรึง legacy สำหรับตัวกรองเส้นทางเดิม), `test_finance_pdf_a4_shell.py`
+- **Date Added:** 2026-11-26
+
+### 🏷️ ใบสำคัญจ่ายยุคก่อน P4.1 ไม่มี `lines` — เปลี่ยนดีไซน์ห้ามทำข้อมูลงบ/ช่องทาง/ลายเซ็นหายจากกระดาษ
+- **Context/Problem:** PV ที่ออกจากเส้นทางรายจ่ายเดิมเก็บ `voucher_snapshot` รูปแบน (`category_name`, `account_name`, `account_kind`, `bank_*`, `approver_name`, `attachment_count`, `budgets[]`) และ **ไม่มี** `lines`/`signatures`/`default_wallet` อย่าง P4.1 · เทมเพลต v2 จึงขึ้น "—" ทุกช่องและตัดบล็อกงบประมาณออก ⇒ การอัปดีไซน์กลายเป็นการลบข้อมูลการเงินออกจากหลักฐาน
+- **Root Cause:** helper `_voucher_context_v2`/`_voucher_lines` ถูกเขียนคู่กับ snapshot รุ่นใหม่เท่านั้น และ `legacy` ไม่มีธงแยก — ค่าที่ `_shape_receipt` คลี่ไว้แล้ว (`account_kind` ฯลฯ) ไม่ถูกใช้
+- **Correct Pattern/Solution:**
+  - ตรวจรูป snapshot ด้วย `legacy = bool(snapshot) and "lines" not in snapshot` (ไม่ใช่มีคีย์ `default_wallet`)
+  - เติม fallback: ผู้จัดทำ ← `issued_by_name`, ผู้อนุมัติ ← `approver_name`, ผู้รับเงิน ← payee, หมวด/กระเป๋า ← `category_name`/`account_name`, จำนวนหลักฐาน ← `attachment_count`, ช่องทาง ← `cls._voucher_channel_text(d)` (ฟังก์ชัน ReceiptsMixin ผ่าน MRO)
+  - บล็อกงบ (`voucher_budgets` + `voucher_budget_section`) แสดง **เฉพาะ** snapshot เก่า — snapshot P4.1 มีงบรายบรรทัดในตารางหลักแล้ว ถ้าพิมพ์ซ้ำผู้ใช้เห็นวงเงินสองที่และนับซ้ำ
+  - เทมเพลตต้องคงคำเตือนเดิม ("ไม่อยู่ในงบประมาณที่ตั้งไว้", "อยู่ในงบมากกว่าหนึ่งช่วง")
+- **Rule:** (1) 🔴 snapshot ทุกรุ่นต้องพิมพ์ได้โดยไม่สูญข้อมูล (2) 🔴 แยกธง legacy ด้วยการไม่มี `lines` (3) 🔴 บล็อกงบเฉพาะ snapshot เก่า (4) 🔴 อย่า query งบใหม่ตอนพิมพ์ — อ่าน snapshot เท่านั้น
+- **Tests/Verification:** `backend/tests/test_finance_transaction_documents.py` (PV snapshot เก่า: หมวด/ช่องทาง/งบ/ลายเซ็น/หลักฐาน), `test_finance_legacy_pdf_regression.py` (digest legacy ไม่ขยับ)
+- **Date Added:** 2026-11-26
+
+### 🧾 รับชำระหนี้ = Dr กระเป๋า / Cr ลูกหนี้ — ลูกหนี้เป็น asset แต่ไม่ใช่กระเป๋า ⇒ ต้องแยกก่อนจัดประเภท "โอนเงิน"
+- **Context/Problem:** ประวัติการเงินขึ้น `รับเงิน: ... -฿40.00` ติดลบและมีชิป "ผู้ค้างชำระค่าโครงการ · โอนเงิน" ทั้งที่รับเงินเข้ามา 40 บาท
+- **Root Cause:** classifier เดิมใช้ `asset_lines` รวมทุกบัญชี `account_type='asset'` — ลูกหนี้ 11001/11002 เป็น asset ด้วย ⇒ journal รับชำระหนี้มี asset 2 ขา (Dr กระเป๋า / Cr ลูกหนี้) ไปเข้าเงื่อนไข transfer (`len(asset_lines) >= 2`) ⇒ amount = ฝั่ง credit ลูกหนี้ และ frontend ใส่ลบให้ expense
+- **Correct Pattern/Solution:**
+  - หลังแยก `asset_lines` ให้แยกต่อด้วย `account_code in AR_LEDGER_CODES` → `ar_lines` / `cash_lines`; ทุกสาขา income/expense/transfer ใช้ `cash_*` เป็นตัวตัดสินและเป็นจำนวนเงิน
+  - เพิ่มสาขาก่อน transfer: `cash_dr > 0 and ar_cr > 0` → income, amount = `cash_dr`, account = กระเป๋าที่เดบิต, category = ชื่อบัญชีลูกหนี้
+  - journal ที่แตะแค่ลูกหนี้ (ออกบิล Dr AR / Cr revenue, ตัดหนี้สูญ) คืน `None` — ไม่ใช่เงินเคลื่อนไหว และถ้าโชว์เป็น income จะนับรายได้ซ้ำตอนรับเงินจริง · ยอดคงค้างยังอยู่ใน P&L/งบดุลเพราะอ่าน `journal_lines` ตรง ๆ
+  - เทสต์เดิมที่คาดว่า "ออกบิลโผล่ในประวัติ" ต้องอัปเดตตามความหมายใหม่ของทะเบียน (เงินเข้าออกกระเป๋า) — ไม่ใช่ผ่อน classifier
+- **Rule:** (1) 🔴 อย่านับลูกหนี้เป็นกระเป๋าเงิน (2) 🔴 สาขา AR-payment ต้องมาก่อน transfer (3) 🔴 AR-only journal = `None` ในทะเบียนเงินเคลื่อนไหว (4) 🔴 อย่า `return` ก่อนกรอง `transaction_type`
+- **Tests/Verification:** `backend/tests/test_finance_v2_read.py::test_v2_reads_accrual_payment_as_income_not_transfer` (ล็อกการจำแนก + ไม่นับออกบิล), `test_finance_credits.py` (ทะเบียนเห็นแค่เติมเครดิต)
+- **Date Added:** 2026-11-26

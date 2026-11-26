@@ -234,6 +234,15 @@ async def _seed_receipts(client, db_pool, headers, *, count: int = 3,
         assert res.status_code == 200, res.text
         no = res.json()["receipt"]["receipt_no"]
         nos.append(no)
+        # 🧾 2026-11-26: issuer ออกเอกสารเป็น layout 2 (ดีไซน์ A4) แล้ว แต่ *ทะเบียนเดิม*
+        #    (`GET /finance/receipts`) เห็นเฉพาะ legacy ตามสัญญาที่ P2.2 ล็อกไว้
+        #    (`test_finance_receipt_v2_template.py` — registry ใหม่เป็นทางดูของ v2)
+        #    ⇒ เทสต์ชุดนี้ตรวจ **semantics ของ batch ล้วน** (ไม่เกี่ยวกับ layout)
+        #      จึงต้อง seed เป็นเอกสาร legacy เพื่อให้อ่านผ่านทะเบียนที่ทดสอบได้
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE finance_receipts SET layout_version = 1 WHERE receipt_no = $1", no,
+            )
         if months_apart:
             # 🗓️ ถอย "วันที่ของเอกสาร" ของใบนี้ไปคนละเดือน — เพื่อทดสอบตัวกรองช่วงวันที่
             #    (`_DOC_DATE = COALESCE(event_at, issued_at)`)

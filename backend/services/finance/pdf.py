@@ -30,7 +30,7 @@ import httpx
 
 from core.config import settings
 from .constants import (
-    PDF_ASSET_MISSING_MSG, PDF_BRAND_NAME, PDF_BRAND_SUB_LABEL,
+    PDF_ASSET_MISSING_MSG, PDF_BRAND_NAME, PDF_BRAND_URL,
     PDF_RENDER_FAILED_MSG, PDF_RENDER_UNAVAILABLE_MSG,
     RECEIPT_FONT_DIR, RECEIPT_FONT_FAMILY, RECEIPT_FONT_FILES,
     RECEIPT_TEMPLATE_DIR, RECEIPT_TEMPLATE_NAME, RECEIPT_V2_TEMPLATE_NAME,
@@ -156,7 +156,7 @@ def render_receipts_html(contexts: list) -> str:
         # 🏷️ หัวกระดาษของ shell v2 — ส่งเป็น context เพื่อให้ partial ที่ `import ... with context`
         #    อ่านได้ (ค่าคงที่จาก constants.py ที่เดียว)
         "brand_name": PDF_BRAND_NAME,
-        "brand_sub": PDF_BRAND_SUB_LABEL,
+        "brand_url": PDF_BRAND_URL,
     }
     # 🖨️ [A4] เลือก shell ตาม **เนื้อใน**: ชุดที่มีเอกสาร v2 อย่างน้อยหนึ่งใบใช้ shell A4
     #    ⚠️ ชุด legacy ล้วนต้องได้ `receipt.html` เดิมเป๊ะ — digest ของใบเก่าถูกล็อกไว้

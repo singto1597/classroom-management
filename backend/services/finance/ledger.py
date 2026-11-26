@@ -20,7 +20,7 @@ from .constants import (
     DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES, DEFAULT_FINANCE_ACCOUNTS,
     ADVANCE_LIABILITY_CODE, ADVANCE_LIABILITY_NAME, REFERENCE_TYPE_CREDIT_APPLY,
     # [ACCRUAL] บัญชีผู้ค้างชำระ + ค่าปรับ (5 หลัก)
-    AR_PROJECT_CODE, AR_PROJECT_NAME, AR_FINE_CODE, AR_FINE_NAME,
+    AR_PROJECT_CODE, AR_PROJECT_NAME, AR_FINE_CODE, AR_FINE_NAME, AR_LEDGER_CODES,
     OPENING_AR_EQUITY_CODE, OPENING_AR_EQUITY_NAME,
     FINE_REVENUE_CODE, FINE_REVENUE_NAME, FINE_DISCOUNT_CODE, FINE_DISCOUNT_NAME,
     FINE_REFUND_CODE, FINE_REFUND_NAME, FINE_BAD_DEBT_CODE, FINE_BAD_DEBT_NAME,
@@ -614,6 +614,11 @@ class LedgerMixin:
             return None
 
         asset_lines = [ln for ln in lines if ln["account_type"] == "asset"]
+        # [ACCRUAL] ลูกหนี้ (11001/11002) เป็น `account_type = 'asset'` แต่ **ไม่ใช่กระเป๋าเงิน**
+        #   ⇒ แยกออกก่อนจัดประเภท ไม่งั้น journal "รับชำระหนี้" (Dr กระเป๋า / Cr ลูกหนี้)
+        #   มี asset 2 ขา → ถูกมองเป็นการโอนเงิน (amount ติดลบในหน้าประวัติ) 🐞
+        ar_lines = [ln for ln in asset_lines if ln.get("account_code") in AR_LEDGER_CODES]
+        cash_lines = [ln for ln in asset_lines if ln.get("account_code") not in AR_LEDGER_CODES]
         revenue_lines = [ln for ln in lines if ln["account_type"] == "revenue"]
         expense_lines = [ln for ln in lines if ln["account_type"] == "expense"]
         # [F4] ขา liability — จำเป็นสำหรับ "เงินรับล่วงหน้า" (Dr สินทรัพย์ / Cr หนี้สิน)
@@ -623,6 +628,10 @@ class LedgerMixin:
         liability_lines = [ln for ln in lines if ln["account_type"] == "liability"]
         asset_dr = sum(float(ln["debit"]) for ln in asset_lines)
         asset_cr = sum(float(ln["credit"]) for ln in asset_lines)
+        cash_dr = sum(float(ln["debit"]) for ln in cash_lines)
+        cash_cr = sum(float(ln["credit"]) for ln in cash_lines)
+        ar_dr = sum(float(ln["debit"]) for ln in ar_lines)
+        ar_cr = sum(float(ln["credit"]) for ln in ar_lines)
         revenue_cr = sum(float(ln["credit"]) for ln in revenue_lines)
         expense_dr = sum(float(ln["debit"]) for ln in expense_lines)
         liability_cr = sum(float(ln["credit"]) for ln in liability_lines)
@@ -643,43 +652,56 @@ class LedgerMixin:
             # ถ้าสินทรัพย์ติดลบ (credit asset) → ให้รวมเครดิตเข้าด้วยเพื่อไม่ให้ amount เป็น 0
             if amount == 0.0:
                 amount = asset_cr
-            if asset_lines:
-                account_name = asset_lines[0]["account_name"]
+            opening_cash = cash_lines or asset_lines
+            if opening_cash:
+                account_name = opening_cash[0]["account_name"]
             category_name = "ยอดยกมา (เปิดระบบบัญชีคู่)"
             description = description or "ยอดยกมา"
 
-        # [DOUBLE-ENTRY] 2) Transfer ระหว่างบัญชีสินทรัพย์ → 'expense' (ขาออก) + transfer_group_id
-        elif len(asset_lines) >= 2 and asset_dr > 0 and asset_cr > 0:
+        # [ACCRUAL] 2) รับชำระหนี้: Dr กระเป๋า / Cr ลูกหนี้ → 'income' (เงินเข้าจริง)
+        #    🔴 ต้องมาก่อนสาขา transfer ไม่งั้น journal นี้ถูกมองเป็นการโอนเงินและขึ้นยอดติดลบ
+        #    ⚠️ `amount` = เงินที่เข้าครัวเรือนจริง (cash_dr) ไม่ใช่ยอดหนี้ทั้งก้อน —
+        #       ส่วนที่หักด้วยเครดิตนักเรียนมี journal `credit_apply` แยกและถูกตัดทิ้งอยู่แล้ว
+        elif cash_dr > 0 and ar_cr > 0:
+            txn_type = "income"
+            amount = cash_dr
+            in_line = next((ln for ln in cash_lines if float(ln["debit"]) > 0), cash_lines[0])
+            account_name = in_line["account_name"]
+            category_name = ar_lines[0]["account_name"] if ar_lines else None
+            description = description or "รับชำระหนี้"
+
+        # [DOUBLE-ENTRY] 3) Transfer ระหว่างกระเป๋าเงิน → 'expense' (ขาออก) + transfer_group_id
+        elif len(cash_lines) >= 2 and cash_dr > 0 and cash_cr > 0:
             txn_type = "expense"
-            amount = asset_cr
+            amount = cash_cr
             # บัญชีที่เงินออก (credit) — เป็นบัญชีต้นทาง
-            out_line = next((ln for ln in asset_lines if float(ln["credit"]) > 0), asset_lines[0])
+            out_line = next((ln for ln in cash_lines if float(ln["credit"]) > 0), cash_lines[0])
             account_name = out_line["account_name"]
             category_name = "โอนเงิน"
             transfer_group_id = entry["reference_id"] and int(entry["reference_id"]) or None
             recorded_by = recorded_by
 
-        # [DOUBLE-ENTRY] 3) รายได้: Asset เดบิต + Revenue เครดิต (รับเงินเข้า)
-        elif asset_dr > 0 and revenue_cr > 0:
+        # [DOUBLE-ENTRY] 4) รายได้: กระเป๋าเดบิต + Revenue เครดิต (รับเงินเข้า)
+        elif cash_dr > 0 and revenue_cr > 0:
             txn_type = "income"
-            amount = asset_dr
-            if asset_lines:
-                account_name = asset_lines[0]["account_name"]
+            amount = cash_dr
+            if cash_lines:
+                account_name = cash_lines[0]["account_name"]
             if revenue_lines:
                 category_name = revenue_lines[0]["account_name"]
             description = description or "รายได้"
 
-        # [DOUBLE-ENTRY] 4) รายจ่าย: Expense เดบิต + Asset เครดิต (เงินออก)
-        elif expense_dr > 0 and asset_cr > 0:
+        # [DOUBLE-ENTRY] 5) รายจ่าย: Expense เดบิต + กระเป๋าเครดิต (เงินออก)
+        elif expense_dr > 0 and cash_cr > 0:
             txn_type = "expense"
-            amount = asset_cr
-            if asset_lines:
-                account_name = asset_lines[0]["account_name"]
+            amount = cash_cr
+            if cash_lines:
+                account_name = cash_lines[0]["account_name"]
             if expense_lines:
                 category_name = expense_lines[0]["account_name"]
             description = description or "รายจ่าย"
 
-        # [F4] 5) เงินรับล่วงหน้า: Asset เดบิต + Liability เครดิต (รับเงินเข้ามาพัก)
+        # [F4] 6) เงินรับล่วงหน้า: กระเป๋าเดบิต + Liability เครดิต (รับเงินเข้ามาพัก)
         #     🔴 ถ้าไม่มีสาขานี้ เงินที่เข้าจริงในกระเป๋าจะ **หายจากประวัติธุรกรรมทั้งหน้า**
         #        เพราะ Dr asset / Cr liability ตกลงไปที่ `else` แล้ว `return None` (บรรทัดล่าง)
         #        อาการที่เห็น: `finance_accounts.balance` เพิ่มขึ้น แต่ประวัติไม่แสดงอะไรเลย
@@ -695,16 +717,22 @@ class LedgerMixin:
         #          อยู่แล้วโดยการออกแบบ ไม่ใช่ความไม่สอดคล้องที่เกิดจากงานนี้
         #     💡 `category_name` ใช้ชื่อ ledger หนี้สิน ("เงินรับล่วงหน้า (เครดิตนักเรียน)")
         #        ⇒ คอลัมน์ "หมวด" บอกความจริงว่าไม่ใช่หมวดรายได้
-        elif asset_dr > 0 and liability_cr > 0:
+        elif cash_dr > 0 and liability_cr > 0:
             txn_type = "income"
-            amount = asset_dr
-            if asset_lines:
-                account_name = asset_lines[0]["account_name"]
+            amount = cash_dr
+            if cash_lines:
+                account_name = cash_lines[0]["account_name"]
             if liability_lines:
                 category_name = liability_lines[0]["account_name"]
             description = description or "รับเงินล่วงหน้า"
 
-        # [DOUBLE-ENTRY] 6) กรณีโครงสร้างอื่น (ไม่มี asset) → พยายามเดาจากฝั่งที่มี
+        # [ACCRUAL] 7) ขยับแค่ลูกหนี้/รายได้ ไม่แตะกระเป๋าเลย — เช่น "ออกบิล" (Dr AR / Cr revenue),
+        #    "กลับรายการออกบิล" (Dr contra / Cr AR), "ตัดหนี้สูญ/ลดหนี้"
+        #    ⇒ ไม่ใช่เงินเคลื่อนไหว ต้องไม่โผล่ในประวัติ (ไม่งั้นรายได้จะถูกนับซ้ำตอนรับเงินจริง)
+        elif ar_dr > 0 or ar_cr > 0:
+            return None
+
+        # [DOUBLE-ENTRY] 8) กรณีโครงสร้างอื่น (ไม่มี asset) → พยายามเดาจากฝั่งที่มี
         else:
             if revenue_cr > 0:
                 txn_type = "income"
@@ -723,7 +751,9 @@ class LedgerMixin:
         if transaction_type and txn_type != transaction_type:
             return None
 
-        # 💡 เก็บบรรทัดแรกของ asset ไว้เป็น account (หน้า frontend ใช้แสดงกระเป๋าเงิน)
+        # 💡 เก็บบรรทัดแรกของกระเป๋าเงินไว้เป็น account (หน้า frontend ใช้แสดงกระเป๋าเงิน)
+        if not account_name and cash_lines:
+            account_name = cash_lines[0]["account_name"]
         if not account_name and asset_lines:
             account_name = asset_lines[0]["account_name"]
         if not account_name:

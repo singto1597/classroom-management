@@ -11,6 +11,8 @@
 4. **แบนเนอร์ VOID เป็นของ shell** — partial v2 ทั้ง 8 ไฟล์ต้องไม่มีคำ `void-banner`
    ไม่งั้นใบที่ถูกยกเลิกจะได้แบนเนอร์ซ้ำ
 5. **ชุดผสม: partial legacy ยังอยู่ใน `.legacy-doc`** — ไม่เสียหน้าตาเดิม
+6. **หัวกระดาษขวาบน: โลโก้กล่องเปล่า (ไม่มีไทล์สีฟ้า) ชิดมุมบน แล้วบรรทัด
+   SYNCROOM / ห้อง … / รหัสห้อง … / โดเมนเว็บ เรียงลงมาใต้โลโก้** (ผู้ใช้กำหนด 2026-11-26)
 """
 import re
 from datetime import datetime, timezone
@@ -212,10 +214,52 @@ def test_mixed_bundle_wraps_legacy_body_in_legacy_scope():
     assert html.count('class="doc doc-break"') == 1
 
 
-# ═══════════════════════ 8. โลโก้จริงของแอป (box-fill) ไม่ใช่ mark ตัวแทน
+# ═══════════════════════ 8. กรอบตารางต้องเป็นมุมฉาก (ไม่ถูกหัวตารางทับมุม)
+def test_table_frames_use_square_corners():
+    """🔴 ผู้ใช้รายงาน 2026-11-26: ทุกมุมของตารางเส้นขาดเหมือนถูกลบ
+
+    สาเหตุ: `.bill-frame` มี `border-radius` แต่ `overflow: visible` ⇒ หัวตาราง
+    (พื้นขาวสี่เหลี่ยม) ทับส่วนโค้งของกรอบดำ ⇒ มุมดูเหมือนถูกกัดหาย
+    ⇒ กรอบตารางทุกตัวต้องมุมฉาก
+    """
+    html = render_receipts_html([FinanceService._document_context(_v2_receipt_doc())])
+    for selector in (".bill-frame", ".sub-frame"):
+        blocks = re.findall(
+            re.escape(selector) + r"\s*\{([^}]*)\}", html
+        )
+        assert blocks, f"ไม่พบกฎ CSS ของ {selector}"
+        for block in blocks:
+            assert "border-radius: 0" in block or "border-radius" not in block, (
+                f"{selector} ต้องไม่ปัดมุม (เส้นกรอบจะถูกหัวตารางทับ)"
+            )
+
+
+# ═══════════════════════ 9. โลโก้จริงของแอป (box-fill) ไม่ใช่ mark ตัวแทน
 def test_brand_mark_uses_the_real_app_logo():
     html = render_receipts_html([FinanceService._document_context(_v2_receipt_doc())])
     assert "brand-logo" in html
     # path ของ bootstrap-icons `box-fill` (= frontend/public/box-fill.svg)
     assert "M8.186 1.113" in html
     assert "#1D4ED8" in html, "โลโก้ใช้สีแบรนด์ของแอป (--brand)"
+    # 🚫 ผู้ใช้สั่ง 2026-11-26: โลโก้เป็นกล่องเปล่า ๆ ไม่มีไทล์พื้นหลังสีฟ้า
+    assert "background-color: #1D4ED8" not in html
+
+
+# ═══════════════════════ 9. หัวกระดาษขวาบน: โลโก้ชิดมุมบน + ข้อความเรียงใต้โลโก้
+def test_brand_block_stacks_logo_on_top_and_room_lines_below():
+    html = render_receipts_html([FinanceService._document_context(_v2_receipt_doc())])
+    # โลโก้อยู่บรรทัดแรกของก้อน แล้วข้อความเรียงลงมา (flex column, ชิดขวา, ยึดขอบบน)
+    assert re.search(
+        r"\.std-brand-mark\s*\{[^}]*flex-direction:\s*column", html
+    ), "โลโก้ต้องอยู่เหนือข้อความ (เรียงแนวตั้ง)"
+    assert re.search(r"\.std-brand-mark\s*\{[^}]*align-items:\s*flex-end", html)
+    assert re.search(r"\.std-brand-mark\s*\{[^}]*align-self:\s*flex-start", html)
+    # บรรทัดข้อความ: ชื่อระบบ / ห้อง / รหัสห้อง / ที่อยู่เว็บ (เรียงตามนี้)
+    name_at = html.index("SYNCROOM")
+    room_at = html.index("ห้อง ป.5/1")
+    code_at = html.index("รหัสห้อง P51")
+    url_at = html.index("class.singto1597.xyz")
+    assert name_at < room_at < code_at < url_at
+    # ไม่มีวลีแบรนด์เก่า และไม่เติม "ห้อง" ซ้ำเมื่อชื่อห้องมีอยู่แล้ว
+    assert "Classroom Finance" not in html
+    assert "ห้อง ห้อง" not in html
