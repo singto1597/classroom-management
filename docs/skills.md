@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 297 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 298 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -301,6 +301,7 @@
 - [🖨️ "เอกสารทุกชนิดใช้ดีไซน์ใหม่" = ผู้ผลิตเอกสารต้องเขียน `layout_version = 2` เอง — ทะเบียนเดิมยังซ่อน layout 2](#เอกสารทุกชนิดใช้ดีไซน์ใหม่-ผู้ผลิตเอกสารต้องเขียน-layoutversion-2-เอง-ทะเบียนเดิมยังซ่อน-layout-2)
 - [🏷️ ใบสำคัญจ่ายยุคก่อน P4.1 ไม่มี `lines` — เปลี่ยนดีไซน์ห้ามทำข้อมูลงบ/ช่องทาง/ลายเซ็นหายจากกระดาษ](#ใบสำคัญจ่ายยุคก่อน-p41-ไม่มี-lines-เปลี่ยนดีไซน์ห้ามทำข้อมูลงบช่องทางลายเซ็นหายจากกระดาษ)
 - [🧾 รับชำระหนี้ = Dr กระเป๋า / Cr ลูกหนี้ — ลูกหนี้เป็น asset แต่ไม่ใช่กระเป๋า ⇒ ต้องแยกก่อนจัดประเภท "โอนเงิน"](#รับชำระหนี้-dr-กระเป๋า-cr-ลูกหนี้-ลูกหนี้เป็น-asset-แต่ไม่ใช่กระเป๋า-ต้องแยกก่อนจัดประเภท-โอนเงิน)
+- [📐 ตาราง 8 คอลัมน์บนกระดาษ A4 ต้อง `table-layout: fixed` — ไม่งั้นกรอบยื่นเลยขอบขวา (ตรวจจาก PDF จริง)](#ตาราง-8-คอลัมน์บนกระดาษ-a4-ต้อง-table-layout-fixed-ไม่งั้นกรอบยื่นเลยขอบขวา-ตรวจจาก-pdf-จริง)
 
 <!-- TOC:END -->
 
@@ -5112,4 +5113,17 @@
   - เทสต์เดิมที่คาดว่า "ออกบิลโผล่ในประวัติ" ต้องอัปเดตตามความหมายใหม่ของทะเบียน (เงินเข้าออกกระเป๋า) — ไม่ใช่ผ่อน classifier
 - **Rule:** (1) 🔴 อย่านับลูกหนี้เป็นกระเป๋าเงิน (2) 🔴 สาขา AR-payment ต้องมาก่อน transfer (3) 🔴 AR-only journal = `None` ในทะเบียนเงินเคลื่อนไหว (4) 🔴 อย่า `return` ก่อนกรอง `transaction_type`
 - **Tests/Verification:** `backend/tests/test_finance_v2_read.py::test_v2_reads_accrual_payment_as_income_not_transfer` (ล็อกการจำแนก + ไม่นับออกบิล), `test_finance_credits.py` (ทะเบียนเห็นแค่เติมเครดิต)
+- **Date Added:** 2026-11-26
+
+### 📐 ตาราง 8 คอลัมน์บนกระดาษ A4 ต้อง `table-layout: fixed` — ไม่งั้นกรอบยื่นเลยขอบขวา (ตรวจจาก PDF จริง)
+- **Context/Problem:** PDF ใบสำคัญจ่าย (PV) ที่พิมพ์จาก staging แสดงตาราง "รายละเอียดการเบิก" ยาวเกินกล่องเนื้อหา ~18mm ⇒ เส้นกรอบขวาหายและช่อง "จำนวนเงิน" ถูกตัดตรงขอบกระดาษ ทั้งที่ใบเสร็จ/ใบรับเงินล่วงหน้า (6 คอลัมน์) ปกติดี
+- **Root Cause:** `.bill-items` เป็น `table-layout: auto` + หัวคอลัมน์ `white-space: nowrap` ⇒ ความกว้าง min-content ของ 8 คอลัมน์ (หัว Thai ยาว + padding 14px ต่อคอลัมน์) เกิน 180mm ที่ `.doc` ให้ ⇒ เบราว์เซอร์ดันตารางกว้างขึ้น แล้ว `.bill-frame` ซึ่ง `overflow: visible` ปล่อยให้ล้นออกนอก margin — เทสต์ HTML ทุกตัวเขียวเพราะไม่มีตัวไหนวัดเรขาคณิตของ PDF
+- **Correct Pattern/Solution:**
+  - ตารางที่มีคอลัมน์มาก (PV) ใส่คลาส `pv-items` แล้วบังคับ `table-layout: fixed; width: 100%` + ลด padding แนวนอน + ให้หัวคอลัมน์ wrap (`white-space: normal`)
+  - `.cell-muted` กลางเป็น `nowrap` (เหมาะกับเอกสารอื่น) ⇒ ในตาราง PV ต้อง override เป็น `normal` ไม่งั้นข้อความทับคอลัมน์ข้าง ๆ
+  - ปรับความกว้างคอลัมน์ให้ช่องแคบ (หมวด/กระเป๋า/หลักฐาน) พอสำหรับ wrap 2 บรรทัด แล้วปล่อย "รายละเอียด" เป็นคอลัมน์ยืดหยุ่นที่เหลือ
+  - **ตรวจด้วยการเรนเดอร์ PDF จริง**: รัน `html_to_pdf` ผ่าน Gotenberg local + `pymupdf` แล้ววัดความยาวเส้นแนวนอนที่ยาวสุด (ควรจบที่ขอบเนื้อหา x≈997 ที่ 130dpi ไม่ใช่ 1074) — HTML test อย่างเดียวจับบั๊กนี้ไม่ได้
+  - snapshot ที่ไม่มีข้อมูล (เช่น ช่องทางของ DEP รุ่นเก่า) ⇒ **ซ่อนทั้งแถว** อย่าพิมพ์ `-`
+- **Rule:** (1) 🔴 ตาราง >6 คอลัมน์ต้อง fixed layout (2) 🔴 อย่าให้หัวคอลัมน์ nowrap ในตารางกว้างจำกัด (3) 🔴 เปลี่ยนเทมเพลต PDF ต้องดู PDF จริงอย่างน้อยหนึ่งรอบก่อน merge
+- **Tests/Verification:** `backend/tests/test_finance_pdf_a4_shell.py::test_voucher_table_uses_fixed_layout_so_the_frame_stays_inside_the_margins`, `test_finance_document_adapters.py::test_deposit_hides_channel_row_when_snapshot_has_none`
 - **Date Added:** 2026-11-26

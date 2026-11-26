@@ -318,6 +318,29 @@
     white-space: nowrap;
   }
 
+  /* Voucher table carries eight columns. With auto layout and nowrap headers the
+     table's min-content width exceeds the A4 content box and the frame spills
+     past the right margin, clipping its border. Fixed layout + wrapping headers
+     keep every column inside the frame. */
+  table.bill-items.pv-items { table-layout: fixed; }
+
+  table.bill-items.pv-items thead th {
+    white-space: normal;
+    padding: 9px 6px;
+  }
+
+  table.bill-items.pv-items tbody td { padding: 9px 6px; }
+
+  table.bill-items.pv-items thead th:first-child,
+  table.bill-items.pv-items tbody td:first-child { padding-left: 12px; }
+
+  table.bill-items.pv-items thead th:last-child,
+  table.bill-items.pv-items tbody td:last-child { padding-right: 12px; }
+
+  /* The shared .cell-muted is nowrap; in the eight-column voucher table that
+     makes neighbouring columns collide, so the muted cells must wrap here. */
+  table.bill-items.pv-items tbody td.cell-muted { white-space: normal; }
+
   .item-sub {
     display: block;
     font-size: 10.8px;
