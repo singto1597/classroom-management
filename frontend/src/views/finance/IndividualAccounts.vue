@@ -316,10 +316,10 @@ const onCreditChanged = async () => {
 }
 
 // ─────────────────────────────────────────────────────── เมนูจุด 3 จุดต่อแถว
+// ⚠️ ไม่มี "เปิดบัญชี" ในเมนู — ทั้งการ์ดและแถวตารางกดที่ไหนก็เปิดบัญชีคนนั้นอยู่แล้ว
+//    (ปุ่มซ้ำไว้มีแต่ทำให้แถวแน่นและกดผิดง่าย; เมนูเหลือเฉพาะงานที่ต้องตั้งใจ)
 const menuItems = (item: IndividualAccountItem): RowActionItem[] => {
-  const actions: RowActionItem[] = [
-    { key: 'open', label: 'เปิดบัญชี', icon: 'bi-person-lines-fill' },
-  ]
+  const actions: RowActionItem[] = []
   if (canManageFinance.value) {
     actions.push(
       { key: 'topup', label: 'เติมเงินล่วงหน้า', icon: 'bi-plus-circle' },
@@ -336,8 +336,7 @@ const menuItems = (item: IndividualAccountItem): RowActionItem[] => {
 }
 
 const handleRowAction = (item: IndividualAccountItem, key: string) => {
-  if (key === 'open') openAccount(item.student_id)
-  else if (key === 'topup') openTopUp(item)
+  if (key === 'topup') openTopUp(item)
   else if (key === 'apply') openApply(item)
   else if (key === 'history') openHistory(item)
 }
@@ -771,14 +770,24 @@ onMounted(() => {
         <div
           v-for="item in items"
           :key="item.student_id"
-          class="page-card block p-4 transition-colors hover:bg-canvas"
+          class="page-card relative block p-4 transition-colors hover:bg-canvas"
           role="link"
           tabindex="0"
           :aria-label="`เปิดบัญชีของ ${item.name}`"
           @click="openAccount(item.student_id)"
           @keydown.enter="openAccount(item.student_id)"
         >
-          <div class="flex items-start justify-between gap-3">
+          <!-- ⋮ มุมขวาบน — `@click.stop` กันไม่ให้คลิกเมนูแล้วทะลุไปเปิดบัญชี -->
+          <div class="absolute right-1 top-1" @click.stop>
+            <RowActionMenu
+              :label="`ตัวเลือกของ ${item.name}`"
+              :items="menuItems(item)"
+              @select="handleRowAction(item, $event)"
+            />
+          </div>
+
+          <!-- pr-11 = เผื่อที่ให้ปุ่ม ⋮ (44px) ไม่ทับยอดค้าง -->
+          <div class="flex items-start justify-between gap-3 pr-11">
             <div class="flex min-w-0 items-center gap-2">
               <input
                 v-if="canManageFinance"
@@ -832,25 +841,15 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="mt-2.5 flex flex-wrap items-center gap-2 border-t border-line pt-2.5">
-            <button
-              v-if="canManageFinance"
-              type="button"
-              class="btn-ghost-ui"
-              @click.stop="openReceive(item)"
-            >
+          <!-- รับเงินชิดขวาสุด — ไม่มีปุ่ม "เปิดบัญชี" เพราะกดการ์ดก็เข้าไปแล้ว -->
+          <div
+            v-if="canManageFinance"
+            class="mt-2.5 flex items-center justify-end border-t border-line pt-2.5"
+          >
+            <button type="button" class="btn-ghost-ui" @click.stop="openReceive(item)">
               <i class="bi bi-cash-coin" aria-hidden="true"></i>
               รับเงิน
             </button>
-            <button type="button" class="btn-ghost-ui" @click.stop="openAccount(item.student_id)">
-              <i class="bi bi-person-lines-fill" aria-hidden="true"></i>
-              เปิดบัญชี
-            </button>
-            <RowActionMenu
-              :label="`ตัวเลือกของ ${item.name}`"
-              :items="menuItems(item)"
-              @select="handleRowAction(item, $event)"
-            />
           </div>
         </div>
       </div>
