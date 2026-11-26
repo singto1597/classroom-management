@@ -234,6 +234,31 @@ def test_table_frames_use_square_corners():
             )
 
 
+# ═══════════════ 8.1 ตารางใบสำคัญจ่าย 8 คอลัมน์ต้องไม่ล้นขอบขวา
+def test_voucher_table_uses_fixed_layout_so_the_frame_stays_inside_the_margins():
+    """🔴 ตรวจ PDF จริงบน staging 2026-11-26: กรอบตาราง PV ยื่นเลยขอบขวา ~18mm
+
+    สาเหตุ: ตาราง 8 คอลัมน์ + หัวคอลัมน์ `white-space: nowrap` ⇒ ความกว้าง
+    min-content เกินกล่องเนื้อหา (180mm) และ `table-layout: auto` ดันกรอบออกไป
+    ⇒ ตาราง PV ต้องเป็น `table-layout: fixed` และ cell ที่ใช้ `.cell-muted`
+       ต้องกลับมา wrap ได้ (คลาสกลางเป็น nowrap เพื่อเอกสารอื่น)
+    """
+    html = render_receipts_html([FinanceService._document_context(_v2_receipt_doc())])
+    partial = (_TEMPLATE_DIR / "_voucher_body_v2.html").read_text(encoding="utf-8")
+    assert 'class="bill-items pv-items"' in partial
+
+    blocks = re.findall(r"table\.bill-items\.pv-items\s*\{([^}]*)\}", html)
+    assert blocks, "ไม่พบกฎ CSS ของตาราง PV"
+    assert any("table-layout: fixed" in b for b in blocks)
+
+    wrap_blocks = re.findall(
+        r"table\.bill-items\.pv-items tbody td\.cell-muted\s*\{([^}]*)\}", html
+    )
+    assert wrap_blocks and "white-space: normal" in wrap_blocks[0], (
+        "cell-muted ในตาราง PV ต้อง wrap — ไม่งั้นคอลัมน์จะทับกัน"
+    )
+
+
 # ═══════════════════════ 9. โลโก้จริงของแอป (box-fill) ไม่ใช่ mark ตัวแทน
 def test_brand_mark_uses_the_real_app_logo():
     html = render_receipts_html([FinanceService._document_context(_v2_receipt_doc())])

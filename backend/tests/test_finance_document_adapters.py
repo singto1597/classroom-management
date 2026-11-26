@@ -145,6 +145,21 @@ async def test_deposit_v2_context_has_no_bill_keys():
     assert "รับครั้งนี้" not in html
 
 
+# ═══════════════════════════════════ 2.1 แถวช่องทาง: มีก็แสดง ไม่มีก็ซ่อน
+async def test_deposit_hides_channel_row_when_snapshot_has_none():
+    """🚫 snapshot รุ่นเก่า (ก่อน P2) ไม่มีช่องทาง ⇒ **ซ่อนทั้งแถว** ห้ามพิมพ์ "-"
+
+    ⚠️ เอกสาร layout 2 ที่มาจาก snapshot เก่ายังพิมพ์ด้วย partial v2 — ถ้าแถวนี้
+       พิมพ์ "-" ไปตลอด ผู้ใช้อ่านว่า "ไม่มีช่องทาง" ทั้งที่ความจริงคือ "ไม่รู้"
+    """
+    with_channel = _render(_v2_deposit_doc())
+    assert '<td class="k">ช่องทาง</td>' in with_channel
+
+    without = _render(_v2_deposit_doc(document_meta={}))
+    assert '<td class="k">ช่องทาง</td>' not in without
+    assert ">None<" not in without
+
+
 # ═══════════════════════════════════════════ 7. คีย์หาย → ยังเรนเดอร์ได้
 async def test_deposit_v2_body_renders_with_missing_optional_keys():
     ctx = FinanceService._document_context(_v2_deposit_doc(document_meta={}))

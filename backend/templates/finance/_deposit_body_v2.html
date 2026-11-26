@@ -19,7 +19,10 @@
         </td>
       </tr>
       <tr><td class="k">ผู้รับเงิน</td><td class="v">{{ d.issuer_name or '-' }}</td></tr>
-      <tr><td class="k">ช่องทาง</td><td class="v">{{ d.channel_text or '-' }}</td></tr>
+      {# 🚫 ไม่มีช่องทาง (snapshot รุ่นเก่า) ⇒ ซ่อนทั้งแถว — ห้ามพิมพ์ "-" แทนข้อมูลที่ไม่มี #}
+      {% if d.channel_text %}
+      <tr><td class="k">ช่องทาง</td><td class="v">{{ d.channel_text }}</td></tr>
+      {% endif %}
       <tr><td class="k">ประเภท</td><td class="v">เงินรับล่วงหน้า (เครดิตคงเหลือของนักเรียน)</td></tr>
       {% if d.event_meta is mapping and d.event_meta.get('credit_entry_id') %}
       <tr><td class="k">อ้างอิงรายการเครดิต</td><td class="v">#{{ d.event_meta.get('credit_entry_id') }}</td></tr>
