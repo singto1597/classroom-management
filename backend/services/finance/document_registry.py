@@ -537,6 +537,20 @@ class DocumentRegistryMixin:
             # ⬅️ คืน connection ก่อนเรนเดอร์ (Chromium ใช้เวลาเป็นวินาที)
             html = render_receipt_html(cls._document_context(d))
             pdf_bytes = await html_to_pdf(html)
+
+            # 📎 ต่อท้ายไฟล์หลักฐาน — layout v2 เรนเดอร์เอง (ไม่ผ่าน render_receipt_pdf)
+            #    ⇒ ต้อง hook ที่นี่ด้วย ไม่งั้นปุ่มดาวน์โหลดในหน้ารายละเอียดเอกสารจะไม่มีไฟล์แนบ
+            try:
+                from .document_attachments import append_attachments_to_receipts
+
+                pdf_bytes = await append_attachments_to_receipts(pool, [d], pdf_bytes)
+            except Exception:
+                import logging
+
+                logging.getLogger("API_FINANCE_RECEIPTS").warning(
+                    "แนบไฟล์หลักฐานเข้า PDF เอกสารเดี่ยวไม่สำเร็จ", exc_info=True
+                )
+
             return pdf_bytes, pdf_filename(d["receipt_no"], d["doc_type"])
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -632,6 +646,19 @@ class DocumentRegistryMixin:
             # ⬅️ คืน connection ก่อนเรนเดอร์ (เหมือน `_render_documents_pdf`)
             html = render_receipts_html(cls._document_contexts(docs))
             pdf_bytes = await html_to_pdf(html, timeout=PDF_BATCH_TIMEOUT)
+
+            # 📎 ต่อท้ายไฟล์แนบของทุกใบ (ตามลำดับเอกสาร) — best-effort
+            try:
+                from .document_attachments import append_attachments_to_receipts
+
+                pdf_bytes = await append_attachments_to_receipts(pool, docs, pdf_bytes)
+            except Exception:
+                import logging
+
+                logging.getLogger("API_FINANCE_RECEIPTS").warning(
+                    "แนบไฟล์หลักฐานเข้า PDF ชุดเอกสารไม่สำเร็จ", exc_info=True
+                )
+
             doc_types = {d["doc_type"] for d in docs}
             return pdf_bytes, pdf_filename_batch(
                 [d["receipt_no"] for d in docs],
