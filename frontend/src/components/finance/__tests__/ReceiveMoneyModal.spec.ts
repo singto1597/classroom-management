@@ -215,6 +215,30 @@ afterEach(() => {
 })
 
 describe('ReceiveMoneyModal', () => {
+  // 💰 ผู้ใช้สั่ง 2026-11-26: เปิดแผ่นรับเงินแล้วช่อง "เงินสดที่รับ" ต้องเติมยอดคงค้างเอง
+  //    (ทั้งหน้าบัญชีรายบุคคลแบบรวมและรายคนใช้ modal ตัวเดียวกัน)
+  it('💰 เติมยอดเงินคงค้างลงช่องเงินสดอัตโนมัติเมื่อไม่มีเครดิต', async () => {
+    prime()
+    const wrapper = await mountModal()
+
+    expect(wrapper.findComponent(MoneyInput).props('modelValue')).toBe(250)
+  })
+
+  it('💰 มีเครดิตที่ตัดบิลได้ ⇒ เติมเฉพาะส่วนที่ยังต้องเก็บเป็นเงินสด', async () => {
+    // outstanding 250 − ready_to_apply 80 = 170 (ระบบติ๊กใช้เครดิตให้เอง)
+    prime({ ...ACCOUNT, credit_balance: '80.00', ready_to_apply: '80.00' })
+    const wrapper = await mountModal()
+
+    expect(wrapper.findComponent(MoneyInput).props('modelValue')).toBe(170)
+  })
+
+  it('💰 เครดิตครอบยอดค้างทั้งหมด ⇒ ไม่เติมยอดเงินสด (ปล่อยว่างตามเดิม)', async () => {
+    prime({ ...ACCOUNT, credit_balance: '250.00', ready_to_apply: '250.00' })
+    const wrapper = await mountModal()
+
+    expect(wrapper.findComponent(MoneyInput).props('modelValue')).toBeNull()
+  })
+
   it('พรีวิว debounce 350ms — ยิงครั้งเดียวด้วยยอดล่าสุด + payload ครบตามสัญญา', async () => {
     prime()
     const wrapper = await mountModal()

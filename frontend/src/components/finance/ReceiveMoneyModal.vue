@@ -213,6 +213,15 @@ const initialize = async () => {
     receiverName.value = receiver?.display_name ?? ''
 
     useCredit.value = Number(detail.credit_balance) > 0
+
+    // 💰 เติมยอดตั้งต้นให้ผู้ใช้ไม่ต้องพิมพ์เอง — ยอดค้างที่ยังต้องเก็บ **เป็นเงินสด**
+    //    = คงค้างทั้งสิ้น − เครดิตที่ตัดบิลนี้ได้อยู่แล้ว (`ready_to_apply` ฝั่ง backend
+    //    = min(credit, outstanding)) เพราะระบบจะติ๊ก "ใช้เครดิต" ให้เองเมื่อมีเครดิต
+    //    ⇒ ถ้าเติม `outstanding_total` ดิบ จะเกินบิลทันที (EXCESS_NOT_ALLOWED)
+    const outstandingCash = roundMoney(
+      Number(detail.outstanding_total) - Number(detail.ready_to_apply),
+    )
+    amount.value = outstandingCash > 0 ? outstandingCash : null
   } catch (error) {
     if (!initGuard.isCurrent(token)) return
     const status = apiStatus(error)
