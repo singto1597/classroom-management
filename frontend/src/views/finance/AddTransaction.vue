@@ -49,8 +49,7 @@ const form = ref({
   to_account_id: '',
   // 🧾 [F6] ข้อมูลที่พิมพ์ลงบน "ใบสำคัญจ่าย" / "ใบรับเงิน"
   payee_name: '',
-  approver_name: '',
-  attachment_count: 0
+  approver_name: ''
 });
 
 /** 📎 ไฟล์หลักฐานที่เลือกไว้ก่อนบันทึก — อัปโหลดหลังรายการถูกสร้าง (มี transaction_id) */
@@ -112,7 +111,6 @@ const switchTab = (tab: 'expense' | 'income' | 'transfer') => {
   form.value.to_account_id = '';
   form.value.payee_name = '';
   form.value.approver_name = '';
-  form.value.attachment_count = 0;
   evidenceFiles.value = [];
 };
 
@@ -215,7 +213,9 @@ const handleSubmit = async () => {
         payee_name: form.value.payee_name.trim(),
         // 🖊️ ผู้อนุมัติ/เอกสารแนบเป็นเรื่องของ "ใบสำคัญจ่าย" ⇒ แท็บรายรับไม่ส่งไป
         approver_name: activeTab.value === 'expense' ? form.value.approver_name.trim() || null : null,
-        attachment_count: activeTab.value === 'expense' ? Number(form.value.attachment_count) || 0 : 0,
+        // 📎 จำนวนเอกสารแนบ = จำนวนไฟล์ที่ผู้ใช้เลือก (ไม่ต้องกรอกเอง)
+        //    ค่านี้ถูก snapshot ลงเอกสารที่ออกตอนสร้าง ⇒ แก้ย้อนหลังไม่ได้โดยเจตนา
+        attachment_count: evidenceFiles.value.length,
         user_name: currentUserName
       });
 
@@ -395,20 +395,6 @@ onMounted(() => {
                 maxlength="150"
                 placeholder="เช่น หัวหน้าห้อง"
               />
-            </div>
-            <div>
-              <label class="field-label" for="attachmentCount">เอกสารแนบ (ใบ)</label>
-              <input
-                id="attachmentCount"
-                v-model.number="form.attachment_count"
-                class="field num text-right"
-                type="number"
-                inputmode="numeric"
-                min="0"
-                step="1"
-                placeholder="0"
-              />
-              <p class="mt-1 text-xs text-ink-3">บิลเงินสด/ใบเสร็จจากร้านค้าที่แนบมาด้วย</p>
             </div>
           </div>
 

@@ -148,6 +148,37 @@ async def test_batch_appends_each_receipt_once(db_pool, finance_manager_headers)
 
 
 @pytest.mark.asyncio
+async def test_document_detail_includes_attachment_previews(db_pool, finance_manager_headers):
+    """หน้ารายละเอียดเอกสารต้องได้รายการไฟล์แนบพร้อม signed URL (ชุดเดียวกับ PDF)"""
+    from services.finance_service import FinanceService
+
+    ctx = finance_manager_headers
+    txn_id = await _make_transaction(db_pool, ctx.room_id)
+    uploaded = await svc.upload_attachments(
+        db_pool, ctx.user_id, ctx.room_id, "transaction", txn_id,
+        [("a.png", _png_bytes()), ("b.pdf", _pdf_bytes(pages=1))],
+    )
+    receipt_id = await _make_receipt(db_pool, ctx.room_id, txn_id=txn_id)
+
+    detail = await FinanceService.get_document_detail(
+        pool=db_pool,
+        doc_type="receipt",
+        doc_id=receipt_id,
+        client_source="test",
+        actor_identifier="test",
+        room_id=ctx.room_id,
+        user_id=ctx.user_id,
+    )
+
+    attachments = detail["attachments"]
+    assert len(attachments) == 2
+    assert {a["file_kind"] for a in attachments} == {"image", "pdf"}
+    for a in attachments:
+        assert a["url"].startswith("/api/finance-files/")
+    assert {a["id"] for a in attachments} == {i["id"] for i in uploaded["items"]}
+
+
+@pytest.mark.asyncio
 async def test_missing_attachment_file_is_skipped(db_pool, finance_manager_headers):
     ctx = finance_manager_headers
     txn_id = await _make_transaction(db_pool, ctx.room_id)

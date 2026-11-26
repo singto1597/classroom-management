@@ -370,6 +370,12 @@ class DocumentRegistryMixin:
                         conn, target_room_id, doc_type, int(doc_id),
                         related_receipt_id=_int_or_none(row["related_receipt_id"]),
                     )
+                    # 📎 ไฟล์หลักฐานของ record ต้นทาง — ชุดเดียวกับที่ต่อท้ายใน PDF
+                    from .document_attachments import list_attachments_for_receipt
+
+                    d["attachments"] = await list_attachments_for_receipt(
+                        conn, int(row["id"]), int(user_id)
+                    )
 
                 exec_time = int((time.time() - start_time) * 1000)
                 await service_logger.log(

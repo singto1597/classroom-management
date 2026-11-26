@@ -31,6 +31,7 @@ async def serve_finance_attachment(
     viewer: Optional[str] = None,
     exp: Optional[str] = None,
     sig: Optional[str] = None,
+    download: Optional[str] = None,
     pool: asyncpg.Pool = Depends(get_db_pool),
 ):
     # ⚠️ query param เป็น Optional[str] โดยเจตนา: ค่าเสียรูปต้องได้ 403 เหมือนลายเซ็นผิด
@@ -49,5 +50,7 @@ async def serve_finance_attachment(
     return FileResponse(
         path,
         media_type=row["mime"] or "application/octet-stream",
-        headers=attachment_service.attachment_headers(row),
+        headers=attachment_service.attachment_headers(
+            row, download=download in ("1", "true")
+        ),
     )

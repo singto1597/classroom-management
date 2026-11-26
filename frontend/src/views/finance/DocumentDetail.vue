@@ -28,6 +28,7 @@ import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import DocumentTypeBadge from '@/components/finance/DocumentTypeBadge.vue';
 import VoidReasonModal from '@/components/finance/VoidReasonModal.vue';
+import FinanceDocumentAttachments from '@/components/finance/FinanceDocumentAttachments.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
@@ -501,6 +502,16 @@ const confirmVoid = async (reason: string) => {
             <dd class="whitespace-pre-line text-sm text-ink">{{ doc.note }}</dd>
           </div>
         </dl>
+      </div>
+
+      <!-- 📎 ไฟล์หลักฐานของเอกสาร — พรีวิว + เปิด + โหลด -->
+      <div v-if="doc.attachments?.length" class="page-card p-4 sm:p-5">
+        <h2 class="mb-3 flex items-center gap-2 font-display text-title-m font-bold text-ink">
+          <i class="bi bi-paperclip text-brand-700" aria-hidden="true"></i>
+          ไฟล์หลักฐาน
+          <span class="chip bg-canvas text-ink-2">{{ doc.attachments.length }} ไฟล์</span>
+        </h2>
+        <FinanceDocumentAttachments :attachments="doc.attachments" />
       </div>
 
       <!-- 🧾 รายงานปิดงบ (RPT) — บล็อกตัวเลขเฉพาะชนิดนี้ -->

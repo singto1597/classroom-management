@@ -76,6 +76,11 @@ async def test_upload_list_delete_and_serve(client, db_pool, finance_manager_hea
     assert "private" in img.headers["cache-control"]
     assert img.headers["x-content-type-options"] == "nosniff"
 
+    # ?download=1 → บังคับดาวน์โหลด (ลายเซ็นเดิม)
+    dl = client.get(item["url"] + "&download=1")
+    assert dl.status_code == 200
+    assert dl.headers["content-disposition"].startswith("attachment;")
+
     # URL ที่ถูกแก้ (viewer) ต้อง 403
     parts = urlsplit(item["url"])
     tampered = parts.path + "?variant=full&viewer=999999&exp=1&sig=AAAA"
