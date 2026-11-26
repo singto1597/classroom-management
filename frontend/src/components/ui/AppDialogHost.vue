@@ -68,6 +68,8 @@ onBeforeUnmount(() => {
     :dismissible="dismissible"
     :position="dialog.options?.position ?? 'responsive'"
     size="dialog"
+    :overlay-z-index="80"
+    :panel-z-index="90"
     @close="dialog.dismiss()"
   >
     <div v-if="isLoading" class="flex items-center justify-center gap-3 py-3" role="status">
@@ -137,7 +139,7 @@ onBeforeUnmount(() => {
     <Transition name="dialog-toast">
       <div
         v-if="dialog.toast && toastIcon"
-        class="pointer-events-none fixed inset-x-0 bottom-[calc(var(--app-nav-h,3.5rem)+env(safe-area-inset-bottom,0px)+1rem)] z-[70] flex justify-center px-4"
+        class="pointer-events-none fixed inset-x-0 bottom-[calc(var(--app-nav-h,3.5rem)+env(safe-area-inset-bottom,0px)+1rem)] z-[100] flex justify-center px-4"
         role="status"
         aria-live="polite"
       >

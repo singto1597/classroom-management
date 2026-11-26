@@ -34,6 +34,13 @@ const props = withDefaults(
     dismissible?: boolean
     /** ปิดเมื่อคลิกฉากหลัง (ต้อง `dismissible` ด้วย) */
     closeOnBackdrop?: boolean
+    /**
+     * z-index ของฉากหลัง/แผ่น — ปกติ 50/60
+     * ⚠️ กล่อง dialog กลาง (`AppDialogHost`) ต้องสูงกว่าแผ่นใด ๆ (80/90) ไม่งั้น
+     *    "แจ้งเตือน" ที่เกิดระหว่างแผ่นเปิดอยู่จะถูกแผ่นบัง (ผู้ใช้เห็นแค่แผ่นหมุน ๆ)
+     */
+    overlayZIndex?: number
+    panelZIndex?: number
     /** ความกว้าง/ความสูงของแผ่น */
     size?: 'auto' | 'dialog' | 'form' | 'full'
     /**
@@ -51,6 +58,8 @@ const props = withDefaults(
     closeOnBackdrop: true,
     size: 'auto',
     position: 'responsive',
+    overlayZIndex: 50,
+    panelZIndex: 60,
   },
 )
 
@@ -205,14 +214,15 @@ onBeforeUnmount(() => {
     <Transition name="sheet-fade">
       <div
         v-if="open"
-        class="fixed inset-0 z-50 bg-ink-1/40"
+        class="fixed inset-0 bg-ink-1/40"
+        :style="{ zIndex: overlayZIndex }"
         aria-hidden="true"
         @click="dismissible && closeOnBackdrop && emit('close')"
       ></div>
     </Transition>
 
     <Transition name="sheet-slide">
-      <div v-if="open" class="pointer-events-none fixed inset-0 z-[60]">
+      <div v-if="open" class="pointer-events-none fixed inset-0" :style="{ zIndex: panelZIndex }">
         <div :class="['pointer-events-auto h-full w-full', overlayClass]">
           <div
             ref="panel"
