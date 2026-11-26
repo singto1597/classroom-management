@@ -32,6 +32,7 @@ import type {
 import { createLatestGuard } from '@/utils/latest'
 import { formatMoney, newIdempotencyKey, roundMoney } from '@/utils/money'
 import { downloadBlob } from '@/utils/download'
+import { compressImages } from '@/utils/imageCompress'
 import { useDialog } from '@/composables/useDialog'
 
 import AppSheet from '@/components/ui/AppSheet.vue'
@@ -40,6 +41,7 @@ import AppChip from '@/components/ui/AppChip.vue'
 import FormSuccess from '@/components/ui/FormSuccess.vue'
 import MoneyInput from '@/components/finance/MoneyInput.vue'
 import BillAllocationTable from '@/components/finance/BillAllocationTable.vue'
+import FinanceFileUploader from '@/components/finance/FinanceFileUploader.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -87,6 +89,8 @@ const receiverPersonId = ref<number | null>(null)
 const receiverName = ref('')
 const payerName = ref('')
 const note = ref('')
+/** 📎 หลักฐานการรับเงิน (รูป/PDF) — อัปโหลดหลัง event ถูกสร้าง */
+const evidenceFiles = ref<File[]>([])
 
 const preview = ref<AllocationPreviewResponse | null>(null)
 const previewError = ref('')
@@ -171,6 +175,7 @@ const resetForm = () => {
   billSelection.value = 'auto'
   selectedBillIds.value = []
   note.value = ''
+  evidenceFiles.value = []
   preview.value = null
   previewError.value = ''
   initError.value = ''
@@ -335,6 +340,30 @@ const submit = async () => {
       event_at: null,
     }
     const result = await FinanceService.createPaymentEvent(roomId.value, payload)
+
+    // 📎 อัปหลักฐานหลัง event ถูกสร้างสำเร็จ — ห้าม throw เข้า catch หลัก
+    //    (เงินถูกบันทึกแล้ว → ข้อความ "บันทึกไม่สำเร็จ" จะชวนให้กดซ้ำ)
+    if (evidenceFiles.value.length) {
+      try {
+        const prepared = await compressImages(evidenceFiles.value)
+        for (let i = 0; i < prepared.length; i += 5) {
+          await FinanceService.uploadFinanceAttachments(
+            roomId.value,
+            'payment_event',
+            result.event_id,
+            prepared.slice(i, i + 5),
+            'payment_proof',
+          )
+        }
+      } catch (error: unknown) {
+        await dialog.alert(
+          'บันทึกการรับเงินแล้ว แต่แนบไฟล์ไม่สำเร็จ',
+          `${error instanceof Error ? error.message : 'กรุณาลองใหม่'} — เปิดหลักฐานของรายการนี้เพื่อแนบไฟล์อีกครั้ง`,
+          'warning',
+        )
+      }
+    }
+
     submittedResult.value = result
     attemptKey.value = null
     emit('saved', result)
@@ -568,6 +597,17 @@ onBeforeUnmount(() => {
             <label class="field-label" for="receive-note">หมายเหตุ</label>
             <input id="receive-note" v-model="note" class="field" placeholder="ไม่บังคับ" />
           </div>
+        </div>
+
+        <div>
+          <label class="field-label">ไฟล์หลักฐาน / สลิป (ไม่บังคับ)</label>
+          <FinanceFileUploader
+            v-model:files="evidenceFiles"
+            owner-type="payment_event"
+            kind="payment_proof"
+            :max-count="20"
+            :disabled="isSubmitting"
+          />
         </div>
 
         <!-- 📋 ผลพรีวิว -->

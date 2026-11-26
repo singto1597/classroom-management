@@ -2507,6 +2507,20 @@ class ReceiptsMixin:
         #       ซึ่ง **ต้องเท่า** กับ `--api-timeout` — ดูเหตุผลใน constants.py)
         html = render_receipt_html(cls._document_context(d))
         pdf_bytes = await html_to_pdf(html)
+
+        # 📎 ต่อท้ายไฟล์หลักฐาน (รูป + PDF) ของ record ต้นทาง — best-effort:
+        #    ไฟล์แนบเสีย/หายต้องไม่ทำให้พิมพ์เอกสารหลักไม่ได้
+        try:
+            from .document_attachments import append_attachments_to_receipts
+
+            pdf_bytes = await append_attachments_to_receipts(pool, [d], pdf_bytes)
+        except Exception:
+            import logging
+
+            logging.getLogger("API_FINANCE_RECEIPTS").warning(
+                "แนบไฟล์หลักฐานเข้า PDF ไม่สำเร็จ (พิมพ์เอกสารหลักต่อ)", exc_info=True
+            )
+
         return pdf_bytes, pdf_filename(d["receipt_no"], d["doc_type"])
 
     @classmethod
@@ -2647,6 +2661,18 @@ class ReceiptsMixin:
             #    ให้อยู่หน้าเดียว — ใบเดี่ยวและกลุ่มขนาด 1 ได้ context เดิมทุกไบต์
             html = render_receipts_html(cls._document_contexts(docs))
             pdf_bytes = await html_to_pdf(html, timeout=PDF_BATCH_TIMEOUT)
+
+            # 📎 พิมพ์รวม: ต่อท้ายไฟล์แนบของ **ทุกใบ** ตามลำดับเอกสาร (best-effort)
+            try:
+                from .document_attachments import append_attachments_to_receipts
+
+                pdf_bytes = await append_attachments_to_receipts(pool, docs, pdf_bytes)
+            except Exception:
+                import logging
+
+                logging.getLogger("API_FINANCE_RECEIPTS").warning(
+                    "แนบไฟล์หลักฐานเข้า PDF รวมไม่สำเร็จ (พิมพ์เอกสารหลักต่อ)", exc_info=True
+                )
             # 🏷️ ถ้าชุดนี้ปนสองชนิดเอกสาร ชื่อไฟล์ต้องไม่แอบอ้างว่าเป็นชนิดใดชนิดหนึ่ง
             #    (`pdf_filename_batch` แปลงชนิดที่ไม่รู้จักเป็น "documents" ให้เอง)
             doc_types = {d["doc_type"] for d in docs}

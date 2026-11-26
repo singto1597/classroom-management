@@ -139,4 +139,10 @@ router.include_router(bill_adjustments_router)
 #    ของงานนี้ต่อเติมท้ายไฟล์
 router.include_router(dashboard_router)
 
+# 📎 [MEDIA] ไฟล์หลักฐานการเงิน — `/finance/attachments/...` เป็น segment ใหม่
+#    ⇒ ไม่ทับ route ใดของกลุ่มเดิม ประกาศท้ายไฟล์ตามธรรมเนียม diff ของ repo
+from .attachments import router as attachments_router
+
+router.include_router(attachments_router)
+
 __all__ = ["router"]

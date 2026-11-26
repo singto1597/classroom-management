@@ -559,6 +559,11 @@ onMounted(() => {
           </button>
         </div>
 
+        <p class="mb-3 flex items-start gap-1.5 text-xs leading-relaxed text-ink-3">
+          <i class="bi bi-paperclip mt-0.5 shrink-0" aria-hidden="true"></i>
+          <span>แนบไฟล์หลักฐาน (รูปภาพ/PDF) ของแต่ละบรรทัดได้ที่หน้ารายละเอียดใบสำคัญจ่ายหลังบันทึก</span>
+        </p>
+
         <button
           type="submit"
           class="btn-primary w-full py-3"

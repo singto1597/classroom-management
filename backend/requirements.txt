@@ -36,3 +36,9 @@ typing_extensions==4.15.0
 uvicorn==0.46.0
 redis>=5.0.0
 pywebpush==2.5.0
+
+# 📎 ไฟล์หลักฐานการเงิน (รูป + PDF) — ดู core/media/ และ services/finance_attachments.py
+python-multipart>=0.0.9
+Pillow==13.0.0
+pillow-heif==1.9.0
+pypdf>=5.0

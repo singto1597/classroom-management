@@ -193,6 +193,8 @@ class TransactionsMixin:
                 "receipt_no": doc_row["receipt_no"] if doc_row else None,
                 "doc_type": doc_row["doc_type"] if doc_row else None,
                 "doc_type_label": doc_row["doc_type_label"] if doc_row else None,
+                # 📎 ให้หน้าจอแนบไฟล์หลักฐานได้ทันทีหลังบันทึก (ต้องอยู่ใน response_model ด้วย)
+                "transaction_id": new_tx_id,
             }
         except Exception as e:
             exec_time = int((time.time() - start_time) * 1000)
@@ -419,7 +421,12 @@ class TransactionsMixin:
             SELECT
                 T.id, T.amount, T.description, T.transaction_type, T.created_at,
                 T.slip_image_url, T.recorded_by, T.transfer_group_id,
-                A.account_name, C.category_name
+                A.account_name, C.category_name,
+                -- 📎 จำนวนไฟล์หลักฐาน (รูป + PDF) ที่ยังไม่ถูกลบ — badge ในประวัติ
+                (SELECT COUNT(*) FROM finance_attachments FA
+                  WHERE FA.owner_type = 'transaction'
+                    AND FA.owner_id = T.id
+                    AND FA.deleted_at IS NULL) AS attachment_file_count
             FROM finance_transactions T
             LEFT JOIN finance_accounts A ON T.account_id = A.id
             LEFT JOIN finance_categories C ON T.category_id = C.id
@@ -560,6 +567,27 @@ class TransactionsMixin:
             if txn is None:
                 continue  # ถูกกรองด้วย transaction_type ด้านบนแล้ว
             items.append(txn)
+
+        # 📎 เติมจำนวนไฟล์หลักฐาน **เฉพาะ id จริง (> 0)** — entry ที่ไม่มี legacy
+        #    transaction (opening balance ฯลฯ) ใช้ id ติดลบสังเคราะห์ ⇒ ส่งเข้าคิวรีไม่ได้
+        real_ids = [
+            it["id"] for it in items
+            if isinstance(it.get("id"), int) and it["id"] > 0
+        ]
+        count_map: Dict[int, int] = {}
+        if real_ids:
+            count_rows = await conn.fetch(
+                """SELECT owner_id, COUNT(*) AS n
+                   FROM finance_attachments
+                   WHERE owner_type = 'transaction'
+                     AND owner_id = ANY($1::int[])
+                     AND deleted_at IS NULL
+                   GROUP BY owner_id""",
+                real_ids,
+            )
+            count_map = {int(r["owner_id"]): int(r["n"]) for r in count_rows}
+        for it in items:
+            it["attachment_file_count"] = count_map.get(it.get("id"), 0)
 
         # [DOUBLE-ENTRY] จำลอง pagination ฝั่ง application (ชุดข้อมูลนี้เล็ก —
         # ต่อบิลมีแค่ 2-3 บรรทัด) เพื่อคง API เดิม (limit/offset + total_count)

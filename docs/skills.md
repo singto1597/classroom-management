@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 299 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 300 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -303,6 +303,7 @@
 - [🧾 รับชำระหนี้ = Dr กระเป๋า / Cr ลูกหนี้ — ลูกหนี้เป็น asset แต่ไม่ใช่กระเป๋า ⇒ ต้องแยกก่อนจัดประเภท "โอนเงิน"](#รับชำระหนี้-dr-กระเป๋า-cr-ลูกหนี้-ลูกหนี้เป็น-asset-แต่ไม่ใช่กระเป๋า-ต้องแยกก่อนจัดประเภท-โอนเงิน)
 - [📐 ตาราง 8 คอลัมน์บนกระดาษ A4 ต้อง `table-layout: fixed` — ไม่งั้นกรอบยื่นเลยขอบขวา (ตรวจจาก PDF จริง)](#ตาราง-8-คอลัมน์บนกระดาษ-a4-ต้อง-table-layout-fixed-ไม่งั้นกรอบยื่นเลยขอบขวา-ตรวจจาก-pdf-จริง)
 - [💰 เติมยอดอัตโนมัติในแผ่นรับเงินต้องหักเครดิตที่ตัดได้ (`ready_to_apply`) — เติมยอดคงค้างดิบทำให้เกินบิลทันที](#เติมยอดอัตโนมัติในแผ่นรับเงินต้องหักเครดิตที่ตัดได้-readytoapply-เติมยอดคงค้างดิบทำให้เกินบิลทันที)
+- [📎 ไฟล์หลักฐานการเงิน (รูป + PDF) — signed URL, atomic write, PDF sanitize/merge และกับดัก `response_model`](#ไฟล์หลักฐานการเงิน-รูป-pdf-signed-url-atomic-write-pdf-sanitizemerge-และกับดัก-responsemodel)
 
 <!-- TOC:END -->
 
@@ -5139,4 +5140,20 @@
   - เติมเฉพาะตอน `initialize()` (เปิดแผ่น/เปลี่ยนคน) — `refreshAccount()` หลัง 409 ห้ามทับยอดที่ผู้ใช้พิมพ์
 - **Rule:** (1) 🔴 autofill เงินสด = คงค้าง − ready_to_apply (2) 🔴 อย่าแตะยอดที่ผู้ใช้แก้ตอน refresh (3) 🔴 เครดิตครอบหมด ⇒ ค่าว่าง
 - **Tests/Verification:** `frontend/src/components/finance/__tests__/ReceiveMoneyModal.spec.ts` (เติมยอดคงค้างเมื่อไม่มีเครดิต, หัก ready_to_apply, เครดิตครอบหมด ⇒ null)
+- **Date Added:** 2026-11-26
+
+### 📎 ไฟล์หลักฐานการเงิน (รูป + PDF) — signed URL, atomic write, PDF sanitize/merge และกับดัก `response_model`
+- **Context/Problem:** เพิ่มระบบแนบไฟล์หลักฐาน (รูป/PDF) ในการเงิน โดยลอกแบบ PRSC Issue Images (PR #120) และต้องต่อท้ายไฟล์แนบเข้า PDF ของเอกสารการเงินด้วย
+- **Correct Pattern/Solution:**
+  - **Signed URL ไม่ใช่ Bearer**: `<img src>`/แท็บ PDF ใหม่ส่ง header ไม่ได้ ⇒ HMAC-SHA256(`finance-file:v1:{id}:{variant}:{viewer}:{exp}`) ตัด 16 ไบต์ base64url · ผูก viewer + ตรวจสิทธิ์ซ้ำทุก GET (`require_member`) · exp ปัดรอบ 5 นาที (URL นิ่ง) · คืน path relative ให้ frontend เติม `VITE_API_BASE_URL`
+  - **Atomic write**: `tmp/*.part` → `flush` → `os.fsync` → `os.replace` (FS เดียวกัน) · containment ใช้ `os.path.commonpath` **ไม่ใช่ `startswith`** (กัน `/data/media2`) · key ต้องผ่าน regex ที่ owner_type เป็น alternation ของค่าที่รู้จัก (fail-closed)
+  - **เขียนไฟล์ก่อน INSERT**: crash = orphan file ที่ purge เก็บได้ ≠ แถวชี้ไฟล์หาย (ผู้ใช้เห็นไฟล์แตกตลอดกาล)
+  - **PDF**: ตรวจ magic `%PDF-`, ปฏิเสธ encrypted, จำกัดหน้า, **เขียนใหม่ด้วย `PdfWriter`** (เก็บเฉพาะหน้า) ⇒ ตัด JS/embedded files · เสิร์ฟด้วย `Content-Security-Policy: sandbox`
+  - **ต่อท้ายเอกสาร**: จุดเดียว `render_receipt_pdf` (PV/INC/CERT เรียกผ่านจุดนี้) · หา owner จาก `legacy_transaction_id`/`student_payment_id`/`payment_event_id` + voucher/income lines (`pv_receipt_id`/`inc_receipt_id`) + `related_receipt_id` 1 hop · dedupe ด้วย attachment id · รูป → หน้า A4 150dpi (Pillow), PDF → pypdf · ทำใน threadpool หลัง Gotenberg และไม่ถือ DB connection
+  - **กับดัก `response_model`**: `TransactionCreateResponse` ต้องประกาศ `transaction_id` ไม่งั้น FastAPI ตัดทิ้งเงียบ ๆ ⇒ create-then-upload ทำไม่ได้โดยไม่มี error
+  - **อัปหลังสร้าง record**: อัปเป็นชุดละ `MEDIA_MAX_UPLOAD_PER_REQUEST` (5) — 20 ไฟล์ × 20MB ไม่ควร buffer ในคำขอเดียว · อัปพลาด = record บันทึกแล้ว ห้าม throw เข้า catch หลัก (จะชวนผู้ใช้กดซ้ำ)
+  - **ตัวนับในประวัติ**: `attachment_file_count` เป็นคนละตัวกับ `attachment_count` (จำนวนใบกระดาษที่พิมพ์บนเอกสาร) — อย่าใช้ชื่อทับกัน · journal synthetic id ติดลบห้ามส่งเข้าคิวรี
+  - **เทสต์**: `conftest.py` ตั้ง `settings.MEDIA_STORAGE_DIR = tempfile.mkdtemp()` **ก่อน** import app (storage cache ผูก `(backend, dir)`)
+- **Rule:** (1) 🔴 ไฟล์ส่วนตัวห้ามเสิร์ฟด้วย static/Bearer (2) 🔴 เขียนไฟล์ก่อน INSERT (3) 🔴 PDF ต้อง sanitize ก่อนเก็บ (4) 🔴 ทุกอัปโหลดต้องตรวจสิทธิ์/โควตาใน transaction เดียวและตรวจซ้ำทุก GET
+- **Tests/Verification:** `backend/tests/test_media_storage.py`, `test_media_signing.py`, `test_finance_attachments.py`, `test_finance_attachments_api.py`, `test_document_attachments.py` · `frontend/src/components/finance/__tests__/FinanceFileUploader.spec.ts`
 - **Date Added:** 2026-11-26

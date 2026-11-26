@@ -32,6 +32,8 @@ export interface Transaction {
   account_name: string | null;
   category_name: string | null;
   transfer_group_id: number | null;
+  /** 📎 จำนวนไฟล์หลักฐาน (รูป + PDF) ที่ยังไม่ถูกลบ — badge ในประวัติ */
+  attachment_file_count?: number;
 }
 
 export interface TransactionList {
@@ -229,6 +231,8 @@ export interface TransactionCreateResponse extends ApiSuccessResponse {
   receipt_no?: string | null;
   doc_type?: ReceiptDocType | null;
   doc_type_label?: string | null;
+  /** 📎 id ของรายการที่เพิ่งสร้าง — ใช้แนบไฟล์หลักฐานทันทีหลังบันทึก */
+  transaction_id?: number | null;
 }
 
 export interface TransferCreate {
@@ -2651,4 +2655,57 @@ export interface MoneyOwnership {
   net_room_money: number;
   by_receiver: MoneyOwnershipReceiver[];
   quick_actions: string[];
+}
+
+// ============================================================
+// 📎 ไฟล์หลักฐานการเงิน (รูปภาพ + PDF)
+// ============================================================
+
+/** ชนิดของเจ้าของไฟล์ — ตรงกับ CHECK ใน `finance_attachments` */
+export type FinanceAttachmentOwnerType = 'transaction' | 'student_payment' | 'payment_event';
+
+export type FinanceAttachmentKind =
+  | 'payment_proof'
+  | 'expense_evidence'
+  | 'withdrawal_evidence'
+  | 'other';
+
+/**
+ * ไฟล์หลักฐาน 1 ไฟล์
+ *
+ * ⚠️ `url` / `thumb_url` เป็น **path relative** (`/api/finance-files/...`) และมีอายุ
+ *    10–15 นาที — ต้องผ่าน `absoluteMediaUrl()` และ refetch list เมื่อรูป `@error`
+ */
+export interface FinanceAttachment {
+  id: string;
+  owner_type: FinanceAttachmentOwnerType;
+  owner_id: number;
+  file_kind: 'image' | 'pdf';
+  kind: FinanceAttachmentKind;
+  original_name: string | null;
+  url: string;
+  /** มีเฉพาะรูปภาพ — PDF ไม่มี thumbnail */
+  thumb_url: string | null;
+  mime: string;
+  width: number | null;
+  height: number | null;
+  /** จำนวนหน้า (PDF เท่านั้น) */
+  page_count: number | null;
+  bytes: number;
+  uploaded_by: number | null;
+  created_at: string;
+}
+
+export interface FinanceAttachmentLimits {
+  max_per_owner: number;
+  max_per_request: number;
+  image_size_limit_mb: number;
+  document_size_limit_mb: number;
+  max_total_mb: number;
+  max_pdf_pages: number;
+}
+
+export interface FinanceAttachmentList {
+  items: FinanceAttachment[];
+  limits: FinanceAttachmentLimits;
 }

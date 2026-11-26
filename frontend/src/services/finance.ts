@@ -13,6 +13,9 @@ import type {
   TransactionCreateResponse, // 🧾 [F6] ผลของการบันทึกรายการ (มีเลขเอกสารของใบสำคัญจ่าย/ใบรับเงิน)
   TransactionQueryParams,
   TransferCreate,
+  FinanceAttachmentList,
+  FinanceAttachmentKind,
+  FinanceAttachmentOwnerType,
   Collection,
   FeeCollectionCreate,
   CustomChargeCreate,
@@ -241,6 +244,44 @@ export const FinanceService = {
     return await api.delete(`/api/classroom/${roomId}/finance/transactions/${transactionId}?target_type=room`, {
       data: { user_name: userName }
     }) as unknown as ApiSuccessResponse;
+  },
+
+  // ── 📎 ไฟล์หลักฐานการเงิน (รูป + PDF) ────────────────────────────────
+  //    ownerType = transaction | student_payment | payment_event
+  async getFinanceAttachments(
+    roomId: number,
+    ownerType: FinanceAttachmentOwnerType,
+    ownerId: number,
+  ): Promise<FinanceAttachmentList> {
+    return await api.get(
+      `/api/classroom/${roomId}/finance/attachments/${ownerType}/${ownerId}?target_type=room`,
+    ) as unknown as FinanceAttachmentList;
+  },
+
+  async uploadFinanceAttachments(
+    roomId: number,
+    ownerType: FinanceAttachmentOwnerType,
+    ownerId: number,
+    files: File[],
+    kind?: FinanceAttachmentKind,
+  ): Promise<FinanceAttachmentList> {
+    const form = new FormData();
+    for (const file of files) form.append('files', file);
+    if (kind) form.append('kind', kind);
+    // ⚠️ ไม่ตั้ง Content-Type เอง — ให้ axios เติม multipart boundary ให้
+    return await api.post(
+      `/api/classroom/${roomId}/finance/attachments/${ownerType}/${ownerId}?target_type=room`,
+      form,
+    ) as unknown as FinanceAttachmentList;
+  },
+
+  async deleteFinanceAttachment(
+    roomId: number,
+    attachmentId: string,
+  ): Promise<ApiSuccessResponse> {
+    return await api.delete(
+      `/api/classroom/${roomId}/finance/attachments/${attachmentId}?target_type=room`,
+    ) as unknown as ApiSuccessResponse;
   },
 
   // ==========================================
