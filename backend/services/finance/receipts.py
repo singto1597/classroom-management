@@ -742,18 +742,22 @@ class ReceiptsMixin:
                     """INSERT INTO finance_receipts
                            (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
                             legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
-                            issued_to_name, issued_by, issued_by_name, note, event_at, issued_at)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                            issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
+                            layout_version)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                        RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
                                  student_payment_id, legacy_transaction_id, student_id, collection_id,
                                  amount, paid_total_after, issued_to_name, issued_by_name, note,
-                                 event_at, status, voided_at, voided_by, void_reason, issued_at""",
+                                 event_at, status, voided_at, voided_by, void_reason, issued_at,
+                                 layout_version""",
                     target_room_id, receipt_no, doc_type, year_be, seq, payment_id,
                     event["legacy_transaction_id"], pay["student_id"], pay["collection_id"],
                     document_amount, round(event["paid_total_after"], 2),
                     cls._display_name(pay), user_id, user_name, note,
                     # ⚠️ ส่ง `issued_at` ตรง ๆ ไม่พึ่ง DEFAULT: ต้องเท่ากับ `event_at` ของใบแจ้งหนี้เป๊ะ
                     event_at, issued_at_db,
+                    # 🖨️ เอกสารใหม่ออกเป็น A4 v2 (ผู้ใช้สั่ง 2026-11-26: ทุกชนิดใช้ดีไซน์ใหม่)
+                    2,
                 )
         except asyncpg.UniqueViolationError:
             # 🔁 idempotency ชั้นที่ 2 — แพ้การแข่งขัน: คำขออื่นออกใบเสร็จของเหตุการณ์เดียวกัน
@@ -865,12 +869,14 @@ class ReceiptsMixin:
             """INSERT INTO finance_receipts
                    (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
                     legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
-                    issued_to_name, issued_by, issued_by_name, note, event_at, issued_at, line_items)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
+                    issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
+                    line_items, layout_version)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19)
                RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
                          student_payment_id, legacy_transaction_id, student_id, collection_id,
                          amount, paid_total_after, issued_to_name, issued_by_name, note,
-                         event_at, status, voided_at, voided_by, void_reason, issued_at, line_items""",
+                         event_at, status, voided_at, voided_by, void_reason, issued_at,
+                         line_items, layout_version""",
             target_room_id, receipt_no, DOC_TYPE_INVOICE, year_be, seq,
             # 🔴 NULL ทั้งสามตัวอย่างเจตนา: ใบนี้ไม่ผูกกับ "บิลเดียว / แคมเปญเดียว / งวดรับเงิน"
             #    ⇒ ยอดที่เก็บจึงเป็นผลรวมของหลายบิล และ `collection_id` ว่างทำให้ทุกจุดอ่าน
@@ -882,6 +888,8 @@ class ReceiptsMixin:
             #    ⇒ `_DOC_DATE` ใช้ค่าเดียวกันทั้งกรอง/เรียง/พิมพ์ และปี พ.ศ. มาจากค่าเดียวกัน
             issued_at_db, issued_at_db,
             json.dumps(line_items, ensure_ascii=False),
+            # 🖨️ INV ใหม่ใช้ดีไซน์ A4 v2 (ผู้ใช้สั่ง 2026-11-26)
+            2,
         )
 
     # ================================================================ ค่าปรับ
@@ -956,18 +964,22 @@ class ReceiptsMixin:
                     """INSERT INTO finance_receipts
                            (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
                             legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
-                            issued_to_name, issued_by, issued_by_name, note, event_at, issued_at, line_items)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
+                            issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
+                            line_items, layout_version)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19)
                        RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
                                  student_payment_id, legacy_transaction_id, student_id, collection_id,
                                  amount, paid_total_after, issued_to_name, issued_by_name, note,
-                                 event_at, status, voided_at, voided_by, void_reason, issued_at, line_items""",
+                                 event_at, status, voided_at, voided_by, void_reason, issued_at,
+                                 line_items, layout_version""",
                     room_id, receipt_no, DOC_TYPE_INVOICE, year_be, seq, payment_id,
                     None, pay["student_id"], pay["collection_id"],
                     document_amount, round(float(pay["paid_amount"] or 0), 2),
                     cls._display_name(pay), user_id, user_name, note,
                     issued_at_db, issued_at_db,
                     json.dumps(line_items, ensure_ascii=False),
+                    # 🖨️ INV ค่าปรับก็ใช้ดีไซน์ A4 v2 (ผู้ใช้สั่ง 2026-11-26)
+                    2,
                 )
         except asyncpg.UniqueViolationError:
             # แพ้การแข่ง: คำขออื่นออกใบของบิลนี้ไปก่อน ⇒ คืนใบที่ชนะ
@@ -1079,13 +1091,13 @@ class ReceiptsMixin:
                        (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
                         legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
                         issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
-                        line_items)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL)
+                        line_items, layout_version)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL,2)
                    RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
                              student_payment_id, legacy_transaction_id, student_id, collection_id,
                              amount, paid_total_after, issued_to_name, issued_by_name, note,
                              event_at, status, voided_at, voided_by, void_reason, issued_at,
-                             line_items""",
+                             line_items, layout_version""",
                 target_room_id, receipt_no, DOC_TYPE_DEPOSIT, year_be, seq,
                 # 🔴 NULL สองตัวอย่างเจตนา: ใบนี้ไม่ผูกกับบิลและไม่ผูกกับแคมเปญ
                 #    ⇒ `_shape_receipt_detail` จะ **ไม่** แต่ง `collection_amount` ขึ้นมา
@@ -1213,13 +1225,13 @@ class ReceiptsMixin:
                            (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
                             legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
                             issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
-                            line_items)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL)
+                            line_items, layout_version)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL,2)
                        RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
                                  student_payment_id, legacy_transaction_id, student_id, collection_id,
                                  amount, paid_total_after, issued_to_name, issued_by_name, note,
                                  event_at, status, voided_at, voided_by, void_reason, issued_at,
-                                 line_items""",
+                                 line_items, layout_version""",
                     target_room_id, receipt_no, DOC_TYPE_INCOME, year_be, seq,
                     # 🔴 NULL สามตัวอย่างเจตนา: ใบนี้ไม่ผูกกับบิล ไม่ผูกกับแคมเปญ
                     #    และไม่ผูกกับนักเรียน (`student_id` NULL ⇒ `_merge_key` คืน None
@@ -1345,13 +1357,13 @@ class ReceiptsMixin:
                            (room_id, receipt_no, doc_type, year_be, seq, student_payment_id,
                             legacy_transaction_id, student_id, collection_id, amount, paid_total_after,
                             issued_to_name, issued_by, issued_by_name, note, event_at, issued_at,
-                            line_items, voucher_snapshot)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL,$18)
+                            line_items, voucher_snapshot, layout_version)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL,$18,2)
                        RETURNING id, room_id, receipt_no, doc_type, year_be, seq,
                                  student_payment_id, legacy_transaction_id, student_id, collection_id,
                                  amount, paid_total_after, issued_to_name, issued_by_name, note,
                                  event_at, status, voided_at, voided_by, void_reason, issued_at,
-                                 line_items, voucher_snapshot""",
+                                 line_items, voucher_snapshot, layout_version""",
                     target_room_id, receipt_no, DOC_TYPE_PAYMENT_VOUCHER, year_be, seq,
                     # 🔴 NULL สามตัว: ไม่ผูกบิล ไม่ผูกแคมเปญ ไม่ผูกนักเรียน
                     #    (`student_id` NULL ⇒ `_merge_key` คืน None ⇒ ใบสำคัญจ่าย

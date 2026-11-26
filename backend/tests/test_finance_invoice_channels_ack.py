@@ -485,6 +485,13 @@ async def test_invoice_v2_html_has_channels_qr_and_no_receiver_signature(
     html = render_receipts_html([ctx])
     assert "ช่องทางชำระเงิน" in html
     assert "ช่องทางหลัก" in html
+    # 🔤 ช่องทาง: ชื่อบรรทัดเดียว + รายละเอียดเยื้องใต้ — ไม่มีวงกลมติ๊ก/ป้ายช่องทางหลัก
+    #    ในรายการ (ผู้ใช้กำหนด 2026-11-26)
+    assert 'class="inv-channel-name"' in html
+    assert "พร้อมเพย์ครูเอ" in html and "ครูเอ" in html
+    #    (CSS `.radio-circle` ยังอยู่ใน shell ให้ใบเสร็จใช้ — เช็คที่ markup ของ INV)
+    assert 'class="radio-circle' not in html, "INV ไม่มีวงกลมติ๊กหน้าช่องทาง"
+    assert "status-channel" not in html, "INV ไม่ติดป้าย 'ช่องทางหลัก' ในรายการช่องทาง"
     assert "data:image/svg+xml;base64," in html
     assert "ผู้ออกเอกสาร" in html
     assert "ผู้รับเงิน" not in html, "INV ไม่มีช่องเซ็นผู้รับเงิน"

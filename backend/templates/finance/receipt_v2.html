@@ -163,7 +163,7 @@
   .compact-header .std-title-en { font-size: 14.5px; }
 
   /* Logo pinned to the very top-right corner of the header, wordmark lines
-     stacked underneath it (user request 2026-11-26). */
+     stacked underneath it. */
   .std-brand-mark {
     flex: 0 0 auto;
     display: flex;
@@ -174,7 +174,7 @@
   }
 
   /* Real app logo: the box glyph alone in the app's --brand blue, no tile
-     background (user request 2026-11-26: plain box on white paper). */
+     background (plain box on white paper). */
   .brand-logo {
     flex: 0 0 auto;
     display: inline-flex;
@@ -261,10 +261,13 @@
   }
 
   /* ---- framed bill table ---- */
+  /* Square corners on purpose: with a radius + overflow visible, the opaque
+     rectangular table header paints over the curved border and the corners
+     look chipped/broken in print. */
   .bill-frame {
     margin-top: 8px;
     border: 1.5px solid #1A1A1A;
-    border-radius: 10px;
+    border-radius: 0;
     overflow: visible;
     background-color: #FFFFFF;
     display: flex;
@@ -347,13 +350,6 @@
   .status-upcoming {
     color: #52525B;
     border: 1px dashed #71717A;
-    background-color: #FFFFFF;
-    font-weight: 400;
-  }
-
-  .status-channel {
-    color: #27272A;
-    border: 1px solid #A1A1AA;
     background-color: #FFFFFF;
     font-weight: 400;
   }
@@ -488,6 +484,27 @@
     background-color: #FFFFFF;
   }
 
+  /* Invoice channel block: channel name on one line, details indented below,
+     no radio marks. Receipt keeps .radio-circle. */
+  .inv-channels li {
+    display: block;
+    margin-bottom: 7px;
+  }
+
+  .inv-channel-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1A1A1A;
+    line-height: 1.35;
+  }
+
+  .inv-channel-line {
+    padding-left: 14px;
+    font-size: 11px;
+    color: #3F3F46;
+    line-height: 1.4;
+  }
+
   .radio-circle.checked::after {
     content: "";
     width: 6.5px;
@@ -565,9 +582,11 @@
     color: #52525B;
   }
 
+  /* Square corners for the same reason as .bill-frame (header paints over the
+     rounded border when overflow is visible). */
   .sub-frame {
     border: 1.2px solid #1A1A1A;
-    border-radius: 8px;
+    border-radius: 0;
     overflow: visible;
     background-color: #FFFFFF;
   }
@@ -678,7 +697,7 @@
   .compact-doc .std-header { padding-bottom: 8px; }
   .compact-doc .info-band { padding: 7px 2px; }
   .compact-doc table.kv-table td { padding: 1.5px 0; font-size: 11.3px; }
-  .compact-doc .bill-frame { margin-top: 6px; border-radius: 8px; }
+  .compact-doc .bill-frame { margin-top: 6px; border-radius: 0; }
   .compact-doc table.bill-items thead th { padding: 6px 10px; font-size: 11px; }
   .compact-doc table.bill-items tbody td {
     padding: 5px 10px;

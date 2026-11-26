@@ -220,13 +220,17 @@ class DocumentsMixin:
 
         if not printed:
             amount = _as_float_or_none(d.get("amount")) or 0.0
+            # 🖨️ snapshot รูปก่อน P4.1 (ใบสำคัญที่ออกจากเส้นทางรายจ่ายแบบเก่า) ไม่มี
+            #    `lines` แต่มี `category_name`/`account_name` แบนอยู่ ⇒ ยกมาใส่บรรทัดเดียว
+            #    ไม่งั้นตาราง v2 จะขึ้น "—" ทั้งที่ข้อมูลมี (ดีไซน์ใหม่ต้องไม่ทิ้งข้อมูล)
+            legacy = bool(snapshot) and "lines" not in snapshot
             printed = [{
                 "line_no": 1,
                 "title": (d.get("note") or "").strip() or "รายจ่ายของห้อง",
                 "amount_applied": amount,
-                "category_name": None,
+                "category_name": snapshot.get("category_name") if legacy else None,
                 "budget_label": None,
-                "wallet_name": None,
+                "wallet_name": snapshot.get("account_name") if legacy else None,
                 "receipt_status": None,
                 "receipt_status_text": None,
                 "paper_bill_count": 0,
@@ -363,12 +367,20 @@ class DocumentsMixin:
         lines = context["line_items"]
         amount = context["amount"]
 
+        # 🖨️ [2026-11-26] เอกสาร PV ที่ออกก่อน P4.1 ใช้ snapshot รูปเก่า (`budgets`,
+        #    `account_name`, `approver_name`) **ไม่มี `lines`/`signatures`**
+        #    ⇒ เทมเพลต v2 ต้องได้ข้อมูลครบเท่ากระดาษเดิม (งบ/หมวด/ช่องทางจ่าย/ลายเซ็น)
+        #    ไม่งั้นการเปลี่ยนดีไซน์จะกลายเป็นการ **ตัดข้อมูลการเงินออกจากกระดาษ**
+        legacy_snapshot = bool(snapshot) and "lines" not in snapshot
+        payee_name = snapshot.get("payee_name") or d.get("issued_to_name")
+        approved_name = _signer_name(signatures, "approved") or (
+            snapshot.get("approver_name") if legacy_snapshot else None
+        )
+
         context.update({
             "doc_title": DOC_TYPE_LABELS.get(DOC_TYPE_PAYMENT_VOUCHER) or "ใบสำคัญจ่าย",
             "is_receipt": False,
-            "voucher_payee_name": (
-                snapshot.get("payee_name") or d.get("issued_to_name")
-            ),
+            "voucher_payee_name": payee_name,
             "voucher_payee_person_id": (
                 snapshot.get("payee_person_id") or d.get("receiver_person_id")
             ),
@@ -377,24 +389,40 @@ class DocumentsMixin:
                 cls._thai_date_text(_as_date_or_none(snapshot.get("voucher_date")))
                 or context.get("document_date_text")
             ),
-            "voucher_prepared_name": _signer_name(signatures, "prepared"),
-            "voucher_approved_name": _signer_name(signatures, "approved"),
-            "voucher_approver_name": _signer_name(signatures, "approved"),
-            "voucher_receiver_name": _signer_name(signatures, "receiver"),
+            # ✍️ snapshot เก่าไม่มี `signatures` — ผู้จัดทำคือผู้ออกเอกสาร (เหรัญญิก)
+            #    และผู้รับเงินคือผู้เบิกตามช่องเดิมของกระดาษ legacy
+            "voucher_prepared_name": _signer_name(signatures, "prepared") or (
+                d.get("issued_by_name") if legacy_snapshot else None
+            ),
+            "voucher_approved_name": approved_name,
+            "voucher_approver_name": approved_name,
+            "voucher_receiver_name": _signer_name(signatures, "receiver") or (
+                payee_name if legacy_snapshot else None
+            ),
             "voucher_signatures": signatures,
             "voucher_account_name": _voucher_wallet_name(snapshot),
             # 🏦 PV ไม่มีช่องทางชำระแยกจากกระเป๋า — คิงก์ไว้ให้ partial อื่นอ่านได้
-            "voucher_channel_text": None,
-            "voucher_attachment_count": sum(
-                1 for it in lines if it.get("receipt_status") == "attached"
+            #    snapshot เก่าเก็บ account_kind/bank_* แบน ⇒ ประกอบข้อความจากค่าที่
+            #    `_shape_receipt_detail` คลี่ไว้แล้ว (ฟังก์ชันของ ReceiptsMixin ผ่าน MRO)
+            "voucher_channel_text": cls._voucher_channel_text(d),
+            "voucher_attachment_count": (
+                sum(1 for it in lines if it.get("receipt_status") == "attached")
+                or (int(snapshot.get("attachment_count") or 0) if legacy_snapshot else 0)
             ),
             "voucher_total_paper_bill_count": (
                 int(snapshot.get("total_paper_bill_count") or 0)
                 or sum(int(it.get("paper_bill_count") or 0) for it in lines)
             ),
             "voucher_lines": lines,
-            "voucher_budgets": [],
-            "voucher_category_name": None,
+            # 🏷️ บล็อกงบประมาณมีเฉพาะ snapshot รูปเก่า (ใหม่แสดงงบรายบรรทัดอยู่แล้ว)
+            "voucher_budget_section": legacy_snapshot,
+            "voucher_budgets": (
+                cls._voucher_budget_rows(d) if legacy_snapshot else []
+            ),
+            "voucher_category_name": (
+                (snapshot.get("category_name") or d.get("category_name"))
+                if legacy_snapshot else None
+            ),
             # 🧾 อ้าง CERT (ถ้า document_meta มีคีย์นี้ — ปกติ PV ออกก่อน CERT จึงว่าง)
             "cert_receipt_no": meta.get("cert_receipt_no"),
             "cert_amount": _as_float_or_none(meta.get("cert_amount")),
@@ -590,11 +618,16 @@ def _signer_name(signatures, role: str) -> Optional[str]:
 
 
 def _voucher_wallet_name(snapshot: dict) -> Optional[str]:
-    """`voucher_snapshot.default_wallet` → ชื่อกระเป๋า (ทนรูปเก่า/ผิดรูป)"""
-    wallet = snapshot.get("default_wallet") if isinstance(snapshot, dict) else None
-    if not isinstance(wallet, dict):
+    """`voucher_snapshot` → ชื่อกระเป๋า (ทนรูปเก่า/ผิดรูป)
+
+    snapshot รูปก่อน P4.1 เก็บชื่อกระเป๋าแบนที่ `account_name` (ไม่มี `default_wallet`)
+    """
+    if not isinstance(snapshot, dict):
         return None
-    name = wallet.get("name")
+    wallet = snapshot.get("default_wallet")
+    if isinstance(wallet, dict) and wallet.get("name"):
+        return str(wallet["name"])
+    name = snapshot.get("account_name")
     return str(name) if name else None
 
 

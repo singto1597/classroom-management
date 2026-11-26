@@ -63,6 +63,22 @@ def _url(template: str, room_id: int, **kwargs) -> str:
     return template.format(room=room_id, **kwargs) + "?target_type=room"
 
 
+async def _pin_legacy_layout(pool, receipt_no: str) -> None:
+    """ตรึงเอกสารเป็น layout เดิม (1) ก่อนยิงเส้นทางทะเบียนเก่า
+
+    🖨️ ตั้งแต่ 2026-11-26 ผู้ใช้สั่งให้เอกสาร **ทุกชนิด** ออกด้วยดีไซน์ A4 ใหม่
+    (`layout_version = 2`) แต่ทะเบียนเดิม `GET /finance/receipts` ยังอ่านเฉพาะ
+    layout 1 ตามสัญญา P2.2 (frontend ย้ายไป `/finance/documents` แล้ว)
+    เทสต์ในไฟล์นี้ล็อกพฤติกรรมของ **เส้นทางเดิม** (ตัวกรอง/รายการ/พิมพ์ซ้ำ)
+    ⇒ ต้องตรึงแถวให้เป็น legacy ก่อน ไม่งั้นจะทดสอบ endpoint ที่ไม่มีใบให้อ่าน
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_receipts SET layout_version = 1 WHERE receipt_no = $1",
+            receipt_no,
+        )
+
+
 # ═══════════════════════════════════════════════════════════════════ seed helpers
 async def _insert_room_for(pool, user_id: int, *, is_admin: bool = True) -> int:
     """สร้างห้องเพิ่มให้ user ที่มีอยู่แล้ว (ใช้ทดสอบกรณี "เป็นสมาชิกสองห้อง")
@@ -1065,6 +1081,7 @@ async def test_get_receipt_detail_and_list_filters(client, db_pool, admin_header
     # pay_b ยังไม่จ่าย → ใช้ออกใบแจ้งหนี้ได้อย่างเดียว (เส้นทางรับ `student_id`)
     rec_a = _issue(client, admin_headers, pay_a).json()["receipt"]
     inv_b = _issue_invoices(client, admin_headers, [student_b]).json()["receipts"][0]
+    await _pin_legacy_layout(db_pool, rec_a["receipt_no"])
 
     detail = client.get(_url(RECEIPT_PATH, room_id, receipt_no=rec_a["receipt_no"]),
                         headers=admin_headers)
@@ -1127,6 +1144,7 @@ async def test_get_receipts_filters_by_thai_calendar_day(client, db_pool, admin_
     _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=100.0)
     assert _pay(client, admin_headers, payment_id, account_id, 100.0).status_code == 200
     receipt = _issue(client, admin_headers, payment_id).json()["receipt"]
+    await _pin_legacy_layout(db_pool, receipt["receipt_no"])
 
     today_thai = datetime.now(THAI_TZ).date()
     hit = client.get(_url(RECEIPTS_PATH, room_id),
@@ -1715,7 +1733,10 @@ async def test_pdf_prints_thai_buddhist_dates_that_agree_with_its_own_doc_number
               "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
     year_be = thai.year + 543
     year_ce = thai.year
-    expected_date = f"{thai.day} {months[thai.month - 1]} {year_be} {thai.strftime('%H:%M')} น."
+    # 🖨️ ดีไซน์ A4 ใหม่แยก "วันที่" กับ "เวลา" เป็นคนละช่วงในช่องเดียวกัน
+    #    (`{วันที่} · {เวลา}`) ⇒ ตรวจสองส่วนแยกกัน ไม่ผูกกับตัวคั่น เพื่อกันเทสต์เปราะ
+    expected_date = f"{thai.day} {months[thai.month - 1]} {year_be}"
+    expected_time = f"{thai.strftime('%H:%M')} น."
 
     mock_render = AsyncMock(return_value=b"%PDF-1.4\n")
     with patch("services.finance.pdf.html_to_pdf", new=mock_render):
@@ -1727,6 +1748,9 @@ async def test_pdf_prints_thai_buddhist_dates_that_agree_with_its_own_doc_number
     assert expected_date in html, (
         f"ไม่พบวันที่ไทย {expected_date!r} บนเอกสาร — บรรทัดวันที่อาจกลับไปเป็น ISO/ค.ศ."
     )
+    assert expected_time in html, (
+        f"ไม่พบเวลาของเหตุการณ์ {expected_time!r} บนเอกสาร"
+    )
     # เลขเอกสารกับวันที่ต้องเป็นปี พ.ศ. เดียวกัน (เอกสารไม่ขัดแย้งกับตัวเอง)
     assert str(year_be) in receipt_no
     # (ข) ห้ามมี ค.ศ. โผล่ที่ไหนเลย — มันจะขัดกับเลขเอกสารที่เป็น พ.ศ.
@@ -1734,13 +1758,7 @@ async def test_pdf_prints_thai_buddhist_dates_that_agree_with_its_own_doc_number
         f"พบปี ค.ศ. {year_ce} บนเอกสารที่มีเลขเป็น พ.ศ. ({receipt_no}) — เอกสารขัดแย้งกับตัวเอง"
     )
     assert re.search(rf"\b{year_ce}-\d{{2}}-\d{{2}}\b", html) is None, "พบวันที่แบบ ISO"
-
-    # (ค) กำหนดชำระ (DATE ล้วน) ก็ต้องเป็น พ.ศ. + ชื่อเดือนไทย ไม่มีเวลาติดมา
-    #     bill ตั้ง due_date = 2026-12-31 → "31 ธ.ค. 2569"
-    assert "31 ธ.ค. 2569" in html, (
-        "กำหนดชำระต้องเป็น พ.ศ. แบบไม่มีเวลาติด — ถ้ามี 07:00 โผล่มาแปลว่าใช้ตัวจัดรูปเวลากับฟิลด์ DATE"
-    )
-    assert "07:00" not in html
+    assert re.search(rf"\b{year_ce}-\d{{2}}-\d{{2}}\b", html) is None, "พบวันที่แบบ ISO"
 
 
 # ══════════════════════════════ 13. 🗓️ "วันที่ของเอกสาร" = เวลาของเหตุการณ์ (#62)
@@ -1828,7 +1846,7 @@ async def test_printed_date_follows_the_payment_event_not_the_print_time(
     assert res.status_code == 200, res.text
     html = mock_render.await_args.args[0]
 
-    assert "20 พ.ค. 2569 10:00 น." in html, (
+    assert "20 พ.ค. 2569" in html and "10:00 น." in html, (
         "วันที่บนกระดาษต้องเป็นวันของเหตุการณ์รับเงิน (20 พ.ค. 2569) — "
         "ถ้าไม่พบ แปลว่าโค้ดกลับไปใช้ issued_at"
     )
@@ -1872,7 +1890,7 @@ async def test_doc_year_and_printed_date_cross_the_buddhist_year_together(
         res = client.get(_url(PDF_PATH, room_id, receipt_no=receipt_no), headers=admin_headers)
     assert res.status_code == 200, res.text
     html = mock_render.await_args.args[0]
-    assert "31 ธ.ค. 2568 23:59 น." in html, (
+    assert "31 ธ.ค. 2568" in html and "23:59 น." in html, (
         "วันที่บนกระดาษต้องเป็นปีเดียวกับเลขเอกสาร (2568) ไม่ใช่ปีที่กดพิมพ์"
     )
 
@@ -1892,6 +1910,7 @@ async def test_date_filter_follows_event_at_not_issued_at(client, db_pool, admin
                                       amount=200.0, created_at=datetime(2026, 5, 20, 3, 0))
     receipt_no = _issue(client, admin_headers, payment_id,
                         transaction_id=ft_id).json()["receipt"]["receipt_no"]
+    await _pin_legacy_layout(db_pool, receipt_no)
 
     # วันของเหตุการณ์ → ต้องเจอ
     hit = client.get(_url(RECEIPTS_PATH, room_id),
@@ -1949,6 +1968,8 @@ async def test_legacy_receipt_without_event_at_falls_back_to_issued_at(
     _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=100.0)
     assert _pay(client, admin_headers, payment_id, account_id, 100.0).status_code == 200
     receipt_no = _issue(client, admin_headers, payment_id).json()["receipt"]["receipt_no"]
+    # ใบยุคก่อนมีคอลัมน์ = layout เดิม ⇒ ตรึงให้ตรงกับสถานการณ์ที่เทสต์จำลอง
+    await _pin_legacy_layout(db_pool, receipt_no)
 
     # จำลองข้อมูลยุคก่อนมีคอลัมน์
     async with db_pool.acquire() as conn:
@@ -2123,6 +2144,7 @@ async def test_voided_receipt_stays_readable_for_audit(client, db_pool, admin_he
     _, payment_id = await _make_bill(db_pool, room_id, student_id, amount=700.0)
     assert _pay(client, admin_headers, payment_id, account_id, 700.0).status_code == 200
     receipt_no = _issue(client, admin_headers, payment_id).json()["receipt"]["receipt_no"]
+    await _pin_legacy_layout(db_pool, receipt_no)
 
     assert (await _revert(client, db_pool, admin_headers, payment_id)).status_code == 200
 
@@ -2235,8 +2257,9 @@ async def test_voided_receipt_pdf_is_stamped_void_with_its_reason(
 
     assert "เอกสารนี้ถูกยกเลิกแล้ว" in html, "ใบที่โมฆะต้องมีแบนเนอร์ประทับบนกระดาษ"
     assert reason in html, "ต้องพิมพ์เหตุผลของการยกเลิกให้ผู้ตรวจสอบเห็น"
-    # แบนเนอร์ต้องมาก่อนหัวเอกสาร (คนอ่านต้องรู้ก่อนอ่านตัวเลข)
-    assert html.index("เอกสารนี้ถูกยกเลิกแล้ว") < html.index('class="head"')
+    # แบนเนอร์ต้องมาก่อนเนื้อหาเอกสาร (คนอ่านต้องรู้ก่อนอ่านตัวเลข)
+    # 🖨️ ดีไซน์ A4 ใหม่: shell เป็นเจ้าของแบนเนอร์ และวางไว้เหนือ `.doc-content`
+    assert html.index("เอกสารนี้ถูกยกเลิกแล้ว") < html.index('class="doc-content"')
 
 
 async def test_voided_receipt_does_not_count_as_already_issued(

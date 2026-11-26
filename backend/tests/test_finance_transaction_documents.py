@@ -256,8 +256,10 @@ async def test_income_document_renders_with_receipt_wording(client, db_pool, adm
             f"พบคำของ **ใบแจ้งหนี้** ('{invoice_word}') บนใบรับเงิน ⇒ "
             "เทมเพลตไม่ได้ branch ด้วย `is_receipt`"
         )
-    assert "ได้รับเงินจาก" in html
-    assert "ผู้ชำระเงิน" in html
+    # 🖨️ ดีไซน์ A4 v2 (2026-11-26) ใช้ถ้อยคำสั้นของตัวเอง — สาระเดียวกับ legacy
+    #    ("ได้รับเงินจาก"/"ผู้ชำระเงิน") แต่เป็นคำที่บทหัวกระดาษมาตรฐานใช้
+    assert "รับเงินจาก" in html
+    assert "ผู้รับเงิน" in html
     assert receipt_no in html
     assert "ร้านรับซื้อของเก่า" in html
     # 📝 คำอธิบายรายการต้องขึ้นกระดาษ (มิฉะนั้นใบนี้บอกไม่ได้ว่าเงินก้อนนี้คืออะไร)
@@ -1032,15 +1034,17 @@ async def test_voucher_renders_with_voucher_wording(client, db_pool, admin_heade
     assert "{{" not in html and "{%" not in html, "เทมเพลตยังไม่ถูกเรนเดอร์"
     assert ">None<" not in html and " None " not in html, "มี None หลุดขึ้นกระดาษ"
 
-    # 1. ส่วนหัว + 2. ผู้เบิก + 3. รายละเอียด + 4. เอกสารแนบ + 5. ลายมือชื่อ 3 ฝ่าย
+    # 1. ส่วนหัว + 2. ผู้รับเงิน + 3. รายละเอียด + 4. เอกสารแนบ + 5. ลายมือชื่อ 3 ฝ่าย
+    #    🖨️ 2026-11-26: ใบใหม่พิมพ์ด้วยเทมเพลต A4 v2 ⇒ ป้าย/ช่องเป็นของดีไซน์ใหม่
+    #    (สาระเดิมครบ: ผู้รับเงิน · กระเป๋า/ช่องทาง · หมวด · หลักฐาน · ลายเซ็น 3 ฝ่าย)
     assert "ใบสำคัญจ่าย" in html
     assert no in html
-    assert "ผู้เบิก/ผู้รับเงิน" in html and "ร้านป้าแดง" in html
-    assert "จ่ายเงินผ่าน" in html and "เงินสด" in html
-    assert "หมวดหมู่งบประมาณ" in html and "ค่าอาหาร" in html
-    assert "แนบหลักฐานมาแล้ว 2 ใบ" in html
+    assert "ผู้รับเงิน" in html and "ร้านป้าแดง" in html
+    assert "จ่ายจากกระเป๋า" in html and "เงินสด" in html
+    assert "ค่าอาหาร" in html
+    assert "แนบหลักฐานมาแล้ว 2 รายการ" in html
     assert "ซื้อของเข้าห้อง" in html
-    for role in ("ผู้เบิกรับเงิน", "ผู้จ่ายเงิน (เหรัญญิก)", "ผู้อนุมัติ (หัวหน้าห้อง)"):
+    for role in ("ผู้จัดทำ", "ผู้อนุมัติ", "ผู้รับเงิน"):
         assert role in html, f"ขาดช่องลายมือชื่อฝ่าย '{role}'"
     assert "ครูสมศรี" in html, "ชื่อผู้อนุมัติ (ถ้ามี) ต้องขึ้นช่องที่สาม"
 
@@ -1067,8 +1071,13 @@ async def test_voucher_without_an_approver_leaves_the_slot_blank(client, db_pool
     html = await _voucher_html(client, db_pool, admin_headers, room_id, no)
 
     assert "ไม่ได้แนบหลักฐานมา" in html
-    slot = html.split("ผู้อนุมัติ (หัวหน้าห้อง)")[0].rsplit('<div class="who">', 1)[1]
-    assert slot.strip().startswith("</div>"), f"ช่องผู้อนุมัติต้องว่าง (ได้ {slot[:40]!r})"
+    # 🖨️ A4 v2: ช่องลายเซ็น = `.sig-block` ที่มี `.sig-name-row` อยู่ใต้ `.sig-role-inline`
+    #    ⇒ หาแถวชื่อของบล็อก "ผู้อนุมัติ" โดยตรง (ชื่ออื่นในเอกสารไม่กระทบ)
+    marker = 'sig-role-inline">ผู้อนุมัติ'
+    pos = html.index(marker)
+    row_at = html.index('<div class="sig-name-row">', pos)
+    slot = html[row_at + len('<div class="sig-name-row">'):].split("</div>", 1)[0]
+    assert slot.strip() == "", f"ช่องผู้อนุมัติต้องว่าง (ได้ {slot[:40]!r})"
 
 
 async def test_voucher_account_kind_transfer_prints_the_bank_block(client, db_pool, admin_headers):
@@ -1166,7 +1175,8 @@ async def test_mixed_selection_of_receipt_and_voucher_renders_in_one_request(
         "ฟอนต์ต้องถูกฝังครั้งเดียวต่อน้ำหนัก ไม่ใช่ต่อเอกสาร"
     )
     assert income_no in html and voucher_no in html
-    assert "ผู้เบิก/ผู้รับเงิน" in html and "ผู้ชำระเงิน" in html, (
+    # 🖨️ A4 v2: INC ใช้ "รับเงินจาก" และ PV มีลายเซ็น "ผู้จัดทำ" (บทหัวกระดาษใหม่)
+    assert "รับเงินจาก" in html and "ผู้จัดทำ" in html, (
         "เนื้อในของทั้งสองชนิดต้องอยู่ครบในไฟล์เดียว"
     )
     assert ">None<" not in html

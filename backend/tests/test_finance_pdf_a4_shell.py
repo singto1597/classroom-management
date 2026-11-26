@@ -214,7 +214,27 @@ def test_mixed_bundle_wraps_legacy_body_in_legacy_scope():
     assert html.count('class="doc doc-break"') == 1
 
 
-# ═══════════════════════ 8. โลโก้จริงของแอป (box-fill) ไม่ใช่ mark ตัวแทน
+# ═══════════════════════ 8. กรอบตารางต้องเป็นมุมฉาก (ไม่ถูกหัวตารางทับมุม)
+def test_table_frames_use_square_corners():
+    """🔴 ผู้ใช้รายงาน 2026-11-26: ทุกมุมของตารางเส้นขาดเหมือนถูกลบ
+
+    สาเหตุ: `.bill-frame` มี `border-radius` แต่ `overflow: visible` ⇒ หัวตาราง
+    (พื้นขาวสี่เหลี่ยม) ทับส่วนโค้งของกรอบดำ ⇒ มุมดูเหมือนถูกกัดหาย
+    ⇒ กรอบตารางทุกตัวต้องมุมฉาก
+    """
+    html = render_receipts_html([FinanceService._document_context(_v2_receipt_doc())])
+    for selector in (".bill-frame", ".sub-frame"):
+        blocks = re.findall(
+            re.escape(selector) + r"\s*\{([^}]*)\}", html
+        )
+        assert blocks, f"ไม่พบกฎ CSS ของ {selector}"
+        for block in blocks:
+            assert "border-radius: 0" in block or "border-radius" not in block, (
+                f"{selector} ต้องไม่ปัดมุม (เส้นกรอบจะถูกหัวตารางทับ)"
+            )
+
+
+# ═══════════════════════ 9. โลโก้จริงของแอป (box-fill) ไม่ใช่ mark ตัวแทน
 def test_brand_mark_uses_the_real_app_logo():
     html = render_receipts_html([FinanceService._document_context(_v2_receipt_doc())])
     assert "brand-logo" in html

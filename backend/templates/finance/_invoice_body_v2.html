@@ -75,18 +75,16 @@
   <div class="lower-col-pay">
     <div class="lower-heading">ช่องทางชำระเงิน</div>
     {% if d.channels %}
-    <ul class="pay-options">
+    {# 🔤 ผู้ใช้กำหนด 2026-11-26: ชื่อช่องทางหนึ่งบรรทัด แล้วรายละเอียดเยื้องลงมา
+       — **ไม่มีวงกลมติ๊ก/ป้าย "ช่องทางหลัก"** ในรายการ #}
+    <ul class="pay-options inv-channels">
       {% for ch in d.channels %}
       <li>
-        <span class="radio-circle{% if ch.is_primary %} checked{% endif %}"></span>
-        <span>
-          {{ ch.label or ch.channel_type }}
-          {%- if ch.is_primary %} <span class="status-tag status-channel">ช่องทางหลัก</span>{% endif %}
-          {%- if ch.bank_name %} · {{ ch.bank_name }}{% endif %}
-          {%- if ch.account_name %} · {{ ch.account_name }}{% endif %}
-          {%- if ch.account_number_masked %} · เลขบัญชี {{ ch.account_number_masked }}{% endif %}
-          {%- if ch.promptpay_id_masked %} · พร้อมเพย์ {{ ch.promptpay_id_masked }}{% endif %}
-        </span>
+        <div class="inv-channel-name">{{ ch.label or ch.channel_type }}</div>
+        {% if ch.bank_name %}<div class="inv-channel-line">{{ ch.bank_name }}</div>{% endif %}
+        {% if ch.account_name %}<div class="inv-channel-line">{{ ch.account_name }}</div>{% endif %}
+        {% if ch.account_number_masked %}<div class="inv-channel-line">เลขบัญชี {{ ch.account_number_masked }}</div>{% endif %}
+        {% if ch.promptpay_id_masked %}<div class="inv-channel-line">พร้อมเพย์ {{ ch.promptpay_id_masked }}</div>{% endif %}
       </li>
       {% endfor %}
     </ul>

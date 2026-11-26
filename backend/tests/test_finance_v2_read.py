@@ -496,6 +496,76 @@ async def test_v2_reads_income_expense_transfer(db_pool):
     assert transfer_items[0]["category_name"] == "โอนเงิน"
 
 
+async def test_v2_reads_accrual_payment_as_income_not_transfer(db_pool):
+    """[BUG 2026-11-26] 🔴 รับชำระหนี้ (Dr กระเป๋า / Cr ลูกหนี้) ต้องเป็น **income +ยอดคงเหลือ**
+
+    อาการที่ผู้ใช้เจอ: ประวัติขึ้น "รับเงิน: ..." พร้อมยอดติดลบ `-฿40.00` และชิป
+    "ผู้ค้างชำระค่าโครงการ · โอนเงิน" — เพราะลูกหนี้ (11001/11002) ก็เป็น
+    `account_type = 'asset'` ⇒ journal มี asset 2 ขา ⇒ classifier เดิมตีเป็น "โอนเงิน"
+    (ขาออก) ⇒ amount = ฝั่ง credit ของลูกหนี้ ⇒ frontend ใส่เครื่องหมายลบให้ expense
+
+    เทสต์นี้ล็อกว่า: ยอด = **เงินที่เข้าจริง** (Dr กระเป๋า), ประเภท income,
+    account = กระเป๋าเงิน, category = ชื่อบัญชีลูกหนี้ และไม่มี transfer_group_id
+    """
+    owner = await _insert_user(db_pool)
+    room_id = await _insert_room(db_pool, owner)
+    acc = await _insert_finance_account(db_pool, room_id, "กระเป๋าเงินสด", 0.0)
+    async with db_pool.acquire() as conn:
+        cash_ledger_id = await conn.fetchval(
+            "SELECT id FROM accounting_ledgers WHERE room_id = $1 AND legacy_account_id = $2", room_id, acc
+        )
+        ar_ledger_id = await conn.fetchval(
+            """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, description)
+               VALUES ($1, '11001', 'ผู้ค้างชำระค่าโครงการ', 'asset', 'test') RETURNING id""",
+            room_id,
+        )
+        rev_ledger_id = await conn.fetchval(
+            """INSERT INTO accounting_ledgers (room_id, account_code, account_name, account_type, description)
+               VALUES ($1, '40006', 'เก็บเงินห้องปกติ', 'revenue', 'test') RETURNING id""",
+            room_id,
+        )
+        # บิลที่ออกไว้แล้ว (Dr AR / Cr revenue) — ต้องไม่โผล่ในประวัติ
+        await FinanceService._insert_journal_entry(
+            conn, room_id,
+            reference_type="student_payment_issue",
+            reference_id="11",
+            description="ออกบิล: ค่าโครงการ",
+            recorded_by="Owner",
+            transaction_date=datetime(2026, 10, 2, 3, 0, tzinfo=timezone.utc),
+            lines=[
+                {"ledger_id": ar_ledger_id, "debit": 40, "credit": 0},
+                {"ledger_id": rev_ledger_id, "debit": 0, "credit": 40},
+            ],
+        )
+        # รับชำระหนี้จริง (Dr กระเป๋า / Cr AR)
+        await FinanceService._insert_journal_entry(
+            conn, room_id,
+            reference_type="student_payment",
+            reference_id="9001",
+            description="รับเงิน: เก็บเงินห้องครั้งที่ 20",
+            recorded_by="Owner",
+            transaction_date=datetime(2026, 10, 3, 3, 0, tzinfo=timezone.utc),
+            metadata={"legacy_transaction_id": 9001},
+            lines=[
+                {"ledger_id": cash_ledger_id, "debit": 40, "credit": 0},
+                {"ledger_id": ar_ledger_id, "debit": 0, "credit": 40},
+            ],
+        )
+
+    data = await FinanceService.get_transactions(
+        pool=db_pool, client_source="test", actor_identifier="test",
+        start_date=POST_CUTOFF, end_date=date(2026, 10, 31), room_id=room_id, user_id=owner,
+    )
+    assert data["total_count"] == 1, "ออกบิลไม่ใช่เงินเคลื่อนไหว — ต้องไม่ถูกนับ"
+    item = data["items"][0]
+    assert item["transaction_type"] == "income"
+    assert item["amount"] == pytest.approx(40.0)
+    assert item["account_name"] == "กระเป๋าเงินสด"
+    assert item["category_name"] == "ผู้ค้างชำระค่าโครงการ"
+    assert item["transfer_group_id"] is None
+    assert item["id"] == 9001
+
+
 async def test_v2_reads_opening_balance_as_income(db_pool):
     """ยอดยกมา → income โดยยอด = เดบิตฝั่ง Asset"""
     owner = await _insert_user(db_pool)

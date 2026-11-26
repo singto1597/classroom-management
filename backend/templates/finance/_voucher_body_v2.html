@@ -86,6 +86,47 @@
   </div>
 </div>
 
+{# 🏷️ บล็อกงบประมาณ — เฉพาะ snapshot รูปเก่า (ก่อน P4.1) ที่ไม่มีงบรายบรรทัด
+   🔴 ห้ามแสดงเมื่อ snapshot ใหม่: งบของ P4.1 อยู่ในคอลัมน์ "งบ" ของตารางหลักแล้ว
+      ⇒ ซ้ำ = ผู้ใช้เห็นวงเงินสองที่และนับซ้ำ #}
+{% if d.voucher_budget_section %}
+<div class="sub-frame" style="margin-top: 10px;">
+  <table class="mini-table">
+    <thead>
+      <tr>
+        <th>งบประมาณที่รองรับรายการนี้</th>
+        <th style="width: 190px;">ช่วงงบ</th>
+        <th class="num" style="width: 110px;">วงเงิน (บาท)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if d.voucher_budgets %}
+      {% for b in d.voucher_budgets %}
+      <tr>
+        <td>{{ d.voucher_category_name or 'ไม่ระบุหมวด' }}</td>
+        <td>{{ b.period_text }}</td>
+        <td class="num">{{ m.money(b.amount) }}</td>
+      </tr>
+      {% endfor %}
+      {% else %}
+      <tr>
+        <td colspan="3" class="cell-muted">
+          ⚠️ ไม่อยู่ในงบประมาณที่ตั้งไว้ (หมวด: {{ d.voucher_category_name or 'ไม่ระบุหมวด' }})
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% if d.voucher_budgets | length > 1 %}
+<div class="lower-band" style="padding: 8px 4px 0;">
+  <p class="lower-note-text">
+    ⚠️ รายการนี้อยู่ในงบมากกว่าหนึ่งช่วง — ยอดอาจถูกนับซ้ำในการสรุปรวม
+  </p>
+</div>
+{% endif %}
+{% endif %}
+
 {% if d.cert_receipt_no or d.note %}
 <div class="lower-band">
   <div class="lower-col-note">
