@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 298 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 299 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -302,6 +302,7 @@
 - [🏷️ ใบสำคัญจ่ายยุคก่อน P4.1 ไม่มี `lines` — เปลี่ยนดีไซน์ห้ามทำข้อมูลงบ/ช่องทาง/ลายเซ็นหายจากกระดาษ](#ใบสำคัญจ่ายยุคก่อน-p41-ไม่มี-lines-เปลี่ยนดีไซน์ห้ามทำข้อมูลงบช่องทางลายเซ็นหายจากกระดาษ)
 - [🧾 รับชำระหนี้ = Dr กระเป๋า / Cr ลูกหนี้ — ลูกหนี้เป็น asset แต่ไม่ใช่กระเป๋า ⇒ ต้องแยกก่อนจัดประเภท "โอนเงิน"](#รับชำระหนี้-dr-กระเป๋า-cr-ลูกหนี้-ลูกหนี้เป็น-asset-แต่ไม่ใช่กระเป๋า-ต้องแยกก่อนจัดประเภท-โอนเงิน)
 - [📐 ตาราง 8 คอลัมน์บนกระดาษ A4 ต้อง `table-layout: fixed` — ไม่งั้นกรอบยื่นเลยขอบขวา (ตรวจจาก PDF จริง)](#ตาราง-8-คอลัมน์บนกระดาษ-a4-ต้อง-table-layout-fixed-ไม่งั้นกรอบยื่นเลยขอบขวา-ตรวจจาก-pdf-จริง)
+- [💰 เติมยอดอัตโนมัติในแผ่นรับเงินต้องหักเครดิตที่ตัดได้ (`ready_to_apply`) — เติมยอดคงค้างดิบทำให้เกินบิลทันที](#เติมยอดอัตโนมัติในแผ่นรับเงินต้องหักเครดิตที่ตัดได้-readytoapply-เติมยอดคงค้างดิบทำให้เกินบิลทันที)
 
 <!-- TOC:END -->
 
@@ -5126,4 +5127,16 @@
   - snapshot ที่ไม่มีข้อมูล (เช่น ช่องทางของ DEP รุ่นเก่า) ⇒ **ซ่อนทั้งแถว** อย่าพิมพ์ `-`
 - **Rule:** (1) 🔴 ตาราง >6 คอลัมน์ต้อง fixed layout (2) 🔴 อย่าให้หัวคอลัมน์ nowrap ในตารางกว้างจำกัด (3) 🔴 เปลี่ยนเทมเพลต PDF ต้องดู PDF จริงอย่างน้อยหนึ่งรอบก่อน merge
 - **Tests/Verification:** `backend/tests/test_finance_pdf_a4_shell.py::test_voucher_table_uses_fixed_layout_so_the_frame_stays_inside_the_margins`, `test_finance_document_adapters.py::test_deposit_hides_channel_row_when_snapshot_has_none`
+- **Date Added:** 2026-11-26
+
+### 💰 เติมยอดอัตโนมัติในแผ่นรับเงินต้องหักเครดิตที่ตัดได้ (`ready_to_apply`) — เติมยอดคงค้างดิบทำให้เกินบิลทันที
+- **Context/Problem:** ผู้ใช้ขอให้เปิดแผ่น "รับเงิน" (ทั้งหน้าบัญชีรายบุคคลแบบรวมและรายคน) แล้วช่อง "เงินสดที่รับ" เติมยอดคงค้างให้เอง · การเติม `outstanding_total` ตรง ๆ ดูถูก แต่พังเมื่อนักเรียนมีเครดิต
+- **Root Cause:** `ReceiveMoneyModal` ติ๊ก "ใช้เครดิต" ให้เองเมื่อ `credit_balance > 0` และ preview ส่งทั้งเงินสด + เครดิตเข้าการจัดสรร ⇒ ถ้าเติมยอดคงค้างเต็ม เงินสด+เครดิต > ยอดบิล ⇒ `EXCESS_NOT_ALLOWED` ตั้งแต่เปิดแผ่น กดยืนยันไม่ได้จนกว่าผู้ใช้จะแก้ยอด
+- **Correct Pattern/Solution:**
+  - เติม `amount = outstanding_total − ready_to_apply` (backend คำนวณ `ready_to_apply = min(credit_balance, outstanding_total)` อยู่แล้ว) = เงินสดที่ยังต้องเก็บจริง
+  - ไม่ใช้ `credit_balance` แทน `ready_to_apply` — เครดิตส่วนที่ไม่มีบิลให้ตัดไม่ควรเอามาหักยอดที่ต้องเก็บ
+  - ยอดที่เติม ≤ 0 (เครดิตครอบทั้งหมด) ⇒ ปล่อยช่องว่าง ไม่ใช่ 0 — ใช้เครดิตล้วนได้ตามเดิม
+  - เติมเฉพาะตอน `initialize()` (เปิดแผ่น/เปลี่ยนคน) — `refreshAccount()` หลัง 409 ห้ามทับยอดที่ผู้ใช้พิมพ์
+- **Rule:** (1) 🔴 autofill เงินสด = คงค้าง − ready_to_apply (2) 🔴 อย่าแตะยอดที่ผู้ใช้แก้ตอน refresh (3) 🔴 เครดิตครอบหมด ⇒ ค่าว่าง
+- **Tests/Verification:** `frontend/src/components/finance/__tests__/ReceiveMoneyModal.spec.ts` (เติมยอดคงค้างเมื่อไม่มีเครดิต, หัก ready_to_apply, เครดิตครอบหมด ⇒ null)
 - **Date Added:** 2026-11-26
