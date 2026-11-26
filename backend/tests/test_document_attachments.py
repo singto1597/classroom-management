@@ -50,14 +50,16 @@ async def _make_transaction(pool, room_id) -> int:
     )
 
 
-async def _make_receipt(pool, room_id, *, txn_id=None, payment_id=None) -> int:
+async def _make_receipt(
+    pool, room_id, *, txn_id=None, payment_id=None, layout_version: int = 1
+) -> int:
     return await pool.fetchval(
         """INSERT INTO finance_receipts
                (room_id, receipt_no, doc_type, year_be, seq, amount, paid_total_after,
-                legacy_transaction_id, student_payment_id)
-           VALUES ($1, $2, 'receipt', 2569, 1, 100, 100, $3, $4)
+                legacy_transaction_id, student_payment_id, layout_version)
+           VALUES ($1, $2, 'receipt', 2569, 1, 100, 100, $3, $4, $5)
            RETURNING id""",
-        room_id, f"REC-TEST-{uuid.uuid4().hex[:8]}", txn_id, payment_id,
+        room_id, f"REC-TEST-{uuid.uuid4().hex[:8]}", txn_id, payment_id, layout_version,
     )
 
 
@@ -176,6 +178,70 @@ async def test_document_detail_includes_attachment_previews(db_pool, finance_man
     for a in attachments:
         assert a["url"].startswith("/api/finance-files/")
     assert {a["id"] for a in attachments} == {i["id"] for i in uploaded["items"]}
+
+
+async def _fake_html_to_pdf(html: str, timeout: float = 30.0) -> bytes:  # noqa: ARG001
+    return _pdf_bytes(pages=1)
+
+
+@pytest.mark.asyncio
+async def test_registry_single_pdf_appends_attachments_for_layout_v2(
+    db_pool, finance_manager_headers, monkeypatch
+):
+    """ปุ่มดาวน์โหลดในหน้ารายละเอียดเอกสารใช้ `/documents/.../pdf` (layout v2) — ต้องมีไฟล์แนบ"""
+    from services.finance import pdf as pdf_module
+    from services.finance_service import FinanceService
+
+    monkeypatch.setattr(pdf_module, "html_to_pdf", _fake_html_to_pdf)
+
+    ctx = finance_manager_headers
+    txn_id = await _make_transaction(db_pool, ctx.room_id)
+    await svc.upload_attachments(
+        db_pool, ctx.user_id, ctx.room_id, "transaction", txn_id,
+        [("a.png", _png_bytes())],
+    )
+    receipt_id = await _make_receipt(
+        db_pool, ctx.room_id, txn_id=txn_id, layout_version=2
+    )
+
+    pdf_bytes, _filename = await FinanceService.render_document_pdf(
+        pool=db_pool,
+        doc_type="receipt",
+        doc_id=receipt_id,
+        client_source="test",
+        actor_identifier="test",
+        room_id=ctx.room_id,
+        user_id=ctx.user_id,
+    )
+    assert _page_count(pdf_bytes) == 2  # 1 หน้าเอกสาร + 1 หน้าไฟล์แนบ
+
+
+@pytest.mark.asyncio
+async def test_registry_bundle_pdf_appends_attachments(
+    db_pool, finance_manager_headers, monkeypatch
+):
+    from services.finance import pdf as pdf_module
+    from services.finance_service import FinanceService
+
+    monkeypatch.setattr(pdf_module, "html_to_pdf", _fake_html_to_pdf)
+
+    ctx = finance_manager_headers
+    txn_id = await _make_transaction(db_pool, ctx.room_id)
+    await svc.upload_attachments(
+        db_pool, ctx.user_id, ctx.room_id, "transaction", txn_id,
+        [("a.png", _png_bytes())],
+    )
+    receipt_id = await _make_receipt(db_pool, ctx.room_id, txn_id=txn_id, layout_version=2)
+
+    pdf_bytes, _filename = await FinanceService.render_document_bundle(
+        pool=db_pool,
+        items=[{"doc_type": "receipt", "doc_id": receipt_id}],
+        client_source="test",
+        actor_identifier="test",
+        room_id=ctx.room_id,
+        user_id=ctx.user_id,
+    )
+    assert _page_count(pdf_bytes) == 2
 
 
 @pytest.mark.asyncio
