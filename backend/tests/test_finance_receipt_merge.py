@@ -533,7 +533,13 @@ async def _make_bill(pool, room_id: int, student_id: int, *, amount: float, titl
 
 
 async def _pay_and_issue(client, headers, pool, room_id: int, student_id: int, *, amount: float, title: str) -> str:
-    """รับเงิน 1 บิลของนักเรียน **คนที่ระบุ** แล้วออกใบเสร็จผ่านเส้นทางจริง → เลขที่"""
+    """รับเงิน 1 บิลของนักเรียน **คนที่ระบุ** แล้วออกใบเสร็จผ่านเส้นทางจริง → เลขที่
+
+    🖨️ ตั้งแต่ 2026-11-26 ตัวออกเอกสารทุกตัวเขียน `layout_version = 2` (ดีไซน์ A4 ใหม่)
+    แต่ **การยุบใบเสร็จหลายใบเป็นหน้าเดียวเป็นฟีเจอร์ของดีไซน์เดิม** —
+    `receipts.py::_document_contexts` ตั้งใจไม่ยุบเอกสาร layout ≥ 2 (P2.2) ⇒
+    เทสต์ในไฟล์นี้ล็อกเส้นทางยุบแบบ legacy จึงต้องตรึงใบที่ออกให้เป็น layout 1
+    """
     account_id = await _insert_account(pool, room_id)
     payment_id = await _make_bill(pool, room_id, student_id, amount=amount, title=title)
 
@@ -550,7 +556,13 @@ async def _pay_and_issue(client, headers, pool, room_id: int, student_id: int, *
         headers=headers,
     )
     assert issued.status_code == 200, issued.text
-    return issued.json()["receipt"]["receipt_no"]
+    receipt_no = issued.json()["receipt"]["receipt_no"]
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE finance_receipts SET layout_version = 1 WHERE receipt_no = $1",
+            receipt_no,
+        )
+    return receipt_no
 
 
 async def test_combined_pdf_route_merges_three_receipts_of_one_student(client, db_pool):
