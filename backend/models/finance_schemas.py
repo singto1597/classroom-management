@@ -4,6 +4,9 @@ from datetime import date, datetime
 from dataclasses import dataclass
 from fastapi import Query
 
+# 📎 ไฟล์หลักฐานของเอกสาร — ใช้ใน DocumentDetailResponse (หน้าจอพรีวิว)
+from models.finance_attachment_schemas import FinanceAttachmentOut
+
 class SuccessResponse(BaseModel):
     status: str = "success"
     message: Optional[str] = None
@@ -2177,6 +2180,8 @@ class DocumentDetailResponse(BaseModel):
     remaining: Optional[float] = None
     signatures: List[DocumentSignatureItem] = Field(default_factory=list)
     links: List[DocumentLinkItem] = Field(default_factory=list)
+    # 📎 ไฟล์หลักฐานของ record ต้นทาง (รูป/PDF) — ชุดเดียวกับที่ต่อท้ายใน PDF
+    attachments: List[FinanceAttachmentOut] = Field(default_factory=list)
     # 🧾 เฉพาะ RPT (`finance_monthly_reports`)
     year_be: Optional[int] = None
     month: Optional[int] = None

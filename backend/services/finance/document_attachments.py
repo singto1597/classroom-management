@@ -163,6 +163,23 @@ def _merge_sync(base_pdf: bytes, files: Sequence[Tuple[dict, bytes]]) -> bytes:
     return buf.getvalue()
 
 
+async def list_attachments_for_receipt(
+    conn: asyncpg.Connection,
+    receipt_id: int,
+    viewer_id: int,
+) -> list[dict]:
+    """ไฟล์แนบของเอกสาร 1 ใบ (สำหรับหน้าจอ) — signed URL ผูก viewer
+
+    ใช้ resolver ชุดเดียวกับ PDF merge ⇒ สิ่งที่เห็นบนจอ = สิ่งที่ต่อท้ายในกระดาษ
+    """
+    from services.finance_attachments import _attachment_to_dict
+
+    seen: set[int] = set()
+    refs = await _refs_for_receipt(conn, int(receipt_id), seen)
+    rows = await _fetch_attachments(conn, refs)
+    return [_attachment_to_dict(row, int(viewer_id)) for row in rows]
+
+
 async def append_attachments_to_receipts(
     pool: asyncpg.Pool,
     receipts: Sequence[dict],

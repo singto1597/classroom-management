@@ -15,9 +15,11 @@
 import hashlib
 import io
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
+from urllib.parse import quote
 
 import asyncpg
 from fastapi.concurrency import run_in_threadpool
@@ -640,8 +642,12 @@ async def resolve_attachment_for_serving(
     return row, path
 
 
-def attachment_headers(row: asyncpg.Record) -> dict:
-    """headers ของการเสิร์ฟไฟล์ — PDF ได้ CSP sandbox เพิ่ม (กันสคริปต์ในไฟล์)"""
+def attachment_headers(row: asyncpg.Record, *, download: bool = False) -> dict:
+    """headers ของการเสิร์ฟไฟล์ — PDF ได้ CSP sandbox เพิ่ม (กันสคริปต์ในไฟล์)
+
+    `download=True` (จาก `?download=1`) เปลี่ยน disposition เป็น attachment
+    โดยยังใช้ลายเซ็นเดิม — flag นี้ไม่เปลี่ยนสิทธิ์การเข้าถึง
+    """
     headers = {
         "Cache-Control": "private, max-age=60, no-transform",
         "Referrer-Policy": "no-referrer",
@@ -649,6 +655,14 @@ def attachment_headers(row: asyncpg.Record) -> dict:
         "X-Robots-Tag": "noindex",
         "Content-Disposition": "inline",
     }
+    if download:
+        name = row["original_name"] or f"finance-attachment-{row['id']}"
+        # กัน header injection และตัดให้สั้น — ชื่อไฟล์มาจากผู้ใช้
+        safe = re.sub(r'[\r\n"\\]', "_", str(name))[:120]
+        headers["Content-Disposition"] = (
+            "attachment; filename=\"download\"; "
+            f"filename*=UTF-8''{quote(safe)}"
+        )
     if row["mime"] == MIME_PDF:
         headers["Content-Security-Policy"] = "sandbox"
     return headers

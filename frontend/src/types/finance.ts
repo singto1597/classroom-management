@@ -2365,6 +2365,8 @@ export interface DocumentDetail {
   remaining: number | null;
   signatures: DocumentSignatureItem[];
   links: DocumentLink[];
+  /** 📎 ไฟล์หลักฐานของ record ต้นทาง — ชุดเดียวกับที่ต่อท้ายใน PDF */
+  attachments?: FinanceAttachment[];
   // 🧾 เฉพาะ RPT
   year_be: number | null;
   month: number | null;
