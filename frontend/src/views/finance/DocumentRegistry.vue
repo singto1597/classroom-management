@@ -33,6 +33,7 @@ import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { useDialog } from '@/composables/useDialog';
 import { downloadBlob, combinedPdfFilename } from '@/utils/download';
+import { guardCheckboxPointerFocus } from '@/utils/focusScroll';
 import {
   dispatchDocumentVoid,
   voidActionLabel,
@@ -216,7 +217,12 @@ const activeDateLabel = computed(() => {
   return `${from ?? 'เริ่มต้น'} – ${to ?? 'วันนี้'}`;
 });
 
+// 🖱️ คลิก checkbox กลางลิสต์แล้วจอกระโดด — เบราว์เซอร์ focus input `sr-only`
+//    แล้วเลื่อนเอง (ดู utils/focusScroll.ts) — คืน scrollTop หลังคลิกเท่านั้น
+let releaseFocusGuard: (() => void) | null = null;
+
 onMounted(async () => {
+  releaseFocusGuard = guardCheckboxPointerFocus();
   void load();
   try {
     const channels: PaymentChannel[] =
@@ -414,6 +420,7 @@ const formatDocAt = (value: string | null): string => {
 };
 
 onBeforeUnmount(() => {
+  releaseFocusGuard?.();
   // กล่อง loading ค้างได้ถ้าออกหน้ากลางการสร้าง PDF
   dialog.close();
 });
