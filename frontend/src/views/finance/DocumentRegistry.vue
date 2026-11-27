@@ -27,6 +27,7 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import AppSheet from '@/components/ui/AppSheet.vue';
 import DocumentFilters from '@/components/finance/DocumentFilters.vue';
 import DocumentTypeBadge from '@/components/finance/DocumentTypeBadge.vue';
+import VoidReasonModal from '@/components/finance/VoidReasonModal.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
@@ -36,6 +37,7 @@ import { createLatestGuard } from '@/utils/latest';
 import { formatMoney } from '@/utils/money';
 import { formatThaiDate, formatThaiDateTime } from '@/utils/datetime';
 import {
+  DEFAULT_DOC_TYPES,
   DOCUMENT_BUNDLE_MAX,
   canPrintBundle,
   selectionKey,
@@ -51,12 +53,16 @@ const authStore = useAuthStore();
 const dialog = useDialog();
 const router = useRouter();
 const currentRoomId = authStore.currentRoomId!;
+const canManageFinance = computed(() => authStore.canManageFinance);
 
 /** ค่าปริยายเดียวกับ `REGISTRY_PAGE_DEFAULT` ฝั่ง backend */
 const PAGE_SIZE = 50;
 
-/** ตัวกรอง — เปลี่ยนค่าใดก็ตามต้องรีเซ็ต offset + selection (บทเรียน skills.md) */
-const filters = ref<DocumentListQuery>({ status: 'active' });
+/** ตัวกรอง — ค่าเริ่มต้น = รายรับ + รายจ่าย (ดู DEFAULT_DOC_TYPES) */
+const filters = ref<DocumentListQuery>({
+  status: 'active',
+  doc_types: [...DEFAULT_DOC_TYPES],
+});
 
 const items = ref<DocumentListItem[]>([]);
 const total = ref(0);
@@ -154,7 +160,10 @@ watch(
 // ── ตัวกรองแบบ popup ────────────────────────────────────────────────────
 //    ค่าเริ่มต้น = ทุกชนิด + สถานะใช้งาน (ไม่กรองชนิด) — ตัวกรองละเอียดไปกดในแผ่น
 const filterOpen = ref(false);
-const draftFilters = ref<DocumentListQuery>({ status: 'active' });
+const draftFilters = ref<DocumentListQuery>({
+  status: 'active',
+  doc_types: [...DEFAULT_DOC_TYPES],
+});
 
 const openFilters = () => {
   draftFilters.value = { ...filters.value };
@@ -168,12 +177,21 @@ const applyFilters = () => {
 };
 
 const clearAllFilters = () => {
-  filters.value = { status: 'active' };
+  filters.value = { status: 'active', doc_types: [...DEFAULT_DOC_TYPES] };
 };
+
+/** ชนิดที่เลือก = ชุดเริ่มต้น (รายรับ+รายจ่าย) หรือไม่ — ใช้ตัดสินว่าจะโชว์เป็น "ตัวกรองที่ใช้" */
+const isDefaultTypes = computed(() => {
+  const selected = new Set(filters.value.doc_types ?? []);
+  return (
+    selected.size === DEFAULT_DOC_TYPES.length &&
+    DEFAULT_DOC_TYPES.every((t) => selected.has(t))
+  );
+});
 
 const activeFilterCount = computed(() => {
   const f = filters.value;
-  let n = (f.doc_types?.length ?? 0);
+  let n = isDefaultTypes.value ? 0 : 1; // นับ "ชนิด" เป็น 1 มิติ
   if (f.from) n += 1;
   if (f.to) n += 1;
   if (f.student_id != null) n += 1;
@@ -184,7 +202,9 @@ const activeFilterCount = computed(() => {
   return n;
 });
 
-const activeTypeLabels = computed(() => (filters.value.doc_types ?? []).map(typeLabel));
+const activeTypeLabels = computed(() =>
+  isDefaultTypes.value ? [] : (filters.value.doc_types ?? []).map(typeLabel),
+);
 const activeDateLabel = computed(() => {
   const { from, to } = filters.value;
   if (!from && !to) return '';
@@ -231,6 +251,53 @@ const toggleSelectAll = () => {
     (item) => !existing.has(selectionKey(item)),
   );
   selectedItems.value = [...selectedItems.value, ...additions];
+};
+
+// ── ยกเลิกบิล (ใบแจ้งหนี้) จากทะเบียนโดยตรง ─────────────────────────────
+//    backend รองรับ void เดี่ยวเฉพาะ invoice — ชนิดอื่นมีเส้นทางของตัวเอง
+//    (REC/DEP → payment event · PV → ใบสำคัญจ่าย · CERT → พร้อม PV)
+const voidOpen = ref(false);
+const voidTarget = ref<DocumentListItem | null>(null);
+const isVoiding = ref(false);
+const voidError = ref('');
+
+const canVoid = (item: DocumentListItem): boolean =>
+  canManageFinance.value && item.doc_type === 'invoice' && item.status === 'active';
+
+const openVoid = (item: DocumentListItem) => {
+  voidTarget.value = item;
+  voidError.value = '';
+  voidOpen.value = true;
+};
+
+const voidSummary = computed(() => {
+  const item = voidTarget.value;
+  if (!item) return [];
+  return [
+    { label: 'เลขที่เอกสาร', value: item.doc_no ?? `#${item.doc_id}` },
+    { label: 'ประเภท', value: typeLabel(item.doc_type) },
+    { label: 'ยอดรวม', value: amountText(item.amount) },
+  ];
+});
+
+const confirmVoid = async (reason: string) => {
+  const item = voidTarget.value;
+  if (!item || isVoiding.value) return;
+  isVoiding.value = true;
+  voidError.value = '';
+  try {
+    await FinanceService.voidDocument(currentRoomId, item.doc_type, item.doc_id, { reason });
+    voidOpen.value = false;
+    selectedItems.value = selectedItems.value.filter(
+      (entry) => selectionKey(entry) !== selectionKey(item),
+    );
+    void dialog.notify('ยกเลิกบิลแล้ว — ยังเปิดดู/พิมพ์ได้พร้อมป้ายยกเลิก');
+    await load();
+  } catch (error: unknown) {
+    voidError.value = error instanceof Error ? error.message : 'ยกเลิกเอกสารไม่สำเร็จ';
+  } finally {
+    isVoiding.value = false;
+  }
 };
 
 const isPrinting = ref(false);
@@ -391,6 +458,10 @@ onBeforeUnmount(() => {
           <i class="bi bi-files" aria-hidden="true"></i>
           ทั้งหมด <span class="num font-bold">{{ total }}</span> รายการ
         </span>
+        <span v-if="isDefaultTypes" class="chip bg-canvas text-ink-2">
+          <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+          รายรับ + รายจ่าย
+        </span>
         <p class="min-w-0 truncate text-xs font-bold text-ink-3">
           <template v-if="selectedItems.length">
             เลือก <span class="num text-brand-700">{{ selectedItems.length }}</span> ใบ —
@@ -433,13 +504,14 @@ onBeforeUnmount(() => {
         <div class="space-y-2.5 lg:hidden">
           <label
             class="page-card flex min-h-11 cursor-pointer items-center gap-2 p-3 text-sm font-bold text-ink-3"
+            @click.stop
           >
             <input
               type="checkbox"
               class="peer sr-only"
               :checked="allSelected"
               aria-label="เลือกเอกสารทั้งหมดในหน้านี้"
-              @change="toggleSelectAll"
+              @change.stop="toggleSelectAll"
             />
             <span
               class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
@@ -462,13 +534,13 @@ onBeforeUnmount(() => {
           >
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-start gap-2">
-                <label class="flex cursor-pointer items-center pt-0.5">
+                <label class="flex cursor-pointer items-center pt-0.5" @click.stop>
                   <input
                     type="checkbox"
                     class="peer sr-only"
                     :checked="isSelected(item)"
                     :aria-label="`เลือกเอกสาร ${item.doc_no ?? item.doc_id}`"
-                    @change="toggleSelected(item)"
+                    @change.stop="toggleSelected(item)"
                   />
                   <span
                     class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
@@ -514,16 +586,27 @@ onBeforeUnmount(() => {
                 <i class="bi bi-clock" aria-hidden="true"></i>
                 {{ formatDocAt(item.doc_at) }}
               </small>
-              <span
-                class="chip"
-                :class="
-                  isVoidedStatus(item.status)
-                    ? 'bg-danger-50 text-danger-700'
-                    : 'bg-canvas text-ink-2'
-                "
-              >
-                {{ statusLabel(item.status) }}
-              </span>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span
+                  class="chip"
+                  :class="
+                    isVoidedStatus(item.status)
+                      ? 'bg-danger-50 text-danger-700'
+                      : 'bg-canvas text-ink-2'
+                  "
+                >
+                  {{ statusLabel(item.status) }}
+                </span>
+                <button
+                  v-if="canVoid(item)"
+                  type="button"
+                  class="btn-danger"
+                  @click.stop="openVoid(item)"
+                >
+                  <i class="bi bi-x-circle" aria-hidden="true"></i>
+                  ยกเลิก
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -535,13 +618,13 @@ onBeforeUnmount(() => {
               <thead>
                 <tr>
                   <th class="w-10">
-                    <label class="flex cursor-pointer items-center" title="เลือกทั้งหมดในหน้านี้">
+                    <label class="flex cursor-pointer items-center" title="เลือกทั้งหมดในหน้านี้" @click.stop>
                       <input
                         type="checkbox"
                         class="peer sr-only"
                         :checked="allSelected"
                         aria-label="เลือกเอกสารทั้งหมดในหน้านี้"
-                        @change="toggleSelectAll"
+                        @change.stop="toggleSelectAll"
                       />
                       <span
                         class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
@@ -565,6 +648,7 @@ onBeforeUnmount(() => {
                   <th>ช่องทาง</th>
                   <th class="text-right">ยอด</th>
                   <th class="text-right">สถานะ</th>
+                  <th class="text-right">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
@@ -575,13 +659,13 @@ onBeforeUnmount(() => {
                   @click="onRowClick(item, $event)"
                 >
                   <td>
-                    <label class="flex cursor-pointer items-center">
+                    <label class="flex cursor-pointer items-center" @click.stop>
                       <input
                         type="checkbox"
                         class="peer sr-only"
                         :checked="isSelected(item)"
                         :aria-label="`เลือกเอกสาร ${item.doc_no ?? item.doc_id}`"
-                        @change="toggleSelected(item)"
+                        @change.stop="toggleSelected(item)"
                       />
                       <span
                         class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
@@ -649,6 +733,18 @@ onBeforeUnmount(() => {
                       {{ statusLabel(item.status) }}
                     </span>
                   </td>
+                  <td class="text-right">
+                    <button
+                      v-if="canVoid(item)"
+                      type="button"
+                      class="btn-ghost-ui"
+                      @click.stop="openVoid(item)"
+                    >
+                      <i class="bi bi-x-circle" aria-hidden="true"></i>
+                      ยกเลิก
+                    </button>
+                    <span v-else class="text-ink-3">—</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -687,5 +783,18 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </template>
+
+    <!-- 🚫 ยกเลิกบิล/ใบแจ้งหนี้จากทะเบียนโดยตรง -->
+    <VoidReasonModal
+      :open="voidOpen && !!voidTarget"
+      title="ยกเลิกบิล / ใบแจ้งหนี้"
+      description="การยกเลิกจะเก็บเอกสารไว้เพื่อตรวจสอบย้อนหลัง และแสดงป้ายยกเลิกในทะเบียน"
+      :summary="voidSummary"
+      confirm-text="ยืนยันยกเลิกบิล"
+      :busy="isVoiding"
+      :error-message="voidError"
+      @close="voidOpen = false"
+      @confirm="confirmVoid"
+    />
   </div>
 </template>

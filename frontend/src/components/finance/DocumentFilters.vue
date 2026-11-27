@@ -21,7 +21,10 @@ import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { displayName } from '@/utils/name';
 import {
+  DEFAULT_DOC_TYPES,
   DOC_TYPES,
+  EXPENSE_DOC_TYPES,
+  INCOME_DOC_TYPES,
   typeBadgeClass,
   typeIcon,
   typeLabel,
@@ -72,6 +75,28 @@ const toggleType = (docType: DocumentType) => {
   // ว่าง = ไม่กรอง ⇒ ส่ง undefined ไม่ใช่ []
   patch({ doc_types: next.length ? [...next] : undefined });
 };
+
+// ── กลุ่มทิศทางเงิน (รายรับเขียว / รายจ่ายแดง) ─────────────────────────────
+const isGroupActive = (types: readonly DocumentType[]): boolean =>
+  types.every((t) => selectedTypes.value.includes(t));
+
+const toggleGroup = (types: readonly DocumentType[]) => {
+  if (isGroupActive(types)) {
+    const next = selectedTypes.value.filter((t) => !types.includes(t));
+    patch({ doc_types: next.length ? [...next] : undefined });
+    return;
+  }
+  const next = new Set<DocumentType>([...selectedTypes.value, ...types]);
+  patch({ doc_types: [...next] });
+};
+
+const isDefaultSelection = computed(() => {
+  const selected = new Set(selectedTypes.value);
+  return (
+    selected.size === DEFAULT_DOC_TYPES.length &&
+    DEFAULT_DOC_TYPES.every((t) => selected.has(t))
+  );
+});
 
 // ── ช่วงวันที่ (ISO date input คู่ — ว่าง = ไม่จำกัดขอบ) ─────────────────────
 const onDateChange = (key: 'from' | 'to', event: Event) => {
@@ -184,8 +209,8 @@ const clearFilters = () => {
   studentQuery.value = '';
   searchInput.value = '';
   isStudentOpen.value = false;
-  // ค่าเปลี่ยน ⇒ watcher ของหน้าลูกโหลดใหม่เอง (ไม่ต้อง emit submit ซ้ำแล้วยิงสองคำขอ)
-  emit('update:modelValue', { status: 'active' });
+  // กลับค่าเริ่มต้น = รายรับ + รายจ่าย (ไม่ใช่ "ทุกชนิด")
+  emit('update:modelValue', { status: 'active', doc_types: [...DEFAULT_DOC_TYPES] });
 };
 
 onMounted(async () => {
@@ -212,6 +237,45 @@ onBeforeUnmount(() => {
 
 <template>
   <div :class="embedded ? 'space-y-4' : 'page-card space-y-4 p-3 sm:p-4'">
+    <!-- ทิศทางเงิน — รายรับเขียว / รายจ่ายแดง -->
+    <div>
+      <p class="field-label mb-1.5">ทิศทางเงิน</p>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          class="inline-flex min-h-11 items-center gap-2 rounded-control border px-3 py-2 text-sm font-bold transition-colors"
+          :class="
+            isGroupActive(INCOME_DOC_TYPES)
+              ? 'border-transparent bg-ok-50 text-ok-700'
+              : 'border-line text-ink-3 hover:bg-canvas'
+          "
+          :aria-pressed="isGroupActive(INCOME_DOC_TYPES)"
+          @click="toggleGroup(INCOME_DOC_TYPES)"
+        >
+          <i class="bi bi-arrow-down-left-circle" aria-hidden="true"></i>
+          รายรับ
+        </button>
+        <button
+          type="button"
+          class="inline-flex min-h-11 items-center gap-2 rounded-control border px-3 py-2 text-sm font-bold transition-colors"
+          :class="
+            isGroupActive(EXPENSE_DOC_TYPES)
+              ? 'border-transparent bg-danger-50 text-danger-700'
+              : 'border-line text-ink-3 hover:bg-canvas'
+          "
+          :aria-pressed="isGroupActive(EXPENSE_DOC_TYPES)"
+          @click="toggleGroup(EXPENSE_DOC_TYPES)"
+        >
+          <i class="bi bi-arrow-up-right-circle" aria-hidden="true"></i>
+          รายจ่าย
+        </button>
+        <span v-if="isDefaultSelection" class="chip bg-canvas text-ink-3">ค่าเริ่มต้น</span>
+      </div>
+      <p class="mt-1 text-caption text-ink-3">
+        ค่าเริ่มต้นเลือกทั้งรายรับและรายจ่าย — อยากเห็นทุกชนิดให้ติ๊กเพิ่มด้านล่าง
+      </p>
+    </div>
+
     <!-- ชนิดเอกสาร -->
     <div>
       <p class="field-label mb-1.5">ชนิดเอกสาร</p>
@@ -255,7 +319,7 @@ onBeforeUnmount(() => {
         </label>
       </div>
       <p class="mt-1 text-caption text-ink-3">
-        ไม่ติ๊ก = แสดงทุกชนิด
+        ปล่อยว่างทั้งหมด = แสดงทุกชนิด (รวมใบแจ้งหนี้ · ACK · RPT)
       </p>
     </div>
 

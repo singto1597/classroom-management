@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_DOC_TYPES,
   DOCUMENT_BUNDLE_MAX,
   DOC_TYPES,
+  EXPENSE_DOC_TYPES,
+  INCOME_DOC_TYPES,
   canPrintBundle,
   buildDocumentQuery,
   selectionKey,
@@ -108,5 +111,19 @@ describe('typeLabel', () => {
 
   it('fallback เป็นรหัสดิบเมื่อไม่รู้จัก (ไม่ throw)', () => {
     expect(typeLabel('purchase_order')).toBe('purchase_order');
+  });
+});
+
+describe('ตัวกรองเริ่มต้น (รายรับ + รายจ่าย)', () => {
+  it('ค่าเริ่มต้นรวมเฉพาะเอกสารเงินเข้า/ออก ไม่รวมใบแจ้งหนี้/ACK/RPT', () => {
+    expect(new Set(DEFAULT_DOC_TYPES)).toEqual(
+      new Set([...INCOME_DOC_TYPES, ...EXPENSE_DOC_TYPES]),
+    );
+    expect(DEFAULT_DOC_TYPES).toContain('receipt');
+    expect(DEFAULT_DOC_TYPES).toContain('income');
+    expect(DEFAULT_DOC_TYPES).toContain('payment_voucher');
+    expect(DEFAULT_DOC_TYPES).not.toContain('invoice');
+    expect(DEFAULT_DOC_TYPES).not.toContain('acknowledgement');
+    expect(DEFAULT_DOC_TYPES).not.toContain('monthly_report');
   });
 });
