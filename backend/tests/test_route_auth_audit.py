@@ -46,6 +46,10 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/version"):
         "provenance ของระบบ (version + git sha) — ไม่มีข้อมูลผู้ใช้; ต้องเช็กได้จาก"
         "นอกแอปโดยไม่ต้องมี credential ทั้งตอนตรวจ deploy และตอนไล่ incident",
+    ("GET", "/api/finance-files/{attachment_id}"):
+        "ไฟล์หลักฐานการเงิน — auth คือ HMAC signature ใน URL (ผูก attachment+viewer+exp)"
+        " เพราะ <img src>/แท็บ PDF ใหม่ส่ง Authorization header ไม่ได้; "
+        "`resolve_attachment_for_serving` ตรวจลายเซ็นและสิทธิ์ viewer ซ้ำทุก GET",
 }
 
 
@@ -198,7 +202,10 @@ def test_route_count_is_not_silently_shrinking():
     #   · voids 1 · credit rounds 1 · dashboard 1 · payment history 1
     #   ทุกตัวมี `Depends(get_current_user)` (path ที่บอทเรียกใช้ get_current_user_or_bot)
     #   และการเขียนตรวจสิทธิ์ (MANAGE_FINANCE) ใน service ⇒ ไม่มีรายการใหม่ใน PUBLIC_ROUTES
-    expected = 250
+    # 250 → 254 (2026-11-26): ไฟล์หลักฐานการเงิน — attachments 3 route
+    #   (POST/GET/DELETE ใต้ `/api/classroom/{id}/finance/attachments`) +
+    #   `GET /api/finance-files/{attachment_id}` (signed URL — อยู่ใน PUBLIC_ROUTES พร้อมเหตุผล)
+    expected = 254
 
     actual = len(list(_iter_api_routes()))
     assert actual == expected, (
