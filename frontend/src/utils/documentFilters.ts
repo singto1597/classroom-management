@@ -16,6 +16,19 @@ import type {
   DocumentType,
 } from '@/types/finance';
 
+/**
+ * กลุ่ม "ทิศทางเงิน" สำหรับตัวกรองเริ่มต้น
+ *  - รายรับ = เงินเข้า (ใบเสร็จ · ใบรับเงินล่วงหน้า · ใบรับเงิน)
+ *  - รายจ่าย = เงินออก (ใบสำคัญจ่าย · ใบรับรองแทนใบเสร็จ)
+ * เอกสารที่เหลือ (ใบแจ้งหนี้ · ACK · RPT) ไม่ใช่การเคลื่อนเงิน ⇒ ไม่ถูกเลือกโดยปริยาย
+ */
+export const INCOME_DOC_TYPES: readonly DocumentType[] = ['receipt', 'deposit', 'income'];
+export const EXPENSE_DOC_TYPES: readonly DocumentType[] = ['payment_voucher', 'certificate'];
+export const DEFAULT_DOC_TYPES: readonly DocumentType[] = [
+  ...INCOME_DOC_TYPES,
+  ...EXPENSE_DOC_TYPES,
+];
+
 /** ลำดับ = ลำดับที่ผู้ใช้เห็นในตัวกรอง (ตรงกับ `REGISTRY_DOC_TYPES` ฝั่ง backend) */
 export const DOC_TYPES: readonly DocumentType[] = [
   'receipt',

@@ -9,6 +9,28 @@ const router = createRouter({
   routes,
 });
 
+/**
+ * 🧩 lazy chunk เก่าหายหลัง deploy ใหม่ (index เก่า ↔ /assets/<hash> ใหม่)
+ * → dynamic import ล้ม แล้ว Vue Router โยน error ที่ไม่มีใครจับ = **หน้าขาวโพลน**
+ * → โหลดหน้าใหม่หนึ่งครั้ง (มี guard 60 วินาทีกันวนไม่รู้จบ)
+ *
+ * ⚠️ ต้องดักที่ onError ของ router เท่านั้น — errorHandler ของ Vue ไม่ได้รับ
+ *    error จาก navigation guard/dynamic import เสมอไป
+ */
+router.onError((error) => {
+  const message = String(error instanceof Error ? error.message : error);
+  const isChunkError =
+    /Failed to fetch dynamically imported module|Importing a module script failed|ChunkLoadError|error loading dynamically imported module/i.test(
+      message,
+    );
+  if (!isChunkError) return;
+  const key = 'chunk-reload-at';
+  const last = Number(sessionStorage.getItem(key) ?? 0);
+  if (Number.isFinite(last) && Date.now() - last < 60_000) return;
+  sessionStorage.setItem(key, String(Date.now()));
+  window.location.reload();
+});
+
 router.beforeEach((to, _from) => {
   const authStore = useAuthStore();
   const isAuthenticated = authStore.isAuthenticated;
