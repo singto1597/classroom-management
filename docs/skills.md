@@ -5169,8 +5169,9 @@
   - `router/scroll.ts::resetLayoutScroll()` ตั้ง `el.scrollTop = 0` เองแล้ว **คืน `false`** (ห้ามคืน `{ el }`/`{ top }` — vue-router ลงเอยที่ `window.scrollTo` อยู่ดี)
   - กดย้อนกลับ: ใช้ `savedPosition` ตั้ง `scrollTop` ใน `requestAnimationFrame` (ความสูงหน้าเปลี่ยนหลัง render)
   - checkbox ในลิสต์ที่คลิกแล้วเปิดแถว ต้อง `@click.stop` + `@mousedown.prevent` และ `onRowClick` เช็ค `closest('input,button,a,label,select')`
-- **Rule:** (1) 🔴 ตัวเลื่อนของแอปคือ `<main data-scroll-container>` ไม่ใช่ window (2) 🔴 scrollBehavior ต้องคืน `false` หลังรีเซ็ต container เอง
-- **Tests/Verification:** `frontend/src/router/__tests__/scroll.spec.ts`
+  - **ติ๊ก checkbox แล้วจอกระโดด (สาเหตุที่สอง):** เบราว์เซอร์ focus `<input class="sr-only">` (กล่อง 1×1) แล้ว **เลื่อน scroll container เองหลัง focus event** — `@mousedown.prevent`, `tabindex="-1"`, `pointer-events:none` และ overlay input **ไม่หยุด** (ทดสอบจริงแล้ว) · ทางแก้คือ `utils/focusScroll.ts::guardCheckboxPointerFocus()`: จำ `scrollTop` ตอน focusin ที่ตามหลัง pointerdown ≤700ms แล้วคืนใน `requestAnimationFrame` (การกด Tab ยังเลื่อนให้เห็นปกติ)
+- **Rule:** (1) 🔴 ตัวเลื่อนของแอปคือ `<main data-scroll-container>` ไม่ใช่ window (2) 🔴 scrollBehavior ต้องคืน `false` หลังรีเซ็ต container เอง (3) 🔴 checkbox `sr-only` ต้องติด scroll guard ถ้าอยู่ในลิสต์ยาว
+- **Tests/Verification:** `frontend/src/router/__tests__/scroll.spec.ts`, `frontend/src/utils/__tests__/focusScroll.spec.ts`
 - **Date Added:** 2026-11-27
 
 ### 🏷️ `displayName()` เติมคำนำหน้าแล้ว — หน้าจอห้ามต่อ `prefix` ซ้ำ ("นายนาย")
