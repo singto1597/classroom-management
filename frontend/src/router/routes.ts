@@ -251,15 +251,10 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        // 🧾 [2026-11-27] ยุบ "ประวัติรายการ" — บิล/ใบเสร็จ คือหน้าประวัติของการเงิน
+        //    ลิงก์/บุ๊กมาร์กเดิมต้องลงที่ทะเบียน ไม่ใช่หน้าที่ไม่มีทางเข้าแล้ว
         path: '/finance/transactions',
-        name: 'finance-transaction-history',
-        component: () => import('@/views/finance/TransactionHistory.vue'),
-        meta: {
-          title: routeTitles['finance-transaction-history'],
-          navTab: 'finance',
-          headerBack: true,
-          width: 'wide',
-        },
+        redirect: '/finance/documents',
       },
       {
         path: '/finance/collections',
