@@ -33,6 +33,11 @@ import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { useDialog } from '@/composables/useDialog';
 import { downloadBlob, combinedPdfFilename } from '@/utils/download';
+import {
+  dispatchDocumentVoid,
+  voidActionLabel,
+  voidDialogCopy,
+} from '@/utils/documentVoid';
 import { createLatestGuard } from '@/utils/latest';
 import { formatMoney } from '@/utils/money';
 import { formatThaiDate, formatThaiDateTime } from '@/utils/datetime';
@@ -253,22 +258,25 @@ const toggleSelectAll = () => {
   selectedItems.value = [...selectedItems.value, ...additions];
 };
 
-// ── ยกเลิกบิล (ใบแจ้งหนี้) จากทะเบียนโดยตรง ─────────────────────────────
-//    backend รองรับ void เดี่ยวเฉพาะ invoice — ชนิดอื่นมีเส้นทางของตัวเอง
-//    (REC/DEP → payment event · PV → ใบสำคัญจ่าย · CERT → พร้อม PV)
+// ── ยกเลิกเอกสารทุกชนิดจากทะเบียน ───────────────────────────────────────
+//    backend ตัดสิน "ต้องเรียก endpoint ไหนด้วย id อะไร" แล้วส่ง `void_target` มา
+//    ⇒ ปุ่มจะโผล่ทุกชนิดที่ยกเลิกได้ · dispatch จุดเดียวใน utils/documentVoid.ts
 const voidOpen = ref(false);
 const voidTarget = ref<DocumentListItem | null>(null);
 const isVoiding = ref(false);
 const voidError = ref('');
 
 const canVoid = (item: DocumentListItem): boolean =>
-  canManageFinance.value && item.doc_type === 'invoice' && item.status === 'active';
+  // `Boolean()` ไม่ใช่ `!== null` — รองรับ backend รุ่นเก่าระหว่าง rolling deploy
+  canManageFinance.value && Boolean(item.void_target);
 
 const openVoid = (item: DocumentListItem) => {
   voidTarget.value = item;
   voidError.value = '';
   voidOpen.value = true;
 };
+
+const voidCopy = computed(() => voidDialogCopy(voidTarget.value?.void_target));
 
 const voidSummary = computed(() => {
   const item = voidTarget.value;
@@ -280,20 +288,43 @@ const voidSummary = computed(() => {
   ];
 });
 
+/** แถวคู่ที่เกิดจาก record ต้นทางเดียวกัน (PV ↔ CERT, REC ↔ DEP) — ถูกยกเลิกไปพร้อมกัน */
+const sharesVoidTarget = (a: DocumentListItem, b: DocumentListItem): boolean => {
+  const ta = a.void_target;
+  const tb = b.void_target;
+  if (!ta || !tb || ta.method !== tb.method) return false;
+  return ta.method === 'acknowledgement'
+    ? ta.receipt_no === tb.receipt_no
+    : ta.id === tb.id;
+};
+
 const confirmVoid = async (reason: string) => {
   const item = voidTarget.value;
   if (!item || isVoiding.value) return;
+  if (!item.void_target) {
+    voidError.value = 'เอกสารนี้ยกเลิกจากทะเบียนไม่ได้ — กรุณารีเฟรชหน้า';
+    return;
+  }
   isVoiding.value = true;
   voidError.value = '';
+  const copy = voidCopy.value;
   try {
-    await FinanceService.voidDocument(currentRoomId, item.doc_type, item.doc_id, { reason });
+    await dispatchDocumentVoid({
+      roomId: currentRoomId,
+      doc: item,
+      reason,
+      userName: authStore.currentUserName,
+    });
     voidOpen.value = false;
+    // ลบทั้งแถวที่ยกเลิกและแถวคู่ (เช่น CERT ที่ถูกยกเลิกพร้อม PV)
     selectedItems.value = selectedItems.value.filter(
-      (entry) => selectionKey(entry) !== selectionKey(item),
+      (entry) =>
+        selectionKey(entry) !== selectionKey(item) && !sharesVoidTarget(entry, item),
     );
-    void dialog.notify('ยกเลิกบิลแล้ว — ยังเปิดดู/พิมพ์ได้พร้อมป้ายยกเลิก');
+    void dialog.notify(copy.successMessage);
     await load();
   } catch (error: unknown) {
+    // 409/400 (บิลถูกอ้าง / ยอดกระเป๋าไม่พอ / ไม่ใช่ฉบับล่าสุด) → แสดงในกล่องแดง ไม่ปิด
     voidError.value = error instanceof Error ? error.message : 'ยกเลิกเอกสารไม่สำเร็จ';
   } finally {
     isVoiding.value = false;
@@ -505,6 +536,7 @@ onBeforeUnmount(() => {
           <label
             class="page-card flex min-h-11 cursor-pointer items-center gap-2 p-3 text-sm font-bold text-ink-3"
             @click.stop
+            @mousedown.prevent
           >
             <input
               type="checkbox"
@@ -534,7 +566,11 @@ onBeforeUnmount(() => {
           >
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-start gap-2">
-                <label class="flex cursor-pointer items-center pt-0.5" @click.stop>
+                <label
+                  class="flex cursor-pointer items-center pt-0.5"
+                  @click.stop
+                  @mousedown.prevent
+                >
                   <input
                     type="checkbox"
                     class="peer sr-only"
@@ -604,7 +640,7 @@ onBeforeUnmount(() => {
                   @click.stop="openVoid(item)"
                 >
                   <i class="bi bi-x-circle" aria-hidden="true"></i>
-                  ยกเลิก
+                  {{ voidActionLabel(item.void_target) }}
                 </button>
               </div>
             </div>
@@ -618,7 +654,12 @@ onBeforeUnmount(() => {
               <thead>
                 <tr>
                   <th class="w-10">
-                    <label class="flex cursor-pointer items-center" title="เลือกทั้งหมดในหน้านี้" @click.stop>
+                    <label
+                      class="flex cursor-pointer items-center"
+                      title="เลือกทั้งหมดในหน้านี้"
+                      @click.stop
+                      @mousedown.prevent
+                    >
                       <input
                         type="checkbox"
                         class="peer sr-only"
@@ -659,7 +700,11 @@ onBeforeUnmount(() => {
                   @click="onRowClick(item, $event)"
                 >
                   <td>
-                    <label class="flex cursor-pointer items-center" @click.stop>
+                    <label
+                      class="flex cursor-pointer items-center"
+                      @click.stop
+                      @mousedown.prevent
+                    >
                       <input
                         type="checkbox"
                         class="peer sr-only"
@@ -741,7 +786,7 @@ onBeforeUnmount(() => {
                       @click.stop="openVoid(item)"
                     >
                       <i class="bi bi-x-circle" aria-hidden="true"></i>
-                      ยกเลิก
+                      {{ voidActionLabel(item.void_target) }}
                     </button>
                     <span v-else class="text-ink-3">—</span>
                   </td>
@@ -784,13 +829,14 @@ onBeforeUnmount(() => {
       </template>
     </template>
 
-    <!-- 🚫 ยกเลิกบิล/ใบแจ้งหนี้จากทะเบียนโดยตรง -->
+    <!-- 🚫 ยกเลิกเอกสารทุกชนิดจากทะเบียน — ข้อความตามชนิด (ดู utils/documentVoid.ts) -->
     <VoidReasonModal
       :open="voidOpen && !!voidTarget"
-      title="ยกเลิกบิล / ใบแจ้งหนี้"
-      description="การยกเลิกจะเก็บเอกสารไว้เพื่อตรวจสอบย้อนหลัง และแสดงป้ายยกเลิกในทะเบียน"
+      :title="voidCopy.title"
+      :description="voidCopy.description"
       :summary="voidSummary"
-      confirm-text="ยืนยันยกเลิกบิล"
+      :confirm-text="voidCopy.confirmText"
+      :reason-required="voidCopy.reasonRequired"
       :busy="isVoiding"
       :error-message="voidError"
       @close="voidOpen = false"

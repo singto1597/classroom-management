@@ -207,7 +207,7 @@ export const routeTitles = {
   'finance-dashboard': 'ภาพรวมการเงิน',
   'finance-settings': 'ตั้งค่าระบบการเงิน',
   'finance-add-transaction': 'บันทึกรายการเงิน',
-  'finance-transaction-history': 'ประวัติการทำรายการ',
+  // (ถอด 'finance-transaction-history' แล้ว — หน้าเดิมถูกยุบเป็นทะเบียน บิล/ใบเสร็จ ใน #154)
   'finance-collections': 'โปรเจกต์เก็บเงิน',
   'finance-collection-detail': 'รายละเอียดโปรเจกต์',
   // ⚖️ [P5] ค่าปรับ + รายงานอายุหนี้ — ใช้คำใน docs/glossary.md ตรงตัว

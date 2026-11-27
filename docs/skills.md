@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 302 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 303 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -306,6 +306,7 @@
 - [📎 ไฟล์หลักฐานการเงิน (รูป + PDF) — signed URL, atomic write, PDF sanitize/merge และกับดัก `response_model`](#ไฟล์หลักฐานการเงิน-รูป-pdf-signed-url-atomic-write-pdf-sanitizemerge-และกับดัก-responsemodel)
 - [🧭 `scrollBehavior` ของ vue-router ไม่ช่วยเมื่อตัวเลื่อนคือ `<main>` — หน้าขาวหลังเปิดเอกสารจากลิสต์ยาว](#scrollbehavior-ของ-vue-router-ไม่ช่วยเมื่อตัวเลื่อนคือ-หน้าขาวหลังเปิดเอกสารจากลิสต์ยาว)
 - [🏷️ `displayName()` เติมคำนำหน้าแล้ว — หน้าจอห้ามต่อ `prefix` ซ้ำ ("นายนาย")](#displayname-เติมคำนำหน้าแล้ว-หน้าจอห้ามต่อ-prefix-ซ้ำ-นายนาย)
+- [🎯 ทะเบียนเอกสาร: backend ตัดสิน `void_target` — frontend ห้ามเดา endpoint จาก `doc_type`](#ทะเบียนเอกสาร-backend-ตัดสิน-voidtarget-frontend-ห้ามเดา-endpoint-จาก-doctype)
 
 <!-- TOC:END -->
 
@@ -5178,4 +5179,17 @@
 - **Correct Pattern/Solution:** แสดง `{{ displayName(x) }}` อย่างเดียว · ค่าที่ไม่ใช่ template (auth store, AccountView) เรียก `displayName({prefix, first_name, ...})`
 - **Rule:** (1) 🔴 ห้ามต่อ prefix เองหน้า `displayName()` (2) 🔴 เปลี่ยนรูปแบบชื่อ = แก้ที่ `utils/name.ts` ที่เดียว
 - **Tests/Verification:** `frontend/src/utils/__tests__/nameUsage.spec.ts`, `frontend/src/stores/__tests__/auth.spec.ts`
+- **Date Added:** 2026-11-27
+
+### 🎯 ทะเบียนเอกสาร: backend ตัดสิน `void_target` — frontend ห้ามเดา endpoint จาก `doc_type`
+- **Context/Problem:** ผู้ใช้ต้องการกดยกเลิกเอกสาร **ทุกชนิด** จากทะเบียน (`/finance/documents`) เดิมปุ่มมีเฉพาะใบแจ้งหนี้ และเอกสารอื่นขึ้นข้อความ "ยกเลิกที่หน้าอื่น"
+- **Root Cause:** เอกสารในทะเบียนเป็น "ภาพสะท้อน" ของ record ต้นทางคนละตาราง (REC/DEP←payment event, PV/CERT←expense voucher, INC←income batch, ACK←receipt_no, legacy←finance_transaction) ⇒ `doc_type` ไม่พอจะรู้ว่าเรียก endpoint ไหนด้วย id อะไร
+- **Correct Pattern/Solution:**
+  - backend: `services/finance/document_void_target.py::resolve_void_target()` (pure) ตัดสินกติกา — event ก่อน legacy, CERT ห้าม fallback legacy, RPT ใช้ `draft|final`, voided/deleted → `None`
+  - list CTE ต้องเพิ่ม `legacy_transaction_id`, `document_meta->>'voucher_id'/'batch_id'`, `deleted_at` **ทั้งสองฝั่ง UNION** (ฝั่ง RPT ใส่ `NULL` ชนิดให้ตรง)
+  - ประกาศ `void_target` ใน `DocumentListItem` **และ** `DocumentDetailResponse` (ลืม = FastAPI ตัดทิ้งเงียบ ๆ)
+  - frontend: `utils/documentVoid.ts` เป็นจุด dispatch เดียว (`voidActionLabel`/`voidDialogCopy`/`dispatchDocumentVoid`) · legacy = `reasonRequired=false` (ไม่ส่ง reason ปลอม) · ใช้ `Boolean(void_target)` ไม่ใช่ `!== null` เพื่อรองรับ rolling deploy
+  - หลัง void สำเร็จ ลบแถวที่เลือกซึ่งมี `method+id` เดียวกันด้วย (PV↔CERT ถูกยกเลิกพร้อมกัน)
+- **Rule:** (1) 🔴 endpoint void เลือกจาก `void_target.method` เท่านั้น (2) 🔴 409/400 (บิลถูกอ้าง/กระเป๋าไม่พอ/RPT ไม่ใช่ฉบับล่าสุด) ต้องแสดงใน modal โดยไม่ปิด (3) 🔴 legacy revert ไม่รับ reason
+- **Tests/Verification:** `backend/tests/test_finance_document_void_target.py`, `test_finance_document_registry.py::test_registry_void_target_per_doc_type`, `frontend/src/utils/__tests__/documentVoid.spec.ts`, `frontend/src/components/finance/__tests__/VoidReasonModal.spec.ts`
 - **Date Added:** 2026-11-27

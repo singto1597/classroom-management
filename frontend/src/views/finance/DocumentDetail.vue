@@ -9,11 +9,9 @@
  * ยังไม่มีเลขก่อน finalized ⇒ route ใช้ **คู่ (`doc_type`, `doc_id`)** ที่ backend
  * รับประกันว่ามีจริงเสมอ (`GET /finance/documents/{doc_type}/{doc_id}`)
  *
- * 🚫 [P6.3] ปุ่ม "ยกเลิกเอกสาร" mount ที่นี่ — **เฉพาะ `invoice`** ที่ยัง active:
- *    - REC/DEP → ต้องยกเลิกผ่านเหตุการณ์รับเงิน (`/payment-events/{id}/void`)
- *    - CERT    → ต้องยกเลิกพร้อม PV (backend ตอบ 409 ชี้ทาง)
- *    - ACK/RPT → มีปุ่มของตัวเองในหน้า P5.5
- *    ⇒ หน้าจอแสดง "ข้อความชี้ทาง" แทนปุ่มสำหรับชนิดเหล่านั้น ไม่เดา endpoint เอง
+ * 🚫 ปุ่ม "ยกเลิก" mount ที่นี่ทุกชนิดที่ backend อนุญาต — backend ส่ง `void_target`
+ *    มาพร้อม detail (endpoint + id ของ record ต้นทาง) ⇒ หน้าจอไม่เดา endpoint เอง
+ *    ชนิดที่ยกเลิกไม่ได้ (ถูกยกเลิกแล้ว / ไม่มี record ต้นทาง) จะไม่มีปุ่มเลย
  *
  * 🧩 `line_items` / `document_meta` **โครงต่างกันตามชนิด** ⇒ ทุกคีย์เป็น optional
  *    และแสดงเฉพาะคีย์ที่มีค่า (ห้าม hardcode ว่ามีทุกคีย์ — Jinja/BE อาจเพิ่ม/ลดได้)
@@ -28,6 +26,11 @@ import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
 import DocumentTypeBadge from '@/components/finance/DocumentTypeBadge.vue';
 import VoidReasonModal from '@/components/finance/VoidReasonModal.vue';
+import {
+  dispatchDocumentVoid,
+  voidActionLabel,
+  voidDialogCopy,
+} from '@/utils/documentVoid';
 import FinanceDocumentAttachments from '@/components/finance/FinanceDocumentAttachments.vue';
 import FinanceFileUploader from '@/components/finance/FinanceFileUploader.vue';
 
@@ -270,10 +273,10 @@ const downloadPdf = async () => {
   }
 };
 
-// ── 🚫 ยกเลิกเอกสาร (P6.3) ─────────────────────────────────────────────────
+// ── 🚫 ยกเลิกเอกสาร (P6.3 → ทุกชนิด, 2026-11-27) ───────────────────────────
 //
-// 🔴 `void_document` รับเฉพาะ `invoice` — REC/DEP/CERT/ACK/RPT ต้องผ่านเส้นทางของมันเอง
-//    (backend ตอบ 409 พร้อมชี้ endpoint) ⇒ หน้าจอไม่เดา endpoint จาก doc_type
+// backend ส่ง `void_target` มาพร้อม detail ⇒ หน้าจอไม่ต้องเดา endpoint
+// (REC/DEP → payment event · PV/CERT → expense voucher · INC → income batch …)
 // 🔴 ไม่มี idempotency key (ตั้งใจ) — กดซ้ำต้องได้ 409 "ยกเลิกแล้ว" จาก backend
 
 const canManageFinance = computed(() => authStore.canManageFinance);
@@ -282,30 +285,11 @@ const isVoidOpen = ref(false);
 const isVoiding = ref(false);
 const voidError = ref('');
 
-const canVoidInvoice = computed(
-  () =>
-    canManageFinance.value &&
-    doc.value?.doc_type === 'invoice' &&
-    doc.value?.status === 'active',
+const canVoid = computed(
+  () => canManageFinance.value && Boolean(doc.value?.void_target),
 );
 
-/** ข้อความชี้ทางสำหรับชนิดที่ยกเลิกเดี่ยวไม่ได้ — ไม่แสดงปุ่มที่กดแล้วได้ 400/409 */
-const voidHelpText = computed(() => {
-  const current = doc.value;
-  if (!canManageFinance.value || !current || current.status !== 'active') return '';
-  switch (current.doc_type) {
-    case 'receipt':
-    case 'deposit':
-      return 'เอกสารนี้เกิดจากรายการรับเงิน — ยกเลิกที่ประวัติการรับเงิน (เหตุการณ์รับเงิน)';
-    case 'payment_voucher':
-      return 'ใบสำคัญจ่ายยกเลิกได้ที่หน้าใบสำคัญจ่าย (ทะเบียนเอกสาร)';
-    case 'certificate':
-      return 'ใบรับรองแทนใบเสร็จยกเลิกเดี่ยวไม่ได้ — ต้องยกเลิกพร้อมใบสำคัญจ่ายที่ออกคู่กัน';
-    default:
-      // ACK/RPT มีปุ่มของตัวเองในหน้า P5.5 — ไม่แสดงข้อความซ้ำ
-      return '';
-  }
-});
+const voidCopy = computed(() => voidDialogCopy(doc.value?.void_target));
 
 /** สรุปสิ่งที่กำลังจะถูกกลับ — ค่าจากเอกสารที่โหลดไว้ (ห้ามคำนวณใหม่) */
 const voidSummary = computed<Array<{ label: string; value: string }>>(() => {
@@ -326,18 +310,21 @@ const openVoid = () => {
 const confirmVoid = async (reason: string) => {
   const current = doc.value;
   if (!current || isVoiding.value) return;
+  if (!current.void_target) {
+    voidError.value = 'เอกสารนี้ยกเลิกไม่ได้ — กรุณารีเฟรชหน้า';
+    return;
+  }
   isVoiding.value = true;
   voidError.value = '';
   try {
-    await FinanceService.voidDocument(currentRoomId, current.doc_type, current.doc_id, {
+    await dispatchDocumentVoid({
+      roomId: currentRoomId,
+      doc: current,
       reason,
+      userName: authStore.currentUserName,
     });
     isVoidOpen.value = false;
-    await dialog.alert(
-      'ยกเลิกแล้ว',
-      'เอกสารถูกยกเลิก — ยังพิมพ์ดูได้และจะแสดงป้าย "ยกเลิก" ในทะเบียน',
-      'success',
-    );
+    await dialog.alert('เรียบร้อย', voidCopy.value.successMessage, 'success');
     // 🔄 reload เพื่อเห็นสถานะ voided + ป้าย และปุ่มหาย (ไม่พาออกจากหน้า)
     await load();
   } catch (error: unknown) {
@@ -357,16 +344,16 @@ const confirmVoid = async (reason: string) => {
         กลับทะเบียนเอกสาร
       </RouterLink>
       <div class="flex flex-wrap items-center gap-2">
-        <!-- 🚫 ยกเลิกเอกสาร — เฉพาะใบแจ้งหนี้ที่ยัง active (ชนิดอื่นมีข้อความชี้ทางด้านล่าง) -->
+        <!-- 🚫 ยกเลิกเอกสาร — แสดงเมื่อ backend บอกว่ายกเลิกได้ (`void_target`) -->
         <button
-          v-if="canVoidInvoice"
+          v-if="canVoid"
           type="button"
           class="btn-danger"
           :disabled="isVoiding"
           @click="openVoid"
         >
           <i class="bi bi-x-octagon" aria-hidden="true"></i>
-          ยกเลิกเอกสาร
+          {{ voidActionLabel(doc?.void_target) }}
         </button>
         <button
           v-if="doc"
@@ -384,14 +371,6 @@ const confirmVoid = async (reason: string) => {
         </button>
       </div>
     </div>
-
-    <p
-      v-if="voidHelpText"
-      class="rounded-xl border border-line bg-canvas px-3 py-2 text-sm text-ink-3"
-    >
-      <i class="bi bi-info-circle" aria-hidden="true"></i>
-      {{ voidHelpText }}
-    </p>
 
     <!-- URL ผิดรูป (ชนิดไม่รู้จัก / id ไม่ใช่จำนวนเต็ม) — ไม่ต้องยิง API -->
     <StateBlock
@@ -691,9 +670,11 @@ const confirmVoid = async (reason: string) => {
     <!-- ═══════════════════ แผ่น: ยกเลิกเอกสาร (P6.3) ═══════════════════ -->
     <VoidReasonModal
       :open="isVoidOpen"
-      title="ยกเลิกเอกสาร"
-      description="ยกเลิกแล้วย้อนกลับไม่ได้ — เอกสารยังอยู่ในทะเบียนพร้อมป้ายยกเลิก"
+      :title="voidCopy.title"
+      :description="voidCopy.description"
       :summary="voidSummary"
+      :confirm-text="voidCopy.confirmText"
+      :reason-required="voidCopy.reasonRequired"
       :busy="isVoiding"
       :error-message="voidError"
       @close="isVoidOpen = false"

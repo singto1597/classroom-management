@@ -2259,6 +2259,28 @@ export interface DocumentListQuery {
 }
 
 /** แถวในทะเบียน — เงินเป็นสตริง 2 ตำแหน่ง (backend) ⇒ `Number()` ก่อนบวกลบ */
+/**
+ * 🎯 ปลายทางของ "ยกเลิก" ที่ backend ตัดสินให้ (ดู `services/finance/document_void_target.py`)
+ *
+ * frontend ไม่ควรเดา endpoint จาก doc_type เอง: ใบเสร็จจากการรับเงินต้องยกเลิก
+ * *เหตุการณ์รับเงิน* ไม่ใช่แถวใบเสร็จ, CERT ต้องยกเลิกพร้อม PV เป็นต้น
+ */
+export type DocumentVoidMethod =
+  | 'invoice'
+  | 'payment_event'
+  | 'expense_voucher'
+  | 'income_batch'
+  | 'acknowledgement'
+  | 'monthly_report'
+  | 'legacy_transaction';
+
+export interface DocumentVoidTarget {
+  method: DocumentVoidMethod;
+  /** id ของ record ต้นทาง — `null` สำหรับ `acknowledgement` (ใช้ `receipt_no`) */
+  id: number | null;
+  receipt_no: string | null;
+}
+
 export interface DocumentListItem {
   doc_type: DocumentType;
   doc_id: number;
@@ -2275,6 +2297,8 @@ export interface DocumentListItem {
   receiver_name: string | null;
   channel_id: number | null;
   line_item_count: number | null;
+  /** `null`/ไม่มี = เอกสารนี้ยกเลิกจากทะเบียนไม่ได้ (ยกเลิกแล้ว/ยังไม่มี record ต้นทาง) */
+  void_target?: DocumentVoidTarget | null;
 }
 
 export interface DocumentListResponse {
@@ -2350,6 +2374,7 @@ export interface DocumentDetail {
   channel_id: number | null;
   payment_event_id: number | null;
   line_item_count: number | null;
+  void_target?: DocumentVoidTarget | null;
   issued_to_name: string | null;
   issued_by_name: string | null;
   note: string | null;

@@ -33,6 +33,7 @@ from core.exceptions import RoomNotFoundError
 from core.rbac import require_member
 
 from .base import service_logger
+from .document_void_target import resolve_void_target
 from .helpers import _full_name
 from .baht_text import baht_text
 from .constants import (
@@ -244,7 +245,13 @@ class DocumentRegistryMixin:
                             R.payment_event_id                           AS payment_event_id,
                             CASE WHEN jsonb_typeof(R.line_items) = 'array'
                                  THEN jsonb_array_length(R.line_items) END
-                                                                         AS line_item_count
+                                                                         AS line_item_count,
+                            -- 🎯 วัตถุดิบสำหรับ `resolve_void_target()` — record ต้นทาง
+                            --    ที่จะต้องไปเรียก void (ดู document_void_target.py)
+                            R.legacy_transaction_id                      AS legacy_transaction_id,
+                            R.document_meta->>'voucher_id'               AS voucher_id_raw,
+                            R.document_meta->>'batch_id'                 AS batch_id_raw,
+                            R.deleted_at                                 AS deleted_at
                         FROM finance_receipts R
                         LEFT JOIN students S ON S.id = R.student_id
                         LEFT JOIN users U ON U.id = S.user_id
@@ -271,7 +278,12 @@ class DocumentRegistryMixin:
                             NULL::text,
                             NULL::bigint,
                             NULL::bigint,
-                            NULL::integer
+                            NULL::integer,
+                            -- 4 คอลัมน์ void_target — RPT ไม่มี record ต้นทางแบบ receipt
+                            NULL::integer,
+                            NULL::text,
+                            NULL::text,
+                            NULL::timestamp with time zone
                         FROM finance_monthly_reports M
                         WHERE M.room_id = $1
                     )
@@ -302,6 +314,19 @@ class DocumentRegistryMixin:
                         "receiver_name": r["receiver_name"],
                         "channel_id": _int_or_none(r["channel_id"]),
                         "line_item_count": r["line_item_count"],
+                        "void_target": resolve_void_target(
+                            doc_type=r["doc_type"],
+                            doc_id=int(r["doc_id"]),
+                            doc_no=r["doc_no"],
+                            status=r["status"],
+                            deleted=r["deleted_at"] is not None,
+                            payment_event_id=_int_or_none(r["payment_event_id"]),
+                            legacy_transaction_id=_int_or_none(
+                                r["legacy_transaction_id"]
+                            ),
+                            voucher_id=_int_or_none(r["voucher_id_raw"]),
+                            batch_id=_int_or_none(r["batch_id_raw"]),
+                        ),
                     }
                     for r in rows
                 ]
@@ -756,6 +781,18 @@ class DocumentRegistryMixin:
         d["channel_id"] = _int_or_none(meta.get("channel_id"))
         d["payment_event_id"] = _int_or_none(row["payment_event_id"])
         d["line_item_count"] = len(d["line_items"]) if d.get("line_items") else None
+        # 🎯 ปลายทางของการยกเลิก (ตรงกับรายการใน list — ใช้ตัวตัดสินเดียวกัน)
+        d["void_target"] = resolve_void_target(
+            doc_type=row["doc_type"],
+            doc_id=int(row["id"]),
+            doc_no=row["receipt_no"],
+            status=row["status"],
+            deleted=row["deleted_at"] is not None,
+            payment_event_id=_int_or_none(row["payment_event_id"]),
+            legacy_transaction_id=_int_or_none(row["legacy_transaction_id"]),
+            voucher_id=_int_or_none(meta.get("voucher_id")),
+            batch_id=_int_or_none(meta.get("batch_id")),
+        )
         # 💰 สัญญา response: เงินเป็นสตริง 2 ตำแหน่ง + คำอ่านภาษาไทย
         d["amount"] = _money_text(amount_value)
         d["amounts_in_words"] = baht_text(amount_value) if amount_value is not None else None
@@ -801,6 +838,11 @@ class DocumentRegistryMixin:
             "channel_id": None,
             "payment_event_id": None,
             "line_item_count": None,
+            "void_target": resolve_void_target(
+                doc_type=DOC_TYPE_MONTHLY_REPORT,
+                doc_id=int(row["id"]),
+                status=row["status"],
+            ),
             "issued_to_name": None,
             "issued_by_name": None,
             "note": None,

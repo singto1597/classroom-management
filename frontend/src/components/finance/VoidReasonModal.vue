@@ -16,6 +16,8 @@
  *    คิดว่าไม่มีอะไรเกิดขึ้นแล้วกดซ้ำ
  *  • `errorMessage` (409/400 จาก backend) แสดงในกล่องแดงโดย **ไม่ปิด modal** ⇒
  *    ผู้ใช้อ่านเหตุผลจริงจาก backend ได้
+ *  • `reasonRequired=false` = ซ่อนช่องเหตุผลและยืนยันได้ทันที — ใช้กับ legacy
+ *    revert (`revertTransaction`) ที่ endpoint **ไม่รับ** reason
  *  • เคลียร์เหตุผลทุกครั้งที่ `open` กลายเป็น true — ไม่งั้นผู้ใช้เปิดใบใหม่แล้วเห็น
  *    เหตุผลของใบก่อนหน้า (และอาจกดยืนยันด้วยเหตุผลผิด)
  *
@@ -39,6 +41,8 @@ const props = withDefaults(
     /** แถวข้อมูลอ่านอย่างเดียว (เช่น เลขที่เอกสาร / ยอดที่จะกลับ / กระเป๋าที่กระทบ) */
     summary?: Array<{ label: string; value: string }>
     confirmText?: string
+    /** `false` = ไม่ถามเหตุผล (เช่น legacy revert ที่ endpoint ไม่รับ reason) */
+    reasonRequired?: boolean
     busy?: boolean
     errorMessage?: string
   }>(),
@@ -46,6 +50,7 @@ const props = withDefaults(
     description: '',
     summary: () => [],
     confirmText: 'ยืนยันยกเลิกเอกสาร',
+    reasonRequired: true,
     busy: false,
     errorMessage: '',
   },
@@ -61,7 +66,9 @@ const REASON_MAX = 500
 const reason = ref('')
 
 const reasonLength = computed(() => reason.value.length)
-const canConfirm = computed(() => reason.value.trim().length > 0 && !props.busy)
+const canConfirm = computed(
+  () => (!props.reasonRequired || reason.value.trim().length > 0) && !props.busy,
+)
 
 /** เปิดใหม่ทุกครั้ง → เริ่มจากเหตุผลว่างเสมอ */
 watch(
@@ -104,7 +111,7 @@ const close = () => {
         </div>
       </dl>
 
-      <div>
+      <div v-if="reasonRequired">
         <label class="field-label" for="voidReason">เหตุผลการยกเลิก (บังคับ)</label>
         <textarea
           id="voidReason"

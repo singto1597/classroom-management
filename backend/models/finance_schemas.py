@@ -2099,6 +2099,30 @@ class IncomeBatchDetailResponse(BaseModel):
 # =====================================================================
 # ⚠️ ห้ามเพิ่ม `__all__` ที่ไฟล์นี้ — router หลายตัว `import *` จากที่นี่และพึ่ง
 #    พฤติกรรม "ทุกคลาสที่ประกาศ = ส่งออก" (ดูคอมเมนต์กลางไฟล์)
+class DocumentVoidTarget(BaseModel):
+    """🎯 ปลายทางของ "ยกเลิก" ที่ backend ตัดสินให้ — frontend ไม่ต้องเดาเอง
+
+    ทะเบียนรวมเอกสารหลายชนิดที่เกิดจากตารางคนละตาราง ⇒ การจะยกเลิกต้องรู้ว่า
+    เอกสารนี้ "เกิดจาก" อะไร: เรียก endpoint ไหน ด้วย id ของ record ต้นทางใด
+    (เช่น ใบเสร็จจากการรับเงินต้องยกเลิก *เหตุการณ์รับเงิน* ไม่ใช่แถวใบเสร็จ)
+
+    `None` (ไม่ใช่ `method` อื่น) = เอกสารนี้ยกเลิกจากทะเบียนไม่ได้
+    (ถูกยกเลิกแล้ว / ยังไม่มี record ต้นทาง)
+    """
+    method: Literal[
+        "invoice",
+        "payment_event",
+        "expense_voucher",
+        "income_batch",
+        "acknowledgement",
+        "monthly_report",
+        "legacy_transaction",
+    ]
+    id: Optional[int] = None
+    # ACK ระบุด้วยเลขเอกสาร (endpoint เดิมรับ `receipt_no`) ไม่ใช่ id
+    receipt_no: Optional[str] = None
+
+
 class DocumentListItem(BaseModel):
     """แถวของทะเบียน — เงินเป็นสตริง 2 ตำแหน่ง (ตรงกับ `formatMoney` ของ frontend)"""
     doc_type: str
@@ -2115,6 +2139,7 @@ class DocumentListItem(BaseModel):
     receiver_name: Optional[str] = None
     channel_id: Optional[int] = None
     line_item_count: Optional[int] = None
+    void_target: Optional[DocumentVoidTarget] = None
 
 
 class DocumentListResponse(BaseModel):
@@ -2165,6 +2190,7 @@ class DocumentDetailResponse(BaseModel):
     channel_id: Optional[int] = None
     payment_event_id: Optional[int] = None
     line_item_count: Optional[int] = None
+    void_target: Optional[DocumentVoidTarget] = None
     issued_to_name: Optional[str] = None
     issued_by_name: Optional[str] = None
     note: Optional[str] = None
