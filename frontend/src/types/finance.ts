@@ -2664,7 +2664,11 @@ export interface MoneyOwnership {
 // ============================================================
 
 /** ชนิดของเจ้าของไฟล์ — ตรงกับ CHECK ใน `finance_attachments` */
-export type FinanceAttachmentOwnerType = 'transaction' | 'student_payment' | 'payment_event';
+export type FinanceAttachmentOwnerType =
+  | 'transaction'
+  | 'student_payment'
+  | 'payment_event'
+  | 'receipt';
 
 export type FinanceAttachmentKind =
   | 'payment_proof'

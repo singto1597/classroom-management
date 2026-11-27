@@ -56,6 +56,8 @@ async def _refs_for_receipt(
         return set()
 
     refs: set[Tuple[str, int]] = set()
+    # 📎 ไฟล์ที่แนบเข้ากับ "เอกสาร" โดยตรง (เพิ่มภายหลังได้จากหน้ารายละเอียดเอกสาร)
+    refs.add(("receipt", int(receipt_id)))
     if r["legacy_transaction_id"] is not None:
         refs.add(("transaction", int(r["legacy_transaction_id"])))
     if r["student_payment_id"] is not None:
@@ -94,7 +96,7 @@ async def _refs_for_receipt(
 async def _fetch_attachments(
     conn: asyncpg.Connection, refs: Iterable[Tuple[str, int]]
 ) -> List[asyncpg.Record]:
-    txn_ids, payment_ids, event_ids = [], [], []
+    txn_ids, payment_ids, event_ids, receipt_ids = [], [], [], []
     for owner_type, owner_id in refs:
         if owner_type == "transaction":
             txn_ids.append(owner_id)
@@ -102,8 +104,10 @@ async def _fetch_attachments(
             payment_ids.append(owner_id)
         elif owner_type == "payment_event":
             event_ids.append(owner_id)
+        elif owner_type == "receipt":
+            receipt_ids.append(owner_id)
 
-    if not (txn_ids or payment_ids or event_ids):
+    if not (txn_ids or payment_ids or event_ids or receipt_ids):
         return []
 
     return await conn.fetch(
@@ -111,9 +115,10 @@ async def _fetch_attachments(
            WHERE deleted_at IS NULL
              AND ((owner_type = 'transaction' AND owner_id = ANY($1::int[]))
                OR (owner_type = 'student_payment' AND owner_id = ANY($2::int[]))
-               OR (owner_type = 'payment_event' AND owner_id = ANY($3::int[])))
+               OR (owner_type = 'payment_event' AND owner_id = ANY($3::int[]))
+               OR (owner_type = 'receipt' AND owner_id = ANY($4::int[])))
            ORDER BY created_at, id""",
-        txn_ids, payment_ids, event_ids,
+        txn_ids, payment_ids, event_ids, receipt_ids,
     )
 
 

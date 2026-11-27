@@ -29,6 +29,7 @@ import StateBlock from '@/components/ui/StateBlock.vue';
 import DocumentTypeBadge from '@/components/finance/DocumentTypeBadge.vue';
 import VoidReasonModal from '@/components/finance/VoidReasonModal.vue';
 import FinanceDocumentAttachments from '@/components/finance/FinanceDocumentAttachments.vue';
+import FinanceFileUploader from '@/components/finance/FinanceFileUploader.vue';
 
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
@@ -504,14 +505,34 @@ const confirmVoid = async (reason: string) => {
         </dl>
       </div>
 
-      <!-- 📎 ไฟล์หลักฐานของเอกสาร — พรีวิว + เปิด + โหลด -->
-      <div v-if="doc.attachments?.length" class="page-card p-4 sm:p-5">
+      <!-- 📎 ไฟล์หลักฐานของเอกสาร — พรีวิว + เปิด + โหลด + แนบเพิ่มภายหลัง -->
+      <div
+        v-if="doc.doc_type !== 'monthly_report' && (doc.attachments?.length || canManageFinance)"
+        class="page-card p-4 sm:p-5"
+      >
         <h2 class="mb-3 flex items-center gap-2 font-display text-title-m font-bold text-ink">
           <i class="bi bi-paperclip text-brand-700" aria-hidden="true"></i>
           ไฟล์หลักฐาน
-          <span class="chip bg-canvas text-ink-2">{{ doc.attachments.length }} ไฟล์</span>
+          <span v-if="doc.attachments?.length" class="chip bg-canvas text-ink-2">
+            {{ doc.attachments.length }} ไฟล์
+          </span>
         </h2>
-        <FinanceDocumentAttachments :attachments="doc.attachments" />
+        <FinanceDocumentAttachments
+          v-if="doc.attachments?.length"
+          :attachments="doc.attachments"
+          class="mb-3"
+        />
+        <p v-else class="mb-3 text-sm text-ink-3">ยังไม่มีไฟล์หลักฐาน — แนบเพิ่มได้ด้านล่าง</p>
+
+        <div v-if="canManageFinance">
+          <label class="field-label">แนบไฟล์เพิ่มเติม (รูปภาพ/PDF)</label>
+          <FinanceFileUploader
+            owner-type="receipt"
+            :owner-id="doc.doc_id"
+            :max-count="20"
+            @uploaded="load"
+          />
+        </div>
       </div>
 
       <!-- 🧾 รายงานปิดงบ (RPT) — บล็อกตัวเลขเฉพาะชนิดนี้ -->

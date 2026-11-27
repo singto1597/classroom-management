@@ -65,7 +65,7 @@ PDF_MAGIC = b"%PDF-"
 MIME_IMAGE = "image/webp"
 MIME_PDF = "application/pdf"
 
-OWNER_TYPES = ("transaction", "student_payment", "payment_event")
+OWNER_TYPES = ("transaction", "student_payment", "payment_event", "receipt")
 VALID_KINDS = ("payment_proof", "expense_evidence", "withdrawal_evidence", "other")
 
 
@@ -293,11 +293,29 @@ async def resolve_owner_room(
             owner_id,
         )
 
+    if owner_type == "receipt":
+        # 📎 แนบไฟล์เข้ากับเอกสาร/ใบเสร็จโดยตรง (เพิ่มเติมภายหลังได้)
+        deleted = "" if allow_deleted else " AND deleted_at IS NULL"
+        lock_sql = " FOR UPDATE" if lock else ""
+        return await conn.fetchrow(
+            f"""SELECT id, room_id, doc_type
+                FROM finance_receipts
+                WHERE id = $1{deleted}{lock_sql}""",
+            owner_id,
+        )
+
     return None
 
 
 def _default_kind(owner_type: str, owner_row: asyncpg.Record) -> str:
     if owner_type in ("student_payment", "payment_event"):
+        return "payment_proof"
+    if owner_type == "receipt":
+        # เอกสารหลักฐานการเบิกจ่าย vs การรับเงิน
+        if owner_row["doc_type"] == "payment_voucher":
+            return "expense_evidence"
+        if owner_row["doc_type"] == "certificate":
+            return "withdrawal_evidence"
         return "payment_proof"
     # transaction
     if owner_row["transaction_type"] == "income":

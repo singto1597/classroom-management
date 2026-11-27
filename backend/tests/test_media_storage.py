@@ -136,8 +136,11 @@ async def test_missing_file_read_raises(storage):
         "media/finance/transaction/7/{u}_thumb.webp",
         "media/finance/student_payment/12/{u}.webp",
         "media/finance/payment_event/3/{u}.webp",
+        "media/finance/receipt/21/{u}.webp",
+        "media/finance/receipt/22/{u}_thumb.webp",
         "media/finance/transaction/7/{u}.pdf",
         "media/finance/student_payment/1/{u}.pdf",
+        "media/finance/receipt/23/{u}.pdf",
     ],
 )
 @pytest.mark.asyncio

@@ -44,6 +44,16 @@ async def _make_transaction(pool, room_id, user_id, txn_type="expense") -> int:
     )
 
 
+async def _make_receipt(pool, room_id) -> int:
+    return await pool.fetchval(
+        """INSERT INTO finance_receipts
+               (room_id, receipt_no, doc_type, year_be, seq, amount, paid_total_after)
+           VALUES ($1, $2, 'receipt', 2569, 1, 100, 100)
+           RETURNING id""",
+        room_id, f"REC-TEST-{uuid.uuid4().hex[:8]}",
+    )
+
+
 def _upload_url(ctx, owner_type, owner_id):
     return f"/api/classroom/{ctx.room_id}/finance/attachments/{owner_type}/{owner_id}?target_type=room"
 
@@ -116,6 +126,22 @@ async def test_upload_pdf_served_inline_with_sandbox(client, db_pool, finance_ma
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.headers["content-security-policy"] == "sandbox"
+
+
+@pytest.mark.asyncio
+async def test_upload_to_receipt_owner(client, db_pool, finance_manager_headers):
+    """แนบไฟล์เข้ากับใบเสร็จ/เอกสารโดยตรง (เพิ่มเติมภายหลัง)"""
+    ctx = finance_manager_headers
+    receipt_id = await _make_receipt(db_pool, ctx.room_id)
+    res = client.post(
+        _upload_url(ctx, "receipt", receipt_id),
+        headers=ctx,
+        files=[("files", ("evidence.pdf", _pdf_bytes(pages=1), "application/pdf"))],
+    )
+    assert res.status_code == 200, res.text
+    item = res.json()["items"][0]
+    assert item["owner_type"] == "receipt"
+    assert item["owner_id"] == receipt_id
 
 
 @pytest.mark.asyncio

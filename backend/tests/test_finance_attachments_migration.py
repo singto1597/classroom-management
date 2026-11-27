@@ -9,13 +9,35 @@ from core.migrations import apply_migrations
 
 @pytest.mark.asyncio
 async def test_migration_registered_and_idempotent(db_pool):
-    stored = await db_pool.fetchval(
-        "SELECT checksum FROM schema_migrations WHERE version = '0014_finance_attachments'"
-    )
-    assert stored, "migration 0014 ต้องถูก apply ใน DB ของเทสต์"
+    for version in ("0014_finance_attachments", "0015_finance_attachments_receipt_owner"):
+        stored = await db_pool.fetchval(
+            "SELECT checksum FROM schema_migrations WHERE version = $1", version
+        )
+        assert stored, f"migration {version} ต้องถูก apply ใน DB ของเทสต์"
 
     # apply ซ้ำต้องไม่รันอะไรใหม่ (0 = สคีมาทันสมัยแล้ว)
     assert await apply_migrations(db_pool) == 0
+
+
+@pytest.mark.asyncio
+async def test_receipt_owner_type_is_allowed(db_pool):
+    """0015 — ต้องแนบไฟล์เข้ากับ "เอกสาร/ใบเสร็จ" ได้ (owner_type='receipt')"""
+    uid = uuid.uuid4()
+    await db_pool.execute(
+        """INSERT INTO finance_attachments
+               (owner_type, owner_id, file_kind, kind, storage_path, thumb_path,
+                sha256, thumb_sha256, mime, bytes, width, height)
+           VALUES ('receipt', 1, 'image', 'payment_proof', $1, $2,
+                   $3, $4, 'image/webp', 10, 1, 1)""",
+        f"media/finance/receipt/1/{uid}.webp",
+        f"media/finance/receipt/1/{uid}_thumb.webp",
+        "a" * 64,
+        "b" * 64,
+    )
+    count = await db_pool.fetchval(
+        "SELECT COUNT(*) FROM finance_attachments WHERE owner_type = 'receipt'"
+    )
+    assert count == 1
 
 
 @pytest.mark.asyncio
