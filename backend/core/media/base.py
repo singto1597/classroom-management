@@ -27,7 +27,7 @@ from typing import AsyncIterator, Optional, Protocol, runtime_checkable
 # ⚠️ owner_type **เขียนเป็น alternation ของค่าที่รู้จัก** ไม่ใช่ `[a-z_]+` —
 #    ชนิดเจ้าของที่ไม่มี policy ต้องสร้าง key ไม่ได้ตั้งแต่ต้น (fail-closed)
 _UUID_RE = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-FINANCE_OWNER_TYPES = ("transaction", "student_payment", "payment_event")
+FINANCE_OWNER_TYPES = ("transaction", "student_payment", "payment_event", "receipt")
 _OWNERS = rf"(?:{'|'.join(FINANCE_OWNER_TYPES)})"
 KEY_PATTERN = re.compile(
     rf"^(?:media/finance/{_OWNERS}/\d+/{_UUID_RE}(?:_thumb)?\.webp"

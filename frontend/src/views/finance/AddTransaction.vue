@@ -239,7 +239,7 @@ const handleSubmit = async () => {
         } catch (error: unknown) {
           void dialog.alert(
             'บันทึกรายการแล้ว แต่แนบไฟล์ไม่สำเร็จ',
-            `${error instanceof Error ? error.message : 'กรุณาลองใหม่'} — เปิดรายการในประวัติการเงินเพื่อแนบไฟล์อีกครั้ง`,
+            `${error instanceof Error ? error.message : 'กรุณาลองใหม่'} — เปิดบิล/ใบเสร็จของรายการนี้เพื่อแนบไฟล์อีกครั้ง`,
             'warning',
           );
         }
@@ -250,7 +250,7 @@ const handleSubmit = async () => {
       await offerDocumentDownload(result.receipt_no ?? null, result.doc_type ?? null, result.doc_type_label ?? null);
     }
 
-    router.push('/finance/transactions');
+    router.push('/finance/documents');
   } catch (error: unknown) {
     void dialog.alert(
       'พัง!',

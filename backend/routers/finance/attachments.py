@@ -24,7 +24,7 @@ from services import finance_attachments as attachment_service
 
 router = APIRouter()
 
-OwnerType = Literal["transaction", "student_payment", "payment_event"]
+OwnerType = Literal["transaction", "student_payment", "payment_event", "receipt"]
 
 
 async def _read_upload_capped(upload: UploadFile) -> bytes:

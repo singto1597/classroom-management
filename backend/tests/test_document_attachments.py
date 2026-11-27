@@ -245,6 +245,38 @@ async def test_registry_bundle_pdf_appends_attachments(
 
 
 @pytest.mark.asyncio
+async def test_attachment_can_be_added_to_receipt_later(db_pool, finance_manager_headers):
+    """แนบไฟล์เข้ากับ "เอกสาร" ภายหลังได้ ⇒ เห็นในพรีวิวและติดไปกับ PDF"""
+    from services.finance_service import FinanceService
+
+    ctx = finance_manager_headers
+    receipt_id = await _make_receipt(db_pool, ctx.room_id)  # ไม่มี transaction/payment ต้นทาง
+
+    uploaded = await svc.upload_attachments(
+        db_pool, ctx.user_id, ctx.room_id, "receipt", receipt_id,
+        [("later.pdf", _pdf_bytes(pages=1))],
+    )
+    assert uploaded["items"][0]["owner_type"] == "receipt"
+    assert uploaded["items"][0]["kind"] == "payment_proof"
+
+    detail = await FinanceService.get_document_detail(
+        pool=db_pool,
+        doc_type="receipt",
+        doc_id=receipt_id,
+        client_source="test",
+        actor_identifier="test",
+        room_id=ctx.room_id,
+        user_id=ctx.user_id,
+    )
+    assert len(detail["attachments"]) == 1
+
+    merged = await append_attachments_to_receipts(
+        db_pool, [{"id": receipt_id}], _pdf_bytes(pages=1)
+    )
+    assert _page_count(merged) == 2  # 1 หน้าเอกสาร + 1 หน้า PDF ที่แนบภายหลัง
+
+
+@pytest.mark.asyncio
 async def test_missing_attachment_file_is_skipped(db_pool, finance_manager_headers):
     ctx = finance_manager_headers
     txn_id = await _make_transaction(db_pool, ctx.room_id)
