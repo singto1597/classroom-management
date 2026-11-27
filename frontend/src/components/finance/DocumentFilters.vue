@@ -20,7 +20,12 @@ import PersonPicker from '@/components/finance/PersonPicker.vue';
 import { FinanceService } from '@/services/finance';
 import { useAuthStore } from '@/stores/auth';
 import { displayName } from '@/utils/name';
-import { DOC_TYPES, typeLabel } from '@/utils/documentFilters';
+import {
+  DOC_TYPES,
+  typeBadgeClass,
+  typeIcon,
+  typeLabel,
+} from '@/utils/documentFilters';
 import type {
   BasicStudent,
   DocumentListQuery,
@@ -28,7 +33,14 @@ import type {
   PaymentChannel,
 } from '@/types/finance';
 
-const props = defineProps<{ modelValue: DocumentListQuery }>();
+const props = withDefaults(
+  defineProps<{
+    modelValue: DocumentListQuery;
+    /** ใช้ในแผ่น popup — ตัดการ์ดขอบซ้อนออก (พื้นของ AppSheet เป็นการ์ดอยู่แล้ว) */
+    embedded?: boolean;
+  }>(),
+  { embedded: false },
+);
 
 const emit = defineEmits<{
   'update:modelValue': [DocumentListQuery];
@@ -199,7 +211,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="page-card space-y-4 p-3 sm:p-4">
+  <div :class="embedded ? 'space-y-4' : 'page-card space-y-4 p-3 sm:p-4'">
     <!-- ชนิดเอกสาร -->
     <div>
       <p class="field-label mb-1.5">ชนิดเอกสาร</p>
@@ -214,7 +226,7 @@ onBeforeUnmount(() => {
           class="flex min-h-11 cursor-pointer items-center gap-2 rounded-control border px-2.5 py-2 text-sm font-bold transition-colors"
           :class="
             isTypeSelected(docType)
-              ? 'border-brand-700 bg-brand-tint text-brand'
+              ? [typeBadgeClass(docType), 'border-transparent shadow-sm']
               : 'border-line text-ink-3 hover:bg-canvas hover:text-ink'
           "
         >
@@ -228,16 +240,17 @@ onBeforeUnmount(() => {
             class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40 peer-focus-visible:ring-offset-2"
             :class="
               isTypeSelected(docType)
-                ? 'border-brand-700 bg-brand-700'
+                ? 'border-transparent bg-current/20'
                 : 'border-line bg-surface'
             "
           >
             <i
               v-if="isTypeSelected(docType)"
-              class="bi bi-check-lg text-xs font-bold text-white"
+              class="bi bi-check-lg text-xs font-bold"
               aria-hidden="true"
             ></i>
           </span>
+          <i :class="['bi', typeIcon(docType), 'shrink-0']" aria-hidden="true"></i>
           <span class="min-w-0 truncate">{{ typeLabel(docType) }}</span>
         </label>
       </div>
@@ -375,8 +388,8 @@ onBeforeUnmount(() => {
           ล้างตัวกรอง
         </button>
         <button type="button" class="btn-primary" @click="emit('submit')">
-          <i class="bi bi-search" aria-hidden="true"></i>
-          ค้นหา
+          <i class="bi bi-funnel-fill" aria-hidden="true"></i>
+          ใช้ตัวกรอง
         </button>
       </div>
     </div>

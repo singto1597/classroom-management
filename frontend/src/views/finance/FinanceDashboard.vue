@@ -466,13 +466,13 @@ watch([selectedMonth, selectedYear], () => {
       <div class="page-card p-4 sm:p-5">
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <RouterLink
-            to="/finance/transactions"
+            to="/finance/documents"
             class="flex flex-col items-center gap-1.5 rounded-control border border-line px-2 py-2.5 text-center transition-colors hover:bg-canvas active:scale-[0.97]"
           >
             <span class="flex h-9 w-9 items-center justify-center rounded-control bg-brand-50 text-brand-700">
               <i class="bi bi-receipt text-xl" aria-hidden="true"></i>
             </span>
-            <span class="text-xs font-bold text-ink-3">ประวัติรายการ</span>
+            <span class="text-xs font-bold text-ink-3">บิล / ใบเสร็จ</span>
           </RouterLink>
 
           <RouterLink

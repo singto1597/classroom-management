@@ -501,12 +501,12 @@ const goToMyProfile = async () => {
           </RouterLink>
 
           <RouterLink
-            to="/finance/transactions"
+            to="/finance/documents"
             class="page-card card-hover flex min-w-0 flex-col items-center justify-center gap-1.5 p-3 text-center sm:p-4"
           >
-            <i class="bi bi-clock-history text-lg text-brand-700" aria-hidden="true"></i>
+            <i class="bi bi-receipt text-lg text-brand-700" aria-hidden="true"></i>
             <span class="w-full min-w-0 break-words text-xs font-bold leading-snug text-ink-2">
-              ประวัติรายการ
+              บิล / ใบเสร็จ
             </span>
           </RouterLink>
 

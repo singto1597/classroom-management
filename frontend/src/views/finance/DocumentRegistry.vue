@@ -24,6 +24,7 @@ import { RouterLink, useRouter } from 'vue-router';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
 import StateBlock from '@/components/ui/StateBlock.vue';
+import AppSheet from '@/components/ui/AppSheet.vue';
 import DocumentFilters from '@/components/finance/DocumentFilters.vue';
 import DocumentTypeBadge from '@/components/finance/DocumentTypeBadge.vue';
 
@@ -38,6 +39,7 @@ import {
   DOCUMENT_BUNDLE_MAX,
   canPrintBundle,
   selectionKey,
+  typeLabel,
 } from '@/utils/documentFilters';
 import type {
   DocumentListItem,
@@ -149,11 +151,45 @@ watch(
   { deep: true },
 );
 
-/** ปุ่ม "ค้นหา"/Enter — ใช้โหลดซ้ำแม้ค่าไม่ได้เปลี่ยน (เช่นกดหลังเจอ error) */
-const onSubmit = () => {
-  offset.value = 0;
-  void load();
+// ── ตัวกรองแบบ popup ────────────────────────────────────────────────────
+//    ค่าเริ่มต้น = ทุกชนิด + สถานะใช้งาน (ไม่กรองชนิด) — ตัวกรองละเอียดไปกดในแผ่น
+const filterOpen = ref(false);
+const draftFilters = ref<DocumentListQuery>({ status: 'active' });
+
+const openFilters = () => {
+  draftFilters.value = { ...filters.value };
+  filterOpen.value = true;
 };
+
+/** ใช้เฉพาะตอนกด "ใช้ตัวกรอง" — watcher ของ `filters` จะโหลดเอง */
+const applyFilters = () => {
+  filters.value = { ...draftFilters.value };
+  filterOpen.value = false;
+};
+
+const clearAllFilters = () => {
+  filters.value = { status: 'active' };
+};
+
+const activeFilterCount = computed(() => {
+  const f = filters.value;
+  let n = (f.doc_types?.length ?? 0);
+  if (f.from) n += 1;
+  if (f.to) n += 1;
+  if (f.student_id != null) n += 1;
+  if (f.receiver_id != null) n += 1;
+  if (f.channel_id != null) n += 1;
+  if (f.status && f.status !== 'active') n += 1;
+  if (f.q) n += 1;
+  return n;
+});
+
+const activeTypeLabels = computed(() => (filters.value.doc_types ?? []).map(typeLabel));
+const activeDateLabel = computed(() => {
+  const { from, to } = filters.value;
+  if (!from && !to) return '';
+  return `${from ?? 'เริ่มต้น'} – ${to ?? 'วันนี้'}`;
+});
 
 onMounted(async () => {
   void load();
@@ -288,10 +324,56 @@ onBeforeUnmount(() => {
 <template>
   <div class="space-y-4 sm:space-y-5">
     <PageIntro
-      description="เอกสารทุกชนิดของห้องอยู่ในที่เดียว — กรองตามวันที่ นักเรียน ผู้รับ ช่องทาง หรือสถานะ แล้วเลือกหลายใบเพื่อพิมพ์เป็นชุด"
-    />
+      description="บิล ใบเสร็จ และเอกสารการเงินทุกชนิดของห้องอยู่ในที่เดียว — เลือกหลายใบเพื่อพิมพ์เป็นชุด หรือเปิดดูรายละเอียดและแนบหลักฐานเพิ่มเติม"
+    >
+      <template #actions>
+        <button type="button" class="btn-ghost-ui" @click="openFilters">
+          <i class="bi bi-funnel" aria-hidden="true"></i>
+          ตัวกรอง
+          <span v-if="activeFilterCount" class="chip bg-brand-700 text-white">
+            {{ activeFilterCount }}
+          </span>
+        </button>
+      </template>
+    </PageIntro>
 
-    <DocumentFilters v-model="filters" @submit="onSubmit" />
+    <!-- ตัวกรองที่ใช้อยู่ — แสดงเป็นชิปสี อ่านง่าย และล้างได้ทันที -->
+    <div v-if="activeFilterCount" class="flex flex-wrap items-center gap-1.5">
+      <span
+        v-for="label in activeTypeLabels"
+        :key="label"
+        class="chip bg-brand-tint text-brand"
+      >
+        {{ label }}
+      </span>
+      <span v-if="activeDateLabel" class="chip bg-canvas text-ink-2">
+        <i class="bi bi-calendar-range" aria-hidden="true"></i>
+        {{ activeDateLabel }}
+      </span>
+      <span v-if="filters.q" class="chip bg-canvas text-ink-2">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        “{{ filters.q }}”
+      </span>
+      <span v-if="filters.status && filters.status !== 'active'" class="chip bg-warn-50 text-warn-700">
+        {{ filters.status === 'voided' ? 'เฉพาะที่ยกเลิก' : 'ทุกสถานะ' }}
+      </span>
+      <button type="button" class="btn-ghost-ui" @click="clearAllFilters">
+        <i class="bi bi-x-circle" aria-hidden="true"></i>
+        ล้างตัวกรอง
+      </button>
+    </div>
+
+    <!-- แผ่นตัวกรอง (popup) — ค่าเริ่มต้นไม่กรองชนิด ให้กดเลือกทีหลัง -->
+    <AppSheet
+      :open="filterOpen"
+      label="ตัวกรองบิลและใบเสร็จ"
+      title="ตัวกรองบิล / ใบเสร็จ"
+      description="เลือกชนิดเอกสาร ช่วงวันที่ หรือค้นหา — แล้วกด “ใช้ตัวกรอง”"
+      size="form"
+      @close="filterOpen = false"
+    >
+      <DocumentFilters v-model="draftFilters" embedded @submit="applyFilters" />
+    </AppSheet>
 
     <p
       v-if="isRangeReversed"

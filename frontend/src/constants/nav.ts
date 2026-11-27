@@ -51,8 +51,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { name: 'งานและโน้ต', path: '/tasks', icon: 'bi-clipboard-check' },
   { name: 'ตารางเรียน', path: '/schedules', icon: 'bi-calendar-event' },
   { name: 'การเงิน', path: '/finance', icon: 'bi-wallet2' },
-  // 🗂️ [FIN-V2 / P5.2] ทะเบียนเอกสารรวม — วางติด "การเงิน" เพราะเป็นทางเข้าหลักของเอกสาร
-  { name: 'ทะเบียนเอกสาร', path: '/finance/documents', icon: 'bi-folder2-open' },
+  // 🧾 [FIN-V2 / P5.2] บิล/ใบเสร็จ (ทะเบียนเอกสารรวม) — วางติด "การเงิน"
+  //    ใช้ชื่อ "บิล / ใบเสร็จ" ตามคำที่ผู้ใช้เรียก และแทนทางลัด "ประวัติรายการ"
+  { name: 'บิล / ใบเสร็จ', path: '/finance/documents', icon: 'bi-receipt' },
   // 🧾 [FIN-V2 / P5.5] เอกสารปิดรอบ — ACK แจ้งยอดค้าง, RPT สรุปปิดงบเดือน
   { name: 'ใบรับทราบยอดค้าง', path: '/finance/acknowledgements', icon: 'bi-receipt' },
   {
