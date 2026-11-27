@@ -40,12 +40,20 @@ const target = (over: Partial<DocumentVoidTarget>): DocumentVoidTarget => ({
   ...over,
 });
 
+const ALL_MOCKS = [
+  mocked.voidDocument,
+  mocked.voidPaymentEvent,
+  mocked.voidExpenseVoucher,
+  mocked.voidIncomeBatch,
+  mocked.voidAcknowledgement,
+  mocked.voidMonthlyReport,
+  mocked.revertTransaction,
+];
+
 describe('dispatchDocumentVoid', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    for (const fn of Object.values(mocked)) {
-      vi.mocked(fn).mockResolvedValue(undefined as never);
-    }
+    for (const fn of ALL_MOCKS) fn.mockResolvedValue(undefined as never);
   });
 
   it('invoice → voidDocument ด้วย doc_type/doc_id ของแถว', async () => {
@@ -138,7 +146,7 @@ describe('dispatchDocumentVoid', () => {
         userName: 'นาย สมชาย',
       }),
     ).rejects.toThrow('ยกเลิกจากทะเบียนไม่ได้');
-    for (const fn of Object.values(mocked)) expect(fn).not.toHaveBeenCalled();
+    for (const fn of ALL_MOCKS) expect(fn).not.toHaveBeenCalled();
   });
 });
 

@@ -26,8 +26,10 @@ const mountModal = (props: Record<string, unknown> = {}) =>
     global: { stubs: { AppSheet: AppSheetStub } },
   });
 
-const confirmButton = (wrapper: ReturnType<typeof mountModal>) =>
-  wrapper.findAll('button').at(-1)!;
+const confirmButton = (wrapper: ReturnType<typeof mountModal>) => {
+  const buttons = wrapper.findAll('button');
+  return buttons[buttons.length - 1]!;
+};
 
 describe('VoidReasonModal', () => {
   it('โหมดบังคับ: ปุ่มยืนยันปิดจนกว่าจะพิมพ์เหตุผล แล้ว emit เหตุผลที่ trim', async () => {
