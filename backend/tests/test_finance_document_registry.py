@@ -606,3 +606,94 @@ async def test_registry_requires_member(
     assert mock_member.await_count >= 1
     assert mock_member.await_args.args[1] == room_id
     assert mock_member.await_args.args[2] == member_headers.user_id
+
+
+# ══════════════════════════════════ 8. void_target — ปลายทางยกเลิกต่อชนิด
+async def test_registry_void_target_per_doc_type(client, db_pool, admin_headers):
+    """🎯 list/detail ต้องบอก "ยกเลิกด้วย endpoint ไหน id อะไร" ตรงกันทุกชนิด
+
+    - INV → invoice(id)
+    - PV  → expense_voucher จาก `document_meta.voucher_id`
+    - INC → income_batch จาก `document_meta.batch_id`
+    - ACK → acknowledgement(receipt_no) — endpoint รับเลขเอกสาร ไม่ใช่ id
+    - RPT → monthly_report(id)
+    """
+    room_id = admin_headers.room_id
+    inv_id = await _insert_receipt(db_pool, room_id, "INV-2569-0001", doc_type="invoice")
+    pv_id = await _insert_receipt(
+        db_pool, room_id, "PV-2569-0001", doc_type="payment_voucher",
+        document_meta={"voucher_id": 42},
+    )
+    inc_id = await _insert_receipt(
+        db_pool, room_id, "INC-2569-0001", doc_type="income",
+        document_meta={"batch_id": 7},
+    )
+    ack_id = await _insert_receipt(
+        db_pool, room_id, "ACK-2569-0001", doc_type="acknowledgement",
+    )
+    rpt_id = await _insert_report(db_pool, room_id)
+
+    res = client.get(_list_url(room_id), headers=admin_headers)
+    assert res.status_code == 200, res.text
+    by_type = {it["doc_type"]: it for it in res.json()["items"]}
+
+    assert by_type["invoice"]["void_target"] == {
+        "method": "invoice", "id": inv_id, "receipt_no": None,
+    }
+    assert by_type["payment_voucher"]["void_target"] == {
+        "method": "expense_voucher", "id": 42, "receipt_no": None,
+    }
+    assert by_type["income"]["void_target"] == {
+        "method": "income_batch", "id": 7, "receipt_no": None,
+    }
+    assert by_type["acknowledgement"]["void_target"] == {
+        "method": "acknowledgement", "id": None, "receipt_no": "ACK-2569-0001",
+    }
+    assert by_type["monthly_report"]["void_target"] == {
+        "method": "monthly_report", "id": rpt_id, "receipt_no": None,
+    }
+
+    # detail ใช้ตัวตัดสินเดียวกัน — ห้าม list กับ detail ไม่ตรงกัน
+    for doc_type, doc_id, expected in (
+        ("invoice", inv_id, {"method": "invoice", "id": inv_id, "receipt_no": None}),
+        ("payment_voucher", pv_id, {"method": "expense_voucher", "id": 42, "receipt_no": None}),
+        ("income", inc_id, {"method": "income_batch", "id": 7, "receipt_no": None}),
+        ("acknowledgement", ack_id, {"method": "acknowledgement", "id": None,
+                                     "receipt_no": "ACK-2569-0001"}),
+        ("monthly_report", rpt_id, {"method": "monthly_report", "id": rpt_id,
+                                    "receipt_no": None}),
+    ):
+        detail = client.get(_detail_url(room_id, doc_type, doc_id), headers=admin_headers)
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["void_target"] == expected, doc_type
+
+
+async def test_registry_void_target_is_none_when_not_cancellable(
+    client, db_pool, admin_headers,
+):
+    """ใบที่ยกเลิกแล้ว/ถูกลบ ต้องไม่มี void_target — ยกเลิกซ้ำไม่ได้
+
+    RPT ที่ voided ก็ต้องไม่มี แม้ life cycle จะไม่ใช้ `active`
+    """
+    room_id = admin_headers.room_id
+    # ⚠️ `finance_receipts.deleted_at` เป็น TIMESTAMP (naive) — ใส่นาฬิกาไทยไม่ได้
+    voided = datetime(2026, 11, 21, 9)
+    voided_id = await _insert_receipt(
+        db_pool, room_id, "INV-2569-0001", doc_type="invoice",
+        status="voided", deleted_at=voided,
+    )
+    deleted_id = await _insert_receipt(
+        db_pool, room_id, "INV-2569-0002", doc_type="invoice", deleted_at=voided,
+    )
+    rpt_id = await _insert_report(db_pool, room_id, status="voided")
+
+    res = client.get(_list_url(room_id, "include_voided=true"), headers=admin_headers)
+    assert res.status_code == 200, res.text
+    by_id = {(it["doc_type"], it["doc_id"]): it for it in res.json()["items"]}
+    assert by_id[("invoice", voided_id)]["void_target"] is None
+    assert by_id[("invoice", deleted_id)]["void_target"] is None
+    assert by_id[("monthly_report", rpt_id)]["void_target"] is None
+
+    detail = client.get(_detail_url(room_id, "invoice", voided_id), headers=admin_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["void_target"] is None
