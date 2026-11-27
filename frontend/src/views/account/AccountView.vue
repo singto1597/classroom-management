@@ -23,6 +23,7 @@ import {
 import { OAUTH_LINK_RETURN_KEY } from '@/constants/storageKeys';
 import { avatarInitial } from '@/utils/avatar';
 import { formatThaiDate } from '@/utils/datetime';
+import { displayName } from '@/utils/name';
 import AppSheet from '@/components/ui/AppSheet.vue';
 import PageIntro from '@/components/ui/PageIntro.vue';
 import SkeletonRows from '@/components/ui/SkeletonRows.vue';
@@ -67,10 +68,8 @@ const avatarChar = computed(() =>
 const fullName = computed(() => {
   const p = profile.value;
   if (!p) return 'ผู้ใช้งานระบบ';
-  const thai = `${p.prefix ?? ''}${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
-  if (thai) return thai;
-  const english = `${p.first_name_en ?? ''} ${p.last_name_en ?? ''}`.trim();
-  return english || 'ผู้ใช้งานระบบ';
+  // `displayName()` จัด prefix + ชื่อไทย/อังกฤษ ให้ครบแล้ว — ห้ามต่อ prefix ซ้ำ
+  return displayName(p) || 'ผู้ใช้งานระบบ';
 });
 
 const englishName = computed(() => {

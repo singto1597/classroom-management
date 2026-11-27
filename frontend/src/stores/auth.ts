@@ -4,6 +4,7 @@ import router from '@/router';
 import api from '@/services/api';
 import { refreshAccessToken, type UserProfileResponse } from '@/services/auth';
 import type { UserRoom } from '@/types/classroom';
+import { displayName } from '@/utils/name';
 import {
   ACCESS_TOKEN_KEY,
   ALL_LOCAL_STORAGE_KEYS,
@@ -206,17 +207,19 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isOnboarded = computed(() => !!prefix.value && prefix.value.trim() !== '' && !!phoneNumber.value && phoneNumber.value.trim() !== '');
 
-  // ประกอบชื่อให้สมบูรณ์ — ชื่อไทยก่อน (ถ้ามี) แล้วค่อยชื่ออังกฤษ
-  const currentUserName = computed(() => {
-    const p = prefix.value || '';
-    const f = firstName.value || '';
-    const l = lastName.value || '';
-    const full = `${p}${f} ${l}`.trim();
-    if (full) return full;
-    const enF = firstNameEn.value || '';
-    const enL = lastNameEn.value || '';
-    return `${enF} ${enL}`.trim() || 'ผู้ใช้งานระบบ';
-  });
+  // ประกอบชื่อให้สมบูรณ์ — ผ่าน `displayName()` ที่เดียว (ชื่อไทยก่อน แล้วค่อยอังกฤษ)
+  // 🔴 อย่าต่อ `prefix` เองข้างหน้า name — `displayName()` เติม prefix ให้แล้ว
+  //    ⇒ ต่อซ้ำจะได้ "นายนาย สมชาย" (บั๊ก 2026-11-27)
+  const currentUserName = computed(
+    () =>
+      displayName({
+        prefix: prefix.value,
+        first_name: firstName.value,
+        last_name: lastName.value,
+        first_name_en: firstNameEn.value,
+        last_name_en: lastNameEn.value,
+      }) || 'ผู้ใช้งานระบบ',
+  );
 
   const isFetchingProfile = ref(false);
 

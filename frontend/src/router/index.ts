@@ -2,11 +2,21 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { pageTitle } from '@/router/meta';
 import { routes } from '@/router/routes';
+import { resetLayoutScroll } from '@/router/scroll';
 import { toLobbyFor } from '@/router/unavailable';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+  /**
+   * 🧭 เปลี่ยนหน้า = เริ่มที่ตำแหน่งบันทึกไว้ (ถ้ากดย้อนกลับ) มิฉะนั้นด้านบน
+   *
+   * 🔴 ตัวเลื่อนจริงคือ `<main data-scroll-container>` ไม่ใช่ `window`
+   *    ⇒ ต้องรีเซ็ต container เองแล้วคืน `false` — ดู router/scroll.ts
+   */
+  scrollBehavior(_to, _from, savedPosition) {
+    return resetLayoutScroll(savedPosition);
+  },
 });
 
 /**

@@ -178,3 +178,19 @@ describe('authStore.fetchProfile — สัญญาการคืนค่า 
     expect(store.firstName).toBe('สมชาย');
   });
 });
+
+/**
+ * 🧾 ชื่อสำหรับแสดงผล/ลงนามเอกสาร — คำนำหน้าต้องมีครั้งเดียว (2026-11-27)
+ *
+ * บั๊กที่มันจับ: เดิม `currentUserName` ต่อ `${prefix}${first_name}` เอง ขณะที่
+ * `displayName()` (นโยบาย 2026-11-25) เติม prefix ให้แล้ว ⇒ หน้าจอขึ้น "นายนาย ..."
+ */
+describe('authStore.currentUserName', () => {
+  it('เติมคำนำหน้าครั้งเดียว', async () => {
+    outcome = { kind: 'ok', body: PROFILE };
+    const store = authedStore();
+    await store.fetchProfile();
+
+    expect(store.currentUserName).toBe('นาย สมชาย ใจดี');
+  });
+});

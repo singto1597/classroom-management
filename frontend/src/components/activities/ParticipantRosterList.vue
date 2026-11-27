@@ -252,7 +252,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                 <td>
                   <div class="min-w-0">
                     <p class="truncate font-bold text-ink">
-                      {{ item.prefix ? item.prefix + ' ' : '' }}{{ displayName(item) }}
+                      {{ displayName(item) }}
                     </p>
                     <p
                       v-if="item.nickname || item.nickname_en"
@@ -417,7 +417,7 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
                   aria-hidden="true"
                 ></span>
                 <p class="truncate text-sm font-bold text-ink sm:text-[15px]">
-                  {{ item.prefix ? item.prefix + ' ' : '' }}{{ displayName(item) }}
+                  {{ displayName(item) }}
                 </p>
               </div>
               <div class="flex items-center gap-1.5 text-xs text-ink-3 sm:text-xs">
