@@ -86,7 +86,10 @@ onMounted(async () => {
     </header>
 
     <!-- ── Main: ที่เลื่อนได้เพียงจุดเดียว ─────────────────────────────── -->
-    <main class="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-5 sm:px-6 sm:py-8">
+    <main
+      data-scroll-container
+      class="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-5 sm:px-6 sm:py-8"
+    >
       <div class="mx-auto w-full" :class="widthClass">
         <RouterView v-slot="{ Component, route: r }">
           <component :is="Component" :key="r.path" />

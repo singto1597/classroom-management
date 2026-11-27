@@ -353,7 +353,7 @@ const rejectJoin = async (studentNo: number) => {
                 <td>
                   <div class="flex min-w-0 items-center gap-2">
                     <span class="truncate font-bold text-ink-1">
-                      {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
+                      {{ displayName(student) }}
                     </span>
                     <i
                       v-if="student.is_admin"
@@ -446,7 +446,7 @@ const rejectJoin = async (studentNo: number) => {
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
                   <p class="truncate font-display text-[15px] font-bold text-ink-1">
-                    {{ student.prefix ? student.prefix + ' ' : '' }}{{ displayName(student) }}
+                    {{ displayName(student) }}
                   </p>
                   <i
                     v-if="student.is_admin"

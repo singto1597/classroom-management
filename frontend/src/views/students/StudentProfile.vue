@@ -214,7 +214,7 @@ onMounted(() => {
 
             <div class="min-w-0 flex-1">
               <h2 class="font-display text-xl font-bold leading-tight text-ink-1 sm:text-2xl">
-                {{ student.prefix }}{{ displayName(student) }}
+                {{ displayName(student) }}
               </h2>
 
               <p class="num mt-1 text-sm text-ink-3">

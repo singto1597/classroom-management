@@ -2,7 +2,7 @@
 
 <!-- TOC:START — สร้างด้วย `node scripts/skills-toc.mjs` ห้ามแก้ด้วยมือ -->
 
-**สารบัญ 300 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
+**สารบัญ 302 หัวข้อ** — เลื่อนด้วยลิงก์ หรือ `Ctrl+F` ชื่อหัวข้อ
 
 - [📝 \[2026-05-16\] Initial Project Audit Findings](#2026-05-16-initial-project-audit-findings)
 - [🛠️ Auth Service - OAuth Linking Validation & Idempotency Patterns](#auth-service---oauth-linking-validation-idempotency-patterns)
@@ -304,6 +304,8 @@
 - [📐 ตาราง 8 คอลัมน์บนกระดาษ A4 ต้อง `table-layout: fixed` — ไม่งั้นกรอบยื่นเลยขอบขวา (ตรวจจาก PDF จริง)](#ตาราง-8-คอลัมน์บนกระดาษ-a4-ต้อง-table-layout-fixed-ไม่งั้นกรอบยื่นเลยขอบขวา-ตรวจจาก-pdf-จริง)
 - [💰 เติมยอดอัตโนมัติในแผ่นรับเงินต้องหักเครดิตที่ตัดได้ (`ready_to_apply`) — เติมยอดคงค้างดิบทำให้เกินบิลทันที](#เติมยอดอัตโนมัติในแผ่นรับเงินต้องหักเครดิตที่ตัดได้-readytoapply-เติมยอดคงค้างดิบทำให้เกินบิลทันที)
 - [📎 ไฟล์หลักฐานการเงิน (รูป + PDF) — signed URL, atomic write, PDF sanitize/merge และกับดัก `response_model`](#ไฟล์หลักฐานการเงิน-รูป-pdf-signed-url-atomic-write-pdf-sanitizemerge-และกับดัก-responsemodel)
+- [🧭 `scrollBehavior` ของ vue-router ไม่ช่วยเมื่อตัวเลื่อนคือ `<main>` — หน้าขาวหลังเปิดเอกสารจากลิสต์ยาว](#scrollbehavior-ของ-vue-router-ไม่ช่วยเมื่อตัวเลื่อนคือ-หน้าขาวหลังเปิดเอกสารจากลิสต์ยาว)
+- [🏷️ `displayName()` เติมคำนำหน้าแล้ว — หน้าจอห้ามต่อ `prefix` ซ้ำ ("นายนาย")](#displayname-เติมคำนำหน้าแล้ว-หน้าจอห้ามต่อ-prefix-ซ้ำ-นายนาย)
 
 <!-- TOC:END -->
 
@@ -5157,3 +5159,23 @@
 - **Rule:** (1) 🔴 ไฟล์ส่วนตัวห้ามเสิร์ฟด้วย static/Bearer (2) 🔴 เขียนไฟล์ก่อน INSERT (3) 🔴 PDF ต้อง sanitize ก่อนเก็บ (4) 🔴 ทุกอัปโหลดต้องตรวจสิทธิ์/โควตาใน transaction เดียวและตรวจซ้ำทุก GET
 - **Tests/Verification:** `backend/tests/test_media_storage.py`, `test_media_signing.py`, `test_finance_attachments.py`, `test_finance_attachments_api.py`, `test_document_attachments.py` · `frontend/src/components/finance/__tests__/FinanceFileUploader.spec.ts`
 - **Date Added:** 2026-11-26
+
+### 🧭 `scrollBehavior` ของ vue-router ไม่ช่วยเมื่อตัวเลื่อนคือ `<main>` — หน้าขาวหลังเปิดเอกสารจากลิสต์ยาว
+- **Context/Problem:** ผู้ใช้ติ๊ก/เปิดแถวกลางลิสต์ทะเบียนเอกสาร แล้วจอเลื่อนลงล่างสุดจนดูเหมือนหน้าขาว
+- **Root Cause:** `MainLayout`/`GlobalLayout` ใช้ `<main class="overflow-y-auto">` เป็นตัวเลื่อน ⇒ `window.scrollY` = 0 ตลอด · `scrollBehavior` ที่คืน `{ top: 0 }` ไปเรียก `window.scrollTo` (no-op) · `<main>` คง `scrollTop` เดิม → หน้า detail สั้นกว่าจึงค้างใต้จอ
+- **Correct Pattern/Solution:**
+  - ใส่ `data-scroll-container` ที่ `<main>` ของทั้งสอง layout
+  - `router/scroll.ts::resetLayoutScroll()` ตั้ง `el.scrollTop = 0` เองแล้ว **คืน `false`** (ห้ามคืน `{ el }`/`{ top }` — vue-router ลงเอยที่ `window.scrollTo` อยู่ดี)
+  - กดย้อนกลับ: ใช้ `savedPosition` ตั้ง `scrollTop` ใน `requestAnimationFrame` (ความสูงหน้าเปลี่ยนหลัง render)
+  - checkbox ในลิสต์ที่คลิกแล้วเปิดแถว ต้อง `@click.stop` + `@mousedown.prevent` และ `onRowClick` เช็ค `closest('input,button,a,label,select')`
+- **Rule:** (1) 🔴 ตัวเลื่อนของแอปคือ `<main data-scroll-container>` ไม่ใช่ window (2) 🔴 scrollBehavior ต้องคืน `false` หลังรีเซ็ต container เอง
+- **Tests/Verification:** `frontend/src/router/__tests__/scroll.spec.ts`
+- **Date Added:** 2026-11-27
+
+### 🏷️ `displayName()` เติมคำนำหน้าแล้ว — หน้าจอห้ามต่อ `prefix` ซ้ำ ("นายนาย")
+- **Context/Problem:** หน้านักเรียนขึ้น "นายนาย ชินภัทร จินะรักษ์" · หน้าบัญชีคำนำหน้าติดชื่อไม่มีช่องว่าง
+- **Root Cause:** ตั้งแต่ `ad7b489` `displayName()` รวม `prefix` เข้าไปแล้ว แต่ 3 วิวเทมเพลตยัง `{{ student.prefix + ' ' }}{{ displayName(student) }}` · `auth.currentUserName` และ `AccountView` ต่อ `${prefix}${first_name}` เอง (ข้อมูล DB ถูกต้อง)
+- **Correct Pattern/Solution:** แสดง `{{ displayName(x) }}` อย่างเดียว · ค่าที่ไม่ใช่ template (auth store, AccountView) เรียก `displayName({prefix, first_name, ...})`
+- **Rule:** (1) 🔴 ห้ามต่อ prefix เองหน้า `displayName()` (2) 🔴 เปลี่ยนรูปแบบชื่อ = แก้ที่ `utils/name.ts` ที่เดียว
+- **Tests/Verification:** `frontend/src/utils/__tests__/nameUsage.spec.ts`, `frontend/src/stores/__tests__/auth.spec.ts`
+- **Date Added:** 2026-11-27

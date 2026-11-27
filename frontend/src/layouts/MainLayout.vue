@@ -97,6 +97,7 @@ onBeforeUnmount(() => {
 
       <!-- เนื้อหา — scroll เกิดที่นี่ที่เดียว -->
       <main
+        data-scroll-container
         class="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-4 pb-[calc(var(--app-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] focus:outline-none sm:px-6 lg:px-8 lg:pt-6 lg:pb-8"
       >
         <div class="mx-auto w-full" :class="widthClass">
