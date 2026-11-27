@@ -21,7 +21,7 @@
  *    เบราว์เซอร์เก่าไม่รองรับ และต้องอ่านได้ด้วยตาว่ามันแคชอะไรบ้าง
  */
 
-const SW_VERSION = 'v1';
+const SW_VERSION = 'v2';
 
 /* ชื่อ cache มีเวอร์ชันในชื่อ ⇒ activate ลบของรุ่นก่อนได้แบบเหมารวม */
 const SHELL_CACHE = `syncroom-shell-${SW_VERSION}`;
